@@ -288,6 +288,7 @@ export function dumpStall(sim) {
     // Only the lamps that are out and the prizes that have been knocked: most rounds, nothing.
     lamps: sim.lampOut.flatMap((until, i) => (until > sim.t ? [[i, r3(until)]] : [])),
     vases: sim.vaseKnocks.flatMap((n, i) => (n ? [[i, n, r3(sim.vaseDown[i])]] : [])),
+    tasks: [sim.taskDone, sim.taskMoons, sim.taskCentres],
   };
 }
 
@@ -314,6 +315,11 @@ export function loadStall(sim, d) {
   sim.rested = d.rested.map((c) => c.slice());
   sim.lampOut.fill(-10);
   for (const [i, until] of d.lamps ?? []) sim.lampOut[i] = until;
+  if (d.tasks) {
+    sim.taskDone = d.tasks[0].slice();
+    sim.taskMoons = d.tasks[1];
+    sim.taskCentres = d.tasks[2];
+  }
   sim.vaseKnocks.fill(0);
   sim.vaseDown.fill(-1);
   for (const [i, n, down] of d.vases ?? []) {

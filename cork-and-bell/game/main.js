@@ -21,7 +21,7 @@ import { Sound, buzz } from "./audio.js";
 import { LocalSession, NetSession } from "./session.js";
 import { ATTACK_NAMES, COUNT_IN, game } from "./shared/battle.js";
 import { COUNTER, TRAY } from "./shared/layout.js";
-import { BELL_FULL, COCK_SECONDS, RICOCHET_TIMES, ROUND_SECONDS, StallSim, mech, speedAt } from "./shared/sim.js";
+import { BELL_FULL, COCK_SECONDS, RICOCHET_TIMES, ROUND_SECONDS, StallSim, TASKS, mech, speedAt } from "./shared/sim.js";
 import { Lens, fourInARow, gridFor } from "./view/render.js";
 import { StallAssets, StallView } from "./view/stall.js";
 
@@ -554,6 +554,21 @@ function onEvent(e) {
       v?.view.onEvent(e);
       if (mine) sound.prop(e);
       break;
+    case "task": {
+      // A challenge done: the bonus rises from where it was done, and the player is told which.
+      const task = TASKS[e.task];
+      if (v && !frozen) pop(v, { ...e, y: e.y + 0.16 }, `+${e.bonus}`, "", true, ["Challenge", "done"]);
+      if (v) {
+        v.view.chaseUntil = v.view.time + 2;
+        v.view.chaseKind = 2;
+      }
+      if (e.seat === session.mySeat) {
+        showBanner("Challenge done", `${task.text}: ${e.bonus} extra.`, { good: true, seconds: 2.2 });
+        buzz([20, 30, 20, 30, 50]);
+      }
+      if (mine) sound.task();
+      break;
+    }
     case "rest":
       if (mine) sound.rest();
       break;
@@ -651,6 +666,22 @@ function hud() {
   $("tally").hidden = (!playing && !(mode === "attract" && P.auto)) || !$("card").hidden;
   $("battle-top").hidden = mode === "battle";
   showPointer();
+  // The round's challenges, under the title. (Not on the start screen: there is nothing to do yet.)
+  const tasks = $("tasks");
+  const sim0 = session.sims[session.mySeat >= 0 ? session.mySeat : session.seats[0].seat];
+  tasks.hidden = start || !sim0;
+  const key = sim0 ? sim0.tasks.join() : "";
+  if (!tasks.hidden && tasks.dataset.key !== key) {
+    tasks.dataset.key = key;
+    tasks.replaceChildren();
+    for (const index of sim0.tasks) {
+      const li = document.createElement("li");
+      li.innerHTML = "<i></i><span></span><b></b>";
+      li.children[1].textContent = TASKS[index].text;
+      li.children[2].textContent = `+${TASKS[index].bonus}`;
+      tasks.appendChild(li);
+    }
+  }
   const hint = $("hint");
   if (mode === "attract") hint.textContent = "The house is playing.";
   else if (mode === "four") hint.textContent = "Four stalls, side by side: a battle as the shared screen shows it.";
@@ -690,6 +721,9 @@ function hudFrame(t) {
   $("run").textContent = sim.streak;
   $("run-cell").classList.toggle("hot", sim.streak >= 4);
   // What the run multiplies by, as the rules have it: four in a row doubles, eight trebles.
+  // On a shared screen every stall has the same two challenges: none is ticked there.
+  const ticks = $("tasks").children;
+  for (let n = 0; n < ticks.length; n++) ticks[n].classList.toggle("done", views.length === 1 && !!sim.taskDone[n]);
   $("run-times").hidden = sim.streak < 4;
   $("run-times").textContent = sim.streak >= 8 ? "×3" : "×2";
   $("corks").textContent = sim.corksLeft;

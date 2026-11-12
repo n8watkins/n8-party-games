@@ -35,6 +35,30 @@ function hash(a, b) {
   return (h >>> 0) / 4294967296;
 }
 
+/**
+ * The mini challenges. Two are chalked up each round, picked from the round's seed, so every
+ * stall in a battle has the same two. Doing one pays its bonus once.
+ */
+export const TASKS = [
+  { id: "five", text: "Five hits in a row", bonus: 100 },
+  { id: "rico-star", text: "Ricochet onto a star", bonus: 150 },
+  { id: "lamp", text: "Put out a lamp", bonus: 75 },
+  { id: "bell", text: "Ring the live bell", bonus: 150 },
+  { id: "moons", text: "Hit both moons", bonus: 150 },
+  { id: "shutter", text: "The shutter star", bonus: 100 },
+  { id: "centres", text: "Three dead centres", bonus: 150 },
+  { id: "prize", text: "Knock a prize down", bonus: 100 },
+  { id: "pots", text: "All five teapots down", bonus: 150 },
+];
+
+/** The two challenges of the round with this seed, as indexes into TASKS. */
+export function tasksFor(seed) {
+  const a = Math.floor(hash(seed >>> 0, 7001) * TASKS.length);
+  let b = Math.floor(hash(seed >>> 0, 7002) * (TASKS.length - 1));
+  if (b >= a) b += 1;
+  return [a, b];
+}
+
 /** Mechanism time: the machine speeds up as the round goes on. */
 export function mech(t) {
   if (t <= 0) return t;
@@ -187,6 +211,10 @@ export class StallSim {
     this.lampOut = LAMPS.map(() => -10); // each lamp is out until this time
     this.vaseKnocks = VASES.map(() => 0);
     this.vaseDown = VASES.map(() => -1); // time it went off the shelf, or -1 while it stands
+    this.tasks = tasksFor(seed); // the round's seed, not this stall's: the same two for everyone
+    this.taskDone = this.tasks.map(() => 0);
+    this.taskMoons = 0; // which moons have been hit (bit 0, bit 1)
+    this.taskCentres = 0;
     this.corks = []; // in flight
     this.rested = []; // where corks came to rest: they stay for the round
     this.pending = []; // fire inputs waiting for their time
@@ -332,7 +360,38 @@ export class StallSim {
   }
 
   prop(c, what, i, extra) {
-    this.events.push({ k: "prop", seat: this.seat, id: c.id, t: this.t, what, i, x: c.p[0], y: c.p[1], z: c.p[2], ...extra });
+    const e = { k: "prop", seat: this.seat, id: c.id, t: this.t, what, i, x: c.p[0], y: c.p[1], z: c.p[2], ...extra };
+    this.events.push(e);
+    this.checkTasks(e);
+  }
+
+  /** After a hit or a knock: has it done one of the round's challenges? Each pays its bonus once. */
+  checkTasks(e) {
+    if (!this.live) return;
+    if (e.k === "hit") {
+      if (e.target === "d0") this.taskMoons |= 1;
+      if (e.target === "d1") this.taskMoons |= 2;
+      if (e.perfect) this.taskCentres += 1;
+    }
+    for (let n = 0; n < this.tasks.length; n++) {
+      if (this.taskDone[n]) continue;
+      const task = TASKS[this.tasks[n]];
+      let done = false;
+      if (e.k === "hit") {
+        if (task.id === "five") done = e.streak >= 5;
+        else if (task.id === "rico-star") done = e.ricochet && e.row === 1;
+        else if (task.id === "bell") done = e.rung;
+        else if (task.id === "moons") done = this.taskMoons === 3;
+        else if (task.id === "shutter") done = e.target === "sh";
+        else if (task.id === "centres") done = this.taskCentres >= 3;
+        else if (task.id === "pots") done = this.plateDown.every((down) => down >= 0);
+      } else if (task.id === "lamp") done = e.what === "lamp";
+      else if (task.id === "prize") done = e.what === "vase" && e.broke;
+      if (!done) continue;
+      this.taskDone[n] = 1;
+      this.score += task.bonus;
+      this.events.push({ k: "task", seat: this.seat, t: this.t, n, task: this.tasks[n], bonus: task.bonus, score: this.score, x: e.x, y: e.y, z: e.z });
+    }
   }
 
   /**
@@ -571,10 +630,12 @@ export class StallSim {
     if (hit.target !== "bell") this.bell = Math.min(BELL_FULL, this.bell + (hit.row === 2 ? 2 : 1));
     else if (!hit.rung) this.bell = Math.min(BELL_FULL, this.bell + 1);
     if (perfect) this.corksLeft = Math.min(CORKS_PER_ROUND, this.corksLeft + 1); // a dead-centre hit earns the cork back
-    this.events.push({
+    const e = {
       k: "hit", seat: this.seat, id: c.id, t: this.t, target: hit.target, row: hit.row, pts, mult, perfect, ricochet,
       rung: !!hit.rung, streak: this.streak, score: this.score, bell: this.bell, x: hit.x, y: hit.y, z: hit.z, vx: v[0],
-    });
+    };
+    this.events.push(e);
+    this.checkTasks(e);
   }
 
   /** A rival's cork wedges into the cam: the front row falls and stays down until it is shot loose. */

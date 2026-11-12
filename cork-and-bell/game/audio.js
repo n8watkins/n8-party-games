@@ -180,6 +180,13 @@ export class Sound {
     }
   }
 
+  /** A challenge done: a short rising flourish on the stall's little bells. */
+  task() {
+    if (!this.ready) return;
+    [784, 988, 1175, 1568].forEach((f, i) => this.metal(f, [1, 2.76], 0.22, 0.5 + i * 0.12, 0, 0.1 + i * 0.085));
+    this.burst(0.12, 0.25, { when: 0.42, freq: 5200, q: 0.8 });
+  }
+
   /** A ricochet that scored: the whine of a cork coming off at an angle, then two bright notes going up. */
   ricochet(pan = 0) {
     if (!this.ready) return;

@@ -99,6 +99,78 @@ body.pointer #stage {
   max-width: 44ch;
 }
 
+/* The round's two challenges: slips of paper under the title, ticked in red when done. */
+#tasks {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 4px;
+  justify-items: start;
+  text-shadow: none;
+}
+#tasks li {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 3px 9px 4px 6px;
+  border-radius: 4px;
+  background: rgba(241, 227, 191, 0.94);
+  color: var(--ink);
+  font-size: 13px;
+  line-height: 1.2;
+  box-shadow: 0 1px 6px rgba(0, 0, 0, 0.45), inset 0 0 0 1px rgba(156, 43, 32, 0.55);
+}
+#tasks li i {
+  flex: none;
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 1.5px rgba(28, 20, 16, 0.6);
+  position: relative;
+}
+#tasks li b {
+  font: 400 13px/1 var(--display);
+  color: var(--red);
+  white-space: nowrap;
+}
+#tasks li.done {
+  background: rgba(226, 214, 180, 0.9);
+  animation: task-done 0.7s ease-out;
+}
+#tasks li.done span {
+  text-decoration: line-through;
+  text-decoration-color: var(--red);
+  opacity: 0.7;
+}
+#tasks li.done i {
+  background: var(--red);
+  box-shadow: none;
+}
+#tasks li.done i::after {
+  content: "";
+  position: absolute;
+  left: 4px;
+  top: 1.5px;
+  width: 3.5px;
+  height: 7px;
+  border: solid #fff6e2;
+  border-width: 0 1.8px 1.8px 0;
+  transform: rotate(40deg);
+}
+@keyframes task-done {
+  0% {
+    transform: scale(1);
+  }
+  25% {
+    transform: scale(1.14) rotate(-2deg);
+    background: #fff6e2;
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
 #controls {
   position: absolute;
   right: max(16px, env(safe-area-inset-right));
@@ -660,6 +732,7 @@ body.pointer #stage {
   text-align: center;
 }
 /* Under the lobby and the end card, the rest of the HUD steps back. */
+body.carded #tasks,
 body.lobby #title,
 body.lobby #controls,
 body.lobby #turn,
@@ -834,6 +907,28 @@ body.carded #rivals {
   #title p {
     font-size: 11.5px;
     max-width: 30ch;
+  }
+  #tasks {
+    margin-top: 5px;
+    gap: 3px;
+  }
+  #tasks li {
+    padding: 2px 7px 3px 5px;
+    font-size: 11.5px;
+    gap: 5px;
+  }
+  #tasks li b {
+    font-size: 12px;
+  }
+  #tasks li i {
+    width: 11px;
+    height: 11px;
+  }
+  #tasks li.done i::after {
+    left: 3.4px;
+    top: 1.2px;
+    width: 3px;
+    height: 6px;
   }
   #hud #controls button {
     padding: 8px 12px;
@@ -1059,5 +1154,8 @@ body.carded #rivals {
   }
   #pops i.ring {
     display: none;
+  }
+  #tasks li.done {
+    animation: none;
   }
 }

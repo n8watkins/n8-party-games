@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { game, createBattle, roundTime, dumpStall, loadStall, COUNT_IN } from "../game/shared/battle.js";
-import { StallSim, ROUND_SECONDS, launch, predict, mech, backTop, CORKS_PER_ROUND, RICOCHET_TIMES, LAMP_OUT_SECONDS } from "../game/shared/sim.js";
+import { StallSim, ROUND_SECONDS, launch, predict, mech, backTop, tasksFor, TASKS, CORKS_PER_ROUND, RICOCHET_TIMES, LAMP_OUT_SECONDS } from "../game/shared/sim.js";
 import { PLATES, ROWS, BELL } from "../game/shared/layout.js";
 
 function runBattle(seed, n, { until = ROUND_SECONDS + 5, onEvent } = {}) {
@@ -205,6 +205,85 @@ describe("the rest of the stall", () => {
   });
 });
 
+describe("the challenges", () => {
+  it("chalks up the same two for every stall of a round, and different ones for other rounds", () => {
+    const [a, b] = tasksFor(1234);
+    expect(a).not.toBe(b);
+    expect(TASKS[a]).toBeDefined();
+    expect(TASKS[b]).toBeDefined();
+    expect(new StallSim(1234, 0).tasks).toEqual([a, b]);
+    expect(new StallSim(1234, 3).tasks).toEqual([a, b]);
+    const pairs = new Set(Array.from({ length: 40 }, (_, seed) => tasksFor(seed).join()));
+    expect(pairs.size).toBeGreaterThan(10);
+    for (let seed = 0; seed < 300; seed++) {
+      const [x, y] = tasksFor(seed);
+      expect(x).not.toBe(y);
+      expect(Math.max(x, y)).toBeLessThan(TASKS.length);
+    }
+  });
+
+  /** A stall whose two challenges are the ones named, a tenth of a second into its round. */
+  function stallWith(...ids) {
+    const sim = new StallSim(1, 0);
+    sim.tasks = ids.map((id) => TASKS.findIndex((task) => task.id === id));
+    sim.taskDone = sim.tasks.map(() => 0);
+    sim.step(0.1);
+    return sim;
+  }
+
+  it("pays a challenge its bonus once, on top of the hit that did it", () => {
+    const sim = stallWith("centres", "five");
+    // Three dead centres on three teapots.
+    for (let i = 0; i < 3; i++) sim.fire(0.1 + i * 0.6, PLATES[i].x, PLATES[i].y);
+    sim.step(4);
+    const hits = sim.events.filter((e) => e.k === "hit");
+    expect(hits.filter((e) => e.perfect).length).toBeGreaterThanOrEqual(3);
+    const done = sim.events.filter((e) => e.k === "task");
+    expect(done).toHaveLength(1);
+    expect(done[0]).toMatchObject({ n: 0, bonus: 150 });
+    expect(sim.taskDone).toEqual([1, 0]);
+    expect(sim.score).toBe(hits.reduce((sum, e) => sum + e.pts, 0) + 150);
+    // More dead centres do not pay it again.
+    sim.fire(4.1, PLATES[3].x, PLATES[3].y);
+    sim.step(6);
+    expect(sim.events.filter((e) => e.k === "task")).toHaveLength(1);
+  });
+
+  it("counts a run of five, a lamp put out and a prize off the shelf", () => {
+    const run = stallWith("five", "bell");
+    for (let i = 0; i < 5; i++) run.fire(0.1 + i * 0.6, PLATES[i].x, PLATES[i].y);
+    run.step(5);
+    expect(run.streak).toBeGreaterThanOrEqual(5);
+    expect(run.taskDone).toEqual([1, 0]);
+
+    const knocks = stallWith("lamp", "prize");
+    knocks.checkTasks({ k: "prop", what: "vase", broke: false });
+    expect(knocks.taskDone).toEqual([0, 0]);
+    knocks.checkTasks({ k: "prop", what: "lamp" });
+    knocks.checkTasks({ k: "prop", what: "vase", broke: true });
+    expect(knocks.taskDone).toEqual([1, 1]);
+    expect(knocks.score).toBe(175);
+  });
+
+  it("pays nothing before the bell or after time", () => {
+    const sim = new StallSim(1, 0);
+    sim.tasks = [TASKS.findIndex((task) => task.id === "lamp"), 0];
+    sim.checkTasks({ k: "prop", what: "lamp" }); // the count-in
+    sim.step(ROUND_SECONDS + 1);
+    sim.checkTasks({ k: "prop", what: "lamp" });
+    expect(sim.score).toBe(0);
+  });
+
+  it("keeps what is done through a snapshot", () => {
+    const sim = stallWith("moons", "five");
+    sim.taskDone = [0, 1];
+    sim.taskMoons = 1;
+    sim.taskCentres = 2;
+    const copy = loadStall(new StallSim(1, 0), JSON.parse(JSON.stringify(dumpStall(sim))));
+    expect([copy.taskDone, copy.taskMoons, copy.taskCentres]).toEqual([[0, 1], 1, 2]);
+  });
+});
+
 describe("the battle", () => {
   it("plays four bots through a full round with attacks, and never stacks more than two on a stall", () => {
     let worst = 0;
@@ -245,9 +324,12 @@ describe("the battle", () => {
     expect(ricochets.length).toBeGreaterThan(10);
     expect(ricochets.some((e) => e.mult > 1)).toBe(true);
     for (const e of hits) expect(e.pts).toBe(expectedPoints(e));
-    // The result the room announces is the sum of those hits, nothing more.
+    // The result the room announces is the sum of those hits and of the challenges done, nothing more.
+    const tasks = state.simEvents.filter((e) => e.k === "task");
     for (const row of game.result(state)) {
-      expect(row.score).toBe(hits.filter((e) => e.seat === row.seat).reduce((sum, e) => sum + e.pts, 0));
+      const points = hits.filter((e) => e.seat === row.seat).reduce((sum, e) => sum + e.pts, 0);
+      const bonus = tasks.filter((e) => e.seat === row.seat).reduce((sum, e) => sum + e.bonus, 0);
+      expect(row.score).toBe(points + bonus);
     }
   });
 
