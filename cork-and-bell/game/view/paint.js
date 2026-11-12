@@ -517,6 +517,21 @@ export function chalkTexture() {
   return { texture: t, draw };
 }
 
+/** A soft dark patch: the contact shadow where a thing stands or lies on a board. */
+export function contactTexture() {
+  const s = 64;
+  const c = canvas(s);
+  const g = c.getContext("2d");
+  const grad = g.createRadialGradient(s / 2, s / 2, 0, s / 2, s / 2, s / 2);
+  grad.addColorStop(0, "rgba(0,0,0,1)");
+  grad.addColorStop(0.45, "rgba(0,0,0,0.55)");
+  grad.addColorStop(1, "rgba(0,0,0,0)");
+  g.fillStyle = grad;
+  g.fillRect(0, 0, s, s);
+  const t = new THREE.CanvasTexture(c);
+  return t;
+}
+
 /** The UVs of an extruded outline are its x, y in 0..1, so the paint lines up with the cut edge. */
 export function plateGeometry(outline, width, height, thickness = 0.004) {
   const shape = new THREE.Shape(outline.map(([x, y]) => new THREE.Vector2((x - 0.5) * width, (y - 0.5) * height)));

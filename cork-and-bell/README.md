@@ -15,10 +15,15 @@ npm run dev:lan      # the same, reachable from phones on the same network
 npm test             # the party kit, the simulation and the battle rules
 npm run playtest     # one full solo run with scripted input, with screenshots
 npm run playtest:battle   # four headless players at 150 ms, a drop and rejoin, a rematch
+npm run test:room    # the room over real sockets, no browser (add -- --full=1 to time a whole round)
 ```
 
 Everything is local.
 Nothing is deployed.
+
+`wrangler dev` watches this repository and restarts the local server when a file in it changes.
+A restart puts every room back in its lobby, so do not edit files (or save screenshots into the repository) while a battle is being played or tested.
+The tools save their screenshots to the temp directory for that reason (`CAB_SHOTS` chooses another place).
 
 | Address | What you get |
 | --- | --- |

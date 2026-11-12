@@ -4,12 +4,12 @@
 // being blocked, the end, and the rematch.
 // Run the local server first (npm run dev), then: npm run playtest:battle
 import { mkdirSync } from "node:fs";
-import { openBrowser } from "./browser.mjs";
+import { openBrowser, SHOTS } from "./browser.mjs";
 
 const args = process.argv.slice(2);
 const opt = (k, d) => (args.find((a) => a.startsWith("--" + k + "=")) ?? "--" + k + "=" + d).split("=").slice(1).join("=");
 const base = opt("base", "http://localhost:8791/cork-and-bell/");
-const out = opt("out", "cork-and-bell/shots/battle");
+const out = opt("out", SHOTS + "/battle");
 const lag = Number(opt("lag", 150));
 const withScreen = opt("screen", "1") === "1";
 mkdirSync(out, { recursive: true });
@@ -71,9 +71,14 @@ let dropped = false;
 let rejoined = false;
 let dropInfo = "";
 const t0 = Date.now();
+let lastLog = t0;
 for (;;) {
   const s = await sum(players[0]).catch(() => null);
-  if (!s || s.over) break;
+  if (!s || s.over || s.round > 1 || s.phase === "ended") break;
+  if (Date.now() - lastLog > 15000) {
+    lastLog = Date.now();
+    log("  t", s.t, "scores", s.stalls.map((x) => x.score).join(", "));
+  }
   if (Date.now() - t0 > 150000) {
     errors.push("the round did not end");
     break;
@@ -125,7 +130,7 @@ for (const k of want) if (!Object.keys(got).some((key) => key.startsWith(k))) er
 if (!rejoined) errors.push("the drop and rejoin did not complete");
 
 // The end.
-await new Promise((r) => setTimeout(r, 1500));
+await new Promise((r) => setTimeout(r, 2200));
 await shotAll("4-end");
 const results = [];
 for (const p of players) results.push(await p.page.evaluate(() => window.__cab.session.result().map((x) => x.name + " " + x.score).join(", ")));

@@ -4,7 +4,7 @@
 import * as THREE from "three";
 import { BACK, BELL, BULBS, CAMERA, CHAIN, CHALK_BOARD, COUNTER, DRIVE, HALF_W, JAM, KEY_LIGHT, PENDULUMS, PLATES, ROWS, SCORE_WINDOW, SHUTTER, STEPS, TRAY, gunMuzzle, muzzle } from "../shared/layout.js";
 import { BELL_FULL, COCK_SECONDS, CORK_R, camLift, chainStar, mech, pendulumAngle, shutterOpen } from "../shared/sim.js";
-import { chalkTexture, disc, paintBelt, paintCork, paintMoon, paintReel, paintSheet, paintStar, paintTeapot, paintWood, plateGeometry, star, TEAPOT } from "./paint.js";
+import { chalkTexture, contactTexture, disc, paintBelt, paintCork, paintMoon, paintReel, paintSheet, paintStar, paintTeapot, paintWood, plateGeometry, star, TEAPOT } from "./paint.js";
 import { makeFarLights, makeSky } from "./render.js";
 
 const LIGHT_RANGE = 4.0;
@@ -72,6 +72,9 @@ export class StallAssets {
     this.corkGeo.rotateX(Math.PI / 2);
     this.bulbGeo = new THREE.SphereGeometry(0.024, 16, 12);
     this.chalk = chalkTexture();
+    this.contactMat = new THREE.MeshBasicMaterial({ map: contactTexture(), transparent: true, depthWrite: false, color: 0x000000, opacity: 0.55 });
+    this.contactGeo = new THREE.PlaneGeometry(1, 1);
+    this.contactGeo.rotateX(-Math.PI / 2);
   }
 }
 
@@ -174,6 +177,7 @@ export class StallView {
     this.bellSwing = { a: 0, aV: 0 };
     this.particles = [];
     this.incoming = []; // attacks on their way in: {type, at, from}
+    this.lampsOnAt = null; // set to a wall time to have the lamps come on from dark (the page's first seconds)
     this.mothAmount = 0;
     this.time = 0;
     this.build(opts);
@@ -255,6 +259,13 @@ export class StallView {
       m.position.y = 0.3 * 0.84 * 0.5 - 0.012;
       const hinge = this.mesh(new THREE.CylinderGeometry(0.006, 0.006, 0.09, 8), A.wornIron, pivot);
       hinge.rotation.z = Math.PI / 2;
+      // Where the plate meets the board it stands on.
+      const contact = new THREE.Mesh(A.contactGeo, A.contactMat);
+      contact.position.set(p.x, ROWS[0].y + 0.0016, p.z + 0.004);
+      contact.scale.set(0.3, 1, 0.07);
+      contact.renderOrder = 2;
+      this.scene.add(contact);
+      pivot.userData.contact = contact;
       return pivot;
     });
     // The cam bar that lifts them: a square iron bar on two arms, swinging up from behind.
@@ -349,8 +360,10 @@ export class StallView {
     this.bellDome = dome;
     const boss = this.mesh(new THREE.SphereGeometry(0.018, 14, 10), A.brassDull, this.bell);
     boss.position.z = 0.05;
-    const ring = this.mesh(new THREE.TorusGeometry(BELL.r * 0.62, 0.004, 8, 40), new THREE.MeshStandardMaterial({ color: 0x8f1f14, roughness: 0.4 }), this.bell);
-    ring.position.z = 0.028;
+    const ring = this.mesh(new THREE.TorusGeometry(BELL.r * 1.13, 0.008, 10, 48), new THREE.MeshStandardMaterial({ color: 0x8f1f14, roughness: 0.38 }), this.bell);
+    ring.position.z = 0.004;
+    const rim = this.mesh(new THREE.TorusGeometry(BELL.r * 1.0, 0.005, 8, 48), A.brassDull, this.bell);
+    rim.position.z = 0.012;
     const post = this.mesh(new THREE.CylinderGeometry(0.01, 0.01, 0.08, 8), A.iron, this.bell);
     post.rotation.x = Math.PI / 2;
     post.position.z = -0.04;
@@ -495,6 +508,11 @@ export class StallView {
     this.restedMesh.frustumCulled = false;
     this.scene.add(this.restedMesh);
     this.restedShown = 0;
+    this.restedContact = new THREE.InstancedMesh(A.contactGeo, A.contactMat, 96);
+    this.restedContact.count = 0;
+    this.restedContact.frustumCulled = false;
+    this.restedContact.renderOrder = 2;
+    this.scene.add(this.restedContact);
     this.trayMesh = new THREE.InstancedMesh(A.corkGeo, A.cork, 72);
     this.trayMesh.castShadow = true;
     this.trayMesh.frustumCulled = false;
@@ -661,6 +679,12 @@ export class StallView {
     let level = dark ? 0.035 + (Math.sin(wall * 47) > 0.96 ? 0.25 : 0) : 1;
     if (!dark && warnDark) level = 0.55 + 0.45 * Math.sign(Math.sin(wall * 31) + Math.sin(wall * 53) * 0.7 + 0.4);
     if (!dark && sim.darkUntil > 0 && t - sim.darkUntil < 0.5 && t >= sim.darkUntil) level = Math.sin(wall * 60) > -0.2 ? 1 : 0.3; // they stutter back on
+    if (this.lampsOnAt !== null && !frozen) {
+      // The stall opens: the lamps stutter, catch, and come up over a second and a half.
+      const u = (wall - this.lampsOnAt) / 1.5;
+      if (u >= 1) this.lampsOnAt = null;
+      else level *= u < 0.25 ? (Math.sin(wall * 70) > 0.3 ? 0.35 : 0.02) : Math.min(1, 0.25 + u * u) * (Math.sin(wall * 55) > -0.85 ? 1 : 0.5);
+    }
     this.bulbLevel += (level - this.bulbLevel) * (frozen ? 1 : Math.min(1, dt * 18));
     const B = this.bulbLevel;
     this.pulse *= frozen ? 1 : Math.exp(-dt * 5);
@@ -752,6 +776,7 @@ export class StallView {
         if (target === 0 && Math.abs(st.a) < 0.2) st.a += Math.sin(wall * 40 + i) * 0.02 * Math.max(0, 1 - (t - sim.plateUpAt[i]) * 4);
       }
       this.plates[i].rotation.x = st.a;
+      this.plates[i].userData.contact.visible = st.a > -0.5;
     }
     // The jam: a rival's cork arcs in during the warning and wedges into the cam.
     const jamIn = this.incoming.find((a) => a.type === "jam" && t < a.at);
@@ -838,9 +863,13 @@ export class StallView {
         e3.set(0, c[3], 0);
         m4.compose(v3.set(c[0], c[1], c[2]), q.setFromEuler(e3), one);
         this.restedMesh.setMatrixAt(i, m4);
+        m4.compose(v3.set(c[0], c[1] - CORK_R + 0.0014, c[2]), q, this._flat ?? (this._flat = new THREE.Vector3(0.062, 1, 0.045)));
+        this.restedContact.setMatrixAt(i, m4);
       }
       this.restedMesh.count = n;
       this.restedMesh.instanceMatrix.needsUpdate = true;
+      this.restedContact.count = n;
+      this.restedContact.instanceMatrix.needsUpdate = true;
       this.restedShown = sim.rested.length;
     }
     this.trayMesh.count = Math.max(0, Math.min(72, sim.corksLeft));

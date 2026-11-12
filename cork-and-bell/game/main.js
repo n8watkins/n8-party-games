@@ -66,6 +66,7 @@ let flyTurn = 0;
 let bannerUntil = 0;
 let bannerAttack = null;
 let autoStart = null;
+let openedOnce = false;
 const moments = [];
 const botState = { bots: {}, botSkill: 0.8, delay: 0 };
 
@@ -133,6 +134,14 @@ function makeViews(seats, mySeat) {
     view: new StallView(assets, { own: s.seat === mySeat, shadows: !(quality === "low" && many), shadowSize: quality === "low" || many ? 1024 : 2048 }),
   }));
   for (const v of views) v.view.setView(many ? "player" : P.view === "four" ? "player" : P.view, 1);
+  if (!openedOnce) {
+    // Only the very first picture: the lamps come on.
+    openedOnce = true;
+    for (const v of views) {
+      v.view.lampsOnAt = wall;
+      v.view.bulbLevel = 0;
+    }
+  }
   layout();
 }
 
@@ -323,9 +332,9 @@ party.on("end", (msg) => {
   if (session?.kind === "net") session.finish(msg.result);
 });
 party.on("room", (room) => {
-  if (mode === "battle" && room.phase === "lobby" && session?.over) {
-    // Back in the waiting room (someone left the rematch).
-    hideCard();
+  if (mode === "battle" && room.phase === "lobby") {
+    // Back in the waiting room: the room was restarted, or everyone else left.
+    startLocal("attract", { countIn: 1 });
     lobby.open();
   }
   if (P.auto && (P.host || P.screen) && room.phase === "lobby" && !autoStart) {
@@ -354,7 +363,7 @@ async function autoBattle() {
       const ready = () => party.setReady(true);
       party.on("room", (room) => {
         const me = room.seats[party.you?.seat ?? -1];
-        if (me && !me.ready && room.phase !== "playing") setTimeout(ready, room.phase === "ended" ? 2500 : 200);
+        if (me && !me.ready && room.phase !== "playing") setTimeout(ready, room.phase === "ended" ? 6000 : 200);
       });
     }
   } catch (err) {
@@ -568,7 +577,7 @@ function hudFrame(t) {
       const target = (session.pickSeat ?? -1) === seat || ((session.pickSeat ?? -1) === -1 && seat === lead);
       b.classList.toggle("picked", target);
       const rt = session.seatTime(seat);
-      b.querySelector(".state").textContent = rt < rs.jamUntil ? "jammed" : rt < rs.darkUntil ? "lamps out" : rt < rs.mothsUntil ? "moths" : rs.over ? "out of corks" : target ? "your target" : "";
+      b.querySelector(".state").textContent = rt < rs.jamUntil ? "jammed" : rt < rs.darkUntil ? "lamps out" : rt < rs.mothsUntil ? "moths" : rs.over ? "no corks" : target ? "target" : "";
     }
   }
   for (const v of views) {
@@ -862,7 +871,7 @@ async function main() {
     },
     summary() {
       if (!session) return null;
-      return { mode, t: Math.round(session.time() * 100) / 100, over: session.over, mySeat: session.mySeat, stalls: session.seats.map((s) => ({ name: s.name, ...session.sims[s.seat].summary() })) };
+      return { mode, t: Math.round(session.time() * 100) / 100, over: session.over, round: session.round ?? 1, phase: party.room?.phase ?? null, mySeat: session.mySeat, stalls: session.seats.map((s) => ({ name: s.name, ...session.sims[s.seat].summary() })) };
     },
   };
 }

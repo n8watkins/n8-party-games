@@ -205,4 +205,5 @@ The delay runs inside the room (`LagLine`), so the room's view of time is the re
 ## Tests
 
 `npm test` at the repository root runs `party-kit/test/room-core.test.js`: seats and colours, nickname cleaning, ready and start, round seeds, the authoritative round, drop, rejoin inside and outside the grace, leaving, late joiners, stand-ins, idle shutdown, saving and restoring, the latency line, the seeded generator, PIN picking and the rate-limit window.
-The Durable Object wiring is exercised end to end by the games' multiplayer playtests (for example `npm run playtest:battle`).
+`npm run test:room` (with `npm run dev` running) checks the Durable Object wiring end to end over real sockets, with no browser: create, PIN lookup, QR code, join, a wrong PIN, simulated latency, start, an input relayed to the other seat, a drop with a stand-in, the same seat back with a full snapshot, and with `-- --full=1` the length of a whole round and the instant rematch.
+The games' multiplayer playtests (for example `npm run playtest:battle`) drive the same path through real browsers.

@@ -1,15 +1,15 @@
 // Takes screenshots of the game in a headless browser and prints frame rates and console errors.
 //   node cork-and-bell/tools/shot.mjs <name>=<query> ... [--size=1920x1080] [--wait=ms] [--win=1]
-// Each shot loads /cork-and-bell/?<query>, waits, and saves cork-and-bell/shots/<name>.png
+// Each shot loads /cork-and-bell/?<query>, waits, and saves <out>/<name>.png (see SHOTS in browser.mjs)
 // --win=1 uses Chrome on the Windows side with the real graphics card (see browser.mjs).
 import { mkdirSync } from "node:fs";
-import { openBrowser, opt } from "./browser.mjs";
+import { openBrowser, opt, SHOTS } from "./browser.mjs";
 
 const args = process.argv.slice(2);
 const [w, h] = opt(args, "size", "1920x1080").split("x").map(Number);
 const wait = Number(opt(args, "wait", 2500));
 const base = opt(args, "base", "http://localhost:8791/cork-and-bell/");
-const out = opt(args, "out", "cork-and-bell/shots");
+const out = opt(args, "out", SHOTS);
 mkdirSync(out, { recursive: true });
 const b = await openBrowser({ win: opt(args, "win", "1") === "1", width: w, height: h });
 try {

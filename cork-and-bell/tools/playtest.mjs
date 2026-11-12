@@ -5,13 +5,13 @@
 // By default it drives Chrome on the Windows side (the real graphics card); --win=0 uses
 // Playwright's Chromium in WSL, which renders in software and is far too slow to judge speed.
 import { mkdirSync } from "node:fs";
-import { openBrowser } from "./browser.mjs";
+import { openBrowser, SHOTS } from "./browser.mjs";
 
 const args = process.argv.slice(2);
 const opt = (k, d) => (args.find((a) => a.startsWith("--" + k + "=")) ?? "--" + k + "=" + d).split("=").slice(1).join("=");
 const [w, h] = opt("size", "1920x1080").split("x").map(Number);
 const base = opt("base", "http://localhost:8791/cork-and-bell/");
-const out = opt("out", "cork-and-bell/shots/playtest");
+const out = opt("out", SHOTS + "/playtest");
 const touch = opt("touch", "0") === "1";
 mkdirSync(out, { recursive: true });
 
