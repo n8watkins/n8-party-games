@@ -37,6 +37,9 @@
     "playtest": "node node_modules/cork-and-bell/tools/playtest.mjs",
     "playtest:battle": "node node_modules/cork-and-bell/tools/playtest-battle.mjs",
     "test:room": "node party-kit/test/e2e-room.mjs",
+    "test:lobby": "node lobby/test/e2e-lobby.mjs",
+    "lobby:shots": "node lobby/test/shoot.mjs",
+    "lobby:measure": "node lobby/test/measure.mjs",
     "test:production": "node party-kit/test/e2e-production.mjs",
     "test:turnstile": "node party-kit/test/e2e-turnstile.mjs"
   },
