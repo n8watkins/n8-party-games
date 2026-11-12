@@ -470,10 +470,11 @@ function showBanner(title, text, { good = false, seconds = 1.6, attack = null } 
   bannerAttack = attack;
 }
 
-/** The points a hit paid, rising from the target. A ricochet gets its own paper flag and stays a little longer. */
+/** The points a hit paid, rising from the target. A ricochet gets a paper flag, a ring of gold, and twice the time in the air. */
 function pop(view, e, text, sub, big, flag = null) {
   const i = views.indexOf(view);
-  const [u, v] = view.view.project(e.x, e.y, e.z);
+  let [u, v] = view.view.project(e.x, e.y, e.z);
+  if (flag && views.length === 1) u = Math.max(0.24, Math.min(0.76, u)); // the flag is wide: keep all of it on the screen
   const el = document.createElement("span");
   el.className = (big ? "big" : "") + (flag ? " flagged" : "");
   if (flag) {
@@ -492,7 +493,16 @@ function pop(view, e, text, sub, big, flag = null) {
   el.style.left = `${(((i % cols) + u) / cols) * 100}%`;
   el.style.top = `${((Math.floor(i / cols) + v) / rows) * 100}%`;
   $("pops").appendChild(el);
-  setTimeout(() => el.remove(), flag ? 1500 : 950);
+  setTimeout(() => el.remove(), flag ? 2100 : 950);
+  if (flag) {
+    // A ring of gold opens out from the target, so the eye is there before the words are.
+    const ring = document.createElement("i");
+    ring.className = "ring";
+    ring.style.left = el.style.left;
+    ring.style.top = el.style.top;
+    $("pops").appendChild(ring);
+    setTimeout(() => ring.remove(), 800);
+  }
 }
 
 function nameOf(seat) {
@@ -519,7 +529,7 @@ function onEvent(e) {
         pop(v, e, `+${e.pts}`, notes.join(", "), e.pts >= 100, e.ricochet ? ["Ricochet", `×${RICOCHET_TIMES}`] : null);
       }
       if (e.seat === session.mySeat) {
-        buzz(e.rung ? [30, 40, 30, 40, 60] : 22);
+        buzz(e.rung ? [30, 40, 30, 40, 60] : e.ricochet ? [18, 30, 40] : 22);
         if (e.bell >= BELL_FULL && !e.rung && e.target !== "bell" && !session.bellCalled) {
           session.bellCalled = true;
           showBanner("The bell is live", session.seats.length > 1 ? "Ring it to put a rival's lamps out." : "Ring it for a hundred.", { good: true, seconds: 2.2 });

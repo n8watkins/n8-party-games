@@ -125,6 +125,7 @@ export class Sound {
     if (!this.ready) return;
     const pan = (e.x ?? 0) * 0.5;
     const rise = 1 + Math.min(e.streak ?? 0, 10) * 0.035; // a run of hits climbs in pitch
+    if (e.ricochet) this.ricochet(pan);
     if (e.target === "bell") return this.bell(e.rung);
     if (e.target === "jam") {
       this.burst(0.5, 0.06, { freq: 700 });
@@ -151,7 +152,7 @@ export class Sound {
       this.metal(440 * rise, [1, 1.72, 2.9, 4.6], 0.5, 0.5, pan);
     }
     if (e.perfect) this.tone(2093, 0.12, 0.3, { when: 0.03, type: "sine" });
-    if (e.ricochet) this.tone(1320, 0.14, 0.18, { when: 0.05, slide: 1.5 });
+
   }
 
   bell(rung) {
@@ -177,6 +178,15 @@ export class Sound {
       this.tone(260, 0.3 * v, 0.035, { slide: 0.7, pan });
       this.burst(0.25 * v, 0.02, { freq: 1500, q: 0.8 });
     }
+  }
+
+  /** A ricochet that scored: the whine of a cork coming off at an angle, then two bright notes going up. */
+  ricochet(pan = 0) {
+    if (!this.ready) return;
+    this.tone(2600, 0.2, 0.2, { slide: 0.32, pan, type: "triangle" });
+    this.tone(2600 * 1.5, 0.07, 0.2, { slide: 0.32, pan });
+    this.metal(1568, [1, 2.76], 0.26, 0.5, pan, 0.16);
+    this.metal(2349, [1, 2.76], 0.3, 0.8, pan, 0.27);
   }
 
   /** A cork off something that is not a target: each thing in the stall has its own voice. */

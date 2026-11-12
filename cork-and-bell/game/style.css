@@ -474,23 +474,45 @@ body.pointer #stage {
 }
 /* A ricochet: a paper flag over the points, a bigger figure, and it hangs in the air longer. */
 #pops span.flagged {
-  font-size: 34px;
+  font-size: 46px;
   color: #fff;
   text-align: center;
-  animation: pop-flag 1.45s ease-out forwards;
+  z-index: 1;
+  animation: pop-flag 2.05s ease-out forwards;
 }
 #pops span.flagged.big {
-  font-size: 42px;
+  font-size: 56px;
+}
+/* The ring of gold that opens out from a ricochet's target. */
+#pops i.ring {
+  position: absolute;
+  width: 150px;
+  height: 150px;
+  margin: -75px 0 0 -75px;
+  border-radius: 50%;
+  border: 3px solid #ffd35a;
+  box-shadow: 0 0 0 6px rgba(255, 211, 90, 0.25), inset 0 0 0 2px rgba(156, 43, 32, 0.6);
+  animation: ring 0.75s cubic-bezier(0.2, 0.7, 0.3, 1) forwards;
+}
+@keyframes ring {
+  0% {
+    opacity: 0.95;
+    transform: scale(0.12);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.25);
+  }
 }
 #pops span em {
   display: block;
   width: max-content;
   margin: 0 auto 5px;
-  padding: 3px 10px 4px;
+  padding: 4px 14px 5px;
   border-radius: 3px;
   background: var(--cream);
   color: var(--red);
-  font: italic 700 15px/1.1 "Playfair Display", var(--text);
+  font: italic 700 0.48em/1.1 "Playfair Display", var(--text);
   letter-spacing: 0.08em;
   text-transform: uppercase;
   text-shadow: none;
@@ -506,21 +528,27 @@ body.pointer #stage {
 @keyframes pop-flag {
   0% {
     opacity: 0;
-    transform: translate(-50%, -40%) scale(0.5);
+    transform: translate(-50%, -40%) scale(0.3) rotate(-8deg);
   }
-  10% {
+  7% {
     opacity: 1;
-    transform: translate(-50%, -75%) scale(1.14);
+    transform: translate(-50%, -78%) scale(1.28) rotate(3deg);
   }
-  18% {
-    transform: translate(-50%, -80%) scale(1);
+  13% {
+    transform: translate(-50%, -80%) scale(0.94) rotate(-2deg);
   }
-  75% {
+  19% {
+    transform: translate(-50%, -82%) scale(1.04) rotate(0deg);
+  }
+  25% {
+    transform: translate(-50%, -84%) scale(1);
+  }
+  82% {
     opacity: 1;
   }
   100% {
     opacity: 0;
-    transform: translate(-50%, -170%) scale(1);
+    transform: translate(-50%, -150%) scale(1);
   }
 }
 @keyframes pop {
@@ -887,13 +915,15 @@ body.carded #rivals {
     font-size: 16px;
   }
   #pops span.flagged {
-    font-size: 28px;
+    font-size: 36px;
   }
   #pops span.flagged.big {
-    font-size: 34px;
+    font-size: 44px;
   }
-  #pops span em {
-    font-size: 13px;
+  #pops i.ring {
+    width: 110px;
+    height: 110px;
+    margin: -55px 0 0 -55px;
   }
   #rivals {
     top: max(52px, calc(env(safe-area-inset-top) + 48px));
@@ -1026,5 +1056,8 @@ body.carded #rivals {
   #pops span.flagged {
     animation: none;
     transform: translate(-50%, -110%);
+  }
+  #pops i.ring {
+    display: none;
   }
 }

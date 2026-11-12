@@ -43,6 +43,8 @@ void main() {
 }`;
 
 /** Loaded once and shared by every stall on the page. */
+const SPARK = new THREE.Color("#ffd35a");
+
 export class StallAssets {
   constructor({ gltf, albedo, lit, dusk, env }) {
     this.setGeometry = gltf.scene.getObjectByProperty("isMesh", true).geometry;
@@ -675,7 +677,7 @@ export class StallView {
   }
 
   buildParticles() {
-    this.chipMesh = new THREE.InstancedMesh(new THREE.BoxGeometry(0.006, 0.006, 0.002), new THREE.MeshStandardMaterial({ color: 0xcdb48a, roughness: 0.9 }), 48);
+    this.chipMesh = new THREE.InstancedMesh(new THREE.BoxGeometry(0.006, 0.006, 0.002), new THREE.MeshStandardMaterial({ color: 0xcdb48a, roughness: 0.9 }), 96);
     this.chipMesh.count = 0;
     this.chipMesh.frustumCulled = false;
     this.scene.add(this.chipMesh);
@@ -689,6 +691,7 @@ export class StallView {
       return { mesh, a: 0, aV: 0, dirX: 0, dirZ: 1, fallAt: -1 };
     });
     this.wheelJolt = 0;
+    this.lastTouch = new Map(); // cork id -> where it last struck something
   }
 
   // ------------------------------------------------------------------ reacting to the simulation
@@ -710,9 +713,27 @@ export class StallView {
         this.burst(e.x, e.y, e.z + 0.02, e.perfect ? 12 : 7, colour);
         if (e.target === "bell") this.bellSwing.aV += e.rung ? 9 : 5;
         if (e.target.startsWith("p")) this.plateAngle[Number(e.target[1])].aV = -14;
+        if (e.ricochet) {
+          // A ricochet: sparks all along the way the cork came off the last thing it struck,
+          // a shower of them at the target, and the border lamps run.
+          const from = this.lastTouch.get(e.id);
+          if (from) {
+            for (let i = 1; i <= 9; i++) {
+              const f = i / 10;
+              this.spark(from[0] + (e.x - from[0]) * f, from[1] + (e.y - from[1]) * f, from[2] + (e.z - from[2]) * f, 0.25 + f * 0.35);
+            }
+          }
+          this.burst(e.x, e.y, e.z + 0.02, 16, "#ffd35a", 1.25);
+          this.chaseUntil = Math.max(this.chaseUntil, this.time + 1.5);
+          this.chaseKind = Math.max(this.chaseKind, 1);
+          this.pulse = Math.max(this.pulse, 0.22);
+        }
+        this.lastTouch.set(e.id, [e.x, e.y, e.z]);
         break;
       }
       case "bounce":
+        this.lastTouch.set(e.id, [e.x, e.y, e.z]);
+        if (this.lastTouch.size > 40) this.lastTouch.delete(this.lastTouch.keys().next().value);
         if (e.what === "board" && e.s > 3) this.burst(e.x, e.y, e.z + 0.01, 3, "#3a5a48");
         break;
       case "reset":
@@ -746,11 +767,17 @@ export class StallView {
     void sim;
   }
 
+  /** One gold spark that hangs for a moment where it was struck. */
+  spark(x, y, z, life) {
+    if (this.particles.length >= 96) this.particles.shift();
+    this.particles.push({ p: new THREE.Vector3(x, y, z), v: new THREE.Vector3((Math.random() - 0.5) * 0.3, 0.15 + Math.random() * 0.3, (Math.random() - 0.5) * 0.3), life, c: SPARK, spin: Math.random() * 6, dust: true });
+  }
+
   /** Chips flying off a knock. `power` scales how far they go; `dust` hangs in the air instead of falling. */
   burst(x, y, z, n, colour, power = 1, dust = false) {
     const c = new THREE.Color(colour);
     for (let i = 0; i < n; i++) {
-      if (this.particles.length >= 48) this.particles.shift();
+      if (this.particles.length >= 96) this.particles.shift();
       const v = dust
         ? new THREE.Vector3(0.25 + Math.random() * 0.5, (Math.random() - 0.3) * 0.5, (Math.random() - 0.5) * 0.7)
         : new THREE.Vector3((Math.random() - 0.5) * 1.6 * power, (0.4 + Math.random() * 1.6) * power, (0.5 + Math.random() * 1.4) * power);
