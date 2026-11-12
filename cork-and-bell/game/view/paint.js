@@ -129,15 +129,16 @@ export function paintPlate({ outline, base, art, seed = 1, size = 512, wear = 1 
   c.fillStyle = base;
   c.fillRect(0, 0, size, size);
   const angle = (r() - 0.5) * 0.5;
-  strokes(c, size, r, "rgba(255,255,255,0.5)", 260, angle, 0.07);
-  strokes(c, size, r, "rgba(0,0,0,0.6)", 260, angle, 0.07);
+  const dense = (size / 512) ** 2; // the same brush on a smaller plate lays fewer strokes
+  strokes(c, size, r, "rgba(255,255,255,0.5)", Math.round(260 * dense), angle, 0.07);
+  strokes(c, size, r, "rgba(0,0,0,0.6)", Math.round(260 * dense), angle, 0.07);
   rg.fillStyle = "#4a4a4a"; // glossy enamel
   rg.fillRect(0, 0, size, size);
-  strokes(rg, size, r, "#707070", 200, angle, 0.25);
+  strokes(rg, size, r, "#707070", Math.round(200 * dense), angle, 0.25);
   b.fillStyle = "#a0a0a0";
   b.fillRect(0, 0, size, size);
-  strokes(b, size, r, "#d8d8d8", 420, angle, 0.22, 2.2);
-  strokes(b, size, r, "#707070", 420, angle, 0.22, 2.2);
+  strokes(b, size, r, "#d8d8d8", Math.round(420 * dense), angle, 0.22, 2.2);
+  strokes(b, size, r, "#707070", Math.round(420 * dense), angle, 0.22, 2.2);
 
   art?.(c, size, r, b);
 
@@ -448,8 +449,9 @@ export function paintBelt() {
 
 /** The score reels: cream enamel drums with black numerals, 0 to 9 round the rim. */
 export function paintReel() {
-  const w = 128;
-  const h = 1280;
+  // Laid out along the canvas's x axis, which runs round the drum; each numeral stands on its side.
+  const w = 1280;
+  const h = 128;
   const col = document.createElement("canvas");
   col.width = w;
   col.height = h;
@@ -459,23 +461,23 @@ export function paintReel() {
   c.fillRect(0, 0, w, h);
   for (let i = 0; i < 500; i++) {
     c.fillStyle = `rgba(90,60,30,${r() * 0.07})`;
-    c.fillRect(r() * w, r() * h, 2 + r() * 30, 1 + r() * 2);
+    c.fillRect(r() * w, r() * h, 1 + r() * 2, 2 + r() * 30);
   }
-  c.fillStyle = "#17120e";
   c.textAlign = "center";
   c.textBaseline = "middle";
-  c.font = `900 104px "Abril Fatface", Georgia, serif`;
+  c.font = `400 112px "Abril Fatface", Georgia, serif`;
   for (let d = 0; d < 10; d++) {
     c.save();
-    c.translate(w / 2, d * 128 + 66);
+    c.translate(d * 128 + 60, h / 2);
+    c.rotate(Math.PI / 2);
+    c.fillStyle = "#17120e";
     c.fillText(String(d), 0, 0);
     c.restore();
     c.fillStyle = "#8f1f14";
-    c.fillRect(6, d * 128, w - 12, 3);
-    c.fillStyle = "#17120e";
+    c.fillRect(d * 128 - 1, 8, 3, h - 16);
   }
   const t = texture(col, true);
-  t.wrapT = THREE.RepeatWrapping;
+  t.wrapS = THREE.RepeatWrapping;
   return t;
 }
 

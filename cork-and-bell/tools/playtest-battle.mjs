@@ -3,8 +3,8 @@
 // each player's screen: the lobby, the start, the middle with an attack landing and one
 // being blocked, the end, and the rematch.
 // Run the local server first (npm run dev), then: npm run playtest:battle
-import { chromium } from "playwright";
 import { mkdirSync } from "node:fs";
+import { openBrowser } from "./browser.mjs";
 
 const args = process.argv.slice(2);
 const opt = (k, d) => (args.find((a) => a.startsWith("--" + k + "=")) ?? "--" + k + "=" + d).split("=").slice(1).join("=");
@@ -17,10 +17,10 @@ const names = ["Ann", "Bo", "Cy", "Di"];
 const errors = [];
 const log = (...a) => console.log(...a);
 
-const browser = await chromium.launch({ headless: true, args: ["--use-angle=swiftshader", "--enable-unsafe-swiftshader"] });
+const browser = await openBrowser({ win: opt("win", "1") === "1", width: 1600, height: 900 });
 const players = [];
 async function open(name, query, size) {
-  const context = await browser.newContext({ viewport: size, deviceScaleFactor: 1, hasTouch: size.width < 600, isMobile: size.width < 600 });
+  const context = await browser.newContext({ viewport: size, hasTouch: size.width < 600, isMobile: size.width < 600 });
   const page = await context.newPage();
   page.on("console", (m) => m.type() === "error" && !/WebSocket|ERR_/.test(m.text()) && errors.push(name + ": " + m.text()));
   page.on("pageerror", (e) => errors.push(name + ": " + String(e)));
@@ -142,7 +142,7 @@ await shotAll("5-rematch");
 const s2 = await sum(players[0]);
 log("rematch: round 2 at t", s2.t, "scores", s2.stalls.map((x) => x.score).join(", "));
 const fps = await Promise.all(all().map((p) => p.page.evaluate(() => window.__cab.fps().fps)));
-log("frame rates in this run (software rendering, five pages at once, not a measure of real speed):", fps.join(", "));
+log("frame rates in this run (five pages sharing one headless browser, so not a measure of one device):", fps.join(", "));
 log(errors.length ? "FAILED:\n  " + errors.join("\n  ") : "PASSED");
 await browser.close();
 process.exit(errors.length ? 1 : 0);

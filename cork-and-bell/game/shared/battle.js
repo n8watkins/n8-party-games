@@ -27,7 +27,7 @@ export function roundTime(state, now) {
   return (now - state.startAt) / 1000 - COUNT_IN;
 }
 
-export function createBattle({ seed, seats, now, round = 1, delay = SIM_DELAY, botSkill = 1 }) {
+export function createBattle({ seed, seats, now, round = 1, delay = SIM_DELAY, botSkill = 0.75 }) {
   const state = {
     seed: seed >>> 0,
     round,
@@ -39,6 +39,7 @@ export function createBattle({ seed, seats, now, round = 1, delay = SIM_DELAY, b
     bots: {},
     botSkill,
     attacks: [],
+    rest: {},
     nextAttack: 1,
     out: [],
     over: false,
@@ -76,8 +77,16 @@ function rivalOf(state, seat) {
   return best;
 }
 
+/** One player cannot rain the same attack: each kind rests a while after it is sent. */
+const REST = { jam: 7, moths: 9, dark: 0 };
+
 function sendAttack(state, type, from, to, t, returned = false) {
   if (to < 0) return;
+  if (!returned) {
+    const key = `${from}:${type}`;
+    if (t < (state.rest[key] ?? -99)) return;
+    state.rest[key] = t + REST[type];
+  }
   if (load(state, to, t) >= 2) {
     // Never more than two at once: the third one fizzles.
     state.out.push({ k: "fizz", type, from, to, t });
@@ -140,7 +149,7 @@ export const game = {
     const r = (k) => hash(state.seed ^ (seat * 7919), b.n * 16 + k);
     b.n += 1;
     const skill = state.botSkill;
-    b.next = t + COCK_SECONDS + 0.12 + r(0) * (0.75 / skill);
+    b.next = t + COCK_SECONDS + 0.2 + r(0) * (0.9 / skill);
     const options = sim.targets(t).filter((o) => o.id !== "bell" || sim.bell >= BELL_FULL || r(5) < 0.12);
     if (!options.length) return [];
     // Worth more: the jam (it frees the row), a full bell, then by points and by how near the row is.
@@ -171,7 +180,7 @@ export const game = {
       ax += tx - p.x;
       ay += ty - p.y;
     }
-    let err = (0.03 + choice.row * 0.012) / skill;
+    let err = (0.062 + choice.row * 0.022) / skill;
     if (t < sim.mothsUntil) err += 0.05;
     if (t < sim.darkUntil) err += 0.07;
     const gx = (r(1) + r(2) + r(3) - 1.5) * 1.4;

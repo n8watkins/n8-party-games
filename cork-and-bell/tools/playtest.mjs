@@ -1,9 +1,11 @@
 // The solo playtest: one full run with scripted input in headless Chromium (moves, clicks,
 // held keys), with screenshots of the start, the middle, the end card and the game after a
 // restart. Run the local server first (npm run dev), then: npm run playtest
-//   node cork-and-bell/tools/playtest.mjs [--size=1920x1080] [--fast=1]
-import { chromium } from "playwright";
+//   node cork-and-bell/tools/playtest.mjs [--size=1920x1080] [--touch=1] [--win=0]
+// By default it drives Chrome on the Windows side (the real graphics card); --win=0 uses
+// Playwright's Chromium in WSL, which renders in software and is far too slow to judge speed.
 import { mkdirSync } from "node:fs";
+import { openBrowser } from "./browser.mjs";
 
 const args = process.argv.slice(2);
 const opt = (k, d) => (args.find((a) => a.startsWith("--" + k + "=")) ?? "--" + k + "=" + d).split("=").slice(1).join("=");
@@ -13,8 +15,8 @@ const out = opt("out", "cork-and-bell/shots/playtest");
 const touch = opt("touch", "0") === "1";
 mkdirSync(out, { recursive: true });
 
-const browser = await chromium.launch({ headless: true, args: ["--use-angle=swiftshader", "--enable-unsafe-swiftshader"] });
-const context = await browser.newContext({ viewport: { width: w, height: h }, deviceScaleFactor: 1, hasTouch: touch, isMobile: touch });
+const browser = await openBrowser({ win: opt("win", "1") === "1", width: w, height: h });
+const context = await browser.newContext({ hasTouch: touch, isMobile: touch });
 const page = await context.newPage();
 const errors = [];
 const requests = new Set();

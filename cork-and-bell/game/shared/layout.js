@@ -3,7 +3,11 @@
 
 export const HALF_W = 1.25;
 
-export const COUNTER = { zFront: 0.04, zBack: -0.34, top: 0.98 };
+/** The steps stop here, short of the left wall: the drive runs in the gap. */
+export const STEP_LEFT = -1.03;
+
+// The counter is deep: on an upright phone its top fills the foreground, under the thumb.
+export const COUNTER = { zFront: 0.56, zBack: -0.34, top: 0.98 };
 
 /** Three tiers of staging. Each row of targets stands on a step; corks come to rest on them. */
 export const STEPS = [
@@ -23,9 +27,13 @@ export const WALL_TOP = 2.18;
 
 export const CAMERA = { pos: [0, 1.46, 0.82], look: [0, 1.29, -1.6], fov: 46 };
 
-/** Where the cork leaves the gun (the muzzle moves a little with the aim). */
+/**
+ * Where the cork starts in the simulation: close to the line of sight, so pointing at a far
+ * target is honest. The gun itself is held to the right (see gunMuzzle); the picture eases the
+ * cork from the barrel onto this path in its first tenth of a second.
+ */
 export function muzzle(ax, ay) {
-  return [0.15 + ax * 0.1, 1.25 + (ay - 1.3) * 0.08, 0.2];
+  return [0.04 + ax * 0.1, 1.25 + (ay - 1.3) * 0.08, 0.2];
 }
 
 // ---------------------------------------------------------------- targets
@@ -44,7 +52,7 @@ export const PENDULUM_RATE = 2.6; // radians per second of mechanism time
 export const SHUTTER = { id: "sh", x: 0, y: ROWS[2].y + 0.1, z: ROWS[2].z, r: 0.062, period: 3.2, open: 0.42 };
 export const BELL = { id: "bell", x: 0, y: 1.98, z: -2.7, r: 0.105 };
 /** Where a rival's cork wedges into the front row's cam. */
-export const JAM = { id: "jam", x: 1.04, y: ROWS[0].y + 0.07, z: ROWS[0].z + 0.02, r: 0.075 };
+export const JAM = { id: "jam", x: 0.97, y: ROWS[0].y + 0.07, z: ROWS[0].z + 0.02, r: 0.075 };
 
 /** The drive on the left wall: a flywheel and one wheel per row, all on one belt. */
 export const DRIVE = {
@@ -104,3 +112,8 @@ export const PRIZE_SHELF = { x: HALF_W, y: 1.5, z0: -1.18, z1: -2.22 };
 export const SCORE_WINDOW = { x: 0, y: 2.335, z: BACK.z + 0.045, w: 0.5, h: 0.125 };
 export const CHALK_BOARD = { x: -HALF_W + 0.012, y: 1.86, z: -2.02, w: 0.62, h: 0.5 };
 export const TRAY = { x: 0.72, z: -0.17, w: 0.3, d: 0.2 };
+
+/** Where the barrel's mouth is in the picture. */
+export function gunMuzzle(ax, ay) {
+  return [0.25 + ax * 0.1, 1.22 + (ay - 1.3) * 0.1, 0.0];
+}

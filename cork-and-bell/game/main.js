@@ -21,7 +21,7 @@ import { LocalSession, NetSession } from "./session.js";
 import { ATTACK_NAMES, COUNT_IN, game } from "./shared/battle.js";
 import { ROWS } from "./shared/layout.js";
 import { BELL_FULL, COCK_SECONDS, ROUND_SECONDS, mech, speedAt } from "./shared/sim.js";
-import { Lens } from "./view/render.js";
+import { Lens, gridFor } from "./view/render.js";
 import { StallAssets, StallView } from "./view/stall.js";
 
 const params = new URLSearchParams(location.search);
@@ -67,7 +67,7 @@ let bannerUntil = 0;
 let bannerAttack = null;
 let autoStart = null;
 const moments = [];
-const botState = { bots: {}, botSkill: 1, delay: 0 };
+const botState = { bots: {}, botSkill: 0.8, delay: 0 };
 
 // ------------------------------------------------------------------ loading
 
@@ -101,10 +101,10 @@ function bestScores() {
     // No storage: the board starts from the house scores.
   }
   return [
-    { name: "Mabel", score: 2140 },
-    { name: "Old Tom", score: 1675 },
-    { name: "Fitch", score: 1320 },
-    { name: "Dolly", score: 960 },
+    { name: "Mabel", score: 4120 },
+    { name: "Old Tom", score: 3375 },
+    { name: "Fitch", score: 2640 },
+    { name: "Dolly", score: 1890 },
     { name: "You?", score: 0 },
   ];
 }
@@ -144,7 +144,7 @@ function startLocal(kind, { countIn = COUNT_IN } = {}) {
     kind === "four"
       ? ["Mabel", "Old Tom", "Fitch", "Dolly"].map((name, seat) => ({ seat, name, kind: "bot" }))
       : [{ seat: 0, name: kind === "solo" ? "You" : "The house", kind: kind === "solo" ? "human" : "bot" }];
-  session = new LocalSession({ seed, seats, mySeat: 0, countIn, botSkill: kind === "four" ? 0.8 : 1.25 });
+  session = new LocalSession({ seed, seats, mySeat: kind === "four" ? -1 : 0, countIn, botSkill: kind === "four" ? 0.75 : 0.95 });
   makeViews(seats, kind === "four" ? -1 : 0);
   endShownAt = null;
   lastTime = -99;
@@ -171,16 +171,18 @@ function startNet(msg) {
 function layout() {
   lens.resize(innerWidth, innerHeight, devicePixelRatio || 1);
   const n = Math.max(1, views.length);
-  for (const v of views) v.view.aspect = innerWidth / n / innerHeight;
+  const [cols, rows] = gridFor(n);
+  for (const v of views) v.view.aspect = innerWidth / cols / (innerHeight / rows);
   const names = $("names");
   names.replaceChildren();
   if (views.length > 1) {
     views.forEach((v, i) => {
       const seat = session.seats.find((s) => s.seat === v.seat);
       const el = document.createElement("span");
-      el.style.left = `${((i + 0.5) / n) * 100}%`;
+      el.style.left = `${(((i % cols) + 0.5) / cols) * 100}%`;
+      el.style.bottom = `calc(${((rows - 1 - Math.floor(i / cols)) / rows) * 100}% + 14px)`;
       el.style.setProperty("--seat", SEAT_COLOURS[v.seat]);
-      el.innerHTML = `<span></span><b>0</b><em></em>`;
+      el.innerHTML = `<i></i><b>0</b><em></em>`;
       el.firstChild.textContent = seat?.name ?? "";
       names.appendChild(el);
       v.plate = el;
@@ -384,8 +386,9 @@ function pop(view, e, text, sub, big) {
     s.textContent = sub;
     el.appendChild(s);
   }
-  el.style.left = `${((i + u) / views.length) * 100}%`;
-  el.style.top = `${v * 100}%`;
+  const [cols, rows] = gridFor(views.length);
+  el.style.left = `${(((i % cols) + u) / cols) * 100}%`;
+  el.style.top = `${((Math.floor(i / cols) + v) / rows) * 100}%`;
   $("pops").appendChild(el);
   setTimeout(() => el.remove(), 950);
 }

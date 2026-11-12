@@ -14,7 +14,7 @@ uniform sampler2D tDepth;
 uniform vec2 uTexel;
 uniform float uNear, uFar;
 uniform float uFocus[4];
-uniform float uViews;
+uniform vec2 uGrid;     // columns and rows of stalls on the screen
 uniform float uScale;   // pixels of blur for something infinitely far when focused close
 varying vec2 vUv;
 float linearDepth(vec2 uv) {
@@ -22,7 +22,7 @@ float linearDepth(vec2 uv) {
   return 2.0 * uNear * uFar / (uFar + uNear - z * (uFar - uNear));
 }
 float focusAt(vec2 uv) {
-  int i = int(clamp(floor(uv.x * uViews), 0.0, 3.0));
+  int i = int(clamp(floor(uv.x * uGrid.x) + floor((1.0 - uv.y) * uGrid.y) * uGrid.x, 0.0, 3.0));
   return i == 0 ? uFocus[0] : i == 1 ? uFocus[1] : i == 2 ? uFocus[2] : uFocus[3];
 }
 float coc(float d, float focus) {
@@ -37,10 +37,12 @@ void main() {
   vec3 acc = texture2D(tColor, vUv).rgb;
   float total = 1.0;
   float maxR = uScale;
+  // The spiral is turned by a different amount at every pixel, so its pattern never shows.
+  float turn = fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715)))) * 6.2832;
   for (int i = 1; i <= TAPS; i++) {
     float fi = float(i);
-    float r = sqrt(fi / float(TAPS)) * maxR;
-    float a = fi * 2.39996323;
+    float r = sqrt((fi - 0.5) / float(TAPS)) * maxR;
+    float a = fi * 2.39996323 + turn;
     vec2 uv = vUv + vec2(cos(a), sin(a)) * r * uTexel;
     float d = linearDepth(uv);
     float c = abs(coc(d, focus));
@@ -94,7 +96,7 @@ uniform sampler2D tBloom;
 uniform float uTime;
 uniform float uExposure;
 uniform float uGrain;
-uniform float uViews;
+uniform vec2 uGrid;
 uniform vec2 uSize;
 varying vec2 vUv;
 float hash(vec2 p) { p = fract(p * vec2(443.897, 441.423)); p += dot(p, p.yx + 19.19); return fract((p.x + p.y) * p.x); }
@@ -108,7 +110,7 @@ void main() {
   vec3 bloom = texture2D(tBloom, vUv).rgb;
   c += bloom * 0.42;
   // Vignette, per stall on a shared screen.
-  vec2 q = vec2(fract(vUv.x * uViews), vUv.y) - 0.5;
+  vec2 q = fract(vUv * uGrid) - 0.5;
   float vig = 1.0 - dot(q, q) * 0.62;
   c *= vig * vig * uExposure;
   c = filmic(c);
@@ -131,7 +133,7 @@ export class Lens {
     this.renderer.info.autoReset = false;
     this.quality = quality;
     this.scale = 1; // internal resolution, lowered when frames take too long
-    this.taps = quality === "low" ? 16 : 40;
+    this.taps = quality === "low" ? 22 : 44;
     this.near = 0.08;
     this.far = 120;
     this.focus = [2.4, 2.4, 2.4, 2.4];
@@ -142,12 +144,12 @@ export class Lens {
     this.fsqScene = new THREE.Scene();
     this.fsqScene.add(this.fsq);
     const mat = (frag, uniforms, defines) => new THREE.ShaderMaterial({ vertexShader: FSQ_VERT, fragmentShader: frag, uniforms, defines, depthTest: false, depthWrite: false });
-    this.dofMat = mat(DOF_FRAG, { tColor: { value: null }, tDepth: { value: null }, uTexel: { value: new THREE.Vector2() }, uNear: { value: this.near }, uFar: { value: this.far }, uFocus: { value: this.focus }, uViews: { value: 1 }, uScale: { value: 12 } }, { TAPS: this.taps });
+    this.dofMat = mat(DOF_FRAG, { tColor: { value: null }, tDepth: { value: null }, uTexel: { value: new THREE.Vector2() }, uNear: { value: this.near }, uFar: { value: this.far }, uFocus: { value: this.focus }, uGrid: { value: new THREE.Vector2(1, 1) }, uScale: { value: 12 } }, { TAPS: this.taps });
     this.downMat = mat(DOWN_FRAG, { tColor: { value: null }, uTexel: { value: new THREE.Vector2() }, uThreshold: { value: 0 } });
     this.upMat = mat(UP_FRAG, { tColor: { value: null }, uTexel: { value: new THREE.Vector2() } });
     this.upMat.blending = THREE.AdditiveBlending;
     this.upMat.transparent = true;
-    this.finalMat = mat(FINAL_FRAG, { tColor: { value: null }, tBloom: { value: null }, uTime: { value: 0 }, uExposure: { value: 0.66 }, uGrain: { value: 0.05 }, uViews: { value: 1 }, uSize: { value: new THREE.Vector2() } });
+    this.finalMat = mat(FINAL_FRAG, { tColor: { value: null }, tBloom: { value: null }, uTime: { value: 0 }, uExposure: { value: 0.66 }, uGrain: { value: 0.05 }, uGrid: { value: new THREE.Vector2(1, 1) }, uSize: { value: new THREE.Vector2() } });
     this.targets = null;
     this.width = 0;
     this.height = 0;
@@ -205,13 +207,18 @@ export class Lens {
     r.setClearColor(0x000000, 1);
     r.clear(true, true, false);
     const n = views.length;
+    const [cols, rows] = gridFor(n);
     this.views = n;
     r.setScissorTest(n > 1);
     for (let i = 0; i < n; i++) {
-      const x0 = Math.round((i * w) / n);
-      const x1 = Math.round(((i + 1) * w) / n);
-      this.sceneRT.viewport.set(x0, 0, x1 - x0, h);
-      this.sceneRT.scissor.set(x0, 0, x1 - x0, h);
+      const col = i % cols;
+      const row = Math.floor(i / cols);
+      const x0 = Math.round((col * w) / cols);
+      const x1 = Math.round(((col + 1) * w) / cols);
+      const y0 = Math.round(h - ((row + 1) * h) / rows);
+      const y1 = Math.round(h - (row * h) / rows);
+      this.sceneRT.viewport.set(x0, y0, x1 - x0, y1 - y0);
+      this.sceneRT.scissor.set(x0, y0, x1 - x0, y1 - y0);
       this.sceneRT.scissorTest = n > 1;
       r.setRenderTarget(this.sceneRT);
       r.render(views[i].scene, views[i].camera);
@@ -224,8 +231,9 @@ export class Lens {
     d.tColor.value = this.sceneRT.texture;
     d.tDepth.value = this.sceneRT.depthTexture;
     d.uTexel.value.set(1 / w, 1 / h);
-    d.uViews.value = n;
-    d.uScale.value = (h / 1080) * 13;
+    d.uGrid.value.set(cols, rows);
+    // The blur is sized by the height of one stall's picture; small and low-quality screens get less.
+    d.uScale.value = (h / rows / 1080) * 13 * (this.quality === "low" ? 0.7 : 1);
     this.pass(this.dofMat, this.dofRT);
 
     // Bloom: only what is brighter than paper white, spread wide and soft.
@@ -249,10 +257,15 @@ export class Lens {
     f.tColor.value = this.dofRT.texture;
     f.tBloom.value = this.bloom[0].texture;
     f.uTime.value = time;
-    f.uViews.value = n;
+    f.uGrid.value.set(cols, rows);
     f.uSize.value.set(w, h);
     this.pass(this.finalMat, null);
   }
+}
+
+/** How the stalls share the screen: side by side up to three, two rows of two for four. */
+export function gridFor(n) {
+  return n <= 3 ? [Math.max(1, n), 1] : [2, 2];
 }
 
 // ---------------------------------------------------------------- the sky and the far fairground

@@ -269,7 +269,12 @@ export class Sound {
   }
 }
 
+let touched = false;
+addEventListener("pointerdown", () => (touched = true), { once: true });
+
+/** Haptics, where the browser allows them (it asks for a tap first). */
 export function buzz(pattern) {
+  if (!touched) return;
   try {
     navigator.vibrate?.(pattern);
   } catch {

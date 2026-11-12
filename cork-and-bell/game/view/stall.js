@@ -2,7 +2,7 @@
 // that it sits in the baked light (matching environment, one soft key light with shadows).
 // A StallView reads a StallSim at a given round time and reacts to its events.
 import * as THREE from "three";
-import { BACK, BELL, BULBS, CAMERA, CHAIN, CHALK_BOARD, COUNTER, DRIVE, HALF_W, JAM, KEY_LIGHT, PENDULUMS, PLATES, ROWS, SCORE_WINDOW, SHUTTER, STEPS, TRAY, muzzle } from "../shared/layout.js";
+import { BACK, BELL, BULBS, CAMERA, CHAIN, CHALK_BOARD, COUNTER, DRIVE, HALF_W, JAM, KEY_LIGHT, PENDULUMS, PLATES, ROWS, SCORE_WINDOW, SHUTTER, STEPS, TRAY, gunMuzzle, muzzle } from "../shared/layout.js";
 import { BELL_FULL, COCK_SECONDS, CORK_R, camLift, chainStar, mech, pendulumAngle, shutterOpen } from "../shared/sim.js";
 import { chalkTexture, disc, paintBelt, paintCork, paintMoon, paintReel, paintSheet, paintStar, paintTeapot, paintWood, plateGeometry, star, TEAPOT } from "./paint.js";
 import { makeFarLights, makeSky } from "./render.js";
@@ -10,7 +10,7 @@ import { makeFarLights, makeSky } from "./render.js";
 const LIGHT_RANGE = 4.0;
 const WARM = new THREE.Color(1.0, 0.56, 0.24);
 const TEAPOT_COLOURS = ["#a8261c", "#1f5f86", "#d8c08a", "#2f6b46", "#b8741c"];
-export const PRIZE_SCORES = [300, 700, 1200, 1800, 2600];
+export const PRIZE_SCORES = [400, 1000, 1800, 2800, 4000];
 
 const SET_VERT = /* glsl */ `
 varying vec2 vUv;
@@ -51,11 +51,11 @@ export class StallAssets {
     this.moonMat = std(paintMoon(9));
     this.moonGeo = plateGeometry(disc(), PENDULUMS[0].r * 2.06, PENDULUMS[0].r * 2.06);
     this.smallStarGeo = plateGeometry(star(), SHUTTER.r * 2, SHUTTER.r * 2, 0.003);
-    this.redSheet = std(paintSheet("#9c231a", 3, { lines: true }));
-    this.greenSheet = std(paintSheet("#1d4a33", 5));
+    this.redSheet = std(paintSheet("#8a1c14", 3, { lines: true }), { bumpScale: 0.35 });
+    this.greenSheet = std(paintSheet("#1d4a33", 5), { bumpScale: 0.35 });
     this.iron = new THREE.MeshStandardMaterial({ color: 0x1a1a1c, roughness: 0.62, metalness: 0.75 });
     this.wornIron = new THREE.MeshStandardMaterial({ color: 0x3a3632, roughness: 0.45, metalness: 0.85 });
-    this.brass = new THREE.MeshStandardMaterial({ color: 0xc89a3c, roughness: 0.26, metalness: 1.0 });
+    this.brass = new THREE.MeshStandardMaterial({ color: 0xc89a3c, roughness: 0.32, metalness: 1.0 });
     this.brassDull = new THREE.MeshStandardMaterial({ color: 0x9a7430, roughness: 0.48, metalness: 1.0 });
     const cork = paintCork();
     this.cork = new THREE.MeshStandardMaterial({ map: cork, roughness: 0.92, metalness: 0 });
@@ -66,7 +66,7 @@ export class StallAssets {
     this.belt = paintBelt();
     this.beltMat = new THREE.MeshStandardMaterial({ map: this.belt, roughness: 0.75, side: THREE.DoubleSide });
     this.reelTex = paintReel();
-    this.reelMat = new THREE.MeshStandardMaterial({ map: this.reelTex, roughness: 0.5, color: 0x8c8c8c });
+    this.reelMat = new THREE.MeshStandardMaterial({ map: this.reelTex, roughness: 0.5, color: 0xb8b8b8 });
     // A cork: a short tapered cylinder, lying along z when at rest.
     this.corkGeo = new THREE.CylinderGeometry(CORK_R * 0.86, CORK_R, 0.03, 14);
     this.corkGeo.rotateX(Math.PI / 2);
@@ -100,7 +100,7 @@ void main() {
   float filament = smoothstep(0.1, 0.0, loop) * step(-0.52, vLocal.y) * facing;
   float cold = filament * 0.08;
   // Lit: the filament burns out to white and the whole envelope glows.
-  vec3 lit = uWarm * (1.1 + 2.6 * pow(facing, 1.5)) + vec3(1.0, 0.82, 0.55) * filament * 14.0;
+  vec3 lit = uWarm * (0.6 + 1.2 * pow(facing, 1.5)) + vec3(1.0, 0.8, 0.5) * filament * 14.0;
   vec3 c = mix(glass + vec3(cold), lit, clamp(vLevel, 0.0, 1.0)) * max(1.0, vLevel);
   gl_FragColor = vec4(c, 1.0);
 }`;
@@ -128,9 +128,14 @@ precision highp float;
 uniform vec3 uLight;
 varying float vShade; varying vec2 vUv;
 void main() {
-  float wing = smoothstep(1.0, 0.82, length(vUv * vec2(1.0, 1.35)));
-  if (wing < 0.5) discard;
-  vec3 c = mix(vec3(0.5, 0.42, 0.32), vec3(0.22, 0.17, 0.12), smoothstep(0.2, 0.9, length(vUv)));
+  // Two wings with a dark body between them, a pale band and a darker edge.
+  float wing = smoothstep(1.0, 0.86, length(vec2(abs(vUv.x) - 0.5, vUv.y * 0.9) * vec2(1.9, 1.25)));
+  float body = smoothstep(0.1, 0.05, abs(vUv.x)) * step(abs(vUv.y), 0.62);
+  if (max(wing, body) < 0.5) discard;
+  float d = length(vec2(abs(vUv.x) - 0.5, vUv.y));
+  vec3 c = mix(vec3(0.5, 0.41, 0.29), vec3(0.16, 0.12, 0.08), smoothstep(0.15, 0.55, d));
+  c = mix(c, vec3(0.66, 0.58, 0.44), smoothstep(0.08, 0.0, abs(d - 0.3)) * 0.6);
+  c = mix(c, vec3(0.08, 0.06, 0.05), body);
   gl_FragColor = vec4(c * uLight * vShade, 1.0);
 }`;
 
@@ -214,7 +219,7 @@ export class StallView {
     this.key.shadow.blurSamples = 14;
     this.key.shadow.bias = -0.0006;
     scene.add(this.key, this.key.target);
-    this.fill = new THREE.HemisphereLight(0x3a4c8c, 0x1a1410, 0.5);
+    this.fill = new THREE.HemisphereLight(0x3a4c8c, 0x1a1410, 0.26);
     scene.add(this.fill);
     // The bulbs along the front of the awning also light the counter, the gun and the drive.
     this.front = new THREE.PointLight(WARM, 5, 7, 1.5);
@@ -266,7 +271,7 @@ export class StallView {
     shaft.rotation.z = Math.PI / 2;
     shaft.position.copy(this.cam.position);
     // The cork a rival wedges into the cam.
-    this.jamCork = this.mesh(new THREE.CylinderGeometry(0.03, 0.036, 0.085, 18), A.corkRed);
+    this.jamCork = this.mesh(new THREE.CylinderGeometry(0.042, 0.05, 0.13, 20), A.corkRed);
     this.jamCork.visible = false;
 
     // Middle row: gilt stars riding a chain in a slot.
@@ -338,6 +343,9 @@ export class StallView {
     dome.position.z = 0.045;
     dome.material = this.assets.brass.clone();
     dome.material.side = THREE.DoubleSide;
+    dome.material.roughness = 0.44;
+    dome.material.color.set(0xa87c2c);
+    dome.material.envMapIntensity = 0.7;
     this.bellDome = dome;
     const boss = this.mesh(new THREE.SphereGeometry(0.018, 14, 10), A.brassDull, this.bell);
     boss.position.z = 0.05;
@@ -460,10 +468,10 @@ export class StallView {
     const n = 5;
     const w = SCORE_WINDOW.w / n;
     for (let i = 0; i < n; i++) {
-      const geo = new THREE.CylinderGeometry(0.062, 0.062, w - 0.008, 40, 1, true);
+      const geo = new THREE.CylinderGeometry(0.11, 0.11, w - 0.008, 48, 1, true);
       geo.rotateZ(Math.PI / 2);
       const reel = this.mesh(geo, A.reelMat, this.scene, false);
-      reel.position.set(SCORE_WINDOW.x - SCORE_WINDOW.w / 2 + w * (i + 0.5), SCORE_WINDOW.y, SCORE_WINDOW.z - 0.052);
+      reel.position.set(SCORE_WINDOW.x - SCORE_WINDOW.w / 2 + w * (i + 0.5), SCORE_WINDOW.y, SCORE_WINDOW.z - 0.118);
       this.reels.push(reel);
     }
     const chalk = new THREE.Mesh(new THREE.PlaneGeometry(CHALK_BOARD.w, CHALK_BOARD.h), new THREE.MeshBasicMaterial({ map: A.chalk.texture, transparent: true, color: new THREE.Color(0.5, 0.4, 0.3) }));
@@ -514,27 +522,27 @@ export class StallView {
     this.gunGroup = g;
     this.scene.add(g);
     // Built along -z: the muzzle is at the origin, the stock runs back towards the player.
-    const barrel = this.mesh(new THREE.CylinderGeometry(0.0125, 0.0135, 0.4, 20), A.brass, g);
+    const barrel = this.mesh(new THREE.CylinderGeometry(0.0125, 0.0135, 0.3, 20), A.brass, g);
     barrel.rotation.x = Math.PI / 2;
-    barrel.position.z = 0.2;
+    barrel.position.z = 0.15;
     const lip = this.mesh(new THREE.TorusGeometry(0.014, 0.004, 8, 20), A.brass, g);
     const band = this.mesh(new THREE.CylinderGeometry(0.017, 0.017, 0.025, 20), A.brassDull, g);
     band.rotation.x = Math.PI / 2;
-    band.position.z = 0.3;
+    band.position.z = 0.2;
     const sight = this.mesh(new THREE.SphereGeometry(0.004, 8, 6), A.brass, g);
     sight.position.set(0, 0.016, 0.02);
     // The turned wood fore-end and stock.
     const pts = [[0.0, 0], [0.019, 0], [0.024, 0.04], [0.026, 0.16], [0.022, 0.21], [0.027, 0.26], [0.031, 0.34], [0.03, 0.48], [0.036, 0.6], [0.04, 0.68], [0.03, 0.7], [0, 0.7]].map(([r, y]) => new THREE.Vector2(r, y));
     const stock = this.mesh(new THREE.LatheGeometry(pts, 24), A.wood, g);
     stock.rotation.x = Math.PI / 2;
-    stock.position.set(0, -0.012, 0.36);
+    stock.position.set(0, -0.012, 0.2);
     stock.scale.set(1, 1, 1.25);
     const guard = this.mesh(new THREE.TorusGeometry(0.03, 0.004, 8, 20, Math.PI), A.brass, g);
     guard.rotation.set(0, Math.PI / 2, Math.PI);
-    guard.position.set(0, -0.05, 0.62);
+    guard.position.set(0, -0.05, 0.5);
     // The cocking lever, hinged under the breech.
     this.lever = new THREE.Group();
-    this.lever.position.set(0, -0.03, 0.44);
+    this.lever.position.set(0, -0.03, 0.3);
     g.add(this.lever);
     const arm = this.mesh(new THREE.BoxGeometry(0.008, 0.008, 0.2), A.brass, this.lever);
     arm.position.set(0.03, -0.004, 0.1);
@@ -660,7 +668,7 @@ export class StallView {
     this.setMat.uniforms.uPulse.value = this.pulse;
     this.key.intensity = 26 * B * (1 + this.pulse);
     this.front.intensity = 5 * B;
-    this.scene.environmentIntensity = 0.12 + 0.88 * B;
+    this.scene.environmentIntensity = 0.07 + 0.93 * B;
     this.shadowMat.opacity = 0.5 * B;
     this.farLights.material.uniforms.uTime.value = wall;
     const chasing = t < this.chaseUntil;
@@ -680,7 +688,7 @@ export class StallView {
           const d1 = Math.abs(((borderIndex - head + n * 1.5) % n) - n / 2);
           const d2 = Math.abs(((n - 1 - borderIndex - head + n * 1.5) % n) - n / 2);
           const d = this.chaseKind === 2 ? Math.min(d1, d2) : d1;
-          L = B * (0.3 + 1.9 * Math.max(0, 1 - d / 2.5));
+          L = B * (0.72 + 1.7 * Math.max(0, 1 - d / 2.5));
         } else {
           L = B * (0.92 + 0.08 * Math.sin(wall * 2 + borderIndex * 1.7));
         }
@@ -810,6 +818,15 @@ export class StallView {
       mesh.visible = !!c;
       if (!c) continue;
       mesh.position.set(c.p[0], c.p[1], c.p[2]);
+      if (c.age < 0.12 && !c.bounces) {
+        // It leaves the barrel's mouth and settles onto its true path within a tenth of a second.
+        const k = (1 - c.age / 0.12) ** 2;
+        const from = gunMuzzle(c.ax ?? 0, c.ay ?? 1.3);
+        const to = muzzle(c.ax ?? 0, c.ay ?? 1.3);
+        mesh.position.x += (from[0] - to[0]) * k;
+        mesh.position.y += (from[1] - to[1]) * k;
+        mesh.position.z += (from[2] - to[2]) * k;
+      }
       // It tumbles end over end as it flies.
       const spin = c.age * (18 + c.spin * 30);
       mesh.rotation.set(spin, c.spin * 6, spin * 0.37);
@@ -840,7 +857,7 @@ export class StallView {
       target += base;
       if (target < cur - 0.01) target += 10;
       this.reelAngles[i] = frozen ? target : cur + (target - cur) * Math.min(1, dt * (5 + i * 2.2));
-      this.reels[i].rotation.x = (this.reelAngles[i] / 10) * Math.PI * 2 + Math.PI * 0.5 + 0.314;
+      this.reels[i].rotation.x = (this.reelAngles[i] / 10) * Math.PI * 2 + Math.PI / 10;
     }
 
     // ---- the gun: it follows the aim with weight, sways, kicks and is cocked again.
@@ -856,12 +873,13 @@ export class StallView {
     const sway = frozen ? 0 : 1;
     const ax = this.aimSoft.x + Math.sin(wall * 1.1) * 0.012 * sway;
     const ay = this.aimSoft.y + Math.sin(wall * 1.7 + 1) * 0.009 * sway;
-    const mz = muzzle(ax, ay);
+    const mz = gunMuzzle(ax, ay);
     const dir = v3.set(ax - mz[0], ay - mz[1], ROWS[0].z - mz[2]).normalize();
-    this.gunGroup.position.set(mz[0], mz[1] - 0.012, mz[2]).addScaledVector(dir, -g.kick * 0.035);
-    // The barrel lies along the aim; the butt drops towards the player's shoulder.
+    this.gunGroup.position.set(mz[0], mz[1], mz[2]).addScaledVector(dir, -g.kick * 0.035);
+    // The barrel lies along the aim; the butt drops a little towards the player's shoulder.
     this.gunGroup.rotation.set(0, 0, 0);
-    this.gunGroup.lookAt(this.gunGroup.position.x - dir.x, this.gunGroup.position.y - dir.y - 0.14, this.gunGroup.position.z - dir.z);
+    this.gunGroup.lookAt(this.gunGroup.position.x - dir.x, this.gunGroup.position.y - dir.y - 0.05, this.gunGroup.position.z - dir.z);
+    this.gunTip = mz;
     this.gunGroup.rotateX(-g.pitch * 0.05);
     this.gunGroup.rotateZ(g.roll * 0.03);
     const sinceFire = t - sim.lastFire;
@@ -877,7 +895,7 @@ export class StallView {
     const want = mothsOn ? 1 : 0;
     this.mothAmount += (want - this.mothAmount) * (frozen ? 1 : Math.min(1, dt * 2.2));
     this.mothMat.uniforms.uTime.value = wall;
-    this.mothMat.uniforms.uLight.value.setRGB(2.2 * B + 0.1, 1.5 * B + 0.12, 0.9 * B + 0.2);
+    this.mothMat.uniforms.uLight.value.setRGB(1.15 * B + 0.06, 0.85 * B + 0.07, 0.55 * B + 0.1);
     for (let i = 0; i < this.mothCount; i++) {
       const s = this.mothSeed[i];
       let x, y, z, size;
@@ -897,12 +915,13 @@ export class StallView {
         const drift = wall * (0.25 + s[0] * 0.3) + s[1] * 10;
         const gx = (s[0] - 0.5) * 2.0 + Math.sin(drift * 2.1) * 0.25;
         const gy = 1.95 + s[1] * 0.12 + Math.sin(drift * 5) * 0.03;
-        const sx = ((s[0] * 3 + wall * (0.12 + s[2] * 0.2)) % 1) * 2.6 - 1.3 + Math.sin(drift * 3.3) * 0.12;
-        const sy = 1.0 + s[1] * 1.05 + Math.sin(drift * 2.7 + s[3] * 6) * 0.1;
+        const sx = ((s[0] * 3 + wall * (0.12 + s[2] * 0.2)) % 1) * 2.4 - 1.2 + Math.sin(drift * 3.3) * 0.12;
+        const sy = 1.02 + s[1] * 1.0 + Math.sin(drift * 2.7 + s[3] * 6) * 0.1;
         x = gx + (sx - gx) * amt;
         y = gy + (sy - gy) * amt;
-        z = -0.85 + (-0.2 - s[2] * 1.0 + 0.85) * amt;
-        size = (0.017 + s[3] * 0.012) * Math.min(1, Math.max(gather, amt) * 1.4);
+        // They cross just in front of the front row, where the lens is sharp, so they read as moths.
+        z = -0.9 + (-1.42 + s[2] * 0.45 + 0.9) * amt;
+        size = (0.024 + s[3] * 0.018) * Math.min(1, Math.max(gather, amt) * 1.4);
       }
       this.mothPos.set([x, y, z, size], i * 4);
     }
@@ -941,7 +960,7 @@ export class StallView {
     cam.aspect = aspect;
     let pos = CAMERA.pos;
     let look = CAMERA.look;
-    let fov = Math.max(CAMERA.fov, THREE.MathUtils.radToDeg(2 * Math.atan(0.47 / aspect)));
+    let fov = Math.max(CAMERA.fov, THREE.MathUtils.radToDeg(2 * Math.atan(0.43 / aspect)));
     let focus = this.focusTarget;
     if (this.viewName === "wide") {
       pos = [0.9, 1.75, 2.6];
@@ -964,17 +983,17 @@ export class StallView {
       fov = 44;
       focus = 0.86;
     } else if (this.viewName === "gun") {
-      pos = [0.42, 1.4, 0.6];
-      look = [0.05, 1.28, -0.2];
-      fov = 40;
-      focus = 0.75;
+      pos = [-0.22, 1.36, 0.42];
+      look = [0.3, 1.19, 0.2];
+      fov = 44;
+      focus = 0.55;
     } else {
       // The aim's height picks the row the lens focuses on.
       const y = this.aimSoft.y;
       focus = y < 1.36 ? 2.36 : y < 1.72 ? 2.9 : 3.45;
       // The player leans a little with the aim.
       pos = [CAMERA.pos[0] + this.aimSoft.x * 0.035, CAMERA.pos[1] + (this.aimSoft.y - 1.3) * 0.02, CAMERA.pos[2]];
-      look = [CAMERA.look[0] + this.aimSoft.x * 0.05, CAMERA.look[1] + (this.aimSoft.y - 1.3) * 0.05 - (aspect < 1 ? 0.12 : 0), CAMERA.look[2]];
+      look = [CAMERA.look[0] + this.aimSoft.x * 0.05, CAMERA.look[1] + (this.aimSoft.y - 1.3) * 0.05 - (aspect < 1 ? 0.1 : 0), CAMERA.look[2]];
     }
     cam.fov = fov;
     cam.position.set(pos[0], pos[1] + Math.sin(wall * 0.8) * 0.002, pos[2]);

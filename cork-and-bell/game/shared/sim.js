@@ -3,7 +3,7 @@
 // drawn from the seed and the shot's number.
 //
 // Time `t` is round time in seconds (0 at the opening bell, negative during the count-in).
-import { BACK, BELL, CHAIN, COUNTER, HALF_W, JAM, PENDULUMS, PENDULUM_RATE, PLATES, ROWS, SHUTTER, STEPS, muzzle } from "./layout.js";
+import { BACK, BELL, CHAIN, COUNTER, HALF_W, JAM, PENDULUMS, PENDULUM_RATE, PLATES, ROWS, SHUTTER, STEPS, STEP_LEFT, muzzle } from "./layout.js";
 
 export const DT = 1 / 120;
 export const ROUND_SECONDS = 90;
@@ -99,10 +99,10 @@ export function camLift(t) {
   return f < 0.45 ? f / 0.45 : -1;
 }
 
-function stepTop(z) {
+function stepTop(z, x) {
   if (z > COUNTER.zFront + 0.3) return -5; // off the front of the stall: gone
   if (z > COUNTER.zBack) return COUNTER.top;
-  if (z > STEPS[0].zFront) return 0;
+  if (z > STEPS[0].zFront || x < STEP_LEFT) return 0; // the floor, and the gap the drive runs in
   if (z > STEPS[1].zFront) return STEPS[0].top;
   if (z > STEPS[2].zFront) return STEPS[1].top;
   return STEPS[2].top;
@@ -202,7 +202,7 @@ export class StallSim {
     // Each cork has its own small drift and spin: it wanders more the farther it flies.
     const drift = (hash(this.seed, n * 3 + 1) - 0.5) * 1.5;
     const lift = (hash(this.seed, n * 3 + 2) - 0.5) * 0.7;
-    this.corks.push({ id: n, p, v, drift, lift, bounces: 0, struck: 0, born: this.t, age: 0, spin: hash(this.seed, n * 3 + 3) });
+    this.corks.push({ id: n, p, v, drift, lift, bounces: 0, struck: 0, born: this.t, age: 0, spin: hash(this.seed, n * 3 + 3), ax: shot.ax, ay: shot.ay });
     this.events.push({ k: "fire", seat: this.seat, id: n, t: this.t, ax: shot.ax, ay: shot.ay });
   }
 
@@ -279,9 +279,9 @@ export class StallSim {
       this.bounce(c, "board");
     }
     // The steps, the floor and the counter.
-    const top = stepTop(p[2]);
+    const top = stepTop(p[2], p[0]);
     if (p[1] < top + CORK_R) {
-      const before = stepTop(z0);
+      const before = stepTop(z0, x0);
       if (before < top - 0.02 && y0 < top) {
         // It met a riser: back it comes.
         p[2] = z0;
@@ -407,16 +407,26 @@ export class StallSim {
     const into = v[2] < 0 ? 1 : -1;
     p[0] = hit.x;
     p[1] = hit.y;
-    p[2] = hit.z + into * 0.012;
-    v[2] *= -0.3;
-    v[0] = v[0] * 0.5 + (hit.x - (hit.target === "bell" ? BELL.x : hit.x)) + (c.spin - 0.5) * 1.6;
-    v[1] = v[1] * 0.4 + 0.9;
+    if (hit.target === "bell") {
+      // The bell is solid: the cork comes straight back off it.
+      p[2] = hit.z + into * 0.012;
+      v[2] *= -0.3;
+      v[0] = v[0] * 0.5 + (c.spin - 0.5) * 1.6;
+      v[1] = v[1] * 0.4 + 0.9;
+    } else {
+      // A plate gives way: the cork spends itself on it, tips over the top and drops just behind,
+      // where it stays in view on the step.
+      p[2] = hit.z - into * 0.012;
+      v[2] *= 0.13;
+      v[0] = v[0] * 0.3 + (c.spin - 0.5) * 0.9;
+      v[1] = v[1] * 0.2 + 0.75;
+    }
     const ricochet = c.bounces > 0;
     c.bounces += 1;
     c.struck += 1;
     if (!this.live) return;
 
-    const perfect = hit.q <= 0.2;
+    const perfect = hit.q <= 0.17; // inside about four tenths of the target's radius
     this.streak += 1;
     this.hits += 1;
     this.best = Math.max(this.best, this.streak);

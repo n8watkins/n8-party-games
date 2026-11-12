@@ -357,18 +357,22 @@ for nm, a in (("l", (tx0 - 0.012, tx0, tz0 + 0.012, tz1 - 0.012)), ("r", (tx1, t
 
 # The three steps: treads the corks land on, risers with painted panels.
 values = ["10", "25", "50"]
+SL = L["STEP_LEFT"]
+box("gutter_floor", -1.3, SL, -0.04, 0.0, -1.42, -2.82, "floor", bevel=0)
 for i, s in enumerate(steps_):
     prev_top = 0.0 if i == 0 else steps_[i - 1]["top"]
-    box(f"tread{i}", -W, W, s["top"] - 0.03, s["top"], s["zFront"] + 0.012, s["zBack"], "tread", bevel=0.005)
-    box(f"riser{i}", -W, W, prev_top - 0.02 if i else 0.0, s["top"] - 0.03, s["zFront"], s["zFront"] - 0.02, "riser", bevel=0)
+    # The steps stop short of the left wall: the drive runs in the gap, in plain view.
+    box(f"tread{i}", SL, W, s["top"] - 0.03, s["top"], s["zFront"] + 0.012, s["zBack"], "tread", bevel=0.005)
+    box(f"riser{i}", SL, W, prev_top - 0.02 if i else 0.0, s["top"] - 0.03, s["zFront"], s["zFront"] - 0.02, "riser", bevel=0)
+    box(f"stepside{i}", SL, SL + 0.02, 0.0, s["top"] - 0.03, s["zFront"] - 0.02, s["zBack"], "wall", bevel=0)
     zf = s["zFront"] + 0.0015
     top, bot = s["top"] - 0.05, max(prev_top, 0.5) + 0.03
     h = top - bot
     # Gold lines top and bottom, a red band between, and the row's value in roundels.
-    box(f"line_t{i}", -W + 0.04, W - 0.04, top - 0.012, top, zf + 0.001, zf, "gold", bevel=0)
-    box(f"line_b{i}", -W + 0.04, W - 0.04, bot, bot + 0.012, zf + 0.001, zf, "gold", bevel=0)
-    box(f"band{i}", -W + 0.04, W - 0.04, bot + 0.035, top - 0.035, zf + 0.0006, zf, ["red", "blue", "green"][i], bevel=0)
-    for sx in (-1.03, -0.62, 0.62, 1.03) if i == 0 else (-0.62, 0.0, 0.62):
+    box(f"line_t{i}", SL + 0.04, W - 0.04, top - 0.012, top, zf + 0.001, zf, "gold", bevel=0)
+    box(f"line_b{i}", SL + 0.04, W - 0.04, bot, bot + 0.012, zf + 0.001, zf, "gold", bevel=0)
+    box(f"band{i}", SL + 0.04, W - 0.04, bot + 0.035, top - 0.035, zf + 0.0006, zf, ["red", "blue", "green"][i], bevel=0)
+    for sx in (-0.84, -0.5, 0.56, 0.98) if i == 0 else (-0.56, 0.06, 0.68):
         rad = min(h * 0.44, 0.1)
         ring = [(sx + math.cos(a) * rad, (top + bot) / 2 + math.sin(a) * rad) for a in (k * 2 * math.pi / 40 for k in range(40))]
         outline(f"roundel{i}", ring, zf + 0.0008, 0.0008, "cream")
@@ -376,7 +380,7 @@ for i, s in enumerate(steps_):
         outline(f"roundel_edge{i}", ring2, zf + 0.0004, 0.0006, "gold")
         text(values[i], sx, (top + bot) / 2 - rad * 0.04, zf + 0.0026, rad * 1.02, "black" if i != 2 else "red")
     if i == 0:
-        text("TEN  A  POT", 0.0, (top + bot) / 2, zf + 0.0026, 0.07, "gold", face="PlayfairDisplay-BlackItalic.ttf", shadow=(0.006, -0.006, "black"), spacing=1.1)
+        text("TEN  A  POT", 0.03, (top + bot) / 2, zf + 0.0026, 0.07, "gold", face="PlayfairDisplay-BlackItalic.ttf", shadow=(0.006, -0.006, "black"), spacing=1.1)
     # The slot the mid row's chain runs in.
 box("chain_slot", -L["CHAIN"]["span"] / 2 - 0.05, L["CHAIN"]["span"] / 2 + 0.05, steps_[1]["top"] - 0.001, steps_[1]["top"] + 0.0015, L["CHAIN"]["z"] + 0.016, L["CHAIN"]["z"] - 0.016, "black", bevel=0)
 
