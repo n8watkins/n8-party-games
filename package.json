@@ -1,0 +1,27 @@
+{
+  "name": "n8-party-games",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Party games that share one room kit. Local only for now.",
+  "scripts": {
+    "dev": "wrangler dev --local --port 8791",
+    "dev:lan": "node scripts/dev-lan.mjs",
+    "test": "vitest run",
+    "playtest": "node cork-and-bell/tools/playtest.mjs",
+    "playtest:battle": "node cork-and-bell/tools/playtest-battle.mjs"
+  },
+  "dependencies": {
+    "lean-qr": "^2.7.4"
+  },
+  "devDependencies": {
+    "playwright": "^1.64.1",
+    "three": "^0.186.0",
+    "vitest": "4.1",
+    "wrangler": "^4.157.0"
+  },
+  "allowScripts": {
+    "esbuild@0.28.2": true,
+    "workerd@1.20261104.1": true
+  }
+}
