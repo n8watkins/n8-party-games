@@ -74,10 +74,22 @@ export class PartyClient {
     return data;
   }
 
-  /** Makes a room. `as: "screen"` makes this device the shared screen with no seat. */
-  async create({ nickname = "", as = "player" } = {}) {
-    const data = await this.request("POST", "/rooms", { nickname, as });
+  /**
+   * Makes a room. `as: "screen"` makes this device the shared screen with no seat. `turnstile` is
+   * the bot-check token, needed only when the server has one configured (see config()).
+   */
+  async create({ nickname = "", as = "player", turnstile } = {}) {
+    const data = await this.request("POST", "/rooms", turnstile ? { nickname, as, turnstile } : { nickname, as });
     return this.adopt(data);
+  }
+
+  /** The server's settings: {publicOrigin, simLatency, turnstileSiteKey}. Fetched once. */
+  config() {
+    this.configPromise ??= this.request("GET", "/config").catch((err) => {
+      this.configPromise = null;
+      throw err;
+    });
+    return this.configPromise;
   }
 
   /** Looks a PIN up without joining: {code, game, phase, players, full}. */
@@ -276,7 +288,7 @@ export class PartyClient {
   async joinUrl(path = location.pathname) {
     let origin = location.origin;
     try {
-      const config = await this.request("GET", "/config");
+      const config = await this.config();
       if (config.publicOrigin) origin = config.publicOrigin;
     } catch {
       // The page's own origin will do.

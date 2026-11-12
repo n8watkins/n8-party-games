@@ -15,6 +15,7 @@
 //   const lobby = mountLobby(document.body, client, { title: "Cork & Bell", toy, character });
 //   lobby.open({ pin: "4821" })    // prefill a PIN (from ?join=4821)
 //   lobby.close()
+import { botCheck } from "./bot-check.js";
 
 export function mountLobby(parent, client, options = {}) {
   const title = options.title ?? "Party room";
@@ -76,6 +77,8 @@ export function mountLobby(parent, client, options = {}) {
     pin.maxLength = 4;
     pin.placeholder = "0000";
     pin.value = prefill.pin ?? "";
+    const check = el("div", "pk-botcheck", form);
+    check.hidden = true;
     const error = el("p", "pk-error", form);
     error.hidden = !lastError;
     error.textContent = lastError;
@@ -111,18 +114,20 @@ export function mountLobby(parent, client, options = {}) {
         await client.join(pin.value.trim(), { nickname: name.value });
       }),
     );
+    // Making a room may need the bot check; joining a friend's room never does.
+    const turnstileToken = async () => botCheck(check, (await client.config().catch(() => null))?.turnstileSiteKey);
     makeBtn.addEventListener("click", () =>
       run(async () => {
         if (!name.value.trim()) throw new Error("Pick a nickname first.");
         remember();
-        await client.create({ nickname: name.value });
+        await client.create({ nickname: name.value, turnstile: await turnstileToken() });
       }),
     );
     screenBtn.addEventListener("click", () =>
       run(async () => {
         screenMode = true;
         if (/^\d{4}$/.test(pin.value.trim())) await client.join(pin.value.trim(), { as: "screen" });
-        else await client.create({ as: "screen" });
+        else await client.create({ as: "screen", turnstile: await turnstileToken() });
       }),
     );
     back.addEventListener("click", () => api.close());

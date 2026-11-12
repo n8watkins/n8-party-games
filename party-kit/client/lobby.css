@@ -123,6 +123,14 @@
 .pk-error[hidden] {
   display: none;
 }
+/* The bot check before making a room. Turnstile draws it only when it needs a click. */
+.pk-botcheck {
+  display: flex;
+  justify-content: center;
+}
+.pk-botcheck[hidden] {
+  display: none;
+}
 .pk-head {
   display: flex;
   align-items: center;

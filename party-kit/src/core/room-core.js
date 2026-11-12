@@ -15,6 +15,8 @@ export const IDLE_SHUTDOWN_MS = 60_000;
 /** A room where nobody has done anything for this long, outside a round, is closed: a forgotten tab. */
 export const STALE_ROOM_MS = 10 * 60_000;
 export const NAME_MAX = 14;
+/** Shared screens one room keeps registered: every one is saved with the room, so they are capped. */
+export const MAX_SCREENS = 4;
 export const SEAT_COLOURS = ["#c8382c", "#2f6f8f", "#d9a02a", "#3f7a4a"]; // oxblood red, enamel blue, gilt yellow, bottle green
 export const SEAT_COLOUR_NAMES = ["Red", "Blue", "Gold", "Green"];
 const BOT_NAMES = ["Old Tom", "Mabel", "Fitch", "Dolly"];
@@ -104,6 +106,12 @@ export class RoomCore {
 
   /** Registers a screen: it sees everything and holds no seat. */
   watch(now, token = randomToken()) {
+    if (this.screens.size >= MAX_SCREENS) {
+      // A screen that closed stays registered so it can come back; the oldest such one makes way.
+      const gone = [...this.screens].find(([t, s]) => !s.connected && t !== this.hostToken);
+      if (!gone) return fail("room_full", "This room has all the shared screens it can take.");
+      this.screens.delete(gone[0]);
+    }
     this.screens.set(token, { connected: false });
     if (!this.hostToken) this.hostToken = token;
     void now;
