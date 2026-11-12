@@ -36,9 +36,17 @@ let veil = null;
 let bye = null;
 /** Which walk keys and buttons are down, newest last, so the latest one wins. */
 const held = [];
+/** When anyone last did anything, as far as this page knows: the room is put away after ten idle minutes. */
+let stirAt = performance.now();
 
 const phone = () => Math.min(innerWidth, innerHeight) < 520;
 const isPlayer = () => link.you?.role === "player";
+
+/** What the player's Pilot sends with: a move goes to the room, and counts as someone doing something. */
+function sendMove(message) {
+  stirAt = performance.now();
+  link.send(message);
+}
 
 // ---------------------------------------------------------------- in and out
 
@@ -60,6 +68,7 @@ function teardown() {
   svg?.remove();
   stageBox?.remove();
   svg = scene = pilot = stageBox = view = null;
+  litKey = "";
   held.length = 0;
 }
 
@@ -68,6 +77,7 @@ async function enter() {
   entering = true;
   const joinUrl = await link.joinUrl("/lobby/");
   entering = false;
+  stirAt = performance.now();
   if (!room) return;
   veil?.remove();
   veil = null;
@@ -117,11 +127,21 @@ function apply(next) {
   const me = isPlayer() ? room.members[link.you.seat] : null;
   if (me) {
     if (!pilot) {
-      pilot = new Pilot({ lights: room.boxes.length, send: (m) => link.send(m), x: me.x, rev: me.rev });
+      pilot = new Pilot({ lights: room.boxes.length, send: sendMove, x: me.x, rev: me.rev });
       focus = me.x;
     } else if (pilot.rev !== me.rev) pilot.place(me.x, me.rev, voteAt);
+    tellLit(voteAt);
   }
   if (room.phase !== "playing" && stage) endStage();
+}
+
+/** Tells the player's Pilot which lights are on, whenever that changes: only those are worth reporting. */
+let litKey = "";
+function tellLit(now) {
+  const lit = room.boxes.map((box, i) => (room.vote.lights[box.id] === null ? i : -1)).filter((i) => i >= 0);
+  if (!pilot || litKey === lit.join()) return;
+  litKey = lit.join();
+  pilot.setLit(lit, now);
 }
 
 link.on("room", (next) => {
@@ -136,9 +156,11 @@ link.on("message", (msg) => {
   switch (msg.t) {
     case "m":
       scene.onMove(msg, now);
+      stirAt = now;
       break;
     case "b":
       scene.onBump(msg, now);
+      stirAt = now;
       if (pilot && msg.to === link.you.seat) pilot.place(msg.x, msg.rev, now);
       break;
     case "fix":
@@ -148,6 +170,7 @@ link.on("message", (msg) => {
       room.vote = msg.vote;
       voteAt = now;
       scene.setVote(msg.vote, now);
+      tellLit(now);
       break;
     case "note":
       if (msg.k === "left") hud?.note(`${msg.name} left`, msg.colour);
@@ -181,6 +204,7 @@ link.on("start", (msg) => {
 link.on("events", (events) => stage?.events(events));
 link.on("snapshot", (snapshot) => (stage ? stage.snapshot(snapshot) : startStage(snapshot)));
 link.on("end", (msg) => {
+  stirAt = performance.now();
   endStage();
   apply(msg.room);
   hud?.result(msg.last);
@@ -305,7 +329,7 @@ function frame(t) {
   viewSize = size;
   set(svg, { viewBox: `${view.x.toFixed(2)} ${view.y.toFixed(2)} ${view.width.toFixed(2)} ${view.height.toFixed(2)}` });
   scene.frame(now, dt, pilot, view);
-  hud.update(room, room.vote, now, voteAt, zoom);
+  hud.update(room, room.vote, now, voteAt, zoom, now - stirAt);
 }
 
 // ---------------------------------------------------------------- begin

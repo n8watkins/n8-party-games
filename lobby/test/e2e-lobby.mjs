@@ -211,7 +211,8 @@ if (!books.ok) {
     // What the evening left behind runs out first (the rest after the last game, a short wake-up).
     for (let i = 0; i < 20 && (await debug(a.code)).room.alarmIn < 60_000; i++) await sleep(1000);
     await sleep(1500);
-    const before = (await debug()).budget.usage;
+    // The room's own tally, not the shared books: other rooms on the server may be closing down meanwhile.
+    const before = (await debug(a.code)).room;
     const marks = [A, B, C2, S].map((c) => c.seen.length);
     const pongs = A.raw.length;
     const quietFrom = Date.now();
@@ -222,9 +223,9 @@ if (!books.ok) {
     const heard = [A, B, C2, S].map((c, i) => c.seen.length - marks[i]);
     check(heard.every((n) => n === 0), "a lobby nobody touches sends nothing at all (" + heard.join(", ") + " messages)");
     if (quietSeconds >= 20) check(A.raw.length > pongs, "while the keep-alive is still answered");
-    const after = (await debug()).budget.usage;
-    check(after.dayUsed === before.dayUsed && after.dayRequests === before.dayRequests, `and nothing is added to the budget: the room was not awake (${((after.dayUsed - before.dayUsed) * 1000).toFixed(2)} milli-GB-s, ${(after.dayRequests - before.dayRequests).toFixed(2)} requests)`);
     const quiet = (await debug(a.code)).room;
+    const same = JSON.stringify(quiet.owed) === JSON.stringify(before.owed) && quiet.reportedAt === before.reportedAt;
+    check(same, `and the room counted nothing: it was not awake (owed ${JSON.stringify(quiet.owed)} before and after)`);
     check(quiet.timer === false, "no timer is running");
     check(quiet.alarmIn > 5 * 60_000, `the only wake-up set is the slow "forgotten room" check, ${Math.round(quiet.alarmIn / 60_000)} minutes away`);
     const slept = quiet.wokeAgo < Date.now() - quietFrom - 2000;

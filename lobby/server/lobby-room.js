@@ -30,6 +30,8 @@ const SILENT_MS = 90_000;
 const REAP_EVERY_MS = 15_000;
 /** The join code is kept alive while the room is in use (it lapses 15 minutes after its last refresh). */
 const PIN_REFRESH_MS = 5 * 60_000;
+/** An alarm due within this long is a count, a toss, a rest or a grace: worth pushing back when it is no longer wanted. */
+const SHORT_FUSE_MS = 35_000;
 /** Why a room closed, as the socket's close reason. */
 const CLOSE_REASONS = { empty: "room_closed", stale: "room_idle", expired: "room_expired", budget: "allowance_spent" };
 
@@ -43,7 +45,7 @@ export function createLobbyRoom(wall) {
       super(ctx, env);
       /** @type {LobbyCore | null} */
       this.core = null;
-      /** socket -> {ws, token, role, seat, kept, out, in, bucket, seenAt} */
+      /** socket -> {ws, token, role, seat, kept, out, in, bucket} */
       this.sockets = new Map();
       this.timer = null;
       this.meter = new AwakeMeter();
@@ -66,6 +68,7 @@ export function createLobbyRoom(wall) {
           if (!kept || !this.core.resume(kept.token, kept.piece)) continue;
           this.sockets.set(ws, this.entryFor(ws, kept));
           this.flushedAt = Math.max(this.flushedAt, kept.flushedAt ?? 0);
+          this.pinAt = Math.max(this.pinAt, kept.pinAt ?? 0);
         }
         // A game cut short by a restart is gone; everyone has to hear they are back in the lobby.
         if (saved.midGame) this.changed(this.wokeAt);
@@ -128,7 +131,7 @@ export function createLobbyRoom(wall) {
       }
       // Simulated latency, each way, for tests. Off unless the Worker allows it.
       const lag = this.env.PARTY_SIM_LATENCY === "on" ? Number(url.searchParams.get("lag") ?? 0) : 0;
-      const kept = { token, role: who.role, seat: who.seat, lag, at: now, piece: this.core.pieceOf(who.seat), owed: { ms: 0, n: 0 }, flushedAt: this.flushedAt };
+      const kept = { token, role: who.role, seat: who.seat, lag, at: now, piece: this.core.pieceOf(who.seat), owed: { ms: 0, n: 0, r: 0 }, flushedAt: this.flushedAt, pinAt: this.pinAt };
       server.serializeAttachment(kept);
       const entry = this.entryFor(server, kept);
       this.sockets.set(server, entry);
@@ -143,6 +146,8 @@ export function createLobbyRoom(wall) {
     }
 
     entryFor(ws, kept) {
+      // What the socket owes the budget: time, messages (a twentieth of a request each) and whole requests.
+      kept.owed = { ms: kept.owed?.ms ?? 0, n: kept.owed?.n ?? 0, r: kept.owed?.r ?? 0 };
       return {
         ws,
         token: kept.token,
@@ -150,7 +155,6 @@ export function createLobbyRoom(wall) {
         seat: kept.seat,
         kept,
         bucket: newBucket(Date.now()),
-        seenAt: Date.now(),
         out: new LagLine(kept.lag, (text) => {
           try {
             ws.send(text);
@@ -176,8 +180,10 @@ export function createLobbyRoom(wall) {
       const owed = entry.kept.owed;
       if (this.meter.heldFrom === null) owed.ms += Math.max(EVENT_FLOOR_MS, Date.now() - started);
       owed.n += 1;
+      // When this socket last said anything: kept on the socket, so a sleep does not make a silent phone look fresh.
+      entry.kept.seen = started;
       if (this.sockets.has(ws)) ws.serializeAttachment(entry.kept);
-      else this.meter.add(owed.ms, owed.n / MESSAGES_PER_REQUEST);
+      else this.meter.add(owed.ms, owed.n / MESSAGES_PER_REQUEST + owed.r);
       if (started - this.flushedAt >= REPORT_EVERY_MS || !this.sockets.has(ws)) this.flush(started);
     }
 
@@ -209,7 +215,6 @@ export function createLobbyRoom(wall) {
         return;
       }
       const now = Date.now();
-      entry.seenAt = now;
       const player = entry.role === "player";
       switch (msg.t) {
         case "ping":
@@ -257,8 +262,8 @@ export function createLobbyRoom(wall) {
 
     drop(ws, entry, code, reason) {
       this.sockets.delete(ws);
-      this.meter.add(entry.kept.owed.ms, entry.kept.owed.n / MESSAGES_PER_REQUEST);
-      entry.kept.owed = { ms: 0, n: 0 };
+      this.meter.add(entry.kept.owed.ms, entry.kept.owed.n / MESSAGES_PER_REQUEST + entry.kept.owed.r);
+      entry.kept.owed = { ms: 0, n: 0, r: 0 };
       try {
         ws.close(code, reason);
       } catch {
@@ -289,7 +294,7 @@ export function createLobbyRoom(wall) {
       this.reapedAt = now;
       for (const [ws, entry] of [...this.sockets]) {
         const auto = this.ctx.getWebSocketAutoResponseTimestamp(ws)?.getTime() ?? 0;
-        if (now - Math.max(auto, entry.seenAt, entry.kept.at) < SILENT_MS) continue;
+        if (now - Math.max(auto, entry.kept.seen ?? 0, entry.kept.at) < SILENT_MS) continue;
         this.drop(ws, entry, 1001, "silent");
         if (!this.isConnected(entry.token)) this.core.disconnect(entry.token, now);
         this.broadcastRoom(now);
@@ -321,13 +326,21 @@ export function createLobbyRoom(wall) {
     }
 
     /**
-     * Keeps the alarm at the room's next wake-up. It is only moved when the wake-up comes sooner:
-     * an alarm that rings early finds nothing to do and is set again, which is far cheaper than
-     * rewriting it on every message.
+     * Keeps the alarm at the room's next wake-up, writing it as seldom as it can.
+     *   - A wake-up that comes sooner than the alarm always moves it.
+     *   - A wake-up that was seconds away and is no longer wanted (a count that stopped, a
+     *     dropped phone that came back) is pushed back: an alarm ringing for nothing is a
+     *     billed request.
+     *   - The slow "forgotten room" check creeps later with every message and is left alone:
+     *     it rings early once in ten minutes, finds nothing to do and is set again.
      */
     arm(now) {
       const wake = this.core?.nextWake(now) ?? null;
-      if (wake === null || (this.alarmAt !== null && this.alarmAt > now && wake >= this.alarmAt - 5)) return;
+      if (wake === null) return;
+      const armed = this.alarmAt !== null && this.alarmAt > now ? this.alarmAt : null;
+      const sooner = armed === null || wake < armed - 5;
+      const unwanted = armed !== null && armed - now < SHORT_FUSE_MS && wake > armed + 1000;
+      if (!sooner && !unwanted) return;
       this.alarmAt = wake;
       void this.ctx.storage.setAlarm(wake);
     }
@@ -399,28 +412,31 @@ export function createLobbyRoom(wall) {
 
     // ------------------------------------------------------------ the budget
 
-    /** Counts an event that was not a message (a join, a socket opening or closing, the alarm) and reports. */
+    /**
+     * Counts an event that was not a message (a join, a socket opening or closing, the alarm).
+     * What it cost is parked on a socket, like a message's, so a sleep cannot lose it and no
+     * report is spent on it; with nobody connected, or a minute since the last report, it is
+     * reported now.
+     */
     bill(started, requests = 1) {
       const now = Date.now();
       this.meter.event(started, now);
       if (requests > 1) this.meter.add(0, requests - 1);
-      this.flush(now);
+      const carrier = this.sockets.values().next().value;
+      if (!carrier || now - this.flushedAt >= REPORT_EVERY_MS) return this.flush(now);
+      const owed = this.meter.take(now);
+      carrier.kept.owed.ms += owed.ms;
+      carrier.kept.owed.r += owed.requests;
+      carrier.ws.serializeAttachment(carrier.kept);
     }
 
     /**
      * Reports everything owed to the room budget: the room's own tally and each socket's. Runs
-     * once a minute while messages flow, and with every event that is not a message.
+     * once a minute while anything happens, when a game ends and when the room closes.
      */
     flush(now) {
       const owed = this.meter.take(now);
-      for (const entry of this.sockets.values()) {
-        owed.ms += entry.kept.owed.ms;
-        owed.requests += entry.kept.owed.n / MESSAGES_PER_REQUEST;
-        entry.kept.owed = { ms: 0, n: 0 };
-        entry.kept.flushedAt = now;
-        entry.ws.serializeAttachment(entry.kept);
-      }
-      this.flushedAt = now;
+      // The join code lapses unless it is refreshed now and then; a room in use keeps it alive.
       if (this.core?.pin && now - this.pinAt >= PIN_REFRESH_MS) {
         this.pinAt = now;
         owed.requests += 1;
@@ -430,6 +446,16 @@ export function createLobbyRoom(wall) {
             .catch(() => {}),
         );
       }
+      for (const entry of this.sockets.values()) {
+        owed.ms += entry.kept.owed.ms;
+        owed.requests += entry.kept.owed.n / MESSAGES_PER_REQUEST + entry.kept.owed.r;
+        entry.kept.owed = { ms: 0, n: 0, r: 0 };
+        // When the room last reported and last refreshed its code: remembered through a sleep.
+        entry.kept.flushedAt = now;
+        entry.kept.pinAt = this.pinAt;
+        entry.ws.serializeAttachment(entry.kept);
+      }
+      this.flushedAt = now;
       if (owed.ms <= 0 && owed.requests <= 0) return;
       // The report is itself a request to the budget object.
       this.ctx.waitUntil(
@@ -507,6 +533,9 @@ export function createLobbyRoom(wall) {
         timer: this.timer !== null,
         alarmIn: this.alarmAt === null ? null : this.alarmAt - now,
         wokeAgo: now - this.wokeAt,
+        // What this room has counted and not yet reported (it rides on the sockets), and when it last reported.
+        owed: [...this.sockets.values()].reduce((sum, e) => ({ ms: sum.ms + e.kept.owed.ms, messages: sum.messages + e.kept.owed.n, requests: sum.requests + e.kept.owed.r }), { ms: 0, messages: 0, requests: 0 }),
+        reportedAt: this.flushedAt,
         rate: SOCKET_RATE,
       };
     }

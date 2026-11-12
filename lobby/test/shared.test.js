@@ -165,6 +165,21 @@ describe("what a player's page sends", () => {
     for (let i = 1; i < sent.length; i++) expect(sent[i].x).toBeDefined();
   });
 
+  it("walks under a light that is off without a word, and speaks up if it comes on overhead", () => {
+    const { sent, p } = pilot(boxCentre(2, 5) - lightHalf(5) - 20);
+    p.setLit([0, 1], 0);
+    p.steer(1, 0);
+    for (let t = 16; t <= 250; t += 16) p.step(t);
+    // Under the third box, whose light is off: nothing but the first step.
+    expect(lightAt(p.x, 5)).toBe(2);
+    expect(sent.length).toBe(1);
+    p.steer(0, 300);
+    expect(sent.length).toBe(2);
+    p.setLit([0, 1, 2], 1000);
+    expect(sent.length).toBe(3);
+    expect(lightAt(sent.at(-1).x, 5)).toBe(2);
+  });
+
   it("goes where the room puts it and answers with the room's revision", () => {
     const { sent, p } = pilot();
     p.place(600, 3, 1000);
