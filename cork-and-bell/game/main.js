@@ -144,6 +144,9 @@ function askInitials(score) {
   if (!coarse) setTimeout(() => (input.focus(), input.select()), 60);
 }
 
+// The letters offered are the ones used last: touching the box selects them, so typing replaces them.
+$("initials-in").addEventListener("focus", (e) => requestAnimationFrame(() => e.target.select()));
+$("initials-in").addEventListener("mouseup", (e) => e.target.selectionStart !== e.target.selectionEnd && e.preventDefault());
 $("initials-in").addEventListener("input", (e) => {
   // Letters only, capitals, three of them.
   e.target.value = e.target.value.replace(/[^a-z]/gi, "").toUpperCase().slice(0, 3);
@@ -543,8 +546,7 @@ function showBanner(title, text, { good = false, seconds = 1.6, attack = null } 
 /** The points a hit paid, rising from the target. A ricochet gets a paper flag, a ring of gold, and twice the time in the air. */
 function pop(view, e, text, sub, big, flag = null) {
   const i = views.indexOf(view);
-  let [u, v] = view.view.project(e.x, e.y, e.z);
-  if (flag && views.length === 1) u = Math.max(0.24, Math.min(0.76, u)); // the flag is wide: keep all of it on the screen
+  const [u, v] = view.view.project(e.x, e.y, e.z);
   const el = document.createElement("span");
   el.className = (big ? "big" : "") + (flag ? " flagged" : "");
   if (flag) {
@@ -563,6 +565,11 @@ function pop(view, e, text, sub, big, flag = null) {
   el.style.left = `${(((i % cols) + u) / cols) * 100}%`;
   el.style.top = `${((Math.floor(i / cols) + v) / rows) * 100}%`;
   $("pops").appendChild(el);
+  if (flag && views.length === 1) {
+    // A flag is wide: all of it stays on the screen, however near the edge the target is.
+    const half = el.offsetWidth / 2 + 8;
+    el.style.left = `${Math.max(half, Math.min(innerWidth - half, u * innerWidth))}px`;
+  }
   setTimeout(() => el.remove(), flag ? 2100 : 950);
   if (flag) {
     // A ring of gold opens out from the target, so the eye is there before the words are.

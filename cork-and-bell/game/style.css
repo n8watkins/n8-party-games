@@ -171,6 +171,15 @@ body.pointer #stage {
   }
 }
 
+/* With room to spare (a desktop, a tablet) the two slips lie side by side, clear of the chalk board. */
+@media (min-width: 601px) and (min-height: 501px) {
+  #tasks {
+    grid-auto-flow: column;
+    gap: 8px;
+    margin-top: 6px;
+  }
+}
+
 #controls {
   position: absolute;
   right: max(16px, env(safe-area-inset-right));
@@ -984,8 +993,9 @@ body.carded #rivals {
     text-overflow: ellipsis;
     white-space: nowrap;
   }
+  /* Under the challenge slips and the sound switch, not across them. */
   #banner {
-    top: 12%;
+    top: max(12%, 132px);
     font-size: 13.5px;
   }
   #banner b {

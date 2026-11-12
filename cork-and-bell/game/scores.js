@@ -20,7 +20,7 @@ const SERVER_ROWS = 10;
 export class Scores {
   constructor() {
     this.top = null; // the server's rows, or null while it has not answered (or cannot be reached)
-    this.mine = null; // {name, score}: the row this device has just chalked up
+    this.minePlace = -1; // where in `top` the row this device has just chalked up is, or -1
     this.onChange = () => {};
   }
 
@@ -35,6 +35,7 @@ export class Scores {
       const body = res.ok ? await res.json() : null;
       if (body?.ok && Array.isArray(body.top)) {
         this.top = body.top;
+        this.minePlace = -1;
         this.onChange();
       }
     } catch {
@@ -59,7 +60,7 @@ export class Scores {
       const body = await res.json().catch(() => null);
       if (body?.ok) {
         this.top = body.top;
-        this.mine = body.place >= 0 ? { name: body.top[body.place].name, score } : null;
+        this.minePlace = body.place;
         this.onChange();
         return { ok: true, place: body.place };
       }
@@ -112,13 +113,13 @@ export class Scores {
    */
   rows() {
     let all;
-    if (this.reachable) all = [...this.top, ...HOUSE];
+    if (this.reachable) all = [...this.top.map((r, i) => ({ ...r, own: i === this.minePlace })), ...HOUSE];
     else {
       const best = this.ownBest();
       all = best?.score ? [{ name: best.name || "YOU", score: best.score, own: true }, ...HOUSE] : [...HOUSE];
     }
     all = all.map((r, i) => ({ ...r, order: i })).sort((a, b) => b.score - a.score || a.order - b.order);
-    const mine = this.mine ? all.findIndex((r) => !r.house && r.name === this.mine.name && r.score === this.mine.score) : all.findIndex((r) => r.own);
+    const mine = all.findIndex((r) => r.own);
     const ranked = all.map((r, i) => ({ rank: i + 1, name: r.name, score: r.score, mine: i === mine }));
     const shown = ranked.slice(0, 5);
     if (mine >= 5) shown[4] = ranked[mine];

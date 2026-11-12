@@ -1219,11 +1219,12 @@ export class StallView {
       fov = 44;
       focus = 0.86;
     } else if (this.viewName === "board") {
-      // The chalk board on the left wall, square on.
-      pos = [-0.2, 1.84, -1.74];
+      // The chalk board on the left wall, nearly square on, from far enough off to see all of it.
+      const away = Math.min(2.3, Math.max(1.05, 0.4 / (Math.tan(THREE.MathUtils.degToRad(20)) * aspect)));
+      pos = [CHALK_BOARD.x + away, 1.84, CHALK_BOARD.z + 0.27 * away];
       look = [CHALK_BOARD.x, CHALK_BOARD.y, CHALK_BOARD.z];
       fov = 40;
-      focus = 1.08;
+      focus = away * 1.03;
     } else if (this.viewName === "gun") {
       pos = [-0.32, 1.3, -0.12];
       look = [0.4, 1.07, -0.34];
