@@ -16,6 +16,15 @@ const touch = opt("touch", "0") === "1";
 mkdirSync(out, { recursive: true });
 
 const browser = await openBrowser({ win: opt("win", "1") === "1", width: w, height: h });
+// Whatever goes wrong, the browser is closed: a failed run must not leave a Chrome behind
+// (the next run would find its profile in use and hang).
+const bail = async (err) => {
+  console.error("FAILED:", err?.message ?? err);
+  await browser.close().catch(() => {});
+  process.exit(1);
+};
+process.on("unhandledRejection", bail);
+process.on("uncaughtException", bail);
 const context = await browser.newContext({ hasTouch: touch, isMobile: touch });
 const page = await context.newPage();
 const errors = [];

@@ -109,7 +109,7 @@ const scores = new Scores();
 /** The start board names the score to beat, as a cabinet shows its high score while it waits. */
 function showScoreToBeat() {
   const top = scores.rows()[0];
-  $("start-beat").textContent = top ? `90 seconds, 70 corks. High score: ${top.name} ${top.score}.` : "90 seconds, 70 corks.";
+  $("start-beat").textContent = top ? `90 seconds. To beat: ${top.name} ${top.score}.` : "90 seconds, 70 corks.";
 }
 
 /** How a stall did, in a line: its aim, its best run, and the challenges it did. */

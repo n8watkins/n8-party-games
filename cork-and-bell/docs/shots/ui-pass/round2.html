@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Cork &amp; Bell: arcade polish, every menu and state</title>
+    <style>
+      @font-face {
+        font-family: "Abril Fatface";
+        src: url("../../../game/fonts/AbrilFatface-Regular.ttf") format("truetype");
+        font-display: swap;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        background: #0b1020;
+        color: #f1e3bf;
+        font: 16px/1.5 Georgia, "Times New Roman", serif;
+      }
+      main {
+        max-width: 1560px;
+        margin: 0 auto;
+        padding: 28px 20px 80px;
+      }
+      h1 {
+        margin: 0;
+        font: 400 40px/1.1 "Abril Fatface", Georgia, serif;
+      }
+      h2 {
+        margin: 52px 0 2px;
+        font: 400 26px/1.15 "Abril Fatface", Georgia, serif;
+        color: #ffd98a;
+      }
+      p {
+        margin: 6px 0 0;
+        max-width: 84ch;
+        opacity: 0.88;
+      }
+      a {
+        color: #ffd98a;
+      }
+      .trio {
+        display: flex;
+        gap: 14px;
+        align-items: flex-start;
+        margin-top: 16px;
+      }
+      figure {
+        margin: 0;
+        min-width: 0;
+      }
+      figure.desktop {
+        flex: 1.6 1 0;
+      }
+      figure.sideways {
+        flex: 2.164 1 0;
+      }
+      figure.upright {
+        flex: 0.462 1 0;
+      }
+      figure img {
+        display: block;
+        width: 100%;
+        height: auto;
+        border-radius: 5px;
+        box-shadow: 0 0 0 1px rgba(241, 227, 191, 0.25);
+      }
+      figcaption {
+        margin-top: 6px;
+        font-size: 13px;
+        opacity: 0.7;
+      }
+      @media (max-width: 900px) {
+        .trio {
+          flex-direction: column;
+        }
+        figure.desktop,
+        figure.sideways {
+          flex: none;
+          width: 100%;
+        }
+        figure.upright {
+          flex: none;
+          width: 60%;
+        }
+        h1 {
+          font-size: 30px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Cork &amp; Bell: arcade polish</h1>
+      <p>Round two. Every menu and state at desktop, a phone held sideways and a phone held upright, from headless Chrome on the real graphics card, muted. The first round's before and after is <a href="index.html">on the page beside this one</a>.</p>
+      <section><h2>The start board</h2><p>The house plays behind it. "Free play" winks, and Play alone names the high score to beat.</p><div class="trio"><figure class="desktop"><img loading="lazy" src="round2/start-desktop.jpg" alt="The start board: Desktop, 1440 x 900" /><figcaption>Desktop</figcaption></figure><figure class="sideways"><img loading="lazy" src="round2/start-sideways.jpg" alt="The start board: Phone held sideways, 844 x 390" /><figcaption>Phone held sideways</figcaption></figure><figure class="upright"><img loading="lazy" src="round2/start-upright.jpg" alt="The start board: Phone held upright, 390 x 844" /><figcaption>Phone held upright</figcaption></figure></div></section>
+      <section><h2>Battle with friends: the door</h2><p>On a phone held sideways the two fields lie side by side, so nothing scrolls. The rest of the HUD steps back.</p><div class="trio"><figure class="desktop"><img loading="lazy" src="round2/door-desktop.jpg" alt="Battle with friends: the door: Desktop, 1440 x 900" /><figcaption>Desktop</figcaption></figure><figure class="sideways"><img loading="lazy" src="round2/door-sideways.jpg" alt="Battle with friends: the door: Phone held sideways, 844 x 390" /><figcaption>Phone held sideways</figcaption></figure><figure class="upright"><img loading="lazy" src="round2/door-upright.jpg" alt="Battle with friends: the door: Phone held upright, 390 x 844" /><figcaption>Phone held upright</figcaption></figure></div></section>
+      <section><h2>The waiting room</h2><p>PIN and QR code, the seats, and the buttons. Sideways: PIN and buttons on the left, seats on the right.</p><div class="trio"><figure class="desktop"><img loading="lazy" src="round2/room-desktop.jpg" alt="The waiting room: Desktop, 1440 x 900" /><figcaption>Desktop</figcaption></figure><figure class="sideways"><img loading="lazy" src="round2/room-sideways.jpg" alt="The waiting room: Phone held sideways, 844 x 390" /><figcaption>Phone held sideways</figcaption></figure><figure class="upright"><img loading="lazy" src="round2/room-upright.jpg" alt="The waiting room: Phone held upright, 390 x 844" /><figcaption>Phone held upright</figcaption></figure></div></section>
+      <section><h2>Mid-round</h2><p>The ticket, and the round's two challenges on slips under the title.</p><div class="trio"><figure class="desktop"><img loading="lazy" src="round2/mid-desktop.jpg" alt="Mid-round: Desktop, 1440 x 900" /><figcaption>Desktop</figcaption></figure><figure class="sideways"><img loading="lazy" src="round2/mid-sideways.jpg" alt="Mid-round: Phone held sideways, 844 x 390" /><figcaption>Phone held sideways</figcaption></figure><figure class="upright"><img loading="lazy" src="round2/mid-upright.jpg" alt="Mid-round: Phone held upright, 390 x 844" /><figcaption>Phone held upright</figcaption></figure></div></section>
+      <section><h2>Everything answers a cork</h2><p>One cork each at a lamp, a prize, the chalk board and the flywheel. Lamps go out, prizes rock and fall, the board smudges, the drive rings. None of it scores.</p><div class="trio"><figure class="desktop"><img loading="lazy" src="round2/props-desktop.jpg" alt="Everything answers a cork: Desktop, 1440 x 900" /><figcaption>Desktop</figcaption></figure><figure class="sideways"><img loading="lazy" src="round2/props-sideways.jpg" alt="Everything answers a cork: Phone held sideways, 844 x 390" /><figcaption>Phone held sideways</figcaption></figure><figure class="upright"><img loading="lazy" src="round2/props-upright.jpg" alt="Everything answers a cork: Phone held upright, 390 x 844" /><figcaption>Phone held upright</figcaption></figure></div></section>
+      <section><h2>A ricochet</h2><p>A bigger flag and figure for two seconds, a ring of gold from the target, gold sparks along the cork's path, and its own sound.</p><div class="trio"><figure class="desktop"><img loading="lazy" src="round2/ricochet-desktop.jpg" alt="A ricochet: Desktop, 1440 x 900" /><figcaption>Desktop</figcaption></figure><figure class="sideways"><img loading="lazy" src="round2/ricochet-sideways.jpg" alt="A ricochet: Phone held sideways, 844 x 390" /><figcaption>Phone held sideways</figcaption></figure><figure class="upright"><img loading="lazy" src="round2/ricochet-upright.jpg" alt="A ricochet: Phone held upright, 390 x 844" /><figcaption>Phone held upright</figcaption></figure></div></section>
+      <section><h2>A challenge done</h2><p>The slip is ticked and struck through, the bonus rises under a flag, and a banner says which one.</p><div class="trio"><figure class="desktop"><img loading="lazy" src="round2/challenge-desktop.jpg" alt="A challenge done: Desktop, 1440 x 900" /><figcaption>Desktop</figcaption></figure><figure class="sideways"><img loading="lazy" src="round2/challenge-sideways.jpg" alt="A challenge done: Phone held sideways, 844 x 390" /><figcaption>Phone held sideways</figcaption></figure><figure class="upright"><img loading="lazy" src="round2/challenge-upright.jpg" alt="A challenge done: Phone held upright, 390 x 844" /><figcaption>Phone held upright</figcaption></figure></div></section>
+      <section><h2>In a battle</h2><p>The same two challenges for every stall. Rivals at the top right (above the ticket on an upright phone).</p><div class="trio"><figure class="desktop"><img loading="lazy" src="round2/battle-desktop.jpg" alt="In a battle: Desktop, 1440 x 900" /><figcaption>Desktop</figcaption></figure><figure class="sideways"><img loading="lazy" src="round2/battle-sideways.jpg" alt="In a battle: Phone held sideways, 844 x 390" /><figcaption>Phone held sideways</figcaption></figure><figure class="upright"><img loading="lazy" src="round2/battle-upright.jpg" alt="In a battle: Phone held upright, 390 x 844" /><figcaption>Phone held upright</figcaption></figure></div></section>
+      <section><h2>The end of a battle</h2><p>Each stall's aim, best run and challenges. On a sideways phone the card is compact and fits.</p><div class="trio"><figure class="desktop"><img loading="lazy" src="round2/battleend-desktop.jpg" alt="The end of a battle: Desktop, 1440 x 900" /><figcaption>Desktop</figcaption></figure><figure class="sideways"><img loading="lazy" src="round2/battleend-sideways.jpg" alt="The end of a battle: Phone held sideways, 844 x 390" /><figcaption>Phone held sideways</figcaption></figure><figure class="upright"><img loading="lazy" src="round2/battleend-upright.jpg" alt="The end of a battle: Phone held upright, 390 x 844" /><figcaption>Phone held upright</figcaption></figure></div></section>
+      <section><h2>A score that makes the board</h2><p>Three letters, arcade style. Letters only; the obvious rude ones are refused by the server.</p><div class="trio"><figure class="desktop"><img loading="lazy" src="round2/initials-desktop.jpg" alt="A score that makes the board: Desktop, 1440 x 900" /><figcaption>Desktop</figcaption></figure><figure class="sideways"><img loading="lazy" src="round2/initials-sideways.jpg" alt="A score that makes the board: Phone held sideways, 844 x 390" /><figcaption>Phone held sideways</figcaption></figure><figure class="upright"><img loading="lazy" src="round2/initials-upright.jpg" alt="A score that makes the board: Phone held upright, 390 x 844" /><figcaption>Phone held upright</figcaption></figure></div></section>
+      <section><h2>The top of the board</h2><p>"New high score!", with a fanfare and the lamps running.</p><div class="trio"><figure class="desktop"><img loading="lazy" src="round2/record-desktop.jpg" alt="The top of the board: Desktop, 1440 x 900" /><figcaption>Desktop</figcaption></figure><figure class="sideways"><img loading="lazy" src="round2/record-sideways.jpg" alt="The top of the board: Phone held sideways, 844 x 390" /><figcaption>Phone held sideways</figcaption></figure><figure class="upright"><img loading="lazy" src="round2/record-upright.jpg" alt="The top of the board: Phone held upright, 390 x 844" /><figcaption>Phone held upright</figcaption></figure></div></section>
+      <section><h2>The end card, chalked up</h2><p>It says where the score stands on the chalk board, the house's own players counted in.</p><div class="trio"><figure class="desktop"><img loading="lazy" src="round2/end-desktop.jpg" alt="The end card, chalked up: Desktop, 1440 x 900" /><figcaption>Desktop</figcaption></figure><figure class="sideways"><img loading="lazy" src="round2/end-sideways.jpg" alt="The end card, chalked up: Phone held sideways, 844 x 390" /><figcaption>Phone held sideways</figcaption></figure><figure class="upright"><img loading="lazy" src="round2/end-upright.jpg" alt="The end card, chalked up: Phone held upright, 390 x 844" /><figcaption>Phone held upright</figcaption></figure></div></section>
+      <section><h2>The chalk board</h2><p>The real top five from the server, with the row this device chalked up underlined and starred. (A camera for the tools: ?view=board.)</p><div class="trio"><figure class="desktop"><img loading="lazy" src="round2/board-desktop.jpg" alt="The chalk board: Desktop, 1440 x 900" /><figcaption>Desktop</figcaption></figure><figure class="sideways"><img loading="lazy" src="round2/board-sideways.jpg" alt="The chalk board: Phone held sideways, 844 x 390" /><figcaption>Phone held sideways</figcaption></figure><figure class="upright"><img loading="lazy" src="round2/board-upright.jpg" alt="The chalk board: Phone held upright, 390 x 844" /><figcaption>Phone held upright</figcaption></figure></div></section>
+    </main>
+  </body>
+</html>
