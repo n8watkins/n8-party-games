@@ -24,6 +24,10 @@ Nothing is deployed.
 `wrangler dev` watches this repository and restarts the local server when a file in it changes.
 A restart puts every room back in its lobby, so do not edit files (or save screenshots into the repository) while a battle is being played or tested.
 The tools save their screenshots to the temp directory for that reason (`CAB_SHOTS` chooses another place).
+They talk to `http://localhost:8791/cork-and-bell/` unless `CAB_BASE`, `PORT` or `--base=` says otherwise, and their browsers are always muted.
+
+Phones are meant to be held sideways.
+An upright phone still plays, with its own framing and a hint to turn it.
 
 | Address | What you get |
 | --- | --- |
@@ -36,6 +40,7 @@ The tools save their screenshots to the temp directory for that reason (`CAB_SHO
 | `?view=four` | Four stalls side by side with a bot in each: the battle as a shared screen shows it, with no room needed. |
 | `?join=4821` | The lobby with a PIN filled in (this is what the QR code opens). |
 | `?quality=low` or `high` | Lens and shadow quality (phones start on low). |
+| `?grid=row` | With four stalls on a shared screen: one row of four upright stalls instead of two rows of two. |
 
 A battle: press **Play a battle**, then **Make a room** (you play on this device) or **Use this screen as the shared screen** (a laptop or television shows every stall; players join on their phones with the PIN or the QR code).
 
@@ -51,6 +56,7 @@ Decided before any code, and kept everywhere.
 - **Light** is tungsten bulbs with visible filaments against a blue dusk. The static set's light is baked in Cycles (bulbs and sky separately, so the lamps can really go out). Moving things are lit live by the same sky and lamps and cast soft shadows onto the baked set.
 - **Motion** is mechanical and has one source: a flywheel on the left wall turns a belt; the belt turns a wheel for each row; a cam bar lifts the fallen front row, a chain carries the stars, the pendulums swing, the shutter opens. Everything speeds up together.
 - **The lens** has shallow depth of field that racks to the row under the aim, bloom only on real lamps, a filmic shoulder and a little grain.
+  At low quality the blur is made at half size with a fixed kernel (no per-pixel noise) and edges are smoothed in the last pass.
 
 ## The game
 
