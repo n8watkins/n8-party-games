@@ -3,7 +3,7 @@
 // A StallView reads a StallSim at a given round time and reacts to its events.
 import * as THREE from "three";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
-import { BACK, BELL, BULBS, CAMERA, CHAIN, CHALK_BOARD, COUNTER, DRIVE, HALF_W, JAM, KEY_LIGHT, PENDULUMS, PLATES, ROWS, SCORE_WINDOW, SHUTTER, STEPS, TRAY, muzzle } from "../shared/layout.js";
+import { BACK, BELL, BULBS, CAMERA, CHAIN, CHALK_BOARD, COUNTER, DRIVE, HALF_W, JAM, KEY_LIGHT, PENDULUMS, PLATES, ROWS, SCORE_WINDOW, SHUTTER, STEPS, TRAY, LAMPS, VASES, muzzle } from "../shared/layout.js";
 import { BELL_FULL, COCK_SECONDS, CORK_R, camLift, chainStar, mech, pendulumAngle, shutterOpen } from "../shared/sim.js";
 import { chalkTexture, contactTexture, disc, groundTexture, paintBelt, paintCork, paintMoon, paintReel, paintSheet, paintStar, paintTeapot, paintWood, plateGeometry, star, TEAPOT } from "./paint.js";
 import { makeFarLights, makeSky } from "./render.js";
@@ -46,6 +46,21 @@ void main() {
 export class StallAssets {
   constructor({ gltf, albedo, lit, dusk, env }) {
     this.setGeometry = gltf.scene.getObjectByProperty("isMesh", true).geometry;
+    // The prizes on the shelf were baked into the set. They are live now (a cork can knock them
+    // off), so the baked ones are folded away into the shelf they stood on.
+    const pos = this.setGeometry.attributes.position;
+    for (let i = 0; i < pos.count; i++) {
+      const y = pos.getY(i);
+      if (y < VASES[0].y - 0.001 || y > VASES[0].y + 0.27) continue;
+      for (const v of VASES) {
+        const dx = pos.getX(i) - v.x;
+        const dz = pos.getZ(i) - v.z;
+        if (dx * dx + dz * dz < (v.r + 0.006) ** 2 && y < v.y + v.h + 0.006) pos.setXYZ(i, v.x, v.y - 0.012, v.z);
+      }
+    }
+    pos.needsUpdate = true;
+    this.vaseGeos = VASES.map((v) => new THREE.LatheGeometry(v.profile.map(([r, h]) => new THREE.Vector2(r, h)), 28));
+    this.vaseMats = VASES.map((v) => new THREE.MeshStandardMaterial({ color: new THREE.Color().setRGB(...v.paint), roughness: 0.42, metalness: 0.0, side: THREE.DoubleSide }));
     for (const t of [albedo, lit, dusk]) {
       t.flipY = false;
       t.colorSpace = THREE.SRGBColorSpace;
@@ -260,6 +275,7 @@ export class StallView {
     this.buildGun();
     this.buildMoths();
     this.buildParticles();
+    this.buildVases();
   }
 
   mesh(geo, mat, parent = this.scene, cast = true) {
@@ -665,6 +681,16 @@ export class StallView {
     this.scene.add(this.chipMesh);
   }
 
+  /** The prizes on the shelf: live, so they can rock and fall. */
+  buildVases() {
+    this.vases = VASES.map((v, i) => {
+      const mesh = this.mesh(this.assets.vaseGeos[i], this.assets.vaseMats[i]);
+      mesh.position.set(v.x, v.y, v.z);
+      return { mesh, a: 0, aV: 0, dirX: 0, dirZ: 1, fallAt: -1 };
+    });
+    this.wheelJolt = 0;
+  }
+
   // ------------------------------------------------------------------ reacting to the simulation
 
   /** Events from this stall's simulation (and the battle), in order. Returns cues for sound and the HUD. */
@@ -692,17 +718,43 @@ export class StallView {
       case "reset":
         this.camAt = this.time;
         break;
+      case "prop":
+        if (e.what === "lamp") {
+          // Glass and a last spark of filament.
+          if (e.lit) this.burst(e.x, e.y, e.z, 9, "#ffd98a", 0.9);
+        } else if (e.what === "vase") {
+          const vase = this.vases[e.i];
+          const n = Math.hypot(e.vx ?? 0, e.vz ?? 1) || 1;
+          vase.dirX = -(e.vz ?? 0) / n;
+          vase.dirZ = (e.vx ?? 0) / n;
+          vase.aV += 5.5;
+          if (e.broke) {
+            vase.fallAt = this.time;
+            this.burst(e.x - 0.03, e.y, e.z, 16, "#" + this.assets.vaseMats[e.i].color.getHexString(), 1.2);
+          }
+        } else if (e.what === "chalk") {
+          this.burst(e.x + 0.02, e.y, e.z, 14, "#efeadd", 0.45, true);
+          this.assets.chalk.smudge((CHALK_BOARD.z + CHALK_BOARD.w / 2 - e.z) / CHALK_BOARD.w, (CHALK_BOARD.y + CHALK_BOARD.h / 2 - e.y) / CHALK_BOARD.h);
+        } else if (e.what === "wheel") {
+          this.wheelJolt = 1;
+          this.burst(e.x + 0.02, e.y, e.z, 8, "#ffcf70", 1);
+        }
+        break;
       default:
         break;
     }
     void sim;
   }
 
-  burst(x, y, z, n, colour) {
+  /** Chips flying off a knock. `power` scales how far they go; `dust` hangs in the air instead of falling. */
+  burst(x, y, z, n, colour, power = 1, dust = false) {
     const c = new THREE.Color(colour);
     for (let i = 0; i < n; i++) {
       if (this.particles.length >= 48) this.particles.shift();
-      this.particles.push({ p: new THREE.Vector3(x, y, z), v: new THREE.Vector3((Math.random() - 0.5) * 1.6, 0.4 + Math.random() * 1.6, 0.5 + Math.random() * 1.4), life: 0.5 + Math.random() * 0.4, c, spin: Math.random() * 6 });
+      const v = dust
+        ? new THREE.Vector3(0.25 + Math.random() * 0.5, (Math.random() - 0.3) * 0.5, (Math.random() - 0.5) * 0.7)
+        : new THREE.Vector3((Math.random() - 0.5) * 1.6 * power, (0.4 + Math.random() * 1.6) * power, (0.5 + Math.random() * 1.4) * power);
+      this.particles.push({ p: new THREE.Vector3(x, y, z), v, life: (dust ? 0.9 : 0.5) + Math.random() * 0.4, c, spin: Math.random() * 6, dust });
     }
   }
 
@@ -735,6 +787,11 @@ export class StallView {
     this.bellSwing.a = 0;
     this.bellSwing.aV = 0;
     this.gun.kick = this.gun.kickV = this.gun.pitch = this.gun.pitchV = this.gun.roll = this.gun.rollV = 0;
+    for (const vase of this.vases) {
+      vase.a = vase.aV = 0;
+      vase.fallAt = -1;
+    }
+    this.wheelJolt = 0;
   }
 
   setAim(x, y) {
@@ -823,14 +880,35 @@ export class StallView {
       } else if (b.group === "festoon") {
         L = 0.9 + 0.1 * Math.sin(wall * 1.3 + i);
       }
+      // A lamp a cork has struck: dead, then it stutters back to life.
+      if (i < LAMPS.length && t < sim.lampOut[i]) {
+        const left = sim.lampOut[i] - t;
+        L = left < 0.6 && Math.sin(wall * 55 + i) > 0.2 ? L * 0.7 : 0;
+      }
       this.bulbLevels[i] = L;
     }
     this.bulbs.geometry.attributes.aLevel.needsUpdate = true;
+
+    // ---- the prizes: a knocked one rocks on its foot; a second knock has it off the shelf.
+    for (let i = 0; i < this.vases.length; i++) {
+      const vase = this.vases[i];
+      const down = sim.vaseDown[i] >= 0;
+      if (!frozen) {
+        vase.aV += (-vase.a * 90 - vase.aV * 5) * dt;
+        vase.a += vase.aV * dt;
+      }
+      vase.mesh.visible = !down;
+      vase.mesh.rotation.set(vase.a * 0.16 * vase.dirX, 0, vase.a * 0.16 * vase.dirZ);
+    }
+    this.wheelJolt = Math.max(0, this.wheelJolt - dt * 2.4);
 
     // ---- the drive: flywheel, wheels, belt, chain.
     const mt = mech(t);
     const beltTravel = mt * 0.42;
     this.flywheel.rotation.x = -beltTravel / 0.085;
+    // A cork off the drive: the flywheel shudders on its axle for a moment.
+    this.flywheel.rotation.z = Math.sin(wall * 46) * 0.05 * this.wheelJolt;
+    this.flywheel.position.y = DRIVE.flywheel.y + Math.sin(wall * 61) * 0.006 * this.wheelJolt;
     this.wheels.forEach((w, i) => (w.rotation.x = -beltTravel / DRIVE.wheels[i].r + i));
     A.belt.offset.y = -beltTravel / 0.14;
     const chainDist = CHAIN.speed * mt;
@@ -1059,7 +1137,8 @@ export class StallView {
       const p = this.particles[i];
       if (!frozen) {
         p.life -= dt;
-        p.v.y -= 9.8 * dt;
+        p.v.y -= (p.dust ? 0.6 : 9.8) * dt;
+        if (p.dust) p.v.multiplyScalar(1 - 2.2 * dt);
         p.p.addScaledVector(p.v, dt);
       }
       if (p.life <= 0) {

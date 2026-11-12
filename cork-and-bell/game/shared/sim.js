@@ -3,7 +3,7 @@
 // drawn from the seed and the shot's number.
 //
 // Time `t` is round time in seconds (0 at the opening bell, negative during the count-in).
-import { BACK, BELL, CHAIN, COUNTER, HALF_W, JAM, PENDULUMS, PENDULUM_RATE, PLATES, ROWS, SHUTTER, STEPS, STEP_LEFT, WALL_TOP, muzzle } from "./layout.js";
+import { BACK, BELL, CHAIN, CHALK_BOARD, COUNTER, DRIVE, HALF_W, JAM, LAMPS, PENDULUMS, PENDULUM_RATE, PLATES, ROWS, SHUTTER, STEPS, STEP_LEFT, VASES, WALL_TOP, muzzle } from "./layout.js";
 
 export const DT = 1 / 120;
 export const ROUND_SECONDS = 90;
@@ -19,6 +19,11 @@ const DRAG = 0.045;
 const RESET_EVERY = 5.2; // mechanism seconds between lifts of the cam bar
 const STUN_SECONDS = 2.4;
 export const JAM_MAX_SECONDS = 9;
+/** A lamp a cork has struck stays out this long, then flickers back on. */
+export const LAMP_OUT_SECONDS = 7;
+/** A prize rocks at the first knock; this many has it off the shelf. */
+const VASE_KNOCKS = 2;
+const WHEELS = [DRIVE.flywheel, ...DRIVE.wheels];
 
 function hash(a, b) {
   let h = Math.imul(a ^ 0x9e3779b9, 0x85ebca6b) ^ Math.imul(b + 0x7f4a7c15, 0xc2b2ae35);
@@ -179,6 +184,9 @@ export class StallSim {
     this.jamAt = -10;
     this.mothsUntil = -10;
     this.darkUntil = -10;
+    this.lampOut = LAMPS.map(() => -10); // each lamp is out until this time
+    this.vaseKnocks = VASES.map(() => 0);
+    this.vaseDown = VASES.map(() => -1); // time it went off the shelf, or -1 while it stands
     this.corks = []; // in flight
     this.rested = []; // where corks came to rest: they stay for the round
     this.pending = []; // fire inputs waiting for their time
@@ -272,6 +280,8 @@ export class StallSim {
 
     // Targets: thin plates in a plane. A cork crossing the plane inside the shape strikes it.
     if (v[2] !== 0) this.strikeTargets(c, x0, y0, z0);
+    // The rest of the stall: lamps, the prizes on the shelf, the drive on the left wall.
+    this.strikeProps(c, x0, y0, z0);
 
     // Side walls and the back board, as tall as they are built and no taller: a cork aimed over
     // the top flies on into the dusk. (Only a cork still inside the stall can meet them.)
@@ -282,6 +292,8 @@ export class StallSim {
       v[1] *= 0.8;
       v[2] *= 0.8;
       this.bounce(c, "wall");
+      // The chalk board hangs on the left wall: a cork leaves its mark.
+      if (p[0] < 0 && Math.abs(p[1] - CHALK_BOARD.y) < CHALK_BOARD.h / 2 + 0.03 && Math.abs(p[2] - CHALK_BOARD.z) < CHALK_BOARD.w / 2 + 0.03) this.prop(c, "chalk", 0);
     }
     if (inside && p[2] < BACK.z + CORK_R && p[1] < backTop(p[0])) {
       p[2] = BACK.z + CORK_R;
@@ -317,6 +329,115 @@ export class StallSim {
     }
     if (p[1] < -1 || p[2] > 1.2 || c.age > 6) return this.rest(c, true);
     return true;
+  }
+
+  prop(c, what, i, extra) {
+    this.events.push({ k: "prop", seat: this.seat, id: c.id, t: this.t, what, i, x: c.p[0], y: c.p[1], z: c.p[2], ...extra });
+  }
+
+  /**
+   * Things that are not targets but are in the way: a cork bounces off them and they answer.
+   * A lamp goes out for a while, a prize rocks and then falls, a wheel of the drive rings.
+   */
+  strikeProps(c, x0, y0, z0) {
+    const p = c.p;
+    const v = c.v;
+    const dx = p[0] - x0;
+    const dy = p[1] - y0;
+    const dz = p[2] - z0;
+    const len2 = dx * dx + dy * dy + dz * dz;
+    if (len2 === 0) return;
+    // Lamps: small glass spheres. The nearest point of this step's path to the lamp's middle.
+    if (p[1] > 1.6 || y0 > 1.6) {
+      for (let i = 0; i < LAMPS.length; i++) {
+        if (c.lamp === i) continue; // it has had this one: no rattling between a lamp and its wall
+        const L = LAMPS[i];
+        const lx = L.p[0] - x0;
+        const ly = L.p[1] - y0;
+        const lz = L.p[2] - z0;
+        const reach = L.r + CORK_R;
+        if (Math.abs(lz) > 0.2 && Math.abs(L.p[2] - p[2]) > 0.2) continue;
+        const f = Math.max(0, Math.min(1, (lx * dx + ly * dy + lz * dz) / len2));
+        const nx = x0 + dx * f - L.p[0];
+        const ny = y0 + dy * f - L.p[1];
+        const nz = z0 + dz * f - L.p[2];
+        const d2 = nx * nx + ny * ny + nz * nz;
+        if (d2 > reach * reach) continue;
+        // Off the glass: back along the way it came, most of its speed gone.
+        const d = Math.sqrt(d2) || 1;
+        const into = (v[0] * nx + v[1] * ny + v[2] * nz) / d;
+        p[0] = L.p[0] + (nx / d) * reach;
+        p[1] = L.p[1] + (ny / d) * reach;
+        p[2] = L.p[2] + (nz / d) * reach;
+        if (into < 0) {
+          v[0] = (v[0] - (1.5 * into * nx) / d) * 0.5;
+          v[1] = (v[1] - (1.5 * into * ny) / d) * 0.5;
+          v[2] = (v[2] - (1.5 * into * nz) / d) * 0.5;
+        }
+        c.lamp = i;
+        this.bounce(c, "lamp");
+        const lit = this.t >= this.lampOut[i];
+        this.lampOut[i] = this.t + LAMP_OUT_SECONDS;
+        this.prop(c, "lamp", i, { lit });
+        return;
+      }
+    }
+    // The prizes: upright, on the shelf of the right wall.
+    if (p[0] > HALF_W - 0.2 && p[1] > VASES[0].y - 0.01 && p[1] < VASES[0].y + 0.27) {
+      for (let i = 0; i < VASES.length; i++) {
+        if (this.vaseDown[i] >= 0 || c.vase === i) continue;
+        const V = VASES[i];
+        if (p[1] > V.y + V.h + CORK_R) continue;
+        const reach = V.r + CORK_R;
+        const fx = V.x - x0;
+        const fz = V.z - z0;
+        const flat2 = dx * dx + dz * dz;
+        const f = flat2 > 0 ? Math.max(0, Math.min(1, (fx * dx + fz * dz) / flat2)) : 0;
+        const nx = x0 + dx * f - V.x;
+        const nz = z0 + dz * f - V.z;
+        const d2 = nx * nx + nz * nz;
+        if (d2 > reach * reach) continue;
+        const d = Math.sqrt(d2) || 1;
+        const into = (v[0] * nx + v[2] * nz) / d;
+        p[0] = V.x + (nx / d) * reach;
+        p[2] = V.z + (nz / d) * reach;
+        if (into < 0) {
+          v[0] = (v[0] - (1.5 * into * nx) / d) * 0.45;
+          v[2] = (v[2] - (1.5 * into * nz) / d) * 0.45;
+          v[1] *= 0.6;
+        }
+        c.vase = i;
+        this.bounce(c, "vase");
+        this.vaseKnocks[i] += 1;
+        const broke = this.vaseKnocks[i] >= VASE_KNOCKS;
+        if (broke) this.vaseDown[i] = this.t;
+        this.prop(c, "vase", i, { broke, vx: v[0], vz: v[2] });
+        return;
+      }
+    }
+    // The drive: the flywheel and the three wheels, flat against the left wall.
+    const face = DRIVE.x + 0.035;
+    if (x0 > face && p[0] <= face) {
+      const f = (face - x0) / dx;
+      const hy = y0 + dy * f;
+      const hz = z0 + dz * f;
+      for (let i = 0; i < WHEELS.length; i++) {
+        const w = WHEELS[i];
+        const ry = hy - w.y;
+        const rz = hz - w.z;
+        if (ry * ry + rz * rz > (w.r + CORK_R) * (w.r + CORK_R)) continue;
+        p[0] = face + CORK_R;
+        p[1] = hy;
+        p[2] = hz;
+        v[0] *= -0.5;
+        // A turning wheel throws the cork along its rim.
+        v[1] = v[1] * 0.6 + rz * 3;
+        v[2] = v[2] * 0.6 - ry * 3;
+        this.bounce(c, "wheel");
+        this.prop(c, "wheel", i);
+        return;
+      }
+    }
   }
 
   bounce(c, what) {

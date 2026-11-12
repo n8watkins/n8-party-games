@@ -516,7 +516,27 @@ export function chalkTexture() {
     g.globalCompositeOperation = "source-over";
     t.needsUpdate = true;
   };
-  return { texture: t, draw };
+  /** A cork has struck the board at (u, v), 0..1 from its top left: the chalk there is rubbed thin, with a pale ring of dust. */
+  const smudge = (u, v) => {
+    const g = c.getContext("2d");
+    const x = u * c.width;
+    const y = v * c.height;
+    g.globalCompositeOperation = "destination-out";
+    const rub = g.createRadialGradient(x, y, 4, x, y, 46);
+    rub.addColorStop(0, "rgba(0,0,0,0.9)");
+    rub.addColorStop(1, "rgba(0,0,0,0)");
+    g.fillStyle = rub;
+    g.fillRect(x - 50, y - 50, 100, 100);
+    g.globalCompositeOperation = "source-over";
+    const dust = g.createRadialGradient(x, y, 14, x, y, 40);
+    dust.addColorStop(0, "rgba(236,232,220,0)");
+    dust.addColorStop(0.7, "rgba(236,232,220,0.16)");
+    dust.addColorStop(1, "rgba(236,232,220,0)");
+    g.fillStyle = dust;
+    g.fillRect(x - 50, y - 50, 100, 100);
+    t.needsUpdate = true;
+  };
+  return { texture: t, draw, smudge };
 }
 
 /** Trodden grass at dusk, with the stall's lamplight spilling out of its open front. */

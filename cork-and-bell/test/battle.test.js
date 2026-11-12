@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { game, createBattle, roundTime, dumpStall, loadStall, COUNT_IN } from "../game/shared/battle.js";
-import { StallSim, ROUND_SECONDS, launch, predict, mech, backTop, CORKS_PER_ROUND, RICOCHET_TIMES } from "../game/shared/sim.js";
+import { StallSim, ROUND_SECONDS, launch, predict, mech, backTop, CORKS_PER_ROUND, RICOCHET_TIMES, LAMP_OUT_SECONDS } from "../game/shared/sim.js";
 import { PLATES, ROWS, BELL } from "../game/shared/layout.js";
 
 function runBattle(seed, n, { until = ROUND_SECONDS + 5, onEvent } = {}) {
@@ -89,8 +89,8 @@ describe("the cork", () => {
       expect(events.filter((e) => e.k === "bounce" || e.k === "hit")).toEqual([]);
       expect(events.find((e) => e.k === "rest")).toMatchObject({ lost: true });
     }
-    // Into the canvas of the right wall, below its top: it comes back off the wall.
-    expect(shoot(1.35, 1.9).find((e) => e.k === "bounce")).toMatchObject({ what: "wall" });
+    // Into the left wall, below its top: it comes back off the wall.
+    expect(shoot(-1.35, 1.5).find((e) => e.k === "bounce")).toMatchObject({ what: "wall" });
     // The pediment is an arch: highest in the middle, a plain rail at the sides.
     expect(backTop(0)).toBeGreaterThan(backTop(0.5));
     expect(backTop(0.5)).toBeGreaterThan(backTop(1));
@@ -139,6 +139,69 @@ describe("the cork", () => {
 
   it("speeds the machine up through the round", () => {
     expect(mech(10) - mech(9)).toBeLessThan(mech(89) - mech(88));
+  });
+});
+
+describe("the rest of the stall", () => {
+  /** The first aim in a patch of the stall whose cork meets the thing asked for. */
+  function aimAt(what, [x0, x1, y0, y1], prepare) {
+    for (let ay = y0; ay <= y1; ay += 0.04) {
+      for (let ax = x0; ax <= x1; ax += 0.04) {
+        const sim = new StallSim(11, 0);
+        prepare?.(sim);
+        sim.step(0.1);
+        sim.fire(0.1, ax, ay);
+        sim.step(2.5);
+        const e = sim.events.find((x) => x.k === "prop" && x.what === what);
+        if (e) return { sim, e, ax, ay };
+      }
+    }
+    throw new Error(`no aim meets the ${what}`);
+  }
+
+  it("puts a lamp out for a while, and scores nothing for it", () => {
+    const { sim, e } = aimAt("lamp", [-1.3, 1.3, 1.7, 2.7]);
+    expect(sim.events.some((x) => x.k === "bounce" && x.what === "lamp")).toBe(true);
+    expect(sim.lampOut[e.i]).toBeCloseTo(e.t + LAMP_OUT_SECONDS);
+    expect(sim.lampOut.filter((until) => until > sim.t)).toHaveLength(1);
+    if (!sim.events.some((x) => x.k === "hit")) expect(sim.score).toBe(0);
+    sim.step(e.t + LAMP_OUT_SECONDS + 0.1);
+    expect(sim.lampOut[e.i]).toBeLessThan(sim.t); // it has come back on
+  });
+
+  it("rocks a prize at the first knock and has it off the shelf at the second", () => {
+    const first = aimAt("vase", [0.9, 1.35, 1.3, 2]);
+    expect(first.e).toMatchObject({ broke: false });
+    expect(first.sim.vaseDown[first.e.i]).toBe(-1);
+    // The same cork again at a prize that has already been knocked once.
+    const second = aimAt("vase", [first.ax, first.ax, first.ay, first.ay], (sim) => (sim.vaseKnocks[first.e.i] = 1));
+    expect(second.e).toMatchObject({ i: first.e.i, broke: true });
+    expect(second.sim.vaseDown[first.e.i]).toBeGreaterThan(0);
+    // And once it is gone there is nothing there to hit.
+    const sim = new StallSim(11, 0);
+    sim.vaseDown[first.e.i] = 0;
+    sim.step(0.1);
+    sim.fire(0.1, first.ax, first.ay);
+    sim.step(2.5);
+    expect(sim.events.some((x) => x.k === "prop" && x.what === "vase" && x.i === first.e.i)).toBe(false);
+  });
+
+  it("marks the chalk board and rings the drive", () => {
+    expect(aimAt("chalk", [-1.35, -0.9, 1.5, 2.3]).e.x).toBeLessThan(-1.2);
+    expect(aimAt("wheel", [-1.35, -0.9, 0.6, 1.5]).e.i).toBeGreaterThanOrEqual(0);
+  });
+
+  it("carries dark lamps and fallen prizes in a snapshot", () => {
+    const sim = new StallSim(5, 0);
+    sim.step(1);
+    sim.lampOut[3] = 6.5;
+    sim.vaseKnocks[1] = 2;
+    sim.vaseDown[1] = 0.75;
+    sim.vaseKnocks[4] = 1;
+    const copy = loadStall(new StallSim(5, 0), JSON.parse(JSON.stringify(dumpStall(sim))));
+    expect(copy.lampOut).toEqual(sim.lampOut);
+    expect(copy.vaseKnocks).toEqual(sim.vaseKnocks);
+    expect(copy.vaseDown).toEqual(sim.vaseDown);
   });
 });
 

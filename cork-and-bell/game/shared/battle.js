@@ -285,6 +285,9 @@ export function dumpStall(sim) {
     mothsUntil: r3(sim.mothsUntil),
     darkUntil: r3(sim.darkUntil),
     rested: sim.rested.map((c) => c.map(r3)),
+    // Only the lamps that are out and the prizes that have been knocked: most rounds, nothing.
+    lamps: sim.lampOut.flatMap((until, i) => (until > sim.t ? [[i, r3(until)]] : [])),
+    vases: sim.vaseKnocks.flatMap((n, i) => (n ? [[i, n, r3(sim.vaseDown[i])]] : [])),
   };
 }
 
@@ -309,6 +312,14 @@ export function loadStall(sim, d) {
   sim.mothsUntil = d.mothsUntil;
   sim.darkUntil = d.darkUntil;
   sim.rested = d.rested.map((c) => c.slice());
+  sim.lampOut.fill(-10);
+  for (const [i, until] of d.lamps ?? []) sim.lampOut[i] = until;
+  sim.vaseKnocks.fill(0);
+  sim.vaseDown.fill(-1);
+  for (const [i, n, down] of d.vases ?? []) {
+    sim.vaseKnocks[i] = n;
+    sim.vaseDown[i] = down;
+  }
   sim.corks = [];
   sim.pending = [];
   sim.lastReset = resetIndex(d.t);

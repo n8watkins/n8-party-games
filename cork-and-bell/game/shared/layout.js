@@ -125,3 +125,23 @@ export const SCORE_WINDOW = { x: 0, y: 2.31, z: BACK.z + 0.045, w: 0.5, h: 0.125
 export const CHALK_BOARD = { x: -HALF_W + 0.012, y: 1.86, z: -2.02, w: 0.62, h: 0.5 };
 // The cork tray stands left of centre, under the free hand, where an upright phone still shows it.
 export const TRAY = { x: -0.24, z: -0.17, w: 0.3, d: 0.2 };
+
+// ---------------------------------------------------------------- things a cork can knock about
+// Nothing here scores. They are part of the stall, so a cork meets them (see strikeProps in sim.js).
+
+/** Every lamp a cork can put out, in the order the picture draws them. `r` is the glass, a little generous. */
+export const LAMPS = [
+  ...BULBS.border.map((p) => ({ p, r: 0.036 })),
+  ...BULBS.key.map((p) => ({ p, r: 0.038 })),
+  ...BULBS.festoon.map((p) => ({ p, r: 0.05 })),
+  ...BULBS.prize.map((p) => ({ p, r: 0.032 })),
+];
+
+/** The prizes on the shelf, as the bake turned them: a lathe profile (radius, height) and a paint. */
+export const VASES = [
+  { profile: [[0, 0], [0.05, 0], [0.055, 0.02], [0.03, 0.06], [0.06, 0.13], [0.062, 0.17], [0.035, 0.22], [0.045, 0.25], [0, 0.25]], paint: [0.05, 0.13, 0.3] },
+  { profile: [[0, 0], [0.035, 0], [0.05, 0.05], [0.05, 0.12], [0.022, 0.17], [0.03, 0.2], [0.022, 0.24], [0, 0.245]], paint: [0.78, 0.66, 0.44] },
+  { profile: [[0, 0], [0.012, 0], [0.07, 0.07], [0.072, 0.09], [0.02, 0.13], [0.012, 0.2], [0, 0.2]], paint: [0.5, 0.06, 0.04] },
+  { profile: [[0, 0], [0.045, 0], [0.045, 0.012], [0.012, 0.03], [0.012, 0.09], [0.06, 0.16], [0.064, 0.21], [0.056, 0.21], [0, 0.2]], paint: [0.72, 0.5, 0.14] },
+  { profile: [[0, 0], [0.04, 0], [0.066, 0.05], [0.07, 0.1], [0.045, 0.16], [0, 0.17]], paint: [0.05, 0.2, 0.13] },
+].map((v, i) => ({ ...v, x: HALF_W - 0.09, y: PRIZE_SHELF.y, z: -1.3 - i * 0.2, r: Math.max(...v.profile.map((q) => q[0])), h: Math.max(...v.profile.map((q) => q[1])) }));

@@ -21,7 +21,7 @@ import { Sound, buzz } from "./audio.js";
 import { LocalSession, NetSession } from "./session.js";
 import { ATTACK_NAMES, COUNT_IN, game } from "./shared/battle.js";
 import { COUNTER, TRAY } from "./shared/layout.js";
-import { BELL_FULL, COCK_SECONDS, RICOCHET_TIMES, ROUND_SECONDS, mech, speedAt } from "./shared/sim.js";
+import { BELL_FULL, COCK_SECONDS, RICOCHET_TIMES, ROUND_SECONDS, StallSim, mech, speedAt } from "./shared/sim.js";
 import { Lens, fourInARow, gridFor } from "./view/render.js";
 import { StallAssets, StallView } from "./view/stall.js";
 
@@ -525,11 +525,24 @@ function onEvent(e) {
           showBanner("The bell is live", session.seats.length > 1 ? "Ring it to put a rival's lamps out." : "Ring it for a hundred.", { good: true, seconds: 2.2 });
         }
         if (e.rung) session.bellCalled = false;
+        // The bell in the last second of the round: last orders.
+        if (e.target === "bell" && e.t >= ROUND_SECONDS - 1) {
+          showBanner("Last orders!", "The bell, right on time.", { good: true, seconds: 2.4 });
+          sound.lastOrders();
+          if (v) {
+            v.view.chaseUntil = v.view.time + 2.6;
+            v.view.chaseKind = 2;
+          }
+        }
       }
       break;
     case "bounce":
       v?.view.onEvent(e);
-      if (mine) sound.bounce(e);
+      if (mine && !["lamp", "vase", "wheel"].includes(e.what)) sound.bounce(e);
+      break;
+    case "prop":
+      v?.view.onEvent(e);
+      if (mine) sound.prop(e);
       break;
     case "rest":
       if (mine) sound.rest();
@@ -972,6 +985,24 @@ async function main() {
       const gl = lens.renderer.getContext();
       const ext = gl.getExtension("WEBGL_debug_renderer_info");
       return ext ? gl.getParameter(ext.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER);
+    },
+    /** For the tools: an aim that sends this stall's next cork into a lamp, a vase, the chalk board or a wheel. */
+    aimFor(what) {
+      const real = session?.sims[session.mySeat];
+      if (!real) return null;
+      const [x0, x1, y0, y1] = { lamp: [-1.3, 1.3, 1.7, 2.7], vase: [0.9, 1.35, 1.3, 2], chalk: [-1.35, -0.9, 1.5, 2.3], wheel: [-1.35, -0.9, 0.6, 1.5] }[what];
+      for (let ay = y0; ay <= y1; ay += 0.04) {
+        for (let ax = x0; ax <= x1; ax += 0.04) {
+          const trial = new StallSim(0, 0);
+          trial.seed = real.seed;
+          trial.shots = real.shots;
+          trial.t = 1;
+          trial.fire(1, ax, ay);
+          trial.step(2.2);
+          if (trial.events.some((e) => e.k === "prop" && e.what === what)) return [ax, ay];
+        }
+      }
+      return null;
     },
     summary() {
       if (!session) return null;
