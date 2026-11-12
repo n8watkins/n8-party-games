@@ -76,4 +76,10 @@ describe("the public folder", () => {
     expect(headers).toContain("X-Content-Type-Options: nosniff");
     expect(headers).toContain("frame-ancestors 'none'");
   });
+
+  it("lets the zone's Cloudflare Web Analytics beacon load and report, and nothing else from outside", () => {
+    const headers = readFileSync(join(OUT, "_headers"), "utf8");
+    expect(headers).toMatch(/script-src [^;]*https:\/\/static\.cloudflareinsights\.com/);
+    expect(headers).toMatch(/connect-src 'self' https:\/\/cloudflareinsights\.com;/);
+  });
 });
