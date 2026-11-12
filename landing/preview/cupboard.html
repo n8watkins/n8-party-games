@@ -1,0 +1,582 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{name} - the games cupboard</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Abril+Fatface&family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&family=Nunito:wght@800;900&display=swap">
+<style>
+/* Direction 2, "The games cupboard": game boxes on a lit shelf in the workshop.
+   Each box carries a printed strip saying what you need, as real game boxes do. */
+:root {
+  --bg: #060a16;
+  --panel: #0b1226;
+  --panel-2: #0f1830;
+  --line: rgba(132, 160, 230, .16);
+  --line-strong: rgba(132, 160, 230, .32);
+  --bezel: #1b2547;
+  --ink: #eef3ff;
+  --soft: #a3b0cf;
+  --dim: #7482a6;
+  --cyan: #38bdf8;
+  --violet: #b39dfc;
+  --amber: #fbbf24;
+  --green: #4ade80;
+  --paper: #f3ead6;
+  --text: "Inter", system-ui, sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, Menlo, monospace;
+  --gap: 14px;
+}
+* { box-sizing: border-box; }
+html { background: var(--bg); }
+body {
+  margin: 0;
+  color: var(--ink);
+  font: 16px/1.5 var(--text);
+  min-height: 100vh;
+  background:
+    linear-gradient(rgba(120, 170, 255, .045) 1px, transparent 1px) center top / 48px 48px,
+    linear-gradient(90deg, rgba(120, 170, 255, .045) 1px, transparent 1px) center top / 48px 48px,
+    var(--bg);
+  overflow-x: hidden;
+}
+.wrap { max-width: 1264px; margin: 0 auto; padding: 0 16px; }
+a { color: inherit; }
+button { font: inherit; color: inherit; cursor: pointer; }
+:focus-visible { outline: 2px solid var(--cyan); outline-offset: 3px; }
+.label { font: 500 12px/1 var(--mono); letter-spacing: .14em; text-transform: uppercase; color: var(--cyan); }
+
+.top { display: flex; align-items: center; justify-content: space-between; padding-top: 18px; padding-bottom: 14px; }
+.brand { display: flex; align-items: center; gap: 10px; font-weight: 800; font-size: 18px; letter-spacing: -.01em; text-decoration: none; }
+.brand i { width: 22px; height: 15px; border-radius: 4px; background: var(--cyan); box-shadow: 0 0 18px rgba(56, 189, 248, .7); }
+.top .by { font: 400 12px/1 var(--mono); color: var(--dim); text-decoration: none; }
+.top .by b { color: var(--soft); font-weight: 500; }
+
+/* The join bar: the first thing on the page, one row. */
+.door {
+  display: grid; gap: 12px;
+  margin-top: 10px;
+  padding: 16px;
+  border-radius: 18px;
+  border: 1.5px solid rgba(56, 189, 248, .5);
+  background: linear-gradient(180deg, rgba(14, 30, 58, .95), rgba(9, 16, 36, .95));
+  box-shadow: 0 0 46px rgba(56, 189, 248, .14);
+}
+.door h1 { font-size: 24px; line-height: 1.15; letter-spacing: -.02em; margin: 8px 0 0; }
+.door p { margin: 4px 0 0; color: var(--soft); font-size: 14.5px; }
+.pin-form { display: flex; gap: 8px; }
+.pin { display: flex; gap: 8px; }
+.pin input {
+  width: 56px; height: 62px;
+  border-radius: 12px;
+  border: 1.5px solid var(--line-strong);
+  background: #060a16;
+  color: var(--ink);
+  font: 500 30px/1 var(--mono);
+  text-align: center;
+  caret-color: var(--cyan);
+}
+.pin input::placeholder { color: #36426a; }
+.pin input:first-child:placeholder-shown, .pin input:focus { outline: none; border-color: var(--cyan); box-shadow: 0 0 0 3px rgba(56, 189, 248, .18); }
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  min-height: 46px; padding: 0 16px;
+  border-radius: 12px;
+  border: 1.5px solid var(--line-strong);
+  background: rgba(18, 28, 58, .8);
+  font-weight: 700; font-size: 15.5px;
+  text-decoration: none; text-align: center; line-height: 1.2;
+}
+.btn.primary { background: var(--cyan); border-color: var(--cyan); color: #04111f; }
+.btn.join-btn { flex: 1; min-height: 62px; font-size: 18px; }
+.btn[disabled] { background: transparent; border-color: var(--line-strong); border-style: dashed; color: var(--dim); cursor: not-allowed; }
+.btn .when-full { display: none; }
+body[data-state="full"] [data-room] .when-open { display: none; }
+body[data-state="full"] [data-room] .when-full { display: inline; }
+
+/* Rooms are full: a paper note taped to the cupboard. */
+.full-note {
+  display: none;
+  position: relative;
+  margin: 22px auto 0; max-width: 520px;
+  padding: 18px 18px 16px;
+  background: var(--paper);
+  color: #231d12;
+  border-radius: 3px;
+  transform: rotate(-.8deg);
+  box-shadow: 0 14px 34px rgba(0, 0, 0, .5);
+}
+body[data-state="full"] .full-note { display: block; }
+.full-note::before {
+  content: ""; position: absolute; left: 50%; top: -11px; width: 92px; height: 22px; margin-left: -46px;
+  background: rgba(125, 211, 252, .55);
+  transform: rotate(1.5deg);
+}
+.full-note strong { display: block; font-size: 19px; line-height: 1.25; letter-spacing: -.01em; }
+.full-note span { display: block; font-size: 14.5px; color: #55492f; margin-top: 6px; }
+
+.shelf-head { display: grid; gap: 14px; margin: 34px 0 6px; }
+.shelf-head h2 { font-size: 28px; letter-spacing: -.025em; line-height: 1.1; margin: 8px 0 0; }
+.shelf-head .sub { margin: 6px 0 0; color: var(--soft); font-size: 15px; }
+.filter-q { font-size: 14px; color: var(--soft); margin: 0 0 8px; }
+.filter { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.filter button {
+  display: flex; flex-direction: column; align-items: center; gap: 7px;
+  padding: 11px 6px 10px;
+  border-radius: 12px; border: 1.5px solid var(--line); background: var(--panel);
+  font-weight: 600; font-size: 14px; line-height: 1.2; color: var(--soft);
+}
+.filter svg { width: 42px; height: 28px; }
+.filter button[aria-pressed="true"] { border-color: currentColor; background: var(--panel-2); }
+.filter button[data-filter="solo"] svg, .filter button[data-filter="solo"][aria-pressed="true"] { color: var(--cyan); }
+.filter button[data-filter="phones"] svg, .filter button[data-filter="phones"][aria-pressed="true"] { color: var(--violet); }
+.filter button[data-filter="screen"] svg, .filter button[data-filter="screen"][aria-pressed="true"] { color: var(--amber); }
+.filter button[aria-pressed="true"] span { color: var(--ink); }
+
+/* Shelves. On a phone every box gets its own shelf: box on the left, words beside it, buttons under the plank. */
+.shelves { display: grid; grid-template-columns: 1fr; }
+.item {
+  display: grid;
+  grid-template-columns: 128px 1fr;
+  grid-template-areas: "box words" "plank plank" "actions actions";
+  column-gap: 14px;
+  padding-top: 26px;
+}
+.box-slot { grid-area: box; align-self: end; position: relative; }
+.plank {
+  grid-area: plank;
+  height: 13px;
+  margin: 0 -16px;
+  background: linear-gradient(#2c3a6e, #17204a 55%, #101838);
+  border-top: 1px solid #4a5c9c;
+  box-shadow: 0 2px 0 rgba(56, 189, 248, .85), 0 12px 34px rgba(56, 189, 248, .3);
+  position: relative; z-index: 1;
+}
+.words { grid-area: words; align-self: end; display: grid; gap: 9px; padding-bottom: 14px; min-width: 0; }
+.acts { grid-area: actions; display: grid; grid-template-columns: 1fr 1fr; gap: 10px; padding-top: 16px; }
+.acts.one { grid-template-columns: 1fr; }
+.item h3 { font-size: 21px; line-height: 1.15; letter-spacing: -.02em; margin: 0; }
+.status { display: inline-flex; align-items: center; gap: 7px; font: 500 11px/1 var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--soft); white-space: nowrap; }
+.status::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--amber); }
+.status.open { color: var(--green); }
+.status.open::before { background: var(--green); box-shadow: 0 0 10px var(--green); }
+.what { margin: 0; color: var(--soft); font-size: 14.5px; line-height: 1.45; }
+.later { margin: 0; padding-top: 14px; font: 400 12.5px/1.5 var(--mono); color: var(--dim); grid-area: actions; }
+
+/* The words version of the badge, on the shelf label. */
+.need { display: flex; align-items: center; gap: 10px; color: var(--k); }
+.need svg { flex: none; width: 45px; height: 30px; }
+.need strong { display: block; font-size: 15.5px; line-height: 1.2; font-weight: 700; color: var(--ink); }
+.need span { display: block; font-size: 13px; line-height: 1.3; color: var(--k); margin-top: 1px; }
+.any { --k: var(--cyan); }
+.phones { --k: var(--violet); }
+.screen { --k: var(--amber); }
+
+/* A game box, seen from the front, with a sliver of its side. */
+.box {
+  position: relative;
+  aspect-ratio: 3 / 4;
+  border-radius: 4px 2px 2px 4px;
+  overflow: hidden;
+  display: flex; flex-direction: column;
+  background: var(--face, #1a2244);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .1), inset 0 2px 0 rgba(255, 255, 255, .16), 0 -1px 24px rgba(0, 0, 0, .5);
+  margin-right: 9px;
+}
+.box-slot::after {
+  /* the side of the box */
+  content: ""; position: absolute; right: 0; top: 3px; bottom: 0; width: 9px;
+  background: linear-gradient(90deg, var(--side, #10173a), color-mix(in srgb, var(--side, #10173a) 70%, #000));
+  transform: skewY(-18deg); transform-origin: left bottom;
+  border-radius: 0 2px 2px 0;
+}
+.box .art { flex: 1; min-height: 0; position: relative; }
+.box .art img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+/* The printed strip: the same picture and colour as the badge, in ink on the box. */
+.printed {
+  display: flex; align-items: center; justify-content: center; gap: 7px;
+  padding: 6px 6px;
+  background: var(--k); color: #0a1022;
+  font: 700 10.5px/1.15 var(--mono); letter-spacing: .04em; text-transform: uppercase;
+}
+.printed svg { flex: none; width: 33px; height: 22px; }
+.printed em { display: none; font-style: normal; }
+
+.box.cork { --face: #6d1512; }
+.cork-slot { --side: #4a0e0c; }
+.cork .title { padding: 9px 6px 8px; text-align: center; font: 400 19px/1 "Abril Fatface", Georgia, serif; color: #f6e3b4; background: #7b1a15; border-bottom: 2px solid #c79a3a; letter-spacing: .01em; }
+.box.who { --face: #fff6ea; color: #1d1830; align-items: center; }
+.who-slot { --side: #d9cdb8; }
+.who .art { width: 100%; display: grid; place-items: center; align-content: center; gap: 10px; }
+.who .q { width: 44%; aspect-ratio: 1; border-radius: 24%; background: #4a35b5; display: grid; place-items: center; box-shadow: 0 5px 0 #33238a; }
+.who .q b { width: 62%; aspect-ratio: 1; border-radius: 50%; background: #fff; display: grid; place-items: center; font: 900 1.5em/1 "Nunito", sans-serif; color: #4a35b5; }
+.who .title { font: 900 18px/1 "Nunito", sans-serif; letter-spacing: -.01em; }
+.who .printed { align-self: stretch; }
+/* A prototype box: plain card with a typed label, the way board-game prototypes look. */
+.box.proto { --face: #1a2246; }
+.proto-slot { --side: #111838; }
+.proto .art { display: grid; place-items: center; padding: 8px; background: linear-gradient(160deg, color-mix(in srgb, var(--tone) 14%, #1c2550), #141b3c); }
+.proto .sticker {
+  width: 100%;
+  background: var(--paper); color: #231d12;
+  padding: 9px 9px 10px;
+  border-radius: 2px;
+  transform: rotate(-1.2deg);
+  box-shadow: 0 3px 10px rgba(0, 0, 0, .4);
+  border-top: 5px solid var(--tone);
+}
+.proto .sticker small { display: block; font: 700 8.5px/1 var(--mono); letter-spacing: .14em; color: #7a6c4c; }
+.proto .sticker b { display: block; font: 700 14.5px/1.15 var(--mono); margin-top: 6px; }
+
+.why { margin: 44px 0 0; padding: 18px 0 0; border-top: 1px solid var(--line); color: var(--dim); font-size: 14px; max-width: 62em; }
+.why b { color: var(--soft); font-weight: 600; }
+footer.wrap { margin-top: 44px; padding-bottom: 90px; color: var(--dim); font: 400 12px/1.6 var(--mono); }
+
+/* Screens used in the big-screen step. */
+.scr { position: relative; overflow: hidden; background: #050814; }
+.scr img { display: block; width: 100%; height: 100%; object-fit: cover; object-position: center top; }
+.tv { position: relative; aspect-ratio: 16 / 9; margin-bottom: 10px; }
+.tv .scr { height: 100%; border: 4px solid var(--bezel); border-radius: 7px; }
+.tv::after { content: ""; position: absolute; left: 33%; right: 33%; top: calc(100% + 5px); height: 5px; background: var(--bezel); border-radius: 3px; }
+.phone { flex: none; aspect-ratio: 9 / 18.5; border: 3.5px solid var(--bezel); border-radius: 15px; }
+.lit { box-shadow: 0 10px 40px rgba(0, 0, 0, .55); }
+/* The big-screen room step */
+.sheet-back { display: none; position: fixed; inset: 0; z-index: 20; background: rgba(2, 4, 12, .78); overflow-y: auto; }
+body[data-state="screen"] .sheet-back { display: block; }
+.sheet {
+  margin: 20px auto; width: min(940px, calc(100% - 20px));
+  background: var(--panel);
+  border: 1px solid var(--line-strong);
+  border-radius: 22px;
+  padding: 20px 18px 22px;
+  box-shadow: 0 30px 90px rgba(0, 0, 0, .6);
+}
+.sheet-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.sheet h2 { font-size: 25px; letter-spacing: -.02em; line-height: 1.15; margin: 10px 0 0; }
+.x { width: 44px; height: 44px; flex: none; border-radius: 12px; border: 1.5px solid var(--line); background: none; font-size: 22px; line-height: 1; color: var(--soft); }
+.choice { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 18px 0 20px; }
+.choice button {
+  display: flex; align-items: center; gap: 10px; text-align: left;
+  padding: 10px 12px; border-radius: 12px;
+  border: 1.5px solid var(--line); background: none;
+  color: var(--soft); font-weight: 600; font-size: 14.5px; line-height: 1.25;
+}
+.choice svg { width: 42px; height: 28px; flex: none; }
+.choice button[aria-pressed="true"] { border-color: var(--amber); color: var(--ink); background: rgba(251, 191, 36, .08); }
+.choice button[aria-pressed="true"] svg { color: var(--amber); }
+.sheet-grid { display: grid; gap: 20px; }
+.steps { list-style: none; margin: 0; padding: 0; display: grid; gap: 16px; counter-reset: s; }
+.steps li { display: grid; grid-template-columns: 38px 1fr; gap: 12px; counter-increment: s; }
+.steps li::before {
+  content: counter(s);
+  width: 38px; height: 38px; border-radius: 50%;
+  display: grid; place-items: center;
+  font: 500 16px/1 var(--mono);
+  color: var(--amber); border: 1.5px solid rgba(251, 191, 36, .55);
+}
+.steps strong { display: block; font-size: 17px; line-height: 1.3; }
+.steps span { display: block; color: var(--soft); font-size: 15px; margin-top: 3px; }
+.addr { display: inline-block; margin-top: 8px; padding: 7px 11px; border-radius: 9px; background: #060a16; border: 1px solid var(--line-strong); font: 500 15px/1.2 var(--mono); color: var(--ink); }
+.show { position: relative; border-radius: 16px; background: #070c1b; border: 1px solid var(--line); padding: 18px 14px 14px; overflow: hidden; isolation: isolate; }
+.show .spill { position: absolute; left: -110px; top: -110px; width: calc(100% + 220px); height: calc(100% + 220px); object-fit: cover; filter: blur(46px); opacity: .35; z-index: -1; }
+.show .cap { text-align: center; font: 400 12px/1.4 var(--mono); color: var(--soft); margin: 0 0 12px; }
+.show .set { position: relative; display: flex; justify-content: center; padding-right: 12%; }
+.show .tv { height: auto; width: 86%; }
+.show .phone { position: absolute; right: 0; bottom: -4px; height: 92%; }
+.seats { display: flex; justify-content: center; gap: 14px; margin: 16px 0 0; padding: 0; list-style: none; }
+.seats li { display: grid; justify-items: center; gap: 5px; font: 400 11.5px/1 var(--mono); color: var(--soft); }
+/* Seats are plain discs in the seat colour. Lobby characters are swappable skins that plug in here later; the page does not depend on any of them. */
+.seat { width: 30px; height: 30px; border-radius: 50%; background: var(--seat); box-shadow: 0 0 14px color-mix(in srgb, var(--seat) 55%, transparent); }
+.sheet-actions { display: grid; gap: 10px; margin-top: 20px; }
+.sheet-note { color: var(--dim); font-size: 13.5px; margin: 12px 0 0; }
+.on-wide { display: none; }
+
+/* The preview strip belongs to the mockup, not to the design. */
+.strip {
+  position: fixed; left: 50%; bottom: 10px; transform: translateX(-50%); z-index: 40;
+  display: flex; align-items: center; gap: 4px;
+  padding: 5px; border-radius: 999px;
+  background: #f4f6fb; color: #0b1020;
+  font: 500 11.5px/1 var(--mono);
+  box-shadow: 0 8px 30px rgba(0, 0, 0, .5);
+  white-space: nowrap;
+}
+.strip em { font-style: normal; padding: 0 6px 0 8px; opacity: .6; }
+.strip button { border: 0; background: none; color: inherit; padding: 8px 10px; border-radius: 999px; font: inherit; }
+.strip button[aria-pressed="true"] { background: #0b1020; color: #fff; }
+body[data-strip="off"] .strip { display: none; }
+[hidden] { display: none !important; }
+
+@media (min-width: 700px) {
+  :root { --gap: 24px; }
+  .wrap { padding: 0 32px; }
+  .top { padding-top: 24px; }
+  .door { grid-template-columns: 1fr auto; align-items: center; padding: 18px 22px; gap: 24px; }
+  .door h1 { font-size: 30px; }
+  .pin input { width: 62px; height: 70px; font-size: 34px; }
+  .btn.join-btn { flex: none; min-height: 70px; padding: 0 30px; font-size: 19px; }
+  .shelf-head { grid-template-columns: 1fr auto; align-items: end; margin-top: 40px; }
+  .shelf-head h2 { font-size: 36px; }
+  .filter-wrap { display: flex; align-items: center; gap: 14px; }
+  .filter-q { margin: 0; }
+  .filter { display: flex; }
+  .filter button { flex-direction: row; padding: 9px 14px 9px 10px; font-size: 15px; }
+  /* Boxes side by side on one shelf; the words hang under the plank like shelf labels. */
+  .shelves { grid-template-columns: repeat(3, 1fr); column-gap: var(--gap); margin: 0 calc(var(--gap) / -2); padding: 0 calc(var(--gap) / 2); }
+  .item { grid-template-columns: 1fr; grid-template-areas: "box" "plank" "words" "actions"; grid-template-rows: auto auto 1fr auto; padding-top: 30px; }
+  .box-slot { padding: 0 9%; }
+  .box-slot::after { right: 9%; }
+  .plank { margin: 0 calc(var(--gap) / -2); }
+  .words { align-self: start; padding: 18px 0 0; gap: 10px; }
+  .acts { grid-template-columns: 1fr; padding-top: 14px; }
+  .item h3 { font-size: 22px; }
+  .cork .title { font-size: 27px; padding: 13px 6px 11px; }
+  .who .title { font-size: 26px; }
+  .printed { font-size: 12px; padding: 8px; gap: 9px; }
+  .printed svg { width: 42px; height: 28px; }
+  .printed em { display: block; }
+  .proto .art { padding: 14px; }
+  .proto .sticker { padding: 13px 13px 15px; }
+  .proto .sticker small { font-size: 10px; }
+  .proto .sticker b { font-size: 21px; }
+  .sheet { margin: 6vh auto; padding: 28px 30px 30px; }
+  .sheet h2 { font-size: 30px; }
+  .choice { max-width: 560px; }
+  .sheet-grid { grid-template-columns: 1fr 1.05fr; align-items: start; gap: 30px; }
+  .sheet-actions { grid-template-columns: auto auto; justify-content: start; }
+  .on-wide { display: inline; }
+  .on-narrow { display: none; }
+}
+@media (min-width: 1100px) {
+  .shelves { grid-template-columns: repeat(5, 1fr); }
+}
+</style>
+</head>
+<body>
+
+<!-- The three "what you need" pictures. currentColor draws the frames; the lit glass is the same colour, fainter. -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="need-any" viewBox="0 0 54 36" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round">
+    <rect x="3" y="8" width="12" height="23" rx="3" fill="currentColor" fill-opacity=".28"/>
+    <rect x="23" y="7" width="26" height="18" rx="2.5" fill="currentColor" fill-opacity=".28"/>
+    <path d="M19 30h34"/>
+  </symbol>
+  <symbol id="need-phones" viewBox="0 0 54 36" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round">
+    <rect x="5" y="7" width="12" height="23" rx="3" fill="currentColor" fill-opacity=".28"/>
+    <rect x="21" y="7" width="12" height="23" rx="3" fill="currentColor" fill-opacity=".28"/>
+    <rect x="37" y="7" width="12" height="23" rx="3" fill="currentColor" fill-opacity=".28"/>
+  </symbol>
+  <symbol id="need-screen" viewBox="0 0 54 36" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round">
+    <rect x="9" y="2" width="36" height="19" rx="2.5" fill="currentColor" fill-opacity=".28"/>
+    <rect x="13" y="25" width="6" height="10" rx="1.8" fill="currentColor" fill-opacity=".28" stroke-width="1.8"/>
+    <rect x="24" y="25" width="6" height="10" rx="1.8" fill="currentColor" fill-opacity=".28" stroke-width="1.8"/>
+    <rect x="35" y="25" width="6" height="10" rx="1.8" fill="currentColor" fill-opacity=".28" stroke-width="1.8"/>
+  </symbol>
+  <symbol id="need-one" viewBox="0 0 54 36" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round">
+    <rect x="21" y="6" width="12" height="24" rx="3" fill="currentColor" fill-opacity=".28"/>
+  </symbol>
+</svg>
+
+<header class="wrap top">
+  <a class="brand" href="#"><i></i><span data-site-name>n8 Party</span></a>
+  <a class="by" href="https://n8builds.dev">from the <b>n8builds.dev</b> workshop</a>
+</header>
+
+<main class="wrap">
+  <section class="door" aria-labelledby="join-h">
+    <div>
+      <div class="label">Join a room</div>
+      <h1 id="join-h">Got a PIN? Type it here.</h1>
+      <p>Scanned the code on the host's screen? It is already filled in.</p>
+    </div>
+    <form class="pin-form" onsubmit="return false">
+      <div class="pin" role="group" aria-label="Room PIN, four digits">
+        <input inputmode="numeric" maxlength="1" placeholder="0" aria-label="Digit 1">
+        <input inputmode="numeric" maxlength="1" placeholder="0" aria-label="Digit 2">
+        <input inputmode="numeric" maxlength="1" placeholder="0" aria-label="Digit 3">
+        <input inputmode="numeric" maxlength="1" placeholder="0" aria-label="Digit 4">
+      </div>
+      <button class="btn primary join-btn">Join</button>
+    </form>
+  </section>
+
+  <div class="full-note" role="status">
+    <strong>Battles are full for today. Solo play still works.</strong>
+    <span>New rooms open again in 5 h 12 min. A room that is already open can finish its round.</span>
+  </div>
+
+  <section aria-labelledby="games-h">
+    <div class="shelf-head">
+      <div>
+        <div class="label">Play together</div>
+        <h2 id="games-h">The games cupboard</h2>
+        <p class="sub">Take a box down and get your friends in. No app, no account.</p>
+      </div>
+      <div class="filter-wrap">
+        <p class="filter-q">What have you got?</p>
+        <div class="filter" role="group" aria-label="Filter games by what you have">
+          <button data-filter="solo"><svg aria-hidden="true"><use href="#need-one"/></svg><span>Just me</span></button>
+          <button data-filter="phones"><svg aria-hidden="true"><use href="#need-phones"/></svg><span>Phones only</span></button>
+          <button data-filter="screen"><svg aria-hidden="true"><use href="#need-screen"/></svg><span>A big screen</span></button>
+        </div>
+      </div>
+    </div>
+
+    <div class="shelves">
+
+      <article class="item" data-fits="solo phones screen">
+        <div class="box-slot cork-slot">
+          <div class="box cork any">
+            <div class="title">Cork &amp; Bell</div>
+            <div class="art"><img src="assets/cork-stall.jpg" alt="Cork &amp; Bell: a fairground shooting stall with teapots, stars and a brass bell" style="object-position:70% 35%"></div>
+            <div class="printed"><svg aria-hidden="true"><use href="#need-any"/></svg><span>1 to 4<em>any device</em></span></div>
+          </div>
+        </div>
+        <div class="plank"></div>
+        <div class="words">
+          <span class="status open">Open now</span>
+          <h3>Cork &amp; Bell</h3>
+          <p class="what">Pop corks at a 1930s fairground stall. Three in a row jams a friend's targets.</p>
+          <div class="need any"><svg aria-hidden="true"><use href="#need-any"/></svg><div><strong>Any device</strong><span>Solo or 2 to 4 players. Big screen optional.</span></div></div>
+        </div>
+        <div class="acts">
+          <a class="btn" href="#">Play solo</a>
+          <button class="btn primary" data-room><span class="when-open">Start a room</span><span class="when-full">Rooms full today</span></button>
+        </div>
+      </article>
+
+      <article class="item" data-fits="phones">
+        <div class="box-slot who-slot">
+          <div class="box who phones">
+            <div class="art"><div class="q"><b>?</b></div><div class="title">Who Am I?</div></div>
+            <div class="printed"><svg aria-hidden="true"><use href="#need-phones"/></svg><span>2 players<em>a phone each</em></span></div>
+          </div>
+        </div>
+        <div class="plank"></div>
+        <div class="words">
+          <span class="status">Moving in</span>
+          <h3>Who Am I?</h3>
+          <p class="what">Your friend can see who you are. You can't. Ask yes or no questions until you get it.</p>
+          <div class="need phones"><svg aria-hidden="true"><use href="#need-phones"/></svg><div><strong>A phone each</strong><span>2 players</span></div></div>
+        </div>
+        <div class="acts one">
+          <a class="btn" href="https://whoami.n8builds.dev">Play at whoami.n8builds.dev</a>
+        </div>
+      </article>
+
+      <article class="item" data-fits="screen" style="--tone:#e2674e">
+        <div class="box-slot proto-slot">
+          <div class="box proto screen">
+            <div class="art"><div class="sticker"><small>PROTOTYPE</small><b>Tin Derby</b></div></div>
+            <div class="printed"><svg aria-hidden="true"><use href="#need-screen"/></svg><span>2 to 4<em>big screen</em></span></div>
+          </div>
+        </div>
+        <div class="plank"></div>
+        <div class="words">
+          <span class="status">Coming</span>
+          <h3>Tin Derby</h3>
+          <p class="what">Your phone is the wind-up key. Hold to wind, let go, and race tin toys across the kitchen table.</p>
+          <div class="need screen"><svg aria-hidden="true"><use href="#need-screen"/></svg><div><strong>Phones + a big screen</strong><span>2 to 4 players</span></div></div>
+        </div>
+        <p class="later">Still on the workbench. Not playable yet.</p>
+      </article>
+
+      <article class="item" data-fits="screen" style="--tone:#5fae57">
+        <div class="box-slot proto-slot">
+          <div class="box proto screen">
+            <div class="art"><div class="sticker"><small>PROTOTYPE</small><b>Fox Trouble</b></div></div>
+            <div class="printed"><svg aria-hidden="true"><use href="#need-screen"/></svg><span>2 to 4<em>big screen</em></span></div>
+          </div>
+        </div>
+        <div class="plank"></div>
+        <div class="words">
+          <span class="status">Coming</span>
+          <h3>Fox Trouble</h3>
+          <p class="what">Puzzle rooms that need everyone. Hold the lever for your friends, or throw them in the pond.</p>
+          <div class="need screen"><svg aria-hidden="true"><use href="#need-screen"/></svg><div><strong>Phones + a big screen</strong><span>2 to 4 players</span></div></div>
+        </div>
+        <p class="later">Still on the workbench. Not playable yet.</p>
+      </article>
+
+      <article class="item" data-fits="phones" style="--tone:#3f6fd0">
+        <div class="box-slot proto-slot">
+          <div class="box proto phones">
+            <div class="art"><div class="sticker"><small>PROTOTYPE</small><b>Flood</b></div></div>
+            <div class="printed"><svg aria-hidden="true"><use href="#need-phones"/></svg><span>2 to 4<em>a phone each</em></span></div>
+          </div>
+        </div>
+        <div class="plank"></div>
+        <div class="words">
+          <span class="status">Coming</span>
+          <h3>Flood</h3>
+          <p class="what">Turn painted tiles to run your river to the sea before the water rises. Finish one and your friends get rocks.</p>
+          <div class="need phones"><svg aria-hidden="true"><use href="#need-phones"/></svg><div><strong>A phone each</strong><span>2 to 4 players</span></div></div>
+        </div>
+        <p class="later">Still on the workbench. Not playable yet.</p>
+      </article>
+
+    </div>
+
+    <p class="why"><b>Why rooms can fill up.</b> One person runs this site and pays for it. Rooms you play in together cost a little to host, so there is a daily limit that keeps everything free. Solo play runs on your own device and never fills up.</p>
+  </section>
+</main>
+
+<footer class="wrap">
+  <span data-site-name>n8 Party</span> · no accounts, no ads, no app · built in the n8builds.dev workshop
+</footer>
+
+<!-- The room step for a game with a big screen. Big-screen-only games open straight on these steps. -->
+<div class="sheet-back">
+  <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="sheet-h">
+    <div class="sheet-top">
+      <div>
+        <div class="label">Start a room</div>
+        <h2 id="sheet-h">Cork &amp; Bell, on a big screen</h2>
+      </div>
+      <button class="x" data-close-sheet aria-label="Close">&times;</button>
+    </div>
+    <div class="choice" role="group" aria-label="How you will play">
+      <button aria-pressed="false"><svg aria-hidden="true"><use href="#need-phones"/></svg><span>Each on their own device</span></button>
+      <button aria-pressed="true"><svg aria-hidden="true"><use href="#need-screen"/></svg><span>Phones + a big screen</span></button>
+    </div>
+    <div class="sheet-grid">
+      <ol class="steps">
+        <li><div><strong>Open this page on the big screen.</strong><span>A laptop, a tablet or a TV with a browser. Type this address:</span><span class="addr" data-site-address>games.n8builds.dev</span></div></li>
+        <li><div><strong>Press "Start a room" there.</strong><span>The big screen shows a PIN and a code to scan. It shows every stall once you start.</span></div></li>
+        <li><div><strong>Everyone scans it with their phone.</strong><span>Phones are the controllers. Nothing to install.</span></div></li>
+      </ol>
+      <div class="show">
+        <img class="spill" src="assets/cork-lobby-screen.jpg" alt="">
+        <p class="cap">What you will see</p>
+        <div class="set">
+          <div class="tv lit"><div class="scr"><img src="assets/cork-lobby-screen.jpg" alt="The big screen showing PIN 6894, a QR code and four ready players"></div></div>
+          <div class="phone scr lit"><img src="assets/cork-lobby-phone.jpg" alt="A phone that has joined the room"></div>
+        </div>
+        <ul class="seats" aria-label="Players in the room">
+          <li><i class="seat" style="--seat:#e5484d"></i>Ann</li>
+          <li><i class="seat" style="--seat:#3b82c4"></i>Bo</li>
+          <li><i class="seat" style="--seat:#e3a72f"></i>Cy</li>
+          <li><i class="seat" style="--seat:#3f9d5a"></i>Di</li>
+        </ul>
+      </div>
+    </div>
+    <div class="sheet-actions">
+      <button class="btn primary"><span class="on-wide">This is the big screen. Show the PIN here</span><span class="on-narrow">Copy the address for the big screen</span></button>
+      <button class="btn"><span class="on-wide">I'm on my phone. Send me the address</span><span class="on-narrow">This is the big screen</span></button>
+    </div>
+    <p class="sheet-note">No big screen after all? Choose "Everyone on their own device" and each phone shows the whole game.</p>
+  </div>
+</div>
+
+<div class="strip" aria-label="Mockup preview states">
+  <em>Preview</em>
+  <button data-set-state="normal">Normal</button>
+  <button data-set-state="full">Rooms full</button>
+  <button data-set-state="screen">Big screen</button>
+</div>
+
+<script src="mock.js"></script>
+</body>
+</html>
