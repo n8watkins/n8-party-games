@@ -7,7 +7,7 @@ Everything else is already in the repository.
 
 ## What is already prepared
 
-- `wrangler.jsonc` top level is the production Worker: rate limits on, simulated latency off, the 1% room budget, Workers Logs on.
+- `wrangler.jsonc` top level is the production Worker: rate limits on, simulated latency off, the 10% room budget, Workers Logs on.
 - The `local` environment keeps the test switches for `npm run dev` and the playtests, and is never deployed.
 - Only `dist/public` is served, rebuilt from an allowlist by `scripts/build-public.mjs` before every deploy.
 - `npm run assets:list` prints every file that will be public.

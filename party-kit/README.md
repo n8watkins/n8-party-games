@@ -20,7 +20,7 @@ What a game gets:
 Everything runs locally with `npm run dev` (`wrangler dev --local --env local`).
 Nothing is deployed yet; `DEPLOY.md` at the repository root is the owner's checklist for going live.
 
-The top level of `wrangler.jsonc` is the production Worker (rate limits on, no simulated latency, the 1% room budget, logs on).
+The top level of `wrangler.jsonc` is the production Worker (rate limits on, no simulated latency, the 10% room budget, logs on).
 The `local` environment is for local play and the tests (simulated latency allowed, rate limits off).
 Only `dist/public` is served: `scripts/build-public.mjs` copies the files a browser loads into it from an allowlist and writes its `_headers` (CSP and the other security headers), and wrangler runs it before every `dev` and `deploy`.
 A new game adds its page and its browser folder to `SERVED` in that script; `npm run assets:list` prints exactly what will be public.
