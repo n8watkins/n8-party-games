@@ -1,0 +1,225 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Cork &amp; Bell: UI pass, before and after</title>
+    <style>
+      @font-face {
+        font-family: "Abril Fatface";
+        src: url("../../../game/fonts/AbrilFatface-Regular.ttf") format("truetype");
+        font-display: swap;
+      }
+      :root {
+        --cream: #f1e3bf;
+        --ink: #1c1410;
+        --red: #9c2b20;
+        --gold: #d2a23c;
+        --night: #0b1020;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        background: var(--night);
+        color: var(--cream);
+        font: 16px/1.5 Georgia, "Times New Roman", serif;
+      }
+      main {
+        max-width: 1500px;
+        margin: 0 auto;
+        padding: 28px 20px 80px;
+      }
+      h1 {
+        margin: 0;
+        font: 400 40px/1.1 "Abril Fatface", Georgia, serif;
+      }
+      h2 {
+        margin: 56px 0 4px;
+        font: 400 28px/1.15 "Abril Fatface", Georgia, serif;
+        color: #ffd98a;
+      }
+      p {
+        margin: 6px 0 0;
+        max-width: 78ch;
+        opacity: 0.88;
+      }
+      .asked {
+        margin-top: 10px;
+        padding-left: 14px;
+        border-left: 3px solid var(--gold);
+        font-style: italic;
+      }
+      .pair {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 16px;
+        margin-top: 18px;
+        align-items: start;
+      }
+      .pair.tall {
+        max-width: 860px;
+      }
+      .one {
+        margin-top: 18px;
+        max-width: 742px;
+      }
+      figure {
+        margin: 0;
+      }
+      figure img {
+        display: block;
+        width: 100%;
+        height: auto;
+        border-radius: 6px;
+        box-shadow: 0 0 0 1px rgba(241, 227, 191, 0.25);
+      }
+      figcaption {
+        display: flex;
+        gap: 10px;
+        align-items: baseline;
+        margin-top: 8px;
+        font-size: 14.5px;
+      }
+      figcaption b {
+        flex: none;
+        padding: 2px 9px 3px;
+        border-radius: 999px;
+        font: 400 13px/1.2 "Abril Fatface", Georgia, serif;
+        letter-spacing: 0.04em;
+        background: rgba(241, 227, 191, 0.16);
+      }
+      figcaption b.after {
+        background: var(--red);
+        color: #fff6e2;
+      }
+      h3 {
+        margin: 30px 0 0;
+        font: 700 13px/1.2 Georgia, serif;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+        opacity: 0.7;
+      }
+      table {
+        margin-top: 14px;
+        border-collapse: collapse;
+        font-size: 15px;
+      }
+      th,
+      td {
+        padding: 6px 16px 6px 0;
+        text-align: left;
+        border-bottom: 1px dotted rgba(241, 227, 191, 0.35);
+      }
+      td.n,
+      th.n {
+        text-align: right;
+        font-variant-numeric: tabular-nums;
+      }
+      @media (max-width: 760px) {
+        .pair {
+          grid-template-columns: 1fr;
+        }
+        h1 {
+          font-size: 30px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Cork &amp; Bell: UI pass</h1>
+      <p>Before and after, at desktop (1440 x 900), a phone held sideways (844 x 390, and a smaller 667 x 375) and a phone held upright (390 x 844). Every still is from headless Chrome on the real graphics card, muted.</p>
+
+      <h2>1. The start screen</h2>
+      <p class="asked">"There needs to be a little bit more clear about enabling sound and playing the battle."</p>
+      <p>A painted board now spells out the three choices: play alone, battle with friends (make a room or join with a PIN), and the sound, which says whether it is on or off. The house keeps playing behind it. A click or a touch on a target still takes the gun at once.</p>
+
+      <h3>Phone held sideways</h3>
+      <div class="pair">
+        <figure><img src="before/start-sideways.jpg" alt="Before: two small pills at the top right" /><figcaption><b>Before</b><span>Two small pills, "Enable sound" and "Play a battle". The house's score sat in the corner.</span></figcaption></figure>
+        <figure><img src="after/start-sideways.jpg" alt="After: the start board along the bottom" /><figcaption><b class="after">After</b><span>The start board. Sound is off, and says so.</span></figcaption></figure>
+      </div>
+      <div class="one">
+        <figure><img src="after/soundon-sideways.jpg" alt="After: the board with the sound on" /><figcaption><b class="after">After</b><span>The same board once the sound is on.</span></figcaption></figure>
+      </div>
+
+      <h3>Desktop</h3>
+      <div class="pair">
+        <figure><img src="before/start-desktop.jpg" alt="Before, desktop" /><figcaption><b>Before</b><span>The hint was small and wrapped over the striped wall.</span></figcaption></figure>
+        <figure><img src="after/start-desktop.jpg" alt="After, desktop" /><figcaption><b class="after">After</b><span>On a keyboard, M also switches the sound.</span></figcaption></figure>
+      </div>
+
+      <h3>Phone held upright</h3>
+      <div class="pair tall">
+        <figure><img src="before/start-upright.jpg" alt="Before, upright phone" /><figcaption><b>Before</b></figcaption></figure>
+        <figure><img src="after/start-upright.jpg" alt="After, upright phone" /><figcaption><b class="after">After</b><span>The three choices stack. The "turn your phone" word sits above them, off the cork tray.</span></figcaption></figure>
+      </div>
+
+      <h2>2. The time and the score</h2>
+      <p class="asked">"The time and the score on the bottom, I think that could be a little bit better."</p>
+      <p>The ticket now has two big figures, time and score, with the run and the corks left on a stub below the perforation. A run that is multiplying shows by how much. The last ten seconds paint the time red. During a round the sound switch at the top right says "Sound: off" or "Sound: on".</p>
+
+      <h3>Phone held sideways</h3>
+      <div class="pair">
+        <figure><img src="before/mid-sideways.jpg" alt="Before: four equal cells" /><figcaption><b>Before</b><span>Four equal cells, 18 px figures.</span></figcaption></figure>
+        <figure><img src="after/mid-sideways.jpg" alt="After: time and score large" /><figcaption><b class="after">After</b><span>Time and score at about 30 px.</span></figcaption></figure>
+      </div>
+      <div class="pair">
+        <figure><img src="after/late-sideways.jpg" alt="After: last ten seconds" /><figcaption><b class="after">After</b><span>The last ten seconds, with a run of 8 trebling.</span></figcaption></figure>
+        <figure><img src="after/battle-sideways.jpg" alt="After: in a battle" /><figcaption><b class="after">After</b><span>In a battle, with an attack on its way.</span></figcaption></figure>
+      </div>
+
+      <h3>The known flaw: a smaller phone held sideways (667 x 375)</h3>
+      <div class="pair">
+        <figure><img src="before/mid-small.jpg" alt="Before: the ticket lies over the cork tray" /><figcaption><b>Before</b><span>The ticket lay over the corner of the cork tray.</span></figcaption></figure>
+        <figure><img src="after/mid-small.jpg" alt="After: the ticket is clear of the tray" /><figcaption><b class="after">After</b><span>The ticket is sized from where the tray is in the picture, so it always stops short of it.</span></figcaption></figure>
+      </div>
+      <div class="one">
+        <figure><img src="after/lean-small.jpg" alt="After: aimed as far right as the gun goes" /><figcaption><b class="after">After</b><span>Aimed as far right as the gun goes (the picture leans and the tray slides left): still clear.</span></figcaption></figure>
+      </div>
+
+      <h3>Desktop</h3>
+      <div class="pair">
+        <figure><img src="before/mid-desktop.jpg" alt="Before, desktop" /><figcaption><b>Before</b><span>The ticket ran right up to the tray.</span></figcaption></figure>
+        <figure><img src="after/mid-desktop.jpg" alt="After, desktop" /><figcaption><b class="after">After</b></figcaption></figure>
+      </div>
+      <div class="one">
+        <figure><img src="after/mid-tablet.jpg" alt="After: a tablet" /><figcaption><b class="after">After</b><span>A tablet (1024 x 768): the tray leaves no room beside it, so the ticket sits just above it.</span></figcaption></figure>
+      </div>
+
+      <h3>Phone held upright</h3>
+      <div class="pair tall">
+        <figure><img src="before/mid-upright.jpg" alt="Before, upright phone" /><figcaption><b>Before</b><span>The "turn your phone" word lay over the tray.</span></figcaption></figure>
+        <figure><img src="after/mid-upright.jpg" alt="After, upright phone" /><figcaption><b class="after">After</b><span>One row across the bottom, all four figures large.</span></figcaption></figure>
+      </div>
+      <div class="pair tall">
+        <figure><img src="after/late-upright.jpg" alt="After, upright phone, last ten seconds" /><figcaption><b class="after">After</b><span>The last ten seconds.</span></figcaption></figure>
+        <figure><img src="after/battle-upright.jpg" alt="After, upright phone, in a battle" /><figcaption><b class="after">After</b><span>In a battle: the rivals stand on the ticket.</span></figcaption></figure>
+      </div>
+
+      <h2>3. Ricochets</h2>
+      <p class="asked">"I feel like ricochets should be even more points."</p>
+      <p>A ricochet hit (the cork has already bounced off something) now pays three times over instead of double, in solo play and in battles alike, and raises a paper flag over the points.</p>
+      <table>
+        <tr><th>A ricochet onto</th><th class="n">Before</th><th class="n">After</th></tr>
+        <tr><td>A teapot (10)</td><td class="n">20</td><td class="n">30</td></tr>
+        <tr><td>A chain star (25)</td><td class="n">50</td><td class="n">75</td></tr>
+        <tr><td>A moon (50)</td><td class="n">100</td><td class="n">150</td></tr>
+        <tr><td>The shutter star (100)</td><td class="n">200</td><td class="n">300</td></tr>
+        <tr><td>The shutter star, dead centre, on a run of 8</td><td class="n">900</td><td class="n">1350</td></tr>
+      </table>
+      <div class="pair">
+        <figure><img src="after/ricochet-sideways.jpg" alt="After: the ricochet flag on a phone" /><figcaption><b class="after">After</b><span>The flag, on a phone held sideways.</span></figcaption></figure>
+        <figure><img src="after/ricochet-desktop.jpg" alt="After: the ricochet flag on a desktop" /><figcaption><b class="after">After</b><span>On a desktop.</span></figcaption></figure>
+      </div>
+
+      <h2>Also tidied</h2>
+      <p>The end card no longer touches the ticket on a phone held sideways: the ticket steps aside while the card is up.</p>
+      <div class="one">
+        <figure><img src="after/end-sideways.jpg" alt="After: the end card" /><figcaption><b class="after">After</b></figcaption></figure>
+      </div>
+    </main>
+  </body>
+</html>
