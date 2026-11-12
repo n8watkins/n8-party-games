@@ -5,7 +5,8 @@
 //   ?seed=<n>        a repeatable solo run
 //   ?t=<seconds>     freeze the picture at that round time
 //   ?state=<name>    last (the fast last stretch), end (the end card), jam | moths | dark (one attack)
-//   ?view=<name>     player (default), wide, mech, far, front, gun, four (four stalls side by side)
+//   ?view=<name>     player (default), wide, mech, far, front, gun, board (the chalk board), four (four stalls side by side)
+//   ?score=<n>       (with state=end) the score the end card shows, to try the high score entry
 //   ?join=<pin>      open the lobby with a PIN filled in
 //   ?host=1&seats=4&name=Ann   (with auto=1) make a room and start when that many are ready
 //   ?screen=1        (with auto=1) make a room as the shared screen
@@ -18,6 +19,7 @@ import { HDRLoader } from "three/addons/loaders/HDRLoader.js";
 import { PartyClient } from "../../party-kit/client/party-client.js";
 import { mountLobby } from "../../party-kit/client/lobby.js";
 import { Sound, buzz } from "./audio.js";
+import { Scores } from "./scores.js";
 import { LocalSession, NetSession } from "./session.js";
 import { ATTACK_NAMES, COUNT_IN, game } from "./shared/battle.js";
 import { COUNTER, TRAY } from "./shared/layout.js";
@@ -34,6 +36,7 @@ const P = {
   state: params.get("state"),
   view: params.get("view") ?? "player",
   join: params.get("join"),
+  score: num("score", null),
   host: params.get("host") === "1",
   screen: params.get("screen") === "1",
   seats: num("seats", 2),
@@ -90,41 +93,89 @@ async function load() {
   const env = pmrem.fromEquirectangular(hdr).texture;
   hdr.dispose();
   assets = new StallAssets({ gltf, albedo, lit, dusk, env });
-  assets.chalk.draw(bestScores());
+  assets.chalk.draw(scores.rows());
+  scores.onChange = () => assets.chalk.draw(scores.rows());
+  scores.load(); // the board follows when it answers; the house's scores are up meanwhile
 }
 
-// ------------------------------------------------------------------ best scores of the day
+// ------------------------------------------------------------------ the high scores
 
-function bestScores() {
-  const today = new Date().toDateString();
-  try {
-    const saved = JSON.parse(localStorage.getItem("cork-and-bell:best") ?? "null");
-    if (saved?.day === today) return saved.rows;
-  } catch {
-    // No storage: the board starts from the house scores.
+const scores = new Scores();
+
+/** The end card's last word on a solo score, when there are no letters to ask for. */
+function scoreNote(score, newBest) {
+  const best = scores.ownBest()?.score ?? score;
+  if (!scores.reachable) return newBest ? "A new best on this device. (The high score board could not be reached.)" : `Your best on this device is ${best}. (The high score board could not be reached.)`;
+  const rows = scores.top;
+  const toBeat = rows.length ? rows[rows.length - 1].score : 0;
+  return newBest ? `Your best yet. ${toBeat + 1} gets you on the board.` : `Your best is ${best}. ${toBeat + 1} gets you on the board.`;
+}
+
+/** Asks for three letters on the end card and chalks the score up. */
+function askInitials(score) {
+  const form = $("initials");
+  const input = $("initials-in");
+  const say = $("initials-say");
+  form.hidden = false;
+  form.dataset.score = String(score);
+  input.value = scores.lastInitials();
+  input.disabled = false;
+  $("initials-ok").disabled = false;
+  say.textContent = "";
+  $("card-note").textContent = "";
+  // On a phone the keyboard would cover the card: it opens when the letters are touched.
+  if (!coarse) setTimeout(() => (input.focus(), input.select()), 60);
+}
+
+$("initials-in").addEventListener("input", (e) => {
+  // Letters only, capitals, three of them.
+  e.target.value = e.target.value.replace(/[^a-z]/gi, "").toUpperCase().slice(0, 3);
+  endShownAt = performance.now(); // someone is here: the house does not take the stall back yet
+});
+
+$("initials").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const form = $("initials");
+  const input = $("initials-in");
+  const say = $("initials-say");
+  const score = Number(form.dataset.score);
+  const name = input.value.trim().toUpperCase();
+  if (!/^[A-Z]{3}$/.test(name)) {
+    say.textContent = "Three letters, please.";
+    input.focus();
+    return;
   }
-  return [
-    { name: "Mabel", score: 4120 },
-    { name: "Old Tom", score: 3375 },
-    { name: "Fitch", score: 2640 },
-    { name: "Dolly", score: 1890 },
-    { name: "You?", score: 0 },
-  ];
-}
-
-function recordScore(name, score) {
-  const rows = bestScores().filter((r) => r.name !== "You?");
-  rows.push({ name, score });
-  rows.sort((a, b) => b.score - a.score);
-  const top = rows.slice(0, 5);
-  try {
-    localStorage.setItem("cork-and-bell:best", JSON.stringify({ day: new Date().toDateString(), rows: top }));
-  } catch {
-    // Not saved; it still shows for this visit.
+  input.disabled = true;
+  $("initials-ok").disabled = true;
+  say.textContent = "Chalking it up";
+  const result = await scores.submit(name, score);
+  endShownAt = performance.now();
+  if (!result.ok && (result.error === "bad_name" || result.error === "rate_limited")) {
+    say.textContent = result.error === "bad_name" ? "Not those three. Try three others." : "Too many scores from here just now. Try again in a few minutes.";
+    input.disabled = result.error !== "bad_name";
+    $("initials-ok").disabled = result.error !== "bad_name";
+    if (result.error === "bad_name") input.focus();
+    return;
   }
-  assets.chalk.draw(top);
-  return top.findIndex((r) => r.name === name && r.score === score);
-}
+  form.hidden = true;
+  input.blur();
+  if (!result.ok) {
+    $("card-note").textContent = "The board could not be reached, so it is not chalked up. Your best on this device is kept.";
+    return;
+  }
+  scores.rememberInitials(name);
+  if (result.place === 0) {
+    // The top of the board: the stall makes a fuss.
+    $("card-title").textContent = "New high score!";
+    $("card").classList.add("record");
+    sound.end(true);
+    for (const v of views) {
+      v.view.chaseUntil = v.view.time + 4;
+      v.view.chaseKind = 2;
+    }
+  }
+  $("card-note").textContent = result.place < 0 ? "Somebody got there first: it did not make the board after all." : `Number ${result.place + 1} on the board. It is chalked up on the left wall.`;
+});
 
 // ------------------------------------------------------------------ sessions
 
@@ -786,9 +837,11 @@ function showCard() {
   list.replaceChildren();
   const solo = session.seats.length === 1;
   let note = "";
+  let wantInitials = 0;
+  $("initials").hidden = true;
+  card.classList.remove("record");
   if (solo) {
     const r = rows[0];
-    const place = mode === "solo" ? recordScore("You", r.score) : -1;
     $("card-title").textContent = "Time, ladies and gentlemen";
     const li = document.createElement("li");
     li.className = "me";
@@ -796,7 +849,12 @@ function showCard() {
     li.querySelector("small").textContent = `${r.hits} hits from ${r.shots} corks, best run ${r.best}`;
     li.querySelector("b").textContent = r.score;
     list.appendChild(li);
-    note = place === 0 ? "Top of the board today. It is chalked up on the left wall." : place > 0 ? `Number ${place + 1} on today's board.` : "Not on the board yet. The far row pays best.";
+    if (mode === "solo") {
+      const newBest = scores.keepOwnBest(r.score);
+      if (!scores.reachable) assets.chalk.draw(scores.rows());
+      if (scores.makesBoard(r.score)) wantInitials = r.score;
+      else note = scoreNote(r.score, newBest);
+    }
   } else {
     const win = rows[0];
     $("card-title").textContent = win.seat === session.mySeat ? "You take the prize" : `${win.name} takes the prize`;
@@ -814,6 +872,7 @@ function showCard() {
     note = mode === "battle" ? (session.mySeat >= 0 ? "The rematch starts the moment everyone taps Rematch." : "Players tap Rematch on their phones.") : "";
   }
   $("card-note").textContent = note;
+  if (wantInitials) askInitials(wantInitials);
   const again = $("again");
   again.disabled = false;
   again.hidden = mode === "battle" && session.mySeat < 0 && false;
@@ -973,6 +1032,10 @@ async function main() {
   if (P.state === "last") session.advance(72 + session.time() * -1);
   if (P.state === "end") {
     session.advance(ROUND_SECONDS + 2 - session.time());
+    if (P.score !== null) {
+      session.sims[0].score = P.score;
+      await scores.load(); // the tools want the entry form at once, not on the next round
+    }
     for (const e of []) onEvent(e);
   }
   if (["jam", "moths", "dark"].includes(P.state)) {

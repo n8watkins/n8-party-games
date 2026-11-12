@@ -1218,6 +1218,12 @@ export class StallView {
       look = [0.1, 1.14, -1.52];
       fov = 44;
       focus = 0.86;
+    } else if (this.viewName === "board") {
+      // The chalk board on the left wall, square on.
+      pos = [-0.2, 1.84, -1.74];
+      look = [CHALK_BOARD.x, CHALK_BOARD.y, CHALK_BOARD.z];
+      fov = 40;
+      focus = 1.08;
     } else if (this.viewName === "gun") {
       pos = [-0.32, 1.3, -0.12];
       look = [0.4, 1.07, -0.34];

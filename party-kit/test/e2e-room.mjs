@@ -114,6 +114,24 @@ if (full) {
     check(!!again && again.room.round === 2, "instant rematch when everyone is ready again");
   }
 }
+// The score board, on the board kept for these runs (never a game's own).
+const scoresUrl = api + "/scores/e2e-test";
+const postScore = async (body, headers = {}) => {
+  const res = await fetch(scoresUrl, { method: "POST", headers: { "Content-Type": "application/json", ...headers }, body: JSON.stringify(body) });
+  return { status: res.status, ...(await res.json().catch(() => ({}))) };
+};
+const mark = 1 + Math.floor(Math.random() * 999);
+const posted = await postScore({ name: "eto", score: mark });
+check(posted.ok && posted.top.some((r) => r.name === "ETO" && r.score === mark) === posted.place >= 0, "score board: a score with three letters is taken (and chalked up if it makes the ten)");
+const listed = await (await fetch(scoresUrl)).json();
+check(listed.ok && listed.top.length <= 10 && listed.top.every((r, i, all) => i === 0 || all[i - 1].score >= r.score), "score board: at most ten, best first");
+check((await postScore({ name: "ab", score: 5 })).error === "bad_name", "score board: two letters are turned away");
+check((await postScore({ name: "ass", score: 5 })).error === "bad_name", "score board: rude letters are turned away");
+check((await postScore({ name: "ETO", score: 1001 })).status === 400, "score board: a score above what a round can reach is turned away");
+check((await postScore({ name: "ETO", score: 5, pad: "x".repeat(300) })).status === 400, "score board: a large body is turned away");
+check((await postScore({ name: "ETO", score: 5 }, { Origin: "https://elsewhere.example" })).status === 403, "score board: another site's page is turned away");
+check((await fetch(api + "/scores/no-such-game")).status === 404, "score board: no board for a game that has none");
+
 A.ws.close();
 B2.ws.close();
 console.log(problems.length ? "FAILED: " + problems.length : "PASSED");

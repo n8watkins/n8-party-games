@@ -4,7 +4,7 @@
 //
 // Inputs (never results):  {f: [at, ax, ay]}  fire at round time `at`, aiming at (ax, ay) on the front row's plane
 //                          {pick: seat}       choose which rival your attacks go to (-1: the leader)
-import { BELL_FULL, COCK_SECONDS, JAM_MAX_SECONDS, ROUND_SECONDS, StallSim, pendulumBob, predict, resetIndex } from "./sim.js";
+import { BELL_FULL, COCK_SECONDS, JAM_MAX_SECONDS, RICOCHET_TIMES, ROUND_SECONDS, StallSim, TASKS, pendulumBob, predict, resetIndex } from "./sim.js";
 import { PENDULUMS } from "./layout.js";
 
 export const COUNT_IN = 3;
@@ -257,6 +257,13 @@ export const game = {
     return standings(state.seats, (seat) => state.stalls[seat]);
   },
 };
+
+/**
+ * No round can score more than this: a shot every time the lever cocks, each one the dearest hit
+ * there is (the shutter star, on a run of eight, off a ricochet, dead centre), and both of the
+ * dearest challenges. Nobody will come near it; a score above it was not played.
+ */
+export const MAX_ROUND_SCORE = Math.floor(ROUND_SECONDS / COCK_SECONDS) * Math.round(100 * 3 * RICOCHET_TIMES * 1.5) + 2 * Math.max(...TASKS.map((task) => task.bonus));
 
 export function standings(seats, stallOf) {
   return seats

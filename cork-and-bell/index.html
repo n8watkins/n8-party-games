@@ -88,6 +88,15 @@
       <section id="card" hidden aria-live="polite">
         <h2 id="card-title">Time</h2>
         <ol id="card-rows"></ol>
+        <!-- A score that makes the board: three letters, arcade style. -->
+        <form id="initials" hidden autocomplete="off">
+          <label for="initials-in">You made the board. Chalk up three letters:</label>
+          <div class="letters">
+            <input id="initials-in" name="initials" type="text" maxlength="3" inputmode="text" autocapitalize="characters" autocorrect="off" spellcheck="false" enterkeyhint="done" placeholder="AAA" aria-describedby="initials-say" />
+            <button id="initials-ok" type="submit">Chalk it up</button>
+          </div>
+          <p id="initials-say" role="status"></p>
+        </form>
         <p id="card-note"></p>
         <div class="card-actions">
           <button id="again" type="button">Play again</button>
