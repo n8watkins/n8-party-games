@@ -17,8 +17,13 @@ What a game gets:
 - Idle rooms shut down after one minute with nobody connected.
 - A plain waiting room with two slots: the lobby toy and the characters.
 
-Everything runs locally with `wrangler dev --local`.
-Nothing here deploys anything.
+Everything runs locally with `npm run dev` (`wrangler dev --local --env local`).
+Nothing is deployed yet; `DEPLOY.md` at the repository root is the owner's checklist for going live.
+
+The top level of `wrangler.jsonc` is the production Worker (rate limits on, no simulated latency, the 1% room budget, logs on).
+The `local` environment is for local play and the tests (simulated latency allowed, rate limits off).
+Only `dist/public` is served: `scripts/build-public.mjs` copies the files a browser loads into it from an allowlist and writes its `_headers` (CSP and the other security headers), and wrangler runs it before every `dev` and `deploy`.
+A new game adds its page and its browser folder to `SERVED` in that script; `npm run assets:list` prints exactly what will be public.
 
 ## Layout
 
@@ -31,8 +36,11 @@ Nothing here deploys anything.
 | `src/worker/pin-directory.js`, `pin-logic.js` | 4-digit PINs: 15 minute life, 10 minute cooldown before reuse. |
 | `src/worker/rate-limiter.js`, `limit-logic.js` | Fixed-window limits per client address. |
 | `src/worker/room-budget.js`, `budget-logic.js` | The room budget: a cap on hosted room time per day and per month. |
+| `src/worker/http.js` | Responses and security headers, the body limit, the origin check, the QR allowlist. |
+| `src/worker/turnstile.js` | The optional bot check on new rooms (Cloudflare Turnstile). |
 | `client/party-client.js` | The browser client (ES module, no build). |
 | `client/lobby.js`, `client/lobby.css` | The waiting room. |
+| `client/bot-check.js` | Loads and runs the Turnstile widget, only when the server hands out a site key. |
 | `test/` | Unit tests (`npm test` at the repository root). |
 
 ## Worker side
@@ -69,7 +77,9 @@ Variables (all optional):
 | Variable | Meaning |
 | --- | --- |
 | `PARTY_PUBLIC_ORIGIN` | The address phones can reach, used in the join link and QR code (for local play: `http://<laptop LAN address>:<port>`). |
-| `PARTY_SIM_LATENCY` | `"on"` lets a client ask for simulated latency with `?lag=<ms>` on its socket. Leave it off in production. |
+| `PARTY_SIM_LATENCY` | `"on"` lets a client ask for simulated latency with `?lag=<ms>` on its socket. Otherwise a socket asking for it is refused (400). Off in production. |
+| `TURNSTILE_SITE_KEY` | The Turnstile widget's public site key. The lobby shows the bot check only when this and the secret are both set. |
+| `TURNSTILE_SECRET_KEY` | A secret, never a plain variable. When set, `POST /api/party/rooms` needs a Turnstile token (`turnstile` in the body). Joining by PIN never does. |
 | `PARTY_RATE_LIMIT` | `"off"` disables the limits (for local test runs with many headless players). |
 | `PARTY_ROOM_BUDGET_SHARE` | The part of the Workers Paid plan's included Durable Object time that rooms may use each month (`"0.05"` is 5%). Unset means no budget. |
 | `PARTY_ROOM_BUDGET_DAY_SHARE` | The part of that monthly budget one day may use. Default `"0.1"`. |
@@ -130,12 +140,16 @@ Use `makeRng(seed)` for every random choice so a round can be replayed.
 
 | Request | Answer |
 | --- | --- |
-| `POST /api/party/rooms` `{nickname, as?: "player" or "screen"}` | `{code, pin, token, seat, role}` |
+| `POST /api/party/rooms` `{nickname, as?: "player" or "screen", turnstile?}` | `{code, pin, token, seat, role}` |
 | `GET /api/party/join/:pinOrCode` | `{preview: {code, game, phase, players, full}}` |
 | `POST /api/party/join/:pinOrCode` `{nickname, as?}` | `{code, pin, token, seat, role}` |
 | `GET /api/party/rooms/:code/ws?token=...&lag=150` | WebSocket |
-| `GET /api/party/qr.svg?text=...` | A QR code as SVG |
-| `GET /api/party/config` | `{publicOrigin, simLatency}` |
+| `GET /api/party/qr.svg?text=<this site's join link>` | A QR code as SVG (only `<origin>/<path>?join=<PIN or code>`) |
+| `GET /api/party/config` | `{publicOrigin, simLatency, turnstileSiteKey}` |
+
+Requests whose `Origin` names another site are refused (403 `forbidden_origin`), so no other page can open rooms or sockets through a visitor's browser.
+Bodies are JSON objects of at most 4 KiB.
+Every answer carries `X-Content-Type-Options: nosniff`, `Cache-Control: no-store` and a deny-all CSP.
 
 The token is the seat: a random 144-bit value made by the room, kept by the client in `sessionStorage`.
 It needs no signing secret, so local development needs no `.dev.vars`.
@@ -230,3 +244,5 @@ The delay runs inside the room (`LagLine`), so the room's view of time is the re
 `npm test` at the repository root runs `party-kit/test/room-core.test.js`: seats and colours, nickname cleaning, ready and start, round seeds, the authoritative round, drop, rejoin inside and outside the grace, leaving, late joiners, stand-ins, idle shutdown, saving and restoring, the latency line, the seeded generator, PIN picking and the rate-limit window.
 `npm run test:room` (with `npm run dev` running) checks the Durable Object wiring end to end over real sockets, with no browser: create, PIN lookup, QR code, join, a wrong PIN, simulated latency, start, an input relayed to the other seat, a drop with a stand-in, the same seat back with a full snapshot, and with `-- --full=1` the length of a whole round and the instant rematch.
 The games' multiplayer playtests (for example `npm run playtest:battle`) drive the same path through real browsers.
+`npm test` also checks the deploy settings (`test/deploy-config.test.js`) and the API guards (`test/http.test.js`).
+`npm run test:production -- <base>` checks the production settings end to end and `npm run test:turnstile` the bot check with Cloudflare's test keys; each file's header says which server to start.
