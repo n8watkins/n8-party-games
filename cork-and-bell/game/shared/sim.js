@@ -10,6 +10,8 @@ export const ROUND_SECONDS = 90;
 export const COCK_SECONDS = 0.5;
 export const CORKS_PER_ROUND = 70;
 export const BELL_FULL = 8;
+/** A hit by a cork that has already bounced off something pays this many times over. */
+export const RICOCHET_TIMES = 3;
 export const CORK_SPEED = 9.2;
 export const CORK_R = 0.012;
 const GRAVITY = 9.81;
@@ -432,7 +434,7 @@ export class StallSim {
     this.best = Math.max(this.best, this.streak);
     const mult = this.streak >= 8 ? 3 : this.streak >= 4 ? 2 : 1;
     let pts = hit.pts * mult;
-    if (ricochet) pts *= 2;
+    if (ricochet) pts *= RICOCHET_TIMES;
     if (perfect) pts = Math.round(pts * 1.5);
     this.score += pts;
     if (hit.target !== "bell") this.bell = Math.min(BELL_FULL, this.bell + (hit.row === 2 ? 2 : 1));

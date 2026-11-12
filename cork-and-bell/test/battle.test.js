@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { game, createBattle, roundTime, dumpStall, loadStall, COUNT_IN } from "../game/shared/battle.js";
-import { StallSim, ROUND_SECONDS, launch, predict, mech, CORKS_PER_ROUND } from "../game/shared/sim.js";
+import { StallSim, ROUND_SECONDS, launch, predict, mech, CORKS_PER_ROUND, RICOCHET_TIMES } from "../game/shared/sim.js";
 import { PLATES, ROWS, BELL } from "../game/shared/layout.js";
 
 function runBattle(seed, n, { until = ROUND_SECONDS + 5, onEvent } = {}) {
@@ -17,6 +17,14 @@ function runBattle(seed, n, { until = ROUND_SECONDS + 5, onEvent } = {}) {
     }
   }
   return { state, events: all, now };
+}
+
+/** What a hit should pay, worked out from the rules alone. */
+function expectedPoints(e) {
+  const base = e.target === "bell" ? (e.rung ? 100 : 15) : e.target === "jam" ? 15 : e.target === "sh" ? 100 : ROWS[e.row].points;
+  const run = e.streak >= 8 ? 3 : e.streak >= 4 ? 2 : 1;
+  const points = base * run * (e.ricochet ? RICOCHET_TIMES : 1);
+  return e.perfect ? Math.round(points * 1.5) : points;
 }
 
 describe("the cork", () => {
@@ -44,6 +52,27 @@ describe("the cork", () => {
     expect(sim.rested.length + sim.corks.length).toBe(1);
     expect(sim.score).toBe(15);
     expect(sim.corksLeft).toBe(CORKS_PER_ROUND); // a dead-centre hit earns the cork back
+  });
+
+  it("pays a ricochet hit three times over, and a straight hit once", () => {
+    expect(RICOCHET_TIMES).toBe(3);
+    // One cork a stall, so the run is 1 or 2 and never multiplies: sweep aims until both kinds of hit are seen.
+    const seen = { straight: [], ricochet: [] };
+    for (let i = 0; i < 400 && (seen.ricochet.length < 5 || seen.straight.length < 5); i++) {
+      const sim = new StallSim(40 + i, 0);
+      sim.step(0.1);
+      sim.fire(0.1, -1.2 + (i % 25) * 0.1, 1.05 + (Math.floor(i / 25) % 16) * 0.1);
+      sim.step(5);
+      for (const e of sim.events) if (e.k === "hit") seen[e.ricochet ? "ricochet" : "straight"].push(e);
+    }
+    expect(seen.ricochet.length).toBeGreaterThanOrEqual(5);
+    expect(seen.straight.length).toBeGreaterThanOrEqual(5);
+    for (const e of seen.straight) expect(e.pts).toBe(expectedPoints(e));
+    for (const e of seen.ricochet) {
+      expect(e.mult).toBe(1);
+      expect(e.pts).toBe(expectedPoints(e));
+      expect(e.pts).toBeGreaterThanOrEqual(ROWS[0].points * 3);
+    }
   });
 
   it("cannot be fired faster than the lever cocks, or before the bell", () => {
@@ -114,6 +143,27 @@ describe("the battle", () => {
     expect(kinds.has("jam")).toBe(true);
     expect(worst).toBeLessThanOrEqual(2);
     for (const e of events.filter((x) => x.k === "atk")) expect(e.to).not.toBe(e.from);
+  });
+
+  it("scores a ricochet the same way in the room: three times over, on top of the run", () => {
+    const seats = [0, 1, 2, 3].map((seat) => ({ seat, name: `Bot ${seat}`, kind: "bot" }));
+    const state = game.create({ seed: 4321, seats, now: 0, round: 1 });
+    state.keep = true; // keep each stall's own events, as a browser does
+    let now = 0;
+    while (!game.isOver(state) && now < (ROUND_SECONDS + COUNT_IN + 7) * 1000) {
+      now += 33;
+      for (const s of seats) for (const d of game.bot(state, s.seat, now)) game.input(state, s.seat, d, now);
+      game.tick(state, now);
+    }
+    const hits = state.simEvents.filter((e) => e.k === "hit");
+    const ricochets = hits.filter((e) => e.ricochet);
+    expect(ricochets.length).toBeGreaterThan(10);
+    expect(ricochets.some((e) => e.mult > 1)).toBe(true);
+    for (const e of hits) expect(e.pts).toBe(expectedPoints(e));
+    // The result the room announces is the sum of those hits, nothing more.
+    for (const row of game.result(state)) {
+      expect(row.score).toBe(hits.filter((e) => e.seat === row.seat).reduce((sum, e) => sum + e.pts, 0));
+    }
   });
 
   it("is repeatable from the seed", () => {
