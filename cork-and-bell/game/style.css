@@ -228,6 +228,30 @@ body.pointer #stage {
   color: var(--red);
   white-space: nowrap;
 }
+/* "Free play", winking like the credit lamp on a cabinet. */
+#start-credit {
+  display: inline-block;
+  margin-left: 10px;
+  padding: 3px 8px 4px;
+  border-radius: 3px;
+  box-shadow: inset 0 0 0 1.5px var(--red);
+  font: 700 11px/1 var(--text);
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  vertical-align: 0.5em;
+  animation: wink 1.6s steps(1) infinite;
+}
+@keyframes wink {
+  0%,
+  100% {
+    background: var(--red);
+    color: #fff6e2;
+  }
+  55% {
+    background: transparent;
+    color: var(--red);
+  }
+}
 #start header p {
   margin: 0;
   font-size: 14px;
@@ -1246,6 +1270,9 @@ body.carded #rivals {
     animation: none;
   }
   #card.record h2 {
+    animation: none;
+  }
+  #start-credit {
     animation: none;
   }
 }

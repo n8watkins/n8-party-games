@@ -94,13 +94,30 @@ async function load() {
   hdr.dispose();
   assets = new StallAssets({ gltf, albedo, lit, dusk, env });
   assets.chalk.draw(scores.rows());
-  scores.onChange = () => assets.chalk.draw(scores.rows());
+  scores.onChange = () => {
+    assets.chalk.draw(scores.rows());
+    showScoreToBeat();
+  };
+  showScoreToBeat();
   scores.load(); // the board follows when it answers; the house's scores are up meanwhile
 }
 
 // ------------------------------------------------------------------ the high scores
 
 const scores = new Scores();
+
+/** The start board names the score to beat, as a cabinet shows its high score while it waits. */
+function showScoreToBeat() {
+  const top = scores.rows()[0];
+  $("start-beat").textContent = top ? `90 seconds, 70 corks. High score: ${top.name} ${top.score}.` : "90 seconds, 70 corks.";
+}
+
+/** How a stall did, in a line: its aim, its best run, and the challenges it did. */
+function statLine(r, sim) {
+  const aim = r.shots ? Math.round((r.hits / r.shots) * 100) : 0;
+  const done = sim ? sim.taskDone.filter(Boolean).length : 0;
+  return `${r.hits} hits from ${r.shots} corks (${aim}%), best run ${r.best}` + (sim ? `, ${done} of ${sim.taskDone.length} challenges` : "");
+}
 
 /** The end card's last word on a solo score, when there are no letters to ask for. */
 function scoreNote(score, newBest) {
@@ -164,7 +181,9 @@ $("initials").addEventListener("submit", async (e) => {
     return;
   }
   scores.rememberInitials(name);
-  if (result.place === 0) {
+  // Where it stands on the chalk board, the house's own players counted in.
+  const rank = scores.rows().find((r) => r.mine)?.rank ?? result.place + 1;
+  if (result.place >= 0 && rank === 1) {
     // The top of the board: the stall makes a fuss.
     $("card-title").textContent = "New high score!";
     $("card").classList.add("record");
@@ -174,7 +193,7 @@ $("initials").addEventListener("submit", async (e) => {
       v.view.chaseKind = 2;
     }
   }
-  $("card-note").textContent = result.place < 0 ? "Somebody got there first: it did not make the board after all." : `Number ${result.place + 1} on the board. It is chalked up on the left wall.`;
+  $("card-note").textContent = result.place < 0 ? "Somebody got there first: it did not make the board after all." : `Number ${rank} on the board. It is chalked up on the left wall.`;
 });
 
 // ------------------------------------------------------------------ sessions
@@ -846,7 +865,7 @@ function showCard() {
     const li = document.createElement("li");
     li.className = "me";
     li.innerHTML = `<span class="place">1</span><span>Your score<small></small></span><b></b>`;
-    li.querySelector("small").textContent = `${r.hits} hits from ${r.shots} corks, best run ${r.best}`;
+    li.querySelector("small").textContent = statLine(r, session.sims[r.seat]);
     li.querySelector("b").textContent = r.score;
     list.appendChild(li);
     if (mode === "solo") {
@@ -865,7 +884,7 @@ function showCard() {
       li.innerHTML = `<span class="place"></span><span><span class="n"></span><small></small></span><b></b>`;
       li.querySelector(".place").textContent = i + 1;
       li.querySelector(".n").textContent = r.name + (r.seat === session.mySeat ? " (you)" : "");
-      li.querySelector("small").textContent = `${r.hits} hits from ${r.shots} corks, best run ${r.best}`;
+      li.querySelector("small").textContent = statLine(r, session.sims[r.seat]);
       li.querySelector("b").textContent = r.score;
       list.appendChild(li);
     });
@@ -989,6 +1008,8 @@ function frame(now) {
       flyTurn = turn;
       sound.flywheel(speedAt(tMine));
     }
+    // The last five seconds are counted out, as a cabinet hurries its player.
+    if (!frozen && mode !== "attract" && tMine >= ROUND_SECONDS - 5 && tMine < ROUND_SECONDS && Math.floor(tMine) !== Math.floor(lastTime)) sound.countTick(Math.floor(tMine) === ROUND_SECONDS - 1);
     hudFrame(tMine);
     lastTime = tMine;
 
