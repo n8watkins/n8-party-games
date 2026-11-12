@@ -1,5 +1,5 @@
 // The deploy settings: the production Worker (the top level of wrangler.jsonc) keeps every test
-// switch off and the room budget at 1%; the local environment keeps the switches tests rely on;
+// switch off and the room budget at 10%; the local environment keeps the switches tests rely on;
 // and the public folder holds only what a browser loads.
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -12,10 +12,10 @@ const read = (env) => unstable_readConfig({ config: "wrangler.jsonc", env });
 describe("the production configuration", () => {
   const prod = read(undefined);
 
-  it("limits rates, has no simulated latency and keeps the 1% room budget", () => {
+  it("limits rates, has no simulated latency and keeps the 10% room budget", () => {
     expect(prod.vars.PARTY_RATE_LIMIT).toBe("on");
     expect(prod.vars.PARTY_SIM_LATENCY).toBe("off");
-    expect(prod.vars.PARTY_ROOM_BUDGET_SHARE).toBe("0.01");
+    expect(prod.vars.PARTY_ROOM_BUDGET_SHARE).toBe("0.1");
     expect(prod.vars.PARTY_ROOM_BUDGET_DAY_SHARE).toBeUndefined();
   });
 
@@ -37,7 +37,7 @@ describe("the local configuration", () => {
   it("keeps the switches the playtests need, with the same budget", () => {
     expect(local.vars.PARTY_SIM_LATENCY).toBe("on");
     expect(local.vars.PARTY_RATE_LIMIT).toBe("off");
-    expect(local.vars.PARTY_ROOM_BUDGET_SHARE).toBe("0.01");
+    expect(local.vars.PARTY_ROOM_BUDGET_SHARE).toBe("0.1");
     expect(local.name).toBe("n8-party-games-local");
   });
 });

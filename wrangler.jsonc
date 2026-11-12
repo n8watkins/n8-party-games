@@ -1,6 +1,6 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  // The top level is the production Worker: rate limits on, no simulated latency, the 1% room
+  // The top level is the production Worker: rate limits on, no simulated latency, the 10% room
   // budget. Local play uses the "local" environment (npm run dev). See DEPLOY.md before deploying.
   "name": "n8-party-games",
   "main": "worker.js",
@@ -33,11 +33,11 @@
     { "tag": "v2", "new_sqlite_classes": ["RoomBudget"] }
   ],
   "vars": {
-    // The owner's rule for every game here: hosted rooms may use 1% of the Workers Paid plan's
-    // included Durable Object time each month (4,000 of 400,000 GB-seconds, about 8.7 hours of
-    // rounds in play), and a tenth of that in any one day. When it is spent, new battles are
-    // refused and solo play carries on. All games on this Worker share the one allowance.
-    "PARTY_ROOM_BUDGET_SHARE": "0.01",
+    // The owner's rule for the whole party game system: hosted rooms may use 10% of the Workers
+    // Paid plan's included Durable Object time each month (40,000 of 400,000 GB-seconds, about
+    // 87 hours of rooms awake), and a tenth of that in any one day. When it is spent, new battles
+    // are refused and solo play carries on. All games on this Worker share the one allowance.
+    "PARTY_ROOM_BUDGET_SHARE": "0.1",
     "PARTY_RATE_LIMIT": "on",
     "PARTY_SIM_LATENCY": "off"
     // The bot check on new rooms (Cloudflare Turnstile) is off until both keys exist:
@@ -55,7 +55,7 @@
         ]
       },
       "vars": {
-        "PARTY_ROOM_BUDGET_SHARE": "0.01",
+        "PARTY_ROOM_BUDGET_SHARE": "0.1",
         // Lets tests ask for simulated latency (?lag=150) and run many headless players.
         "PARTY_SIM_LATENCY": "on",
         "PARTY_RATE_LIMIT": "off"
