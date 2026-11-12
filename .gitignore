@@ -2,3 +2,6 @@ node_modules/
 .wrangler/
 dist/
 *.blend1
+cork-and-bell/tools/blender/out/
+cork-and-bell/tools/blender/layout.json
+cork-and-bell/shots/tmp/

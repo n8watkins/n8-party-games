@@ -1,0 +1,25 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  // Local development only. Nothing in this repository is deployed.
+  "name": "n8-party-games",
+  "main": "worker.js",
+  "compatibility_date": "2026-10-01",
+  "assets": {
+    "directory": "./",
+    "binding": "ASSETS",
+    "run_worker_first": ["/", "/api/*"]
+  },
+  "durable_objects": {
+    "bindings": [
+      { "name": "PARTY_ROOMS", "class_name": "PartyRoom" },
+      { "name": "PARTY_PINS", "class_name": "PinDirectory" },
+      { "name": "PARTY_LIMITER", "class_name": "RateLimiter" }
+    ]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["PartyRoom", "PinDirectory", "RateLimiter"] }],
+  "vars": {
+    // Local play: lets tests ask for simulated latency (?lag=150) and run many headless players.
+    "PARTY_SIM_LATENCY": "on",
+    "PARTY_RATE_LIMIT": "off"
+  }
+}

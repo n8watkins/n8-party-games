@@ -1,0 +1,538 @@
+@font-face {
+  font-family: "Abril Fatface";
+  src: url("fonts/AbrilFatface-Regular.ttf") format("truetype");
+  font-display: swap;
+}
+@font-face {
+  font-family: "Playfair Display";
+  src: url("fonts/PlayfairDisplay-Black.ttf") format("truetype");
+  font-weight: 700 900;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Playfair Display";
+  src: url("fonts/PlayfairDisplay-BlackItalic.ttf") format("truetype");
+  font-weight: 700 900;
+  font-style: italic;
+  font-display: swap;
+}
+
+:root {
+  --cream: #f1e3bf;
+  --ink: #1c1410;
+  --red: #9c2b20;
+  --gold: #d2a23c;
+  --display: "Abril Fatface", Georgia, serif;
+  --text: Georgia, "Times New Roman", serif;
+}
+* {
+  box-sizing: border-box;
+}
+html,
+body {
+  margin: 0;
+  height: 100%;
+  background: #070a14;
+  overflow: hidden;
+  overscroll-behavior: none;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+#stage {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  touch-action: none;
+  cursor: none;
+}
+body.pointer #stage {
+  cursor: default;
+}
+#hud {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  font-family: var(--text);
+  color: var(--cream);
+}
+#hud button {
+  pointer-events: auto;
+  font: 15px/1 var(--text);
+  color: var(--cream);
+  background: rgba(12, 10, 10, 0.55);
+  border: 1px solid rgba(241, 227, 191, 0.5);
+  border-radius: 999px;
+  padding: 11px 16px;
+  min-height: 44px;
+  cursor: pointer;
+  touch-action: manipulation;
+  backdrop-filter: none;
+}
+#hud button:hover {
+  border-color: var(--cream);
+}
+#hud button:focus-visible {
+  outline: 2px solid var(--gold);
+  outline-offset: 2px;
+}
+
+/* The quiet title and one hint line, top left. */
+#title {
+  position: absolute;
+  left: max(18px, env(safe-area-inset-left));
+  top: max(14px, env(safe-area-inset-top));
+  text-shadow: 0 1px 6px rgba(0, 0, 0, 0.8);
+}
+#title h1 {
+  margin: 0;
+  font: 400 19px/1.1 var(--display);
+  letter-spacing: 0.02em;
+  opacity: 0.92;
+}
+#title p {
+  margin: 3px 0 0;
+  font-size: 13.5px;
+  opacity: 0.8;
+  max-width: 44ch;
+}
+
+#controls {
+  position: absolute;
+  right: max(16px, env(safe-area-inset-right));
+  top: max(12px, env(safe-area-inset-top));
+  display: flex;
+  gap: 8px;
+}
+#sound[aria-pressed="false"] {
+  border-color: var(--gold);
+  color: #fff3d0;
+}
+
+/* The tally: a painted ticket, bottom left, out of the way of the targets. */
+#tally {
+  position: absolute;
+  left: max(16px, env(safe-area-inset-left));
+  bottom: max(14px, env(safe-area-inset-bottom));
+  display: flex;
+  gap: 2px;
+  background: rgba(241, 227, 191, 0.94);
+  color: var(--ink);
+  border-radius: 6px;
+  padding: 6px 4px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.5), inset 0 0 0 1.5px var(--red), inset 0 0 0 3px rgba(241, 227, 191, 1), inset 0 0 0 4px rgba(156, 43, 32, 0.5);
+}
+#tally[hidden],
+#rivals[hidden],
+#banner[hidden],
+#count[hidden],
+#card[hidden],
+#net[hidden] {
+  display: none;
+}
+#tally .cell {
+  display: grid;
+  justify-items: center;
+  min-width: 62px;
+  padding: 2px 8px;
+  border-right: 1px dotted rgba(28, 20, 16, 0.4);
+}
+#tally .cell:last-child {
+  border-right: 0;
+}
+#tally .label {
+  font-size: 10.5px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  opacity: 0.7;
+}
+#tally .num {
+  font: 400 23px/1.1 var(--display);
+  font-variant-numeric: tabular-nums;
+}
+#run-cell.hot .num {
+  color: var(--red);
+}
+#time.late {
+  color: var(--red);
+}
+
+/* Rivals: enamel tokens. Tap one to send your attacks there. */
+#rivals {
+  position: absolute;
+  top: max(64px, calc(env(safe-area-inset-top) + 58px));
+  right: max(12px, env(safe-area-inset-right));
+  display: grid;
+  gap: 8px;
+  pointer-events: auto;
+}
+#rivals button {
+  display: grid;
+  grid-template-columns: 44px auto;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 14px 4px 4px;
+  min-height: 54px;
+  border-radius: 999px;
+  text-align: left;
+  background: rgba(12, 10, 10, 0.6);
+}
+#rivals .token {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: var(--seat);
+  display: grid;
+  place-items: center;
+  font: 400 21px/1 var(--display);
+  color: #fff6e2;
+  box-shadow: inset 0 -6px 9px rgba(0, 0, 0, 0.3), inset 0 3px 4px rgba(255, 255, 255, 0.3), 0 0 0 2px #1c1410, 0 0 0 3.5px var(--gold);
+}
+#rivals .who {
+  display: grid;
+  font-size: 13px;
+  line-height: 1.15;
+}
+#rivals .who b {
+  font: 400 19px/1 var(--display);
+  font-variant-numeric: tabular-nums;
+}
+#rivals button.picked {
+  border-color: var(--gold);
+  background: rgba(156, 43, 32, 0.8);
+}
+#rivals button.leader .token::after {
+  content: "";
+  position: absolute;
+}
+#rivals .state {
+  font-size: 11px;
+  opacity: 0.8;
+}
+#rivals button.me {
+  opacity: 0.85;
+  cursor: default;
+}
+
+#banner {
+  position: absolute;
+  left: 50%;
+  top: 17%;
+  transform: translateX(-50%);
+  max-width: min(92vw, 560px);
+  text-align: center;
+  padding: 10px 18px;
+  border-radius: 6px;
+  background: rgba(241, 227, 191, 0.96);
+  color: var(--ink);
+  font-size: 15px;
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.55), inset 0 0 0 1.5px var(--red);
+}
+#banner b {
+  display: block;
+  font: 400 24px/1.15 var(--display);
+  color: var(--red);
+}
+#banner.good b {
+  color: #1f5f3a;
+}
+#banner .bar {
+  display: block;
+  height: 5px;
+  margin-top: 7px;
+  background: rgba(28, 20, 16, 0.18);
+  border-radius: 3px;
+  overflow: hidden;
+}
+#banner .bar i {
+  display: block;
+  height: 100%;
+  background: var(--red);
+  transform-origin: left;
+}
+
+#count {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  font: 400 min(34vw, 240px)/1 var(--display);
+  color: var(--cream);
+  text-shadow: 0 6px 0 var(--red), 0 10px 30px rgba(0, 0, 0, 0.6);
+}
+#count.small {
+  font-size: min(13vw, 96px);
+}
+
+#pops span {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  font: 400 26px/1 var(--display);
+  color: #ffe9ae;
+  text-shadow: 0 2px 0 #6d1a12, 0 3px 10px rgba(0, 0, 0, 0.7);
+  animation: pop 0.9s ease-out forwards;
+  white-space: nowrap;
+}
+#pops span.big {
+  font-size: 38px;
+  color: #fff;
+}
+#pops span small {
+  display: block;
+  font: italic 700 13px/1.2 "Playfair Display", var(--text);
+  letter-spacing: 0.06em;
+  text-align: center;
+}
+@keyframes pop {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, -30%) scale(0.6);
+  }
+  14% {
+    opacity: 1;
+    transform: translate(-50%, -70%) scale(1.08);
+  }
+  100% {
+    opacity: 0;
+    transform: translate(-50%, -190%) scale(1);
+  }
+}
+
+/* Name plates under each stall on a shared screen. */
+#names span {
+  position: absolute;
+  bottom: 14px;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 6px 16px;
+  border-radius: 6px;
+  background: rgba(241, 227, 191, 0.94);
+  color: var(--ink);
+  font: 400 20px/1.1 var(--display);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.5), inset 0 -4px 0 var(--seat);
+  white-space: nowrap;
+}
+#names span b {
+  font-weight: 400;
+  font-size: 28px;
+  font-variant-numeric: tabular-nums;
+}
+#names span em {
+  font: 13px var(--text);
+  opacity: 0.75;
+}
+
+/* Where the cork is aimed: a thin brass ring, no more. */
+#reticle {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 34px;
+  height: 34px;
+  margin: -17px 0 0 -17px;
+  border-radius: 50%;
+  border: 1.5px solid rgba(255, 232, 170, 0.85);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.45), inset 0 0 0 1px rgba(0, 0, 0, 0.3);
+  opacity: 0;
+  transition: opacity 0.2s, width 0.12s, height 0.12s, margin 0.12s;
+  will-change: transform;
+}
+#reticle::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 3px;
+  height: 3px;
+  margin: -1.5px;
+  border-radius: 50%;
+  background: rgba(255, 232, 170, 0.95);
+}
+#reticle.on {
+  opacity: 1;
+}
+#reticle.cocking {
+  width: 46px;
+  height: 46px;
+  margin: -23px 0 0 -23px;
+  border-color: rgba(255, 232, 170, 0.4);
+}
+
+#net {
+  position: absolute;
+  left: 50%;
+  bottom: 18px;
+  transform: translateX(-50%);
+  padding: 8px 14px;
+  border-radius: 999px;
+  background: rgba(12, 10, 10, 0.8);
+  font-size: 14px;
+}
+
+/* The end card: a painted board. */
+#card {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: min(92vw, 440px);
+  padding: 20px 22px 18px;
+  border-radius: 8px;
+  background: #f1e3bf;
+  color: var(--ink);
+  pointer-events: auto;
+  box-shadow: 0 20px 70px rgba(0, 0, 0, 0.6), inset 0 0 0 2px var(--red), inset 0 0 0 5px #f1e3bf, inset 0 0 0 6px rgba(210, 162, 60, 0.9);
+  text-align: center;
+}
+#card h2 {
+  margin: 0 0 10px;
+  font: 400 34px/1.05 var(--display);
+  color: var(--red);
+}
+#card ol {
+  list-style: none;
+  margin: 0 0 10px;
+  padding: 0;
+  display: grid;
+  gap: 5px;
+  text-align: left;
+}
+#card li {
+  display: grid;
+  grid-template-columns: 26px 1fr auto;
+  align-items: baseline;
+  gap: 8px;
+  padding: 6px 8px;
+  border-bottom: 1px dotted rgba(28, 20, 16, 0.4);
+  font-size: 17px;
+}
+#card li .place {
+  font: 400 19px var(--display);
+  color: var(--seat, var(--red));
+}
+#card li b {
+  font: 400 24px/1 var(--display);
+  font-variant-numeric: tabular-nums;
+}
+#card li small {
+  display: block;
+  font-size: 12.5px;
+  opacity: 0.7;
+}
+#card li.me {
+  background: rgba(210, 162, 60, 0.25);
+}
+#card p {
+  margin: 6px 0 12px;
+  font-size: 14.5px;
+  opacity: 0.85;
+}
+.card-actions {
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+#hud #card button {
+  color: #fff6e2;
+  background: var(--red);
+  border-color: var(--red);
+  font-size: 18px;
+  padding: 13px 22px;
+  min-height: 50px;
+}
+#hud #card button.quiet {
+  background: transparent;
+  color: var(--ink);
+  border-color: rgba(28, 20, 16, 0.6);
+}
+#hud #card button:disabled {
+  opacity: 0.6;
+}
+
+#loading {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: #070a14;
+  color: #d9c9a0;
+  font: 400 22px var(--display);
+  letter-spacing: 0.04em;
+  transition: opacity 0.6s;
+  pointer-events: none;
+}
+#loading.gone {
+  opacity: 0;
+}
+
+/* The party kit's lobby, in the stall's colours. */
+.pk-lobby {
+  --pk-bg: #f1e3bf;
+  --pk-accent: #9c2b20;
+  --pk-display: "Abril Fatface", Georgia, serif;
+}
+
+@media (max-width: 600px) {
+  #title h1 {
+    font-size: 16px;
+  }
+  #title p {
+    font-size: 12px;
+    max-width: 24ch;
+  }
+  #hud #controls button {
+    padding: 9px 12px;
+    font-size: 13px;
+  }
+  #controls {
+    flex-direction: column;
+    align-items: flex-end;
+  }
+  #tally .cell {
+    min-width: 50px;
+    padding: 2px 6px;
+  }
+  #tally .num {
+    font-size: 20px;
+  }
+  #rivals {
+    top: auto;
+    bottom: max(78px, calc(env(safe-area-inset-bottom) + 78px));
+    right: 8px;
+    left: 8px;
+    grid-auto-flow: column;
+    justify-content: center;
+  }
+  #rivals button {
+    grid-template-columns: 44px;
+    padding: 4px;
+    justify-items: center;
+  }
+  #rivals .who {
+    justify-items: center;
+    font-size: 11px;
+  }
+  #rivals .who span.name {
+    max-width: 62px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  #banner {
+    top: 12%;
+    font-size: 13.5px;
+  }
+  #banner b {
+    font-size: 20px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  #pops span {
+    animation-duration: 0.01s;
+  }
+}
