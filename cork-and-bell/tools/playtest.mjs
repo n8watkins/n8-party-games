@@ -50,8 +50,13 @@ const targetXY = (id) =>
   }, id);
 
 // First input: a move takes the gun from the house, and the first click fires at once.
+// On a phone there is no move: the very first touch takes the gun and fires where it lifts.
+const middlePot = await page.evaluate(() => {
+  const [u, v] = window.__cab.views[0].view.project(0, 1.125, -1.52);
+  return { x: u * innerWidth, y: v * innerHeight };
+});
 if (touch) {
-  await page.touchscreen.tap(w * 0.5, h * 0.55);
+  await page.touchscreen.tap(middlePot.x, middlePot.y + Math.min(90, h * 0.11));
 } else {
   await page.mouse.move(w * 0.5, h * 0.6);
 }
@@ -61,7 +66,7 @@ log("after first input:", s.mode, "t", s.t);
 if (s.mode !== "solo") errors.push("the first input did not start a solo round");
 const first = await targetXY("p2");
 if (touch) {
-  await page.touchscreen.tap(first.x, first.y + Math.min(90, h * 0.11));
+  // Already fired by the first touch.
 } else {
   await page.mouse.move(first.x, first.y, { steps: 6 });
   await page.mouse.down();
@@ -72,6 +77,17 @@ await shot("1-first-click");
 s = await summary();
 log("first click:", "score", s.stalls[0].score, "shots", s.stalls[0].shots, "hits", s.stalls[0].hits);
 if (s.stalls[0].hits < 1) errors.push("the first click did not hit the front row");
+
+// Sound on, from its own control (nothing may sound before this click): every later shot, hit
+// and bell runs through the WebAudio code, so an error there would show up in this run.
+const silentBefore = await page.evaluate(() => document.getElementById("sound").getAttribute("aria-pressed"));
+if (silentBefore !== "false") errors.push("sound was not off at load");
+if (touch) await page.locator("#sound").tap();
+else await page.locator("#sound").click();
+const soundOn = await page.evaluate(() => document.getElementById("sound").getAttribute("aria-pressed"));
+log("sound control:", silentBefore === "false" ? "off at load," : "ON AT LOAD,", soundOn === "true" ? "on after its click" : "did not turn on");
+if (soundOn !== "true") errors.push("the sound control did not turn sound on");
+if (!touch) await page.mouse.move(w * 0.5, h * 0.5);
 
 // The round: aim at what is up, fire in rhythm. Some shots by mouse, some with held keys.
 const order = ["p0", "p1", "p3", "p4", "s3", "s4", "d0", "sh", "bell", "d1", "s5", "p2"];

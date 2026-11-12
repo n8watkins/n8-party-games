@@ -133,7 +133,7 @@ export class Lens {
     this.renderer.info.autoReset = false;
     this.quality = quality;
     this.scale = 1; // internal resolution, lowered when frames take too long
-    this.taps = quality === "low" ? 22 : 44;
+    this.taps = quality === "low" ? 28 : 72;
     this.near = 0.08;
     this.far = 120;
     this.focus = [2.4, 2.4, 2.4, 2.4];

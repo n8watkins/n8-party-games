@@ -401,14 +401,16 @@ export function paintWood(seed = 3, base = "#5a321a", dark = "rgba(28,12,4,0.5)"
   const r = rng(seed);
   c.fillStyle = base;
   c.fillRect(0, 0, s, s);
-  for (let i = 0; i < 240; i++) {
+  for (let i = 0; i < 300; i++) {
     c.strokeStyle = r() < 0.6 ? dark : "rgba(170,100,50,0.25)";
-    c.globalAlpha = 0.25 + r() * 0.5;
+    c.globalAlpha = 0.12 + r() * 0.3;
     c.lineWidth = 0.6 + r() * 2.6;
     const y = r() * s;
     c.beginPath();
     c.moveTo(0, y);
-    for (let x = 0; x <= s; x += 32) c.lineTo(x, y + Math.sin(x * 0.012 + r() * 6) * 5 + (r() - 0.5) * 3);
+    const phase = r() * 6;
+    const sway = 1.5 + r() * 4;
+    for (let x = 0; x <= s; x += 16) c.lineTo(x, y + Math.sin(x * 0.009 + phase) * sway);
     c.stroke();
   }
   c.globalAlpha = 1;
@@ -515,6 +517,28 @@ export function chalkTexture() {
     t.needsUpdate = true;
   };
   return { texture: t, draw };
+}
+
+/** Trodden grass at dusk, with the stall's lamplight spilling out of its open front. */
+export function groundTexture() {
+  const s = 512;
+  const c = canvas(s);
+  const g = c.getContext("2d");
+  g.fillStyle = "#06080c";
+  g.fillRect(0, 0, s, s);
+  // The pool of warm light in front of the counter (the stall sits at the centre, facing down the canvas).
+  const pool = g.createRadialGradient(s / 2, s * 0.56, 4, s / 2, s * 0.6, s * 0.2);
+  pool.addColorStop(0, "rgba(120,74,30,0.9)");
+  pool.addColorStop(0.5, "rgba(58,36,18,0.6)");
+  pool.addColorStop(1, "rgba(0,0,0,0)");
+  g.fillStyle = pool;
+  g.fillRect(0, 0, s, s);
+  const r = rng(77);
+  for (let i = 0; i < 9000; i++) {
+    g.fillStyle = r() < 0.5 ? `rgba(0,0,0,${r() * 0.25})` : `rgba(90,100,70,${r() * 0.07})`;
+    g.fillRect(r() * s, r() * s, 1 + r() * 2, 1 + r() * 3);
+  }
+  return texture(c, true);
 }
 
 /** A soft dark patch: the contact shadow where a thing stands or lies on a board. */

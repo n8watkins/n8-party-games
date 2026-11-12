@@ -4,7 +4,7 @@
 import * as THREE from "three";
 import { BACK, BELL, BULBS, CAMERA, CHAIN, CHALK_BOARD, COUNTER, DRIVE, HALF_W, JAM, KEY_LIGHT, PENDULUMS, PLATES, ROWS, SCORE_WINDOW, SHUTTER, STEPS, TRAY, gunMuzzle, muzzle } from "../shared/layout.js";
 import { BELL_FULL, COCK_SECONDS, CORK_R, camLift, chainStar, mech, pendulumAngle, shutterOpen } from "../shared/sim.js";
-import { chalkTexture, contactTexture, disc, paintBelt, paintCork, paintMoon, paintReel, paintSheet, paintStar, paintTeapot, paintWood, plateGeometry, star, TEAPOT } from "./paint.js";
+import { chalkTexture, contactTexture, disc, groundTexture, paintBelt, paintCork, paintMoon, paintReel, paintSheet, paintStar, paintTeapot, paintWood, plateGeometry, star, TEAPOT } from "./paint.js";
 import { makeFarLights, makeSky } from "./render.js";
 
 const LIGHT_RANGE = 4.0;
@@ -75,6 +75,7 @@ export class StallAssets {
     this.contactMat = new THREE.MeshBasicMaterial({ map: contactTexture(), transparent: true, depthWrite: false, color: 0x000000, opacity: 0.55 });
     this.contactGeo = new THREE.PlaneGeometry(1, 1);
     this.contactGeo.rotateX(-Math.PI / 2);
+    this.ground = groundTexture();
   }
 }
 
@@ -192,6 +193,13 @@ export class StallView {
     scene.add(makeSky());
     this.farLights = makeFarLights(3);
     scene.add(this.farLights);
+
+    // The ground the stall stands on: only the wider cameras ever see it.
+    const ground = new THREE.Mesh(new THREE.PlaneGeometry(24, 24), new THREE.MeshBasicMaterial({ map: A.ground }));
+    ground.rotation.x = -Math.PI / 2;
+    ground.position.set(0, -0.045, -1.2);
+    scene.add(ground);
+    this.groundMesh = ground;
 
     // The baked set, and a second copy that only catches the live shadows.
     this.setMat = new THREE.ShaderMaterial({
@@ -692,6 +700,7 @@ export class StallView {
     this.setMat.uniforms.uPulse.value = this.pulse;
     this.key.intensity = 26 * B * (1 + this.pulse);
     this.front.intensity = 5 * B;
+    this.groundMesh.material.color.setScalar(0.25 + 0.75 * B);
     this.scene.environmentIntensity = 0.07 + 0.93 * B;
     this.shadowMat.opacity = 0.5 * B;
     this.farLights.material.uniforms.uTime.value = wall;
