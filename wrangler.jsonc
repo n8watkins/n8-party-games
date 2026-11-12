@@ -21,10 +21,11 @@
     { "tag": "v2", "new_sqlite_classes": ["RoomBudget"] }
   ],
   "vars": {
-    // Hosted rooms may use 5% of the Workers Paid plan's included Durable Object time each month
-    // (20,000 of 400,000 GB-seconds, about 43 room-hours), and a tenth of that in any one day.
-    // When it is spent, new battles are refused and solo play carries on.
-    "PARTY_ROOM_BUDGET_SHARE": "0.05",
+    // The owner's rule for every game here: hosted rooms may use 1% of the Workers Paid plan's
+    // included Durable Object time each month (4,000 of 400,000 GB-seconds, about 8.7 hours of
+    // rounds in play), and a tenth of that in any one day. When it is spent, new battles are
+    // refused and solo play carries on. All games on this Worker share the one allowance.
+    "PARTY_ROOM_BUDGET_SHARE": "0.01",
     // Local play: lets tests ask for simulated latency (?lag=150) and run many headless players.
     "PARTY_SIM_LATENCY": "on",
     "PARTY_RATE_LIMIT": "off"

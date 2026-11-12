@@ -16,7 +16,10 @@
 
 const API = "/api/party";
 const STORE_KEY = "party-kit:session";
+// Pings keep the two clocks in step. That matters during a round; in the lobby a slow ping is
+// enough, and it lets the room sleep.
 const PING_EVERY_MS = 2000;
+const IDLE_PING_EVERY_MS = 10_000;
 
 export class PartyClient {
   /**
@@ -121,9 +124,8 @@ export class PartyClient {
     ws.onopen = () => {
       this.retry = 0;
       this.setStatus("open");
-      this.ping();
-      clearInterval(this.pingTimer);
-      this.pingTimer = setInterval(() => this.ping(), PING_EVERY_MS);
+      this.pingPace = 0;
+      this.setPingPace(this.room?.phase === "playing" ? PING_EVERY_MS : IDLE_PING_EVERY_MS);
     };
     ws.onmessage = (event) => this.onMessage(event.data);
     ws.onclose = (event) => {
@@ -191,8 +193,17 @@ export class PartyClient {
     }
   }
 
+  setPingPace(ms) {
+    if (this.pingPace === ms) return;
+    this.pingPace = ms;
+    clearInterval(this.pingTimer);
+    this.ping();
+    this.pingTimer = setInterval(() => this.ping(), ms);
+  }
+
   setRoom(room) {
     this.room = room;
+    if (this.ws?.readyState === WebSocket.OPEN) this.setPingPace(room.phase === "playing" ? PING_EVERY_MS : IDLE_PING_EVERY_MS);
     if (this.session && room.pin && room.pin !== this.session.pin) this.session.pin = room.pin;
     this.emit("room", room);
   }

@@ -1,4 +1,4 @@
-// End to end: a tiny room budget closes battles after one minute of room time, and the
+// End to end: a tiny room budget closes battles after one round, waiting in the lobby is free, and the
 // per-address limit refuses a burst of new rooms. It needs its own server with a tiny budget:
 //
 //   npx wrangler dev --local --port 8793 --persist-to <empty folder> \
@@ -21,19 +21,32 @@ ws.addEventListener("message", (e) => {
   if (m.t === "error") errors.push(m);
 });
 await new Promise((r) => ws.addEventListener("open", r));
-console.log("     room open, waiting 66 s for its first report to the budget");
-await new Promise((r) => setTimeout(r, 66_000));
 
-const b = await post("/api/party/rooms", { nickname: "Bo" });
-say(b.status === 503 && b.error === "battles_full", `second room is refused: ${b.status} ${b.error} "${b.message}"`);
+// Waiting in the lobby is free: the room sleeps, so nothing is spent however long people wait.
+await new Promise((r) => setTimeout(r, 5000));
+const early = await post("/api/party/rooms", { nickname: "Bo" });
+say(early.status === 201, "after waiting in the lobby, a second room is still allowed (" + early.status + ")");
 
-ws.send(JSON.stringify({ t: "addBot" }));
+// A round is what counts. Play one to the end; the room reports its awake time as it goes.
+let ended = false;
+ws.addEventListener("message", (e) => {
+  if (JSON.parse(e.data).t === "end") ended = true;
+});
 ws.send(JSON.stringify({ t: "ready", v: true }));
 ws.send(JSON.stringify({ t: "start" }));
+console.log("     round started, waiting for it to end");
+for (let i = 0; i < 150 && !ended; i++) await new Promise((r) => setTimeout(r, 1000));
+say(ended, "the round ran to its end");
+await new Promise((r) => setTimeout(r, 1000));
+
+const b = await post("/api/party/rooms", { nickname: "Cy" });
+say(b.status === 503 && b.error === "battles_full", `after the round, a new room is refused: ${b.status} ${b.error} "${b.message}"`);
+
+ws.send(JSON.stringify({ t: "ready", v: true }));
 await new Promise((r) => setTimeout(r, 1500));
-say(errors.some((m) => m.error === "battles_full"), "the open room cannot start a round: " + JSON.stringify(errors.map((m) => m.error)));
+say(errors.some((m) => m.error === "battles_full"), "the open room cannot start another round: " + JSON.stringify(errors.map((m) => m.error)));
 ws.close();
 
 const rest = [];
-for (let i = 0; i < 4; i++) rest.push((await post("/api/party/rooms", { nickname: "X" })).status);
+for (let i = 0; i < 3; i++) rest.push((await post("/api/party/rooms", { nickname: "X" })).status);
 say(rest.at(-1) === 429, "sixth room from one address in ten minutes is rate limited: " + rest.join(", "));

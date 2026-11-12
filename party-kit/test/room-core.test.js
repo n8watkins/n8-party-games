@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { IDLE_SHUTDOWN_MS, LagLine, RECONNECT_GRACE_MS, RoomCore, cleanName } from "../src/core/room-core.js";
+import { IDLE_SHUTDOWN_MS, LagLine, RECONNECT_GRACE_MS, RoomCore, STALE_ROOM_MS, cleanName } from "../src/core/room-core.js";
 import { hashSeed, makeRng } from "../src/core/rng.js";
 import { pickFreePin, isPin } from "../src/worker/pin-logic.js";
 import { RATE_LIMITS, clientKey, nextWindow } from "../src/worker/limit-logic.js";
@@ -235,12 +235,12 @@ describe("idle shutdown", () => {
     core.disconnect(ann.token, 5000);
     expect(core.nextWake(5000)).toBe(5000 + RECONNECT_GRACE_MS);
     expect(core.tick(5000 + IDLE_SHUTDOWN_MS - 1).close).toBe(false);
-    expect(core.tick(5000 + IDLE_SHUTDOWN_MS).close).toBe(true);
+    expect(core.tick(5000 + IDLE_SHUTDOWN_MS).close).toBe("empty");
   });
 
   it("closes a room nobody ever connected to", () => {
     const core = room(counterGame(), 1000);
-    expect(core.tick(1000 + IDLE_SHUTDOWN_MS).close).toBe(true);
+    expect(core.tick(1000 + IDLE_SHUTDOWN_MS).close).toBe("empty");
   });
 
   it("does not count bots as people", () => {
@@ -248,7 +248,7 @@ describe("idle shutdown", () => {
     const ann = seated(core, "Ann");
     core.addBot();
     core.disconnect(ann.token, 2000);
-    expect(core.tick(2000 + IDLE_SHUTDOWN_MS).close).toBe(true);
+    expect(core.tick(2000 + IDLE_SHUTDOWN_MS).close).toBe("empty");
   });
 });
 
@@ -373,5 +373,34 @@ describe("the room budget", () => {
   it("limits new rooms per connection by burst and by day", () => {
     expect(RATE_LIMITS.create_short.limit).toBeLessThanOrEqual(5);
     expect(RATE_LIMITS.create_long.windowMs).toBe(24 * hour);
+  });
+});
+
+describe("sleeping and forgotten rooms", () => {
+  it("closes a room nobody has touched for ten minutes, but never during a round", () => {
+    const core = room();
+    const ann = seated(core, "Ann");
+    expect(core.nextWake(1000)).toBe(1000 + STALE_ROOM_MS);
+    expect(core.tick(1000 + STALE_ROOM_MS - 1).close).toBe(false);
+    expect(core.tick(1000 + STALE_ROOM_MS).close).toBe("stale");
+    core.touch(1000 + STALE_ROOM_MS);
+    expect(core.tick(1000 + STALE_ROOM_MS + 1).close).toBe(false);
+    core.setReady(ann.seat, true);
+    const t = 2000 + STALE_ROOM_MS;
+    core.start(t);
+    expect(core.nextWake(t)).toBeNull();
+    expect(core.tick(t + STALE_ROOM_MS * 2).close).toBe(false);
+  });
+
+  it("keeps the results screen through sleep", () => {
+    const core = room(counterGame(1));
+    const ann = seated(core, "Ann");
+    core.setReady(ann.seat, true);
+    core.start(2000);
+    expect(core.tick(2100).ended).toBe(true);
+    const copy = RoomCore.restore(counterGame(1), JSON.parse(JSON.stringify(core.serialize())), 3000);
+    copy.connect(ann.token, 3000);
+    expect(copy.view(3000)).toMatchObject({ phase: "ended", round: 1, result: core.result });
+    expect(copy.view(3000).seats[ann.seat]).toMatchObject({ name: "Ann", connected: true });
   });
 });

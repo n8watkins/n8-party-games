@@ -1,17 +1,19 @@
 // One Durable Object per room: the authority. It owns a RoomCore, accepts WebSockets,
 // applies inputs, ticks the game and broadcasts state. Clients never send results.
+//
+// A room is billed for every second it is awake, so it is awake only while a round is on.
+// In the lobby and on the results screen it holds its sockets through the WebSocket
+// Hibernation API and runs no timer: a message or the alarm wakes it, and it goes back to sleep.
 import { DurableObject } from "cloudflare:workers";
 import { RoomCore, LagLine } from "../core/room-core.js";
 import { newSeed } from "../core/rng.js";
 import { PIN_DIRECTORY_NAME } from "./pin-logic.js";
-import { REPORT_EVERY_MS, fullMessage, spendRoomTime } from "./room-budget.js";
+import { REPORT_EVERY_MS, fullMessage, roomBudgetState, spendRoomTime } from "./room-budget.js";
 
 const STORAGE_KEY = "room";
 const CLOSE_ROOM_CLOSED = 4000;
 const CLOSE_BAD_TOKEN = 4003;
 const MAX_MESSAGE_BYTES = 2048;
-/** While nobody is playing the room only needs a slow heartbeat (grace and idle checks). */
-const SLOW_TICK_MS = 1000;
 
 /**
  * Makes the room class for one game.
@@ -26,14 +28,18 @@ export function createPartyRoom(game) {
       /** socket -> {token, role, seat, out: LagLine, in: LagLine} */
       this.sockets = new Map();
       this.timer = null;
-      this.timerMs = 0;
       /** When the awake time not yet reported to the room budget began; null while the room is asleep. */
       this.meterFrom = null;
-      /** What the budget last said: "open", "day" or "month". */
-      this.budget = "open";
       void ctx.blockConcurrencyWhile(async () => {
         const saved = await ctx.storage.get(STORAGE_KEY);
-        if (saved) this.core = RoomCore.restore(game, saved, Date.now());
+        if (!saved) return;
+        const now = Date.now();
+        this.core = RoomCore.restore(game, saved, now);
+        // Waking from sleep: the sockets are still open, so their owners are still here.
+        for (const ws of ctx.getWebSockets()) {
+          const kept = ws.deserializeAttachment();
+          if (kept && this.core.connect(kept.token, now)) this.sockets.set(ws, this.entryFor(ws, kept));
+        }
       });
     }
 
@@ -76,36 +82,22 @@ export function createPartyRoom(game) {
       const url = new URL(request.url);
       const pair = new WebSocketPair();
       const [client, server] = [pair[0], pair[1]];
-      server.accept();
       const token = url.searchParams.get("token") ?? "";
       const who = this.core ? this.core.connect(token, Date.now()) : null;
       if (!who) {
+        server.accept();
         server.close(CLOSE_BAD_TOKEN, "bad_token");
         return new Response(null, { status: 101, webSocket: client });
       }
       // Simulated latency, each way, for tests. Off unless the Worker allows it.
       const lag = this.env.PARTY_SIM_LATENCY === "on" ? Number(url.searchParams.get("lag") ?? 0) : 0;
-      const entry = {
-        token,
-        role: who.role,
-        seat: who.seat,
-        out: new LagLine(lag, (text) => {
-          try {
-            server.send(text);
-          } catch {
-            // The socket is closing; its close handler updates presence.
-          }
-        }),
-        in: new LagLine(lag, (text) => this.onMessage(server, text)),
-      };
+      // A hibernatable socket: the room may sleep while it stays open. What the room has to know
+      // about it rides along on the socket, since the room's memory does not survive sleep.
+      this.ctx.acceptWebSocket(server);
+      const kept = { token, role: who.role, seat: who.seat, lag };
+      server.serializeAttachment(kept);
+      const entry = this.entryFor(server, kept);
       this.sockets.set(server, entry);
-      server.addEventListener("message", (event) => {
-        if (typeof event.data !== "string" || event.data.length > MAX_MESSAGE_BYTES) return;
-        entry.in.push(event.data);
-      });
-      const gone = () => this.onGone(server);
-      server.addEventListener("close", gone);
-      server.addEventListener("error", gone);
 
       this.send(entry, { t: "hello", you: { role: who.role, seat: who.seat }, room: this.core.view(Date.now()) });
       if (this.core.phase !== "lobby" && this.core.state) {
@@ -115,6 +107,40 @@ export function createPartyRoom(game) {
       this.schedule();
       await this.save();
       return new Response(null, { status: 101, webSocket: client });
+    }
+
+    entryFor(ws, kept) {
+      return {
+        token: kept.token,
+        role: kept.role,
+        seat: kept.seat,
+        out: new LagLine(kept.lag, (text) => {
+          try {
+            ws.send(text);
+          } catch {
+            // The socket is closing; its close handler updates presence.
+          }
+        }),
+        in: new LagLine(kept.lag, (text) => this.onMessage(ws, text)),
+      };
+    }
+
+    webSocketMessage(ws, data) {
+      if (typeof data !== "string" || data.length > MAX_MESSAGE_BYTES) return;
+      this.sockets.get(ws)?.in.push(data);
+    }
+
+    webSocketClose(ws, code, reason) {
+      try {
+        ws.close(code, reason);
+      } catch {
+        // Already closed.
+      }
+      this.onGone(ws);
+    }
+
+    webSocketError(ws) {
+      this.onGone(ws);
     }
 
     onMessage(ws, text) {
@@ -130,6 +156,8 @@ export function createPartyRoom(game) {
       if (!msg || typeof msg !== "object") return;
       const now = Date.now();
       const isHost = core.hostToken === entry.token;
+      // Pings keep the clocks in step; they do not show that anyone is still doing anything.
+      if (msg.t !== "ping") core.touch(now);
       switch (msg.t) {
         case "ping":
           // Clock sync: the client learns the room's clock from c (its send time) and s (ours).
@@ -142,7 +170,7 @@ export function createPartyRoom(game) {
           if (entry.role === "player" && core.setReady(entry.seat, msg.v)) {
             // Instant rematch: after a round, it starts again the moment every human is ready.
             if (core.phase === "ended" && core.canStart()) return this.startRound(entry, now);
-            this.broadcastRoom();
+            this.changed();
           }
           return;
         case "name":
@@ -177,10 +205,13 @@ export function createPartyRoom(game) {
       }
     }
 
-    startRound(entry, now) {
+    async startRound(entry, at) {
       const core = this.core;
       // The allowance for the day or month is spent: the round in play finished, no new one starts.
-      if (this.budget !== "open") return this.send(entry, { t: "error", error: "battles_full", message: fullMessage(this.budget) });
+      const budget = await roomBudgetState(this.env).catch(() => "open");
+      if (budget !== "open") return this.send(entry, { t: "error", error: "battles_full", message: fullMessage(budget) });
+      if (this.core !== core || core.phase === "playing") return;
+      const now = Math.max(at, Date.now());
       const started = core.start(now);
       if (!started.ok) return this.send(entry, { t: "error", error: started.error, message: started.message });
       this.broadcast({ t: "start", room: core.view(now), s: game.snapshot(core.state, now), now });
@@ -204,25 +235,26 @@ export function createPartyRoom(game) {
 
     // ------------------------------------------------------------ the loop
 
-    /** One timer drives the room: fast while a round is on, slow otherwise, none when empty and idle is on the alarm. */
+    /**
+     * A timer runs only while a round is on, and that is the only time the room stays awake.
+     * Everything else that depends on time (the reconnect grace, closing an empty or forgotten
+     * room) is on the alarm.
+     */
     schedule() {
       const core = this.core;
-      if (!core) return this.stopTimer();
-      if (this.meterFrom === null) this.meterFrom = Date.now();
-      const wanted = core.phase === "playing" ? Math.round(1000 / (game.tickHz ?? 30)) : SLOW_TICK_MS;
-      if (this.timer && this.timerMs === wanted) return;
-      this.stopTimer();
-      this.timerMs = wanted;
-      this.timer = setInterval(() => this.tick(), wanted);
-      // The alarm is the safety net that wakes a room whose timer died with the isolate.
-      const wake = core.nextWake(Date.now());
+      if (!core || core.phase !== "playing") this.stopTimer();
+      else if (!this.timer) {
+        this.meterFrom = Date.now();
+        this.timer = setInterval(() => this.tick(), Math.round(1000 / (game.tickHz ?? 30)));
+      }
+      const wake = core?.nextWake(Date.now());
       if (wake) void this.ctx.storage.setAlarm(wake);
     }
 
     stopTimer() {
       if (this.timer) clearInterval(this.timer);
       this.timer = null;
-      this.timerMs = 0;
+      this.meter(Date.now(), true);
     }
 
     tick() {
@@ -239,12 +271,12 @@ export function createPartyRoom(game) {
         this.schedule();
         void this.save();
       }
-      if (out.close) void this.destroy();
+      if (out.close) void this.destroy(out.close);
     }
 
     /**
      * Reports the room's awake time to the room budget, a minute at a time (or all of it with
-     * `all`). A room that is awake is billed whether or not a round is on, so the lobby counts too.
+     * `all`). The room is awake, and billed, from the start of a round to its end.
      */
     meter(now, all = false) {
       if (this.meterFrom === null) return;
@@ -252,14 +284,9 @@ export function createPartyRoom(game) {
       if (ms <= 0 || (!all && ms < REPORT_EVERY_MS)) return;
       this.meterFrom = all ? null : now;
       this.ctx.waitUntil(
-        spendRoomTime(this.env, ms).then(
-          (state) => {
-            this.budget = state;
-          },
-          () => {
-            // The budget could not be reached; the next report carries on.
-          },
-        ),
+        spendRoomTime(this.env, ms).catch(() => {
+          // The budget could not be reached; the next report carries on.
+        }),
       );
     }
 
@@ -300,14 +327,13 @@ export function createPartyRoom(game) {
       if (this.core) await this.ctx.storage.put(STORAGE_KEY, this.core.serialize());
     }
 
-    /** Idle for a minute: close every socket, give the PIN back, forget everything. */
-    async destroy() {
+    /** Empty for a minute, or forgotten: close every socket, give the PIN back, forget everything. */
+    async destroy(reason = "empty") {
       const code = this.core?.code;
-      this.meter(Date.now(), true);
       this.stopTimer();
-      for (const ws of this.sockets.keys()) {
+      for (const ws of this.ctx.getWebSockets()) {
         try {
-          ws.close(CLOSE_ROOM_CLOSED, "room_closed");
+          ws.close(CLOSE_ROOM_CLOSED, reason === "stale" ? "room_idle" : "room_closed");
         } catch {
           // Already closed.
         }

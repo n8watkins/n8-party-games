@@ -12,6 +12,8 @@ import { makeRng } from "./rng.js";
 
 export const RECONNECT_GRACE_MS = 30_000;
 export const IDLE_SHUTDOWN_MS = 60_000;
+/** A room where nobody has done anything for this long, outside a round, is closed: a forgotten tab. */
+export const STALE_ROOM_MS = 10 * 60_000;
 export const NAME_MAX = 14;
 export const SEAT_COLOURS = ["#c8382c", "#2f6f8f", "#d9a02a", "#3f7a4a"]; // oxblood red, enamel blue, gilt yellow, bottle green
 export const SEAT_COLOUR_NAMES = ["Red", "Blue", "Gold", "Green"];
@@ -64,6 +66,7 @@ export class RoomCore {
     this.tickCount = 0;
     this.createdAt = now;
     this.emptySince = now;
+    this.lastActive = now;
     this.rng = makeRng(`${this.seed}/room`);
   }
 
@@ -135,6 +138,7 @@ export class RoomCore {
       s.droppedAt = null;
     }
     this.emptySince = null;
+    this.lastActive = now;
     return who;
   }
 
@@ -241,6 +245,11 @@ export class RoomCore {
     return true;
   }
 
+  /** Somebody did something (anything but a clock ping): the room is not forgotten. */
+  touch(now) {
+    this.lastActive = now;
+  }
+
   /** True when a round may start: at least one human, and every connected human is ready. */
   canStart() {
     if (this.phase === "playing") return false;
@@ -330,16 +339,18 @@ export class RoomCore {
         out.snapshot = this.game.snapshot(this.state, now);
         out.ended = true;
         out.roomChanged = true;
+        this.lastActive = now;
         for (const s of this.seats) if (s && s.kind === "human") s.ready = false;
       }
     }
-    if (this.emptySince !== null && now - this.emptySince >= IDLE_SHUTDOWN_MS) out.close = true;
+    if (this.emptySince !== null && now - this.emptySince >= IDLE_SHUTDOWN_MS) out.close = "empty";
+    else if (this.phase !== "playing" && now - this.lastActive >= STALE_ROOM_MS) out.close = "stale";
     return out;
   }
 
   /** When the room should next be woken if nothing else happens (for the alarm). */
   nextWake(now) {
-    let at = Infinity;
+    let at = this.phase === "playing" ? Infinity : this.lastActive + STALE_ROOM_MS;
     if (this.emptySince !== null) at = Math.min(at, this.emptySince + IDLE_SHUTDOWN_MS);
     for (const s of this.seats) {
       if (s && s.droppedAt !== null && !s.connected) at = Math.min(at, s.droppedAt + RECONNECT_GRACE_MS);
@@ -383,9 +394,12 @@ export class RoomCore {
     };
   }
 
-  /** Lobby data survives the object being put to sleep; a running match does not. */
+  /** The lobby and the results screen survive the object being put to sleep; a running match does not. */
   serialize() {
     return {
+      phase: this.phase === "ended" ? "ended" : "lobby",
+      result: this.phase === "ended" ? this.result : null,
+      lastActive: this.lastActive,
       seed: this.seed,
       code: this.code,
       pin: this.pin,
@@ -403,6 +417,9 @@ export class RoomCore {
     room.round = data.round;
     room.createdAt = data.createdAt;
     room.hostToken = data.hostToken;
+    room.phase = data.phase === "ended" ? "ended" : "lobby";
+    room.result = data.result ?? null;
+    room.lastActive = data.lastActive ?? now;
     room.seats = data.seats.map((s) => (s ? { ...s, connected: false, droppedAt: s.kind === "human" ? now : s.droppedAt } : null));
     for (const token of data.screens) room.screens.set(token, { connected: false });
     room.emptySince = now;

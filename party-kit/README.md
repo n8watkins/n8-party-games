@@ -77,13 +77,19 @@ Variables (all optional):
 ### What hosting costs, and the room budget
 
 Solo play runs in the browser and static files are served free, so rooms are the only real cost.
-A room is a Durable Object, billed as 128 MB for every second it is awake, lobby included.
+A room is a Durable Object, billed as 128 MB for every second it is awake.
 The Workers Paid plan includes 400,000 GB-seconds a month for the whole account, which is about 870 room-hours.
 
-With `PARTY_ROOM_BUDGET_SHARE` set, each room reports its awake time once a minute to the `RoomBudget` object.
+A room is awake only while a round is on.
+In the lobby and on the results screen it holds its sockets through the WebSocket Hibernation API and runs no timer, so waiting costs nothing; a message or the alarm wakes it for a moment.
+The client pings every 2 seconds during a round and every 10 seconds otherwise.
+A room nobody has touched for 10 minutes outside a round is closed (`STALE_ROOM_MS`), and an empty one after 1 minute.
+
+With `PARTY_ROOM_BUDGET_SHARE` set, each room reports its awake time to the `RoomBudget` object, once a minute and at the end of the round.
 When the day's or the month's allowance is spent, `POST /api/party/rooms` answers `battles_full` (503) with a message that solo play still works, and open rooms finish the round in play but cannot start another.
 The day's allowance resets at 00:00 UTC and the month's on the first.
-The budget counts room time only; the PIN directory, the limiter and the budget object itself wake for moments and are not counted.
+All games served by one Worker share the one allowance.
+The budget counts rounds only; the moments a sleeping room, the PIN directory, the limiter and the budget object wake for are not counted.
 
 New rooms are also limited per client address: 5 in ten minutes and 20 in a day.
 
