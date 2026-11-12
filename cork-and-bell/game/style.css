@@ -286,7 +286,7 @@ body.pointer #stage {
 }
 #tally .fig {
   display: inline-flex;
-  align-items: center;
+  align-items: baseline;
   gap: 0.3em;
 }
 /* The stub: label and figure on one line, each taking the room its words need. On the smallest
@@ -313,8 +313,8 @@ body.pointer #stage {
 #tally .stub .num {
   font-size: 1.45em;
 }
-#tally .stub .fig {
-  align-self: center;
+#tally .stub .label {
+  line-height: 1;
 }
 /* Where the tray leaves too little room beside it on a tall screen (a tablet, a squarer window),
    the ticket keeps its size and sits just above the tray instead (--tray-top, from the picture). */
@@ -323,6 +323,7 @@ body.pointer #stage {
   bottom: calc(var(--tray-top, 0px) + 10px);
 }
 #tally .times {
+  align-self: center;
   padding: 0.14em 0.42em 0.18em;
   border-radius: 999px;
   background: var(--red);
