@@ -1,5 +1,5 @@
 // Takes screenshots of the game in a headless browser and prints frame rates and console errors.
-//   node cork-and-bell/tools/shot.mjs <name>=<query> ... [--size=1920x1080] [--dpr=1] [--wait=ms] [--jpeg=1] [--win=1]
+//   node cork-and-bell/tools/shot.mjs <name>=<query> ... [--size=1920x1080] [--dpr=1] [--wait=ms] [--jpeg=1] [--touch=1] [--win=1]
 // Each shot loads /cork-and-bell/?<query>, waits, and saves <out>/<name>.png (see SHOTS in browser.mjs)
 // --win=1 uses Chrome on the Windows side with the real graphics card (see browser.mjs).
 import { mkdirSync } from "node:fs";
@@ -14,7 +14,7 @@ mkdirSync(out, { recursive: true });
 const b = await openBrowser({ win: opt(args, "win", "1") === "1", width: w, height: h });
 try {
   const dpr = Number(opt(args, "dpr", 1));
-  const context = await b.newContext(w < 600 ? { hasTouch: true, isMobile: true, deviceScaleFactor: dpr } : { deviceScaleFactor: dpr });
+  const context = await b.newContext(w < 600 || opt(args, "touch", "0") === "1" ? { hasTouch: true, isMobile: true, deviceScaleFactor: dpr } : { deviceScaleFactor: dpr });
   for (const spec of args.filter((a) => !a.startsWith("--"))) {
     const [name, ...rest] = spec.split("=");
     const page = await context.newPage();

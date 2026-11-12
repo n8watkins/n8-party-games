@@ -221,10 +221,15 @@ function myView() {
   return views.find((v) => v.seat === session.mySeat) ?? null;
 }
 
+/** How far above a finger the aim sits: clear of a thumb, also on a phone held sideways. */
+function touchLift() {
+  return pointer.touch ? Math.max(52, Math.min(90, innerHeight * 0.11)) : 0;
+}
+
 function aimFromPointer() {
   const mv = myView();
   if (!mv) return null;
-  const lift = pointer.touch ? Math.min(90, innerHeight * 0.11) : 0; // the aim sits above a finger, not under it
+  const lift = touchLift(); // the aim sits above a finger, not under it
   const [ax, ay] = mv.view.aimAt(pointer.x / innerWidth, (pointer.y - lift) / innerHeight);
   return [Math.max(-1.35, Math.min(1.35, ax)), Math.max(0.6, Math.min(2.7, ay))];
 }
@@ -629,7 +634,7 @@ function hudFrame(t) {
   const show = pointer.seen && session.mySeat >= 0 && !P.auto && (mode === "solo" || mode === "battle") && endShownAt === null && lobby.root.hidden && (!pointer.touch || pointer.down);
   ret.classList.toggle("on", show);
   if (show) {
-    const lift = pointer.touch ? Math.min(90, innerHeight * 0.11) : 0;
+    const lift = touchLift();
     ret.style.transform = `translate(${pointer.x}px, ${pointer.y - lift}px)`;
     ret.classList.toggle("cocking", t - sim.lastFire < COCK_SECONDS);
   }
