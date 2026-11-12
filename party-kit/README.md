@@ -25,6 +25,26 @@ The `local` environment is for local play and the tests (simulated latency allow
 Only `dist/public` is served: `scripts/build-public.mjs` copies the files a browser loads into it from an allowlist and writes its `_headers` (CSP and the other security headers), and wrangler runs it before every `dev` and `deploy`.
 A new game adds its page and its browser folder to `SERVED` in that script; `npm run assets:list` prints exactly what will be public.
 
+## Taking the kit into a game
+
+The kit is not its own repository.
+A game in its own repository takes it from this one as a development dependency, pinned to a tag:
+
+```json
+"devDependencies": { "n8-party-games": "github:n8watkins/n8-party-games#v0.1.0" }
+```
+
+Only the kit is installed that way (the `files` list in this repository's `package.json`): the worker code, the browser files, the build helper and the end-to-end checks.
+
+| Import | What it is |
+| --- | --- |
+| `n8-party-games/kit` | The Worker side: `createPartyRoom`, `PinDirectory`, `RateLimiter`, `RoomBudget`, `handlePartyApi`. |
+| `n8-party-games/kit/core`, `/kit/rng`, `/kit/http` | The room as plain logic, the seeded generator, and the HTTP helpers (no Workers runtime needed, so tests can use them). |
+| `n8-party-games/kit/build` | `buildPublic` and `kitClientEntry`: builds a site's public folder from an allowlist. |
+| `n8-party-games/kit/client/*` | The browser files. A site serves them at `/party-kit/client/`; a game imports them by that site path. |
+
+What a game must export so the party site can host it is in [GAME-CONTRACT.md](GAME-CONTRACT.md).
+
 ## Layout
 
 | Path | What it is |
@@ -40,6 +60,7 @@ A new game adds its page and its browser folder to `SERVED` in that script; `npm
 | `src/worker/turnstile.js` | The optional bot check on new rooms (Cloudflare Turnstile). |
 | `client/party-client.js` | The browser client (ES module, no build). |
 | `client/lobby.js`, `client/lobby.css` | The waiting room. |
+| `build/public.mjs` | Builds a site's public folder from an allowlist and writes its security headers. |
 | `client/bot-check.js` | Loads and runs the Turnstile widget, only when the server hands out a site key. |
 | `test/` | Unit tests (`npm test` at the repository root). |
 

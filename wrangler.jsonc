@@ -4,6 +4,9 @@
   // budget. Local play uses the "local" environment (npm run dev). See DEPLOY.md before deploying.
   "name": "n8-party-games",
   "main": "worker.js",
+  // A game's server code may name the kit as a package ("n8-party-games/kit"). Here the kit is
+  // this repository's own folder, so the name resolves to it and the bundle holds one copy.
+  "alias": { "n8-party-games/kit": "./party-kit/src/worker/index.js" },
   "compatibility_date": "2026-10-01",
   // Only dist/public is served, and it is rebuilt from an allowlist (scripts/build-public.mjs)
   // before every `wrangler dev` and `wrangler deploy`, and on changes while `wrangler dev` runs.
