@@ -255,4 +255,133 @@
     width: 104px;
     height: 104px;
   }
+  /* Four seats, the buttons and the way out fit a small upright phone without scrolling. */
+  .pk-head {
+    margin-bottom: 10px;
+  }
+  .pk-seats {
+    gap: 6px;
+    margin-bottom: 10px;
+  }
+  .pk-seat {
+    min-height: 50px;
+    padding: 4px 8px;
+  }
+  .pk-character {
+    flex-basis: 42px;
+    width: 42px;
+    height: 42px;
+  }
+  .pk-note {
+    margin: 8px 0 0;
+  }
+}
+
+/* A phone held sideways (a short, wide screen): the door and the waiting room lie down so they
+   fit without scrolling. The door puts the two fields side by side; the waiting room puts the
+   PIN and the buttons on the left and the seats on the right. */
+@media (max-height: 520px) and (orientation: landscape) {
+  .pk-lobby {
+    padding: 8px 12px;
+  }
+  .pk-card,
+  .pk-card.pk-screen {
+    width: min(100%, 720px);
+    padding: 12px 16px 8px;
+  }
+  .pk-title {
+    font-size: 22px;
+  }
+  .pk-sub {
+    margin: 2px 0 8px;
+    font-size: 14px;
+  }
+  .pk-form {
+    grid-template-columns: 1fr 1fr;
+    gap: 8px 12px;
+  }
+  .pk-form > .pk-botcheck,
+  .pk-form > .pk-error,
+  .pk-form > .pk-row {
+    grid-column: 1 / -1;
+  }
+  .pk-label {
+    gap: 3px;
+    font-size: 13px;
+  }
+  .pk-input {
+    min-height: 44px;
+    padding: 8px 12px;
+    font-size: 18px;
+  }
+  .pk-btn {
+    min-height: 44px;
+    padding: 8px 14px;
+    font-size: 16px;
+  }
+  .pk-btn.pk-quiet {
+    min-height: 40px;
+    font-size: 14px;
+  }
+  .pk-room {
+    display: grid;
+    grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
+    column-gap: 16px;
+    align-items: start;
+    align-content: start;
+  }
+  .pk-room > * {
+    grid-column: 1;
+  }
+  .pk-room > .pk-seats {
+    grid-column: 2;
+    grid-row: 1 / span 6;
+    margin: 0;
+    gap: 6px;
+    grid-template-columns: 1fr;
+  }
+  .pk-head {
+    margin-bottom: 8px;
+    gap: 10px;
+  }
+  .pk-pin,
+  .pk-screen .pk-pin {
+    font-size: 44px;
+  }
+  .pk-pin-label,
+  .pk-pin-hint {
+    font-size: 12px;
+  }
+  .pk-pin-hint {
+    margin-top: 3px;
+  }
+  .pk-qr,
+  .pk-screen .pk-qr {
+    width: 88px;
+    height: 88px;
+  }
+  .pk-seat {
+    min-height: 48px;
+    padding: 4px 8px;
+    gap: 8px;
+  }
+  .pk-character {
+    flex-basis: 38px;
+    width: 38px;
+    height: 38px;
+  }
+  .pk-disc {
+    width: 26px;
+    height: 26px;
+  }
+  .pk-seat-name {
+    font-size: 16px;
+  }
+  .pk-seat-state {
+    font-size: 12.5px;
+  }
+  .pk-note {
+    margin: 6px 0 0;
+    font-size: 13px;
+  }
 }

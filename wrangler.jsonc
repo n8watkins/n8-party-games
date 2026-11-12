@@ -28,12 +28,14 @@
       { "name": "PARTY_ROOMS", "class_name": "PartyRoom" },
       { "name": "PARTY_PINS", "class_name": "PinDirectory" },
       { "name": "PARTY_LIMITER", "class_name": "RateLimiter" },
-      { "name": "PARTY_BUDGET", "class_name": "RoomBudget" }
+      { "name": "PARTY_BUDGET", "class_name": "RoomBudget" },
+      { "name": "PARTY_SCORES", "class_name": "ScoreBoard" }
     ]
   },
   "migrations": [
     { "tag": "v1", "new_sqlite_classes": ["PartyRoom", "PinDirectory", "RateLimiter"] },
-    { "tag": "v2", "new_sqlite_classes": ["RoomBudget"] }
+    { "tag": "v2", "new_sqlite_classes": ["RoomBudget"] },
+    { "tag": "v3", "new_sqlite_classes": ["ScoreBoard"] }
   ],
   "vars": {
     // The owner's rule for the whole party game system: hosted rooms may use 10% of the Workers
@@ -54,7 +56,8 @@
           { "name": "PARTY_ROOMS", "class_name": "PartyRoom" },
           { "name": "PARTY_PINS", "class_name": "PinDirectory" },
           { "name": "PARTY_LIMITER", "class_name": "RateLimiter" },
-          { "name": "PARTY_BUDGET", "class_name": "RoomBudget" }
+          { "name": "PARTY_BUDGET", "class_name": "RoomBudget" },
+          { "name": "PARTY_SCORES", "class_name": "ScoreBoard" }
         ]
       },
       "vars": {

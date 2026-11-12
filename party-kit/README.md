@@ -56,6 +56,7 @@ What a game must export so the party site can host it is in [GAME-CONTRACT.md](G
 | `src/worker/pin-directory.js`, `pin-logic.js` | 4-digit PINs: 15 minute life, 10 minute cooldown before reuse. |
 | `src/worker/rate-limiter.js`, `limit-logic.js` | Fixed-window limits per client address. |
 | `src/worker/room-budget.js`, `budget-logic.js` | The room budget: a cap on hosted room time per day and per month. |
+| `src/worker/score-board.js`, `score-logic.js` | The score board: a game's ten best scores under three letters. |
 | `src/worker/http.js` | Responses and security headers, the body limit, the origin check, the QR allowlist. |
 | `src/worker/turnstile.js` | The optional bot check on new rooms (Cloudflare Turnstile). |
 | `client/party-client.js` | The browser client (ES module, no build). |
@@ -124,6 +125,20 @@ The budget counts rounds only; the moments a sleeping room, the PIN directory, t
 
 New rooms are also limited per client address: 5 in ten minutes and 20 in a day.
 
+### The score board
+
+A game gets a high score board by naming itself to the API: `handlePartyApi(request, env, { scores: { "my-game": { max: 243300 } } })`, with the `PARTY_SCORES` binding and the `ScoreBoard` class exported.
+Nobody signs in.
+A score goes up under three capital letters, and the obvious rude three-letter words are refused.
+Scores come from the browser, so they cannot be trusted; the board only keeps abuse cheap and bounded.
+A score must be a whole number no higher than `max` (the most a round of the game can reach), the body is at most 128 bytes, the origin check applies, and one connection may post 6 scores in ten minutes and 60 in a day.
+Only the ten best are kept, and a score that does not make the ten writes nothing.
+
+The board is one Durable Object per game that wakes for a single read or write: no timer, no socket, no alarm.
+It costs nothing while nobody plays and it does not count against the room budget.
+Posting a score is one Worker request and three Durable Object requests (two rate-limit windows and the board).
+Reading the board is one Worker request and one Durable Object request, and browsers may keep the answer for 20 seconds.
+
 ### The game object
 
 The room calls these; the game never touches sockets.
@@ -167,6 +182,8 @@ Use `makeRng(seed)` for every random choice so a round can be replayed.
 | `GET /api/party/rooms/:code/ws?token=...&lag=150` | WebSocket |
 | `GET /api/party/qr.svg?text=<this site's join link>` | A QR code as SVG (only `<origin>/<path>?join=<PIN or code>`) |
 | `GET /api/party/config` | `{publicOrigin, simLatency, turnstileSiteKey}` |
+| `GET /api/party/scores/:game` | `{top: [{name, score, at}]}`: the game's ten best, best first |
+| `POST /api/party/scores/:game` `{name: "ABC", score}` | `{top, place}` (`place` is -1 when the score did not make the ten) |
 
 Requests whose `Origin` names another site are refused (403 `forbidden_origin`), so no other page can open rooms or sockets through a visitor's browser.
 Bodies are JSON objects of at most 4 KiB.
@@ -265,5 +282,5 @@ The delay runs inside the room (`LagLine`), so the room's view of time is the re
 `npm test` at the repository root runs `party-kit/test/room-core.test.js`: seats and colours, nickname cleaning, ready and start, round seeds, the authoritative round, drop, rejoin inside and outside the grace, leaving, late joiners, stand-ins, idle shutdown, saving and restoring, the latency line, the seeded generator, PIN picking and the rate-limit window.
 `npm run test:room` (with `npm run dev` running) checks the Durable Object wiring end to end over real sockets, with no browser: create, PIN lookup, QR code, join, a wrong PIN, simulated latency, start, an input relayed to the other seat, a drop with a stand-in, the same seat back with a full snapshot, and with `-- --full=1` the length of a whole round and the instant rematch.
 The games' multiplayer playtests (for example `npm run playtest:battle`) drive the same path through real browsers.
-`npm test` also checks the deploy settings (`test/deploy-config.test.js`) and the API guards (`test/http.test.js`).
+`npm test` also checks the deploy settings (`test/deploy-config.test.js`), the API guards (`test/http.test.js`) and the score board's rules (`test/score.test.js`).
 `npm run test:production -- <base>` checks the production settings end to end and `npm run test:turnstile` the bot check with Cloudflare's test keys; each file's header says which server to start.

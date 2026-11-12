@@ -27,7 +27,7 @@ describe("the production configuration", () => {
     expect(prod.observability.enabled).toBe(true);
     expect(prod.assets.directory).toBe("./dist/public");
     expect(prod.build.command).toBe("node scripts/build-public.mjs");
-    expect(prod.durable_objects.bindings.map((b) => b.name).sort()).toEqual(["PARTY_BUDGET", "PARTY_LIMITER", "PARTY_PINS", "PARTY_ROOMS"]);
+    expect(prod.durable_objects.bindings.map((b) => b.name).sort()).toEqual(["PARTY_BUDGET", "PARTY_LIMITER", "PARTY_PINS", "PARTY_ROOMS", "PARTY_SCORES"]);
   });
 });
 

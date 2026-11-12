@@ -46,6 +46,10 @@ Everything else is already in the repository.
 22. Check the same period under Manage Account, Billing, Billable Usage, where Durable Objects duration (GB-seconds) should grow during the round and stay nearly flat while the room sleeps.
 23. If duration keeps growing while every room waits in the lobby, something is keeping the rooms awake, so stop new rooms by setting `PARTY_ROOM_BUDGET_SHARE` to a tiny value and investigate.
 24. A deploy while a round is on lets that room finish on the old code for up to five minutes, so deploy when nobody is mid-round if you can.
+25. The first deploy with the high score board runs migration `v3` (the `ScoreBoard` class) by itself; nothing needs creating by hand.
+26. Open `https://<your address>/api/party/scores/cork-and-bell` and confirm it answers `{"ok":true,"top":[...]}`.
+27. Play a solo round, chalk up three letters, and confirm the chalk board on the left wall shows them; the `ScoreBoard` namespace's Metrics tab should show one short blip per score and nothing in between.
+28. To wipe the board, delete the `scores:cork-and-bell` object's storage from the dashboard (Durable Objects, `ScoreBoard`, the object, Storage); the house's scores show again.
 
 ## Do not
 

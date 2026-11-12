@@ -6,7 +6,8 @@
 //   export default { fetch: (req, env) => handlePartyApi(req, env) ?? env.ASSETS.fetch(req) };
 //
 // Bindings the kit expects: PARTY_ROOMS, PARTY_PINS, PARTY_LIMITER and, for a room budget,
-// PARTY_BUDGET (Durable Objects).
+// PARTY_BUDGET (Durable Objects). For score boards: PARTY_SCORES (export ScoreBoard too) and
+// handlePartyApi(req, env, { scores: { "my-game": { max: <the most a round can score> } } }).
 import { generate } from "lean-qr";
 import { toSvgSource } from "lean-qr/extras/svg";
 import { cleanName } from "../core/room-core.js";
@@ -14,12 +15,14 @@ import { API_HEADERS, CODE_ALPHABET, CODE_LENGTH, allowedOrigins, error, isCode,
 import { isPin, PIN_DIRECTORY_NAME } from "./pin-logic.js";
 import { allowRequest } from "./rate-limiter.js";
 import { fullMessage, roomBudgetState } from "./room-budget.js";
+import { MAX_SCORE_BODY_BYTES, cleanInitials, scoreBoard, validScore } from "./score-board.js";
 import { botCheckEnabled, verifyBotCheck } from "./turnstile.js";
 
 export { createPartyRoom } from "./room.js";
 export { PinDirectory } from "./pin-directory.js";
 export { RateLimiter } from "./rate-limiter.js";
 export { RoomBudget } from "./room-budget.js";
+export { ScoreBoard } from "./score-board.js";
 
 export const API_PREFIX = "/api/party";
 const CODE_ATTEMPTS = 8;
@@ -52,21 +55,25 @@ async function resolveRoom(env, value) {
  *   GET  /api/party/rooms/:code/ws?token=...[&lag=ms]                                    WebSocket
  *   GET  /api/party/qr.svg?text=<this site's join link>                                  a QR code as SVG
  *   GET  /api/party/config                                                               {publicOrigin, simLatency, turnstileSiteKey}
+ *   GET  /api/party/scores/:game                                                         -> {top: [{name, score, at}]}
+ *   POST /api/party/scores/:game       {name: "ABC", score}                              -> {top, place}
+ *
+ * `options.scores` names the games that have a score board and the most one round can score.
  */
-export async function handlePartyApi(request, env) {
+export async function handlePartyApi(request, env, options = {}) {
   const url = new URL(request.url);
   if (!url.pathname.startsWith(API_PREFIX + "/")) return null;
   // Pages on other sites may not use the API (or open sockets) through a visitor's browser.
   if (!originAllowed(request, env)) return error("forbidden_origin", "This page cannot use these rooms.");
   try {
-    return await route(request, env, url);
+    return await route(request, env, url, options);
   } catch (err) {
     console.error("party-kit: unhandled error", err instanceof Error ? err.message : "unknown");
     return error("internal", "Something went wrong.");
   }
 }
 
-async function route(request, env, url) {
+async function route(request, env, url, options) {
   const parts = url.pathname.slice(API_PREFIX.length).split("/").filter(Boolean);
   const method = request.method;
 
@@ -126,6 +133,23 @@ async function route(request, env, url) {
     if (!stub) return error("not_found", "No open room matches that. Check it with the host.");
     const result = await stub.join({ nickname: body.nickname, as: body.as === "screen" ? "screen" : "player" });
     return result.ok ? json(result) : error(result.error, result.message);
+  }
+
+  if (parts[0] === "scores" && parts.length === 2 && (method === "GET" || method === "POST")) {
+    const rules = Object.hasOwn(options.scores ?? {}, parts[1]) ? options.scores[parts[1]] : null;
+    const board = rules ? scoreBoard(env, parts[1]) : null;
+    if (!board) return error("not_found", "There is no score board for that.");
+    // Reading is cheap and the same for everyone: a browser may keep it for a little while.
+    if (method === "GET") return json({ ok: true, top: await board.top() }, 200, { "Cache-Control": "public, max-age=20" });
+    const allowed = await Promise.all([allowRequest(env, request, "score_short"), allowRequest(env, request, "score_long")]);
+    if (!allowed.every(Boolean)) return error("rate_limited", "Too many scores from this connection. Try again later.");
+    const body = await readBody(request, MAX_SCORE_BODY_BYTES);
+    if (!body) return error("bad_request", "Expected a small JSON body.");
+    const name = cleanInitials(body.name);
+    if (!name) return error("bad_name", "Three letters, and not those three.");
+    // The score comes from the browser and cannot be trusted. It can at least be possible.
+    if (!validScore(body.score, rules.max)) return error("bad_request", "That is not a score a round can reach.");
+    return json({ ok: true, ...(await board.submit(name, body.score)) });
   }
 
   if (parts[0] === "rooms" && parts.length === 3 && parts[2] === "ws" && method === "GET") {

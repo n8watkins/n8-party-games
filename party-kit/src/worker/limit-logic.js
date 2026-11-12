@@ -7,6 +7,9 @@ export const RATE_LIMITS = {
   // PINs are only 4 digits, so guessing them is limited far harder than room codes.
   pin_short: { limit: 20, windowMs: 10 * 60_000 },
   pin_long: { limit: 60, windowMs: 60 * 60_000 },
+  // A round takes a minute and a half, so nobody honest posts a score more often than this.
+  score_short: { limit: 6, windowMs: 10 * 60_000 },
+  score_long: { limit: 60, windowMs: 24 * 60 * 60_000 },
 };
 
 /** The window after one more attempt at `now`. */
