@@ -20,8 +20,8 @@ import { mountLobby } from "../../party-kit/client/lobby.js";
 import { Sound, buzz } from "./audio.js";
 import { LocalSession, NetSession } from "./session.js";
 import { ATTACK_NAMES, COUNT_IN, game } from "./shared/battle.js";
-import { ROWS } from "./shared/layout.js";
-import { BELL_FULL, COCK_SECONDS, ROUND_SECONDS, mech, speedAt } from "./shared/sim.js";
+import { COUNTER, TRAY } from "./shared/layout.js";
+import { BELL_FULL, COCK_SECONDS, RICOCHET_TIMES, ROUND_SECONDS, mech, speedAt } from "./shared/sim.js";
 import { Lens, fourInARow, gridFor } from "./view/render.js";
 import { StallAssets, StallView } from "./view/stall.js";
 
@@ -60,7 +60,6 @@ let frozen = false;
 let lastFrame = performance.now();
 let idleSince = performance.now();
 let endShownAt = null;
-let hadInput = false;
 let pointer = { x: innerWidth / 2, y: innerHeight * 0.45, down: false, touch: false, seen: false };
 const keys = new Set();
 let lastTime = 0;
@@ -198,6 +197,40 @@ function layout() {
     v.view.aspect = innerWidth / cols / (innerHeight / rows);
     v.view.updateCamera(0, wall, true); // the camera is right at once: the very first click aims through it
   }
+  // The tally keeps to the left of the cork tray, whatever the screen's shape: tell the stylesheet
+  // where the tray's near corner is. The picture leans a little with the aim, so take the
+  // furthest left the corner ever gets.
+  if (views.length === 1 && views[0].view.viewName === "player") {
+    const view = views[0].view;
+    const aim = view.aimSoft.clone();
+    const x = TRAY.x - TRAY.w / 2 - TRAY_RIM;
+    const floor = 1 - TALLY_FOOT / innerHeight; // the ticket's bottom edge, as a share of the height
+    let left = 1;
+    let top = 1;
+    for (const [ax, ay] of AIM_CORNERS) {
+      view.aimSoft.set(ax, ay, aim.z);
+      view.updateCamera(0, wall, true);
+      const near = view.project(x, COUNTER.top, TRAY.z + TRAY.d / 2 + TRAY_RIM);
+      const far = view.project(x, COUNTER.top, TRAY.z - TRAY.d / 2 - TRAY_RIM);
+      // The tray's left edge runs up the screen and inwards. Its near corner is often below the
+      // bottom of the screen: what counts is where the edge is at the height of the ticket's foot.
+      const k = near[1] > floor && near[1] > far[1] ? Math.max(0, (floor - far[1]) / (near[1] - far[1])) : 1;
+      left = Math.min(left, far[0] + (near[0] - far[0]) * k);
+      top = Math.min(top, view.project(x, COUNTER.top + TRAY_WALL, TRAY.z - TRAY.d / 2 - TRAY_RIM)[1]);
+    }
+    view.aimSoft.copy(aim);
+    view.updateCamera(0, wall, true);
+    const px = Math.floor(left * innerWidth);
+    $("hud").style.setProperty("--tray-left", `${px}px`);
+    $("hud").style.setProperty("--tray-top", `${Math.ceil((1 - top) * innerHeight)}px`);
+    // Too little room beside the tray for the ticket at a readable size, and height to spare
+    // (a tablet, a squarer window): it sits above the tray. A short phone screen keeps it beside.
+    $("tally").classList.toggle("raised", px < RAISE_UNDER && innerHeight >= 500);
+  } else {
+    $("hud").style.removeProperty("--tray-left");
+    $("hud").style.removeProperty("--tray-top");
+    $("tally").classList.remove("raised");
+  }
   const names = $("names");
   names.replaceChildren();
   if (views.length > 1) {
@@ -215,6 +248,15 @@ function layout() {
   }
 }
 addEventListener("resize", layout);
+
+/** The tray's painted rim in metres, and the four corners of where the gun can aim (the picture leans furthest there). */
+const TRAY_RIM = 0.012;
+const TRAY_WALL = 0.04;
+/** The least the ticket ever stands off the bottom of the screen, in pixels (see #tally in style.css). */
+const TALLY_FOOT = 10;
+const AIM_CORNERS = [[-1.35, 0.6], [1.35, 0.6], [-1.35, 2.7], [1.35, 2.7]];
+/** With fewer pixels than this to the left of the tray, the ticket beside it would be too small to read. */
+const RAISE_UNDER = 172;
 
 function myView() {
   if (!session) return null;
@@ -234,8 +276,8 @@ function aimFromPointer() {
   return [Math.max(-1.35, Math.min(1.35, ax)), Math.max(0.6, Math.min(2.7, ay))];
 }
 
+/** The first shot at the house's stall takes the gun: a click or a touch on the picture, or an aiming key. */
 function takeOver() {
-  hadInput = true;
   idleSince = performance.now();
   if (mode === "attract" && !P.auto) {
     startLocal("solo", { countIn: 0 });
@@ -262,7 +304,6 @@ stage.addEventListener("pointermove", (e) => {
   pointer.y = e.clientY;
   pointer.touch = e.pointerType === "touch";
   pointer.seen = true;
-  if (!pointer.touch) takeOver();
   idleSince = performance.now();
 });
 stage.addEventListener("pointerdown", (e) => {
@@ -288,11 +329,13 @@ stage.addEventListener("pointerup", (e) => {
 });
 stage.addEventListener("contextmenu", (e) => e.preventDefault());
 addEventListener("keydown", (e) => {
-  if (e.target instanceof HTMLInputElement) return;
-  if (["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", " "].includes(e.key)) e.preventDefault();
+  // A field or a button has the key: typing a name, or Enter on "Play alone".
+  if (e.target instanceof HTMLInputElement || e.target instanceof HTMLButtonElement) return;
+  const aiming = ["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", " ", "Enter"].includes(e.key);
+  if (aiming && e.key !== "Enter") e.preventDefault();
   if (e.repeat) return;
   keys.add(e.key);
-  takeOver();
+  if (aiming) takeOver();
   if (e.key === " " || e.key === "Enter") {
     if (endShownAt !== null) playAgain();
     else fire();
@@ -302,19 +345,24 @@ addEventListener("keydown", (e) => {
 });
 addEventListener("keyup", (e) => keys.delete(e.key));
 
+/** Both sound switches (the start board's and the one beside a round) always say the same thing. */
+function showSound() {
+  const on = sound.on;
+  for (const id of ["sound", "start-sound"]) $(id).setAttribute("aria-pressed", String(on));
+  $("sound").querySelector("span").textContent = on ? "Sound: on" : "Sound: off";
+  $("start-sound").querySelector("b").textContent = on ? "Sound is on" : "Sound is off";
+  $("start-sound").querySelector("small").textContent = (on ? "Turn it off" : "Turn it on") + (coarse ? "." : " (or press M).");
+}
+
 function toggleSound() {
-  const b = $("sound");
-  if (sound.on) {
-    sound.disable();
-    b.textContent = "Enable sound";
-    b.setAttribute("aria-pressed", "false");
-  } else if (sound.enable()) {
-    b.textContent = "Sound on";
-    b.setAttribute("aria-pressed", "true");
-    sound.openingBell(1);
-  }
+  if (sound.on) sound.disable();
+  else if (sound.enable()) sound.openingBell(1);
+  showSound();
+  $("sound").blur(); // so the space bar goes back to the gun, not to this switch
 }
 $("sound").addEventListener("click", toggleSound);
+$("start-sound").addEventListener("click", toggleSound);
+showSound();
 
 function playAgain() {
   if (mode === "battle") {
@@ -330,18 +378,29 @@ function playAgain() {
   sound.openingBell();
 }
 $("again").addEventListener("click", playAgain);
+$("start-solo").addEventListener("click", () => {
+  idleSince = performance.now();
+  playAgain();
+});
+$("start-note").textContent = coarse ? "Or touch any target to take the gun." : "Or click any target to take the gun.";
+
+/** The arrow shows wherever there is something to press: the start board, the end card, the lobby. */
+function showPointer() {
+  document.body.classList.toggle("pointer", !$("start").hidden || !$("card").hidden || !lobby.root.hidden);
+}
 
 // ------------------------------------------------------------------ the lobby (the party kit's)
 
 const lobby = mountLobby(document.body, party, {
   title: "Cork & Bell",
   joinPath: location.pathname,
-  onOpen: () => document.body.classList.add("pointer"),
-  onClose: () => document.body.classList.remove("pointer"),
+  onOpen: () => (hud(), showPointer()),
+  onClose: () => (hud(), showPointer()),
   // The lobby toy and character slots are left empty on purpose: see party-kit/README.md.
 });
 const openLobby = () => lobby.open({ pin: P.join ?? "" });
 $("battle").addEventListener("click", openLobby);
+$("battle-top").addEventListener("click", openLobby);
 $("card-battle").addEventListener("click", openLobby);
 
 party.on("start", (msg) => startNet(msg));
@@ -405,12 +464,19 @@ function showBanner(title, text, { good = false, seconds = 1.6, attack = null } 
   bannerAttack = attack;
 }
 
-function pop(view, e, text, sub, big) {
+/** The points a hit paid, rising from the target. A ricochet gets its own paper flag and stays a little longer. */
+function pop(view, e, text, sub, big, flag = null) {
   const i = views.indexOf(view);
   const [u, v] = view.view.project(e.x, e.y, e.z);
   const el = document.createElement("span");
-  if (big) el.className = "big";
-  el.textContent = text;
+  el.className = (big ? "big" : "") + (flag ? " flagged" : "");
+  if (flag) {
+    const f = document.createElement("em");
+    f.textContent = flag[0];
+    f.appendChild(document.createElement("b")).textContent = flag[1];
+    el.appendChild(f);
+  }
+  el.appendChild(document.createTextNode(text));
   if (sub) {
     const s = document.createElement("small");
     s.textContent = sub;
@@ -420,7 +486,7 @@ function pop(view, e, text, sub, big) {
   el.style.left = `${(((i % cols) + u) / cols) * 100}%`;
   el.style.top = `${((Math.floor(i / cols) + v) / rows) * 100}%`;
   $("pops").appendChild(el);
-  setTimeout(() => el.remove(), 950);
+  setTimeout(() => el.remove(), flag ? 1500 : 950);
 }
 
 function nameOf(seat) {
@@ -443,9 +509,8 @@ function onEvent(e) {
         const notes = [];
         if (e.rung) notes.push("the bell");
         else if (e.perfect) notes.push("dead centre");
-        if (e.ricochet) notes.push("ricochet");
-        if (e.mult > 1) notes.push(`${e.mult} times`);
-        pop(v, e, `+${e.pts}`, notes.join(", "), e.pts >= 100);
+        if (e.mult > 1) notes.push(`run ×${e.mult}`);
+        pop(v, e, `+${e.pts}`, notes.join(", "), e.pts >= 100, e.ricochet ? ["Ricochet", `×${RICOCHET_TIMES}`] : null);
       }
       if (e.seat === session.mySeat) {
         buzz(e.rung ? [30, 40, 30, 40, 60] : 22);
@@ -547,10 +612,18 @@ function fmtTime(t) {
 function hud() {
   if (!session) return;
   const playing = mode === "solo" || (mode === "battle" && session.mySeat >= 0);
-  $("tally").hidden = !playing && mode !== "attract";
-  $("battle").hidden = mode === "battle";
+  // The house's stall with nobody at the gun is the start screen: the board with the three choices.
+  // (With ?auto=1 the bot is the show, and the tally stays up for it.)
+  const start = mode === "attract" && !P.auto;
+  document.body.dataset.screen = start ? "start" : mode;
+  $("start").hidden = !start || !lobby.root.hidden;
+  $("controls").hidden = start;
+  // The end card says the score itself, and on a phone it needs the ticket's corner.
+  $("tally").hidden = (!playing && !(mode === "attract" && P.auto)) || !$("card").hidden;
+  $("battle-top").hidden = mode === "battle";
+  showPointer();
   const hint = $("hint");
-  if (mode === "attract") hint.textContent = coarse ? "Drag to aim, let go to fire. Touch to begin." : "The house is playing. Move the pointer and click to take the gun.";
+  if (mode === "attract") hint.textContent = "The house is playing.";
   else if (mode === "four") hint.textContent = "Four stalls, side by side: a battle as the shared screen shows it.";
   else if (mode === "battle" && session.mySeat < 0) hint.textContent = "Shared screen. Players join on their phones with the PIN.";
   else if (mode === "battle") hint.textContent = "Three in a row jams a rival. Tap a rival to choose who.";
@@ -583,10 +656,13 @@ function hud() {
 function hudFrame(t) {
   const sim = session.sims[session.mySeat >= 0 ? session.mySeat : session.seats[0].seat];
   $("time").textContent = fmtTime(t);
-  $("time").classList.toggle("late", t > ROUND_SECONDS - 10);
+  $("time-cell").classList.toggle("late", t > ROUND_SECONDS - 10 && t < ROUND_SECONDS);
   $("score").textContent = sim.score;
   $("run").textContent = sim.streak;
   $("run-cell").classList.toggle("hot", sim.streak >= 4);
+  // What the run multiplies by, as the rules have it: four in a row doubles, eight trebles.
+  $("run-times").hidden = sim.streak < 4;
+  $("run-times").textContent = sim.streak >= 8 ? "×3" : "×2";
   $("corks").textContent = sim.corksLeft;
   if (mode === "battle" && session.mySeat >= 0) {
     let lead = -1;
@@ -681,13 +757,13 @@ function showCard() {
   again.textContent = mode === "battle" ? (session.mySeat >= 0 ? "Rematch" : "Start the rematch") : "Play again";
   $("card-battle").hidden = mode === "battle";
   card.hidden = false;
-  document.body.classList.add("pointer");
+  hud();
   endShownAt = performance.now();
 }
 
 function hideCard() {
   $("card").hidden = true;
-  if (lobby.root.hidden) document.body.classList.remove("pointer");
+  showPointer();
   endShownAt = null;
 }
 
@@ -855,6 +931,7 @@ async function main() {
   }
   if (P.state === "end" && mode === "attract") {
     mode = "solo";
+    hud();
     showCard();
   }
   if (P.auto && (P.host || P.join || P.screen)) autoBattle();

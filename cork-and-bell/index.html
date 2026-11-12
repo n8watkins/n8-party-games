@@ -21,18 +21,58 @@
         <p id="hint">Point at a target and click to fire.</p>
       </header>
 
-      <div id="controls">
-        <button id="sound" type="button" aria-pressed="false">Enable sound</button>
-        <button id="battle" type="button">Play a battle</button>
+      <!-- While a round is on: the sound switch and the way to a battle, top right. -->
+      <div id="controls" hidden>
+        <button id="sound" class="sound" type="button" aria-pressed="false">
+          <svg class="ico" viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M3 9v6h4l5 4V5L7 9H3z" fill="currentColor" />
+            <path class="waves" d="M15.5 8.6a5 5 0 0 1 0 6.8M18.2 6a8.6 8.6 0 0 1 0 12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
+            <path class="mute" d="M16 9.5l5 5m0-5l-5 5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
+          </svg>
+          <span>Sound: off</span>
+        </button>
+        <button id="battle-top" type="button">Battle with friends</button>
       </div>
 
       <p id="turn"><i aria-hidden="true"></i>Turn your phone sideways for the whole stall</p>
 
+      <!-- Before a round: the house plays behind this board, and the three choices are spelled out. -->
+      <section id="start" hidden aria-label="Start">
+        <header>
+          <h2>Step right up</h2>
+          <p id="start-note">Or click any target to take the gun.</p>
+        </header>
+        <div class="choices">
+          <button id="start-solo" type="button" class="primary">
+            <b>Play alone</b>
+            <small>90 seconds, 70 corks.</small>
+          </button>
+          <button id="battle" type="button">
+            <b>Battle with friends</b>
+            <small>2 to 4 players. Host, or join with a PIN.</small>
+          </button>
+          <button id="start-sound" class="sound" type="button" aria-pressed="false">
+            <svg class="ico" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M3 9v6h4l5 4V5L7 9H3z" fill="currentColor" />
+              <path class="waves" d="M15.5 8.6a5 5 0 0 1 0 6.8M18.2 6a8.6 8.6 0 0 1 0 12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
+              <path class="mute" d="M16 9.5l5 5m0-5l-5 5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
+            </svg>
+            <b>Sound is off</b>
+            <small>Turn it on.</small>
+          </button>
+        </div>
+      </section>
+
+      <!-- The tally: a paper ticket. Time and score are the big figures; the run and the corks sit on the stub. -->
       <div id="tally" hidden>
-        <div class="cell"><span class="label">Time</span><span id="time" class="num">1:30</span></div>
-        <div class="cell"><span class="label">Score</span><span id="score" class="num">0</span></div>
-        <div class="cell" id="run-cell"><span class="label">Run</span><span id="run" class="num">0</span></div>
-        <div class="cell"><span class="label">Corks</span><span id="corks" class="num">70</span></div>
+        <div class="row main">
+          <div class="cell" id="time-cell"><span class="label">Time</span><span id="time" class="num">1:30</span></div>
+          <div class="cell" id="score-cell"><span class="label">Score</span><span id="score" class="num">0</span></div>
+        </div>
+        <div class="row stub">
+          <div class="cell" id="run-cell"><span class="label">Run</span><span class="fig"><span id="run" class="num">0</span><span id="run-times" class="times" hidden></span></span></div>
+          <div class="cell" id="corks-cell"><span class="label">Corks</span><span class="fig"><span id="corks" class="num">70</span></span></div>
+        </div>
       </div>
 
       <div id="rivals" hidden></div>
@@ -49,7 +89,7 @@
         <p id="card-note"></p>
         <div class="card-actions">
           <button id="again" type="button">Play again</button>
-          <button id="card-battle" type="button" class="quiet">Play a battle</button>
+          <button id="card-battle" type="button" class="quiet">Battle with friends</button>
         </div>
       </section>
     </div>
