@@ -1,8 +1,11 @@
 // End to end against the production settings (the top level of wrangler.jsonc), run locally.
 // It needs its own server with fresh storage, so earlier runs do not count against the limits:
 //
-//   npx wrangler dev --local --env="" --port 8804 --persist-to <empty folder>
+//   npx wrangler dev --local --env="" --port 8804 --local-upstream localhost:8804 --persist-to <empty folder>
 //   node party-kit/test/e2e-production.mjs http://localhost:8804
+//
+// --local-upstream keeps the local address: without it, the top level's custom domain would be
+// the Worker's own address, and this site's local join links would not get a QR code.
 //
 // Checks: no test switch is on, ?lag= is refused, a sixth room from one address in ten minutes is
 // rate limited, other sites' pages are turned away, the QR endpoint draws only join links, and the

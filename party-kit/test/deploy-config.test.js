@@ -19,6 +19,12 @@ describe("the production configuration", () => {
     expect(prod.vars.PARTY_ROOM_BUDGET_DAY_SHARE).toBeUndefined();
   });
 
+  it("answers only at its custom domain", () => {
+    expect(prod.routes).toEqual([{ pattern: "partygames.n8builds.dev", custom_domain: true }]);
+    expect(prod.workers_dev).toBe(false);
+    expect(prod.preview_urls).toBe(false);
+  });
+
   it("holds no secret in plain variables", () => {
     expect(Object.keys(prod.vars)).not.toContain("TURNSTILE_SECRET_KEY");
   });
@@ -39,6 +45,10 @@ describe("the local configuration", () => {
     expect(local.vars.PARTY_RATE_LIMIT).toBe("off");
     expect(local.vars.PARTY_ROOM_BUDGET_SHARE).toBe("0.1");
     expect(local.name).toBe("n8-party-games-local");
+  });
+
+  it("has no custom domain, so local join links and QR codes keep the local address", () => {
+    expect(local.routes ?? []).toEqual([]);
   });
 });
 

@@ -3,7 +3,14 @@
   // The top level is the production Worker: rate limits on, no simulated latency, the 10% room
   // budget. Local play uses the "local" environment (npm run dev). See DEPLOY.md before deploying.
   "name": "n8-party-games",
+  "account_id": "b2c564cf83cb9184dd6d7cc4ff8b38bf",
   "main": "worker.js",
+  // Served at https://partygames.n8builds.dev, a Workers custom domain: Cloudflare creates the
+  // DNS record and certificate on deploy. The workers.dev address and version preview URLs are
+  // off, so all traffic goes through the zone.
+  "routes": [{ "pattern": "partygames.n8builds.dev", "custom_domain": true }],
+  "workers_dev": false,
+  "preview_urls": false,
   // A game's server code may name the kit as a package ("n8-party-games/kit"). Here the kit is
   // this repository's own folder, so the name resolves to it and the bundle holds one copy.
   "alias": { "n8-party-games/kit": "./party-kit/src/worker/index.js" },
@@ -51,6 +58,10 @@
   "env": {
     // Local play and the test runs: npm run dev, npm run dev:lan. Never deployed.
     "local": {
+      // No custom domain: with the top level's route, `wrangler dev` would show the Worker
+      // partygames.n8builds.dev as its own address, and this site's local join links (and QR
+      // codes) would be refused.
+      "routes": [],
       "durable_objects": {
         "bindings": [
           { "name": "PARTY_ROOMS", "class_name": "PartyRoom" },
