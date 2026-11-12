@@ -1,111 +1,133 @@
-# Lobby concept pictures: notes (round two)
+# Lobby concept pictures: notes (round three)
 
 These are stills, not a build.
 Open `index.html` to see them in order.
 Re-render with `node lobby/preview/shoot.mjs` from the repository root after `npm install`.
-Round one's stills are kept in `shots/round-1/` for comparison.
+Round one's stills are kept in `shots/round-1/` and round two's in `shots/round-2/`, as they were rendered.
 
 ## How the pictures were made
 
 The room is a real 3D scene (three.js, already a dev dependency) posed by hand for each picture.
 All words (signs, name tags, the join sign, the scoreboard, the bottom line) are HTML laid over the render from the same camera.
-`scene.html?shot=vote|count|bell|tie|bump|skins|scores`, `&view=phone` and `&room=tech` choose the picture.
-The scene only runs through the local server that `shoot.mjs` starts, because it loads three.js from `node_modules` and one Cork & Bell screenshot for the box art.
-The browser that takes the pictures is headless and muted.
+`scene.html?shot=...` chooses the moment, `&view=phone` the phone, `&zoom=1.25` the closer phone view, and `&room=bar|tech|fair|attic|roof|camp` the room skin.
+`game.html?frame=arrive|end|menu|phone|display` draws the frames that happen inside Cork & Bell or on a second screen, on top of real Cork & Bell screenshots.
+`chart.html` is the "who beats who" sheet.
+Everything runs through the local server that `shoot.mjs` starts, in a headless, muted browser.
+The small move pictures and the "push in" frame are crops of full-size renders.
 
-## What changed from round one, and why
+## Owner decisions drawn in this round
 
-- The warm bar room is the lead look, and the navy room is one extra still (picture 8), because the owner prefers the bar and sees the two as room skins.
-- Box art is about twice the area (1.75 m by 2.45 m, was 1.2 m by 1.68 m) and characters are about four fifths the height.
-- Game names sit on a sign under each box at nearly twice the size, with one line about the game.
-- The join code is about twice the size on the wall and is repeated large at the bottom right.
-- The coloured dots under each box are gone; the characters in the light are the only vote count.
-- The swinging tie lamp and the countdown ring in the middle of the wall are gone.
-- Shoving is in, as "bump".
+- The address on the sign is `partygames.n8builds.dev`.
+- A game starts on the count, not the bell: everyone in a light, leading box gold, "Starts in 3", stepping out stops it.
+- The bell is dropped, because nobody knew who was meant to ring it.
+- "Host starts" is an alternative room setting, drawn as one phone frame.
+- A game the party cannot play has its light off and its box dim, with the reason on its sign.
+- A game that needs a big screen says how to get one, and a laptop or TV can join as the room's screen.
+- One move per skin, no punch on the robot.
+- The slime has two answers, absorb and harden, and every move has a cooldown shown on the phone button.
+- The phone opens closer in on you, with a way out to the whole room.
+- Things on the wall can be touched.
+- Leaving has two cases: the door button, and a dropped phone.
+- The chalkboard, the coin toss and the ghost stay as they were.
 
 ## Decisions I made that were not specified
 
-### The signs
+### Rooms
 
-- Each sign has the name, one line about the game, a coloured badge for what you need, and the player count.
-- The badge colours are the ones already in use: cyan "Any device", violet "A phone each", amber "Phones + this screen".
-- On the phone the amber badge says "Phones + big screen", because "this screen" would be wrong there.
-- The box art no longer carries its own "what you need" strip, so nothing is said twice.
-- The one-line descriptions for Tin Derby, Flood and Fox Trouble are my guesses, and so is their box art.
-- Game names use the Cork & Bell display face in the bar and a plain bold face in the navy room.
+- I drew four new rooms: a fairground midway, an attic, a rooftop and a campfire clearing.
+- Each keeps the layout exactly, so a player who knows one room knows them all.
+- Each changes six things: wall, floor, lamps, lettering, sign style and the small extras (bunting, cupboard, skyline, campfire).
+- The fairground uses cream signs with red lettering and ties straight to Cork & Bell.
+- The attic puts all four boxes in one long cupboard and the lights on a rug.
+- The rooftop frames each box in its own neon colour and swaps the chalkboard for a lit panel.
+- The campfire hangs the boxes between trees, uses paper lanterns for lamps and a tent for the door.
+- Seat colours, badge colours and the bottom line never change between rooms.
 
-### What starts a game (pictures 1, 3 and 3b)
+### Starting, and games that cannot be played
 
-- Nothing counts while anyone is in the dark; the bottom line names who the room is waiting for ("Waiting for Tom").
-- Idea A (picture 3): when everyone is in some light, the game with the most players gets a gold frame, a gold sign and a "Starts in 3" badge on its corner.
-- Stepping out of your light stops the count.
-- Idea B (picture 3b): no clock; a brass bell drops on a rope at the edge of the leading light, and the game starts only when someone in that light jumps and rings it.
-- In both ideas the other three boxes and signs fade, so the winner is obvious without reading.
-- The bottom line always says the rule in plain words.
+- The host-starts frame is drawn on the host's phone: one large "Start Cork & Bell" button under "You are the host".
+- The cannot-play frame is drawn on a phone, because "Needs a big screen" only makes sense when there is not one.
+- A switched-off game keeps a faint ring on the floor so the room still has four places, but there is no light to stand in.
+- The reason is a pale chip in a few words ("Needs 2 players", "Needs a big screen").
+- The laptop frame offers two choices after the code: "Play on this device" or "Use this as the room's screen".
 
-### The tie (picture 4)
+### The phone
 
-- A tie is a coin toss between the two tied games.
-- The two tied signs are marked "Heads" and "Tails", and one gold coin spins between the two boxes.
-- The coin shows a plain star, not either game, so the picture does not look already decided.
-- The server would pick the result; the coin only shows it.
+- Closer in is 1.25 times, centred on your piece; the floor stays where it is and the tops of the posters are cropped.
+- The switch is a small "Whole room" / "Closer" button at the bottom left, next to the arrows, and a pinch would do the same.
+- The ability button replaces round two's bump button and sits between emote and jump.
+- Touching a poster means hopping under it; a cream card opens beside it with one line of how to play and the best scores.
 
-### Bump (picture 5)
+### Moves
 
-- Running into someone knocks them out of their light in an arc.
-- A bumped player loses their vote until they walk back in, and the light dims at once.
-- The phone gets a bump button next to jump.
+- Chess piece: charge, a short dash that knocks one player back out of their light.
+- Robot: hook, a claw on a chain fired from the chest that drags one player over to the robot.
+- Slime: absorb (hold) turns a hook round so the robot is dragged to the slime; harden (tap) throws a charging chess piece back.
+- Ghost: fade, nothing touches it for a moment and it does not count as a vote while faded.
+- The slime's two answers share one button: tap to harden, hold to absorb.
+- I chose tap and hold over a button that switches modes because there is no mode to remember or be stuck in, and because the two threats arrive at different speeds: a charge is fast (tap), a hook can be seen coming (hold).
+- The wrong answer does nothing: a hardened slime is still pulled by a hook, and an absorbing slime is still knocked back by a charge.
+- The slime and the ghost cannot move anyone; they only answer.
+- The cooldown is a ring around the button that drains on use and refills, with the seconds left in the middle and the icon greyed.
+- The five move pictures carry no words; the chart carries the rules.
+- The numbers on the chart ("about half a second", "2" seconds left) are placeholders.
 
-### Skins (picture 6)
+### Alternative moves, one or two per skin
 
-- The four skins are a chess piece, a robot, a slime and a ghost (the ghost is my pick).
-- Every skin keeps the seat colour and the same kind of eyes.
-- The ghost is a pale sheet tinted with the seat colour, so it does not read as a second slime.
-- The tricks are hints only: chess piece hops higher, robot shoves farther, slime is hard to shove, ghost floats and lands softly.
-- The trick is the second line on the name tag in this picture only.
+- Chess piece: a hop that lands with a small shockwave and nudges everyone near it half a step.
+- Chess piece: swap places with the player it touches, so their vote becomes yours and yours theirs.
+- Robot: a magnet pulse that tugs every player in the room one step toward the robot.
+- Robot: drop a small decoy copy of itself in a light; it counts as nothing but looks like a vote until someone bumps it.
+- Slime: leave a sticky patch in a light for a few seconds, and whoever stands in it cannot be moved or leave.
+- Slime: split in two for a moment and stand in two lights, counting as half a vote in each.
+- Ghost: blow out one lamp for two seconds, so nobody in that light counts until it relights.
+- Ghost: pass through one player and trade name tags with them for a few seconds.
 
-### Scores (picture 7, and the small board in every picture)
+### Into the game and back (storyboards A and B)
 
-- 3 points for first, 2 for second, 1 for third, every game.
-- During a vote the scores are a small chalkboard at the right end of the wall.
-- Right after a game the same board hangs large in the middle on two chains with what each player just won, and the small board's place on the wall is empty.
-- The leader wears a small crown in picture 7 only.
-- In the navy room the chalkboard becomes a lit panel.
+- The game is behind its own poster: the poster swings open on its left edge like a cupboard door and fold-down steps reach the floor.
+- The other three lights go fully out first, so the open poster is the only bright thing in the room.
+- The pieces walk up the steps in a line, and the view pushes in through the doorway after them.
+- Inside Cork & Bell each player keeps their seat colour and name.
+- The end card adds one column to the game's own scores: what each place gives tonight.
+- "Back to the room" on the end card counts down by itself, with "Stay for a rematch" under it.
+- Coming back, the winner walks out first wearing the crown and the new points are chalked in yellow on the small board.
+- The name plates and the end card in the game frames are drawn over real Cork & Bell screenshots, so the names match the room.
 
-### The room
+### Leaving (storyboard C)
 
-- Four boxes on the wall, 2.6 m apart, each with a lamp and a pool 1.9 m across.
-- The door and the join sign are at the left end; the scores and the fifth game (Fox Trouble, "Up next" on a shelf) are at the right end.
-- The camera, the single walking line and the "one screen wide, never scrolls" rule are unchanged from round one.
-
-### The phone (picture 2)
-
-- The phone stands a little further back than the big screen so the larger boxes fit whole.
-- The lamps are just out of frame; the beams and pools still show.
-- The controls sit over the front of the floor: left and right at the bottom left; emote, bump and jump at the bottom right.
-- The bottom line shows your own vote and who the room is waiting for.
-- The phone drops the QR code, the address, the one-line descriptions and the player counts.
+- The door button is a small round button at the top right of every game.
+- "Back to the room" shows how many have asked so far ("1 of 4"); "Leave the party" is the plainer second choice.
+- On a phone the two choices rise as a sheet with "Keep playing" under them.
+- The phone frame is upright because Cork & Bell's own phone layout is upright.
+- Pressing leave: the door on the left opens, the piece walks out, and a note at the top names who left.
+- A dropped phone: the piece turns grey with "reconnecting" on its tag and keeps its spot; if it does not come back the piece fades, a "Tom left" note shows and the vote stops counting.
+- Walking to the door is not how you leave.
 
 ## Weakest picture
 
-- Picture 4 (the tie) is still the weakest.
-- The coin has to fit in the narrow gap between two large boxes, so it is small, and its spin arrows cross the edge of the box art.
-- The words ("Tie!", "Heads", "Tails") carry more of the meaning than the coin does.
+- The ghost's fade (move 5) is the weakest.
+- "Cannot be hit" reads well, but "does not vote while faded" rests on the light being dim, which is easy to miss.
+- Next weakest is the slime hardening: the faceted shape reads as hard, but its pale front face looks a little like paper.
 
 ## Known rough edges
 
-- Under the lights the blue seat renders lighter than its swatch; the dot in each name tag is the exact colour.
-- The robot is dark and small next to the others; it needs a brighter body or a bigger head.
-- In picture 3b the bell rope runs up between two boxes and crosses the string of bulbs.
-- In picture 6 Mabel's tag sits close under the Cork & Bell sign.
-- The box art for Tin Derby, Flood and Fox Trouble is a painted stand-in.
+- In the storyboard frames on the steps the name tags are left off, because four tags stacked on a staircase were unreadable.
+- The open poster door is seen almost edge-on, so it reads as a dark flap beside the frame.
+- The fairground and bar rooms share a warm palette; the attic, rooftop and campfire are more clearly their own.
+- The join sign's address is small now that it is longer.
+- The box art for Tin Derby, Flood and Fox Trouble is still a painted stand-in.
+- The laptop frame is plain next to the others.
 
 ## Open questions the pictures raise
 
-- What starts a game: the count (A) or the bell (B)?
-- Can one player standing in the dark hold up the whole room, and if so for how long?
-- What happens when the winning game does not fit the party (Who Am I? is for 2, Tin Derby needs a big screen): should that box be dimmed and its light switched off?
-- Do skins have tricks, or are they looks only?
-- Who picks the room skin?
-- What are Tin Derby, Flood and Fox Trouble really about, so the one-line descriptions can be right?
-- Does the phone show the whole room, or zoom in and follow you?
+- Which room to build first, and who picks the room.
+- How long the count runs, and whether "host starts" should exist as a setting.
+- Cooldown lengths and the slime's timing window, which decide whether the slime is too strong.
+- Does a basic bump (just running into someone) still exist for everyone, or is the chess piece's charge the only knock-back?
+- Can the room's big screen also be a player's own laptop?
+- Two modes from one engine: the owner floated every game having an "everyone on their own phone" mode and an "everyone on one shared screen" mode. If so, "Needs a big screen" would become a choice of mode, not a switched-off light. No picture yet.
+- The lobby phone is sideways and Cork & Bell's phone is upright: should entering a game ask people to turn their phone?
+- What happens to a "Back to the room" request that never reaches most players: does it time out?
+- When someone leaves mid-count, does the count restart?
+- What are Tin Derby, Flood and Fox Trouble really about, so their one-line descriptions can be right?

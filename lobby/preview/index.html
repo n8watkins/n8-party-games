@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>The lobby - concept pictures, round two</title>
+<title>The lobby - concept pictures, round three</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Abril+Fatface&family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap">
@@ -14,7 +14,7 @@
   --text: "Inter", system-ui, sans-serif; --mono: "JetBrains Mono", ui-monospace, Menlo, monospace;
 }
 * { box-sizing: border-box; }
-html { background: var(--bg); }
+html { background: var(--bg); scroll-behavior: smooth; }
 body { margin: 0; color: var(--ink); font: 16px/1.55 var(--text); background: radial-gradient(1200px 600px at 50% -100px, #2b1913, var(--bg)); background-repeat: no-repeat; }
 .wrap { max-width: 1180px; margin: 0 auto; padding: 0 16px 80px; }
 .label { font: 500 12px/1.3 var(--mono); letter-spacing: .14em; text-transform: uppercase; color: var(--accent); }
@@ -22,23 +22,34 @@ header { padding: 40px 0 8px; }
 h1 { font: 400 clamp(30px, 5vw, 48px)/1.08 "Abril Fatface", Georgia, serif; margin: 14px 0 14px; text-wrap: balance; }
 header p { max-width: 64ch; margin: 0 0 8px; color: var(--soft); }
 header p b { color: var(--ink); font-weight: 600; }
-.changes { margin: 22px 0 0; padding: 16px 20px 16px 38px; border: 1px solid var(--line); border-radius: 14px; background: rgba(30, 18, 13, .7); color: var(--soft); max-width: 78ch; }
-.changes li { margin: 3px 0; }
-.changes b { color: var(--ink); font-weight: 600; }
-figure { margin: 44px 0 0; }
+nav { display: flex; flex-wrap: wrap; gap: 8px; margin: 22px 0 0; }
+nav a { padding: 8px 14px; border-radius: 99px; border: 1px solid var(--line); background: rgba(30, 18, 13, .7); color: var(--ink); font: 600 14px/1.2 var(--text); text-decoration: none; }
+section { margin-top: 72px; }
+section > h2 { font: 400 clamp(26px, 4vw, 36px)/1.1 "Abril Fatface", Georgia, serif; margin: 8px 0 8px; }
+section > p { max-width: 68ch; margin: 0 0 6px; color: var(--soft); }
+section > p b { color: var(--ink); font-weight: 600; }
+figure { margin: 34px 0 0; }
 figure > a { display: block; border-radius: 14px; overflow: hidden; border: 1px solid var(--line); background: #03050c; box-shadow: 0 24px 70px rgba(0, 0, 0, .55); }
 figure img { display: block; width: 100%; height: auto; }
 figure.phone > a { max-width: 844px; border-radius: 26px; border: 6px solid #2a1a12; }
 figcaption { display: grid; gap: 6px 22px; margin-top: 16px; }
 figcaption .label { padding-top: 5px; }
-figcaption h2 { font-size: 21px; line-height: 1.2; letter-spacing: -.02em; margin: 0 0 6px; }
+figcaption h3 { font-size: 21px; line-height: 1.2; letter-spacing: -.02em; margin: 0 0 6px; }
 figcaption p { margin: 0; color: var(--soft); max-width: 68ch; }
 figcaption p + p { margin-top: 6px; }
-figcaption .open { color: var(--ink); }
-figcaption .open::before { content: "Your call"; font: 500 11px/1 var(--mono); letter-spacing: .14em; text-transform: uppercase; color: var(--accent); margin-right: 10px; }
-.old { margin-top: 56px; }
-.old h2 { font-size: 21px; letter-spacing: -.02em; margin: 6px 0 14px; }
-.old .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 12px; }
+.open { color: var(--ink) !important; }
+.open::before { content: "Your call"; font: 500 11px/1 var(--mono); letter-spacing: .14em; text-transform: uppercase; color: var(--accent); margin-right: 10px; }
+/* Small frames: the moves and the storyboards. */
+.frames { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 22px 16px; margin-top: 26px; padding: 0; list-style: none; counter-reset: frame; }
+.frames li { counter-increment: frame; }
+.frames a { display: block; border-radius: 10px; overflow: hidden; border: 1px solid var(--line); background: #03050c; box-shadow: 0 12px 34px rgba(0, 0, 0, .5); }
+.frames img { display: block; width: 100%; aspect-ratio: 16 / 9; object-fit: cover; }
+.frames.moves img { aspect-ratio: 26 / 15; }
+.frames .tall img { object-fit: contain; background: #1a0f0b; }
+.frames p { margin: 9px 2px 0; color: var(--soft); font-size: 15px; line-height: 1.4; }
+.frames p::before { content: counter(frame); display: inline-grid; place-items: center; width: 22px; height: 22px; margin-right: 8px; border-radius: 50%; background: var(--accent); color: #1a0e06; font: 800 12px/1 var(--text); vertical-align: 1px; }
+.frames p b { color: var(--ink); font-weight: 600; }
+.old .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 12px; margin-top: 16px; }
 .old a { display: block; border-radius: 8px; overflow: hidden; border: 1px solid var(--line); }
 .old img { display: block; width: 100%; height: 100%; aspect-ratio: 16 / 9; object-fit: cover; }
 footer { margin-top: 56px; padding-top: 18px; border-top: 1px solid var(--line); color: var(--dim); font: 400 12.5px/1.6 var(--mono); }
@@ -48,142 +59,213 @@ footer { margin-top: 56px; padding-top: 18px; border-top: 1px solid var(--line);
 <body>
 <div class="wrap">
   <header>
-    <div class="label">Party lobby · concept pictures · round two</div>
-    <h1>One room, four lights. Your vote is where you stand.</h1>
-    <p>These are <b>stills</b>, drawn to look like a frame from the real thing. Nothing here is playable.</p>
-    <p>Each game box hangs over a pool of light. Stand in a pool and you are voting for that game; stand in the dark and you have not picked yet.</p>
+    <div class="label">Party lobby · concept pictures · round three</div>
+    <h1>More rooms, one move each, and the way in and out.</h1>
+    <p>These are <b>stills</b>, drawn to look like frames from the real thing. Nothing here is playable.</p>
+    <p>The room itself is unchanged from round two: boxes on the wall, lights on the floor, your vote is where you stand. The address on the sign now reads <b>partygames.n8builds.dev</b>.</p>
     <p>Tap or click a picture to open it full size.</p>
-    <ul class="changes">
-      <li><b>The warm bar room leads.</b> The navy room is kept as a second room skin (picture 8).</li>
-      <li><b>Bigger box art, bigger game names, bigger join code, smaller characters.</b> Each sign adds one line about the game and a coloured badge for what you need.</li>
-      <li><b>The coloured dots are gone.</b> The characters standing in a light are the only vote count.</li>
-      <li><b>The swinging lamp is gone.</b> A tie is a coin toss, and what starts a game is spelled out (two ideas, pictures 3 and 3b).</li>
-      <li><b>New:</b> bumping, mixed skins with a trick each, and the night's scores on a chalkboard.</li>
-    </ul>
+    <nav>
+      <a href="#rooms">Rooms</a><a href="#start">Starting a game</a><a href="#phone">The phone</a><a href="#moves">One move per skin</a>
+      <a href="#go">Into the game</a><a href="#back">Back to the room</a><a href="#leave">Leaving</a><a href="#old">Rounds one and two</a>
+    </nav>
   </header>
 
-  <figure>
-    <a href="shots/01-vote-big-screen.png"><img src="shots/01-vote-big-screen.png" width="1920" height="1080" alt="A warm bar room on a big screen. Four large game boxes hang on the wall, each over a pool of light: Cork and Bell, Who Am I, Tin Derby and Flood, each with a large name sign. Two playing pieces stand in the Cork and Bell light, one in the Tin Derby light, one stands in the dark. A sign shows a QR code and the code 4827. A chalkboard lists tonight's scores."></a>
-    <figcaption>
-      <div class="label">1 · Big screen</div>
-      <div>
-        <h2>The room, mid-vote</h2>
-        <p>Mabel and Fitch stand under Cork &amp; Bell, so that light is the brightest. Dolly is under Tin Derby. Tom is in the dark, so the bottom line says the room is waiting for him. The join code is on the wall and again at the bottom right, and the night's scores are on the chalkboard.</p>
-        <p class="open">The one-line descriptions under Tin Derby, Flood and Fox Trouble are my guesses. Tell me what those games really are.</p>
-      </div>
-    </figcaption>
-  </figure>
+  <section id="rooms">
+    <div class="label">1 · Room skins</div>
+    <h2>Five rooms, one layout</h2>
+    <p>Every room has the same four boxes, four lights, join sign, door, score board and shelf. Only the world changes: walls, floor, lamps, lettering and sign style.</p>
 
-  <figure class="phone">
-    <a href="shots/02-vote-phone.png"><img src="shots/02-vote-phone.png" width="2532" height="1170" alt="The same moment on a phone held sideways. The gold piece is marked You. Left and right buttons sit bottom left; emote, bump and jump buttons sit bottom right. The bottom line reads Your vote: Tin Derby, waiting for Tom."></a>
-    <figcaption>
-      <div class="label">2 · Phone, sideways</div>
-      <div>
-        <h2>The same moment, on Dolly's phone</h2>
-        <p>The whole room fits, boxes and all, so the phone and the big screen show the same thing. Your piece has a white "You" tag and a ring on the floor. Move with the two buttons on the left; emote, bump and jump are on the right. The phone drops the QR code and the one-line descriptions, and the lamps are just out of frame.</p>
-        <p class="open">Whether the phone shows the whole room like this, or zooms in and follows you.</p>
-      </div>
-    </figcaption>
-  </figure>
+    <figure>
+      <a href="shots/room-1-bar.png"><img src="shots/room-1-bar.png" width="1920" height="1080" alt="The warm bar room mid-vote, with the sign reading partygames.n8builds.dev under the code 4827."></a>
+      <figcaption><div class="label">The bar</div><div>
+        <h3>The room so far, with the address fixed</h3>
+        <p>Wooden boards, green paint below the rail, red enamel shades, a string of bulbs and a chalkboard.</p>
+      </div></figcaption>
+    </figure>
+    <figure>
+      <a href="shots/room-2-fairground.png"><img src="shots/room-2-fairground.png" width="1920" height="1080" alt="The same room as a fairground tent at night: red and cream striped canvas under a scalloped edge, coloured bulbs and bunting against a starry sky, cream signs with red lettering, a red door and a pale plank floor."></a>
+      <figcaption><div class="label">Fairground</div><div>
+        <h3>The midway at night</h3>
+        <p>Striped canvas, a scalloped edge with gold trim, bunting, coloured bulbs against the night sky and sawdust on the boards. It borrows straight from the Cork &amp; Bell stall, so walking into that game feels like stepping one tent along.</p>
+      </div></figcaption>
+    </figure>
+    <figure>
+      <a href="shots/room-3-attic.png"><img src="shots/room-3-attic.png" width="1920" height="1080" alt="The same room as an attic: blue-green patterned wallpaper, pale painted panelling, fabric lampshades, the four boxes inside one long wooden cupboard, paper label signs and a long red rug under the lights."></a>
+      <figcaption><div class="label">Attic</div><div>
+        <h3>The games cupboard</h3>
+        <p>Papered walls, painted panelling, fabric lampshades and one long cupboard that holds all four boxes. The lights fall on a worn rug. The signs are paper labels. This is the quiet, at-home room.</p>
+      </div></figcaption>
+    </figure>
+    <figure>
+      <a href="shots/room-4-rooftop.png"><img src="shots/room-4-rooftop.png" width="1920" height="1080" alt="The same room as a rooftop at night: a city skyline with lit windows behind a brick wall, each box framed in a different neon colour, glowing name signs, pink ring lamps and a lit score panel."></a>
+      <figcaption><div class="label">Rooftop</div><div>
+        <h3>Neon over the city</h3>
+        <p>The boxes are lit signs, each framed in its own neon colour, with the skyline behind a brick wall. Ring lamps, a wet floor that picks up the colour, and a lit panel for the scores. This is the loud one.</p>
+      </div></figcaption>
+    </figure>
+    <figure>
+      <a href="shots/room-5-campfire.png"><img src="shots/room-5-campfire.png" width="1920" height="1080" alt="The same room as a clearing in the woods at night: the boxes hang between dark tree trunks under paper lanterns, with fireflies, wooden plank signs, a campfire between the two middle lights and an orange tent where the door would be."></a>
+      <figcaption><div class="label">Campfire</div><div>
+        <h3>A clearing in the woods</h3>
+        <p>The boxes hang between trees under paper lanterns. There are fireflies, plank signs and a campfire behind the walking line. The door is a tent.</p>
+        <p class="open">Which of these to build first, and who picks the room: the host, a vote, or last game's winner.</p>
+      </div></figcaption>
+    </figure>
+  </section>
 
-  <figure>
-    <a href="shots/03-lock-in-count.png"><img src="shots/03-lock-in-count.png" width="1920" height="1080" alt="Three pieces stand in a bright light under Tin Derby and one under Who Am I. The Tin Derby box has a gold frame and a round badge reading Starts in 3. Its sign is lit gold and the other signs are faded. The bottom line reads: Everyone is in a light. Tin Derby starts in 3. Step out of your light to stop the count."></a>
-    <figcaption>
-      <div class="label">3 · Locking in, idea A</div>
-      <div>
-        <h2>Everyone is in a light, so the count runs</h2>
-        <p>Nothing is assumed while anyone is still in the dark (picture 1 says "Waiting for Tom"). The moment all four stand in some light, the game with the most players gets a gold frame and a count on its corner. Step out of your light and the count stops. Most players wins, so Fitch is outvoted here.</p>
-        <p class="open">How long the count runs, and whether one person standing in the dark can hold everyone up for ever.</p>
-      </div>
-    </figcaption>
-  </figure>
+  <section id="start">
+    <div class="label">2 · Starting a game</div>
+    <h2>The count starts it. The bell is gone.</h2>
+    <p>A game starts when everyone is standing in a light. The leading box turns gold and counts down, and stepping out of your light stops it. A player alone in the room starts straight away.</p>
 
-  <figure>
-    <a href="shots/03b-lock-in-bell.png"><img src="shots/03b-lock-in-bell.png" width="1920" height="1080" alt="The same vote, three under Tin Derby and one under Who Am I. A brass bell hangs on a rope at the edge of the Tin Derby light, and the gold piece is jumping up to ring it. A label reads Jump to ring it. The bottom line reads: Nothing starts until someone in that light rings the bell."></a>
-    <figcaption>
-      <div class="label">3b · Locking in, idea B</div>
-      <div>
-        <h2>Or: somebody rings the bell</h2>
-        <p>No clock at all. When everyone is in a light, a bell drops down at the edge of the leading light. The game starts only when someone standing in that light jumps and rings it. This is the more deliberate version: a player always confirms.</p>
-        <p class="open">A or B. A is quicker and needs no extra step. B never starts a game nobody asked for, and suits Cork &amp; Bell.</p>
-      </div>
-    </figcaption>
-  </figure>
+    <figure>
+      <a href="shots/start-1-count.png"><img src="shots/start-1-count.png" width="1920" height="1080" alt="Three pieces stand in the Tin Derby light and one in the Who Am I light. The Tin Derby box has a gold frame and a round badge reading Starts in 3. The bottom line says everyone is in a light and stepping out stops the count."></a>
+      <figcaption><div class="label">The count</div><div>
+        <h3>Everyone is in a light, so it counts</h3>
+        <p>Three of four chose Tin Derby. Its box is gold, its sign is gold, the badge on its corner reads "Starts in 3", and the other three boxes fade. The bottom line says how to stop it.</p>
+        <p class="open">How many seconds the count runs.</p>
+      </div></figcaption>
+    </figure>
+    <figure class="phone">
+      <a href="shots/start-2-host-phone.png"><img src="shots/start-2-host-phone.png" width="2532" height="1170" alt="A phone held sideways. Three pieces stand in the Cork and Bell light, whose box is gold. A large button on the host's phone reads Start Cork and Bell, under the words You are the host."></a>
+      <figcaption><div class="label">Room setting</div><div>
+        <h3>Or: the host starts</h3>
+        <p>A setting for rooms that want a hand on the switch. The leading box still turns gold when people are in lights, but nothing counts down. The host's phone gets one large Start button instead.</p>
+        <p class="open">Whether this setting exists, and whether it is off by default.</p>
+      </div></figcaption>
+    </figure>
+    <figure class="phone">
+      <a href="shots/start-3-cannot-play-phone.png"><img src="shots/start-3-cannot-play-phone.png" width="2532" height="1170" alt="A phone, closer in. Two of the four lights are off. The Who Am I sign says Needs 2 players. The Tin Derby sign says Needs a big screen, and under it: on a TV or laptop, open partygames.n8builds.dev and type 4827."></a>
+      <figcaption><div class="label">Cannot play</div><div>
+        <h3>A game this party cannot play is switched off</h3>
+        <p>Three players on phones only. Who Am I? is for two, so its light is off, its box is dim and its sign says "Needs 2 players". Tin Derby says "Needs a big screen" and how to get one. You cannot vote for either, because there is no light to stand in.</p>
+      </div></figcaption>
+    </figure>
+    <figure>
+      <a href="shots/start-4-screen-joins.png"><img src="shots/start-4-screen-joins.png" width="1920" height="1080" alt="A laptop browser at partygames.n8builds.dev. The room code 4827 is typed in. Two choices: Play on this device, and Use this as the room's screen, which is selected. A button reads Show the room here, next to a small picture of the room."></a>
+      <figcaption><div class="label">Getting a big screen</div><div>
+        <h3>A laptop or TV joins as the room's screen</h3>
+        <p>Open the address, type the code, and pick "Use this as the room's screen". That screen then shows the room and the games for everyone, and Tin Derby's light comes on.</p>
+        <p class="open">Whether the big screen can also be a player's own laptop, or is always a screen nobody plays from.</p>
+      </div></figcaption>
+    </figure>
+  </section>
 
-  <figure>
-    <a href="shots/04-tie-coin-toss.png"><img src="shots/04-tie-coin-toss.png" width="1920" height="1080" alt="Two pieces stand under Who Am I and two under Tin Derby. A large gold coin spins in the air between the two boxes under the words Tie, coin toss decides. The Who Am I sign is marked Heads and the Tin Derby sign is marked Tails."></a>
-    <figcaption>
-      <div class="label">4 · A tie</div>
-      <div>
-        <h2>Two against two: flip a coin</h2>
-        <p>The two tied boxes stay lit and get a side each, heads and tails. One gold coin goes up between them. Everything else in the room goes dim.</p>
-        <p class="open">A coin toss, or let a tie simply wait until someone changes their mind.</p>
-      </div>
-    </figcaption>
-  </figure>
+  <section id="phone">
+    <div class="label">3 · The phone</div>
+    <h2>Closer in on you, with a way out to the whole room</h2>
+    <p>The phone opens slightly closer in, centred on your piece, with a "Whole room" button (or a pinch). The ability button sits next to jump.</p>
 
-  <figure>
-    <a href="shots/05-bump.png"><img src="shots/05-bump.png" width="1920" height="1080" alt="The blue piece charges into the gold piece and knocks it out of the Tin Derby light. The gold piece tumbles through the air with wide eyes and a speech bubble saying hey."></a>
-    <figcaption>
-      <div class="label">5 · Bump</div>
-      <div>
-        <h2>Knock a friend out of their light</h2>
-        <p>Fitch runs at Dolly and sends her flying out of the Tin Derby light. Her vote is gone until she walks back in, and the light dims by one player straight away.</p>
-        <p class="open">How far a bump throws you, and whether there is a short rest before you can bump again.</p>
-      </div>
-    </figcaption>
-  </figure>
+    <figure class="phone">
+      <a href="shots/phone-1-closer.png"><img src="shots/phone-1-closer.png" width="2532" height="1170" alt="A phone, closer in on a gold slime marked You. The ability button shows the number 2 inside a ring that is partly filled. A small label above it reads Tap: harden, Hold: absorb. A Whole room button sits at the bottom left."></a>
+      <figcaption><div class="label">Closer in</div><div>
+        <h3>The default view, and the ability button cooling down</h3>
+        <p>You are the slime. The signs and name tags are larger and the tops of the posters are cropped. The ability button has just been used: its ring is refilling and the number is the seconds left. The slime has two answers on that one button, so a small label says which is which.</p>
+      </div></figcaption>
+    </figure>
+    <figure class="phone">
+      <a href="shots/phone-2-whole-room.png"><img src="shots/phone-2-whole-room.png" width="2532" height="1170" alt="The same moment zoomed out to the whole room, with a Closer button at the bottom left."></a>
+      <figcaption><div class="label">Zoomed out</div><div>
+        <h3>The same moment, whole room</h3>
+        <p>Exactly what the big screen shows, for when you want to see where everyone is standing.</p>
+        <p class="open">Whether closer-in is the default, and whether the view slides back in by itself when you start walking.</p>
+      </div></figcaption>
+    </figure>
+    <figure class="phone">
+      <a href="shots/phone-3-touch-a-poster.png"><img src="shots/phone-3-touch-a-poster.png" width="2532" height="1170" alt="A phone. The gold piece hops under the Cork and Bell poster and a cream card has opened beside it: How to play Cork and Bell, aim, pop the targets, three in a row rings the bell. Best tonight Dolly 1715. Best ever here Mabel 2658."></a>
+      <figcaption><div class="label">Things to poke at</div><div>
+        <h3>Hop under a poster and touch it</h3>
+        <p>A card opens with how to play in one line and the best scores. The same idea covers the rest of the wall: touch the chalkboard for the whole night's scores, touch the join sign to make the code large, touch the shelf to see what is coming next.</p>
+        <p class="open">What else on the wall is worth touching.</p>
+      </div></figcaption>
+    </figure>
+  </section>
 
-  <figure>
-    <a href="shots/06-mixed-skins.png"><img src="shots/06-mixed-skins.png" width="1920" height="1080" alt="Four different characters in one room. A red chess piece hops high. A blue robot punches with a long spring arm at a gold slime, which does not move. A pale green ghost floats above the floor. Each name tag has a second line: hops higher, shoves farther, hard to shove, floats and lands softly."></a>
-    <figcaption>
-      <div class="label">6 · Skins</div>
-      <div>
-        <h2>Four skins, one room, a trick each</h2>
-        <p>The seat colour stays; the shape is yours to pick. The second line on each tag is only a hint of what a trick could be: the chess piece hops higher, the robot shoves farther, the slime is hard to shove, the ghost floats and lands softly.</p>
-        <p class="open">Whether skins have tricks at all, or are looks only. Tricks make the lobby more of a game and need balancing.</p>
-      </div>
-    </figcaption>
-  </figure>
+  <section id="moves">
+    <div class="label">4 · One move per skin</div>
+    <h2>A move each, and an answer to every move</h2>
+    <p>Only in the room, and only to mess with the vote. No punch on the robot. The five small pictures have no words in them on purpose.</p>
+    <ul class="frames moves">
+      <li><a href="shots/move-1-charge.png"><img src="shots/move-1-charge.png" alt="A red chess piece dashes into a blue robot and knocks it tumbling out of its light."></a><p><b>Chess piece: charge.</b> A short dash that knocks whoever it hits back out of their light.</p></li>
+      <li><a href="shots/move-2-hook.png"><img src="shots/move-2-hook.png" alt="A blue robot fires a claw on a chain that has grabbed a red chess piece and is dragging it out of its light, leaving skid marks."></a><p><b>Robot: hook.</b> A claw on a chain that drags one player out of their light and over to the robot.</p></li>
+      <li><a href="shots/move-3-slime-absorb.png"><img src="shots/move-3-slime-absorb.png" alt="A gold slime sits soft and wide with rings closing in on it. The robot's chain is stuck in it and the robot is flying through the air toward the slime."></a><p><b>Slime: absorb (hold).</b> Soft and wide. A hook that lands on it pulls the robot to the slime instead.</p></li>
+      <li><a href="shots/move-4-slime-harden.png"><img src="shots/move-4-slime-harden.png" alt="A gold slime has turned hard and faceted with a glint on it. A red chess piece that charged it is thrown backward through the air."></a><p><b>Slime: harden (tap).</b> Hard and faceted. A charge that lands on it throws the chess piece back.</p></li>
+      <li><a href="shots/move-5-fade.png"><img src="shots/move-5-fade.png" alt="A ghost is only a faint dashed outline. A red chess piece has charged straight through it with a question mark over its head, and the light they are in is dim."></a><p><b>Ghost: fade.</b> Nothing can hit it for a moment. The light goes dim, because a faded ghost does not count as a vote.</p></li>
+    </ul>
+    <figure>
+      <a href="shots/move-6-who-beats-who.png"><img src="shots/move-6-who-beats-who.png" width="1600" height="840" alt="A chart. Rows are the two moves that push people around, charge and hook. Columns are who they land on: chess piece, robot, slime hardened, slime absorbing, ghost faded. Charge is turned back by a hardened slime and passes through a faded ghost. Hook is turned round by an absorbing slime and misses a faded ghost. Below: the costs, and four drawings of the phone button: ready, cooling down, slime tap to harden, slime hold to absorb."></a>
+      <figcaption><div class="label">Who beats who</div><div>
+        <h3>Two moves that push, three answers, and what each answer costs</h3>
+        <p>The slime's one button does both answers: <b>tap to harden, hold to absorb</b>. I chose tap and hold over a button that switches modes because there is nothing to remember and nothing to be stuck in. A charge arrives fast, so its answer is the quick tap. A hook can be seen coming, so its answer is the hold.</p>
+        <p>Every move goes on a cooldown, shown as the ring on the button refilling with the seconds left in the middle.</p>
+        <p class="open">How long each cooldown is, and how wide the slime's timing window is. Those two numbers decide whether the slime is too strong.</p>
+      </div></figcaption>
+    </figure>
+  </section>
 
-  <figure>
-    <a href="shots/07-scoreboard.png"><img src="shots/07-scoreboard.png" width="1920" height="1080" alt="A large chalkboard hangs in the middle of the room on two chains, titled Tonight's scores. Dolly leads with 7 after gaining 3, Mabel has 5, Tom 4 and Fitch 2. The gold piece below wears a small crown."></a>
-    <figcaption>
-      <div class="label">7 · The night's scores</div>
-      <div>
-        <h2>After a game, the chalkboard comes to the middle</h2>
-        <p>Every game gives 3 points for first, 2 for second and 1 for third. Right after a game the board hangs in the middle with what each player just won, and the leader wears a crown. During a vote the same board sits small at the right end of the wall (pictures 1 to 6).</p>
-        <p class="open">The points (3, 2, 1), and whether the leader keeps the crown during the vote.</p>
-      </div>
-    </figcaption>
-  </figure>
+  <section id="go">
+    <div class="label">5 · Storyboard A</div>
+    <h2>From the room into the game</h2>
+    <p>No page reload. The game is behind its own poster, and the party walks into it.</p>
+    <ol class="frames">
+      <li><a href="shots/go-1-count.png"><img src="shots/go-1-count.png" alt="Three pieces in the Cork and Bell light, one in another. The Cork and Bell box is gold and its badge reads Starts in 1."></a><p>Everyone is in a light. Cork &amp; Bell has the most players, and its count reaches 1.</p></li>
+      <li><a href="shots/go-2-lights-out.png"><img src="shots/go-2-lights-out.png" alt="The room has gone dark except for the Cork and Bell light and its gold box. The fourth piece walks over."></a><p>The other lights go out. The room is dark except for the winning box and its light.</p></li>
+      <li><a href="shots/go-3-poster-opens.png"><img src="shots/go-3-poster-opens.png" alt="The Cork and Bell poster has swung open like a door, showing the bright fairground stall behind it. Wooden steps have come down from it to the floor."></a><p>The poster swings open like a door. The stall is behind it, and steps fold down to the floor.</p></li>
+      <li><a href="shots/go-4-walk-in.png"><img src="shots/go-4-walk-in.png" alt="The four pieces climb the steps in a line. The first is in the doorway."></a><p>Everyone walks up and in, one after another.</p></li>
+      <li><a href="shots/go-5-push-in.png"><img src="shots/go-5-push-in.png" alt="A close view of the open poster with a red piece standing in the doorway against the bright stall."></a><p>The view pushes in through the doorway after them.</p></li>
+      <li><a href="shots/go-6-in-the-game.png"><img src="shots/go-6-in-the-game.png" alt="Cork and Bell on the big screen: four stalls side by side, one per player, with name and score plates for Mabel, Fitch, Dolly and Tom, and a small door button at the top right."></a><p>Cork &amp; Bell, a stall each, in the same seat colours. A small door button sits at the top right.</p></li>
+    </ol>
+  </section>
 
-  <figure>
-    <a href="shots/08-navy-room.png"><img src="shots/08-navy-room.png" width="1920" height="1080" alt="The same moment as picture 1 in a dark navy room with a lit grid on the walls and floor, cool white lights and a score panel in place of the chalkboard."></a>
-    <figcaption>
-      <div class="label">8 · Room skin</div>
-      <div>
-        <h2>The same room in navy</h2>
-        <p>Same layout and rules as picture 1. Only the room changes: the walls, floor, lamps, sign lettering and the scoreboard.</p>
-        <p class="open">Who picks the room: the host, a vote, or the last game's winner.</p>
-      </div>
-    </figcaption>
-  </figure>
+  <section id="back">
+    <div class="label">6 · Storyboard B</div>
+    <h2>From the game back to the room</h2>
+    <ol class="frames">
+      <li><a href="shots/back-1-end-card.png"><img src="shots/back-1-end-card.png" alt="The Cork and Bell end card: Dolly takes the prize. Dolly plus 3 tonight, Tom plus 2, Mabel plus 1, Fitch no points. A button reads Back to the room with a 5 beside it."></a><p>The end card shows the game's scores and what each place adds to the night. "Back to the room" counts down by itself.</p></li>
+      <li><a href="shots/back-2-walk-out.png"><img src="shots/back-2-walk-out.png" alt="The dark room again. The four pieces walk down the steps out of the open poster, the winner wearing a crown. On the chalkboard, plus 3, plus 2 and plus 1 are freshly chalked beside the names."></a><p>Everyone walks back out of the poster, winner first and crowned. The points are chalked on the "Tonight" board.</p></li>
+      <li><a href="shots/back-3-next-vote.png"><img src="shots/back-3-next-vote.png" alt="The lights are back on, the poster is shut and the pieces spread out across the room to vote again."></a><p>The poster shuts, the lights come back on, and the next vote is open.</p></li>
+    </ol>
+  </section>
 
-  <section class="old">
+  <section id="leave">
+    <div class="label">7 · Storyboard C</div>
+    <h2>Leaving</h2>
+    <p>What matters is that everyone knows someone has gone. Two ways it happens: you press the door button, or your phone drops.</p>
+    <ol class="frames">
+      <li><a href="shots/leave-1-door-button.png"><img src="shots/leave-1-door-button.png" alt="Cork and Bell with the door button pressed. A menu offers two choices: Back to the room, everyone goes, needs most of the players or the host, 1 of 4 so far. And Leave the party, only you, your piece walks out of the door."></a><p><b>The door button, in every game.</b> Two choices: "Back to the room" for the whole party (most players, or the host), and "Leave the party" for just you.</p></li>
+      <li class="tall"><a href="shots/leave-2-door-button-phone.png"><img src="shots/leave-2-door-button-phone.png" alt="The same two choices on a phone held upright, as a sheet rising from the bottom with a Keep playing line under them."></a><p><b>The same button on a phone.</b> The choices come up as a sheet from the bottom, with "Keep playing" to close it.</p></li>
+      <li><a href="shots/leave-3-walks-out.png"><img src="shots/leave-3-walks-out.png" alt="The room. The door on the left is open and bright. The green piece walks out through it saying bye. A note at the top reads Tom left the party."></a><p><b>Case 1: pressed the button.</b> Tom's piece walks out of the door. A note tells everyone, and the count of players drops to 3.</p></li>
+      <li><a href="shots/leave-4-reconnecting.png"><img src="shots/leave-4-reconnecting.png" alt="The room. One piece has turned grey and its tag reads Tom, reconnecting. It still stands in its light."></a><p><b>Case 2: the phone drops.</b> Tom's piece turns grey and its tag reads "reconnecting". The room holds his spot for a moment.</p></li>
+      <li><a href="shots/leave-5-gone.png"><img src="shots/leave-5-gone.png" alt="The grey piece has faded to almost nothing and its light has dimmed. A note at the top reads Tom left."></a><p>He does not come back, so the piece fades out, a short "Tom left" note shows, and his vote stops counting.</p></li>
+    </ol>
+  </section>
+
+  <section class="old" id="old">
     <div class="label">For comparison</div>
-    <h2>Round one</h2>
+    <h2>Round two</h2>
     <div class="grid">
-      <a href="shots/round-1/01-vote-big-screen.png"><img src="shots/round-1/01-vote-big-screen.png" alt="Round one, picture 1: the navy room mid-vote." loading="lazy"></a>
-      <a href="shots/round-1/02-vote-phone.png"><img src="shots/round-1/02-vote-phone.png" alt="Round one, picture 2: the phone." loading="lazy"></a>
-      <a href="shots/round-1/03-countdown-big-screen.png"><img src="shots/round-1/03-countdown-big-screen.png" alt="Round one, picture 3: the countdown ring." loading="lazy"></a>
-      <a href="shots/round-1/04-tie-big-screen.png"><img src="shots/round-1/04-tie-big-screen.png" alt="Round one, picture 4: the swinging tie lamp." loading="lazy"></a>
-      <a href="shots/round-1/05-shove-big-screen.png"><img src="shots/round-1/05-shove-big-screen.png" alt="Round one, picture 5: the shove." loading="lazy"></a>
-      <a href="shots/round-1/06-vote-lantern-room.png"><img src="shots/round-1/06-vote-lantern-room.png" alt="Round one, picture 6: the warm room." loading="lazy"></a>
+      <a href="shots/round-2/01-vote-big-screen.png"><img src="shots/round-2/01-vote-big-screen.png" alt="Round two: the bar room mid-vote." loading="lazy"></a>
+      <a href="shots/round-2/02-vote-phone.png"><img src="shots/round-2/02-vote-phone.png" alt="Round two: the phone." loading="lazy"></a>
+      <a href="shots/round-2/03-lock-in-count.png"><img src="shots/round-2/03-lock-in-count.png" alt="Round two: locking in with a count." loading="lazy"></a>
+      <a href="shots/round-2/03b-lock-in-bell.png"><img src="shots/round-2/03b-lock-in-bell.png" alt="Round two: locking in with a bell (dropped)." loading="lazy"></a>
+      <a href="shots/round-2/04-tie-coin-toss.png"><img src="shots/round-2/04-tie-coin-toss.png" alt="Round two: the coin toss." loading="lazy"></a>
+      <a href="shots/round-2/05-bump.png"><img src="shots/round-2/05-bump.png" alt="Round two: the bump." loading="lazy"></a>
+      <a href="shots/round-2/06-mixed-skins.png"><img src="shots/round-2/06-mixed-skins.png" alt="Round two: mixed skins." loading="lazy"></a>
+      <a href="shots/round-2/07-scoreboard.png"><img src="shots/round-2/07-scoreboard.png" alt="Round two: the big scoreboard." loading="lazy"></a>
+      <a href="shots/round-2/08-navy-room.png"><img src="shots/round-2/08-navy-room.png" alt="Round two: the navy room." loading="lazy"></a>
+    </div>
+    <h2 style="margin-top:34px">Round one</h2>
+    <div class="grid">
+      <a href="shots/round-1/01-vote-big-screen.png"><img src="shots/round-1/01-vote-big-screen.png" alt="Round one: the navy room mid-vote." loading="lazy"></a>
+      <a href="shots/round-1/02-vote-phone.png"><img src="shots/round-1/02-vote-phone.png" alt="Round one: the phone." loading="lazy"></a>
+      <a href="shots/round-1/03-countdown-big-screen.png"><img src="shots/round-1/03-countdown-big-screen.png" alt="Round one: the countdown ring." loading="lazy"></a>
+      <a href="shots/round-1/04-tie-big-screen.png"><img src="shots/round-1/04-tie-big-screen.png" alt="Round one: the swinging tie lamp." loading="lazy"></a>
+      <a href="shots/round-1/05-shove-big-screen.png"><img src="shots/round-1/05-shove-big-screen.png" alt="Round one: the shove." loading="lazy"></a>
+      <a href="shots/round-1/06-vote-lantern-room.png"><img src="shots/round-1/06-vote-lantern-room.png" alt="Round one: the warm room." loading="lazy"></a>
     </div>
   </section>
 
-  <footer>Rendered from lobby/preview/scene.html by lobby/preview/shoot.mjs · the decisions behind the pictures are in NOTES.md</footer>
+  <footer>Rendered from lobby/preview/scene.html, game.html and chart.html by lobby/preview/shoot.mjs · the decisions behind the pictures are in NOTES.md</footer>
 </div>
 </body>
 </html>
