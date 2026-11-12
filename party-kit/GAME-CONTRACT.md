@@ -60,18 +60,95 @@ export const PartyRoom = createPartyRoom(game);
 export { PinDirectory, RateLimiter, RoomBudget };
 ```
 
-Today a site has one room class, so the party site hosts one game's battles at a time.
-Hosting several games in one room is the lobby's work (below).
+A game's own page makes rooms of that one game: one room class, one game.
+On the party site the party room (the lobby) is a second room class beside it, and it is the one that holds several games (below).
 
-## Planned, not built: the lobby hooks
+## The lobby hooks
 
-The shared lobby will keep a group in one room while it switches games.
-It will need three things from a game, and none of them exists yet:
+The party room keeps a group in one room while it switches games.
+This is how a game plugs into it.
+It is a proposal that is built and tested for one game: Coin Flip, a placeholder in this repository (`lobby/games/coin-flip.js`).
+Cork & Bell does not go through it yet; what that would take is at the end.
+The room is `lobby/server/lobby-core.js` (the rules) and `lobby/server/lobby-room.js` (the Durable Object).
 
-| Hook | What it will be |
+### A room holds one current activity
+
+The room's `activity` is `{ kind: "lobby" }` or `{ kind: "game", id, state, startedAt, ticks, seats }`.
+Every client sees it in the room view as `phase` (`"lobby"` or `"playing"`) and `game` (`{ id, name, round }` or `null`).
+The seats, the join code, the big screens and the Tonight board belong to the room, not to the activity, so they carry across.
+In the lobby nothing ticks: the room is asleep unless somebody moves.
+In a game the room ticks at the game's `tickHz`, and all of that time counts against the room budget.
+
+### Start: with the party's seats
+
+When the vote's count ends, the room calls `game.create({ seed, seats, now, round })`.
+`seats` is one entry for each player in the party, `{ seat, name, kind: "human", colour }`, with the seat numbers and colours they have in the lobby.
+There is no waiting room and no ready step: the vote was the ready step.
+The room sends everyone `start { room, s, now }`, the same message the kit's own rooms send, where `s` is `game.snapshot(state, now)`.
+From then on it is the kit's round protocol unchanged: `in { d }` from a player goes to `game.input`, and `ev { ev, now }` and `snap { s, now }` come from `game.tick` and `game.snapshot`.
+The room answers the kit client's clock ping while a game is on, so `party.now()` works as it does in a game's own room.
+A seat whose player dropped is played by `game.bot`, if the game has one, so the round can finish.
+Someone who joins while a game is on gets a seat in the room and a full snapshot, watches, and plays in the next one.
+
+### End: with places
+
+When `game.isOver(state)` is true the room asks the game for places in one shape for every game:
+
+```js
+// Optional export on the game object. Place 1 is best; equal results share a place.
+standings(state) { return [{ seat: 2, place: 1 }, { seat: 0, place: 2 }, { seat: 1, place: 2 }]; }
+```
+
+A game without `standings` is read from `game.result(state)` instead, when that is a list of rows, best first, each with `seat` and `score` (Cork & Bell's is).
+The room turns places into points for the night: 3 for first, 2 for second, 1 for third.
+It sends `end { room, result, last, now }`, where `result` is the game's own result and `last` is the room's card: `{ round, game, name, rows: [{ seat, name, colour, place, points }], note }`.
+
+### Return: everyone is back in the lobby
+
+The moment a game ends the activity is the lobby again.
+Every piece is put back in the dark by the door, the points are on the Tonight board, and the room rests for six seconds before a new count may start, so the result can be read.
+The board is saved with the room and survives the room sleeping.
+A game in progress is not saved: if the room is restarted mid-game, everyone is back in the lobby with the points they had.
+Asking to go back to the room before a game is over (the door sheet in the design) is not built: a game runs to its end, and a player can still leave the party.
+
+### In the browser
+
+The room's page shows a game by mounting its view over the room when `start` arrives and unmounting it at `end`:
+
+```js
+// lobby/public/games/views.js maps a game id to this function.
+export function mount(container, { room, you, snapshot }) {
+  return {
+    events(list) {},     // what game.tick returned
+    snapshot(s) {},      // game.snapshot, every few ticks
+    unmount() {},        // the game is over: free everything
+  };
+}
+```
+
+`room.members[seat]` gives each seat's name and colour, and `you` is `{ role, seat }`.
+A game in its own repository would name the module in its manifest (`lobby: { view: "game/party-view.js" }`, under its public path) and the room's page would import it from there.
+That part is proposed, not built: Coin Flip's view lives in this repository.
+
+### What the manifest adds for the lobby
+
+| Name | What it is |
 | --- | --- |
-| start | The lobby hands the game its seats (names, colours, characters) and a seed, and the game begins a round without its own waiting room. Today: `game.create({ seed, seats, now, round })` on the server, and the kit's `start` message in the browser. |
-| end with scores | The game reports the round's result in one shape for every game, so the lobby can keep a running table. Today: `game.result(state)` returns the game's own rows (Cork & Bell: `{ seat, name, kind, score, hits, shots, best }`, best first). |
-| leave | The game gives the screen back to the lobby (after a round, or when the group votes to stop) and frees what it holds. Today: the game's page is the whole page, and leaving is closing it. |
+| `manifest.blurb` | One line for the game's box on the wall. Until a game's manifest has it, the site supplies one (`lobby/wall.js`). |
+| `manifest.devices.sharedScreen` | `true`: the game can use a big screen. `"required"`: it needs one, and its light stays off until a screen has joined the room. |
 
-When the lobby is designed these become named exports beside `game` and `manifest`, and this page is where they are written down.
+The device badge on a box comes from `devices`: amber "Phones + big screen" when a screen is required, violet "A phone each" when it plays on phones only, and cyan "Any device" otherwise.
+The box's player count is `players.min` to `players.max`, and its light is off, with the reason in a few words, when the party is too small or too large.
+
+### What hosting Cork & Bell through this would take
+
+On the server it is small.
+Its `game` already has everything the room calls, its result rows already give places, and a party of two to four needs no stand-ins to start.
+In `lobby/wall.js` the stand-in for a hosted game is replaced by the game itself.
+
+In the browser it is the real work, and it is not small.
+Cork & Bell's page (`game/main.js`) is built around the kit's waiting room and around being the whole page.
+It needs an entry in the shape of `mount` above: begin a round from a `start` message with given seats, without its own waiting room, and give the screen back at the end.
+It also loads a three.js scene, which the room's page would have to load on every phone when the game is chosen.
+
+So the order of work is: give Cork & Bell a mountable view in its own repository, name it in the manifest, then switch the wall over.

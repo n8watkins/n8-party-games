@@ -54,8 +54,8 @@ What a game must export so the party site can host it is in [GAME-CONTRACT.md](G
 | `src/worker/index.js` | `handlePartyApi(request, env)`, `createPartyRoom(game)`, `PinDirectory`, `RateLimiter`. |
 | `src/worker/room.js` | The Durable Object around `RoomCore`: WebSockets, the tick loop, saving, shutdown. |
 | `src/worker/pin-directory.js`, `pin-logic.js` | 4-digit PINs: 15 minute life, 10 minute cooldown before reuse. |
-| `src/worker/rate-limiter.js`, `limit-logic.js` | Fixed-window limits per client address. |
-| `src/worker/room-budget.js`, `budget-logic.js` | The room budget: a cap on hosted room time per day and per month. |
+| `src/worker/rate-limiter.js`, `limit-logic.js` | Fixed-window limits per client address, and the message rate one open socket may keep. |
+| `src/worker/room-budget.js`, `budget-logic.js` | The room budget: a cap on hosted room time per day and per month, and the meter a room counts its awake time with. |
 | `src/worker/score-board.js`, `score-logic.js` | The score board: a game's ten best scores under three letters. |
 | `src/worker/http.js` | Responses and security headers, the body limit, the origin check, the QR allowlist. |
 | `src/worker/turnstile.js` | The optional bot check on new rooms (Cloudflare Turnstile). |
@@ -105,6 +105,7 @@ Variables (all optional):
 | `PARTY_RATE_LIMIT` | `"off"` disables the limits (for local test runs with many headless players). |
 | `PARTY_ROOM_BUDGET_SHARE` | The part of the Workers Paid plan's included Durable Object time that rooms may use each month (`"0.05"` is 5%). Unset means no budget. |
 | `PARTY_ROOM_BUDGET_DAY_SHARE` | The part of that monthly budget one day may use. Default `"0.1"`. |
+| `PARTY_DEBUG` | `"on"` lets the party site answer `GET /api/lobby/debug` (the budget's books) and `/api/lobby/debug/<code>` (a party room's inner state) for tests and measurements. Local only; never set in production. |
 
 ### What hosting costs, and the room budget
 
@@ -120,10 +121,40 @@ A room nobody has touched for 10 minutes outside a round is closed (`STALE_ROOM_
 With `PARTY_ROOM_BUDGET_SHARE` set, each room reports its awake time to the `RoomBudget` object, once a minute and at the end of the round.
 When the day's or the month's allowance is spent, `POST /api/party/rooms` answers `battles_full` (503) with a message that solo play still works, and open rooms finish the round in play but cannot start another.
 The day's allowance resets at 00:00 UTC and the month's on the first.
-All games served by one Worker share the one allowance.
-The budget counts rounds only; the moments a sleeping room, the PIN directory, the limiter and the budget object wake for are not counted.
+All games served by one Worker, and the party room, share the one allowance.
+A game's own room (`createPartyRoom`) reports its rounds; the brief moments it wakes for a ping in its waiting room are not counted.
+The party room counts everything, with the kit's `AwakeMeter` (below).
+The PIN directory, the limiter, the score board and the budget object themselves are not counted.
 
 New rooms are also limited per client address: 5 in ten minutes and 20 in a day.
+
+### Counting all awake time: `AwakeMeter`
+
+A room that relays messages while people merely stand around is awake in many short moments, not in rounds.
+`AwakeMeter` (`budget-logic.js`) adds those up, so a room can report all of it with `spendRoomTime(env, ms, requests)`.
+
+- An event (a message, an alarm, a join, a socket closing) counts as the time its handler took, and never less than `EVENT_FLOOR_MS` (2 ms). The Workers clock does not move while code runs, so a handler that only does arithmetic cannot be timed; the floor is charged instead, and it is set high on purpose.
+- A hold (a span with a timer running, such as a game's tick loop) counts in full, second for second.
+- Requests are counted beside the time: an incoming message is a twentieth of one, anything else is one.
+
+The budget keeps the requests per day and per month for the owner's report (`RoomBudget.report()`), but only time closes anything: the budget is a budget of time.
+Cloudflare bills a Durable Object while it runs code or cannot sleep, and not while it is idle and able to hibernate, even before it has been put to sleep.
+
+### One socket's message rate
+
+`limit-logic.js` has a token bucket for one open socket (`SOCKET_RATE`: a burst of 40, then 20 a second).
+A message that finds the bucket empty is dropped, and a message that cannot be read at all (too long, not JSON) counts as five.
+After 60 drops the socket is closed.
+Incoming messages are billed whether or not they are dropped, so a client that keeps flooding has to lose its connection, not only its messages.
+The party room uses it; a game's own room keeps its simpler size cap.
+
+### A second kind of room on one site
+
+`handlePartyApi(request, env, { prefix, rooms, fullMessage })` serves the same API under another path for another room class: the party site's lobby is `prefix: "/api/lobby"`, `rooms: env.PARTY_LOBBIES`.
+The room class answers the same calls as the kit's (`create`, `preview`, `join`, `fetch`), and every guard (origin check, body cap, rate limits, the bot check) applies to both.
+In the browser, `new PartyClient({ api: "/api/lobby" })` talks to it and keeps its own saved session.
+`quietPing: { text, everyMs }` makes the client send a fixed text outside a round instead of the clock ping; a room that registers that text with `setWebSocketAutoResponse` is not woken by it at all.
+Messages the kit does not know are passed on as the `message` event.
 
 ### The score board
 
@@ -220,7 +251,8 @@ party.sendInput({ fire: 1, at: party.now() });   // inputs only, with the room's
 ```
 
 `PartyClient` methods: `create`, `preview`, `join`, `resume`, `sendInput`, `setReady`, `rename`, `setCharacter`, `addBot`, `removeBot`, `start`, `leave`, `now`, `joinUrl`, `qrUrl`, and `dropConnection({reconnectAfterMs})` for tests.
-Events: `room`, `start`, `events`, `snapshot`, `end`, `status`, `error`, `closed`.
+Events: `room`, `start`, `events`, `snapshot`, `end`, `status`, `error`, `closed` (with the room's own reason for closing the socket as a second argument, when it gave one), and `message` for anything the kit does not know.
+Options: `base`, `lag`, `storage`, `api` and `quietPing` (see "A second kind of room on one site").
 
 A screen (`create({as: "screen"})` or `join(pin, {as: "screen"})`) holds no seat and receives everything: use it for the shared big screen.
 
@@ -284,3 +316,4 @@ The delay runs inside the room (`LagLine`), so the room's view of time is the re
 The games' multiplayer playtests (for example `npm run playtest:battle`) drive the same path through real browsers.
 `npm test` also checks the deploy settings (`test/deploy-config.test.js`), the API guards (`test/http.test.js`) and the score board's rules (`test/score.test.js`).
 `npm run test:production -- <base>` checks the production settings end to end and `npm run test:turnstile` the bot check with Cloudflare's test keys; each file's header says which server to start.
+The awake meter, the request count in the budget and the per-socket rate limit are tested with the party room, which uses them (`lobby/test/shared.test.js`); the party room's own tests are listed in `lobby/README.md`.
