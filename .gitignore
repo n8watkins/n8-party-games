@@ -1,3 +1,5 @@
 node_modules/
 .wrangler/
 dist/
+# Stills from `npm run lobby:shots`. A chosen few are kept in lobby/shots/.
+lobby/test/shots/

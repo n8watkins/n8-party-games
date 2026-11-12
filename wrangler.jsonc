@@ -19,7 +19,7 @@
   // before every `wrangler dev` and `wrangler deploy`, and on changes while `wrangler dev` runs.
   "build": {
     "command": "node scripts/build-public.mjs",
-    "watch_dir": ["party-kit/client", "lobby", "site", "scripts", "games.js"]
+    "watch_dir": ["party-kit/client", "party-kit/src", "lobby/public", "lobby/shared", "lobby/server", "lobby/games", "lobby/wall.js", "site", "scripts", "games.js", "worker.js"]
   },
   "assets": {
     "directory": "./dist/public",

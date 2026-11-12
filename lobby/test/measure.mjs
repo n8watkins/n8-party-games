@@ -6,6 +6,8 @@
 // The players wander between the lights, standing in one for a while, jumping and bumping now
 // and then. Every --vote-every seconds they agree to play: each picks a light and stays in it
 // until a game has been played (0: they only ever wander, and a game starts only by chance).
+// After a game they walk back to the light they chose and linger, so a second game often
+// follows the first: a keen party, which is the dearer case.
 //
 // It needs a local server with the debug door open (the "local" environment: npm run dev) and
 // nobody else using it, since the budget's books are shared by every room on the server.
