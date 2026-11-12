@@ -1,64 +1,78 @@
-# Going live on Cloudflare Workers
+# Deploying to Cloudflare Workers
 
-This is the owner's checklist for putting the party games online.
-Nothing has been deployed yet.
-Steps marked **Owner** need your accounts or a decision only you can make.
+This is the checklist for putting the party site online and for every deploy after the first.
+The site is live at https://partygames.n8builds.dev (first deployed on 2026-11-12).
+Steps marked **Owner** need the owner's accounts, secrets or a decision only the owner can make.
 Everything else is already in the repository.
 
 ## What is already prepared
 
-- `wrangler.jsonc` top level is the production Worker: rate limits on, simulated latency off, the 10% room budget, Workers Logs on.
-- The `local` environment keeps the test switches for `npm run dev` and the playtests, and is never deployed.
-- Only `dist/public` is served, rebuilt from an allowlist by `scripts/build-public.mjs` before every deploy.
-- The games are separate repositories, installed as dependencies pinned in `package.json` and listed in `games.js`; `npm install` must have run before a deploy. A game can also be deployed alone from its own repository, with its own checklist.
+- `wrangler.jsonc` top level is the production Worker: the account, the custom domain `partygames.n8builds.dev`, rate limits on, simulated latency off, the 10% room budget, Workers Logs on.
+- The `workers.dev` address and version preview URLs are off (`"workers_dev": false`, `"preview_urls": false`), so every request goes through the zone.
+- The custom domain is a Workers custom domain: the deploy creates its DNS record and certificate, and nothing is set up by hand in DNS.
+- The `local` environment keeps the test switches for `npm run dev` and the playtests, has no custom domain (`"routes": []`), and is never deployed.
+- Only `dist/public` is served, rebuilt from an allowlist by `scripts/build-public.mjs` before every deploy, together with its `_headers` file (CSP and the other security headers).
+- The games are separate repositories, installed as dependencies pinned in `package.json` and listed in `games.js`; `npm ci` must have run before a deploy. A game can also be deployed alone from its own repository, with its own checklist.
 - `npm run assets:list` prints every file that will be public.
-- The bot check on new rooms (Cloudflare Turnstile) stays off until both of its keys exist.
+- The bot check on new rooms (Cloudflare Turnstile) stays off until both of its keys exist. Rate limits and the room budget apply either way.
 
-## Before the first deploy
+## Before every deploy
 
-1. **Owner:** create a private GitHub repository for this project and push the `main` branch to it.
-2. **Owner:** make sure the Cloudflare account is on the Workers Paid plan, since the room budget is a share of that plan's included Durable Object time.
-3. **Owner:** pick the address, for example `games.n8builds.dev` on a zone in the same Cloudflare account.
-4. Add it to the top level of `wrangler.jsonc` as `"routes": [{ "pattern": "games.n8builds.dev", "custom_domain": true }]`.
-5. **Owner:** decide whether the `workers.dev` address should also answer, and set `"workers_dev": false` in `wrangler.jsonc` if not.
-6. **Owner:** in the Cloudflare dashboard, open Turnstile and add a widget in Managed mode for that hostname only.
-7. Put its site key in the top-level `vars` of `wrangler.jsonc` as `TURNSTILE_SITE_KEY`, since the site key is public.
-8. **Owner:** store the widget's secret key with `! pass-env set n8-party-games/TURNSTILE_SECRET_KEY` and add that entry name to the project's `.env.pass`.
-9. Run `npm test`, then start `npm run dev` and run `npm run test:room` and `npm run playtest:battle`, and stop if anything fails.
-10. Start `npx wrangler dev --local --env="" --port 8804 --persist-to <an empty folder>` and run `npm run test:production -- http://localhost:8804` to check the production settings locally.
-11. Run `npm run assets:list` and read the list once: it must hold only the games' pages, scripts, styles, models, textures and fonts.
+1. Run `npm ci`, then `npm test`, and stop if anything fails.
+2. Start `npm run dev` and run `npm run test:room` and `npm run playtest:battle`, and stop if anything fails. The playtest needs the Windows Chrome (its default `--win=1`); with `--win=0` the software renderer is too slow and it reports missed moments.
+3. Start `npx wrangler dev --local --env="" --port 8804 --local-upstream localhost:8804 --persist-to <an empty folder>` and run `npm run test:production -- http://localhost:8804` to check the production settings locally. `--local-upstream` keeps the local address; without it the custom domain becomes the Worker's own address and the QR check fails.
+4. On that same server, confirm `/package.json`, `/wrangler.jsonc` and `/party-kit/README.md` answer 404.
+5. Run `npm run assets:list` and read the list once: it must hold only the games' pages, scripts, styles, models, textures and fonts.
 
-## The first deploy
+## Deploying
 
-12. **Owner:** log in with `npx wrangler login`.
-13. **Owner:** run `npm run deploy`, which deploys the top level (`wrangler deploy --env=''`) and never the local environment.
-14. **Owner:** set the secret with `pass-env pipe n8-party-games/TURNSTILE_SECRET_KEY -- npx wrangler secret put TURNSTILE_SECRET_KEY --env=''`.
-15. Until step 14 is done the bot check is off and rooms can be made without it, so do it straight after the deploy.
+6. Wrangler must be logged in to the owner's account: `npx wrangler whoami` should name account `b2c564cf83cb9184dd6d7cc4ff8b38bf`. **Owner:** if it is not, run `npx wrangler login`.
+7. Run `npm run deploy`, which deploys the top level (`wrangler deploy --env=''`) and never the local environment. It runs any new Durable Object migrations by itself (the first deploy ran `v1` to `v3`); nothing is created by hand.
+8. A deploy while a round is on lets that room finish on the old code for up to five minutes, so deploy when nobody is mid-round if you can.
 
-## Check it after going live
+## Check it after a deploy
 
-16. Open `https://<your address>/api/party/config` and confirm `simLatency` is `false` and `turnstileSiteKey` is your site key.
-17. Open the game on a laptop, make a room (the bot check runs, and usually shows nothing), and join it by PIN from a phone.
-18. Confirm that `https://<your address>/package.json`, `/wrangler.jsonc` and `/party-kit/README.md` all answer 404.
-19. Play one round to the end, then leave the room open in the lobby on both devices for at least 15 minutes.
-20. In the Cloudflare dashboard, go to Workers & Pages, open Durable Objects, and look at the account-level usage, then open the `PartyRoom` namespace and its Metrics tab.
-21. Expect activity during the round and only short blips (the 10 second pings) while the room waits in the lobby, not a solid block of active time.
-22. Check the same period under Manage Account, Billing, Billable Usage, where Durable Objects duration (GB-seconds) should grow during the round and stay nearly flat while the room sleeps.
-23. If duration keeps growing while every room waits in the lobby, something is keeping the rooms awake, so stop new rooms by setting `PARTY_ROOM_BUDGET_SHARE` to a tiny value and investigate.
-24. A deploy while a round is on lets that room finish on the old code for up to five minutes, so deploy when nobody is mid-round if you can.
-25. The first deploy with the high score board runs migration `v3` (the `ScoreBoard` class) by itself; nothing needs creating by hand.
-26. Open `https://<your address>/api/party/scores/cork-and-bell` and confirm it answers `{"ok":true,"top":[...]}`.
-27. Play a solo round, chalk up three letters, and confirm the chalk board on the left wall shows them; the `ScoreBoard` namespace's Metrics tab should show one short blip per score and nothing in between.
-28. To wipe the board, delete the `scores:cork-and-bell` object's storage from the dashboard (Durable Objects, `ScoreBoard`, the object, Storage); the house's scores show again.
+The live address is shared by everyone, and Cloudflare sees your real address there, so the room limits (5 new rooms in ten minutes, 20 a day) count against you.
+Make at most a handful of rooms when checking.
+
+9. Open `https://partygames.n8builds.dev/api/party/config` and confirm `simLatency` is `false`, and that `turnstileSiteKey` is the site key once the bot check is on (`null` until then).
+10. Confirm `https://partygames.n8builds.dev/cork-and-bell/` loads over HTTPS with `Content-Security-Policy`, `X-Content-Type-Options`, `X-Frame-Options` and `Referrer-Policy` headers, and that `/package.json`, `/wrangler.jsonc` and `/party-kit/README.md` answer 404.
+11. Open the game on a laptop, make a room, and join it by PIN from a phone.
+12. Open `https://partygames.n8builds.dev/api/party/scores/cork-and-bell` and confirm it answers `{"ok":true,"top":[...]}`.
+
+## Confirming that waiting rooms sleep
+
+13. Play one round to the end, then leave the room open in the lobby on both devices for at least 8 minutes (an untouched room closes after 10).
+14. In the Cloudflare dashboard, go to Workers & Pages, open Durable Objects, and look at the account-level usage, then open the `PartyRoom` namespace and its Metrics tab.
+15. Expect activity during the round and only short blips (the 10 second pings) while the room waits in the lobby, not a solid block of active time.
+16. Check the same period under Manage Account, Billing, Billable Usage, where Durable Objects duration (GB-seconds) should grow during the round and stay nearly flat while the room sleeps.
+17. The room budget's own count lives in the `RoomBudget` namespace, in the `budget` object's storage under the `usage` key (room time this day and month); the site has no page for it, so read it from the object's storage view in the dashboard.
+18. If duration keeps growing while every room waits in the lobby, something is keeping the rooms awake, so stop new rooms by setting `PARTY_ROOM_BUDGET_SHARE` to a tiny value and investigate.
+
+## The bot check (Turnstile)
+
+Optional: until both keys exist, rooms are made without it and the rate limits and the room budget still apply.
+
+19. **Owner:** in the Cloudflare dashboard, open Turnstile, add a widget in Managed mode for the hostname `partygames.n8builds.dev` only, and keep the page with its two keys open.
+20. **Owner:** store the secret key with `! pass-env set n8-party-games/TURNSTILE_SECRET_KEY` and add the line `TURNSTILE_SECRET_KEY=n8-party-games/TURNSTILE_SECRET_KEY` to the project's `.env.pass`.
+21. Put the site key in the top-level `vars` of `wrangler.jsonc` as `TURNSTILE_SITE_KEY` (it is public), through a pull request, and deploy.
+22. **Owner:** set the secret with `pass-env pipe n8-party-games/TURNSTILE_SECRET_KEY -- npx wrangler secret put TURNSTILE_SECRET_KEY --env=''`.
+23. Check step 9 again (the site key shows), then make one room in a browser: the bot check runs and usually shows nothing.
+
+## The high score board
+
+24. Play a solo round, chalk up three letters, and confirm the chalk board on the left wall shows them; the `ScoreBoard` namespace's Metrics tab should show one short blip per score and nothing in between.
+25. To wipe the board, delete the `scores:cork-and-bell` object's storage from the dashboard (Durable Objects, `ScoreBoard`, the object, Storage); the house's scores show again.
 
 ## Do not
 
-- Do not run `npm run test:production` against the live address, because Cloudflare replaces the test's client address with yours and it would rate limit you for ten minutes.
+- Do not run `npm run test:production` or `npm run test:room` against the live address: the first makes six rooms to prove the limit and would rate limit you for ten minutes, and the second needs the local test switches.
 - Do not put `TURNSTILE_SECRET_KEY` in `vars`, a `.dev.vars` file or any committed file.
 - Do not deploy with `--env local`.
 
 ## Sources
 
+- Custom domains: https://developers.cloudflare.com/workers/configuration/routing/custom-domains/
 - Static assets, `.assetsignore` and the 25 MiB file limit: https://developers.cloudflare.com/workers/static-assets/binding/ and https://developers.cloudflare.com/workers/platform/limits/
 - Custom builds before dev and deploy: https://developers.cloudflare.com/workers/wrangler/configuration/#custom-builds
 - Environments and non-inheritable keys: https://developers.cloudflare.com/workers/wrangler/environments/

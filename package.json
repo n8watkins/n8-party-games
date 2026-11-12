@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "The party kit and the party site: party games that share one room kit. Ready for Cloudflare Workers, not deployed yet.",
+  "description": "The party kit and the party site: party games that share one room kit. Live on Cloudflare Workers at partygames.n8builds.dev.",
   "license": "MIT",
   "repository": {
     "type": "git",

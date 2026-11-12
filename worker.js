@@ -1,5 +1,5 @@
 // The party site: one Worker that serves every hosted game's files, the party kit's browser
-// files and the kit's room API. Local only for now: run it with `npm run dev`.
+// files and the kit's room API. Live at https://partygames.n8builds.dev (DEPLOY.md); locally: `npm run dev`.
 // The games are their own repositories (games.js lists them); the kit is this repository's.
 import { createPartyRoom, PinDirectory, RateLimiter, RoomBudget, ScoreBoard, handlePartyApi } from "./party-kit/src/worker/index.js";
 import { GAMES } from "./games.js";

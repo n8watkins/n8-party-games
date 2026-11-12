@@ -18,6 +18,14 @@ const MAX_FILE_BYTES = 25 * 1024 * 1024;
 /** Cloudflare Turnstile's script and widget frame, allowed so a configured bot check can render. */
 const TURNSTILE = "https://challenges.cloudflare.com";
 
+/**
+ * Cloudflare Web Analytics: on a zone with it switched on, Cloudflare adds its beacon script to
+ * every page, and the beacon reports to cloudflareinsights.com. Allowed so it is not refused with
+ * a CSP error on every page load.
+ */
+const WEB_ANALYTICS_SCRIPT = "https://static.cloudflareinsights.com";
+const WEB_ANALYTICS_REPORT = "https://cloudflareinsights.com";
+
 /** Where the kit's browser files are served: games import them by this site path. */
 export const KIT_CLIENT_PATH = "party-kit/client";
 
@@ -53,11 +61,11 @@ function inlineScriptHashes(files) {
 export function headersFile(scriptHashes) {
   const csp = [
     "default-src 'self'",
-    `script-src 'self' ${scriptHashes.join(" ")} ${TURNSTILE}`.replace(/\s+/g, " "),
+    `script-src 'self' ${scriptHashes.join(" ")} ${TURNSTILE} ${WEB_ANALYTICS_SCRIPT}`.replace(/\s+/g, " "),
     "style-src 'self'",
     "img-src 'self' data: blob:",
     "font-src 'self'",
-    "connect-src 'self'",
+    `connect-src 'self' ${WEB_ANALYTICS_REPORT}`,
     `frame-src ${TURNSTILE}`,
     "worker-src 'self' blob:",
     "object-src 'none'",
