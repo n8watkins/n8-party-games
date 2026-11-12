@@ -109,4 +109,6 @@ Its printed box strip is the most familiar way to say "what you need", and it is
 - Who Am I? is a two-player game, so its badge says "2 players", not "2 to 4".
 - The kind of each coming game is my reading of the plan: Flood as "a phone each", Tin Derby and Fox Trouble as "phones + a big screen".
 - Cork & Bell is "any device" with a note that a big screen is optional, so it shows up under all three filter answers.
-- The lobby slimes are only hinted at: a one-eyed blob in each seat colour beside the room PIN, not a character design.
+- No lobby characters appear anywhere, and nothing in the name, the copy or the look depends on them.
+  Players are shown as plain discs in their seat colour, which is where a character skin (slime, robot or a later one) would plug in.
+- The page is about playing with other people: the join box comes first, and every card says how many people and which screens.

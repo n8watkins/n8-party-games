@@ -1,0 +1,611 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{name} - party games on the screens you already have</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Abril+Fatface&family=Fraunces:opsz,wght@9..144,700&family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&family=Nunito:wght@800&display=swap">
+<style>
+/* Direction 1, "Lights on": a dark room where the only lights are screens.
+   Each game's art sits on the devices that game needs. */
+:root {
+  --bg: #060a16;
+  --panel: #0b1226;
+  --panel-2: #0f1830;
+  --line: rgba(132, 160, 230, .16);
+  --line-strong: rgba(132, 160, 230, .32);
+  --bezel: #1b2547;
+  --ink: #eef3ff;
+  --soft: #a3b0cf;
+  --dim: #7482a6;
+  --cyan: #38bdf8;
+  --violet: #b39dfc;
+  --amber: #fbbf24;
+  --green: #4ade80;
+  --text: "Inter", system-ui, sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, Menlo, monospace;
+}
+* { box-sizing: border-box; }
+html { background: var(--bg); }
+body {
+  margin: 0;
+  color: var(--ink);
+  font: 16px/1.5 var(--text);
+  background: var(--bg);
+  min-height: 100vh;
+  position: relative;
+  overflow-x: hidden;
+}
+/* The lit grid: faint everywhere, brighter where the join panel throws light on it. */
+body::before, body::after {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 900px;
+  pointer-events: none;
+  background-image:
+    linear-gradient(rgba(120, 170, 255, .055) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(120, 170, 255, .055) 1px, transparent 1px);
+  background-size: 48px 48px;
+  background-position: center top;
+  -webkit-mask-image: linear-gradient(#000 40%, transparent);
+          mask-image: linear-gradient(#000 40%, transparent);
+}
+body::after {
+  background-image:
+    radial-gradient(ellipse 520px 300px at 50% 250px, rgba(56, 189, 248, .17), transparent 70%),
+    linear-gradient(rgba(56, 189, 248, .2) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(56, 189, 248, .2) 1px, transparent 1px);
+  background-size: auto, 48px 48px, 48px 48px;
+  background-position: center top;
+  -webkit-mask-image: radial-gradient(ellipse 560px 340px at 50% 250px, #000, transparent 72%);
+          mask-image: radial-gradient(ellipse 560px 340px at 50% 250px, #000, transparent 72%);
+}
+main, header, footer { position: relative; z-index: 1; }
+.wrap { max-width: 1200px; margin: 0 auto; padding: 0 16px; }
+a { color: inherit; }
+button { font: inherit; color: inherit; cursor: pointer; }
+:focus-visible { outline: 2px solid var(--cyan); outline-offset: 3px; }
+.label {
+  font: 500 12px/1 var(--mono);
+  letter-spacing: .14em;
+  text-transform: uppercase;
+  color: var(--cyan);
+}
+
+/* Top bar */
+.top { display: flex; align-items: center; justify-content: space-between; padding-top: 18px; padding-bottom: 6px; }
+.brand { display: flex; align-items: center; gap: 10px; font-weight: 800; font-size: 18px; letter-spacing: -.01em; text-decoration: none; }
+.brand i {
+  width: 22px; height: 15px; border-radius: 4px;
+  background: var(--cyan);
+  box-shadow: 0 0 18px rgba(56, 189, 248, .7);
+}
+.top .by { font: 400 12px/1 var(--mono); color: var(--dim); text-decoration: none; }
+.top .by b { color: var(--soft); font-weight: 500; }
+
+/* Join */
+.join { text-align: center; padding: 44px 0 40px; }
+.join h1 { font-size: 44px; line-height: 1.02; letter-spacing: -.035em; font-weight: 800; margin: 14px 0 22px; }
+.pin-form { display: flex; flex-direction: column; align-items: center; gap: 14px; }
+.pin { display: flex; gap: 10px; }
+.pin input {
+  width: 64px; height: 78px;
+  border-radius: 14px;
+  border: 1.5px solid var(--line-strong);
+  background: rgba(8, 14, 32, .85);
+  color: var(--ink);
+  font: 500 38px/1 var(--mono);
+  text-align: center;
+  caret-color: var(--cyan);
+}
+.pin input::placeholder { color: #36426a; }
+.pin input:first-child:placeholder-shown,
+.pin input:focus {
+  outline: none;
+  border-color: var(--cyan);
+  box-shadow: 0 0 0 4px rgba(56, 189, 248, .16), 0 0 34px rgba(56, 189, 248, .28);
+}
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  min-height: 48px; padding: 0 20px;
+  border-radius: 12px;
+  border: 1.5px solid var(--line-strong);
+  background: rgba(18, 28, 58, .8);
+  font-weight: 700; font-size: 16px;
+  text-decoration: none;
+  white-space: nowrap;
+}
+.btn.primary { background: var(--cyan); border-color: var(--cyan); color: #04111f; }
+.btn.join-btn { width: 286px; min-height: 54px; font-size: 18px; }
+.btn[disabled] { background: transparent; border-color: var(--line-strong); border-style: dashed; color: var(--dim); cursor: not-allowed; }
+.join .hint { color: var(--soft); font-size: 15px; margin: 18px auto 0; max-width: 34em; }
+.join .hint span { display: block; text-wrap: balance; }
+.join .hint b { color: var(--ink); font-weight: 600; }
+
+/* Rooms are full */
+.full-note {
+  display: none;
+  margin: 26px auto 0; max-width: 560px;
+  text-align: left;
+  gap: 14px; align-items: flex-start;
+  padding: 14px 16px;
+  border-radius: 14px;
+  border: 1.5px solid rgba(251, 191, 36, .55);
+  background: rgba(40, 28, 4, .7);
+}
+body[data-state="full"] .full-note { display: flex; }
+.full-note svg { flex: none; width: 26px; height: 26px; color: var(--amber); margin-top: 2px; }
+.full-note strong { display: block; font-size: 17px; line-height: 1.3; color: #ffe7a6; }
+.full-note span { display: block; color: #d9c690; font-size: 14.5px; margin-top: 4px; }
+
+/* Shelf heading and filter */
+.shelf-head { display: grid; gap: 14px; margin-bottom: 18px; }
+.shelf-head h2 { font-size: 26px; letter-spacing: -.02em; margin: 6px 0 0; }
+.filter { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.filter-q { font-size: 14px; color: var(--soft); margin: 0 0 8px; }
+.filter button {
+  display: flex; flex-direction: column; align-items: center; gap: 7px;
+  padding: 11px 6px 10px;
+  border-radius: 12px;
+  border: 1.5px solid var(--line);
+  background: var(--panel);
+  font-weight: 600; font-size: 14px; line-height: 1.2;
+  color: var(--soft);
+}
+.filter svg { width: 42px; height: 28px; }
+.filter button[aria-pressed="true"] { color: var(--ink); border-color: currentColor; background: var(--panel-2); }
+.filter button[data-filter="solo"] svg, .filter button[data-filter="solo"][aria-pressed="true"] { color: var(--cyan); }
+.filter button[data-filter="phones"] svg, .filter button[data-filter="phones"][aria-pressed="true"] { color: var(--violet); }
+.filter button[data-filter="screen"] svg, .filter button[data-filter="screen"][aria-pressed="true"] { color: var(--amber); }
+.filter button[aria-pressed="true"] span { color: var(--ink); }
+
+/* Cards */
+.shelf { display: grid; gap: 16px; grid-template-columns: 1fr; }
+.card {
+  display: flex; flex-direction: column;
+  border-radius: 20px;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  overflow: hidden;
+}
+.stage {
+  position: relative;
+  height: 232px;
+  display: flex; align-items: center; justify-content: center; gap: 14px;
+  background: #070c1b;
+  border-bottom: 1px solid var(--line);
+  overflow: hidden;
+  isolation: isolate;
+}
+/* The light a lit screen throws on the room. */
+.stage .spill {
+  position: absolute; left: -110px; top: -110px;
+  width: calc(100% + 220px); height: calc(100% + 220px);
+  object-fit: cover;
+  filter: blur(46px) saturate(1.25);
+  opacity: .42;
+  z-index: -1;
+}
+.stage.off { background: radial-gradient(ellipse 70% 60% at 50% 46%, color-mix(in srgb, var(--tone) 13%, #070c1b), #070c1b 75%); }
+.scr { position: relative; overflow: hidden; background: #050814; }
+.scr img { display: block; width: 100%; height: 100%; object-fit: cover; object-position: center top; }
+.laptop { position: relative; height: 68%; aspect-ratio: 16 / 9; margin-bottom: 8px; }
+.laptop .scr { height: 100%; border: 5px solid var(--bezel); border-radius: 10px 10px 0 0; }
+.laptop::after { content: ""; position: absolute; left: -7%; right: -7%; top: 100%; height: 8px; background: linear-gradient(#2a376a, #19224a); border-radius: 2px 2px 12px 12px; }
+.tv { position: relative; height: 54%; aspect-ratio: 16 / 9; margin-bottom: 10px; }
+.tv .scr { height: 100%; border: 4px solid var(--bezel); border-radius: 7px; }
+.tv::after { content: ""; position: absolute; left: 33%; right: 33%; top: calc(100% + 5px); height: 5px; background: var(--bezel); border-radius: 3px; }
+.phone { height: 80%; flex: none; aspect-ratio: 9 / 18.5; border: 3.5px solid var(--bezel); border-radius: 15px; }
+.lit { box-shadow: 0 10px 40px rgba(0, 0, 0, .55); }
+/* Cork & Bell: a laptop with a phone in front of it. */
+.duo { position: relative; height: 100%; display: flex; align-items: center; justify-content: center; padding-right: 9%; }
+.duo .phone { position: absolute; right: 0; bottom: 9%; height: 66%; }
+/* Big-screen games: the screen above, the phones in a row below. */
+.living { height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; }
+.living .hands { height: 24%; display: flex; gap: 12px; }
+.living .phone { height: 100%; border-width: 2.5px; border-radius: 7px; }
+/* A screen on standby: dark glass, the title glowing faintly, one small light. */
+.off .scr {
+  background: linear-gradient(155deg, color-mix(in srgb, var(--tone) 16%, #0b1126), #080d1e 62%);
+  display: flex; align-items: center; justify-content: center;
+}
+.off .scr::before {
+  content: ""; position: absolute; inset: 0;
+  background: linear-gradient(115deg, rgba(255, 255, 255, .05) 0 22%, transparent 22.3%);
+}
+.off .title {
+  font: 700 22px/1 "Fraunces", Georgia, serif;
+  color: color-mix(in srgb, var(--tone) 78%, #fff);
+  opacity: .9;
+  text-shadow: 0 0 22px color-mix(in srgb, var(--tone) 70%, transparent);
+  white-space: nowrap;
+}
+.off .phone .scr, .off .phone { display: flex; align-items: center; justify-content: center; }
+.off .phone { background: linear-gradient(155deg, color-mix(in srgb, var(--tone) 14%, #0b1126), #080d1e 62%); position: relative; }
+.off .phone b { width: 34%; aspect-ratio: 1; border-radius: 50%; background: var(--seat); opacity: .8; box-shadow: 0 0 12px var(--seat); }
+.stage.off > .phone { height: 68%; }
+.standby { position: absolute; right: 7px; bottom: 6px; width: 5px; height: 5px; border-radius: 50%; background: var(--amber); box-shadow: 0 0 8px var(--amber); }
+
+.info { display: flex; flex-direction: column; gap: 12px; padding: 16px 16px 18px; flex: 1; }
+.name-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.card h3 { font-size: 23px; line-height: 1.15; letter-spacing: -.02em; margin: 0; }
+.status { display: inline-flex; align-items: center; gap: 7px; font: 500 11.5px/1 var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--soft); white-space: nowrap; }
+.status::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--amber); }
+.status.open { color: var(--green); }
+.status.open::before { background: var(--green); box-shadow: 0 0 10px var(--green); }
+.what { margin: 0; color: var(--soft); font-size: 15.5px; }
+
+/* The "what you need" badge: a picture of the screens, a colour, two lines of words. */
+.need {
+  display: flex; align-items: center; gap: 12px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  color: var(--k);
+  border: 1.5px solid color-mix(in srgb, var(--k) 45%, transparent);
+  background: color-mix(in srgb, var(--k) 9%, transparent);
+}
+.need svg { flex: none; width: 54px; height: 36px; }
+.need strong { display: block; font-size: 16.5px; line-height: 1.2; font-weight: 700; color: var(--ink); }
+.need span { display: block; font-size: 13.5px; line-height: 1.3; color: var(--k); margin-top: 2px; }
+.need.any { --k: var(--cyan); }
+.need.phones { --k: var(--violet); }
+.need.screen { --k: var(--amber); }
+
+.actions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: auto; }
+.actions.one { grid-template-columns: 1fr; }
+.btn .when-full { display: none; }
+body[data-state="full"] [data-room] .when-open { display: none; }
+body[data-state="full"] [data-room] .when-full { display: inline; }
+.later { margin: auto 0 0; font: 400 12.5px/1.5 var(--mono); color: var(--dim); border-top: 1px dashed var(--line); padding-top: 12px; }
+
+.why { margin: 34px 0 0; padding: 18px 0 0; border-top: 1px solid var(--line); color: var(--dim); font-size: 14px; max-width: 62em; }
+.why b { color: var(--soft); font-weight: 600; }
+footer { margin-top: 44px; padding: 0 0 90px; color: var(--dim); font: 400 12px/1.6 var(--mono); }
+
+/* The big-screen room step */
+.sheet-back { display: none; position: fixed; inset: 0; z-index: 20; background: rgba(2, 4, 12, .78); overflow-y: auto; }
+body[data-state="screen"] .sheet-back { display: block; }
+.sheet {
+  margin: 20px auto; width: min(940px, calc(100% - 20px));
+  background: var(--panel);
+  border: 1px solid var(--line-strong);
+  border-radius: 22px;
+  padding: 20px 18px 22px;
+  box-shadow: 0 30px 90px rgba(0, 0, 0, .6);
+}
+.sheet-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.sheet h2 { font-size: 25px; letter-spacing: -.02em; line-height: 1.15; margin: 10px 0 0; }
+.x { width: 44px; height: 44px; flex: none; border-radius: 12px; border: 1.5px solid var(--line); background: none; font-size: 22px; line-height: 1; color: var(--soft); }
+.choice { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 18px 0 20px; }
+.choice button {
+  display: flex; align-items: center; gap: 10px; text-align: left;
+  padding: 10px 12px; border-radius: 12px;
+  border: 1.5px solid var(--line); background: none;
+  color: var(--soft); font-weight: 600; font-size: 14.5px; line-height: 1.25;
+}
+.choice svg { width: 42px; height: 28px; flex: none; }
+.choice button[aria-pressed="true"] { border-color: var(--amber); color: var(--ink); background: rgba(251, 191, 36, .08); }
+.choice button[aria-pressed="true"] svg { color: var(--amber); }
+.sheet-grid { display: grid; gap: 20px; }
+.steps { list-style: none; margin: 0; padding: 0; display: grid; gap: 16px; counter-reset: s; }
+.steps li { display: grid; grid-template-columns: 38px 1fr; gap: 12px; counter-increment: s; }
+.steps li::before {
+  content: counter(s);
+  width: 38px; height: 38px; border-radius: 50%;
+  display: grid; place-items: center;
+  font: 500 16px/1 var(--mono);
+  color: var(--amber); border: 1.5px solid rgba(251, 191, 36, .55);
+}
+.steps strong { display: block; font-size: 17px; line-height: 1.3; }
+.steps span { display: block; color: var(--soft); font-size: 15px; margin-top: 3px; }
+.addr { display: inline-block; margin-top: 8px; padding: 7px 11px; border-radius: 9px; background: #060a16; border: 1px solid var(--line-strong); font: 500 15px/1.2 var(--mono); color: var(--ink); }
+.show { position: relative; border-radius: 16px; background: #070c1b; border: 1px solid var(--line); padding: 18px 14px 14px; overflow: hidden; isolation: isolate; }
+.show .spill { position: absolute; left: -110px; top: -110px; width: calc(100% + 220px); height: calc(100% + 220px); object-fit: cover; filter: blur(46px); opacity: .35; z-index: -1; }
+.show .cap { text-align: center; font: 400 12px/1.4 var(--mono); color: var(--soft); margin: 0 0 12px; }
+.show .set { position: relative; display: flex; justify-content: center; padding-right: 12%; }
+.show .tv { height: auto; width: 86%; }
+.show .phone { position: absolute; right: 0; bottom: -4px; height: 92%; }
+.seats { display: flex; justify-content: center; gap: 14px; margin: 16px 0 0; padding: 0; list-style: none; }
+.seats li { display: grid; justify-items: center; gap: 5px; font: 400 11.5px/1 var(--mono); color: var(--soft); }
+/* Seats are plain discs in the seat colour. Lobby characters are swappable skins that plug in here later; the page does not depend on any of them. */
+.seat { width: 30px; height: 30px; border-radius: 50%; background: var(--seat); box-shadow: 0 0 14px color-mix(in srgb, var(--seat) 55%, transparent); }
+.sheet-actions { display: grid; gap: 10px; margin-top: 20px; }
+.sheet-note { color: var(--dim); font-size: 13.5px; margin: 12px 0 0; }
+.on-wide { display: none; }
+
+/* The preview strip belongs to the mockup, not to the design. */
+.strip {
+  position: fixed; left: 50%; bottom: 10px; transform: translateX(-50%); z-index: 40;
+  display: flex; align-items: center; gap: 4px;
+  padding: 5px; border-radius: 999px;
+  background: #f4f6fb; color: #0b1020;
+  font: 500 11.5px/1 var(--mono);
+  box-shadow: 0 8px 30px rgba(0, 0, 0, .5);
+  white-space: nowrap;
+}
+.strip em { font-style: normal; padding: 0 6px 0 8px; opacity: .6; }
+.strip button { border: 0; background: none; color: inherit; padding: 8px 10px; border-radius: 999px; font: inherit; }
+.strip button[aria-pressed="true"] { background: #0b1020; color: #fff; }
+body[data-strip="off"] .strip { display: none; }
+[hidden] { display: none !important; }
+
+@media (min-width: 700px) {
+  .wrap { padding: 0 32px; }
+  .top { padding-top: 24px; }
+  .join { padding: 46px 0 52px; }
+  .join h1 { font-size: 68px; margin: 16px 0 28px; }
+  .pin-form { flex-direction: row; justify-content: center; }
+  .pin input { width: 76px; height: 92px; font-size: 46px; }
+  .btn.join-btn { width: auto; min-height: 92px; padding: 0 34px; font-size: 22px; border-radius: 14px; }
+  .shelf-head { grid-template-columns: 1fr auto; align-items: end; }
+  .filter-wrap { display: flex; align-items: center; gap: 14px; }
+  .filter-q { margin: 0; }
+  .filter { display: flex; }
+  .filter button { flex-direction: row; padding: 9px 14px 9px 10px; font-size: 15px; }
+  .shelf { grid-template-columns: repeat(12, 1fr); gap: 20px; }
+  .card { grid-column: span 6; }
+  .stage { height: 290px; gap: 22px; }
+  .off .title { font-size: 26px; }
+  .sheet { margin: 6vh auto; padding: 28px 30px 30px; }
+  .sheet h2 { font-size: 30px; }
+  .choice { max-width: 560px; }
+  .sheet-grid { grid-template-columns: 1fr 1.05fr; align-items: start; gap: 30px; }
+  .sheet-actions { grid-template-columns: auto auto; justify-content: start; }
+  .on-wide { display: inline; }
+  .on-narrow { display: none; }
+}
+@media (min-width: 1040px) {
+  .card { grid-column: span 4; }
+  body[data-filter="all"] .card.wide { grid-column: span 7; }
+  body[data-filter="all"] .card.mid { grid-column: span 5; }
+  body[data-filter="all"] .card.wide .stage, body[data-filter="all"] .card.mid .stage { height: 330px; }
+  body[data-filter="all"] .card.wide .info { display: grid; grid-template-columns: 1fr 1fr; grid-template-areas: "name need" "what need" "actions actions"; column-gap: 24px; align-items: start; }
+  body[data-filter="all"] .card.wide .name-row { grid-area: name; }
+  body[data-filter="all"] .card.wide .what { grid-area: what; }
+  body[data-filter="all"] .card.wide .need { grid-area: need; align-self: stretch; }
+  body[data-filter="all"] .card.wide .actions { grid-area: actions; margin-top: 6px; }
+}
+</style>
+</head>
+<body>
+
+<!-- The three "what you need" pictures. currentColor draws the frames; the lit glass is the same colour, fainter. -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="need-any" viewBox="0 0 54 36" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round">
+    <rect x="3" y="8" width="12" height="23" rx="3" fill="currentColor" fill-opacity=".28"/>
+    <rect x="23" y="7" width="26" height="18" rx="2.5" fill="currentColor" fill-opacity=".28"/>
+    <path d="M19 30h34"/>
+  </symbol>
+  <symbol id="need-phones" viewBox="0 0 54 36" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round">
+    <rect x="5" y="7" width="12" height="23" rx="3" fill="currentColor" fill-opacity=".28"/>
+    <rect x="21" y="7" width="12" height="23" rx="3" fill="currentColor" fill-opacity=".28"/>
+    <rect x="37" y="7" width="12" height="23" rx="3" fill="currentColor" fill-opacity=".28"/>
+  </symbol>
+  <symbol id="need-screen" viewBox="0 0 54 36" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round">
+    <rect x="9" y="2" width="36" height="19" rx="2.5" fill="currentColor" fill-opacity=".28"/>
+    <rect x="13" y="25" width="6" height="10" rx="1.8" fill="currentColor" fill-opacity=".28" stroke-width="1.8"/>
+    <rect x="24" y="25" width="6" height="10" rx="1.8" fill="currentColor" fill-opacity=".28" stroke-width="1.8"/>
+    <rect x="35" y="25" width="6" height="10" rx="1.8" fill="currentColor" fill-opacity=".28" stroke-width="1.8"/>
+  </symbol>
+  <symbol id="need-one" viewBox="0 0 54 36" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round">
+    <rect x="21" y="6" width="12" height="24" rx="3" fill="currentColor" fill-opacity=".28"/>
+  </symbol>
+</svg>
+
+<header class="wrap top">
+  <a class="brand" href="#"><i></i><span data-site-name>n8 Party</span></a>
+  <a class="by" href="https://n8builds.dev">from the <b>n8builds.dev</b> workshop</a>
+</header>
+
+<main class="wrap">
+  <section class="join" aria-labelledby="join-h">
+    <div class="label">Join a room</div>
+    <h1 id="join-h">Got a PIN?</h1>
+    <form class="pin-form" onsubmit="return false">
+      <div class="pin" role="group" aria-label="Room PIN, four digits">
+        <input inputmode="numeric" maxlength="1" placeholder="0" aria-label="Digit 1">
+        <input inputmode="numeric" maxlength="1" placeholder="0" aria-label="Digit 2">
+        <input inputmode="numeric" maxlength="1" placeholder="0" aria-label="Digit 3">
+        <input inputmode="numeric" maxlength="1" placeholder="0" aria-label="Digit 4">
+      </div>
+      <button class="btn primary join-btn">Join</button>
+    </form>
+    <p class="hint"><span>Scanned the code on the host's screen? <b>The PIN fills itself in.</b></span><span>No PIN yet? Pick a game and get your friends in.</span></p>
+
+    <div class="full-note" role="status">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9.5"/><path d="M12 6.5V12l3.5 2.2"/></svg>
+      <div>
+        <strong>Battles are full for today. Solo play still works.</strong>
+        <span>New rooms open again in 5 h 12 min. A room that is already open can finish its round.</span>
+      </div>
+    </div>
+  </section>
+
+  <section aria-labelledby="games-h">
+    <div class="shelf-head">
+      <div>
+        <div class="label">Play together</div>
+        <h2 id="games-h">Pick a game</h2>
+      </div>
+      <div class="filter-wrap">
+        <p class="filter-q">What have you got?</p>
+        <div class="filter" role="group" aria-label="Filter games by what you have">
+          <button data-filter="solo"><svg aria-hidden="true"><use href="#need-one"/></svg><span>Just me</span></button>
+          <button data-filter="phones"><svg aria-hidden="true"><use href="#need-phones"/></svg><span>Phones only</span></button>
+          <button data-filter="screen"><svg aria-hidden="true"><use href="#need-screen"/></svg><span>A big screen</span></button>
+        </div>
+      </div>
+    </div>
+
+    <div class="shelf">
+
+      <article class="card wide" data-fits="solo phones screen">
+        <div class="stage">
+          <img class="spill" src="assets/cork-stall.jpg" alt="">
+          <div class="duo">
+            <div class="laptop lit"><div class="scr"><img src="assets/cork-stall.jpg" alt="Cork &amp; Bell on a laptop: a fairground shooting stall with teapots, stars and a brass bell"></div></div>
+            <div class="phone scr lit"><img src="assets/cork-phone.jpg" alt="The same stall on a phone"></div>
+          </div>
+        </div>
+        <div class="info">
+          <div class="name-row"><h3>Cork &amp; Bell</h3><span class="status open">Open now</span></div>
+          <p class="what">Pop corks at a 1930s fairground stall. Hit three in a row and you jam a friend's targets.</p>
+          <div class="need any">
+            <svg aria-hidden="true"><use href="#need-any"/></svg>
+            <div><strong>Any device</strong><span>Solo or 2 to 4 players. A big screen is optional.</span></div>
+          </div>
+          <div class="actions">
+            <a class="btn" href="#">Play solo</a>
+            <button class="btn primary" data-room><span class="when-open">Start a room</span><span class="when-full">Rooms full today</span></button>
+          </div>
+        </div>
+      </article>
+
+      <article class="card mid" data-fits="phones">
+        <div class="stage">
+          <img class="spill" src="assets/whoami-ask.jpg" alt="" style="opacity:.2">
+          <div class="phone scr lit"><img src="assets/whoami-ask.jpg" alt="Who Am I? on one phone: the player asks yes or no questions"></div>
+          <div class="phone scr lit" style="margin-top:8%"><img src="assets/whoami-answer.jpg" alt="Who Am I? on the other phone: answer as Angelina Jolie"></div>
+        </div>
+        <div class="info">
+          <div class="name-row"><h3>Who Am I?</h3><span class="status">Moving in</span></div>
+          <p class="what">Your friend can see who you are. You can't. Ask yes or no questions until you get it.</p>
+          <div class="need phones">
+            <svg aria-hidden="true"><use href="#need-phones"/></svg>
+            <div><strong>A phone each</strong><span>2 players</span></div>
+          </div>
+          <div class="actions one">
+            <a class="btn" href="https://whoami.n8builds.dev">Play it at whoami.n8builds.dev</a>
+          </div>
+        </div>
+      </article>
+
+      <article class="card" data-fits="screen" style="--tone:#ef7a62">
+        <div class="stage off">
+          <div class="living">
+            <div class="tv"><div class="scr"><span class="title">Tin Derby</span><i class="standby"></i></div></div>
+            <div class="hands">
+              <div class="phone" style="--seat:#e5484d"><b></b></div>
+              <div class="phone" style="--seat:#3b82c4"><b></b></div>
+              <div class="phone" style="--seat:#e3a72f"><b></b></div>
+              <div class="phone" style="--seat:#3f9d5a"><b></b></div>
+            </div>
+          </div>
+        </div>
+        <div class="info">
+          <div class="name-row"><h3>Tin Derby</h3><span class="status">Coming</span></div>
+          <p class="what">Your phone is the wind-up key. Hold to wind, let go, and race tin toys across the kitchen table.</p>
+          <div class="need screen">
+            <svg aria-hidden="true"><use href="#need-screen"/></svg>
+            <div><strong>Phones + a big screen</strong><span>2 to 4 players</span></div>
+          </div>
+          <p class="later">Still on the workbench. Not playable yet.</p>
+        </div>
+      </article>
+
+      <article class="card" data-fits="screen" style="--tone:#8ccf84">
+        <div class="stage off">
+          <div class="living">
+            <div class="tv"><div class="scr"><span class="title">Fox Trouble</span><i class="standby"></i></div></div>
+            <div class="hands">
+              <div class="phone" style="--seat:#e5484d"><b></b></div>
+              <div class="phone" style="--seat:#3b82c4"><b></b></div>
+              <div class="phone" style="--seat:#e3a72f"><b></b></div>
+              <div class="phone" style="--seat:#3f9d5a"><b></b></div>
+            </div>
+          </div>
+        </div>
+        <div class="info">
+          <div class="name-row"><h3>Fox Trouble</h3><span class="status">Coming</span></div>
+          <p class="what">Puzzle rooms that need everyone. Hold the lever for your friends, or throw them in the pond.</p>
+          <div class="need screen">
+            <svg aria-hidden="true"><use href="#need-screen"/></svg>
+            <div><strong>Phones + a big screen</strong><span>2 to 4 players</span></div>
+          </div>
+          <p class="later">Still on the workbench. Not playable yet.</p>
+        </div>
+      </article>
+
+      <article class="card" data-fits="phones" style="--tone:#7da6f7">
+        <div class="stage off">
+          <div class="phone scr"><span class="title" style="font-size:19px">Flood</span><i class="standby"></i></div>
+          <div class="phone scr" style="margin-top:8%"><span class="title" style="font-size:19px">Flood</span><i class="standby"></i></div>
+          <div class="phone scr"><span class="title" style="font-size:19px">Flood</span><i class="standby"></i></div>
+        </div>
+        <div class="info">
+          <div class="name-row"><h3>Flood</h3><span class="status">Coming</span></div>
+          <p class="what">Turn painted tiles to run your river to the sea before the water rises. Finish one and your friends get rocks.</p>
+          <div class="need phones">
+            <svg aria-hidden="true"><use href="#need-phones"/></svg>
+            <div><strong>A phone each</strong><span>2 to 4 players</span></div>
+          </div>
+          <p class="later">Still on the workbench. Not playable yet.</p>
+        </div>
+      </article>
+
+    </div>
+
+    <p class="why"><b>Why rooms can fill up.</b> One person runs this site and pays for it. Rooms you play in together cost a little to host, so there is a daily limit that keeps everything free. Solo play runs on your own device and never fills up.</p>
+  </section>
+</main>
+
+<footer class="wrap">
+  <span data-site-name>n8 Party</span> · no accounts, no ads, no app · built in the n8builds.dev workshop
+</footer>
+
+<!-- The room step for a game with a big screen. Big-screen-only games open straight on these steps. -->
+<div class="sheet-back">
+  <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="sheet-h">
+    <div class="sheet-top">
+      <div>
+        <div class="label">Start a room</div>
+        <h2 id="sheet-h">Cork &amp; Bell, on a big screen</h2>
+      </div>
+      <button class="x" data-close-sheet aria-label="Close">&times;</button>
+    </div>
+    <div class="choice" role="group" aria-label="How you will play">
+      <button aria-pressed="false"><svg aria-hidden="true"><use href="#need-phones"/></svg><span>Each on their own device</span></button>
+      <button aria-pressed="true"><svg aria-hidden="true"><use href="#need-screen"/></svg><span>Phones + a big screen</span></button>
+    </div>
+    <div class="sheet-grid">
+      <ol class="steps">
+        <li><div><strong>Open this page on the big screen.</strong><span>A laptop, a tablet or a TV with a browser. Type this address:</span><span class="addr" data-site-address>games.n8builds.dev</span></div></li>
+        <li><div><strong>Press "Start a room" there.</strong><span>The big screen shows a PIN and a code to scan. It shows every stall once you start.</span></div></li>
+        <li><div><strong>Everyone scans it with their phone.</strong><span>Phones are the controllers. Nothing to install.</span></div></li>
+      </ol>
+      <div class="show">
+        <img class="spill" src="assets/cork-lobby-screen.jpg" alt="">
+        <p class="cap">What you will see</p>
+        <div class="set">
+          <div class="tv lit"><div class="scr"><img src="assets/cork-lobby-screen.jpg" alt="The big screen showing PIN 6894, a QR code and four ready players"></div></div>
+          <div class="phone scr lit"><img src="assets/cork-lobby-phone.jpg" alt="A phone that has joined the room"></div>
+        </div>
+        <ul class="seats" aria-label="Players in the room">
+          <li><i class="seat" style="--seat:#e5484d"></i>Ann</li>
+          <li><i class="seat" style="--seat:#3b82c4"></i>Bo</li>
+          <li><i class="seat" style="--seat:#e3a72f"></i>Cy</li>
+          <li><i class="seat" style="--seat:#3f9d5a"></i>Di</li>
+        </ul>
+      </div>
+    </div>
+    <div class="sheet-actions">
+      <button class="btn primary"><span class="on-wide">This is the big screen. Show the PIN here</span><span class="on-narrow">Copy the address for the big screen</span></button>
+      <button class="btn"><span class="on-wide">I'm on my phone. Send me the address</span><span class="on-narrow">This is the big screen</span></button>
+    </div>
+    <p class="sheet-note">No big screen after all? Choose "Everyone on their own device" and each phone shows the whole game.</p>
+  </div>
+</div>
+
+<div class="strip" aria-label="Mockup preview states">
+  <em>Preview</em>
+  <button data-set-state="normal">Normal</button>
+  <button data-set-state="full">Rooms full</button>
+  <button data-set-state="screen">Big screen</button>
+</div>
+
+<script src="mock.js"></script>
+</body>
+</html>
