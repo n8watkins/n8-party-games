@@ -85,7 +85,9 @@ export function createPartyRoom(game) {
       const token = url.searchParams.get("token") ?? "";
       const who = this.core ? this.core.connect(token, Date.now()) : null;
       if (!who) {
-        server.accept();
+        // Refused through the Hibernation API too: a socket accepted the standard way (accept())
+        // keeps the room from sleeping for as long as it lives.
+        this.ctx.acceptWebSocket(server);
         server.close(CLOSE_BAD_TOKEN, "bad_token");
         return new Response(null, { status: 101, webSocket: client });
       }
