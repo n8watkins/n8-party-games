@@ -15,7 +15,7 @@ const CHROME = "/mnt/c/Program Files/Google/Chrome/Application/chrome.exe";
 
 export async function openBrowser({ win = false, width = 1920, height = 1080, port = 9300 + Math.floor(Math.random() * 600), uncapped = false } = {}) {
   if (!win) {
-    const browser = await chromium.launch({ headless: true, args: ["--use-angle=swiftshader", "--enable-unsafe-swiftshader"] });
+    const browser = await chromium.launch({ headless: true, args: ["--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--mute-audio"] });
     return {
       browser,
       newContext: (opts = {}) => browser.newContext({ viewport: { width, height }, deviceScaleFactor: 1, ...opts }),
@@ -38,6 +38,7 @@ export async function openBrowser({ win = false, width = 1920, height = 1080, po
       "--window-size=" + width + "," + height,
       "--force-device-scale-factor=1",
       "--autoplay-policy=no-user-gesture-required",
+      "--mute-audio", // the playtest presses "Enable sound"; nobody should hear a test browser
       ...(uncapped ? ["--disable-gpu-vsync", "--disable-frame-rate-limit"] : []),
       "about:blank",
     ],
