@@ -2,7 +2,8 @@
 // that it sits in the baked light (matching environment, one soft key light with shadows).
 // A StallView reads a StallSim at a given round time and reacts to its events.
 import * as THREE from "three";
-import { BACK, BELL, BULBS, CAMERA, CHAIN, CHALK_BOARD, COUNTER, DRIVE, HALF_W, JAM, KEY_LIGHT, PENDULUMS, PLATES, ROWS, SCORE_WINDOW, SHUTTER, STEPS, TRAY, gunMuzzle, muzzle } from "../shared/layout.js";
+import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
+import { BACK, BELL, BULBS, CAMERA, CHAIN, CHALK_BOARD, COUNTER, DRIVE, HALF_W, JAM, KEY_LIGHT, PENDULUMS, PLATES, ROWS, SCORE_WINDOW, SHUTTER, STEPS, TRAY, muzzle } from "../shared/layout.js";
 import { BELL_FULL, COCK_SECONDS, CORK_R, camLift, chainStar, mech, pendulumAngle, shutterOpen } from "../shared/sim.js";
 import { chalkTexture, contactTexture, disc, groundTexture, paintBelt, paintCork, paintMoon, paintReel, paintSheet, paintStar, paintTeapot, paintWood, plateGeometry, star, TEAPOT } from "./paint.js";
 import { makeFarLights, makeSky } from "./render.js";
@@ -11,6 +12,18 @@ const LIGHT_RANGE = 4.0;
 const WARM = new THREE.Color(1.0, 0.56, 0.24);
 const TEAPOT_COLOURS = ["#a8261c", "#1f5f86", "#d8c08a", "#2f6b46", "#b8741c"];
 export const PRIZE_SCORES = [400, 1000, 1800, 2800, 4000];
+
+/** The gun, in metres back from its muzzle: where the fore-end, the spring tube and the stock begin. */
+const GUN = { foreEnd: 0.2, tube: 0.35, stock: 0.45, length: 0.68 };
+/**
+ * How the gun is held, on a wide screen and on an upright one: the muzzle for an aim at the
+ * middle, how far it follows the aim, the barrel's turn inwards and upwards at rest (radians),
+ * and how much of the aim's swing the barrel takes up.
+ */
+const GUN_HOLD = {
+  wide: { muzzle: [0.3, 1.09, -0.6], follow: [0.2, 0.14], turn: [0.3, 0.03], gain: [0.25, 0.2] },
+  tall: { muzzle: [0.1, 1.2, -0.4], follow: [0.1, 0.14], turn: [0.1, 0], gain: [0.2, 0.2] },
+};
 
 const SET_VERT = /* glsl */ `
 varying vec2 vUv;
@@ -161,6 +174,7 @@ export class StallView {
     this.camera = new THREE.PerspectiveCamera(CAMERA.fov, 16 / 9, 0.08, 120);
     this.camera.position.set(...CAMERA.pos);
     this.viewName = "player";
+    this.tall = 0; // 0 on a wide screen, 1 on an upright one (set with the camera)
     this.bulbLevel = 1;
     this.flicker = 1;
     this.chaseUntil = -10;
@@ -547,36 +561,78 @@ export class StallView {
     const g = new THREE.Group();
     this.gunGroup = g;
     this.scene.add(g);
-    // Built along -z: the muzzle is at the origin, the stock runs back towards the player.
-    const barrel = this.mesh(new THREE.CylinderGeometry(0.0125, 0.0135, 0.3, 20), A.brass, g);
-    barrel.rotation.x = Math.PI / 2;
-    barrel.position.z = 0.15;
-    const lip = this.mesh(new THREE.TorusGeometry(0.014, 0.004, 8, 20), A.brass, g);
-    const band = this.mesh(new THREE.CylinderGeometry(0.017, 0.017, 0.025, 20), A.brassDull, g);
-    band.rotation.x = Math.PI / 2;
-    band.position.z = 0.2;
-    const sight = this.mesh(new THREE.SphereGeometry(0.004, 8, 6), A.brass, g);
-    sight.position.set(0, 0.016, 0.02);
-    // The turned wood fore-end and stock.
-    const pts = [[0.0, 0], [0.019, 0], [0.024, 0.04], [0.026, 0.16], [0.022, 0.21], [0.027, 0.26], [0.031, 0.34], [0.03, 0.48], [0.036, 0.6], [0.04, 0.68], [0.03, 0.7], [0, 0.7]].map(([r, y]) => new THREE.Vector2(r, y));
-    const stock = this.mesh(new THREE.LatheGeometry(pts, 24), A.wood, g);
-    stock.rotation.x = Math.PI / 2;
-    stock.position.set(0, -0.012, 0.2);
-    stock.scale.set(1, 1, 1.25);
-    const guard = this.mesh(new THREE.TorusGeometry(0.03, 0.004, 8, 20, Math.PI), A.brass, g);
-    guard.rotation.set(0, Math.PI / 2, Math.PI);
-    guard.position.set(0, -0.05, 0.5);
-    // The cocking lever, hinged under the breech.
+    // A pop-gun two thirds of a metre long, built along +z: the muzzle is at the origin and the
+    // stock runs back towards the player. From the muzzle: brass barrel, turned fore-end, the brass
+    // spring tube with its cocking lever, turned stock with a brass butt plate. The parts of one
+    // material are joined, so the whole gun is a handful of draws.
+    const bins = new Map();
+    const part = (geo, mat, place, bin = g) => {
+      const o = new THREE.Object3D();
+      place?.(o);
+      o.updateMatrix();
+      geo.applyMatrix4(o.matrix);
+      if (!bins.has(bin)) bins.set(bin, new Map());
+      const byMat = bins.get(bin);
+      if (!byMat.has(mat)) byMat.set(mat, []);
+      byMat.get(mat).push(geo);
+    };
+    const along = (z, sx = 1, sy = 1) => (o) => {
+      o.rotation.x = Math.PI / 2;
+      o.position.z = z;
+      o.scale.set(sx, 1, sy); // before the turn: x stays across, z becomes the gun's depth
+    };
+    const tube = (r0, r1, z0, z1, mat, sx, sy) => part(new THREE.CylinderGeometry(r1, r0, z1 - z0, 24), mat, along((z0 + z1) / 2, sx, sy));
+    const turned = (profile, z, mat, sx, sy) => part(new THREE.LatheGeometry(profile.map(([r, y]) => new THREE.Vector2(r, y)), 28), mat, along(z, sx, sy));
+    tube(0.0125, 0.0135, 0, GUN.foreEnd + 0.02, A.brass);
+    part(new THREE.TorusGeometry(0.014, 0.0035, 8, 24), A.brass);
+    part(new THREE.SphereGeometry(0.004, 8, 6), A.brass, (o) => o.position.set(0, 0.016, 0.018));
+    tube(0.017, 0.017, GUN.foreEnd - 0.012, GUN.foreEnd + 0.01, A.brassDull);
+    const fore = GUN.tube - GUN.foreEnd;
+    turned([[0, 0], [0.0165, 0], [0.0215, fore * 0.2], [0.0235, fore * 0.6], [0.0215, fore * 0.92], [0.0225, fore], [0, fore]], GUN.foreEnd, A.wood);
+    // The spring tube, rubbed bright, between two dull collars.
+    tube(0.023, 0.023, GUN.tube, GUN.stock, A.brass);
+    tube(0.026, 0.026, GUN.tube - 0.004, GUN.tube + 0.01, A.brassDull);
+    tube(0.026, 0.026, GUN.stock - 0.01, GUN.stock + 0.004, A.brassDull);
+    // The stock: a slim wrist swelling to the butt, deeper than it is wide.
+    const stock = GUN.length - GUN.stock - 0.006;
+    turned([[0, 0], [0.021, 0], [0.018, 0.04], [0.0185, 0.075], [0.025, 0.13], [0.0315, 0.19], [0.033, stock - 0.012], [0.03, stock], [0, stock]], GUN.stock, A.wood, 0.84, 1.18);
+    tube(0.031, 0.031, GUN.length - 0.008, GUN.length, A.brassDull, 0.84, 1.18);
+    part(new THREE.TorusGeometry(0.022, 0.003, 8, 20, Math.PI), A.brass, (o) => {
+      o.rotation.set(0, Math.PI / 2, Math.PI);
+      o.position.set(0, -0.022, GUN.stock - 0.012);
+    });
+    part(new THREE.BoxGeometry(0.004, 0.018, 0.005), A.brassDull, (o) => {
+      o.position.set(0, -0.03, GUN.stock - 0.01);
+      o.rotation.x = -0.3;
+    });
+    // The cocking lever lies along the top of the spring tube on the side the player sees,
+    // hinged at its front end; cocking lifts it and lets it fall.
+    const mount = new THREE.Group();
+    mount.rotation.z = 0.75;
+    g.add(mount);
     this.lever = new THREE.Group();
-    this.lever.position.set(0, -0.03, 0.3);
-    g.add(this.lever);
-    const arm = this.mesh(new THREE.BoxGeometry(0.008, 0.008, 0.2), A.brass, this.lever);
-    arm.position.set(0.03, -0.004, 0.1);
-    const knob = this.mesh(new THREE.SphereGeometry(0.012, 12, 10), A.brass, this.lever);
-    knob.position.set(0.03, -0.004, 0.2);
+    this.lever.position.set(0, 0.0245, GUN.tube + 0.014);
+    mount.add(this.lever);
+    part(new THREE.CylinderGeometry(0.0045, 0.0045, 0.014, 10), A.brass, (o) => (o.rotation.z = Math.PI / 2), this.lever);
+    part(new THREE.BoxGeometry(0.006, 0.005, 0.078), A.brass, (o) => o.position.set(0, 0.003, 0.039), this.lever);
+    part(new THREE.SphereGeometry(0.0095, 14, 10), A.brass, (o) => o.position.set(0, 0.007, 0.08), this.lever);
+    for (const [bin, byMat] of bins) for (const [mat, geos] of byMat) this.mesh(mergeGeometries(geos), mat, bin);
     this.muzzleCork = this.mesh(A.corkGeo, A.cork, g);
     this.muzzleCork.position.z = -0.006;
-    void lip;
+  }
+
+  /**
+   * Where the gun is for an aim: its muzzle and the way the barrel points. It is held low and
+   * forward on the right and turns towards the aim; on an upright screen it is held nearer the
+   * middle, where the narrow picture can show all of it.
+   */
+  gunPose(ax, ay) {
+    const k = this.tall;
+    const mix = (key, i) => GUN_HOLD.wide[key][i] + (GUN_HOLD.tall[key][i] - GUN_HOLD.wide[key][i]) * k;
+    const muzzle = [mix("muzzle", 0) + ax * mix("follow", 0), mix("muzzle", 1) + (ay - 1.3) * mix("follow", 1), mix("muzzle", 2)];
+    const yaw = mix("turn", 0) - ax * mix("gain", 0);
+    const pitch = mix("turn", 1) + (ay - 1.3) * mix("gain", 1);
+    return { muzzle, dir: [-Math.sin(yaw) * Math.cos(pitch), Math.sin(pitch), -Math.cos(yaw) * Math.cos(pitch)] };
   }
 
   buildMoths() {
@@ -883,10 +939,11 @@ export class StallView {
       mesh.visible = !!c;
       if (!c) continue;
       mesh.position.set(c.p[0], c.p[1], c.p[2]);
-      if (c.age < 0.12 && !c.bounces) {
-        // It leaves the barrel's mouth and settles onto its true path within a tenth of a second.
-        const k = (1 - c.age / 0.12) ** 2;
-        const from = gunMuzzle(c.ax ?? 0, c.ay ?? 1.3);
+      if (c.age < 0.2 && !c.bounces) {
+        // It leaves the barrel's mouth and settles onto its true path within a fifth of a second
+        // (long enough that it never seems to hang at the muzzle, which is well ahead of the path's start).
+        const k = (1 - c.age / 0.2) ** 2;
+        const from = this.gunPose(c.ax ?? 0, c.ay ?? 1.3).muzzle;
         const to = muzzle(c.ax ?? 0, c.ay ?? 1.3);
         mesh.position.x += (from[0] - to[0]) * k;
         mesh.position.y += (from[1] - to[1]) * k;
@@ -942,19 +999,19 @@ export class StallView {
     const sway = frozen ? 0 : 1;
     const ax = this.aimSoft.x + Math.sin(wall * 1.1) * 0.012 * sway;
     const ay = this.aimSoft.y + Math.sin(wall * 1.7 + 1) * 0.009 * sway;
-    const mz = gunMuzzle(ax, ay);
-    const dir = v3.set(ax - mz[0], ay - mz[1], ROWS[0].z - mz[2]).normalize();
+    const pose = this.gunPose(ax, ay);
+    const mz = pose.muzzle;
+    const dir = v3.set(pose.dir[0], pose.dir[1], pose.dir[2]);
     this.gunGroup.position.set(mz[0], mz[1], mz[2]).addScaledVector(dir, -g.kick * 0.035);
-    // The barrel lies along the aim; the butt drops a little towards the player's shoulder.
     this.gunGroup.rotation.set(0, 0, 0);
-    this.gunGroup.lookAt(this.gunGroup.position.x - dir.x, this.gunGroup.position.y - dir.y - 0.05, this.gunGroup.position.z - dir.z);
+    this.gunGroup.lookAt(this.gunGroup.position.x - dir.x, this.gunGroup.position.y - dir.y, this.gunGroup.position.z - dir.z);
     this.gunTip = mz;
     this.gunGroup.rotateX(-g.pitch * 0.05);
     this.gunGroup.rotateZ(g.roll * 0.03);
     const sinceFire = t - sim.lastFire;
     const cock = sinceFire >= 0 && sinceFire < COCK_SECONDS ? sinceFire / COCK_SECONDS : 1;
-    // Lever down and back up; the next cork is thumbed in near the end.
-    this.lever.rotation.x = cock < 1 ? Math.sin(Math.min(1, cock * 1.25) * Math.PI) * 0.75 : 0;
+    // The lever is lifted and falls back; the next cork is thumbed in near the end.
+    this.lever.rotation.x = cock < 1 ? -Math.sin(Math.min(1, cock * 1.25) * Math.PI) * 0.8 : 0;
     this.muzzleCork.visible = cock > 0.8 && sim.corksLeft > 0;
     this.gunGroup.visible = this.viewName === "player" || this.viewName === "gun";
 
@@ -1029,11 +1086,15 @@ export class StallView {
     cam.aspect = aspect;
     let pos = CAMERA.pos;
     let look = CAMERA.look;
-    let fov = Math.max(CAMERA.fov, THREE.MathUtils.radToDeg(2 * Math.atan(0.43 / aspect)));
+    // The front row always fits the width, so a narrow screen sees more above and below.
+    const tall = 1 - THREE.MathUtils.smoothstep(aspect, 0.62, 1.0);
+    this.tall = tall;
+    const tanV = Math.max(Math.tan(THREE.MathUtils.degToRad(CAMERA.fov / 2)), (CAMERA.halfWidth + (CAMERA.tall.halfWidth - CAMERA.halfWidth) * tall) / aspect);
+    let fov = THREE.MathUtils.radToDeg(2 * Math.atan(tanV));
     let focus = this.focusTarget;
     if (this.viewName === "wide") {
-      pos = [0.9, 1.75, 2.6];
-      look = [0, 1.45, -1.8];
+      pos = [0.9, 1.38, 2.7];
+      look = [0, 1.58, -1.8];
       fov = 44;
       focus = 4.6;
     } else if (this.viewName === "mech") {
@@ -1052,17 +1113,26 @@ export class StallView {
       fov = 44;
       focus = 0.86;
     } else if (this.viewName === "gun") {
-      pos = [-0.22, 1.36, 0.42];
-      look = [0.3, 1.19, 0.2];
+      pos = [-0.32, 1.3, -0.12];
+      look = [0.4, 1.07, -0.34];
       fov = 44;
-      focus = 0.55;
+      focus = 0.72;
     } else {
       // The aim's height picks the row the lens focuses on.
       const y = this.aimSoft.y;
       focus = y < 1.36 ? 2.36 : y < 1.72 ? 2.9 : 3.45;
       // The player leans a little with the aim.
-      pos = [CAMERA.pos[0] + this.aimSoft.x * 0.035, CAMERA.pos[1] + (this.aimSoft.y - 1.3) * 0.02, CAMERA.pos[2]];
-      look = [CAMERA.look[0] + this.aimSoft.x * 0.05, CAMERA.look[1] + (this.aimSoft.y - 1.3) * 0.05 - (aspect < 1 ? 0.1 : 0), CAMERA.look[2]];
+      // On an upright screen the player stands tall and leans in over the counter, looking down
+      // the steps: the rows spread up the screen and less of it is counter. The pediment's top is
+      // pinned a little under the top edge, whatever the screen's shape.
+      const T = CAMERA.tall;
+      const at = [CAMERA.pos[0], CAMERA.pos[1] + (T.pos[1] - CAMERA.pos[1]) * tall, CAMERA.pos[2] + (T.pos[2] - CAMERA.pos[2]) * tall];
+      const reach = CAMERA.pos[2] - CAMERA.look[2];
+      const level = Math.atan2(CAMERA.look[1] - CAMERA.pos[1], reach);
+      const pinned = Math.atan2(T.top[1] - at[1], at[2] - T.top[2]) - Math.atan(tanV * (1 - 2 * T.topAt));
+      const tilt = level + (pinned - level) * tall;
+      pos = [at[0] + this.aimSoft.x * 0.035, at[1] + (this.aimSoft.y - 1.3) * 0.02, at[2]];
+      look = [at[0] + this.aimSoft.x * 0.05, at[1] + Math.tan(tilt) * reach + (this.aimSoft.y - 1.3) * 0.05, at[2] - reach];
     }
     cam.fov = fov;
     cam.position.set(pos[0], pos[1] + Math.sin(wall * 0.8) * 0.002, pos[2]);

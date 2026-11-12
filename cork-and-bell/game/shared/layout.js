@@ -25,12 +25,17 @@ export const ROWS = [
 export const BACK = { z: -2.78, top: 2.18, archHalfW: 0.62, archH: 0.34 };
 export const WALL_TOP = 2.18;
 
-export const CAMERA = { pos: [0, 1.46, 0.82], look: [0, 1.29, -1.6], fov: 46 };
+/**
+ * The player's eye. `halfWidth` is the tangent of half the view across, kept on narrow screens.
+ * `tall` is the upright screen: a higher eye, further in, tilted so that the point `top` (y, z:
+ * the pediment's crown) sits `topAt` of the way down the screen.
+ */
+export const CAMERA = { pos: [0, 1.46, 0.82], look: [0, 1.29, -1.6], fov: 46, halfWidth: 0.43, tall: { pos: [0, 1.72, 0.5], halfWidth: 0.455, top: [0, 2.66, BACK.z], topAt: 0.12 } };
 
 /**
  * Where the cork starts in the simulation: close to the line of sight, so pointing at a far
- * target is honest. The gun itself is held to the right (see gunMuzzle); the picture eases the
- * cork from the barrel onto this path in its first tenth of a second.
+ * target is honest. The gun itself is held low on the right (see gunPose in view/stall.js); the
+ * picture eases the cork from the barrel onto this path in its first fifth of a second.
  */
 export function muzzle(ax, ay) {
   return [0.04 + ax * 0.1, 1.25 + (ay - 1.3) * 0.08, 0.2];
@@ -81,9 +86,15 @@ function borderBulbs() {
   return out;
 }
 
+/**
+ * The awning's beam (its underside) and the valance that hangs from it. High enough that, seen
+ * from the counter on an upright phone, the valance and its lamps clear the pediment's name.
+ */
+export const AWNING = { z: -0.95, beam: 2.52 };
+
 function keyBulbs() {
   const out = [];
-  for (let i = 0; i < 9; i++) out.push([-1.12 + i * 0.28, 2.05, -0.93]);
+  for (let i = 0; i < 9; i++) out.push([-1.12 + i * 0.28, AWNING.beam - 0.32, AWNING.z + 0.02]);
   return out;
 }
 
@@ -109,11 +120,7 @@ export const BULBS = { border: borderBulbs(), key: keyBulbs(), festoon: festoonB
 export const KEY_LIGHT = { pos: [0.25, 2.3, -0.55], target: [0, 1.35, -2.1] };
 
 export const PRIZE_SHELF = { x: HALF_W, y: 1.5, z0: -1.18, z1: -2.22 };
-export const SCORE_WINDOW = { x: 0, y: 2.335, z: BACK.z + 0.045, w: 0.5, h: 0.125 };
+export const SCORE_WINDOW = { x: 0, y: 2.31, z: BACK.z + 0.045, w: 0.5, h: 0.125 };
 export const CHALK_BOARD = { x: -HALF_W + 0.012, y: 1.86, z: -2.02, w: 0.62, h: 0.5 };
-export const TRAY = { x: 0.72, z: -0.17, w: 0.3, d: 0.2 };
-
-/** Where the barrel's mouth is in the picture. */
-export function gunMuzzle(ax, ay) {
-  return [0.25 + ax * 0.1, 1.22 + (ay - 1.3) * 0.1, 0.0];
-}
+// The cork tray stands left of centre, under the free hand, where an upright phone still shows it.
+export const TRAY = { x: -0.24, z: -0.17, w: 0.3, d: 0.2 };

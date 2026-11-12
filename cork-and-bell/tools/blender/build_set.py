@@ -14,7 +14,7 @@
 # point (x, y, z) is the Blender point (x, -z, y). Helpers below take game coordinates.
 import bpy, bmesh, sys, os, json, math, time, functools
 print = functools.partial(print, flush=True)
-from mathutils import Vector
+from mathutils import Matrix, Vector
 
 args = sys.argv[sys.argv.index("--") + 1:]
 OUT, HERE = args[0], args[1]
@@ -125,12 +125,47 @@ def noise(nt, vec, scale, detail=4.0, rough=0.55):
     return n.outputs["Fac"]
 
 
+def cork_marks(nt, obj, amount, hot=None):
+    """Where corks have struck: pale rings the size of a cork's end, smudges and specks, each of
+    its own size and strength. They gather in loose patches, and thickly around the `hot` places
+    (game points with a radius); away from those a board carries only a few."""
+    where = noise(nt, obj, 2.6, 3.0, 0.6)
+    density = ramp(nt, where, [(0.56 - amount * 0.2, (0, 0, 0)), (0.84 - amount * 0.2, (1, 1, 1))])
+    if hot:
+        heat = None
+        for x, y, z, r in hot:
+            d = N(nt, "ShaderNodeVectorMath", operation="DISTANCE")
+            link(nt, obj, d.inputs[0])
+            d.inputs[1].default_value = G(x, y, z)
+            h = ramp(nt, d.outputs["Value"], [(r * 0.25, (1, 1, 1)), (r, (0, 0, 0))])
+            heat = h if heat is None else math_node(nt, "MAXIMUM", heat, h)
+        patchy = math_node(nt, "MULTIPLY_ADD", where, 0.9, 0.45)
+        density = math_node(nt, "ADD", math_node(nt, "MULTIPLY", density, 0.22), math_node(nt, "MULTIPLY", heat, patchy))
+    marks = None
+    # (cells per metre, smallest and largest mark as a part of a cell, a ring?, strength, share of cells marked)
+    for scale, lo, hi, ring, strength, share in ((11.0, 0.1, 0.17, True, 0.9, 0.5), (23.0, 0.12, 0.34, False, 0.75, 0.7), (47.0, 0.15, 0.4, False, 0.55, 0.4)):
+        v = N(nt, "ShaderNodeTexVoronoi", feature="F1")
+        v.inputs["Scale"].default_value = scale
+        link(nt, obj, v.inputs["Vector"])
+        rnd = N(nt, "ShaderNodeSeparateXYZ")
+        link(nt, v.outputs["Color"], rnd.inputs[0])
+        u = math_node(nt, "DIVIDE", v.outputs["Distance"], math_node(nt, "MULTIPLY_ADD", rnd.outputs[0], hi - lo, lo))
+        m = ramp(nt, u, [(0.6, (1, 1, 1)), (1.0, (0, 0, 0))])
+        if ring:
+            m = math_node(nt, "SUBTRACT", m, math_node(nt, "MULTIPLY", ramp(nt, u, [(0.3, (1, 1, 1)), (0.62, (0, 0, 0))]), 0.7))
+        keep = math_node(nt, "LESS_THAN", rnd.outputs[1], math_node(nt, "MULTIPLY", density, share))
+        m = math_node(nt, "MULTIPLY", math_node(nt, "MULTIPLY", m, keep), math_node(nt, "MULTIPLY_ADD", rnd.outputs[2], 0.5 * strength, 0.5 * strength))
+        marks = m if marks is None else math_node(nt, "MAXIMUM", marks, m)
+    return marks
+
+
 def paint(name, base, under=(0.42, 0.3, 0.2), chip=0.5, grain=(1, 1, 9), scuff=0.0, plank=None,
-          stripes=None, bump=0.25, dents=0.0, dirt=0.35):
+          stripes=None, bump=0.25, dents=0.0, dirt=0.35, hot=None):
     """Hand-painted wood (or canvas): brush strokes along `grain`, chips down to the wood,
     pale scuffs where corks have struck, plank joints, optional stripes.
     grain is the Blender-space stretch: strokes run along the axis with the SMALL scale.
-    plank = (axis index in Blender space, width). stripes = (axis index, width, second colour)."""
+    plank = (axis index in Blender space, width). stripes = (axis index, width, second colour).
+    hot = [(x, y, z, radius)] in game coordinates: where the corks mostly land (see cork_marks)."""
     m, nt, bsdf = new_mat(name)
     stretched, obj = coords(nt, grain)
     sep = N(nt, "ShaderNodeSeparateXYZ")
@@ -174,13 +209,7 @@ def paint(name, base, under=(0.42, 0.3, 0.2), chip=0.5, grain=(1, 1, 9), scuff=0
         col = mix(nt, chipped, col, wood)
         height = math_node(nt, "SUBTRACT", height, math_node(nt, "MULTIPLY", chipped, 0.6))
     if scuff > 0:
-        v = N(nt, "ShaderNodeTexVoronoi", feature="F1")
-        v.inputs["Scale"].default_value = 21.0
-        link(nt, obj, v.inputs["Vector"])
-        where = noise(nt, obj, 3.1, 2.0)
-        dot = ramp(nt, v.outputs["Distance"], [(0.16, (1, 1, 1)), (0.3, (0, 0, 0))])
-        gate = ramp(nt, where, [(0.62 - scuff * 0.22, (0, 0, 0)), (0.7 - scuff * 0.2, (1, 1, 1))])
-        col = mix(nt, math_node(nt, "MULTIPLY", math_node(nt, "MULTIPLY", dot, gate), 0.75), col, (0.62, 0.52, 0.4))
+        col = mix(nt, math_node(nt, "MULTIPLY", cork_marks(nt, obj, scuff, hot), 0.8), col, (0.62, 0.52, 0.4))
     if dents > 0:
         v = N(nt, "ShaderNodeTexVoronoi", feature="SMOOTH_F1")
         v.inputs["Scale"].default_value = 9.0
@@ -212,7 +241,8 @@ GOLD = (0.72, 0.5, 0.14)
 RED = (0.55, 0.07, 0.045)
 
 M = {
-    "back": paint("back", GREEN, chip=0.75, grain=(9, 1, 1), scuff=0.4, plank=(0, 0.1563), dents=1.0, bump=0.5),
+    "back": paint("back", GREEN, chip=0.75, grain=(9, 1, 1), scuff=0.4, plank=(0, 0.1563), dents=1.0, bump=0.5,
+                  hot=[(L["BELL"]["x"], L["BELL"]["y"], L["BACK"]["z"], 0.5)] + [(p["px"], p["py"] - p["len"], L["BACK"]["z"], 0.42) for p in L["PENDULUMS"]]),
     "pediment": paint("pediment", OXBLOOD, chip=0.45, grain=(1, 1, 9), scuff=0.2, bump=0.3),
     "riser": paint("riser", CREAM, under=(0.3, 0.2, 0.13), chip=0.7, grain=(1, 9, 9), scuff=0.3, bump=0.3),
     "tread": paint("tread", (0.2, 0.035, 0.03), chip=0.95, grain=(1, 9, 9), scuff=0.45, plank=(1, 0.125), bump=0.4),
@@ -337,6 +367,65 @@ def text(body, x, y, z, size, mat, face="AbrilFatface-Regular.ttf", facing="fron
     return made
 
 
+def text_width(body, size, face):
+    """How wide a line of lettering comes out, in metres."""
+    cu = bpy.data.curves.new("measure", "FONT")
+    cu.body = body
+    cu.font = font(face)
+    cu.size = size
+    ob = bpy.data.objects.new("measure", cu)
+    scene.collection.objects.link(ob)
+    me = ob.evaluated_get(bpy.context.evaluated_depsgraph_get()).to_mesh()
+    xs = [v.co.x for v in me.vertices]
+    w = max(xs) - min(xs)
+    bpy.data.objects.remove(ob)
+    bpy.data.curves.remove(cu)
+    return w
+
+
+def arc_text(body, cx, cy, rx, ry, z, mat, span=0.7, max_size=0.1, face="PlayfairDisplay-Black.ttf", shadow=None, gap=0.07):
+    """Lettering set letter by letter along the top of an ellipse (centre cx, cy), as a sign-writer
+    arches a name over a pediment. It is sized to fill `span` of the half ellipse."""
+    hh = text_width("HH", 1.0, face)
+    units = [text_width("H" + ch + "H", 1.0, face) - hh + gap for ch in body]
+    pts = [(cx - rx * math.cos(k * math.pi / 400), cy + ry * math.sin(k * math.pi / 400)) for k in range(401)]
+    run = [0.0]
+    for a, b in zip(pts, pts[1:]):
+        run.append(run[-1] + math.dist(a, b))
+    size = min(max_size, span * run[-1] / sum(units))
+    print("ARC TEXT", body, "size", round(size, 4), "length", round(size * sum(units), 3), "of", round(run[-1], 3))
+    s = run[-1] / 2 - size * sum(units) / 2
+    k = 0
+    for ch, unit in zip(body, units):
+        mid = s + size * unit / 2
+        s += size * unit
+        if ch == " ":
+            continue
+        while run[k + 1] < mid:
+            k += 1
+        f = (mid - run[k]) / (run[k + 1] - run[k])
+        px = pts[k][0] + (pts[k + 1][0] - pts[k][0]) * f
+        py = pts[k][1] + (pts[k + 1][1] - pts[k][1]) * f
+        turn = math.atan2(pts[k + 1][1] - pts[k][1], pts[k + 1][0] - pts[k][0])
+        for layer, (dx, dy, dz, material) in enumerate(([(0.0, 0.0, 0.0, mat)] + ([(shadow[0], shadow[1], -0.0006, shadow[2])] if shadow else []))):
+            cu = bpy.data.curves.new(ch, "FONT")
+            cu.body = ch
+            cu.font = font(face)
+            cu.size = size
+            cu.align_x = "CENTER"
+            cu.align_y = "CENTER"
+            cu.extrude = 0.0006
+            cu.resolution_u = 5
+            ob = bpy.data.objects.new(ch + str(layer), cu)
+            scene.collection.objects.link(ob)
+            ob.matrix_world = Matrix.Translation(G(px + dx, py + dy, z + dz)) @ Matrix.Rotation(math.pi / 2, 4, "X") @ Matrix.Rotation(turn, 4, "Z")
+            bpy.context.view_layer.objects.active = ob
+            bpy.ops.object.select_all(action="DESELECT")
+            ob.select_set(True)
+            bpy.ops.object.convert(target="MESH")
+            finish(bpy.context.object, material)
+
+
 W = L["HALF_W"]
 steps_ = L["STEPS"]
 back = L["BACK"]
@@ -403,8 +492,10 @@ text("BELL", 0.6, 1.9, bz + 0.003, 0.25, "gold", shadow=(0.011, -0.011, "red"), 
 sw = L["SCORE_WINDOW"]
 box("score_box", -sw["w"] / 2 - 0.035, sw["w"] / 2 + 0.035, sw["y"] - sw["h"] / 2 - 0.03, sw["y"] + sw["h"] / 2 + 0.03, bz + 0.03, bz + 0.005, "gold", bevel=0.006)
 box("score_hole", -sw["w"] / 2, sw["w"] / 2, sw["y"] - sw["h"] / 2, sw["y"] + sw["h"] / 2, bz + 0.0312, bz + 0.03, "black", bevel=0)
-text("WREN & TOLLIVER'S", 0.0, 2.458, bz + 0.012, 0.047, "gold", face="PlayfairDisplay-Black.ttf", spacing=1.25)
-text("TRAVELLING GALLERY", 0.0, 2.226, bz + 0.012, 0.036, "cream", face="PlayfairDisplay-Black.ttf", spacing=1.5)
+# The name is arched over the score window, big enough to read from the counter; the second
+# line is lettered along the cornice below it.
+arc_text("WREN & TOLLIVER'S", 0.0, back["top"] + 0.06, 0.5, 0.262, bz + 0.012, "gold", shadow=(0.005, -0.005, "black"))
+text("TRAVELLING  GALLERY", 0.0, back["top"] - 0.006, bz + 0.0365, 0.038, "black", face="PlayfairDisplay-Black.ttf", spacing=1.4)
 # The bell's bracket and the shutter lantern's box stand on the far step.
 sh = L["SHUTTER"]
 box("lantern_l", sh["x"] - 0.115, sh["x"] - 0.095, steps_[2]["top"], sh["y"] + 0.105, sh["z"] + 0.02, sh["z"] - 0.07, "red", bevel=0.003)
@@ -443,19 +534,20 @@ box("chalk_frame", -W, -W + 0.014, cb["y"] - cb["h"] / 2 - 0.03, cb["y"] + cb["h
 box("chalk_slate", -W + 0.004, -W + 0.016, cb["y"] - cb["h"] / 2, cb["y"] + cb["h"] / 2, cb["z"] + cb["w"] / 2, cb["z"] - cb["w"] / 2, "slate", bevel=0)
 
 # The awning: a beam, a scalloped valance, and the canvas rising towards the player.
-vz = -0.95
-box("awning_beam", -1.6, 1.6, 2.37, 2.45, vz + 0.03, vz - 0.03, "pediment", bevel=0.008)
-val = [(-1.6, 2.37), (1.6, 2.37)]
+vz = L["AWNING"]["z"]
+ab = L["AWNING"]["beam"]  # the underside of the beam the valance hangs from
+box("awning_beam", -1.6, 1.6, ab, ab + 0.08, vz + 0.03, vz - 0.03, "pediment", bevel=0.008)
+val = [(-1.6, ab), (1.6, ab)]
 n_scallop = 16
 wsc = 3.2 / n_scallop
 for k in range(n_scallop):
     cx = 1.6 - (k + 0.5) * wsc
     for j in range(13):
         a = -j * math.pi / 12
-        val.append((cx + math.cos(a) * wsc / 2, 2.17 + math.sin(a) * 0.085))
+        val.append((cx + math.cos(a) * wsc / 2, ab - 0.2 + math.sin(a) * 0.085))
 outline("valance", val, vz + 0.034, 0.004, "valance")
 bm = bmesh.new()
-quad = [bm.verts.new(G(*p)) for p in ((-1.7, 2.44, vz), (1.7, 2.44, vz), (1.7, 3.15, 1.2), (-1.7, 3.15, 1.2))]
+quad = [bm.verts.new(G(*p)) for p in ((-1.7, ab + 0.07, vz), (1.7, ab + 0.07, vz), (1.7, ab + 0.78, 1.2), (-1.7, ab + 0.78, 1.2))]
 bm.faces.new(quad)
 bmesh.ops.subdivide_edges(bm, edges=list(bm.edges), cuts=10, use_grid_fill=True)
 for v in bm.verts:
@@ -468,7 +560,7 @@ for group, pts in L["BULBS"].items():
         if group == "border":
             box(f"sock_{group}{i}", x - 0.013, x + 0.013, y - 0.013, y + 0.013, z - 0.02, bz, "iron", bevel=0.003)
         elif group == "key":
-            box(f"sock_{group}{i}", x - 0.012, x + 0.012, y + 0.03, 2.19, z + 0.012, z - 0.012, "iron", bevel=0.003)
+            box(f"sock_{group}{i}", x - 0.012, x + 0.012, y + 0.03, ab - 0.18, z + 0.012, z - 0.012, "iron", bevel=0.003)
         elif group == "prize":
             box(f"sock_{group}{i}", x, x + 0.06, y - 0.012, y + 0.012, z + 0.012, z - 0.012, "iron", bevel=0.003)
 
