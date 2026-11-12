@@ -59,14 +59,20 @@ async function resolveRoom(env, value) {
  *   POST /api/party/scores/:game       {name: "ABC", score}                              -> {top, place}
  *
  * `options.scores` names the games that have a score board and the most one round can score.
+ *
+ * A site with a second kind of room (the party site's lobby) calls this once more with
+ * `options.prefix` (its own path, "/api/lobby"), `options.rooms` (that room class's binding) and
+ * `options.fullMessage` (what a spent budget reads like there). The room class answers the same
+ * calls as the kit's: create, preview, join and fetch. Every guard here applies to both.
  */
 export async function handlePartyApi(request, env, options = {}) {
   const url = new URL(request.url);
-  if (!url.pathname.startsWith(API_PREFIX + "/")) return null;
+  const prefix = options.prefix ?? API_PREFIX;
+  if (!url.pathname.startsWith(prefix + "/")) return null;
   // Pages on other sites may not use the API (or open sockets) through a visitor's browser.
   if (!originAllowed(request, env)) return error("forbidden_origin", "This page cannot use these rooms.");
   try {
-    return await route(request, env, url, options);
+    return await route(request, env, url, { ...options, prefix, rooms: options.rooms ?? env.PARTY_ROOMS });
   } catch (err) {
     console.error("party-kit: unhandled error", err instanceof Error ? err.message : "unknown");
     return error("internal", "Something went wrong.");
@@ -74,7 +80,8 @@ export async function handlePartyApi(request, env, options = {}) {
 }
 
 async function route(request, env, url, options) {
-  const parts = url.pathname.slice(API_PREFIX.length).split("/").filter(Boolean);
+  const parts = url.pathname.slice(options.prefix.length).split("/").filter(Boolean);
+  const rooms = options.rooms;
   const method = request.method;
 
   if (parts[0] === "config" && parts.length === 1 && method === "GET") {
@@ -99,7 +106,7 @@ async function route(request, env, url, options) {
     const allowed = await Promise.all([allowRequest(env, request, "create_short"), allowRequest(env, request, "create_long")]);
     if (!allowed.every(Boolean)) return error("rate_limited", "Too many rooms from this connection. Try again later.");
     const budget = await roomBudgetState(env);
-    if (budget !== "open") return error("battles_full", fullMessage(budget));
+    if (budget !== "open") return error("battles_full", (options.fullMessage ?? fullMessage)(budget));
     const body = await readBody(request);
     if (!body) return error("bad_request", "Expected a small JSON body.");
     const as = body.as === "screen" ? "screen" : "player";
@@ -111,7 +118,7 @@ async function route(request, env, url, options) {
     }
     for (let attempt = 0; attempt < CODE_ATTEMPTS; attempt++) {
       const code = randomCode();
-      const result = await env.PARTY_ROOMS.getByName(code).create({ code, nickname: body.nickname, as });
+      const result = await rooms.getByName(code).create({ code, nickname: body.nickname, as });
       if (result.ok) return json(result, 201);
       if (result.error !== "exists") return error(result.error, result.message);
     }
@@ -122,7 +129,7 @@ async function route(request, env, url, options) {
     const allowed = await Promise.all([allowRequest(env, request, "pin_short"), allowRequest(env, request, "pin_long")]);
     if (!allowed.every(Boolean)) return error("rate_limited", "Too many tries. Wait a few minutes and try again.");
     const code = await resolveRoom(env, parts[1]);
-    const stub = code ? env.PARTY_ROOMS.getByName(code) : null;
+    const stub = code ? rooms.getByName(code) : null;
     if (method === "GET") {
       const preview = stub ? await stub.preview() : null;
       return preview ? json({ ok: true, preview }) : error("not_found", "No open room matches that. Check it with the host.");
@@ -158,7 +165,7 @@ async function route(request, env, url, options) {
     // Simulated latency is a test switch: a server without it says so instead of ignoring it.
     if (url.searchParams.has("lag") && env.PARTY_SIM_LATENCY !== "on") return error("bad_request", "Simulated latency is off on this server.");
     if ((url.searchParams.get("token") ?? "").length > 64) return error("bad_request", "That seat token is not valid.");
-    return env.PARTY_ROOMS.getByName(parts[1]).fetch(request);
+    return rooms.getByName(parts[1]).fetch(request);
   }
 
   return error("not_found", "Unknown endpoint.");

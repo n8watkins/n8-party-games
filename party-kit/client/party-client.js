@@ -23,11 +23,18 @@ const IDLE_PING_EVERY_MS = 10_000;
 
 export class PartyClient {
   /**
-   * @param {{base?: string, lag?: number, storage?: Storage | null}} [opts]
+   * @param {{base?: string, lag?: number, storage?: Storage | null, api?: string, quietPing?: {text: string, everyMs: number}}} [opts]
    *   lag: simulated latency in ms each way (the room must allow it: PARTY_SIM_LATENCY="on").
+   *   api: the path of the room API, for a site with a second kind of room ("/api/lobby").
+   *   quietPing: outside a round, send this fixed text instead of the clock ping. A room that
+   *     answers it with an automatic reply is not woken by it at all.
    */
   constructor(opts = {}) {
     this.base = opts.base ?? "";
+    this.api = opts.api ?? API;
+    // Each kind of room keeps its own session, so a tab that visits both never mixes them up.
+    this.storeKey = this.api === API ? STORE_KEY : `${STORE_KEY}:${this.api}`;
+    this.quietPing = opts.quietPing ?? null;
     this.lag = opts.lag ?? 0;
     this.storage = opts.storage === undefined ? safeStorage() : opts.storage;
     this.handlers = new Map();
@@ -59,7 +66,7 @@ export class PartyClient {
   }
 
   async request(method, path, body) {
-    const res = await fetch(this.base + API + path, {
+    const res = await fetch(this.base + this.api + path, {
       method,
       headers: body ? { "Content-Type": "application/json" } : undefined,
       body: body ? JSON.stringify(body) : undefined,
@@ -104,7 +111,7 @@ export class PartyClient {
 
   adopt(data) {
     this.session = { code: data.code, pin: data.pin, token: data.token, seat: data.seat, role: data.role };
-    this.storage?.setItem(STORE_KEY, JSON.stringify(this.session));
+    this.storage?.setItem(this.storeKey, JSON.stringify(this.session));
     this.connect();
     return this.session;
   }
@@ -112,7 +119,7 @@ export class PartyClient {
   /** Picks up the session left by an earlier page load, if any. Returns true when one was found. */
   resume() {
     try {
-      const saved = JSON.parse(this.storage?.getItem(STORE_KEY) ?? "null");
+      const saved = JSON.parse(this.storage?.getItem(this.storeKey) ?? "null");
       if (!saved?.token) return false;
       this.session = saved;
       this.connect();
@@ -127,7 +134,7 @@ export class PartyClient {
     this.wantOpen = true;
     this.setStatus(this.retry ? "reconnecting" : "connecting");
     const origin = this.base || location.origin;
-    const url = new URL(`${API}/rooms/${this.session.code}/ws`, origin);
+    const url = new URL(`${this.api}/rooms/${this.session.code}/ws`, origin);
     url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
     url.searchParams.set("token", this.session.token);
     if (this.lag) url.searchParams.set("lag", String(this.lag));
@@ -137,7 +144,7 @@ export class PartyClient {
       this.retry = 0;
       this.setStatus("open");
       this.pingPace = 0;
-      this.setPingPace(this.room?.phase === "playing" ? PING_EVERY_MS : IDLE_PING_EVERY_MS);
+      this.setPingPace(this.pingPaceFor(this.room));
     };
     ws.onmessage = (event) => this.onMessage(event.data);
     ws.onclose = (event) => {
@@ -201,8 +208,15 @@ export class PartyClient {
         this.emit("error", new PartyError(msg.error, msg.message));
         break;
       default:
+        // Anything else belongs to whoever built on the kit (the party site's lobby).
+        this.emit("message", msg);
         break;
     }
+  }
+
+  pingPaceFor(room) {
+    if (room?.phase === "playing") return PING_EVERY_MS;
+    return this.quietPing?.everyMs ?? IDLE_PING_EVERY_MS;
   }
 
   setPingPace(ms) {
@@ -215,7 +229,7 @@ export class PartyClient {
 
   setRoom(room) {
     this.room = room;
-    if (this.ws?.readyState === WebSocket.OPEN) this.setPingPace(room.phase === "playing" ? PING_EVERY_MS : IDLE_PING_EVERY_MS);
+    if (this.ws?.readyState === WebSocket.OPEN) this.setPingPace(this.pingPaceFor(room));
     if (this.session && room.pin && room.pin !== this.session.pin) this.session.pin = room.pin;
     this.emit("room", room);
   }
@@ -235,6 +249,10 @@ export class PartyClient {
   }
 
   ping() {
+    if (this.quietPing && this.room?.phase !== "playing") {
+      if (this.ws?.readyState === WebSocket.OPEN) this.ws.send(this.quietPing.text);
+      return;
+    }
     this.send({ t: "ping", c: Date.now() });
   }
 
@@ -281,7 +299,7 @@ export class PartyClient {
   }
 
   forget() {
-    this.storage?.removeItem(STORE_KEY);
+    this.storage?.removeItem(this.storeKey);
   }
 
   /** The address a phone should open to join this room. */
@@ -297,7 +315,7 @@ export class PartyClient {
   }
 
   qrUrl(text) {
-    return `${this.base}${API}/qr.svg?text=${encodeURIComponent(text)}`;
+    return `${this.base}${this.api}/qr.svg?text=${encodeURIComponent(text)}`;
   }
 }
 
