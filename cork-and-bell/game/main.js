@@ -11,6 +11,7 @@
 //   ?screen=1        (with auto=1) make a room as the shared screen
 //   ?lag=<ms>        simulated latency each way (local test rooms only)
 //   ?quality=low|high
+//   ?grid=row        four stalls in one row on a shared screen (the default is two rows of two)
 import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { HDRLoader } from "three/addons/loaders/HDRLoader.js";
@@ -21,7 +22,7 @@ import { LocalSession, NetSession } from "./session.js";
 import { ATTACK_NAMES, COUNT_IN, game } from "./shared/battle.js";
 import { ROWS } from "./shared/layout.js";
 import { BELL_FULL, COCK_SECONDS, ROUND_SECONDS, mech, speedAt } from "./shared/sim.js";
-import { Lens, gridFor } from "./view/render.js";
+import { Lens, fourInARow, gridFor } from "./view/render.js";
 import { StallAssets, StallView } from "./view/stall.js";
 
 const params = new URLSearchParams(location.search);
@@ -39,7 +40,9 @@ const P = {
   name: params.get("name"),
   lag: num("lag", 0),
   quality: params.get("quality"),
+  grid: params.get("grid"),
 };
+fourInARow(P.grid === "row");
 const SEAT_COLOURS = ["#c8382c", "#2f6f8f", "#d9a02a", "#3f7a4a"];
 const $ = (id) => document.getElementById(id);
 const coarse = matchMedia("(pointer: coarse)").matches;

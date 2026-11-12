@@ -7,16 +7,13 @@ const FSQ_VERT = /* glsl */ `
 varying vec2 vUv;
 void main() { vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }`;
 
-const DOF_FRAG = /* glsl */ `
-precision highp float;
-uniform sampler2D tColor;
+// Depth to a circle of confusion, shared by both depth of field paths.
+const COC_GLSL = /* glsl */ `
 uniform sampler2D tDepth;
-uniform vec2 uTexel;
 uniform float uNear, uFar;
 uniform float uFocus[4];
 uniform vec2 uGrid;     // columns and rows of stalls on the screen
 uniform float uScale;   // pixels of blur for something infinitely far when focused close
-varying vec2 vUv;
 float linearDepth(vec2 uv) {
   float z = texture2D(tDepth, uv).x * 2.0 - 1.0;
   return 2.0 * uNear * uFar / (uFar + uNear - z * (uFar - uNear));
@@ -25,11 +22,20 @@ float focusAt(vec2 uv) {
   int i = int(clamp(floor(uv.x * uGrid.x) + floor((1.0 - uv.y) * uGrid.y) * uGrid.x, 0.0, 3.0));
   return i == 0 ? uFocus[0] : i == 1 ? uFocus[1] : i == 2 ? uFocus[2] : uFocus[3];
 }
+// Signed: negative in front of the focus, positive behind it.
 float coc(float d, float focus) {
   if (d > 40.0) return 0.0;                      // the far fairground is painted already out of focus
   float c = (1.0 - focus / d) * uScale;
   return clamp(c, -uScale * 0.62, uScale);        // the near field is held back so the gun stays a gun
-}
+}`;
+
+// High quality: one gather at full resolution with many taps.
+const DOF_FRAG = /* glsl */ `
+precision highp float;
+uniform sampler2D tColor;
+uniform vec2 uTexel;
+varying vec2 vUv;
+${COC_GLSL}
 void main() {
   float focus = focusAt(vUv);
   float centerDepth = linearDepth(vUv);
@@ -55,6 +61,89 @@ void main() {
     total += w;
   }
   gl_FragColor = vec4(acc / total, 1.0);
+}`;
+
+// Low quality (phones, and anything asked for with ?quality=low): the blur is made at half
+// resolution with a fixed kernel and laid back over the sharp picture. A quarter of the pixels
+// and a third of the taps, and no per-pixel noise: the turned spiral above needs many taps to
+// hide its turn, and with few it showed as a stipple.
+
+// Half size, weighted by blur so that sharp things do not leak into the blur. Alpha: signed blur.
+const DOF_HALF_FRAG = /* glsl */ `
+precision highp float;
+uniform sampler2D tColor;
+uniform vec2 uTexel;
+varying vec2 vUv;
+${COC_GLSL}
+void main() {
+  float focus = focusAt(vUv);
+  vec4 acc = vec4(0.0);
+  float total = 0.0;
+  for (int i = 0; i < 4; i++) {
+    vec2 uv = vUv + (vec2(float(i - (i / 2) * 2), float(i / 2)) - 0.5) * uTexel;
+    float c = coc(linearDepth(uv), focus);
+    float w = 0.2 + abs(c);
+    acc += vec4(min(texture2D(tColor, uv).rgb, vec3(40.0)), c) * w;
+    total += w;
+  }
+  gl_FragColor = acc / total;
+}`;
+
+// The fixed kernel: a golden-angle spiral, written out so that no pixel has to compute it.
+const lowTaps = (n) =>
+  Array.from({ length: n }, (_, i) => {
+    const r = Math.sqrt((i + 0.5) / n);
+    const a = (i + 1) * 2.39996323;
+    return `  tap(vec2(${(Math.cos(a) * r).toFixed(5)}, ${(Math.sin(a) * r).toFixed(5)}), ${r.toFixed(5)});`;
+  }).join("\n");
+
+const dofBlurFrag = (n) => /* glsl */ `
+precision highp float;
+uniform sampler2D tHalf;
+uniform vec2 uTexel;    // one full-resolution pixel
+uniform float uScale;
+varying vec2 vUv;
+vec4 centre;
+vec3 acc;
+float total;
+float cover;
+void tap(vec2 o, float rr) {
+  vec4 s = texture2D(tHalf, vUv + o * uScale * uTexel);
+  float c = abs(s.a);
+  if (s.a > centre.a) c = min(c, abs(centre.a) * 2.0);   // sharp things do not smear over what is behind them
+  float r = rr * uScale;
+  // A blurred point spreads its light over its whole disc, so it gives each pixel of it little.
+  float w = smoothstep(r - 1.0, r + 1.0, c) / max(c * c, 1.0);
+  cover += w * step(s.a, centre.a - 0.5);
+  // Bright points keep their energy and open into discs.
+  w *= 1.0 + dot(s.rgb, vec3(0.3, 0.5, 0.2)) * 0.6;
+  acc += s.rgb * w;
+  total += w;
+}
+void main() {
+  centre = texture2D(tHalf, vUv);
+  acc = vec3(0.0);
+  total = 0.0;
+  cover = 0.0;
+${lowTaps(n)}
+  float w0 = 0.02 / max(centre.a * centre.a, 1.0);
+  // Alpha: how much of this pixel is covered by the blur of nearer things beside it.
+  gl_FragColor = vec4((acc + centre.rgb * w0) / (total + w0), clamp(cover * uScale * uScale / ${n.toFixed(1)}, 0.0, 1.0));
+}`;
+
+const DOF_MIX_FRAG = /* glsl */ `
+precision highp float;
+uniform sampler2D tColor;
+uniform sampler2D tBlur;
+varying vec2 vUv;
+${COC_GLSL}
+void main() {
+  vec3 sharp = texture2D(tColor, vUv).rgb;
+  vec4 blur = texture2D(tBlur, vUv);
+  float own = abs(coc(linearDepth(vUv), focusAt(vUv)));
+  // The half-size picture is already about a pixel and a half soft, so small blurs take only part of it.
+  float f = max(clamp((own - 0.4) / 2.6, 0.0, 1.0), blur.a);
+  gl_FragColor = vec4(mix(sharp, blur.rgb, f), 1.0);
 }`;
 
 const DOWN_FRAG = /* glsl */ `
@@ -105,15 +194,56 @@ vec3 filmic(vec3 x) {
   x = max(vec3(0.0), x);
   return clamp((x * (2.51 * x + 0.03)) / (x * (2.43 * x + 0.59) + 0.14), 0.0, 1.0);
 }
+vec3 develop(vec3 x) {
+  // Curved channel by channel, a lamp far over the top comes out pure white: every channel
+  // reaches the ceiling. The brightest things keep part of their own colour instead, so a
+  // tungsten bulb burns out to a warm white, as it does on film.
+  vec3 each = filmic(x);
+  float top = max(x.r, max(x.g, x.b));
+  vec3 kept = x * (filmic(vec3(top)).r / max(top, 0.0001));
+  return mix(each, kept, 0.6 * smoothstep(0.8, 3.0, top));
+}
+#ifdef EDGES
+// Low quality draws without multisampling; this takes the stair-steps off its edges instead
+// (the usual fast approximate anti-aliasing, done before the curve on compressed colours so a
+// lamp's edge blends like any other). Flat areas leave after five taps.
+vec3 squeeze(vec3 c) { return c / (1.0 + c); }
+vec3 tap(vec2 uv) { return squeeze(texture2D(tColor, uv).rgb); }
+float luma(vec3 c) { return dot(c, vec3(0.299, 0.587, 0.114)); }
+vec3 picture(vec2 uv) {
+  vec2 px = 1.0 / uSize;
+  vec3 m = tap(uv);
+  float lM = luma(m);
+  float lNW = luma(tap(uv + vec2(-1.0, -1.0) * px));
+  float lNE = luma(tap(uv + vec2(1.0, -1.0) * px));
+  float lSW = luma(tap(uv + vec2(-1.0, 1.0) * px));
+  float lSE = luma(tap(uv + vec2(1.0, 1.0) * px));
+  float lMin = min(lM, min(min(lNW, lNE), min(lSW, lSE)));
+  float lMax = max(lM, max(max(lNW, lNE), max(lSW, lSE)));
+  vec3 best = m;
+  if (lMax - lMin > max(0.02, lMax * 0.125)) {
+    vec2 dir = vec2(-((lNW + lNE) - (lSW + lSE)), (lNW + lSW) - (lNE + lSE));
+    float reduce = max((lNW + lNE + lSW + lSE) * 0.03125, 0.0078125);
+    dir = clamp(dir / (min(abs(dir.x), abs(dir.y)) + reduce), -8.0, 8.0) * px;
+    vec3 a = 0.5 * (tap(uv + dir * (1.0 / 3.0 - 0.5)) + tap(uv + dir * (2.0 / 3.0 - 0.5)));
+    vec3 b = a * 0.5 + 0.25 * (tap(uv - dir * 0.5) + tap(uv + dir * 0.5));
+    float lB = luma(b);
+    best = lB < lMin || lB > lMax ? a : b;
+  }
+  return best / max(1.0 - best, 0.001);
+}
+#else
+vec3 picture(vec2 uv) { return texture2D(tColor, uv).rgb; }
+#endif
 void main() {
-  vec3 c = texture2D(tColor, vUv).rgb;
+  vec3 c = picture(vUv);
   vec3 bloom = texture2D(tBloom, vUv).rgb;
   c += bloom * 0.42;
   // Vignette, per stall on a shared screen.
   vec2 q = fract(vUv * uGrid) - 0.5;
   float vig = 1.0 - dot(q, q) * 0.62;
   c *= vig * vig * uExposure;
-  c = filmic(c);
+  c = develop(c);
   c = pow(c, vec3(1.0 / 2.2));
   // Grain: finer than a pixel is not possible, so it is kept faint and strongest in the mid tones.
   float n = hash(gl_FragCoord.xy + fract(uTime) * 91.7) - 0.5;
@@ -133,7 +263,7 @@ export class Lens {
     this.renderer.info.autoReset = false;
     this.quality = quality;
     this.scale = 1; // internal resolution, lowered when frames take too long
-    this.taps = quality === "low" ? 28 : 72;
+    this.taps = quality === "low" ? 24 : 72;
     this.near = 0.08;
     this.far = 120;
     this.focus = [2.4, 2.4, 2.4, 2.4];
@@ -144,12 +274,20 @@ export class Lens {
     this.fsqScene = new THREE.Scene();
     this.fsqScene.add(this.fsq);
     const mat = (frag, uniforms, defines) => new THREE.ShaderMaterial({ vertexShader: FSQ_VERT, fragmentShader: frag, uniforms, defines, depthTest: false, depthWrite: false });
-    this.dofMat = mat(DOF_FRAG, { tColor: { value: null }, tDepth: { value: null }, uTexel: { value: new THREE.Vector2() }, uNear: { value: this.near }, uFar: { value: this.far }, uFocus: { value: this.focus }, uGrid: { value: new THREE.Vector2(1, 1) }, uScale: { value: 12 } }, { TAPS: this.taps });
+    // The depth of field passes share one set of uniforms.
+    this.dof = { tColor: { value: null }, tDepth: { value: null }, uTexel: { value: new THREE.Vector2() }, uNear: { value: this.near }, uFar: { value: this.far }, uFocus: { value: this.focus }, uGrid: { value: new THREE.Vector2(1, 1) }, uScale: { value: 12 } };
+    if (quality === "low") {
+      this.dofHalfMat = mat(DOF_HALF_FRAG, this.dof);
+      this.dofBlurMat = mat(dofBlurFrag(this.taps), { tHalf: { value: null }, uTexel: this.dof.uTexel, uScale: this.dof.uScale });
+      this.dofMixMat = mat(DOF_MIX_FRAG, { ...this.dof, tBlur: { value: null } });
+    } else {
+      this.dofMat = mat(DOF_FRAG, this.dof, { TAPS: this.taps });
+    }
     this.downMat = mat(DOWN_FRAG, { tColor: { value: null }, uTexel: { value: new THREE.Vector2() }, uThreshold: { value: 0 } });
     this.upMat = mat(UP_FRAG, { tColor: { value: null }, uTexel: { value: new THREE.Vector2() } });
     this.upMat.blending = THREE.AdditiveBlending;
     this.upMat.transparent = true;
-    this.finalMat = mat(FINAL_FRAG, { tColor: { value: null }, tBloom: { value: null }, uTime: { value: 0 }, uExposure: { value: 0.66 }, uGrain: { value: 0.05 }, uGrid: { value: new THREE.Vector2(1, 1) }, uSize: { value: new THREE.Vector2() } });
+    this.finalMat = mat(FINAL_FRAG, { tColor: { value: null }, tBloom: { value: null }, uTime: { value: 0 }, uExposure: { value: 0.66 }, uGrain: { value: 0.05 }, uGrid: { value: new THREE.Vector2(1, 1) }, uSize: { value: new THREE.Vector2(1, 1) } }, quality === "low" ? { EDGES: 1 } : {});
     this.targets = null;
     this.width = 0;
     this.height = 0;
@@ -185,6 +323,10 @@ export class Lens {
       this.bloom.push(hdr(bw, bh, false));
     }
     this.targets = [this.sceneRT, this.dofRT, ...this.bloom];
+    if (this.quality === "low") {
+      this.halfRT = [hdr(Math.max(2, w >> 1), Math.max(2, h >> 1), false), hdr(Math.max(2, w >> 1), Math.max(2, h >> 1), false)];
+      this.targets.push(...this.halfRT);
+    }
   }
 
   pass(material, target) {
@@ -227,14 +369,23 @@ export class Lens {
     this.sceneRT.scissorTest = false;
     r.setScissorTest(false);
 
-    const d = this.dofMat.uniforms;
+    const d = this.dof;
     d.tColor.value = this.sceneRT.texture;
     d.tDepth.value = this.sceneRT.depthTexture;
     d.uTexel.value.set(1 / w, 1 / h);
     d.uGrid.value.set(cols, rows);
-    // The blur is sized by the height of one stall's picture; small and low-quality screens get less.
-    d.uScale.value = (h / rows / 1080) * 13 * (this.quality === "low" ? 0.7 : 1);
-    this.pass(this.dofMat, this.dofRT);
+    // The blur is sized by one stall's picture (by its width when it stands upright, where the
+    // stall is drawn smaller for its height); small and low-quality screens get less.
+    d.uScale.value = (Math.min(h / rows, ((w / cols) * 9) / 16) / 1080) * 13 * (this.quality === "low" ? 0.7 : 1);
+    if (this.quality === "low") {
+      this.pass(this.dofHalfMat, this.halfRT[0]);
+      this.dofBlurMat.uniforms.tHalf.value = this.halfRT[0].texture;
+      this.pass(this.dofBlurMat, this.halfRT[1]);
+      this.dofMixMat.uniforms.tBlur.value = this.halfRT[1].texture;
+      this.pass(this.dofMixMat, this.dofRT);
+    } else {
+      this.pass(this.dofMat, this.dofRT);
+    }
 
     // Bloom: only what is brighter than paper white, spread wide and soft.
     let src = this.dofRT;
@@ -263,9 +414,15 @@ export class Lens {
   }
 }
 
+let oneRow = false;
+/** Ask for four stalls in one row (each then stands upright, framed as on a phone). */
+export function fourInARow(yes) {
+  oneRow = yes;
+}
+
 /** How the stalls share the screen: side by side up to three, two rows of two for four. */
 export function gridFor(n) {
-  return n <= 3 ? [Math.max(1, n), 1] : [2, 2];
+  return n <= 3 || oneRow ? [Math.max(1, n), 1] : [2, 2];
 }
 
 // ---------------------------------------------------------------- the sky and the far fairground
