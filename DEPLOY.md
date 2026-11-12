@@ -10,6 +10,7 @@ Everything else is already in the repository.
 - `wrangler.jsonc` top level is the production Worker: rate limits on, simulated latency off, the 10% room budget, Workers Logs on.
 - The `local` environment keeps the test switches for `npm run dev` and the playtests, and is never deployed.
 - Only `dist/public` is served, rebuilt from an allowlist by `scripts/build-public.mjs` before every deploy.
+- The games are separate repositories, installed as dependencies pinned in `package.json` and listed in `games.js`; `npm install` must have run before a deploy. A game can also be deployed alone from its own repository, with its own checklist.
 - `npm run assets:list` prints every file that will be public.
 - The bot check on new rooms (Cloudflare Turnstile) stays off until both of its keys exist.
 

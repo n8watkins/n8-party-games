@@ -23,7 +23,7 @@ Nothing is deployed yet; `DEPLOY.md` at the repository root is the owner's check
 The top level of `wrangler.jsonc` is the production Worker (rate limits on, no simulated latency, the 10% room budget, logs on).
 The `local` environment is for local play and the tests (simulated latency allowed, rate limits off).
 Only `dist/public` is served: `scripts/build-public.mjs` copies the files a browser loads into it from an allowlist and writes its `_headers` (CSP and the other security headers), and wrangler runs it before every `dev` and `deploy`.
-A new game adds its page and its browser folder to `SERVED` in that script; `npm run assets:list` prints exactly what will be public.
+A hosted game is listed in `games.js` at the repository root, and its manifest names its public files; `npm run assets:list` prints exactly what will be public.
 
 ## Taking the kit into a game
 
