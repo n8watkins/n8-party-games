@@ -30,6 +30,7 @@ Nothing here deploys anything.
 | `src/worker/room.js` | The Durable Object around `RoomCore`: WebSockets, the tick loop, saving, shutdown. |
 | `src/worker/pin-directory.js`, `pin-logic.js` | 4-digit PINs: 15 minute life, 10 minute cooldown before reuse. |
 | `src/worker/rate-limiter.js`, `limit-logic.js` | Fixed-window limits per client address. |
+| `src/worker/room-budget.js`, `budget-logic.js` | The room budget: a cap on hosted room time per day and per month. |
 | `client/party-client.js` | The browser client (ES module, no build). |
 | `client/lobby.js`, `client/lobby.css` | The waiting room. |
 | `test/` | Unit tests (`npm test` at the repository root). |
@@ -38,11 +39,11 @@ Nothing here deploys anything.
 
 ```js
 // worker.js
-import { createPartyRoom, PinDirectory, RateLimiter, handlePartyApi } from "./party-kit/src/worker/index.js";
+import { createPartyRoom, PinDirectory, RateLimiter, RoomBudget, handlePartyApi } from "./party-kit/src/worker/index.js";
 import { game } from "./my-game/server.js";
 
 export const PartyRoom = createPartyRoom(game);
-export { PinDirectory, RateLimiter };
+export { PinDirectory, RateLimiter, RoomBudget };
 
 export default {
   async fetch(request, env) {
@@ -57,9 +58,10 @@ export default {
 "durable_objects": { "bindings": [
   { "name": "PARTY_ROOMS", "class_name": "PartyRoom" },
   { "name": "PARTY_PINS", "class_name": "PinDirectory" },
-  { "name": "PARTY_LIMITER", "class_name": "RateLimiter" }
+  { "name": "PARTY_LIMITER", "class_name": "RateLimiter" },
+  { "name": "PARTY_BUDGET", "class_name": "RoomBudget" }
 ] },
-"migrations": [{ "tag": "v1", "new_sqlite_classes": ["PartyRoom", "PinDirectory", "RateLimiter"] }]
+"migrations": [{ "tag": "v1", "new_sqlite_classes": ["PartyRoom", "PinDirectory", "RateLimiter", "RoomBudget"] }]
 ```
 
 Variables (all optional):
@@ -69,6 +71,21 @@ Variables (all optional):
 | `PARTY_PUBLIC_ORIGIN` | The address phones can reach, used in the join link and QR code (for local play: `http://<laptop LAN address>:<port>`). |
 | `PARTY_SIM_LATENCY` | `"on"` lets a client ask for simulated latency with `?lag=<ms>` on its socket. Leave it off in production. |
 | `PARTY_RATE_LIMIT` | `"off"` disables the limits (for local test runs with many headless players). |
+| `PARTY_ROOM_BUDGET_SHARE` | The part of the Workers Paid plan's included Durable Object time that rooms may use each month (`"0.05"` is 5%). Unset means no budget. |
+| `PARTY_ROOM_BUDGET_DAY_SHARE` | The part of that monthly budget one day may use. Default `"0.1"`. |
+
+### What hosting costs, and the room budget
+
+Solo play runs in the browser and static files are served free, so rooms are the only real cost.
+A room is a Durable Object, billed as 128 MB for every second it is awake, lobby included.
+The Workers Paid plan includes 400,000 GB-seconds a month for the whole account, which is about 870 room-hours.
+
+With `PARTY_ROOM_BUDGET_SHARE` set, each room reports its awake time once a minute to the `RoomBudget` object.
+When the day's or the month's allowance is spent, `POST /api/party/rooms` answers `battles_full` (503) with a message that solo play still works, and open rooms finish the round in play but cannot start another.
+The day's allowance resets at 00:00 UTC and the month's on the first.
+The budget counts room time only; the PIN directory, the limiter and the budget object itself wake for moments and are not counted.
+
+New rooms are also limited per client address: 5 in ten minutes and 20 in a day.
 
 ### The game object
 

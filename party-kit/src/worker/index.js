@@ -1,20 +1,23 @@
 // The Worker side of the party kit: the HTTP API under /api/party and the three Durable Objects.
 //
-//   import { createPartyRoom, PinDirectory, RateLimiter, handlePartyApi } from "party-kit/src/worker/index.js";
+//   import { createPartyRoom, PinDirectory, RateLimiter, RoomBudget, handlePartyApi } from "party-kit/src/worker/index.js";
 //   export const PartyRoom = createPartyRoom(myGame);
-//   export { PinDirectory, RateLimiter };
+//   export { PinDirectory, RateLimiter, RoomBudget };
 //   export default { fetch: (req, env) => handlePartyApi(req, env) ?? env.ASSETS.fetch(req) };
 //
-// Bindings the kit expects: PARTY_ROOMS, PARTY_PINS, PARTY_LIMITER (Durable Objects).
+// Bindings the kit expects: PARTY_ROOMS, PARTY_PINS, PARTY_LIMITER and, for a room budget,
+// PARTY_BUDGET (Durable Objects).
 import { generate } from "lean-qr";
 import { toSvgSource } from "lean-qr/extras/svg";
 import { cleanName } from "../core/room-core.js";
 import { isPin, PIN_DIRECTORY_NAME } from "./pin-logic.js";
 import { allowRequest } from "./rate-limiter.js";
+import { fullMessage, roomBudgetState } from "./room-budget.js";
 
 export { createPartyRoom } from "./room.js";
 export { PinDirectory } from "./pin-directory.js";
 export { RateLimiter } from "./rate-limiter.js";
+export { RoomBudget } from "./room-budget.js";
 
 export const API_PREFIX = "/api/party";
 // No vowels and no look-alikes, so a code never spells a word and reads cleanly aloud.
@@ -24,7 +27,7 @@ const CODE_ATTEMPTS = 8;
 const MAX_BODY_BYTES = 1024;
 const NO_STORE = { "Cache-Control": "no-store" };
 
-const STATUS = { bad_request: 400, bad_name: 400, not_found: 404, room_full: 409, in_progress: 409, rate_limited: 429, internal: 500 };
+const STATUS = { bad_request: 400, bad_name: 400, not_found: 404, room_full: 409, in_progress: 409, rate_limited: 429, battles_full: 503, internal: 500 };
 
 function json(body, status = 200) {
   return Response.json(body, { status, headers: NO_STORE });
@@ -106,7 +109,10 @@ async function route(request, env, url) {
   }
 
   if (parts[0] === "rooms" && parts.length === 1 && method === "POST") {
-    if (!(await allowRequest(env, request, "create"))) return error("rate_limited", "Too many rooms. Try again in a minute.");
+    const allowed = await Promise.all([allowRequest(env, request, "create_short"), allowRequest(env, request, "create_long")]);
+    if (!allowed.every(Boolean)) return error("rate_limited", "Too many rooms from this connection. Try again later.");
+    const budget = await roomBudgetState(env);
+    if (budget !== "open") return error("battles_full", fullMessage(budget));
     const body = await readBody(request);
     if (!body) return error("bad_request", "Expected a small JSON body.");
     const as = body.as === "screen" ? "screen" : "player";

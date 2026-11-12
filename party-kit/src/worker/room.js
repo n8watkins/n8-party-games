@@ -4,6 +4,7 @@ import { DurableObject } from "cloudflare:workers";
 import { RoomCore, LagLine } from "../core/room-core.js";
 import { newSeed } from "../core/rng.js";
 import { PIN_DIRECTORY_NAME } from "./pin-logic.js";
+import { REPORT_EVERY_MS, fullMessage, spendRoomTime } from "./room-budget.js";
 
 const STORAGE_KEY = "room";
 const CLOSE_ROOM_CLOSED = 4000;
@@ -26,6 +27,10 @@ export function createPartyRoom(game) {
       this.sockets = new Map();
       this.timer = null;
       this.timerMs = 0;
+      /** When the awake time not yet reported to the room budget began; null while the room is asleep. */
+      this.meterFrom = null;
+      /** What the budget last said: "open", "day" or "month". */
+      this.budget = "open";
       void ctx.blockConcurrencyWhile(async () => {
         const saved = await ctx.storage.get(STORAGE_KEY);
         if (saved) this.core = RoomCore.restore(game, saved, Date.now());
@@ -174,6 +179,8 @@ export function createPartyRoom(game) {
 
     startRound(entry, now) {
       const core = this.core;
+      // The allowance for the day or month is spent: the round in play finished, no new one starts.
+      if (this.budget !== "open") return this.send(entry, { t: "error", error: "battles_full", message: fullMessage(this.budget) });
       const started = core.start(now);
       if (!started.ok) return this.send(entry, { t: "error", error: started.error, message: started.message });
       this.broadcast({ t: "start", room: core.view(now), s: game.snapshot(core.state, now), now });
@@ -201,6 +208,7 @@ export function createPartyRoom(game) {
     schedule() {
       const core = this.core;
       if (!core) return this.stopTimer();
+      if (this.meterFrom === null) this.meterFrom = Date.now();
       const wanted = core.phase === "playing" ? Math.round(1000 / (game.tickHz ?? 30)) : SLOW_TICK_MS;
       if (this.timer && this.timerMs === wanted) return;
       this.stopTimer();
@@ -221,6 +229,7 @@ export function createPartyRoom(game) {
       const core = this.core;
       if (!core) return this.stopTimer();
       const now = Date.now();
+      this.meter(now);
       const out = core.tick(now);
       if (out.events.length) this.broadcast({ t: "ev", ev: out.events, now });
       if (out.snapshot) this.broadcast({ t: "snap", s: out.snapshot, now });
@@ -231,6 +240,27 @@ export function createPartyRoom(game) {
         void this.save();
       }
       if (out.close) void this.destroy();
+    }
+
+    /**
+     * Reports the room's awake time to the room budget, a minute at a time (or all of it with
+     * `all`). A room that is awake is billed whether or not a round is on, so the lobby counts too.
+     */
+    meter(now, all = false) {
+      if (this.meterFrom === null) return;
+      const ms = now - this.meterFrom;
+      if (ms <= 0 || (!all && ms < REPORT_EVERY_MS)) return;
+      this.meterFrom = all ? null : now;
+      this.ctx.waitUntil(
+        spendRoomTime(this.env, ms).then(
+          (state) => {
+            this.budget = state;
+          },
+          () => {
+            // The budget could not be reached; the next report carries on.
+          },
+        ),
+      );
     }
 
     async alarm() {
@@ -273,6 +303,7 @@ export function createPartyRoom(game) {
     /** Idle for a minute: close every socket, give the PIN back, forget everything. */
     async destroy() {
       const code = this.core?.code;
+      this.meter(Date.now(), true);
       this.stopTimer();
       for (const ws of this.sockets.keys()) {
         try {

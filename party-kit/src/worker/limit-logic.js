@@ -1,6 +1,8 @@
 // The pure part of the rate limiter, so it can be tested without the Workers runtime.
 export const RATE_LIMITS = {
-  create: { limit: 30, windowMs: 60_000 },
+  // A person makes a room now and then; a script makes many. Two windows: a burst and a day.
+  create_short: { limit: 5, windowMs: 10 * 60_000 },
+  create_long: { limit: 20, windowMs: 24 * 60 * 60_000 },
   join: { limit: 40, windowMs: 60_000 },
   // PINs are only 4 digits, so guessing them is limited far harder than room codes.
   pin_short: { limit: 20, windowMs: 10 * 60_000 },

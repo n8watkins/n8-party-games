@@ -2,7 +2,8 @@ import { describe, expect, it } from "vitest";
 import { IDLE_SHUTDOWN_MS, LagLine, RECONNECT_GRACE_MS, RoomCore, cleanName } from "../src/core/room-core.js";
 import { hashSeed, makeRng } from "../src/core/rng.js";
 import { pickFreePin, isPin } from "../src/worker/pin-logic.js";
-import { clientKey, nextWindow } from "../src/worker/limit-logic.js";
+import { RATE_LIMITS, clientKey, nextWindow } from "../src/worker/limit-logic.js";
+import { INCLUDED_GB_S, ROOM_MEMORY_GB, addRoomTime, budgetState, emptyUsage, limitsFromEnv } from "../src/worker/budget-logic.js";
 
 /** A tiny game: every input adds to the seat's count; the round ends after `length` ticks. */
 function counterGame(length = 5) {
@@ -330,5 +331,47 @@ describe("PINs and rate limits", () => {
   it("treats one IPv6 /64 as one client", () => {
     expect(clientKey("2001:db8:1:2:aaaa::1")).toBe(clientKey("2001:db8:1:2:bbbb::9"));
     expect(clientKey("::ffff:10.0.0.7")).toBe("10.0.0.7");
+  });
+});
+
+describe("the room budget", () => {
+  const noon = Date.UTC(2026, 10, 12, 12);
+  const hour = 60 * 60_000;
+
+  it("is off unless a share is set", () => {
+    expect(limitsFromEnv({})).toBeNull();
+    expect(limitsFromEnv({ PARTY_ROOM_BUDGET_SHARE: "nonsense" })).toBeNull();
+    expect(budgetState(addRoomTime(null, 1000 * hour, noon), null, noon)).toBe("open");
+  });
+
+  it("turns a share of the plan into GB-seconds, with a tenth of it per day", () => {
+    const limits = limitsFromEnv({ PARTY_ROOM_BUDGET_SHARE: "0.05" });
+    expect(limits.month).toBeCloseTo(INCLUDED_GB_S * 0.05);
+    expect(limits.day).toBeCloseTo(limits.month / 10);
+    expect(limitsFromEnv({ PARTY_ROOM_BUDGET_SHARE: "0.05", PARTY_ROOM_BUDGET_DAY_SHARE: "0.5" }).day).toBeCloseTo(limits.month / 2);
+  });
+
+  it("counts a room's awake time at 128 MB", () => {
+    const usage = addRoomTime(emptyUsage(noon), hour, noon);
+    expect(usage.monthUsed).toBeCloseTo(3600 * ROOM_MEMORY_GB);
+    expect(usage.dayUsed).toBeCloseTo(usage.monthUsed);
+  });
+
+  it("closes for the day, reopens the next day, and closes for the month", () => {
+    const limits = { month: 3600 * ROOM_MEMORY_GB * 3, day: 3600 * ROOM_MEMORY_GB * 2 };
+    let usage = addRoomTime(null, hour, noon);
+    expect(budgetState(usage, limits, noon)).toBe("open");
+    usage = addRoomTime(usage, hour, noon + hour);
+    expect(budgetState(usage, limits, noon + hour)).toBe("day");
+    const tomorrow = noon + 24 * hour;
+    expect(budgetState(usage, limits, tomorrow)).toBe("open");
+    usage = addRoomTime(usage, hour, tomorrow);
+    expect(budgetState(usage, limits, tomorrow)).toBe("month");
+    expect(budgetState(usage, limits, Date.UTC(2026, 11, 1))).toBe("open");
+  });
+
+  it("limits new rooms per connection by burst and by day", () => {
+    expect(RATE_LIMITS.create_short.limit).toBeLessThanOrEqual(5);
+    expect(RATE_LIMITS.create_long.windowMs).toBe(24 * hour);
   });
 });
