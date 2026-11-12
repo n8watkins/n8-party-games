@@ -13,5 +13,5 @@ const lan = addresses.find((a) => /^(192\.168\.|10\.|172\.(1[6-9]|2\d|3[01])\.)/
 const origin = `http://${lan}:${port}`;
 console.log(`Shared screen:  ${origin}/cork-and-bell/`);
 console.log(`Phones join at: ${origin}/cork-and-bell/ (or scan the QR code in the lobby)`);
-const child = spawn("npx", ["wrangler", "dev", "--local", "--ip", "0.0.0.0", "--port", port, "--var", `PARTY_PUBLIC_ORIGIN:${origin}`], { stdio: "inherit" });
+const child = spawn("npx", ["wrangler", "dev", "--local", "--env", "local", "--ip", "0.0.0.0", "--port", port, "--var", `PARTY_PUBLIC_ORIGIN:${origin}`], { stdio: "inherit" });
 child.on("exit", (code) => process.exit(code ?? 0));

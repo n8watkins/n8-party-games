@@ -1,13 +1,24 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  // Local development only. Nothing in this repository is deployed.
+  // The top level is the production Worker: rate limits on, no simulated latency, the 1% room
+  // budget. Local play uses the "local" environment (npm run dev). See DEPLOY.md before deploying.
   "name": "n8-party-games",
   "main": "worker.js",
   "compatibility_date": "2026-10-01",
+  // Only dist/public is served, and it is rebuilt from an allowlist (scripts/build-public.mjs)
+  // before every `wrangler dev` and `wrangler deploy`, and on changes while `wrangler dev` runs.
+  "build": {
+    "command": "node scripts/build-public.mjs",
+    "watch_dir": ["cork-and-bell/game", "cork-and-bell/index.html", "party-kit/client", "scripts"]
+  },
   "assets": {
-    "directory": "./",
+    "directory": "./dist/public",
     "binding": "ASSETS",
     "run_worker_first": ["/", "/api/*"]
+  },
+  "observability": {
+    "enabled": true,
+    "head_sampling_rate": 1
   },
   "durable_objects": {
     "bindings": [
@@ -17,7 +28,8 @@
       { "name": "PARTY_BUDGET", "class_name": "RoomBudget" }
     ]
   },
-  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["PartyRoom", "PinDirectory", "RateLimiter"] },
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["PartyRoom", "PinDirectory", "RateLimiter"] },
     { "tag": "v2", "new_sqlite_classes": ["RoomBudget"] }
   ],
   "vars": {
@@ -26,8 +38,28 @@
     // rounds in play), and a tenth of that in any one day. When it is spent, new battles are
     // refused and solo play carries on. All games on this Worker share the one allowance.
     "PARTY_ROOM_BUDGET_SHARE": "0.01",
-    // Local play: lets tests ask for simulated latency (?lag=150) and run many headless players.
-    "PARTY_SIM_LATENCY": "on",
-    "PARTY_RATE_LIMIT": "off"
+    "PARTY_RATE_LIMIT": "on",
+    "PARTY_SIM_LATENCY": "off"
+    // The bot check on new rooms (Cloudflare Turnstile) is off until both keys exist:
+    // TURNSTILE_SITE_KEY here (it is public), TURNSTILE_SECRET_KEY as a secret. See DEPLOY.md.
+  },
+  "env": {
+    // Local play and the test runs: npm run dev, npm run dev:lan. Never deployed.
+    "local": {
+      "durable_objects": {
+        "bindings": [
+          { "name": "PARTY_ROOMS", "class_name": "PartyRoom" },
+          { "name": "PARTY_PINS", "class_name": "PinDirectory" },
+          { "name": "PARTY_LIMITER", "class_name": "RateLimiter" },
+          { "name": "PARTY_BUDGET", "class_name": "RoomBudget" }
+        ]
+      },
+      "vars": {
+        "PARTY_ROOM_BUDGET_SHARE": "0.01",
+        // Lets tests ask for simulated latency (?lag=150) and run many headless players.
+        "PARTY_SIM_LATENCY": "on",
+        "PARTY_RATE_LIMIT": "off"
+      }
+    }
   }
 }
