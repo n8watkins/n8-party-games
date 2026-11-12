@@ -1,27 +1,38 @@
 // Builds dist/public, the only folder the Worker serves as static files.
 //
-// The work is done by the kit (party-kit/build/public.mjs): files are copied in from an
-// allowlist, and nothing else in the repository can reach the public site.
+// The work is done by the kit (party-kit/build/public.mjs). Each hosted game (games.js) lists
+// its public files in its manifest; they are copied from the game's package in node_modules to
+// the game's path on the site, beside the kit's browser files. Nothing else can reach the site.
 // Wrangler runs this before `wrangler dev` and `wrangler deploy` (the "build" key in
 // wrangler.jsonc) and again whenever a watched folder changes.
 //
 //   node scripts/build-public.mjs          build, print a one-line summary
 //   node scripts/build-public.mjs --list   build and list every file that will be served
+import { createRequire } from "node:module";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { KIT_CLIENT_PATH, buildPublic, kitClientEntry, report } from "../party-kit/build/public.mjs";
+import { GAMES } from "../games.js";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 export const OUT = join(ROOT, "dist", "public");
 
-/** Files and folders the browser loads, by site path. Add a new game's page and its browser folder here. */
-export const SERVED = ["cork-and-bell/index.html", "cork-and-bell/game", KIT_CLIENT_PATH];
+const require = createRequire(import.meta.url);
+
+/** One game's public files: from its package's folder to its path on the site. */
+function gameEntries({ manifest }) {
+  const from = dirname(require.resolve(`${manifest.id}/package.json`));
+  const under = manifest.path.replace(/^\/|\/$/g, "");
+  return manifest.public.map((file) => ({ from: join(from, file.from), to: `${under}/${file.to}` }));
+}
+
+const entries = [kitClientEntry(), ...GAMES.flatMap(gameEntries)];
+
+/** Every site path that is served: the kit's browser files and each game's public files. */
+export const SERVED = entries.map((entry) => entry.to);
 
 export function build() {
-  return buildPublic({
-    out: OUT,
-    entries: [kitClientEntry(), ...SERVED.filter((to) => to !== KIT_CLIENT_PATH).map((to) => ({ from: join(ROOT, to), to }))],
-  });
+  return buildPublic({ out: OUT, entries });
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) report(build(), OUT);

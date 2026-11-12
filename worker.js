@@ -1,16 +1,20 @@
-// The one Worker for the party games in this repository. Local only: run it with `npm run dev`.
-// It serves the static files (each game's folder and the party kit's browser files) and the
-// party kit's room API. The room runs Cork & Bell's battle.
+// The party site: one Worker that serves every hosted game's files, the party kit's browser
+// files and the kit's room API. Local only for now: run it with `npm run dev`.
+// The games are their own repositories (games.js lists them); the kit is this repository's.
 import { createPartyRoom, PinDirectory, RateLimiter, RoomBudget, handlePartyApi } from "./party-kit/src/worker/index.js";
-import { game } from "./cork-and-bell/game/shared/battle.js";
+import { GAMES } from "./games.js";
 
-export const PartyRoom = createPartyRoom(game);
+// One room class runs one game's rounds, so today the rooms are the first game's.
+// Rooms that switch between games are the lobby's work (party-kit/GAME-CONTRACT.md).
+const first = GAMES[0];
+
+export const PartyRoom = createPartyRoom(first.game);
 export { PinDirectory, RateLimiter, RoomBudget };
 
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
-    if (url.pathname === "/") return Response.redirect(new URL("/cork-and-bell/" + url.search, url), 302);
+    if (url.pathname === "/") return Response.redirect(new URL(first.manifest.path + url.search, url), 302);
     return (await handlePartyApi(request, env)) ?? env.ASSETS.fetch(request);
   },
 };

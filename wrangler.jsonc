@@ -12,7 +12,7 @@
   // before every `wrangler dev` and `wrangler deploy`, and on changes while `wrangler dev` runs.
   "build": {
     "command": "node scripts/build-public.mjs",
-    "watch_dir": ["cork-and-bell/game", "cork-and-bell/index.html", "party-kit/client", "scripts"]
+    "watch_dir": ["party-kit/client", "scripts", "games.js"]
   },
   "assets": {
     "directory": "./dist/public",
