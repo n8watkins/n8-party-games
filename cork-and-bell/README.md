@@ -2,7 +2,10 @@
 
 A travelling fairground shooting gallery of the 1930s, at dusk.
 One stall on your own, or a battle of two to four stalls side by side.
-The brief is in [PROMPT.md](PROMPT.md).
+
+The game began from a "cork gallery" build prompt written by Nick Saraev: a stylized shooting gallery of handmade objects at toy scale, lit with baked light and seen through a real lens.
+His prompt is not reproduced here.
+The battle mode, the room kit and all the code in this repository were made for this project.
 
 ## Run it
 
