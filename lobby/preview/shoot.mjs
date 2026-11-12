@@ -1,7 +1,7 @@
 // Renders the lobby concept stills into lobby/preview/shots/.
 // Run from the repository root after `npm install`: node lobby/preview/shoot.mjs [name-filter]
 // It serves the repository on a local port (the scene loads three.js and one Cork & Bell picture),
-// opens scene.html once per picture and saves a screenshot. Nothing is left running.
+// opens scene.html once per picture in a headless, muted browser and saves a screenshot. Nothing is left running.
 import { chromium } from "playwright";
 import { createServer } from "node:http";
 import { readFile } from "node:fs/promises";
@@ -31,13 +31,16 @@ const PHONE = { width: 844, height: 390, scale: 3 };
 const pictures = [
   { file: "01-vote-big-screen", query: "shot=vote", size: SCREEN },
   { file: "02-vote-phone", query: "shot=vote&view=phone", size: PHONE },
-  { file: "03-countdown-big-screen", query: "shot=countdown", size: SCREEN },
-  { file: "04-tie-big-screen", query: "shot=tie", size: SCREEN },
-  { file: "05-shove-big-screen", query: "shot=shove", size: SCREEN },
-  { file: "06-vote-lantern-room", query: "shot=vote&theme=lantern", size: SCREEN },
+  { file: "03-lock-in-count", query: "shot=count", size: SCREEN },
+  { file: "03b-lock-in-bell", query: "shot=bell", size: SCREEN },
+  { file: "04-tie-coin-toss", query: "shot=tie", size: SCREEN },
+  { file: "05-bump", query: "shot=bump", size: SCREEN },
+  { file: "06-mixed-skins", query: "shot=skins", size: SCREEN },
+  { file: "07-scoreboard", query: "shot=scores", size: SCREEN },
+  { file: "08-navy-room", query: "shot=vote&room=tech", size: SCREEN },
 ].filter((p) => !process.argv[2] || p.file.includes(process.argv[2]));
 
-const browser = await chromium.launch({ headless: true, args: ["--use-angle=swiftshader", "--enable-unsafe-swiftshader"] });
+const browser = await chromium.launch({ headless: true, args: ["--mute-audio", "--use-angle=swiftshader", "--enable-unsafe-swiftshader"] });
 try {
   for (const p of pictures) {
     const context = await browser.newContext({ viewport: { width: p.size.width, height: p.size.height }, deviceScaleFactor: p.size.scale });
