@@ -1,5 +1,5 @@
 // Takes screenshots of the game in a headless browser and prints frame rates and console errors.
-//   node cork-and-bell/tools/shot.mjs <name>=<query> ... [--size=1920x1080] [--dpr=1] [--wait=ms] [--win=1]
+//   node cork-and-bell/tools/shot.mjs <name>=<query> ... [--size=1920x1080] [--dpr=1] [--wait=ms] [--jpeg=1] [--win=1]
 // Each shot loads /cork-and-bell/?<query>, waits, and saves <out>/<name>.png (see SHOTS in browser.mjs)
 // --win=1 uses Chrome on the Windows side with the real graphics card (see browser.mjs).
 import { mkdirSync } from "node:fs";
@@ -25,7 +25,8 @@ try {
     await page.waitForFunction(() => window.__cab, null, { timeout: 60000 }).catch(() => errors.push("never booted"));
     await page.waitForTimeout(wait);
     const info = await page.evaluate(() => (window.__cab ? { gpu: window.__cab.gpu(), fps: window.__cab.fps() } : null)).catch((e) => String(e));
-    await page.screenshot({ path: out + "/" + name + ".png" });
+    if (opt(args, "jpeg", "0") === "1") await page.screenshot({ path: out + "/" + name + ".jpg", type: "jpeg", quality: 90 });
+    else await page.screenshot({ path: out + "/" + name + ".png" });
     console.log(name, JSON.stringify(info?.fps ?? info), (info?.gpu ?? "").slice(0, 60), errors.length ? "ERRORS: " + errors.slice(0, 4).join(" | ") : "ok");
     await page.close();
   }

@@ -104,7 +104,7 @@ void main() {
   float filament = smoothstep(0.1, 0.0, loop) * step(-0.52, vLocal.y) * facing;
   float cold = filament * 0.08;
   // Lit: the filament burns out to white and the whole envelope glows.
-  vec3 lit = uWarm * (0.6 + 1.2 * pow(facing, 1.5)) + vec3(1.0, 0.8, 0.5) * filament * 14.0;
+  vec3 lit = uWarm * (0.5 + 0.95 * pow(facing, 1.5)) + vec3(1.0, 0.78, 0.46) * filament * 12.0;
   vec3 c = mix(glass + vec3(cold), lit, clamp(vLevel, 0.0, 1.0)) * max(1.0, vLevel);
   gl_FragColor = vec4(c, 1.0);
 }`;
@@ -648,6 +648,37 @@ export class StallView {
       if (this.particles.length >= 48) this.particles.shift();
       this.particles.push({ p: new THREE.Vector3(x, y, z), v: new THREE.Vector3((Math.random() - 0.5) * 1.6, 0.4 + Math.random() * 1.6, 0.5 + Math.random() * 1.4), life: 0.5 + Math.random() * 0.4, c, spin: Math.random() * 6 });
     }
+  }
+
+  /** Frees what this stall alone holds on the graphics card (the shared assets stay). */
+  dispose() {
+    this.key.shadow.map?.dispose();
+    this.scene.traverse((o) => {
+      if (o.isInstancedMesh) o.dispose();
+    });
+    for (const g of [this.beltMesh.geometry, this.bulbs.geometry, this.mothGeo]) g.dispose();
+    for (const m of [this.setMat, this.shadowMat, this.bulbMat, this.mothMat]) m.dispose();
+  }
+
+  /** A new round in the same stall: nothing is rebuilt, so a restart costs no frame. */
+  reset() {
+    this.particles.length = 0;
+    this.incoming.length = 0;
+    this.restedShown = 0;
+    this.restedMesh.count = 0;
+    this.restedContact.count = 0;
+    this.chaseUntil = -10;
+    this.pulse = 0;
+    this.mothAmount = 0;
+    this.jamCork.visible = false;
+    for (const p of this.plateAngle) {
+      p.a = 0;
+      p.aV = 0;
+    }
+    this.starFold.fill(0);
+    this.bellSwing.a = 0;
+    this.bellSwing.aV = 0;
+    this.gun.kick = this.gun.kickV = this.gun.pitch = this.gun.pitchV = this.gun.roll = this.gun.rollV = 0;
   }
 
   setAim(x, y) {

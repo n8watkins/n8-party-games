@@ -129,10 +129,20 @@ function recordScore(name, score) {
 function makeViews(seats, mySeat) {
   const many = seats.length > 1 && (mySeat < 0 || mode === "four");
   const shown = many ? seats : seats.filter((s) => s.seat === mySeat);
-  views = shown.map((s) => ({
-    seat: s.seat,
-    view: new StallView(assets, { own: s.seat === mySeat, shadows: !(quality === "low" && many), shadowSize: quality === "low" || many ? 1024 : 2048 }),
-  }));
+  if (views.length === shown.length && views.every((v) => v.many === many)) {
+    // The same stalls, a new round: keep the pictures, so taking the gun or restarting is instant.
+    views.forEach((v, i) => {
+      v.seat = shown[i].seat;
+      v.view.reset();
+    });
+  } else {
+    for (const v of views) v.view.dispose();
+    views = shown.map((s) => ({
+      seat: s.seat,
+      many,
+      view: new StallView(assets, { own: s.seat === mySeat, shadows: !(quality === "low" && many), shadowSize: quality === "low" || many ? 1024 : 2048 }),
+    }));
+  }
   for (const v of views) v.view.setView(many ? "player" : P.view === "four" ? "player" : P.view, 1);
   if (!openedOnce) {
     // Only the very first picture: the lamps come on.
@@ -181,7 +191,10 @@ function layout() {
   lens.resize(innerWidth, innerHeight, devicePixelRatio || 1);
   const n = Math.max(1, views.length);
   const [cols, rows] = gridFor(n);
-  for (const v of views) v.view.aspect = innerWidth / cols / (innerHeight / rows);
+  for (const v of views) {
+    v.view.aspect = innerWidth / cols / (innerHeight / rows);
+    v.view.updateCamera(0, wall, true); // the camera is right at once: the very first click aims through it
+  }
   const names = $("names");
   names.replaceChildren();
   if (views.length > 1) {
