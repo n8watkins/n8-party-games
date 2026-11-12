@@ -18,7 +18,7 @@ What a game gets:
 - A plain waiting room with two slots: the lobby toy and the characters.
 
 Everything runs locally with `npm run dev` (`wrangler dev --local --env local`).
-Nothing is deployed yet; `DEPLOY.md` at the repository root is the owner's checklist for going live.
+The site is live at https://partygames.n8builds.dev; `DEPLOY.md` at the repository root is the checklist for every deploy.
 
 The top level of `wrangler.jsonc` is the production Worker (rate limits on, no simulated latency, the 10% room budget, logs on).
 The `local` environment is for local play and the tests (simulated latency allowed, rate limits off).

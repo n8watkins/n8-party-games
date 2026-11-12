@@ -3,6 +3,7 @@
 Small party games for two to four people that share one room kit.
 You open a room, friends join with a 4-digit PIN or a QR code, and everyone plays from their own phone or laptop.
 Playing alone runs entirely in your browser.
+Play it at https://partygames.n8builds.dev.
 
 "n8 Party" is a working name.
 
@@ -13,7 +14,7 @@ This repository is two things: the party kit, and the party site that puts the g
 - [`party-kit/`](party-kit/README.md) - the rooms: PINs, seats, reconnects, bots that take over a dropped seat, and a budget that caps how much hosted time rooms may use. It runs on Cloudflare Workers and Durable Objects. Games take it from here as a dependency.
 - [`games.js`](games.js), [`worker.js`](worker.js) and [`scripts/`](scripts/build-public.mjs) - the party site: one Worker that serves every hosted game beside the kit, so a group can change games without leaving.
 - [`party-kit/GAME-CONTRACT.md`](party-kit/GAME-CONTRACT.md) - what a game must export for the site to host it.
-- [`DEPLOY.md`](DEPLOY.md) - the checklist for putting the site online.
+- [`DEPLOY.md`](DEPLOY.md) - the checklist for every deploy.
 
 Each game is its own repository, and plays on its own from there:
 
