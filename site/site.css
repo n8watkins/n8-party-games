@@ -1,0 +1,105 @@
+/* The plain front page. The real one is being designed separately. */
+* {
+  box-sizing: border-box;
+}
+html {
+  height: 100%;
+}
+html,
+body {
+  min-height: 100%;
+  margin: 0;
+}
+body {
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: radial-gradient(120% 90% at 50% 0%, #24160f 0%, #0d0806 70%) #0d0806;
+  color: #fbf3e2;
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+}
+main {
+  width: min(100%, 480px);
+  display: grid;
+  gap: 16px;
+}
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-weight: 700;
+  color: #f6d9a0;
+}
+.brand-mark {
+  width: 17px;
+  height: 12px;
+  border-radius: 3px;
+  background: #f4b453;
+}
+h1 {
+  margin: 0;
+  font: 700 clamp(32px, 7vw, 46px) / 1.08 Georgia, "Times New Roman", serif;
+  color: #f6d9a0;
+}
+.lead,
+.aside {
+  margin: 0;
+  line-height: 1.5;
+  color: #cdbfa6;
+}
+.aside a {
+  color: #f4b453;
+}
+.button {
+  display: block;
+  min-height: 52px;
+  padding: 14px 20px;
+  border: 0;
+  border-radius: 26px;
+  background: #f4b453;
+  color: #1e1410;
+  font-weight: 800;
+  font-size: 17px;
+  line-height: 1.4;
+  font-family: inherit;
+  text-align: center;
+  text-decoration: none;
+  cursor: pointer;
+}
+.button.quiet {
+  background: transparent;
+  color: #fbf3e2;
+  box-shadow: inset 0 0 0 2px #fbf3e2;
+}
+.button:focus-visible,
+input:focus-visible,
+a:focus-visible {
+  outline: 3px solid #fff;
+  outline-offset: 2px;
+}
+.join {
+  display: grid;
+  gap: 8px;
+  margin-top: 6px;
+}
+.join label {
+  font-weight: 700;
+}
+.join-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 10px;
+}
+.join input {
+  min-width: 0;
+  min-height: 52px;
+  padding: 10px 14px;
+  border-radius: 10px;
+  border: 2px solid #5a4030;
+  background: #120b08;
+  color: #fbf3e2;
+  font: 800 28px/1 ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  letter-spacing: 0.3em;
+  text-align: center;
+}

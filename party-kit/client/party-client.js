@@ -155,7 +155,8 @@ export class PartyClient {
       if (event.code === 4000 || event.code === 4003 || !this.wantOpen) {
         this.forget();
         this.setStatus("closed");
-        this.emit("closed", event.code === 4003 ? "seat_lost" : "room_closed");
+        // The second word is the room's own reason for closing the socket, when it gave one.
+        this.emit("closed", event.code === 4003 ? "seat_lost" : "room_closed", event.reason || "");
         return;
       }
       this.retry += 1;
