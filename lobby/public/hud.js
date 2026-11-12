@@ -136,7 +136,7 @@ export class Hud {
   // ---------------------------------------------------------------- the line of words
 
   /** Call every frame: cheap, and only touches the page when the words change. */
-  update(room, vote, now, voteAt, zoom) {
+  update(room, vote, now, voteAt, zoom, idle = 0) {
     const live = { ...vote, countLeft: vote.count ? vote.count.endsIn - (now - voteAt) : null };
     const closingLeft = room.closing ? room.closing.in - (now - voteAt) : null;
     if (this.opts.role === "screen") {
@@ -174,9 +174,14 @@ export class Hud {
         this.bumpBtn.classList.toggle("cooling", cooling);
       }
     }
-    // A room near the end of its four hours says so.
+    // A room near the end of its four hours says so, and so does one nobody has touched for a while.
     const left = room.closesIn - (now - voteAt);
-    const warn = left < 5 * 60_000 && !room.closing ? `This room closes in ${Math.max(1, Math.ceil(left / 60_000))} min. Rooms last four hours.` : "";
+    const quiet = room.idleLimit - idle;
+    let warn = "";
+    if (!room.closing && room.phase === "lobby") {
+      if (left < 5 * 60_000) warn = `This room closes in ${Math.max(1, Math.ceil(left / 60_000))} min. Rooms last four hours.`;
+      else if (quiet < 2 * 60_000) warn = `Nobody has moved for a while. Move, or this room closes in ${Math.max(1, Math.ceil(quiet / 10_000)) * 10} seconds.`;
+    }
     if (warn !== this.banner.textContent) {
       this.banner.textContent = warn;
       this.banner.hidden = !warn;

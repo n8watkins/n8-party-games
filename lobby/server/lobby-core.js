@@ -510,6 +510,8 @@ export class LobbyCore {
       tonight: { games: this.gamesPlayed },
       last: this.last ? { ...this.last, ago: now - this.last.at } : null,
       closesIn: Math.max(0, this.createdAt + MAX_ROOM_LIFE_MS - now),
+      // How long a room may go with nobody doing anything before it is put away.
+      idleLimit: STALE_ROOM_MS,
       closing: this.closing ? { in: Math.max(0, this.closing.at - now), reason: this.closing.reason } : null,
     };
   }
