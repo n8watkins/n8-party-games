@@ -14,6 +14,8 @@
     "playtest": "node cork-and-bell/tools/playtest.mjs",
     "playtest:battle": "node cork-and-bell/tools/playtest-battle.mjs",
     "test:room": "node party-kit/test/e2e-room.mjs",
+    "test:production": "node party-kit/test/e2e-production.mjs",
+    "test:turnstile": "node party-kit/test/e2e-turnstile.mjs",
     "fps": "node cork-and-bell/tools/gpu-fps.mjs"
   },
   "dependencies": {
