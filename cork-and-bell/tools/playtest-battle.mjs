@@ -4,11 +4,11 @@
 // being blocked, the end, and the rematch.
 // Run the local server first (npm run dev), then: npm run playtest:battle
 import { mkdirSync } from "node:fs";
-import { openBrowser, SHOTS } from "./browser.mjs";
+import { BASE, openBrowser, SHOTS } from "./browser.mjs";
 
 const args = process.argv.slice(2);
 const opt = (k, d) => (args.find((a) => a.startsWith("--" + k + "=")) ?? "--" + k + "=" + d).split("=").slice(1).join("=");
-const base = opt("base", "http://localhost:8791/cork-and-bell/");
+const base = opt("base", BASE);
 const out = opt("out", SHOTS + "/battle");
 const lag = Number(opt("lag", 150));
 const withScreen = opt("screen", "1") === "1";

@@ -1,11 +1,11 @@
 // A small look at a two-bot battle through the page's own summary, once a second.
 //   node cork-and-bell/tools/watch-battle.mjs [--seconds=20] [--lag=150]
-import { openBrowser, opt } from "./browser.mjs";
+import { BASE, openBrowser, opt } from "./browser.mjs";
 
 const args = process.argv.slice(2);
 const seconds = Number(opt(args, "seconds", 20));
 const lag = opt(args, "lag", "150");
-const base = opt(args, "base", "http://localhost:8791/cork-and-bell/");
+const base = opt(args, "base", BASE);
 const b = await openBrowser({ win: opt(args, "win", "1") === "1", width: 900, height: 700 });
 try {
   const open = async (query) => {

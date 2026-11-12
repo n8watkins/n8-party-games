@@ -71,4 +71,10 @@ export async function openBrowser({ win = false, width = 1920, height = 1080, po
  */
 export const SHOTS = process.env.CAB_SHOTS ?? join(tmpdir(), "cork-and-bell-shots");
 
-export const opt = (args, k, d) => (args.find((a) => a.startsWith("--" + k + "=")) ?? "--" + k + "=" + d).split("=").slice(1).join("=");
+/**
+ * The game's address unless --base says otherwise: CAB_BASE, or the local server on PORT
+ * (8791, as `npm run dev` starts it).
+ */
+export const BASE = process.env.CAB_BASE ?? `http://localhost:${process.env.PORT ?? "8791"}/cork-and-bell/`;
+
+export const opt =(args, k, d) => (args.find((a) => a.startsWith("--" + k + "=")) ?? "--" + k + "=" + d).split("=").slice(1).join("=");

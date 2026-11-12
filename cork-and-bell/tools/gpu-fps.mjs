@@ -1,18 +1,19 @@
 // Measures the frame rate on the real GPU: a headless Chrome on the Windows side (D3D11 on the
 // machine's graphics card), driven from WSL over the debugging protocol (see browser.mjs).
-//   node cork-and-bell/tools/gpu-fps.mjs [name=query ...] [--size=1920x1080] [--uncapped=1]
+//   node cork-and-bell/tools/gpu-fps.mjs [name=query ...] [--size=1920x1080] [--dpr=1] [--uncapped=1]
 // With --uncapped=1 the frame limiter is off, which shows the headroom above the display's rate.
 import { mkdirSync } from "node:fs";
-import { openBrowser, opt, SHOTS } from "./browser.mjs";
+import { BASE, openBrowser, opt, SHOTS } from "./browser.mjs";
 
 const args = process.argv.slice(2);
 const [w, h] = opt(args, "size", "1920x1080").split("x").map(Number);
-const base = opt(args, "base", "http://localhost:8791/cork-and-bell/");
+const base = opt(args, "base", BASE);
 const out = opt(args, "out", SHOTS + "/gpu");
 mkdirSync(out, { recursive: true });
 const b = await openBrowser({ win: true, width: w, height: h, uncapped: opt(args, "uncapped", "0") === "1" });
 try {
-  const context = await b.newContext(w < 600 ? { hasTouch: true, isMobile: true } : {});
+  const dpr = Number(opt(args, "dpr", 1));
+  const context = await b.newContext(w < 600 ? { hasTouch: true, isMobile: true, deviceScaleFactor: dpr } : { deviceScaleFactor: dpr });
   const specs = args.filter((a) => !a.startsWith("--"));
   for (const spec of specs.length ? specs : ["solo=auto=1&seed=7"]) {
     const [name, ...rest] = spec.split("=");
