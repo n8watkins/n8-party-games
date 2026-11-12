@@ -1,102 +1,111 @@
-# Lobby concept pictures: notes
+# Lobby concept pictures: notes (round two)
 
 These are stills, not a build.
 Open `index.html` to see them in order.
 Re-render with `node lobby/preview/shoot.mjs` from the repository root after `npm install`.
+Round one's stills are kept in `shots/round-1/` for comparison.
 
 ## How the pictures were made
 
 The room is a real 3D scene (three.js, already a dev dependency) posed by hand for each picture.
-All words (name tags, plates, the join sign, the countdown) are HTML laid over the render from the same camera.
-`scene.html?shot=vote|countdown|tie|shove`, `&view=phone` and `&theme=lantern` choose the picture.
+All words (signs, name tags, the join sign, the scoreboard, the bottom line) are HTML laid over the render from the same camera.
+`scene.html?shot=vote|count|bell|tie|bump|skins|scores`, `&view=phone` and `&room=tech` choose the picture.
 The scene only runs through the local server that `shoot.mjs` starts, because it loads three.js from `node_modules` and one Cork & Bell screenshot for the box art.
+The browser that takes the pictures is headless and muted.
+
+## What changed from round one, and why
+
+- The warm bar room is the lead look, and the navy room is one extra still (picture 8), because the owner prefers the bar and sees the two as room skins.
+- Box art is about twice the area (1.75 m by 2.45 m, was 1.2 m by 1.68 m) and characters are about four fifths the height.
+- Game names sit on a sign under each box at nearly twice the size, with one line about the game.
+- The join code is about twice the size on the wall and is repeated large at the bottom right.
+- The coloured dots under each box are gone; the characters in the light are the only vote count.
+- The swinging tie lamp and the countdown ring in the middle of the wall are gone.
+- Shoving is in, as "bump".
 
 ## Decisions I made that were not specified
 
-### Camera
+### The signs
 
-- The camera looks straight at the back wall from the front, slightly above head height, with the frame slid downward.
-- That keeps walls upright (it reads as side-on, flat play) while the floor still opens toward the viewer, so each pool is a clear ellipse and the room has depth.
-- The camera never moves or scrolls: the room is exactly one screen wide on the big screen and on the phone.
-- Everyone walks on one line through the middle of the pools; there is no walking toward or away from the viewer.
+- Each sign has the name, one line about the game, a coloured badge for what you need, and the player count.
+- The badge colours are the ones already in use: cyan "Any device", violet "A phone each", amber "Phones + this screen".
+- On the phone the amber badge says "Phones + big screen", because "this screen" would be wrong there.
+- The box art no longer carries its own "what you need" strip, so nothing is said twice.
+- The one-line descriptions for Tin Derby, Flood and Fox Trouble are my guesses, and so is their box art.
+- Game names use the Cork & Bell display face in the bar and a plain bold face in the navy room.
+
+### What starts a game (pictures 1, 3 and 3b)
+
+- Nothing counts while anyone is in the dark; the bottom line names who the room is waiting for ("Waiting for Tom").
+- Idea A (picture 3): when everyone is in some light, the game with the most players gets a gold frame, a gold sign and a "Starts in 3" badge on its corner.
+- Stepping out of your light stops the count.
+- Idea B (picture 3b): no clock; a brass bell drops on a rope at the edge of the leading light, and the game starts only when someone in that light jumps and rings it.
+- In both ideas the other three boxes and signs fade, so the winner is obvious without reading.
+- The bottom line always says the rule in plain words.
+
+### The tie (picture 4)
+
+- A tie is a coin toss between the two tied games.
+- The two tied signs are marked "Heads" and "Tails", and one gold coin spins between the two boxes.
+- The coin shows a plain star, not either game, so the picture does not look already decided.
+- The server would pick the result; the coin only shows it.
+
+### Bump (picture 5)
+
+- Running into someone knocks them out of their light in an arc.
+- A bumped player loses their vote until they walk back in, and the light dims at once.
+- The phone gets a bump button next to jump.
+
+### Skins (picture 6)
+
+- The four skins are a chess piece, a robot, a slime and a ghost (the ghost is my pick).
+- Every skin keeps the seat colour and the same kind of eyes.
+- The ghost is a pale sheet tinted with the seat colour, so it does not read as a second slime.
+- The tricks are hints only: chess piece hops higher, robot shoves farther, slime is hard to shove, ghost floats and lands softly.
+- The trick is the second line on the name tag in this picture only.
+
+### Scores (picture 7, and the small board in every picture)
+
+- 3 points for first, 2 for second, 1 for third, every game.
+- During a vote the scores are a small chalkboard at the right end of the wall.
+- Right after a game the same board hangs large in the middle on two chains with what each player just won, and the small board's place on the wall is empty.
+- The leader wears a small crown in picture 7 only.
+- In the navy room the chalkboard becomes a lit panel.
 
 ### The room
 
-- Each game box hangs in a lit recess on the back wall, above head height, so characters never hide a box or its plate.
-- One lamp hangs over each pool; the box, the lamp and the pool line up as one "spot".
-- The four pools have a drawn edge and a dark gap between them a little narrower than a pool, so "in" and "out" are never in doubt.
-- A character counts as in a pool when its centre is inside the edge.
-- The door at the left end is where latecomers arrive; the shelf at the right end is where spare games wait.
-- The front edge of the stage carries one line of plain help text on the big screen.
+- Four boxes on the wall, 2.6 m apart, each with a lamp and a pool 1.9 m across.
+- The door and the join sign are at the left end; the scores and the fifth game (Fox Trouble, "Up next" on a shelf) are at the right end.
+- The camera, the single walking line and the "one screen wide, never scrolls" rule are unchanged from round one.
 
-### How a pool shows its vote count
+### The phone (picture 2)
 
-- The plate under each box has four pips, and each voter lights one pip in their seat colour.
-- The pool, its beam and the lamp get brighter with every voter, in clear steps (empty, one, two, three, four).
-- An empty pool stays faintly lit so it still reads as a place to stand.
-- Brightness alone carries the lead from across a room; the pips give the exact count up close.
-
-### The fifth game
-
-- I chose the shelf, not a lever.
-- Fox Trouble sits dimmed on a shelf at the right end, tagged "On the shelf".
-- The intended rule is that after a game is played its box goes up on the shelf and the waiting box comes down into that spot, so no extra control is needed.
-- This rule is not drawn as its own picture.
-
-### Where the PIN lives
-
-- On the big screen the QR code, the PIN and the address are on a sign above the door at the left end, in the room and out of the way of play.
-- The PIN is repeated in small type at the right of the stage front.
-- The PIN is 4827 and the address is the placeholder `games.n8builds.dev`, as in the landing mockups; the site name "n8 Party" is the same placeholder.
-
-### What the phone hides or shrinks
-
-- The phone shows the whole room, the same framing as the big screen, cropped at the top.
-- It hides the lamps (only their beams show), the QR code and address (the sign keeps the PIN only) and the "what you need" line on each plate.
-- It keeps game names, pips and name tags, and enlarges tags relative to the room.
-- The stage front becomes the control strip: left and right at the bottom left, emote and jump at the bottom right, "Your vote" in the middle.
-- The controls sit below the floor, so no thumb covers a character or a pool.
-- Your own character has a white "You" tag with a pointer and a white ring on the floor; the picture is drawn from Dolly's phone (gold seat).
-- The phone picture is rendered at 844x390 at three times density (2532x1170 pixels).
-
-### Characters
-
-- Characters are drawn as plain playing pieces (pawns) in the four seat colours with two dot eyes and a name tag.
-- A playing piece fits the game-box theme and is clearly a stand-in, not a slime or any other skin.
-- The eyes are there only to show which way a character faces.
-- The skins inset is on the page under picture 1, not inside a picture, so the pictures stay clean frames.
-- The names (Mabel, Fitch, Dolly, Tom) are borrowed from the Cork & Bell chalkboard.
-
-### Countdown, tie and shove
-
-- The countdown is one ring with one number and the game's name on the wall, plus the winning light turned up and the others turned down.
-- In the countdown picture the count has started on a majority (three against one), with everyone standing in some light.
-- The tie is settled by one extra lamp on a long cord that swings between the two tied pools and stops over one; the server would pick the result at random and the swing only shows it.
-- The shove picture shows the shoved player's pip as a dashed outline, meaning the vote is lost until they step back in.
-
-### Box art
-
-- Cork & Bell and Who Am I? copy the landing "cupboard" boxes; the three unfinished games are prototype boxes with a typed sticker, as on the landing page.
-- The strip at the bottom of each box uses the landing colours: cyan for any device, violet for a phone each, amber for phones plus a big screen.
-
-### Second direction
-
-- Picture 6 is the same layout in a warm "lantern room": wooden boards, a green dado, red shades and a string of bulbs, closer to Cork & Bell than to the n8builds.dev navy.
+- The phone stands a little further back than the big screen so the larger boxes fit whole.
+- The lamps are just out of frame; the beams and pools still show.
+- The controls sit over the front of the floor: left and right at the bottom left; emote, bump and jump at the bottom right.
+- The bottom line shows your own vote and who the room is waiting for.
+- The phone drops the QR code, the address, the one-line descriptions and the player counts.
 
 ## Weakest picture
 
-- Picture 4 (the tie) is the weakest.
-- A swing is motion, and a still can only hint at it with fading copies of the lamp and a dotted line on the floor.
-- The light also sits nearer one pool in the frame, which can read as "already chosen".
+- Picture 4 (the tie) is still the weakest.
+- The coin has to fit in the narrow gap between two large boxes, so it is small, and its spin arrows cross the edge of the box art.
+- The words ("Tie!", "Heads", "Tails") carry more of the meaning than the coin does.
 
 ## Known rough edges
 
-- Under the bright lights the blue seat renders lighter than its swatch (#2f6f8f); the dot in each name tag is the exact colour.
-- On the phone the lamps are out of frame, so the beams enter from above with no visible source.
-- The winning box in picture 3 is slightly washed by its own beam.
+- Under the lights the blue seat renders lighter than its swatch; the dot in each name tag is the exact colour.
+- The robot is dark and small next to the others; it needs a brighter body or a bigger head.
+- In picture 3b the bell rope runs up between two boxes and crosses the string of bulbs.
+- In picture 6 Mabel's tag sits close under the Cork & Bell sign.
+- The box art for Tin Derby, Flood and Fox Trouble is a painted stand-in.
 
-## The three biggest open questions
+## Open questions the pictures raise
 
-- What starts the count: everyone standing in a light with a majority (drawn), or full agreement; and can one person hold the party hostage by standing in the dark?
-- What happens when the party cannot play the winning game: Who Am I? is a 2-player game and Tin Derby needs a big screen, so should those boxes be dimmed and their pools switched off when the party does not fit?
-- Is the lobby a toy or a menu: shoving (picture 5), jumping and emotes make it a small game of its own, which is fun but slows down getting to the next game.
+- What starts a game: the count (A) or the bell (B)?
+- Can one player standing in the dark hold up the whole room, and if so for how long?
+- What happens when the winning game does not fit the party (Who Am I? is for 2, Tin Derby needs a big screen): should that box be dimmed and its light switched off?
+- Do skins have tricks, or are they looks only?
+- Who picks the room skin?
+- What are Tin Derby, Flood and Fox Trouble really about, so the one-line descriptions can be right?
+- Does the phone show the whole room, or zoom in and follow you?

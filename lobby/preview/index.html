@@ -3,155 +3,185 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>The lobby - concept pictures</title>
+<title>The lobby - concept pictures, round two</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Abril+Fatface&family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap">
 <style>
 :root {
-  --bg: #060a16; --panel: #0b1226; --line: rgba(132, 160, 230, .18);
-  --ink: #eef3ff; --soft: #a3b0cf; --dim: #7482a6; --cyan: #38bdf8;
+  --bg: #120b08; --panel: #1e120d; --line: rgba(246, 190, 130, .2);
+  --ink: #fff3e2; --soft: #dbbfa2; --dim: #a98d74; --accent: #f6b35c;
   --text: "Inter", system-ui, sans-serif; --mono: "JetBrains Mono", ui-monospace, Menlo, monospace;
 }
 * { box-sizing: border-box; }
 html { background: var(--bg); }
-body {
-  margin: 0; color: var(--ink); font: 16px/1.55 var(--text);
-  background:
-    linear-gradient(rgba(120, 170, 255, .045) 1px, transparent 1px) center top / 48px 48px,
-    linear-gradient(90deg, rgba(120, 170, 255, .045) 1px, transparent 1px) center top / 48px 48px,
-    var(--bg);
-}
+body { margin: 0; color: var(--ink); font: 16px/1.55 var(--text); background: radial-gradient(1200px 600px at 50% -100px, #2b1913, var(--bg)); background-repeat: no-repeat; }
 .wrap { max-width: 1180px; margin: 0 auto; padding: 0 16px 80px; }
-.label { font: 500 12px/1 var(--mono); letter-spacing: .14em; text-transform: uppercase; color: var(--cyan); }
+.label { font: 500 12px/1.3 var(--mono); letter-spacing: .14em; text-transform: uppercase; color: var(--accent); }
 header { padding: 40px 0 8px; }
-h1 { font-size: clamp(28px, 5vw, 44px); line-height: 1.08; letter-spacing: -.03em; margin: 14px 0 12px; text-wrap: balance; }
-header p { max-width: 62ch; margin: 0 0 8px; color: var(--soft); }
+h1 { font: 400 clamp(30px, 5vw, 48px)/1.08 "Abril Fatface", Georgia, serif; margin: 14px 0 14px; text-wrap: balance; }
+header p { max-width: 64ch; margin: 0 0 8px; color: var(--soft); }
 header p b { color: var(--ink); font-weight: 600; }
+.changes { margin: 22px 0 0; padding: 16px 20px 16px 38px; border: 1px solid var(--line); border-radius: 14px; background: rgba(30, 18, 13, .7); color: var(--soft); max-width: 78ch; }
+.changes li { margin: 3px 0; }
+.changes b { color: var(--ink); font-weight: 600; }
 figure { margin: 44px 0 0; }
 figure > a { display: block; border-radius: 14px; overflow: hidden; border: 1px solid var(--line); background: #03050c; box-shadow: 0 24px 70px rgba(0, 0, 0, .55); }
 figure img { display: block; width: 100%; height: auto; }
-figure.phone > a { max-width: 844px; border-radius: 26px; border: 6px solid #141c38; }
+figure.phone > a { max-width: 844px; border-radius: 26px; border: 6px solid #2a1a12; }
 figcaption { display: grid; gap: 6px 22px; margin-top: 16px; }
 figcaption .label { padding-top: 5px; }
 figcaption h2 { font-size: 21px; line-height: 1.2; letter-spacing: -.02em; margin: 0 0 6px; }
 figcaption p { margin: 0; color: var(--soft); max-width: 68ch; }
 figcaption p + p { margin-top: 6px; }
 figcaption .open { color: var(--ink); }
-figcaption .open::before { content: "Undecided"; font: 500 11px/1 var(--mono); letter-spacing: .14em; text-transform: uppercase; color: #fbbf24; margin-right: 10px; }
-.skins {
-  display: grid; gap: 14px; align-items: center;
-  margin: 26px 0 0; padding: 16px 18px;
-  border: 1px dashed rgba(132, 160, 230, .34); border-radius: 14px; background: rgba(11, 18, 38, .7);
-}
-.skins svg { width: 100%; max-width: 300px; height: auto; display: block; }
-.skins p { margin: 6px 0 0; color: var(--soft); font-size: 15px; max-width: 56ch; }
+figcaption .open::before { content: "Your call"; font: 500 11px/1 var(--mono); letter-spacing: .14em; text-transform: uppercase; color: var(--accent); margin-right: 10px; }
+.old { margin-top: 56px; }
+.old h2 { font-size: 21px; letter-spacing: -.02em; margin: 6px 0 14px; }
+.old .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 12px; }
+.old a { display: block; border-radius: 8px; overflow: hidden; border: 1px solid var(--line); }
+.old img { display: block; width: 100%; height: 100%; aspect-ratio: 16 / 9; object-fit: cover; }
 footer { margin-top: 56px; padding-top: 18px; border-top: 1px solid var(--line); color: var(--dim); font: 400 12.5px/1.6 var(--mono); }
-@media (min-width: 760px) {
-  figcaption { grid-template-columns: 170px 1fr; }
-  .skins { grid-template-columns: 300px 1fr; gap: 26px; padding: 18px 24px; }
-}
+@media (min-width: 760px) { figcaption { grid-template-columns: 170px 1fr; } }
 </style>
 </head>
 <body>
 <div class="wrap">
   <header>
-    <div class="label">Party lobby · concept pictures</div>
+    <div class="label">Party lobby · concept pictures · round two</div>
     <h1>One room, four lights. Your vote is where you stand.</h1>
     <p>These are <b>stills</b>, drawn to look like a frame from the real thing. Nothing here is playable.</p>
-    <p>The room is seen from the side, like a stage. Each game box hangs over a pool of light. Stand in a pool and you are voting for that game; stand in the dark and you have not decided.</p>
+    <p>Each game box hangs over a pool of light. Stand in a pool and you are voting for that game; stand in the dark and you have not picked yet.</p>
     <p>Tap or click a picture to open it full size.</p>
+    <ul class="changes">
+      <li><b>The warm bar room leads.</b> The navy room is kept as a second room skin (picture 8).</li>
+      <li><b>Bigger box art, bigger game names, bigger join code, smaller characters.</b> Each sign adds one line about the game and a coloured badge for what you need.</li>
+      <li><b>The coloured dots are gone.</b> The characters standing in a light are the only vote count.</li>
+      <li><b>The swinging lamp is gone.</b> A tie is a coin toss, and what starts a game is spelled out (two ideas, pictures 3 and 3b).</li>
+      <li><b>New:</b> bumping, mixed skins with a trick each, and the night's scores on a chalkboard.</li>
+    </ul>
   </header>
 
   <figure>
-    <a href="shots/01-vote-big-screen.png"><img src="shots/01-vote-big-screen.png" width="1920" height="1080" alt="The lobby on a big screen. Four game boxes hang on the wall, each over a pool of light on the floor. Two playing pieces stand in the brightest pool under Cork and Bell, one stands under Tin Derby, one is walking in the dark between pools. A sign by the door shows a QR code and the PIN 4827."></a>
+    <a href="shots/01-vote-big-screen.png"><img src="shots/01-vote-big-screen.png" width="1920" height="1080" alt="A warm bar room on a big screen. Four large game boxes hang on the wall, each over a pool of light: Cork and Bell, Who Am I, Tin Derby and Flood, each with a large name sign. Two playing pieces stand in the Cork and Bell light, one in the Tin Derby light, one stands in the dark. A sign shows a QR code and the code 4827. A chalkboard lists tonight's scores."></a>
     <figcaption>
       <div class="label">1 · Big screen</div>
       <div>
-        <h2>The whole room, mid-vote</h2>
-        <p>Mabel and Fitch stand under Cork &amp; Bell, so that light is the brightest and its plate shows two pips. Dolly is alone under Tin Derby, and Tom is walking in the dark, undecided. Latecomers scan the sign by the door, and the fifth game, Fox Trouble, waits on the shelf at the right.</p>
-        <p class="open">Whether the game on the shelf swaps in by itself after each game, or a player has to fetch it.</p>
+        <h2>The room, mid-vote</h2>
+        <p>Mabel and Fitch stand under Cork &amp; Bell, so that light is the brightest. Dolly is under Tin Derby. Tom is in the dark, so the bottom line says the room is waiting for him. The join code is on the wall and again at the bottom right, and the night's scores are on the chalkboard.</p>
+        <p class="open">The one-line descriptions under Tin Derby, Flood and Fox Trouble are my guesses. Tell me what those games really are.</p>
       </div>
     </figcaption>
   </figure>
 
-  <div class="skins">
-    <svg viewBox="0 0 300 120" role="img" aria-label="Three shapes the same size: the plain playing piece, a slime outline and a robot outline.">
-      <g fill="none" stroke="rgba(132,160,230,.3)" stroke-dasharray="3 5"><rect x="14" y="8" width="76" height="100" rx="8"/><rect x="112" y="8" width="76" height="100" rx="8"/><rect x="210" y="8" width="76" height="100" rx="8"/></g>
-      <!-- the plain piece -->
-      <g fill="#d9a02a"><circle cx="52" cy="38" r="15"/><path d="M41 55h22v5l-5 3 9 34a4 4 0 0 1-4 5H41a4 4 0 0 1-4-5l9-34-5-3z"/></g>
-      <g fill="#0a0d18"><ellipse cx="47" cy="37" rx="2.2" ry="3.6"/><ellipse cx="57" cy="37" rx="2.2" ry="3.6"/></g>
-      <!-- a slime -->
-      <path d="M124 102c-6 0-8-5-6-14 3-18 4-44 32-44s29 26 32 44c2 9 0 14-6 14z" fill="#16224a" stroke="#7f95d6" stroke-width="2"/>
-      <!-- a robot -->
-      <g fill="#16224a" stroke="#7f95d6" stroke-width="2" stroke-linejoin="round"><path d="M248 30V18"/><circle cx="248" cy="15" r="3.5"/><rect x="228" y="30" width="40" height="30" rx="7"/><rect x="224" y="66" width="48" height="36" rx="6"/></g>
-      <path d="M94 58h14m-5-5 5 5-5 5M192 58h14m-5-5 5 5-5 5" stroke="#38bdf8" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
-    </svg>
-    <div>
-      <div class="label">Skins plug in here</div>
-      <p>The playing piece in every picture is a stand-in. A skin (a slime, a robot, anything) replaces the shape; the seat colour and the name tag stay the same.</p>
-    </div>
-  </div>
-
   <figure class="phone">
-    <a href="shots/02-vote-phone.png"><img src="shots/02-vote-phone.png" width="2532" height="1170" alt="The same moment on a phone held sideways. The gold piece is marked You with a white tag and a white ring on the floor. Left and right buttons sit bottom left, an emote button and a jump button bottom right, and the middle reads Your vote: Tin Derby."></a>
+    <a href="shots/02-vote-phone.png"><img src="shots/02-vote-phone.png" width="2532" height="1170" alt="The same moment on a phone held sideways. The gold piece is marked You. Left and right buttons sit bottom left; emote, bump and jump buttons sit bottom right. The bottom line reads Your vote: Tin Derby, waiting for Tom."></a>
     <figcaption>
       <div class="label">2 · Phone, sideways</div>
       <div>
         <h2>The same moment, on Dolly's phone</h2>
-        <p>The whole room still fits, so everyone sees the same thing. Your piece wears a white "You" tag and a ring on the floor, and the controls sit on the front of the stage, under the action. The phone drops the lamps, the QR code and the "what you need" line on each plate.</p>
-        <p class="open">Whether the phone should show the whole room like this, or zoom in and follow you.</p>
+        <p>The whole room fits, boxes and all, so the phone and the big screen show the same thing. Your piece has a white "You" tag and a ring on the floor. Move with the two buttons on the left; emote, bump and jump are on the right. The phone drops the QR code and the one-line descriptions, and the lamps are just out of frame.</p>
+        <p class="open">Whether the phone shows the whole room like this, or zooms in and follows you.</p>
       </div>
     </figcaption>
   </figure>
 
   <figure>
-    <a href="shots/03-countdown-big-screen.png"><img src="shots/03-countdown-big-screen.png" width="1920" height="1080" alt="Three pieces stand in a bright white pool under Tin Derby and one stands in a dim pool under Who Am I. The other lights are low. A ring on the wall shows the number 3 and the words Tin Derby."></a>
+    <a href="shots/03-lock-in-count.png"><img src="shots/03-lock-in-count.png" width="1920" height="1080" alt="Three pieces stand in a bright light under Tin Derby and one under Who Am I. The Tin Derby box has a gold frame and a round badge reading Starts in 3. Its sign is lit gold and the other signs are faded. The bottom line reads: Everyone is in a light. Tin Derby starts in 3. Step out of your light to stop the count."></a>
     <figcaption>
-      <div class="label">3 · Big screen</div>
+      <div class="label">3 · Locking in, idea A</div>
       <div>
-        <h2>Everyone has picked: the count</h2>
-        <p>Three of four chose Tin Derby. Its light is the only bright one, its box leans forward, the other plates fade, and one ring on the wall counts down. Stepping out of the light stops the count.</p>
-        <p class="open">Whether the count starts when everyone stands in a light (drawn here), or only when everyone agrees; and how many seconds it runs.</p>
+        <h2>Everyone is in a light, so the count runs</h2>
+        <p>Nothing is assumed while anyone is still in the dark (picture 1 says "Waiting for Tom"). The moment all four stand in some light, the game with the most players gets a gold frame and a count on its corner. Step out of your light and the count stops. Most players wins, so Fitch is outvoted here.</p>
+        <p class="open">How long the count runs, and whether one person standing in the dark can hold everyone up for ever.</p>
       </div>
     </figcaption>
   </figure>
 
   <figure>
-    <a href="shots/04-tie-big-screen.png"><img src="shots/04-tie-big-screen.png" width="1920" height="1080" alt="Two pieces stand under Who Am I and two under Tin Derby. A single lamp on a long cord swings between the two pools, drawn with fading copies behind it, and a dotted double arrow on the floor joins the two pools."></a>
+    <a href="shots/03b-lock-in-bell.png"><img src="shots/03b-lock-in-bell.png" width="1920" height="1080" alt="The same vote, three under Tin Derby and one under Who Am I. A brass bell hangs on a rope at the edge of the Tin Derby light, and the gold piece is jumping up to ring it. A label reads Jump to ring it. The bottom line reads: Nothing starts until someone in that light rings the bell."></a>
     <figcaption>
-      <div class="label">4 · Big screen</div>
+      <div class="label">3b · Locking in, idea B</div>
       <div>
-        <h2>A tie: the lamp picks</h2>
-        <p>Two against two. The other lights go low and one lamp swings back and forth between the tied pools; the game it stops over is the one you play. The faint lamps are its trail, and the dotted line on the floor shows the two ends of the swing.</p>
-        <p class="open">Whether a swing of a few seconds is welcome every time, or a tie should just be settled at once.</p>
+        <h2>Or: somebody rings the bell</h2>
+        <p>No clock at all. When everyone is in a light, a bell drops down at the edge of the leading light. The game starts only when someone standing in that light jumps and rings it. This is the more deliberate version: a player always confirms.</p>
+        <p class="open">A or B. A is quicker and needs no extra step. B never starts a game nobody asked for, and suits Cork &amp; Bell.</p>
       </div>
     </figcaption>
   </figure>
 
   <figure>
-    <a href="shots/05-shove-big-screen.png"><img src="shots/05-shove-big-screen.png" width="1920" height="1080" alt="The blue piece leans hard into the gold piece and knocks it out of the Tin Derby pool. The gold piece tips away with a speech bubble saying hey. On the Tin Derby plate the gold pip has become a dashed outline."></a>
+    <a href="shots/04-tie-coin-toss.png"><img src="shots/04-tie-coin-toss.png" width="1920" height="1080" alt="Two pieces stand under Who Am I and two under Tin Derby. A large gold coin spins in the air between the two boxes under the words Tie, coin toss decides. The Who Am I sign is marked Heads and the Tin Derby sign is marked Tails."></a>
     <figcaption>
-      <div class="label">5 · Open question</div>
+      <div class="label">4 · A tie</div>
       <div>
-        <h2>Can you shove a friend out of the light?</h2>
-        <p>Fitch runs into Dolly and knocks her out of the Tin Derby pool. Her pip on the plate turns into a dashed outline: her vote is gone until she walks back in.</p>
-        <p class="open">Yes or no. With shoving the lobby is a small game of its own; without it, people simply pass through each other and the vote stays calm.</p>
+        <h2>Two against two: flip a coin</h2>
+        <p>The two tied boxes stay lit and get a side each, heads and tails. One gold coin goes up between them. Everything else in the room goes dim.</p>
+        <p class="open">A coin toss, or let a tie simply wait until someone changes their mind.</p>
       </div>
     </figcaption>
   </figure>
 
   <figure>
-    <a href="shots/06-vote-lantern-room.png"><img src="shots/06-vote-lantern-room.png" width="1920" height="1080" alt="The same moment as picture 1 in a warm room: dark wooden boards, a green painted band along the wall, red lamp shades, a string of small bulbs and warm pools of light on a plank floor."></a>
+    <a href="shots/05-bump.png"><img src="shots/05-bump.png" width="1920" height="1080" alt="The blue piece charges into the gold piece and knocks it out of the Tin Derby light. The gold piece tumbles through the air with wide eyes and a speech bubble saying hey."></a>
     <figcaption>
-      <div class="label">6 · Second direction</div>
+      <div class="label">5 · Bump</div>
       <div>
-        <h2>The same moment in a warmer room</h2>
-        <p>Same layout and rules as picture 1, different mood: wooden boards, warm lamps and a string of bulbs, closer to the Cork &amp; Bell fairground than to the n8builds.dev navy.</p>
-        <p class="open">Which room: the navy workshop, this one, or one room per party picked at random.</p>
+        <h2>Knock a friend out of their light</h2>
+        <p>Fitch runs at Dolly and sends her flying out of the Tin Derby light. Her vote is gone until she walks back in, and the light dims by one player straight away.</p>
+        <p class="open">How far a bump throws you, and whether there is a short rest before you can bump again.</p>
       </div>
     </figcaption>
   </figure>
+
+  <figure>
+    <a href="shots/06-mixed-skins.png"><img src="shots/06-mixed-skins.png" width="1920" height="1080" alt="Four different characters in one room. A red chess piece hops high. A blue robot punches with a long spring arm at a gold slime, which does not move. A pale green ghost floats above the floor. Each name tag has a second line: hops higher, shoves farther, hard to shove, floats and lands softly."></a>
+    <figcaption>
+      <div class="label">6 · Skins</div>
+      <div>
+        <h2>Four skins, one room, a trick each</h2>
+        <p>The seat colour stays; the shape is yours to pick. The second line on each tag is only a hint of what a trick could be: the chess piece hops higher, the robot shoves farther, the slime is hard to shove, the ghost floats and lands softly.</p>
+        <p class="open">Whether skins have tricks at all, or are looks only. Tricks make the lobby more of a game and need balancing.</p>
+      </div>
+    </figcaption>
+  </figure>
+
+  <figure>
+    <a href="shots/07-scoreboard.png"><img src="shots/07-scoreboard.png" width="1920" height="1080" alt="A large chalkboard hangs in the middle of the room on two chains, titled Tonight's scores. Dolly leads with 7 after gaining 3, Mabel has 5, Tom 4 and Fitch 2. The gold piece below wears a small crown."></a>
+    <figcaption>
+      <div class="label">7 · The night's scores</div>
+      <div>
+        <h2>After a game, the chalkboard comes to the middle</h2>
+        <p>Every game gives 3 points for first, 2 for second and 1 for third. Right after a game the board hangs in the middle with what each player just won, and the leader wears a crown. During a vote the same board sits small at the right end of the wall (pictures 1 to 6).</p>
+        <p class="open">The points (3, 2, 1), and whether the leader keeps the crown during the vote.</p>
+      </div>
+    </figcaption>
+  </figure>
+
+  <figure>
+    <a href="shots/08-navy-room.png"><img src="shots/08-navy-room.png" width="1920" height="1080" alt="The same moment as picture 1 in a dark navy room with a lit grid on the walls and floor, cool white lights and a score panel in place of the chalkboard."></a>
+    <figcaption>
+      <div class="label">8 · Room skin</div>
+      <div>
+        <h2>The same room in navy</h2>
+        <p>Same layout and rules as picture 1. Only the room changes: the walls, floor, lamps, sign lettering and the scoreboard.</p>
+        <p class="open">Who picks the room: the host, a vote, or the last game's winner.</p>
+      </div>
+    </figcaption>
+  </figure>
+
+  <section class="old">
+    <div class="label">For comparison</div>
+    <h2>Round one</h2>
+    <div class="grid">
+      <a href="shots/round-1/01-vote-big-screen.png"><img src="shots/round-1/01-vote-big-screen.png" alt="Round one, picture 1: the navy room mid-vote." loading="lazy"></a>
+      <a href="shots/round-1/02-vote-phone.png"><img src="shots/round-1/02-vote-phone.png" alt="Round one, picture 2: the phone." loading="lazy"></a>
+      <a href="shots/round-1/03-countdown-big-screen.png"><img src="shots/round-1/03-countdown-big-screen.png" alt="Round one, picture 3: the countdown ring." loading="lazy"></a>
+      <a href="shots/round-1/04-tie-big-screen.png"><img src="shots/round-1/04-tie-big-screen.png" alt="Round one, picture 4: the swinging tie lamp." loading="lazy"></a>
+      <a href="shots/round-1/05-shove-big-screen.png"><img src="shots/round-1/05-shove-big-screen.png" alt="Round one, picture 5: the shove." loading="lazy"></a>
+      <a href="shots/round-1/06-vote-lantern-room.png"><img src="shots/round-1/06-vote-lantern-room.png" alt="Round one, picture 6: the warm room." loading="lazy"></a>
+    </div>
+  </section>
 
   <footer>Rendered from lobby/preview/scene.html by lobby/preview/shoot.mjs · the decisions behind the pictures are in NOTES.md</footer>
 </div>
