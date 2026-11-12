@@ -22,6 +22,7 @@ export const manifest = {
   path: "/cork-and-bell/",      // the route prefix: the game's page and files live under it on every site
   players: { min: 2, max: 4, solo: true },
   devices: { phone: true, desktop: true, sharedScreen: true, sideways: "preferred" },
+  scores: { max: 243300 },      // optional: a high score board, and the most a round can score
   public: [                     // what a browser loads, copied to <path>/<to> by the site's build
     { from: "index.html", to: "index.html" },
     { from: "game", to: "game" },
@@ -37,6 +38,7 @@ export const manifest = {
 | `manifest.path` | Where the game lives on a site, with a slash at both ends. The same on the party site and on the game's own site, so a join link works on either. |
 | `manifest.players` | Seats in a room (`min`, `max`) and whether it also plays alone in the browser (`solo`). |
 | `manifest.devices` | What it is played on, for the lobby to show: `phone`, `desktop`, `sharedScreen` (a screen that holds no seat), and `sideways` (`"preferred"`, `"required"` or `false`). |
+| `manifest.scores` | Optional. `{ max }`: the game has a high score board, and no round can score more than `max`. The host binds the kit's `ScoreBoard` and answers `/api/party/scores/<id>`. |
 | `manifest.public` | Files and folders the browser loads, relative to the package root. Nothing else in the package is served. |
 
 ## Rules a game keeps
