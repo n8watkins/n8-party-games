@@ -49,8 +49,19 @@ const targetXY = (id) =>
     return { x: u * innerWidth, y: v * innerHeight, id: t.id };
   }, id);
 
-// First input: a move takes the gun from the house, and the first click fires at once.
-// On a phone there is no move: the very first touch takes the gun and fires where it lifts.
+// The start board: play alone, a battle with friends, and the sound, each spelled out.
+const board = await page.evaluate(() => ({
+  shown: !document.getElementById("start").hidden,
+  choices: [...document.querySelectorAll("#start button b")].map((b) => b.textContent),
+  tally: !document.getElementById("tally").hidden,
+}));
+log("start board:", board.shown ? "shown," : "MISSING,", board.choices.join(" | "));
+if (!board.shown || board.choices.length !== 3) errors.push("the start board did not show its three choices");
+if (board.tally) errors.push("the tally showed on the start screen");
+
+// First input. With a mouse: moving the pointer leaves the house playing (so the board can be
+// read and pressed), and "Play alone" starts the round after a short count. On a phone the very
+// first touch on the picture takes the gun and fires where it lifts.
 const middlePot = await page.evaluate(() => {
   const [u, v] = window.__cab.views[0].view.project(0, 1.125, -1.52);
   return { x: u * innerWidth, y: v * innerHeight };
@@ -58,12 +69,17 @@ const middlePot = await page.evaluate(() => {
 if (touch) {
   await page.touchscreen.tap(middlePot.x, middlePot.y + Math.min(90, h * 0.11));
 } else {
-  await page.mouse.move(w * 0.5, h * 0.6);
+  await page.mouse.move(w * 0.5, h * 0.4, { steps: 3 });
+  await page.waitForTimeout(200);
+  if ((await summary()).mode !== "attract") errors.push("moving the pointer took the gun before a choice was made");
+  await page.locator("#start-solo").click();
+  await page.waitForTimeout(1300); // the count-in
 }
 await page.waitForTimeout(300);
 s = await summary();
 log("after first input:", s.mode, "t", s.t);
 if (s.mode !== "solo") errors.push("the first input did not start a solo round");
+if (await page.evaluate(() => !document.getElementById("start").hidden || document.getElementById("tally").hidden)) errors.push("the start board stayed up, or the tally did not show, once the round began");
 const first = await targetXY("p2");
 if (touch) {
   // Already fired by the first touch.

@@ -31,7 +31,7 @@ An upright phone still plays, with its own framing and a hint to turn it.
 
 | Address | What you get |
 | --- | --- |
-| `/cork-and-bell/` | The stall. The house plays until you move the pointer; your first click fires. |
+| `/cork-and-bell/` | The stall, with the start board: play alone, battle with friends, sound. The house plays behind it; a click or a touch on a target takes the gun and fires at once. |
 | `?auto=1` | The bot keeps playing (the attract mode, for a solo look). |
 | `?seed=7` | A repeatable run. |
 | `?t=41&auto=1&seed=7` | The picture frozen at round time 41 s. |
@@ -42,7 +42,9 @@ An upright phone still plays, with its own framing and a hint to turn it.
 | `?quality=low` or `high` | Lens and shadow quality (phones start on low). |
 | `?grid=row` | With four stalls on a shared screen: one row of four upright stalls instead of two rows of two. |
 
-A battle: press **Play a battle**, then **Make a room** (you play on this device) or **Use this screen as the shared screen** (a laptop or television shows every stall; players join on their phones with the PIN or the QR code).
+Sound is off until you turn it on: **Sound is off** on the start board, the **Sound: off** switch at the top right during a round, or the M key.
+
+A battle: press **Battle with friends**, then **Make a room** (you play on this device) or **Use this screen as the shared screen** (a laptop or television shows every stall; players join on their phones with the PIN or the QR code).
 
 ## The rules of the medium
 
@@ -64,6 +66,7 @@ Decided before any code, and kept everywhere.
 - The lever takes half a second to cock. Seventy corks a round. A dead-centre hit earns the cork back.
 - Front row teapots 10, chain stars 25, pendulum moons 50, the shutter star 100, the bell 15.
 - A run of 4 hits doubles, a run of 8 trebles. A ricochet hit (the cork has already bounced off something) trebles on top of that. Dead centre is worth half as much again.
+- The ticket at the bottom left shows the time and the score, with the run (and what it multiplies by) and the corks left on its stub. It keeps clear of the cork tray on every screen shape.
 - Hits fill the bell's ring of lamps. When it is full the bell is live: ring it for 100.
 - The round is 90 seconds and the machine speeds up all the way through.
 
