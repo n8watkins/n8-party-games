@@ -4,6 +4,29 @@
   "private": true,
   "type": "module",
   "description": "Party games that share one room kit. Ready for Cloudflare Workers, not deployed yet.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/n8watkins/n8-party-games.git"
+  },
+  "exports": {
+    "./kit": "./party-kit/src/worker/index.js",
+    "./kit/core": "./party-kit/src/core/room-core.js",
+    "./kit/rng": "./party-kit/src/core/rng.js",
+    "./kit/http": "./party-kit/src/worker/http.js",
+    "./kit/build": "./party-kit/build/public.mjs",
+    "./kit/client/*": "./party-kit/client/*",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "party-kit/src",
+    "party-kit/client",
+    "party-kit/build",
+    "party-kit/test/e2e-*.mjs",
+    "party-kit/README.md",
+    "party-kit/GAME-CONTRACT.md",
+    "LICENSE"
+  ],
   "scripts": {
     "dev": "wrangler dev --local --env local --port 8791",
     "dev:lan": "node scripts/dev-lan.mjs",
