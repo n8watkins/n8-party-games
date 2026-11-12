@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { game, createBattle, roundTime, dumpStall, loadStall, COUNT_IN } from "../game/shared/battle.js";
-import { StallSim, ROUND_SECONDS, launch, predict, mech, CORKS_PER_ROUND, RICOCHET_TIMES } from "../game/shared/sim.js";
+import { StallSim, ROUND_SECONDS, launch, predict, mech, backTop, CORKS_PER_ROUND, RICOCHET_TIMES } from "../game/shared/sim.js";
 import { PLATES, ROWS, BELL } from "../game/shared/layout.js";
 
 function runBattle(seed, n, { until = ROUND_SECONDS + 5, onEvent } = {}) {
@@ -73,6 +73,28 @@ describe("the cork", () => {
       expect(e.pts).toBe(expectedPoints(e));
       expect(e.pts).toBeGreaterThanOrEqual(ROWS[0].points * 3);
     }
+  });
+
+  it("flies over the top of the stall when aimed there, and still bounces off what is really built", () => {
+    const shoot = (ax, ay) => {
+      const sim = new StallSim(3, 0);
+      sim.step(0.1);
+      sim.fire(0.1, ax, ay);
+      sim.step(7);
+      return sim.events;
+    };
+    // Over the pediment, over the back rail beside it, and over each side wall: nothing to hit.
+    for (const [ax, ay] of [[0, 2.7], [0.9, 2.6], [1.35, 2.6], [-1.35, 2.7], [0.8, 2.35], [-1.2, 2.3]]) {
+      const events = shoot(ax, ay);
+      expect(events.filter((e) => e.k === "bounce" || e.k === "hit")).toEqual([]);
+      expect(events.find((e) => e.k === "rest")).toMatchObject({ lost: true });
+    }
+    // Into the canvas of the right wall, below its top: it comes back off the wall.
+    expect(shoot(1.35, 1.9).find((e) => e.k === "bounce")).toMatchObject({ what: "wall" });
+    // The pediment is an arch: highest in the middle, a plain rail at the sides.
+    expect(backTop(0)).toBeGreaterThan(backTop(0.5));
+    expect(backTop(0.5)).toBeGreaterThan(backTop(1));
+    expect(backTop(1)).toBeCloseTo(2.28);
   });
 
   it("cannot be fired faster than the lever cocks, or before the bell", () => {

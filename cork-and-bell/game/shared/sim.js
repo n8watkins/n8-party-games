@@ -3,7 +3,7 @@
 // drawn from the seed and the shot's number.
 //
 // Time `t` is round time in seconds (0 at the opening bell, negative during the count-in).
-import { BACK, BELL, CHAIN, COUNTER, HALF_W, JAM, PENDULUMS, PENDULUM_RATE, PLATES, ROWS, SHUTTER, STEPS, STEP_LEFT, muzzle } from "./layout.js";
+import { BACK, BELL, CHAIN, COUNTER, HALF_W, JAM, PENDULUMS, PENDULUM_RATE, PLATES, ROWS, SHUTTER, STEPS, STEP_LEFT, WALL_TOP, muzzle } from "./layout.js";
 
 export const DT = 1 / 120;
 export const ROUND_SECONDS = 90;
@@ -101,8 +101,16 @@ export function camLift(t) {
   return f < 0.45 ? f / 0.45 : -1;
 }
 
+/** The top edge of the back board at x: a rail, with the arched pediment in the middle. */
+export function backTop(x) {
+  const half = BACK.archHalfW + 0.08;
+  const rail = BACK.top + 0.1;
+  return Math.abs(x) < half ? rail + (BACK.archH + 0.02) * Math.sqrt(1 - (x / half) ** 2) : rail;
+}
+
 function stepTop(z, x) {
   if (z > COUNTER.zFront + 0.3) return -5; // off the front of the stall: gone
+  if (Math.abs(x) > HALF_W || z < BACK.z) return -5; // over a wall or the back board: gone
   if (z > COUNTER.zBack) return COUNTER.top;
   if (z > STEPS[0].zFront || x < STEP_LEFT) return 0; // the floor, and the gap the drive runs in
   if (z > STEPS[1].zFront) return STEPS[0].top;
@@ -265,15 +273,17 @@ export class StallSim {
     // Targets: thin plates in a plane. A cork crossing the plane inside the shape strikes it.
     if (v[2] !== 0) this.strikeTargets(c, x0, y0, z0);
 
-    // Side walls and the back board.
-    if (p[0] > HALF_W - CORK_R || p[0] < -HALF_W + CORK_R) {
+    // Side walls and the back board, as tall as they are built and no taller: a cork aimed over
+    // the top flies on into the dusk. (Only a cork still inside the stall can meet them.)
+    const inside = Math.abs(x0) <= HALF_W - CORK_R + 1e-6 && z0 >= BACK.z + CORK_R - 1e-6;
+    if (inside && (p[0] > HALF_W - CORK_R || p[0] < -HALF_W + CORK_R) && p[1] < WALL_TOP) {
       p[0] = p[0] > 0 ? HALF_W - CORK_R : -HALF_W + CORK_R;
       v[0] *= -0.42;
       v[1] *= 0.8;
       v[2] *= 0.8;
       this.bounce(c, "wall");
     }
-    if (p[2] < BACK.z + CORK_R && p[1] < BACK.top + 0.36) {
+    if (inside && p[2] < BACK.z + CORK_R && p[1] < backTop(p[0])) {
       p[2] = BACK.z + CORK_R;
       v[2] *= -0.36;
       v[0] = v[0] * 0.7 + (c.spin - 0.5) * 0.9;

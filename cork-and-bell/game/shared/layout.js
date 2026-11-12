@@ -23,7 +23,8 @@ export const ROWS = [
 ];
 
 export const BACK = { z: -2.78, top: 2.18, archHalfW: 0.62, archH: 0.34 };
-export const WALL_TOP = 2.18;
+/** The top of the side walls (the rail that caps the canvas). */
+export const WALL_TOP = 2.25;
 
 /**
  * The player's eye. `halfWidth` is the tangent of half the view across, kept on narrow screens.
