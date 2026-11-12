@@ -242,6 +242,10 @@ body.pointer #stage {
   padding: 0.5em 0.45em 0.4em;
   box-shadow: 0 2px 10px rgba(0, 0, 0, 0.5), inset 0 0 0 1.5px var(--red), inset 0 0 0 3px rgba(241, 227, 191, 1), inset 0 0 0 4px rgba(156, 43, 32, 0.5);
 }
+/* Hidden means hidden, whatever a layout rule further down says about display. */
+#hud [hidden] {
+  display: none !important;
+}
 #tally[hidden],
 #start[hidden],
 #controls[hidden],
@@ -617,6 +621,8 @@ body.pointer #stage {
   top: 50%;
   transform: translate(-50%, -50%);
   width: min(92vw, 440px);
+  max-height: calc(100% - 16px);
+  overflow-y: auto;
   padding: 20px 22px 18px;
   border-radius: 8px;
   background: #f1e3bf;
@@ -624,6 +630,17 @@ body.pointer #stage {
   pointer-events: auto;
   box-shadow: 0 20px 70px rgba(0, 0, 0, 0.6), inset 0 0 0 2px var(--red), inset 0 0 0 5px #f1e3bf, inset 0 0 0 6px rgba(210, 162, 60, 0.9);
   text-align: center;
+}
+/* Under the lobby and the end card, the rest of the HUD steps back. */
+body.lobby #title,
+body.lobby #controls,
+body.lobby #turn,
+body.lobby #tally,
+body.lobby #rivals,
+body.lobby #banner,
+body.carded #turn,
+body.carded #rivals {
+  visibility: hidden;
 }
 #card h2 {
   margin: 0 0 10px;
@@ -836,6 +853,38 @@ body.pointer #stage {
   }
   #hud #start button.sound {
     column-gap: 9px;
+  }
+  /* The end card lies low too: four stalls and the buttons fit without scrolling. */
+  #card {
+    width: min(92vw, 520px);
+    padding: 12px 18px 12px;
+  }
+  #card h2 {
+    margin-bottom: 6px;
+    font-size: 24px;
+  }
+  #card ol {
+    gap: 2px;
+    margin-bottom: 6px;
+  }
+  #card li {
+    padding: 3px 8px;
+    font-size: 15px;
+  }
+  #card li b {
+    font-size: 20px;
+  }
+  #card li small {
+    font-size: 11.5px;
+  }
+  #card p {
+    margin: 4px 0 8px;
+    font-size: 13px;
+  }
+  #hud #card button {
+    min-height: 44px;
+    padding: 9px 20px;
+    font-size: 16px;
   }
   #pops span.flagged {
     font-size: 28px;

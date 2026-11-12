@@ -247,7 +247,10 @@ function layout() {
     });
   }
 }
-addEventListener("resize", layout);
+// A phone's keyboard shrinks the window while a name is typed: the picture keeps its shape until it closes.
+const typing = () => document.activeElement instanceof HTMLInputElement;
+addEventListener("resize", () => typing() || layout());
+addEventListener("focusout", () => setTimeout(() => typing() || layout(), 250));
 
 /** The tray's painted rim in metres, and the four corners of where the gun can aim (the picture leans furthest there). */
 const TRAY_RIM = 0.012;
@@ -387,6 +390,9 @@ $("start-note").textContent = coarse ? "Or touch any target to take the gun." : 
 /** The arrow shows wherever there is something to press: the start board, the end card, the lobby. */
 function showPointer() {
   document.body.classList.toggle("pointer", !$("start").hidden || !$("card").hidden || !lobby.root.hidden);
+  // Under the lobby or the end card the rest of the HUD steps back, so nothing shows through or pokes out.
+  document.body.classList.toggle("lobby", !lobby.root.hidden);
+  document.body.classList.toggle("carded", !$("card").hidden);
 }
 
 // ------------------------------------------------------------------ the lobby (the party kit's)
