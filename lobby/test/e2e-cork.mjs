@@ -189,15 +189,18 @@ try {
   // That is the game's own rule (cork-and-bell), so the check is that the big screen shows what
   // the room counted, and a cork the room did not count is reported, not failed.
   const roomShots = async () => {
-    await sleep(1200); // one snapshot (every half second) after the last cork has been judged
-    return watcher.seen.findLast((m) => m.t === "snap" && m.s.stalls)?.s.stalls.find((s) => s.seat === 0)?.shots ?? null;
+    // The room simulates 0.3 s behind its clock and sends a snapshot every half second: give the
+    // last cork time to be judged, up to five seconds.
+    const latest = () => watcher.seen.findLast((m) => m.t === "snap" && m.s.stalls)?.s.stalls.find((s) => s.seat === 0)?.shots ?? null;
+    for (let i = 0; i < 25 && latest() !== shots; i++) await sleep(200);
+    return latest();
   };
   const counted = await roomShots();
   await frames.screen.waitForFunction((n) => window.__cab.session.sims[0].shots === n, counted, { timeout: 30000 }).catch(() => {});
   const onScreen = (await summary(frames.screen)).stalls;
   if (counted !== shots) {
     const taken = watcher.seen.filter((m) => m.t === "ev").flatMap((m) => m.ev.filter((e) => e.k === "f" && e.seat === 0).map((e) => e.at.toFixed(3)));
-    console.log(`     note: the room counted ${counted} of Ada's ${shots} corks; ${shots - counted} reached it too late for the game (events at round times ${taken.join(", ")})`);
+    console.log(`     note: the room counted ${counted} of the ${shots} corks Ada's page showed (it relayed them at round times ${taken.join(", ")})`);
   }
   check(counted > 0 && onScreen[0].shots === counted && onScreen[2].shots > 0 && onScreen[1].shots === 0, `the room relays it: the big screen has counted ${onScreen[0].shots} of Ada's corks (the room ${counted}), ${onScreen[2].shots} of Cy's bot's and none of Bea's, who never fired`);
 
