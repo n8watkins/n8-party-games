@@ -75,7 +75,7 @@ The room is `lobby/server/lobby-core.js` (the rules) and `lobby/server/lobby-roo
 
 The room's `activity` is `{ kind: "lobby" }` or `{ kind: "game", id, state, startedAt, ticks, seats }`.
 Every client sees it in the room view as `phase` (`"lobby"` or `"playing"`) and `game` (`{ id, name, round }` or `null`).
-The seats, the join code, the big screens and the Tonight board belong to the room, not to the activity, so they carry across.
+The seats, the join code, the big screen (a room has one) and the Tonight board belong to the room, not to the activity, so they carry across.
 In the lobby nothing ticks: the room is asleep unless somebody moves.
 In a game the room ticks at the game's `tickHz`, and all of that time counts against the room budget.
 
