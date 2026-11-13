@@ -1125,10 +1125,14 @@ export class Life {
     return this.events.map((e) => ({ name: e.def.name, at: nextStart(e.def, e.index, T, this.seed), lasts: e.def.lasts }));
   }
 
-  /** A bump happened (every device hears it): if it was by the room's feature, the feature is knocked. */
-  onBump(by, hit) {
-    const near = [by, hit].some((p) => p && Math.abs(p.rx - this.spotX) < REACH);
-    if (near) this.knock = { strength: hit ? 1 : 0.6 };
+  /**
+   * A bump happened (every device hears it).  is where the bumper is and  where
+   * whoever it hit was knocked to (null for a miss), in world units, as the room said. If
+   * either is by the room's feature, the feature is knocked.
+   */
+  onBump(byX, hitX) {
+    const near = [byX, hitX].some((x) => x !== null && Math.abs(x - this.spotX) < REACH);
+    if (near) this.knock = { strength: hitX !== null ? 1 : 0.6 };
   }
 
   /**

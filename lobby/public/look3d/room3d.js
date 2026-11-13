@@ -679,7 +679,9 @@ export class Room3D {
       hit.hitAt = now;
     }
     // If it happened by the room's feature, the feature is knocked too (look3d/life.js).
-    this.life?.onBump(by, hit);
+    // Where they are is taken from what the room said, not from where this device has drawn them
+    // so far, so that a slow screen and a fast one agree.
+    this.life?.onBump(by ? (msg.s === this.opts.own ? by.rx : posAt(by.net, now)) : null, hit ? msg.x : null);
   }
 
   /** The viewer's own piece jumped (its Pilot says so; nothing comes back from the room). */
