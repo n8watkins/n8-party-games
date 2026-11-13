@@ -17,7 +17,7 @@ const check = (ok, what) => {
   console.log((ok ? "ok   " : "FAIL ") + what);
   if (!ok) problems.push(what);
 };
-const COIN = Math.round(boxCentre(1, 5));
+const COIN = Math.round(boxCentre(1, 6));
 
 const a = await call("POST", "/rooms", { nickname: "Ann" });
 check(a.status === 201, "with the allowance unspent, a party starts (" + a.status + ")");

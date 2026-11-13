@@ -116,7 +116,7 @@ The Workers Paid plan includes 400,000 GB-seconds a month for the whole account,
 A room is awake only while a round is on.
 In the lobby and on the results screen it holds its sockets through the WebSocket Hibernation API and runs no timer, so waiting costs nothing; a message or the alarm wakes it for a moment.
 The client pings every 2 seconds during a round and every 10 seconds otherwise.
-A room nobody has touched for 10 minutes outside a round is closed (`STALE_ROOM_MS`), and an empty one after 1 minute.
+A room nobody has touched for 20 minutes outside a round is closed (`STALE_ROOM_MS`), and an empty one after 1 minute.
 
 With `PARTY_ROOM_BUDGET_SHARE` set, each room reports its awake time to the `RoomBudget` object, once a minute and at the end of the round.
 When the day's or the month's allowance is spent, `POST /api/party/rooms` answers `battles_full` (503) with a message that solo play still works, and open rooms finish the round in play but cannot start another.

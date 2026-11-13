@@ -25,7 +25,13 @@ Make each window short and wide to see what a sideways phone sees, or use the br
 5. Stand both pieces in Coin Flip's light: "Starts in 3" counts down, the game plays, and both are back by the door with points on the Tonight board.
 6. Click the Tonight board on the wall to open it large; click anywhere, press Escape or go back to close it.
 7. Stand one piece in each lit light for a tie and its coin toss.
-8. Close one window to see the piece turn grey, and fade thirty seconds later.
+8. Stand both pieces in Who Am I?'s light: "Opens in 3" counts down, a card says where everyone is going, and both windows go to its own site.
+9. Close one window to see the piece turn grey, and fade thirty seconds later.
+
+Coin Flip is a test game.
+It hangs on the wall only where `PARTY_TEST_GAMES` is `"on"`, which is the `local` environment in `wrangler.jsonc` (`npm run dev` and the test runs).
+Production has no such variable, so its wall is Cork & Bell, Who Am I? and the three coming-soon boxes (Tin Derby, Flood, Fox Trouble).
+To see the wall as production hangs it: `npx wrangler dev --local --env local --port 8792 --var PARTY_TEST_GAMES:off`.
 
 For a big screen, open a third window, choose "Use this as the room's screen" and type the code.
 A room has one screen: a fourth window that asks to be it is told so and offered a seat.
@@ -36,7 +42,7 @@ The ones whose names start with `f` are from `npm run test:feel`: the bump momen
 ## What is built
 
 - The room in the bar look, drawn with plain shapes as one SVG, the same picture on every device.
-- Game boxes from each game's manifest: name, one line about it, the device badge (cyan any device, violet a phone each, amber phones and a big screen) and the player count.
+- Game boxes from each game's manifest. The name is on the poster, once. The sign under it has one line about the game, how many can play ("1-4 players") and the device badge (cyan any device, violet a phone each, amber phones and a big screen). Every sign says how many can play, the coming-soon ones too. On a phone, with five boxes or more, a sign is too narrow for the line of words at a size worth reading, so it keeps the count and the badge and the words are left to bigger screens.
 - The join code and its QR code on the wall, and a Tonight board with 3, 2 and 1 points for first, second and third.
 - The Tonight board opens large when it is tapped or clicked, on a phone, a laptop or the big screen: places, names and points, and every game played so far with who won it. A tap, Escape or the back gesture closes it. The piece stays where it stands meanwhile, so its vote carries on, and the open board says what the room is doing.
 - Pawns in the four seat colours with name tags: walk, jump, and a bump everyone has (below).
@@ -46,7 +52,8 @@ The ones whose names start with `f` are from `npm run test:feel`: the bump momen
 - The vote: standing in a light is your vote, a visible count runs when every connected player stands in some light, the light with the most players wins, stepping out of every light stops it, and "Waiting for" names who is in the dark.
 - A tie is settled by a coin toss everybody watches. A phone in the closer view pulls back to the whole room for the count and the toss.
 - A player alone can start: one piece in a light runs the same three-second count.
-- A game the party cannot play has its light off and says why in a few words ("Needs 2 players", "Needs a big screen", "Coming soon").
+- A game the party cannot play has its light off and says why in a few words ("Needs 2 players", "For 2 players", "Needs a big screen", "Coming soon").
+- Outside games: a game that plays on a site of its own hangs on the wall with an address instead of a hosted game (below).
 - A big screen that joins with the code and holds no seat, and a player's view with buttons, a "Whole room / Closer" switch and a "turn your phone" hint when upright.
 - Joining in the middle of a vote, a dropped phone that turns grey, comes back to its seat or fades with a note, and "Leave the party" behind the door button. Whenever the set of connected players changes, the count starts over.
 - Someone who left or dropped and joins again under the same name gets their points back.
@@ -61,7 +68,7 @@ Whoever was hit is squashed, thrown back through the air while tipping right ove
 | | Chosen | Why |
 | --- | --- | --- |
 | Reach | 130 units in front, 20 behind | About one and a half pieces: you have to walk up to somebody. |
-| Throw | about 210 units, never less than 90, always into the dark | A light is 205 units wide here, so a knock always clears a piece out of the light it stood in, and it never lands in another light that is on. A light that is off counts as dark. Between two lit lights there are only 51 units of dark, so the piece lands in the middle of that. |
+| Throw | about 210 units, never less than 90, always into the dark | A light is 205 units wide with five boxes on the wall (171 with six), so a knock always clears a piece out of the light it stood in, and it never lands in another light that is on. A light that is off counts as dark. Between two lit lights there are only 51 units of dark (43 with six boxes), so the piece lands in the middle of that. |
 | Loss of control | 740 ms from the bump, 570 ms from the blow landing | Long enough to read as being knocked over, short enough not to be a punishment. |
 | Safe time | 1,500 ms after getting up | A piece on the floor or just up from it cannot be knocked, so nobody is kept down, whoever takes turns. |
 | Cooldown | 2,500 ms, hit or miss | Longer than the floor and the safe time together (2,240 ms), so one player alone can never chain knocks either. |
@@ -76,10 +83,27 @@ The cooldown is shown twice: a ring sweeping round the bump button, which is dim
 The rules, timings, states (winding, striking, recovering; standing, hit, flying, down, rising, safe) and poses are `shared/bump.js`: plain numbers with tests, no drawing.
 `public/bump-draw.js` is the thin part that turns them into SVG, and is the only part a room drawn another way would replace.
 
+## Outside games
+
+An outside game is not on the kit: it has a site and rooms of its own.
+In `wall.js` it is an entry with a `url` where a hosted game has a server definition (`OUTSIDE`), and its poster says "ON ITS OWN SITE".
+Who Am I? (`https://whoami.n8builds.dev/`) is the first.
+
+- Its light follows the same rule as any game's: on when the party is a size the game takes. Who Am I? is for exactly two players (its engine's `MAX_PLAYERS`, and it needs both to start), so with one player its sign says "Needs 2 players" and with three or four "For 2 players".
+- The count reads "Who Am I? opens in 3", not "starts".
+- When it wins the count or the coin toss, the room sends every page `away { id, name, url, in }`. Every player's page and the big screen show a card, "Off to Who Am I?", for six seconds (`AWAY_MS`) and then go to the address. The card says the party's code does not work there (one of them makes a room on that site and the others join it) and that nobody scores. "Go now" goes at once; "Stay in the room" keeps that one device here.
+- Nothing starts in the room, so nothing ticks and no room time is spent: it costs the one wake-up that ended the count.
+- The Tonight board gets no points from an outside game, and it does not count as a game played.
+- Afterwards the party room is left alone. The pieces are put back by the door, and a new count cannot start for twelve seconds, so anyone who stayed is not sent off again at once. Once the pages have gone the room is empty: the seats are let go after thirty seconds and the room closes a minute after the last page left, by the usual rules. Coming back to the room's address inside that minute finds the same seat and points; after it, the party has ended and a new one is started.
+- The page only ever follows an `https` address or a page of this site, and only one that came from the room's own wall.
+
+Cork & Bell hangs the same way for now, with its own page on this site (`/cork-and-bell/`) as the address, because it does not open inside the room yet.
+
 ## What is not built
 
-- Cork & Bell does not open inside the room. Its light is on and it can win the vote; the room then shows a card that says so, with a link to the game's own page, and nobody scores.
-- Coin Flip is a placeholder, marked "TEST GAME" on its box. Who Am I?, Tin Derby and Flood are names and pictures only.
+- Cork & Bell does not open inside the room. Its light is on and it can win the vote; everyone is then sent to the game's own page as with an outside game, and nobody scores.
+- Coin Flip is a placeholder for local play and the tests, marked "TEST GAME" on its box. Tin Derby, Flood and Fox Trouble are names and pictures only.
+- A party's code, seats and points do not carry over to an outside game's site.
 - No skins, no abilities, no chat bubbles, no walking through the door, no "host starts" setting, no other rooms.
 - No sound for the bump, and no buzz on phones whose browser has none (Safari on an iPhone).
 - "Back to the room" in the middle of a game.
@@ -103,18 +127,19 @@ What was not chosen: a server tick that simulates every piece (the room would be
 
 ## What it costs
 
-Measured on 2026-11-12 with `npm run lobby:measure`: four scripted players for ten minutes against the local server, driven by the same code the page uses to decide what to send.
+Measured on 2026-11-12 with `npm run lobby:measure`: four scripted players for ten minutes against a local server with fresh storage and nothing else on it, driven by the same code the page uses to decide what to send.
 The room budget's books were read before and after.
+(Fresh storage matters: the books are shared by every room on a server, so rooms left over from other runs are counted too.)
 These are local measurements of the room's own counting, not a Cloudflare bill: check them against the dashboard after a real evening (`DEPLOY.md`, "The party room").
 
 | | Only wandering | Wandering and voting |
 | --- | --- | --- |
-| What happened | no game was started | 20 votes won: 8 games of Coin Flip, 12 for Cork & Bell (which does not open here yet), 13 coin tosses |
-| Messages to the room | 2.66 a second (0.67 per player) | 3.78 a second (0.94 per player) |
-| Awake time | 0.29 seconds per minute | 2.85 seconds per minute, of which Coin Flip's three-second tick loop is 2.4 and the lobby itself 0.45 |
-| Duration | 2.2 GB-seconds per room-hour | 21.9 GB-seconds per room-hour |
-| Requests | 577 per room-hour | 1,327 per room-hour |
-| Room-hours a month the 10% of time buys (40,000 GB-s) | 18,160 | 1,827 |
+| What happened | no game was started | 24 votes won: 11 games of Coin Flip, 13 for Cork & Bell (an outside game for now: nothing is played in the room for it), 20 coin tosses |
+| Messages to the room | 2.55 a second (0.64 per player) | 3.76 a second (0.94 per player) |
+| Awake time | 0.28 seconds per minute | 3.77 seconds per minute, of which Coin Flip's three-second tick loop is 3.3 and the lobby itself 0.47 |
+| Duration | 2.2 GB-seconds per room-hour | 28.9 GB-seconds per room-hour |
+| Requests | 562 per room-hour | 1,243 per room-hour |
+| Room-hours a month the 10% of time buys (40,000 GB-s) | 18,385 | 1,383 |
 
 The stronger bump did not change this.
 Measured again on 2026-11-12 with the knock-back in, the same four players wandering for ten minutes (each pressing bump about once in fourteen seconds, as before) used 0.21 awake seconds per minute, 1.99 messages a second (0.50 per player), 1.6 GB-seconds and 585 requests per room-hour.
@@ -123,16 +148,17 @@ Measure on a server nobody else is using and that has been quiet for two minutes
 
 For scale: a room that is awake all the time, as a game's own room is during a round, uses 461 GB-seconds per room-hour, and the 10% buys 87 hours of that.
 The second column is a keen party that starts a vote every half minute; most evenings will sit between the two.
+An outside game winning the vote costs one wake-up and no duration: nothing is played in the room.
 
 How the awake time is counted: every event (a message, an alarm, a join) as the time its handler took and never less than 2 ms, and a game's tick loop second for second.
 The floor is a deliberate overcount, since a handler that only does arithmetic takes well under a millisecond.
 Cloudflare bills a Durable Object while it runs code or cannot sleep, and not while it is idle and able to hibernate, even before it has been put to sleep (their pricing page says so in those words).
-If it did bill every second in which any message arrived, these same runs would be 375 GB-seconds per room-hour and the 10% would buy about 105 room-hours: that is the worst case, and even then the lobby costs less than a room that is always awake.
+If it did bill every second in which any message arrived, these same runs would be 350 to 385 GB-seconds per room-hour and the 10% would buy about 105 to 115 room-hours: that is the worst case, and even then the lobby costs less than a room that is always awake.
 
 **Requests are the tighter of the two allowances.**
 The plan includes one million Durable Object requests a month for the whole account, and the owner's 10% rule is about time, not requests.
-At the rates above, a million requests is 750 to 1,730 room-hours, and a tenth of it 75 to 173.
-Past the included million they cost $0.15 a million: 9 to 20 cents per 1,000 room-hours.
+At the rates above, a million requests is 800 to 1,780 room-hours, and a tenth of it 80 to 178.
+Past the included million they cost $0.15 a million: 8 to 19 cents per 1,000 room-hours.
 The budget counts the party rooms' requests (`dayRequests` and `monthRequests` beside the time) so the owner can see them, but only time closes anything.
 
 A lobby nobody touches costs nothing: no timer, no messages, nothing counted, and locally the room object is put to sleep while the test waits (`npm run test:lobby` checks all of it over 25 seconds).
@@ -140,7 +166,7 @@ Once a real game is hosted in the room, its rounds will cost what they cost in t
 
 ## Limits, and what happens when the allowance is spent
 
-- A room closes one minute after the last person goes, and after ten minutes in which nobody did anything (the kit's two rules, unchanged). A page warns its player two minutes before the second.
+- A room closes one minute after the last person goes, and after twenty minutes in which nobody did anything (the kit's two rules). A page warns its player two minutes before the second. The minute is counted from when the room emptied, also when the room was put to sleep in between (it used to start over at every waking, which kept an empty room, waking once a minute, until the second rule closed it).
 - A room closes four hours after it was made, never in the middle of a game. Pages warn five minutes before.
 - One socket may send a burst of 40 messages, then 20 a second. More are dropped, and a socket that keeps flooding is closed and its seat given up. A message over 512 bytes, or one that is not JSON, is dropped and counts five times.
 - When the day's or month's allowance is spent: no new party can start (the front page's way in answers that the rooms are full, and that each game still plays on its own page); an open room finishes the game it is playing, starts no other, tells everyone "This room closes in 3:00", and closes three minutes later.
@@ -159,9 +185,9 @@ Once a real game is hosted in the room, its rounds will cost what they cost in t
 | `shared/status.js` | The words under the room. |
 | `server/lobby-core.js` | The room as plain logic with an injected clock: seats, the vote, the game seam, the Tonight board, sleeping and closing. |
 | `server/lobby-room.js` | The Durable Object around it: sockets, relaying, the alarm, the budget. |
-| `games/coin-flip.js` | The test game. |
-| `wall.js` | Which boxes hang on the wall and which can start. |
 | `public/` | The page at `/lobby/`: the way in (`door.js`), the scene (`scene.js`), the bump as drawn (`bump-draw.js`), the buttons (`controls.js`), the words over the room (`hud.js`), the board opened large (`board.js`), and each game's view. |
+| `games/coin-flip.js` | The test game, hung only where `PARTY_TEST_GAMES` is on. |
+| `wall.js` | Which boxes hang on the wall (hosted, outside, test, coming soon), which can start, and the wall each environment gets. |
 | `test/` | Unit tests, the socket test, the browser run and the cost measurement. |
 
 `shared/` is plain logic used by both the room and the page, and it is served to the browser; `server/` and `test/` never are.
@@ -169,8 +195,8 @@ Once a real game is hosted in the room, its rounds will cost what they cost in t
 ## Tests
 
 - `npm test` runs the unit tests with the kit's: the room's rules (`test/lobby-core.test.js`), the shared logic, the awake meter and the socket rate limit (`test/shared.test.js`), the bump (`test/bump.test.js`), the Tonight board (`test/tonight.test.js`) and the way in (`test/entry.test.js`).
-- `npm run test:lobby` (with `npm run dev` running) puts four socket players through an evening, then checks that a lobby nobody touches goes silent: no messages, no timer, nothing added to the budget.
 - `npm run test:feel` (with `npm run dev` running) goes through how the room feels in real pages and over sockets: the way in on a phone and on a wide screen, one screen per room and its grace, the four buttons, the cooldown ring and the room enforcing it, the bump frame by frame, that nobody can be kept on the floor, the board opening and closing with the vote carrying on, and that a bump sets no timer. It takes stills of each, the bump's with the page's clock held still.
-- `npm run lobby:shots` drives real pages in a headless, muted browser and takes a still of every state on a big screen, a sideways phone and an upright one, checking that no text spills out of its place. Stills land in `lobby/test/shots/`, which is not committed; a chosen few are in `lobby/shots/`.
+- `npm run test:lobby` (with `npm run dev` running) puts four socket players through an evening, sends a party of two off to an outside game, then checks that a lobby nobody touches goes silent: no messages, no timer, nothing added to the budget.
+- `npm run lobby:shots` drives real pages in a headless, muted browser and takes a still of every state on a big screen, a sideways phone and an upright one, checking that no text spills out of its place and that no card runs off a screen. It follows an outside game all the way to its address (the browser is handed a stand-in page, so no test touches the real site), and with `--plain=<a server with the test games off>` it also takes the wall as production hangs it. Stills land in `lobby/test/shots/`, which is not committed; a chosen few are in `lobby/shots/`.
 - `npm run lobby:measure` is the cost measurement above.
 - `node lobby/test/e2e-budget.mjs` checks what happens when the allowance is spent; its header says which server to start.

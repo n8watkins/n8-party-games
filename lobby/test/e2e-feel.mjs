@@ -512,6 +512,8 @@ try {
   // Knocked out of a light: the vote changes for everyone.
   section("the bump: out of the light");
   const c = boxCentre(COIN, N);
+  /** Half the width of a light: it depends on how many boxes hang, so places in a light are given as parts of it. */
+  const lh = lightHalf(N);
   const xOf = async (seat) => (await debug(roomCode)).room.view.members[seat].x;
   /** Walks a page's piece to about x with the arrow keys, as its player would. */
   async function walkPage(page, seat, x) {
@@ -529,17 +531,17 @@ try {
   }
   check(litBox(COIN), "Coin Flip's light is on");
   // The phone's piece in the left of the light, facing right; Mabel just in front of it; the rest further along.
-  await walkPage(phone, 0, c - 65);
+  await walkPage(phone, 0, c - lh * 0.62);
   // However it got there, it ends on a tap of the right arrow: the piece faces right, toward the others.
   await phone.keyboard.down("ArrowRight");
   await sleep(12);
   await phone.keyboard.up("ArrowRight");
   await sleep(200);
   const me = await xOf(0);
-  mabel.goto(Math.round(me + 50));
-  fitch.goto(Math.round(c + 30));
+  mabel.goto(Math.round(me + 45));
+  fitch.goto(Math.round(c + lh * 0.3));
   mark = mabel.seen.length;
-  await walkPage(laptop, 3, c + 80);
+  await walkPage(laptop, 3, c + lh * 0.62);
   const voting = await mabel.wait((m) => (m.t === "vote" ? m.vote : m.room?.vote)?.count, 6000, mark).catch(() => null);
   const standing = (await debug(roomCode)).room.view.vote.standing;
   check(!!voting && Object.values(standing).every((v) => v === "coin-flip"), "four players stand in Coin Flip's light and the count runs");
@@ -561,9 +563,9 @@ try {
   await sleep(BUMP_COOLDOWN_MS);
   mark = mabel.seen.length;
   mabel.goto(Math.round(c + 20));
-  fitch.goto(Math.round(c - 80));
-  await walkPage(phone, 0, c - 40);
-  await walkPage(laptop, 3, c + 80);
+  fitch.goto(Math.round(c - lh * 0.75));
+  await walkPage(phone, 0, c - lh * 0.4);
+  await walkPage(laptop, 3, c + lh * 0.62);
   const ended = await mabel.wait((m) => m.t === "end", 20000, mark).catch(() => null);
   check(!!ended && ended.last.rows.length === 4, "a game of Coin Flip is played, so the board has a result on it");
   const winner = ended?.last.rows[0].name;
@@ -577,7 +579,7 @@ try {
   // The phone: back in the dark by the door. It walks into Coin Flip's light, then opens the board.
   await phone.click(".zoom-btn"); // the whole room, so the board is on the screen
   await sleep(700);
-  await walkPage(phone, 0, c - 40);
+  await walkPage(phone, 0, c - lh * 0.4);
   await sleep(300);
   const before = (await debug(roomCode)).room.view;
   check(before.vote.standing[0] === "coin-flip", "the phone's piece stands in Coin Flip's light: that is its vote");
@@ -604,8 +606,8 @@ try {
   check(during.vote.standing[0] === "coin-flip" && during.members[0].x === before.members[0].x, "with the board open the piece stays where it stood and keeps its vote (keys do not walk it away)");
   mark = mabel.seen.length;
   mabel.goto(Math.round(c + 20));
-  fitch.goto(Math.round(c - 80));
-  await walkPage(laptop, 3, c + 80);
+  fitch.goto(Math.round(c - lh * 0.75));
+  await walkPage(laptop, 3, c + lh * 0.62);
   const counted = await mabel.wait((m) => (m.t === "vote" ? m.vote : m.room?.vote)?.count, 9000, mark).catch(() => null);
   check(!!counted, "everyone else steps into the light and the count starts, with the phone's vote in it");
   await sleep(500);

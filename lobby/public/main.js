@@ -42,7 +42,7 @@ let board = null;
 let bye = null;
 /** Which walk keys and buttons are down, newest last, so the latest one wins. */
 const held = [];
-/** When anyone last did anything, as far as this page knows: the room is put away after ten idle minutes. */
+/** When anyone last did anything, as far as this page knows: the room is put away after twenty idle minutes. */
 let stirAt = performance.now();
 
 const phone = () => Math.min(innerWidth, innerHeight) < 520;
@@ -112,12 +112,34 @@ async function enter() {
         bye = "left";
         link.leave();
       },
+      away: goAway,
     },
   });
   zoom = phone() ? "closer" : "room";
   apply(room);
   if (!lastFrame) requestAnimationFrame(frame);
 }
+
+/**
+ * Leaves for an outside game's own site. The seat is not given up: the room lets it go by its
+ * usual rules once the page is gone, and coming straight back finds it again. Only an https
+ * address or a page of this site is ever followed.
+ */
+function goAway(address) {
+  let url;
+  try {
+    url = new URL(address, location.href);
+  } catch {
+    return;
+  }
+  if (url.protocol !== "https:" && url.origin !== location.origin) return;
+  location.assign(url.href);
+}
+// Coming back with the browser's back button can show the page as it was left, card and all:
+// load it afresh, so it rejoins the room or says the party has ended.
+addEventListener("pageshow", (e) => {
+  if (e.persisted) location.reload();
+});
 
 function closed(reason) {
   const pin = room?.pin ?? null;
@@ -225,6 +247,12 @@ link.on("message", (msg) => {
       break;
     case "note":
       if (msg.k === "left") hud?.note(`${msg.name} left`, msg.colour);
+      break;
+    case "away":
+      // An outside game won the vote: the card says where everyone is going, then goAway runs.
+      stirAt = now;
+      letGo();
+      hud?.away(msg, room.pin);
       break;
     default:
       break;

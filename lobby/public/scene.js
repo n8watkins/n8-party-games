@@ -56,6 +56,7 @@ export class Scene {
     this.joinSign(room);
     this.door();
     this.board();
+    this.signs = this.planSigns(room.boxes, boxWidth(n));
     this.boxes = room.boxes.map((box, i) => this.box(box, i, n));
     this.overlay();
     this.bumpLayer();
@@ -195,28 +196,38 @@ export class Scene {
       ribbon.append(s("rect", { x: -90, y: -14, width: 180, height: 28, fill: "#f6ead2" }), label("TEST GAME", { x: 0, y: 5, "font-size": 14, fill: "#1e1410", "text-anchor": "middle", "letter-spacing": 2, class: "t-mono t-bold" }));
       art.append(ribbon);
     }
+    // A band across the foot of the poster says what kind of box it is, when it is not a game
+    // that simply starts here: not built yet, or played on a site of its own.
+    const band = (text, spacing) => [
+      s("rect", { y: POSTER.height - 46, width: w, height: 46, fill: "#120b08", opacity: 0.94 }),
+      label(text, { x: w / 2, y: POSTER.height - 17, "font-size": 16, fill: "#f6ead2", "text-anchor": "middle", "letter-spacing": spacing, class: "t-mono t-bold", "data-fit": w - 20 }),
+    ];
+    if (box.url) art.append(...band(box.url.startsWith("https://") ? "ON ITS OWN SITE" : "ON ITS OWN PAGE", 3));
     b.dim = s("rect", { width: w, height: POSTER.height, fill: "#0d0705", opacity: 0 });
     art.append(b.dim);
-    if (box.soon) {
-      art.append(s("rect", { y: POSTER.height - 46, width: w, height: 46, fill: "#120b08", opacity: 0.94 }), label("COMING SOON", { x: w / 2, y: POSTER.height - 17, "font-size": 16, fill: "#f6ead2", "text-anchor": "middle", "letter-spacing": 4, class: "t-mono t-bold", "data-fit": w - 20 }));
-    }
+    if (box.soon) art.append(...band("COMING SOON", 4));
     b.goldFrame = s("rect", { x: x - 8, y: POSTER.top - 8, width: w + 16, height: POSTER.height + 16, rx: 3, fill: "none", stroke: "#f4b453", "stroke-width": 6, display: "none" });
     frame.append(art, b.goldFrame);
 
-    // The sign under the poster: name, one line about it, the device badge and how many play.
-    const signH = compact ? 132 : 122;
-    b.sign = s("rect", { x, y: SIGN_TOP, width: w, height: signH, rx: 7, "stroke-width": 2 });
-    b.name = label(box.name, { x: cx, y: SIGN_TOP + (compact ? 54 : 44), "font-size": compact ? 42 : 34, "text-anchor": "middle", class: "t-display", "data-fit": w - 20 });
-    b.blurb = label(box.blurb, { x: cx, y: SIGN_TOP + 71, "font-size": 15.5, "text-anchor": "middle", class: "t-ui", "data-fit": w - 20, display: compact ? "none" : null });
+    // The sign under the poster: one line about the game, the device badge and how many play.
+    // The game's name is on the poster and nowhere else. Every sign on a wall is laid out alike
+    // (this.signs, worked out once for the wall): the line of words broken to fit, then how many
+    // play and the device badge, side by side where there is room and one above the other where not.
+    const plan = this.signs;
+    const lines = plan.lines ? wrap(box.blurb, plan.chars) : [];
+    const firstY = SIGN_TOP + (compact ? 33 : 30) + ((plan.lines - lines.length) * plan.step) / 2;
+    b.blurbs = lines.map((line, k) => label(line, { x: cx, y: firstY + k * plan.step, "font-size": plan.size, "text-anchor": "middle", class: "t-ui t-semi", "data-fit": w - 18 }));
+    b.rowY = SIGN_TOP + (plan.lines ? (compact ? 33 : 30) + (plan.lines - 1) * plan.step + (compact ? 34 : 30) : compact ? 30 : 24);
+    b.rowY2 = plan.stacked ? b.rowY + (compact ? 40 : 27) : b.rowY;
+    b.sign = s("rect", { x, y: SIGN_TOP, width: w, height: b.rowY2 - SIGN_TOP + (compact ? 30 : 24), rx: 7, "stroke-width": 2 });
     const [badgeFill, badgeInk] = BADGE_COLOURS[box.badge];
-    const pillSize = compact ? 23 : 13.5;
-    b.badge = pill(BADGES[box.badge], pillSize, badgeFill, badgeInk);
-    b.players = label(playersLabel(box.min, box.max), { "font-size": 13.5, fill: "#cdbfa6", class: "t-ui t-semi", display: compact ? "none" : null });
+    // The longest badge is cut short where a sign is too narrow to hold it at a size worth reading.
+    b.badge = pill(plan.tight && box.badge === "screen" ? "Big screen" : BADGES[box.badge], compact ? 21 : 13.5, badgeFill, badgeInk);
+    b.players = label(playersLabel(box.min, box.max), { "font-size": compact ? 22 : 13.5, fill: "#cdbfa6", class: "t-ui t-semi" });
     b.reason = pill("Coming soon", compact ? 21 : 14, "#fbe3da", "#7a1d12");
-    b.rowY = SIGN_TOP + (compact ? 96 : 99);
     b.chip = pill("HEADS", compact ? 22 : 16, "#f4b453", "#1e1410");
     set(b.chip.g, { display: "none" });
-    frame.append(b.sign, b.name, b.blurb, b.badge.g, b.players, b.reason.g, b.chip.g);
+    frame.append(b.sign, ...b.blurbs, b.badge.g, b.players, b.reason.g, b.chip.g);
     this.layers.wall.append(frame);
 
     b.cone = s("polygon", { points: `${cx - 54},102 ${cx + 54},102 ${cx + half + 26},${ROOM.floorY + 8} ${cx - half - 26},${ROOM.floorY + 8}`, fill: "url(#g-cone)" });
@@ -230,17 +241,41 @@ export class Scene {
   /** Places the badge, the player count or the reason on a sign's bottom row, centred. */
   layoutSign(b) {
     const compact = this.opts.compact;
-    sizePill(b.badge);
-    sizePill(b.reason);
+    sizePill(b.badge, b.w - 12);
+    sizePill(b.reason, b.w - 12);
     sizePill(b.chip);
-    place(b.reason, b.cx - b.reason.w / 2, b.rowY);
+    place(b.reason, b.cx - b.reason.w / 2, (b.rowY + b.rowY2) / 2);
     place(b.chip, b.cx - b.chip.w / 2, SIGN_TOP - 4);
-    if (compact) return place(b.badge, b.cx - b.badge.w / 2, b.rowY);
-    const gap = 8;
+    const drop = compact ? 7.5 : 4.5; // from a row's middle to the baseline of its words
     const playersW = b.players.getComputedTextLength();
+    if (this.signs.stacked) {
+      // A narrow sign: how many play, and the badge under it.
+      set(b.players, { x: b.cx - playersW / 2, y: b.rowY + drop });
+      return place(b.badge, b.cx - b.badge.w / 2, b.rowY2);
+    }
+    const gap = compact ? 10 : 8;
     const left = b.cx - (b.badge.w + gap + playersW) / 2;
     place(b.badge, left, b.rowY);
-    set(b.players, { x: left + b.badge.w + gap, y: b.rowY + 4.5 });
+    set(b.players, { x: left + b.badge.w + gap, y: b.rowY + drop });
+  }
+
+  /**
+   * How every sign on this wall is laid out, from how wide a box is: the size of the line of
+   * words and how many lines it may take, and whether the count and the badge share a row.
+   * A phone's sign is too narrow for the words once there are five boxes or more (they would
+   * need three lines of small print): there the sign keeps the count and the badge, and the
+   * words are read on a bigger screen.
+   */
+  planSigns(boxes, w) {
+    const compact = this.opts.compact;
+    const size = compact ? 24 : 17;
+    const chars = Math.floor((w - 18) / (size * 0.56));
+    const needed = Math.max(1, ...boxes.map((box) => wrap(box.blurb, chars).length));
+    const lines = compact ? (needed > 2 ? 0 : 2) : Math.min(3, needed);
+    // The widest row any sign needs: the longest badge and "2-4 players", at about 0.6 of the size a letter.
+    const badge = Math.max(...boxes.map((box) => BADGES[box.badge].length)) * (compact ? 21 : 13.5) * 0.6 + (compact ? 30 : 20);
+    const count = 11 * (compact ? 22 : 13.5) * 0.58;
+    return { size, step: compact ? 29 : 22, chars, lines, stacked: badge + 10 + count > w - 14, tight: BADGES.screen.length * (compact ? 21 : 13.5) * 0.6 + (compact ? 30 : 20) > w - 12 };
   }
 
   /** What floats over the room: the count ring and the coin toss. */
@@ -249,7 +284,7 @@ export class Scene {
     o.count = s("g", { display: "none" });
     o.arc = s("circle", { r: 60, fill: "none", stroke: "#f4b453", "stroke-width": 7, "stroke-linecap": "round", transform: "rotate(-90)" });
     o.digit = label("3", { y: 36, "font-size": 70, fill: "#fbf3e2", "text-anchor": "middle", class: "t-ui t-bold" });
-    o.count.append(s("circle", { r: 70, fill: "#120b08", stroke: "#2c1c14", "stroke-width": 2 }), o.arc, label("STARTS IN", { y: -24, "font-size": 12.5, fill: "#f6ead2", "text-anchor": "middle", "letter-spacing": 3, class: "t-mono t-bold" }), o.digit);
+    o.count.append(s("circle", { r: 70, fill: "#120b08", stroke: "#2c1c14", "stroke-width": 2 }), o.arc, (o.verb = label("STARTS IN", { y: -24, "font-size": 12.5, fill: "#f6ead2", "text-anchor": "middle", "letter-spacing": 3, class: "t-mono t-bold" })), o.digit);
     o.toss = s("g", { display: "none" });
     o.tie = label("Tie!", { x: 960, "font-size": 64, fill: "#fbf3e2", "text-anchor": "middle", class: "t-display" });
     o.tiePill = pill("Coin toss decides", 20, "#f4b453", "#1e1410");
@@ -316,13 +351,16 @@ export class Scene {
         set(b.bulb, { fill: on ? "#ffe2a8" : "#2a1a14" });
         set(b.cone, { display: on ? null : "none" });
         set(b.dim, { opacity: on ? 0 : 0.58 });
-        set(b.badge.g, { display: why ? "none" : null, opacity: on ? 1 : 0.5 });
-        set(b.players, { display: why || this.opts.compact ? "none" : null });
-        set(b.reason.g, { display: why ? null : "none" });
-        if (why) {
-          b.reason.text.textContent = why;
-          sizePill(b.reason);
-          place(b.reason, b.cx - b.reason.w / 2, b.rowY);
+        // A game that is not built says so on its poster, so its sign still says how many will
+        // play it. A game this party does not fit says why instead ("Needs 2 players").
+        const say = why && !b.box.soon ? why : null;
+        set(b.badge.g, { display: say ? "none" : null, opacity: on ? 1 : 0.5 });
+        set(b.players, { display: say ? "none" : null, opacity: on ? 1 : 0.6 });
+        set(b.reason.g, { display: say ? null : "none" });
+        if (say) {
+          b.reason.text.textContent = say;
+          sizePill(b.reason, b.w - 12);
+          place(b.reason, b.cx - b.reason.w / 2, (b.rowY + b.rowY2) / 2);
         }
       }
     }
@@ -347,10 +385,8 @@ export class Scene {
       set(b.ring, { stroke: gold ? "#f4b453" : b.on ? "#ffe2b0" : "#f6ead2", opacity: gold ? 1 : b.on ? (here ? 0.75 : 0.3) : 0.13 });
       set(b.cone, { opacity: here || gold ? 1 : 0.62 });
       set(b.sign, { fill: gold ? "#f4b453" : "#17100c", stroke: gold ? "#f4b453" : tied ? "#f4b453" : "#3b2a1f", "stroke-dasharray": b.on || !b.why ? null : "7 6", opacity: 0.97 });
-      const ink = gold ? "#1e1410" : "#fbf3e2";
       const fade = b.on || gold ? 1 : 0.45;
-      set(b.name, { fill: ink, opacity: fade });
-      set(b.blurb, { fill: gold ? "#3a2a1c" : "#cdbfa6", opacity: fade });
+      for (const line of b.blurbs) set(line, { fill: gold ? "#1e1410" : "#f1e6d0", opacity: fade });
       set(b.players, { fill: gold ? "#3a2a1c" : "#cdbfa6" });
       set(b.goldFrame, { display: gold ? null : "none" });
       set(b.chip.g, { display: tied && !landed ? null : "none" });
@@ -574,6 +610,10 @@ export class Scene {
     const round = 2 * Math.PI * 60;
     set(o.arc, { "stroke-dasharray": `${((left / 3000) * round).toFixed(1)} ${round.toFixed(1)}` });
     o.digit.textContent = String(Math.max(1, Math.ceil(left / 1000)));
+    // An outside game does not start here: it opens on a site of its own.
+    const lead = vote.leaders.length === 1 && this.room.boxes.find((b) => b.id === vote.leaders[0]);
+    const verb = lead?.url ? "OPENS IN" : vote.leaders.length > 1 ? "TOSS IN" : "STARTS IN";
+    if (o.verb.textContent !== verb) o.verb.textContent = verb;
   }
 
   drawToss(now, view) {
@@ -602,6 +642,31 @@ export class Scene {
   }
 }
 
+/**
+ * A line of words broken at spaces into as few lines as hold it at `chars` letters a line, and
+ * then evened out, so no line is much longer than the others.
+ */
+function wrap(text, chars) {
+  const words = text.split(" ");
+  const fill = (limit) => {
+    const lines = [];
+    for (const word of words) {
+      const last = lines[lines.length - 1];
+      if (last !== undefined && last.length + 1 + word.length <= limit) lines[lines.length - 1] = `${last} ${word}`;
+      else lines.push(word);
+    }
+    return lines;
+  };
+  let best = fill(chars);
+  // The same number of lines, with the narrowest limit that still gives it.
+  for (let limit = chars - 1; limit > 0; limit--) {
+    const tighter = fill(limit);
+    if (tighter.length !== best.length) break;
+    best = tighter;
+  }
+  return best;
+}
+
 /** A rounded label: {g, back, text, w, h}. Its size is worked out by sizePill once it is in the page. */
 function pill(text, size, fill, ink) {
   const back = s("rect", { fill });
@@ -609,7 +674,14 @@ function pill(text, size, fill, ink) {
   return { g: s("g", {}, back, t), back, text: t, size, w: 0, h: 0 };
 }
 
-function sizePill(p) {
+/** Sizes a pill around its words. With `max`, the words are made smaller until the pill is no wider than that. */
+function sizePill(p, max = Infinity) {
+  p.size = p.full ??= p.size;
+  set(p.text, { "font-size": p.size });
+  for (let i = 0; i < 5 && p.text.getComputedTextLength() + p.size * 1.44 > max && p.size > 8; i++) {
+    p.size = Math.max(8, Math.floor(p.size * Math.min(0.95, max / (p.text.getComputedTextLength() + p.size * 1.44)) * 10) / 10);
+    set(p.text, { "font-size": p.size });
+  }
   const padX = p.size * 0.72;
   p.h = Math.round(p.size * 1.62);
   p.w = p.text.getComputedTextLength() + padX * 2;
