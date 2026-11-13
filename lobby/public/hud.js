@@ -1,22 +1,12 @@
 // Everything laid over the room: the bottom line a big screen shows, a player's buttons, the
 // door button and its "Leave the party" sheet, notes ("Tom left"), the card after a game, and
-// what to say when the connection or the room is gone.
+// what to say when the connection is gone. When the room is gone the page goes to the front page (farewell.js).
 import { Controls } from "./controls.js";
 import { ICONS, h, icon } from "./dom.js";
 import { playerLine, statusLine } from "./shared/status.js";
 import { SETTLE_MS, whereabouts } from "./shared/vote.js";
 
 const PLACES = ["1st", "2nd", "3rd", "4th"];
-
-const CLOSED = {
-  room_idle: ["The room closed", "Nobody had moved for twenty minutes, so the room was put away."],
-  room_expired: ["The party is over", "A room lasts four hours. Start a new one to carry on."],
-  allowance_spent: ["The rooms are closed for today", "Today's hosting allowance is used up. Party rooms open again tomorrow, and each game still plays on its own page."],
-  seat_lost: ["Your seat was given up", "You were away for a while, so the room let your seat go. Join again with the code."],
-  left: ["You left the party", "Come back any time with the code."],
-  room_closed: ["The party has ended", "Everyone left, so the room was put away."],
-  screen_lost: ["Another screen is showing the room", "This one was away for a while, and a room has one screen. You can still join the party as a player."],
-};
 
 export class Hud {
   /**
@@ -43,6 +33,8 @@ export class Hud {
     door.type = "button";
     door.setAttribute("aria-label", role === "screen" ? "Stop showing the room" : "Leave the party");
     door.append(icon(ICONS.door, 22));
+    // Says what it does while the room is new to this device, then folds to its picture (lobby.css).
+    h("span", "door-word", role === "screen" ? "Stop showing" : "Leave", door);
     door.addEventListener("click", () => this.openSheet());
 
     if (role === "screen") {
@@ -271,24 +263,4 @@ export class Hud {
     clearInterval(this.awayTimer);
     this.el.remove();
   }
-}
-
-/**
- * The room is gone, or this seat is: say why and offer the two ways back in. Returns the element.
- * `pin` is the room's code when it is still open (a screen that lost its place): the way back
- * in as a player comes first then.
- */
-export function showClosed(root, reason, pin = null) {
-  const [title, text] = CLOSED[reason] ?? CLOSED.room_closed;
-  const back = h("div", "card-back solid", "", root);
-  const card = h("div", "card", "", back);
-  h("h2", "card-title", title, card);
-  h("p", "card-text", text, card);
-  const open = reason === "screen_lost" && pin;
-  const start = h("a", open ? "plain" : "button", "Start a party", card);
-  start.href = "/lobby/?start";
-  const join = h("a", open ? "button" : "plain", open ? "Join as a player" : "Join with a code", card);
-  join.href = open ? `/lobby/?join=${encodeURIComponent(pin)}` : "/lobby/";
-  if (open) card.insertBefore(join, start);
-  return back;
 }

@@ -33,6 +33,7 @@ function gameEntries({ manifest }) {
 const siteEntries = [
   { from: join(ROOT, "site", "index.html"), to: "index.html" },
   { from: join(ROOT, "site", "site.css"), to: "site.css" },
+  { from: join(ROOT, "site", "front.js"), to: "front.js" },
   { from: join(ROOT, "lobby", "public"), to: "lobby" },
   { from: join(ROOT, "lobby", "shared"), to: "lobby/shared" },
 ];

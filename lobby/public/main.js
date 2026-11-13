@@ -7,17 +7,25 @@ import { buzz } from "./bump-draw.js";
 import { openDoor } from "./door.js";
 import { h } from "./dom.js";
 import { GAME_VIEWS } from "./games/views.js";
-import { Hud, showClosed } from "./hud.js";
-import { chosenLook, openRoomView } from "./room-view.js";
+import { farewellKind, goFront } from "./farewell.js";
+import { Hud } from "./hud.js";
+import { RoomMenu } from "./room-menu.js";
+import { chosenLook, hardware3D, openRoomView, preferFlat } from "./room-view.js";
+import { SlowWatch } from "./slow-room.js";
 import { IMPACT_MS } from "./shared/bump.js";
 import { camera } from "./shared/camera.js";
 import { Pilot } from "./shared/pilot.js";
+import { isRoom, roomName } from "./shared/rooms.js";
 import { playerLine, statusLine } from "./shared/status.js";
+import { posAt } from "./shared/world.js";
 
 const params = new URLSearchParams(location.search);
 const app = document.getElementById("app");
-/** Which drawing of the room this device asked for (flat unless ?look=3d). */
+/** Which drawing of the room this device asked for: 3D unless ?look=flat, and flat where 3D cannot be drawn well. */
 const chosen = chosenLook(params);
+let look = chosen.look === "3d" && !hardware3D(params) ? "flat" : chosen.look;
+/** A start link may name the room the party starts in (?start&room=ship). */
+const startRoom = params.has("start") && isRoom(params.get("room")) ? params.get("room") : null;
 // The keep-alive is a fixed text the room answers without waking up (lobby/server/lobby-room.js).
 const link = new PartyClient({ api: "/api/lobby", quietPing: { text: "ping", everyMs: 20_000 }, lag: Number(params.get("lag") ?? 0) });
 
@@ -36,9 +44,21 @@ let compact = null;
 let view = null;
 let viewSize = "";
 let entering = false;
-let veil = null;
 /** The Tonight board opened large (board.js), or null. */
 let board = null;
+/** Rooms and the door button, and the room picker (room-menu.js). */
+let menu = null;
+/** What every room view is opened with, apart from its look and skin. */
+let viewBase = null;
+/** The room (skin) the view on the page draws, and whether it is being swapped for another. */
+let shownRoom = null;
+let swapping = false;
+/** The black that comes down over the room while it changes (rooms.css). */
+let dim = null;
+/** Each piece as last heard of from a move, so a room view made mid-party puts it where it is now. */
+const lastMoves = new Map();
+/** Watches for a 3D room that stays slow on this device, and offers the simpler one once (slow-room.js). */
+const slow = new SlowWatch(params.get("gl") !== "any");
 /** Set when this device chose to go, so the socket closing is not taken for the room ending. */
 let bye = null;
 /** Which walk keys and buttons are down, newest last, so the latest one wins. */
@@ -61,23 +81,26 @@ function showDoor(message = "") {
   teardown();
   const code = params.get("join") ?? "";
   // A phone is a device to play on, so its way in leads with playing; a wide screen is offered both.
-  door = openDoor(app, link, { mode: params.has("start") ? "start" : "join", code, message, as: params.get("as") === "screen" ? "screen" : "player", small: phone() });
+  door = openDoor(app, link, { mode: params.has("start") ? "start" : "join", code, message, as: params.get("as") === "screen" ? "screen" : "player", small: phone(), rejoin: params.has("rejoin") });
 }
 
 function teardown() {
   hideBoard();
-  veil?.remove();
-  veil = null;
   door?.close();
   door = null;
   stage?.unmount();
   stage = null;
   app.classList.remove("in-game");
+  menu?.destroy();
+  menu = null;
   hud?.destroy();
   hud = null;
   scene?.destroy();
   stageBox?.remove();
-  scene = pilot = stageBox = view = null;
+  dim?.remove();
+  slow.stop();
+  scene = pilot = stageBox = view = dim = null;
+  lastMoves.clear();
   litKey = "";
   held.length = 0;
 }
@@ -87,17 +110,25 @@ async function enter() {
   entering = true;
   const joinUrl = await link.joinUrl("/lobby/");
   compact = phone() && isPlayer();
-  const made = room ? await openRoomView(app, { ...chosen, compact, own: isPlayer() ? link.you.seat : -1, host: new URL(joinUrl).host, qr: link.qrUrl(joinUrl), onBoard: showBoard }) : null;
+  viewBase = { compact, own: isPlayer() ? link.you.seat : -1, host: new URL(joinUrl).host, qr: link.qrUrl(joinUrl), onBoard: showBoard };
+  // The party's room. A party started with ?room= moves there at once: its maker is the host.
+  let skin = room?.room;
+  if (room && startRoom && startRoom !== room.room && room.picker && (room.picker.seat === -1 ? link.you.role === "screen" : room.picker.seat === link.you.seat)) {
+    link.send({ t: "pick", v: startRoom });
+    // Taken as said: the room answers with the same, and nothing in between is newer.
+    skin = room.room = startRoom;
+  }
+  const made = room ? await openRoomView(app, { ...viewBase, look, skin }) : null;
   entering = false;
   stirAt = performance.now();
   if (!room) return void made?.destroy();
-  veil?.remove();
-  veil = null;
   door?.close();
   door = null;
   // The address is now just the room; a reload comes back to the same seat from the saved session.
   history.replaceState(null, "", "/lobby/");
   scene = made;
+  shownRoom = skin;
+  dim = h("div", "room-dim", "", app);
   stageBox = h("div", "stage", "", app);
   stageBox.hidden = true;
   scene.build(room);
@@ -112,10 +143,14 @@ async function enter() {
       leave: () => {
         bye = "left";
         link.leave();
+        // The socket's close normally takes us to the front page at once; never wait on it long.
+        setTimeout(() => closed("left"), 1500);
       },
       away: goAway,
     },
   });
+  menu = new RoomMenu(hud.el, { role: link.you.role, seat: link.you.seat, onPick: (id) => link.send({ t: "pick", v: id }) });
+  slow.start(scene.look, performance.now(), simpler);
   zoom = phone() ? "closer" : "room";
   apply(room);
   if (!lastFrame) requestAnimationFrame(frame);
@@ -142,11 +177,78 @@ addEventListener("pageshow", (e) => {
   if (e.persisted) location.reload();
 });
 
+/** This device is out of the room, for whatever reason: the front page says which, with the way back in. */
 function closed(reason) {
-  const pin = room?.pin ?? null;
+  if (closed.done) return;
+  closed.done = true;
+  const pin = room?.pin ?? link.session?.pin ?? null;
+  const screen = link.you?.role === "screen" || link.session?.role === "screen";
   teardown();
   room = null;
-  veil = showClosed(app, reason, pin);
+  goFront(farewellKind(reason, screen), pin);
+}
+
+// ---------------------------------------------------------------- the party moves to another room
+
+const DIM_MS = 300;
+const wait = (ms) => new Promise((done) => setTimeout(done, ms));
+const nextFrame = () => new Promise((done) => requestAnimationFrame(() => done()));
+
+/**
+ * Makes the view on the page draw the party's room (room.room), or another look of the same
+ * room. Every device hears of a change in the same message, so the lights go down, the room
+ * changes and the lights come up everywhere at once. The flat drawing has one room: it only
+ * notes the change. Changes that arrive meanwhile are caught up with before the lights come up.
+ */
+async function showRoom() {
+  if (swapping || !scene || !room) return;
+  if (room.room === shownRoom && look === scene.look) return;
+  if (look === "flat" && scene.look === "flat") return void (shownRoom = room.room);
+  swapping = true;
+  dim?.classList.remove("rising");
+  dim?.classList.add("on");
+  await wait(DIM_MS);
+  while (scene && room && (room.room !== shownRoom || look !== scene.look)) {
+    const [skin, asked] = [room.room, look];
+    const own = scene.ownX();
+    scene.destroy();
+    // While the next view loads the room carries on: moves and votes are kept here and handed over.
+    scene = pause(own);
+    const before = new Set(app.children);
+    const made = await openRoomView(app, { ...viewBase, compact, look: asked, skin });
+    // Each drawing appends itself; it belongs under the stage and the words, where the last one was.
+    for (const el of [...app.children]) if (!before.has(el)) app.insertBefore(el, dim);
+    if (!room || !scene?.paused) {
+      made.destroy();
+      break;
+    }
+    scene = made;
+    shownRoom = skin;
+    if (made.look !== asked) look = made.look;
+    const now = performance.now();
+    scene.build(room);
+    scene.setRoom(room, now);
+    for (const [s, move] of lastMoves) if (room.members[s] && move.t > roomSeenAt) scene.onMove({ s, x: posAt(move, now), d: move.d }, now);
+    slow.start(scene.look, now, simpler);
+  }
+  await nextFrame();
+  await nextFrame();
+  dim?.classList.add("rising");
+  dim?.classList.remove("on");
+  swapping = false;
+}
+
+/** A stand-in for the room view while the next one loads: it hears everything and draws nothing. */
+function pause(own) {
+  const nothing = () => {};
+  return { paused: true, look: "", build: nothing, setRoom: nothing, setVote: nothing, onMove: nothing, onBump: nothing, ownJump: nothing, ownBump: nothing, ownX: () => own, setCompact: nothing, frame: nothing, destroy: nothing };
+}
+
+/** "Simpler room": this device draws the flat room from now on, and remembers it. */
+function simpler() {
+  preferFlat();
+  look = "flat";
+  void showRoom();
 }
 
 // ---------------------------------------------------------------- the Tonight board, large
@@ -182,11 +284,17 @@ function boardLine(now) {
 
 // ---------------------------------------------------------------- what the room says
 
+/** When the room last sent the whole room: moves heard before it are older than its positions. */
+let roomSeenAt = 0;
+
 function apply(next) {
   room = next;
-  voteAt = performance.now();
+  voteAt = roomSeenAt = performance.now();
   if (!scene) return;
   scene.setRoom(room, voteAt);
+  menu?.update(room);
+  // A page that missed a change (a drop, a sleep) catches up from the room itself.
+  if (room.room !== shownRoom || look !== scene.look) void showRoom();
   const me = isPlayer() ? room.members[link.you.seat] : null;
   if (me) {
     if (!pilot) {
@@ -223,10 +331,12 @@ link.on("message", (msg) => {
   const now = performance.now();
   switch (msg.t) {
     case "m":
+      lastMoves.set(msg.s, { x: msg.x, d: msg.d, t: now });
       scene.onMove(msg, now);
       stirAt = now;
       break;
     case "b":
+      if (msg.to >= 0) lastMoves.set(msg.to, { x: msg.x, d: 0, t: now });
       scene.onBump(msg, now);
       stirAt = now;
       // Knocked: the piece lies where the room threw it, and has nothing to say until it is up.
@@ -244,8 +354,21 @@ link.on("message", (msg) => {
       room.vote = msg.vote;
       voteAt = now;
       scene.setVote(msg.vote, now);
+      menu?.update(room);
       warmUp(msg.vote);
       tellLit(now);
+      break;
+    case "pick": {
+      // The host moved the party to another room: everyone's lights go down together.
+      room.room = msg.v;
+      const by = msg.by === -1 ? "The room's screen" : room.members[msg.by]?.name;
+      hud?.note(`${by ? `${by} picked` : "Now in"} ${roomName(msg.v).replace(/^The /, "the ")}`, room.members[msg.by]?.colour);
+      menu?.update(room);
+      void showRoom();
+      break;
+    }
+    case "pick-no":
+      hud?.note(msg.why);
       break;
     case "note":
       if (msg.k === "left") hud?.note(`${msg.name} left`, msg.colour);
@@ -356,17 +479,15 @@ link.on("status", (status) => {
 link.on("closed", (why, reason) => {
   const said = bye ?? (why === "seat_lost" ? "seat_lost" : reason || "room_closed");
   bye = null;
-  // A saved session whose room is gone leads back to the way in, not to a notice about a room never seen.
-  if (!room) return showDoor(why === "seat_lost" ? "That seat is no longer held. Join again with the code." : "That party has ended.");
-  // A screen that was away too long finds another device showing the room.
-  closed(said === "seat_lost" && link.you?.role === "screen" ? "screen_lost" : said);
+  // Also a saved session whose room is gone (a reload after it closed): the front page says so.
+  closed(said);
 });
 
 link.on("error", (err) => hud?.note(err.message));
 
 // ---------------------------------------------------------------- keys and fingers
 
-const canMove = () => !!pilot && room?.phase === "lobby" && !hud?.sheet && !hud?.card && !board;
+const canMove = () => !!pilot && room?.phase === "lobby" && !hud?.sheet && !hud?.card && !board && !menu?.isOpen;
 
 function steerNow(d) {
   pilot?.steer(d, performance.now());
@@ -380,6 +501,7 @@ function press(id, d, down) {
   const i = held.findIndex((k) => k.id === id);
   if (i !== -1) held.splice(i, 1);
   if (down) held.push({ id, d });
+  if (down) menu?.fold();
   steerNow(wanted());
 }
 
@@ -401,6 +523,7 @@ const BUMP_KEYS = new Set(["b", "B", "x", "X", "Shift"]);
 addEventListener("keydown", (e) => {
   if (!scene || e.target instanceof HTMLInputElement) return;
   if (e.key === "Escape" && board) return hideBoard();
+  if (e.key === "Escape" && menu?.isOpen) return menu.close();
   if (e.key === "Escape") return hud?.sheet ? hud.sheet.click() : hud?.openSheet();
   if (e.key in WALK_KEYS) {
     if (!e.repeat) press(e.key.toLowerCase(), WALK_KEYS[e.key], true);
@@ -473,7 +596,10 @@ function frame(t) {
   else for (const k of ["x", "y", "width", "height"]) view[k] += (aim[k] - view[k]) * Math.min(1, dt * 9);
   viewSize = size;
   // Under a game that covers everything the room is not drawn.
-  if (!app.classList.contains("in-game")) scene.frame(now, dt, pilot, view);
+  if (!app.classList.contains("in-game") && !swapping) {
+    scene.frame(now, dt, pilot, view);
+    slow.frame(now, dt);
+  }
   hud.update(room, room.vote, now, voteAt, zoom, now - stirAt);
 }
 
