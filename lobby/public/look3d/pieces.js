@@ -13,6 +13,10 @@ const SIZE = 0.78;
 /** A pawn's height in world units, for placing its name tag. */
 export const PAWN_HEIGHT = (1.115 * SIZE) / PX;
 const GREY = new THREE.Color("#8a8d94");
+const SOOT = new THREE.Color("#1c1512");
+/** How long the startled hop of a piece that a room effect made jump lasts, and how high it goes (world units). */
+const HOP_MS = 420;
+const HOP_HEIGHT = 46;
 
 function merged(parts) {
   const pos = [];
@@ -73,9 +77,14 @@ export function makePawn(radial) {
   tilt.add(turn);
   const group = new THREE.Group();
   group.add(tilt);
+  // Two shadows in one group: a wide soft one, and a small dark one right under the foot that pins the piece to the floor.
   const blob = new THREE.Mesh(SHAPES.blob, new THREE.MeshBasicMaterial({ map: radial, color: 0x000000, transparent: true, opacity: 0.6, depthWrite: false }));
   blob.rotation.x = -Math.PI / 2;
   blob.renderOrder = 2;
+  const contact = new THREE.Mesh(SHAPES.blob, blob.material);
+  contact.scale.set(0.66, 0.66, 1);
+  contact.position.z = 0.001;
+  blob.add(contact);
   const ring = new THREE.Mesh(SHAPES.ring, new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.9, depthWrite: false }));
   ring.rotation.x = -Math.PI / 2;
   ring.renderOrder = 2;
@@ -193,7 +202,10 @@ export function posePawn(pawn, piece, now, dt, how) {
 
   const tall = Math.max(0.6, pawn.sq + bump.squash);
   const wide = 1 / Math.sqrt(tall);
-  const rise = up + hop + bump.lift;
+  // A room effect may ask for a startled hop (look3d/life.js). It is drawn here and goes nowhere: the piece's x is untouched.
+  const startle = (now - (piece.fx?.hopAt ?? -Infinity)) / HOP_MS;
+  const yelp = startle >= 0 && startle < 1 ? 4 * HOP_HEIGHT * startle * (1 - startle) : 0;
+  const rise = up + hop + bump.lift + yelp;
   pawn.group.position.set(walkX(piece.rx + bump.dx), rise * PX, SPACE.walkZ);
   pawn.tilt.rotation.z = pawn.lean + rock + bump.lean;
   pawn.tilt.scale.set(SIZE * wide, SIZE * tall, SIZE * wide);
@@ -202,16 +214,20 @@ export function posePawn(pawn, piece, now, dt, how) {
   // The shadow stays on the floor and tightens as the piece leaves it.
   const off = Math.max(0.45, 1 - rise * PX * 0.6);
   pawn.blob.position.set(walkX(piece.rx + bump.dx), 0.008, SPACE.walkZ);
-  pawn.blob.scale.setScalar(off * wide);
-  pawn.blob.material.opacity = 0.6 * off * pawn.fade;
+  pawn.blob.scale.setScalar(off * wide * 1.15);
+  pawn.blob.material.opacity = 0.72 * off * pawn.fade;
   pawn.ring.position.set(walkX(piece.rx), 0.012, SPACE.walkZ);
 
   // Brighter under a lamp, dimmer in the dark between two.
   pawn.lit += (how.lit - pawn.lit) * Math.min(1, step * 8);
-  pawn.mat.color.copy(pawn.colour).multiplyScalar(0.6 + 0.4 * pawn.lit);
-  pawn.mat.emissiveIntensity = (pawn.connected ? 0.2 : 0.1) + 0.22 * pawn.lit;
+  // Outside a pool it falls back into the room's own dimness, so it does not glow like a toy in a shop window.
+  const char = piece.fx?.char ?? 0;
+  pawn.mat.color.copy(pawn.colour).multiplyScalar(0.42 + 0.58 * pawn.lit).lerp(SOOT, char * 0.82);
+  pawn.mat.emissive.copy(pawn.colour).lerp(SOOT, char);
+  pawn.mat.emissiveIntensity = (pawn.connected ? 0.09 : 0.06) + 0.27 * pawn.lit;
+  pawn.mat.clearcoat = 0.7 * (1 - char * 0.8);
 
-  const moving = walking || air || bump.dx !== 0 || bump.lift !== 0 || bump.lean !== 0 || Math.abs(pawn.sqV) > 0.02 || Math.abs(pawn.leanV) > 0.01 || Math.abs(pawn.lean) > 0.004 || Math.abs(facing - pawn.yaw) > 0.01 || Math.abs(how.lit - pawn.lit) > 0.01 || hop > 0.2;
+  const moving = walking || air || bump.dx !== 0 || bump.lift !== 0 || bump.lean !== 0 || yelp > 0 || Math.abs(pawn.sqV) > 0.02 || Math.abs(pawn.leanV) > 0.01 || Math.abs(pawn.lean) > 0.004 || Math.abs(facing - pawn.yaw) > 0.01 || Math.abs(how.lit - pawn.lit) > 0.01 || hop > 0.2;
   return { up: rise + (tall - 1) * PAWN_HEIGHT, moving, shock: bump.shock };
 }
 

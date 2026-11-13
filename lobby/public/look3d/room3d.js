@@ -13,6 +13,7 @@
 //     fixed number of pixels; it steps down if frames are slow, draws a third as often when
 //     nothing moves, and not at all while the page is hidden (the page's frame loop stops).
 import { ROOM, boxCentre, lightHalf, posAt } from "../shared/world.js";
+import { Life } from "./life.js";
 import { ART_IMAGES, boxArt, boxSide, canvasOf } from "./paint.js";
 import { dressPawn, disposePawn, fadePawn, makePawn, posePawn } from "./pieces.js";
 import { SKINS, liveSkin } from "./skins.js";
@@ -95,20 +96,6 @@ function joined(parts) {
   return out;
 }
 
-function roundedRect(w, h, r) {
-  const s = new THREE.Shape();
-  s.moveTo(-w / 2 + r, -h / 2);
-  s.lineTo(w / 2 - r, -h / 2);
-  s.absarc(w / 2 - r, -h / 2 + r, r, -Math.PI / 2, 0);
-  s.lineTo(w / 2, h / 2 - r);
-  s.absarc(w / 2 - r, h / 2 - r, r, 0, Math.PI / 2);
-  s.lineTo(-w / 2 + r, h / 2);
-  s.absarc(-w / 2 + r, h / 2 - r, r, Math.PI / 2, Math.PI);
-  s.lineTo(-w / 2, -h / 2 + r);
-  s.absarc(-w / 2 + r, -h / 2 + r, r, Math.PI, Math.PI * 1.5);
-  return s;
-}
-
 const glowMat = (map, color, opacity) => new THREE.MeshBasicMaterial({ map, color, transparent: true, opacity, blending: THREE.AdditiveBlending, depthWrite: false });
 
 /** A lamp's beam: faint where it crosses the box art, gathering toward the floor. */
@@ -136,13 +123,15 @@ const floorMat = (map, light) =>
     uniforms: {
       map: { value: map },
       uLight: { value: new THREE.Color(light) },
+      // The wash of a pool is the lamp's colour made richer: a warm lamp makes a warm pool, not a white one.
+      uPool: { value: new THREE.Color(light).offsetHSL(0, 0.18, -0.08) },
       uAmbient: { value: 0.9 },
       uFront: { value: new THREE.Vector2(SPACE.walkZ + 0.9, SPACE.zFront) },
       uPools: { value: Array.from({ length: MAX_POOLS }, () => new THREE.Vector4(0, 0, 1, 0)) },
     },
     vertexShader: `varying vec2 vUv; varying vec3 vAt;
       void main(){ vUv = uv; vec4 at = modelMatrix * vec4(position, 1.0); vAt = at.xyz; gl_Position = projectionMatrix * viewMatrix * at; }`,
-    fragmentShader: `uniform sampler2D map; uniform vec3 uLight; uniform float uAmbient; uniform vec2 uFront; uniform vec4 uPools[${MAX_POOLS}];
+    fragmentShader: `uniform sampler2D map; uniform vec3 uLight; uniform vec3 uPool; uniform float uAmbient; uniform vec2 uFront; uniform vec4 uPools[${MAX_POOLS}];
       varying vec2 vUv; varying vec3 vAt;
       void main(){
         vec3 base = texture2D(map, vUv).rgb;
@@ -157,7 +146,7 @@ const floorMat = (map, light) =>
           wash += (0.05 * on + 0.44 * p.w) * inside;
         }
         float front = mix(1.0, 0.72, smoothstep(uFront.x, uFront.y, vAt.z));
-        gl_FragColor = vec4(base * (uAmbient * front + lit * uLight) + uLight * min(wash, 0.8) * 0.85, 1.0);
+        gl_FragColor = vec4(base * (uAmbient * front + lit * uLight) + uPool * min(wash, 0.8), 1.0);
         #include <tonemapping_fragment>
         #include <colorspace_fragment>
       }`,
@@ -201,7 +190,6 @@ export class Room3D {
     this.images = images;
     this.pieces = new Map();
     this.boxes = [];
-    this.flickers = [];
     this.room = null;
     this.vote = null;
     this.voteAt = 0;
@@ -247,6 +235,13 @@ export class Room3D {
     this.scene.add(this.stuff, this.cast);
     this.words = new Words(el, opts, skin);
     this.at = new THREE.Vector3();
+    // The page's bar under the room takes the room's colours while this look is up (look3d.css).
+    this.host = el.parentElement;
+    const hex = (colour) => "#" + new THREE.Color(colour).getHexString();
+    const accent = hex(skin.accent);
+    this.hostVars = { "--amber": accent, "--l3-accent": accent, "--l3-ink": skin.words?.vars?.["--ink"] ?? "#f6d9a0", "--l3-bar": "color-mix(in srgb, " + hex(skin.fascia) + " 82%, #000)" };
+    this.host?.classList.add("l3-host");
+    for (const [name, value] of Object.entries(this.hostVars)) this.host?.style.setProperty(name, value);
     window.__room3d = this;
   }
 
@@ -255,15 +250,22 @@ export class Room3D {
   /** Builds everything that does not move, for this room's boxes. */
   build(room) {
     this.clear(this.stuff);
-    this.flickers = [];
     const L = (this.L = layout(room.boxes.length));
     this.half = lightHalf(L.n);
     this.shell(L);
     this.doorway(L);
-    this.shelf(L);
     this.bulbs();
     this.boxes = room.boxes.map((box, i) => this.box(box, i, L));
-    this.skin.extras?.({ THREE, add: (thing) => this.stuff.add(thing), radial: this.radial, L, room: SPACE, flicker: (fn) => this.flickers.push(fn) });
+    // Everything else that moves in the room is its life: look3d/life.js, from the skin's own list.
+    this.life = new Life({
+      skin: this.skin,
+      L,
+      radial: this.radial,
+      add: (thing) => (this.stuff.add(thing), thing),
+      texture: (canvas) => textureOf(canvas, this.renderer),
+      lamps: this.boxes.map((b) => ({ group: b.lamp.swing, x: b.cx, hangs: this.skin.lamp !== "tube" && this.skin.lamp !== "dome" })),
+    });
+    this.life.clock(room, performance.now());
     this.coin = null;
     this.words.build(room, L);
     for (const p of this.pieces.values()) p.tag = null;
@@ -289,7 +291,9 @@ export class Room3D {
     const add = (mesh) => (this.stuff.add(mesh), mesh);
     const depth = SPACE.zFront - SPACE.zBack;
     const painted = (mw, mh, paint, side) => textureOf(canvasOf(Math.round(mw * TEX_K), Math.round(mh * TEX_K), (g, w, h) => paint(g, w, h, TEX_K, side, L)), this.renderer);
-    const back = add(new THREE.Mesh(new THREE.PlaneGeometry(SPACE.w, SPACE.h), new THREE.MeshBasicMaterial({ map: painted(SPACE.w, SPACE.h, skin.wall, false) })));
+    // A wall with windows cut in it (what is outside them is the skin's "outside" life) is drawn with its holes.
+    const windows = (skin.life ?? []).some((def) => def.kind === "outside");
+    const back = add(new THREE.Mesh(new THREE.PlaneGeometry(SPACE.w, SPACE.h), new THREE.MeshBasicMaterial({ map: painted(SPACE.w, SPACE.h, skin.wall, false), alphaTest: windows ? 0.5 : 0 })));
     back.position.set(0, SPACE.h / 2, SPACE.zBack);
     const sideTex = painted(depth, SPACE.h, skin.wall, true);
     const sideGeo = new THREE.PlaneGeometry(depth, SPACE.h);
@@ -312,11 +316,24 @@ export class Room3D {
     this.floor = add(new THREE.Mesh(new THREE.PlaneGeometry(SPACE.w, depth), floorMat(painted(SPACE.w, depth, skin.floor, false), skin.light)));
     this.floor.rotation.x = -Math.PI / 2;
     this.floor.position.set(0, 0, (SPACE.zFront + SPACE.zBack) / 2);
+    // The floor carries on toward the viewer (the same boards, turned over at the join), so a
+    // tall screen such as an upright phone sees floor under the room and not a dark band.
+    const apron = add(new THREE.Mesh(new THREE.PlaneGeometry(SPACE.w, depth), this.floor.material));
+    apron.rotation.x = -Math.PI / 2;
+    apron.scale.y = -1;
+    apron.position.set(0, 0, SPACE.zFront + depth / 2);
+    this.floor.material.side = THREE.DoubleSide;
     // The front of the stage, and the lit edge along it.
+    const front = SPACE.zFront + depth;
     const fascia = add(new THREE.Mesh(new THREE.PlaneGeometry(SPACE.w + 30, 14), new THREE.MeshBasicMaterial({ color: skin.fascia })));
-    fascia.position.set(0, -7, SPACE.zFront);
+    fascia.position.set(0, -7, front);
     const lip = add(new THREE.Mesh(new THREE.BoxGeometry(SPACE.w + 30, 0.022, 0.05), new THREE.MeshBasicMaterial({ color: new THREE.Color(skin.accent).multiplyScalar(0.55) })));
-    lip.position.set(0, -0.02, SPACE.zFront + 0.02);
+    lip.position.set(0, -0.02, front + 0.02);
+    if (skin.rope) {
+      // The lamps hang from a rope strung across the room, not from a ceiling the room does not have.
+      const rope = new THREE.CatmullRomCurve3(L.gapsWalk.map((x, i) => new THREE.Vector3(x, SPACE.lampY + 1.05, SPACE.walkZ)).flatMap((p, i, all) => (i < all.length - 1 ? [p, new THREE.Vector3((p.x + all[i + 1].x) / 2, SPACE.lampY + 0.62, SPACE.walkZ)] : [p])));
+      add(new THREE.Mesh(new THREE.TubeGeometry(rope, 64, 0.02, 5), new THREE.MeshBasicMaterial({ color: skin.cord })));
+    }
     if (skin.skirt) {
       const skirt = add(new THREE.Mesh(new THREE.BoxGeometry(SPACE.w, 0.025, 0.03), new THREE.MeshBasicMaterial({ color: skin.accent, transparent: true, opacity: 0.4 })));
       skirt.position.set(0, 0.03, SPACE.zBack + 0.02);
@@ -353,44 +370,6 @@ export class Room3D {
     const sill = new THREE.Mesh(new THREE.PlaneGeometry(w - 0.06, 0.03), new THREE.MeshBasicMaterial({ color: warm }));
     sill.position.set(x, 0.02, z + 0.075);
     this.stuff.add(leaf, frame, port, knob, portGlow, sill);
-  }
-
-  /** A shelf under the Tonight board with a few spare game boxes on it: the games still to come. */
-  shelf(L) {
-    const x = L.boardX;
-    const y = 1.15;
-    const z = SPACE.zBack;
-    const plank = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.07, 0.5), new THREE.MeshBasicMaterial({ color: this.skin.plank }));
-    plank.position.set(x, y, z + 0.25);
-    const brackets = new THREE.Mesh(joined([[new THREE.BoxGeometry(0.05, 0.3, 0.4), -0.55, 0, 0], [new THREE.BoxGeometry(0.05, 0.3, 0.4), 0.55, 0, 0]]), this.frameMat);
-    brackets.position.set(x, y - 0.18, z + 0.2);
-    this.stuff.add(plank, brackets);
-    // Three cartons: two standing, one leaning on them. Plain lids, no names: the wall says what can be played.
-    for (const [dx, w, h, turn, lean, colour] of [
-      [-0.42, 0.5, 0.7, 0.3, 0, 0x2f6f5a],
-      [0.02, 0.46, 0.64, -0.2, 0, 0x8c2f3a],
-      [0.47, 0.44, 0.6, -0.1, 0.24, 0x2f4f8c],
-    ]) {
-      const lid = canvasOf(64, 96, (g) => {
-        g.fillStyle = `#${colour.toString(16).padStart(6, "0")}`;
-        g.fillRect(0, 0, 64, 96);
-        g.fillStyle = "rgba(255,240,210,.82)";
-        g.fillRect(8, 12, 48, 14);
-        g.fillStyle = "rgba(255,240,210,.3)";
-        g.beginPath();
-        g.arc(32, 58, 17, 0, 7);
-        g.fill();
-        g.strokeStyle = "rgba(255,255,255,.2)";
-        g.lineWidth = 3;
-        g.strokeRect(2, 2, 60, 92);
-      });
-      const side = new THREE.MeshLambertMaterial({ color: new THREE.Color(colour).multiplyScalar(0.6) });
-      const front = new THREE.MeshBasicMaterial({ map: textureOf(lid, this.renderer), color: 0xb8b8b8 });
-      const carton = new THREE.Mesh(new THREE.BoxGeometry(w, h, 0.12), [side, side, side, side, front, side]);
-      carton.position.set(x + dx, y + 0.035 + h / 2 - lean * 0.06, z + 0.26);
-      carton.rotation.set(0, turn, lean);
-      this.stuff.add(carton);
-    }
   }
 
   /** A string of small bulbs, where the room has one: two meshes for all of them. */
@@ -509,10 +488,20 @@ export class Room3D {
 
     // The lamp, its cord, its beam and the edge of its pool.
     b.lamp = this.lampHead(i);
-    b.lamp.group.position.set(x, SPACE.lampY, z);
-    add(b.lamp.group);
-    const cord = add(new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.018, 12, 6), new THREE.MeshBasicMaterial({ color: skin.cord })));
-    cord.position.set(x, SPACE.lampY + 0.4 + 6, z);
+    // The head hangs from a point above it, so that it can swing (look3d/life.js sets it going).
+    const hang = skin.rope ? 0.62 : 1.6;
+    b.lamp.swing = new THREE.Group();
+    b.lamp.swing.position.set(x, SPACE.lampY + hang, z);
+    b.lamp.group.position.y = -hang;
+    b.lamp.swing.add(b.lamp.group);
+    const cord = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.018, hang - 0.4, 6), new THREE.MeshBasicMaterial({ color: skin.cord }));
+    cord.position.y = -(hang - 0.4) / 2;
+    b.lamp.swing.add(cord);
+    add(b.lamp.swing);
+    if (!skin.rope) {
+      const flex = add(new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.018, 12, 6), cord.material));
+      flex.position.set(x, SPACE.lampY + hang + 6, z);
+    }
     b.cone = add(new THREE.Mesh(new THREE.CylinderGeometry(0.3, radius, SPACE.lampY, 48, 1, true), coneMat(skin.light)));
     b.cone.position.set(x, SPACE.lampY / 2, z);
     // The pool keeps a faint edge even when its lamp is out, so it still reads as a place.
@@ -532,43 +521,29 @@ export class Room3D {
     const neon = skin.neon ? new THREE.Color(skin.neon[i % skin.neon.length]) : null;
     const tex = textureOf(boxArt(box, this.images), this.renderer);
     b.art = new THREE.MeshBasicMaterial({ map: tex });
-    if (skin.mount === "hatch") {
-      // A hatch window: the picture behind a rounded pane, in a heavy rim.
-      const r = L.bw * 0.2;
-      const pane = new THREE.ShapeGeometry(roundedRect(L.bw, L.bh, r), 10);
-      const uv = pane.attributes.uv;
-      for (let v = 0; v < uv.count; v++) uv.setXY(v, uv.getX(v) / L.bw + 0.5, uv.getY(v) / L.bh + 0.5);
-      const art = new THREE.Mesh(pane, b.art);
-      art.position.z = 0.06;
-      const rimShape = roundedRect(nw + 0.2, nh + 0.2, r + 0.14);
-      rimShape.holes.push(roundedRect(L.bw - 0.02, L.bh - 0.02, r - 0.01));
-      b.frame = new THREE.Mesh(new THREE.ExtrudeGeometry(rimShape, { depth: 0.16, bevelEnabled: false, curveSegments: 10 }), this.frameMat);
-      const bolts = [];
-      for (let k = 0; k < 14; k++) {
-        const a = (k / 14) * Math.PI * 2;
-        const [ex, ey] = [(nw + 0.04) / 2, (nh + 0.04) / 2];
-        const s = 1 / Math.pow(Math.pow(Math.abs(Math.cos(a)) / ex, 4) + Math.pow(Math.abs(Math.sin(a)) / ey, 4), 0.25);
-        bolts.push([new THREE.SphereGeometry(0.03, 8, 6), Math.cos(a) * s * 0.985, Math.sin(a) * s * 0.985, 0.17]);
-      }
-      g.add(art, b.frame, new THREE.Mesh(joined(bolts), new THREE.MeshStandardMaterial({ color: 0xe6c27a, roughness: 0.35, metalness: 0.2 })));
-    } else {
-      const inner = new THREE.Mesh(new THREE.PlaneGeometry(nw, nh), new THREE.MeshBasicMaterial({ color: new THREE.Color(skin.panel).multiplyScalar(1.25) }));
-      inner.position.z = 0.012;
-      const bar = FRAME.bar;
-      b.frame = new THREE.Mesh(
-        joined([
-          [new THREE.BoxGeometry(bar, nh + bar * 2, FRAME.depth), -nw / 2 - bar / 2, 0, 0],
-          [new THREE.BoxGeometry(bar, nh + bar * 2, FRAME.depth), nw / 2 + bar / 2, 0, 0],
-          [new THREE.BoxGeometry(nw, bar, FRAME.depth), 0, nh / 2 + bar / 2, 0],
-          [new THREE.BoxGeometry(nw, bar, FRAME.depth), 0, -nh / 2 - bar / 2, 0],
-        ]),
-        this.frameMat,
-      );
-      b.frame.position.z = FRAME.depth / 2;
-      const side = new THREE.MeshLambertMaterial({ color: boxSide(box) });
-      const carton = new THREE.Mesh(new THREE.BoxGeometry(L.bw, L.bh, 0.3), [side, side, side, side, b.art, side]);
-      carton.position.z = 0.2;
-      g.add(inner, b.frame, carton);
+    const inner = new THREE.Mesh(new THREE.PlaneGeometry(nw, nh), new THREE.MeshBasicMaterial({ color: new THREE.Color(skin.panel).multiplyScalar(1.25) }));
+    inner.position.z = 0.012;
+    const bar = FRAME.bar;
+    b.frame = new THREE.Mesh(
+      joined([
+        [new THREE.BoxGeometry(bar, nh + bar * 2, FRAME.depth), -nw / 2 - bar / 2, 0, 0],
+        [new THREE.BoxGeometry(bar, nh + bar * 2, FRAME.depth), nw / 2 + bar / 2, 0, 0],
+        [new THREE.BoxGeometry(nw, bar, FRAME.depth), 0, nh / 2 + bar / 2, 0],
+        [new THREE.BoxGeometry(nw, bar, FRAME.depth), 0, -nh / 2 - bar / 2, 0],
+      ]),
+      this.frameMat,
+    );
+    b.frame.position.z = FRAME.depth / 2;
+    const side = new THREE.MeshLambertMaterial({ color: boxSide(box) });
+    const carton = new THREE.Mesh(new THREE.BoxGeometry(L.bw, L.bh, 0.3), [side, side, side, side, b.art, side]);
+    carton.position.z = 0.2;
+    g.add(inner, b.frame, carton);
+    if (skin.trim === "bolts") {
+      // Rivets round the frame: trim only, the frame is the same frame.
+      const rivets = [];
+      for (const sx of [-1, 1]) for (let k = 0; k <= 6; k++) rivets.push([new THREE.SphereGeometry(0.028, 6, 5), sx * (nw / 2 + FRAME.bar / 2), (k / 6 - 0.5) * (nh + FRAME.bar), FRAME.depth]);
+      for (const sy of [-1, 1]) for (let k = 1; k < 4; k++) rivets.push([new THREE.SphereGeometry(0.028, 6, 5), (k / 4 - 0.5) * nw, sy * (nh / 2 + FRAME.bar / 2), FRAME.depth]);
+      g.add(new THREE.Mesh(joined(rivets), new THREE.MeshLambertMaterial({ color: 0xe6c27a })));
     }
     if (neon) {
       b.neonMat = new THREE.MeshBasicMaterial({ color: neon.clone().multiplyScalar(1.25) });
@@ -655,6 +630,7 @@ export class Room3D {
       if (!seen.has(seat) && !p.leaving) p.leaving = now;
     }
     this.words.setRoom(room);
+    this.life?.clock(room, now);
     this.setVote(room.vote, now);
   }
 
@@ -665,7 +641,7 @@ export class Room3D {
   }
 
   piece(m) {
-    const p = { seat: m.seat, rx: m.x, net: { x: m.x, d: m.d, t: 0 }, face: 1, rev: m.rev, jumpAt: -Infinity, lungeAt: -Infinity, lungeDir: 1, hitAt: -Infinity, hitDir: 1, leaving: 0, level: 0, look: "", tag: null, member: m };
+    const p = { fx: { char: 0, hopAt: -Infinity }, seat: m.seat, rx: m.x, net: { x: m.x, d: m.d, t: 0 }, face: 1, rev: m.rev, jumpAt: -Infinity, lungeAt: -Infinity, lungeDir: 1, hitAt: -Infinity, hitDir: 1, leaving: 0, level: 0, look: "", tag: null, member: m };
     p.pawn = makePawn(this.radial);
     p.pawn.ring.visible = m.seat === this.opts.own;
     this.cast.add(p.pawn.group, p.pawn.blob, p.pawn.ring);
@@ -702,6 +678,8 @@ export class Room3D {
       hit.rev = msg.rev;
       hit.hitAt = now;
     }
+    // If it happened by the room's feature, the feature is knocked too (look3d/life.js).
+    this.life?.onBump(by, hit);
   }
 
   /** The viewer's own piece jumped (its Pilot says so; nothing comes back from the room). */
@@ -724,7 +702,7 @@ export class Room3D {
       const d = Math.abs(x - b.cx);
       if (d < this.half + 40) best = Math.max(best, Math.min(1, b.level * 0.85) * Math.min(1, (this.half + 40 - d) / 40));
     }
-    return best;
+    return Math.max(best, this.life.warmth(x));
   }
 
   /** Fits the picture to the element, at a pixel ratio the device can afford. */
@@ -818,6 +796,7 @@ export class Room3D {
 
     // Pieces: the player's own from its Pilot, everyone else's eased toward where they should be.
     const ordered = [];
+    const alive = [];
     for (const [seat, p] of this.pieces) {
       let alpha = 1;
       if (p.leaving) {
@@ -844,6 +823,7 @@ export class Room3D {
         walking = (p.net.d !== 0 && target > ROOM.minX && target < ROOM.maxX) || Math.abs(target - p.rx) > 6;
       }
       const pose = posePawn(p.pawn, p, now, dt, { walking, lit: this.lightAt(p.rx) });
+      alive.push({ seat, x: p.rx, up: pose.up, air: p.pawn.air, fx: p.fx });
       if (pose.moving) busy = true;
       p.up = pose.up;
       p.shock = pose.shock;
@@ -875,10 +855,13 @@ export class Room3D {
     busy = this.toss(now, view) || busy;
 
     // Draw: every frame while anything moves, a third as often when the room is still.
-    for (const fn of this.flickers) fn(now / 1000);
+    // The room's own life: 2 while something is happening, 1 for its ambient loops alone.
+    const lively = this.life.frame(now, dt, view, alive);
+    if (lively === 2) busy = true;
     this.govern(dt);
     this.idle = busy ? 0 : this.idle + 1;
-    if (this.idle > 2 && this.idle % 3) return;
+    // Draw every frame while anything moves; every other frame for ambient life alone; a third as often when the room is still.
+    if (this.idle > 2 && this.idle % (lively ? 2 : 3)) return;
     const t0 = performance.now();
     this.renderer.render(this.scene, this.camera);
     this.drawn.cpu += performance.now() - t0;
@@ -959,6 +942,8 @@ export class Room3D {
     this.renderer.dispose();
     this.renderer.forceContextLoss();
     this.el.remove();
+    this.host?.classList.remove("l3-host");
+    for (const name of Object.keys(this.hostVars)) this.host?.style.removeProperty(name);
     if (window.__room3d === this) window.__room3d = null;
   }
 }

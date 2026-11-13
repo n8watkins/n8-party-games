@@ -218,8 +218,14 @@
 }
 
 /* ------------------------------------------------------------ the sign under a box */
+/* The sign is the same size in every room: a skin changes its colours, lettering and trim only. */
 .l3-sign {
-  padding: calc(var(--m) * 0.08) calc(var(--m) * 0.06) calc(var(--m) * 0.09);
+  box-sizing: border-box;
+  height: calc(var(--m) * 0.95);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: 0 calc(var(--m) * 0.06);
   background: var(--sign-bg, var(--plate));
   border: calc(var(--sign-border, 1) * 1px) solid var(--sign-line, var(--plate-line));
   border-radius: calc(var(--sign-radius, 9) * var(--k) * 1px);
@@ -233,6 +239,8 @@
 }
 .l3-sign b {
   font: var(--title-w) calc(var(--m) * 0.3 * var(--title-size) * var(--fit, 1)) / 1.12 var(--title);
+  height: calc(var(--m) * 0.37);
+  line-height: calc(var(--m) * 0.37);
   letter-spacing: var(--title-space);
   text-transform: var(--title-case);
   color: var(--sign-ink, var(--ink));
@@ -368,7 +376,8 @@
 }
 /* A phone needs fewer, bigger words. */
 .l3-compact .l3-sign {
-  padding: calc(var(--m) * 0.07) calc(var(--m) * 0.05) calc(var(--m) * 0.08);
+  height: calc(var(--m) * 0.8);
+  padding: 0 calc(var(--m) * 0.05);
 }
 .l3-compact .l3-sign b {
   font-size: calc(var(--m) * 0.34 * var(--title-size) * var(--fit, 1));
@@ -529,4 +538,15 @@
   color: #2a1a04;
   font: 800 calc(var(--m) * 0.15) / 1.1 var(--text);
   white-space: nowrap;
+}
+
+/* ------------------------------------------------------------ the page's own bar, in the room's colours */
+/* The bar and buttons under the room are the page's (hud.js). While the 3D look is up it lends
+   them the room's accent, through the custom properties they already read and two of its own. */
+.l3-host .bar {
+  border-top-color: var(--l3-accent);
+  background: var(--l3-bar);
+}
+.l3-host .brand {
+  color: var(--l3-ink);
 }
