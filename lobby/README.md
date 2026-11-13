@@ -172,8 +172,26 @@ Cork & Bell is its own repository and package (`games.js`), and it is the first 
 
 The game's own page at `/cork-and-bell/` is unchanged: solo with the high score board, and battles in rooms of its own.
 
+## Emotes and sounds
+
+A tap shows an emote over your piece on every device, or plays a short sound for the room.
+They are the party kit's (`party-kit/client/emotes.js`, `sounds.js`, `sound-recipes.js`), and the room turns them on.
+The plan, and what is still to decide, is in `docs/SOUND-AND-VOICE.md`.
+
+What works now:
+
+- The room judges each one as it arrives and passes it on to everybody else: one message, no wake-up, no timer. A player may send an emote every 1.5 seconds and a sound every 4; the room refuses one that comes sooner and tells that page how long is left.
+- A request the room refuses with more than half a second left counts against the socket's rate limit: a real page never sends during its own cooldown, so a script that hammers the button is closed within about two seconds, having had one or two through.
+- While a game is played the game decides (`manifest.lobby.emotes` and `.sounds` in `party-kit/GAME-CONTRACT.md`; by default emotes yes, sounds no).
+- Every sound is made in the browser from oscillators, noise and filters: no audio file is shipped or fetched. Each is rendered once per device and then played with one node.
+- A sound plays from the big screen when the room has one, and on every player's device when it has none. Each device keeps its own volume, "mute all sounds" and "mute this player". Nothing plays before the browser allows sound (a tap or a key on the page), and nothing queued plays after it does.
+- Everybody sees who did what, muted or not: for now as a note at the top of the room ("Tom: Air horn"). Both drawings take emotes through the room-view seam (`onExpress`), and neither draws them yet.
+
+Waiting on the owner's picks: which emotes and sounds, how they look over a piece, and the button. The page to pick from is `preview/emotes-artifact.html`, also at `/preview/emotes/` when the local server runs (`npm run dev`); the production build leaves it out. Stills of a chosen dozen are in `preview/shots/`.
+
 ## What is not built
 
+- The emote button and how emotes look over a piece (above).
 - Coin Flip is a placeholder for local play and the tests, marked "TEST GAME" on its box. Tin Derby, Flood and Fox Trouble are names and pictures only.
 - A party's code, seats and points do not carry over to an outside game's site.
 - No piece skins, no abilities, no chat bubbles, no walking through the door, no "host starts" setting. Other rooms exist only as skins of the 3D preview.
@@ -251,7 +269,7 @@ A lobby nobody touches costs nothing: no timer, no messages, nothing counted, an
 
 - A room closes one minute after the last person goes, and after twenty minutes in which nobody did anything (the kit's two rules). A page warns its player two minutes before the second. The minute is counted from when the room emptied, also when the room was put to sleep in between (it used to start over at every waking, which kept an empty room, waking once a minute, until the second rule closed it).
 - A room closes four hours after it was made, never in the middle of a game. Pages warn five minutes before.
-- One socket may send a burst of 40 messages, then 20 a second. More are dropped, and a socket that keeps flooding is closed and its seat given up. A message over 512 bytes, or one that is not JSON, is dropped and counts five times.
+- One socket may send a burst of 40 messages, then 20 a second. More are dropped, and a socket that keeps flooding is closed and its seat given up. A message over 512 bytes, or one that is not JSON, is dropped and counts five times. An emote or a sound refused with more than half a second of its cooldown left counts twice.
 - When the day's or month's allowance is spent: no new party can start (the front page's way in answers that the rooms are full, and that each game still plays on its own page); an open room finishes the game it is playing, starts no other, tells everyone "This room closes in 3:00", and closes three minutes later.
 
 ## Layout
@@ -271,6 +289,8 @@ A lobby nobody touches costs nothing: no timer, no messages, nothing counted, an
 | `public/` | The page at `/lobby/`: the way in (`door.js`), the scene (`scene.js`), the bump as drawn (`bump-draw.js`), the buttons (`controls.js`), the words over the room (`hud.js`), the board opened large (`board.js`), and each game's view. |
 | `games/coin-flip.js` | The test game, hung only where `PARTY_TEST_GAMES` is on. |
 | `wall.js` | Which boxes hang on the wall (hosted, outside, test, coming soon), which can start, and the wall each environment gets. |
+| `../party-kit/client/emotes.js`, `sounds.js`, `sound-recipes.js` | Emotes and the soundboard, in the kit: the rules and messages, one device's player, and every sound as a recipe. |
+| `../preview/` | The emotes and sounds preview for the owner's picks (local only). |
 | `public/room-view.js` | The seam between the page and a drawing of the room: the interface both drawings keep, and which one a device gets. |
 | `public/look3d/` | The 3D drawing: the scene (`room3d.js`), the words over it (`words.js`), the pieces (`pieces.js`), the rooms as skins (`skins.js`), a posed room (`still.html`) and the rooms page (`rooms/`). |
 | `test/` | Unit tests, the socket test, the browser run and the cost measurement. |
@@ -280,6 +300,8 @@ A lobby nobody touches costs nothing: no timer, no messages, nothing counted, an
 ## Tests
 
 - `npm test` runs the unit tests with the kit's: the room's rules (`test/lobby-core.test.js`), the shared logic, the awake meter and the socket rate limit (`test/shared.test.js`), the bump (`test/bump.test.js`), the Tonight board (`test/tonight.test.js`) and the way in (`test/entry.test.js`).
+- `npm run test:emotes` (with `npm run dev` running) puts emotes and sounds through real pages and sockets in one room (headless and muted): the room relaying each once and enforcing both cooldowns, a hammering script closed, a game refusing sounds, sounds on the phones with no big screen and on the screen only with one, nothing played before a tap and nothing late after it, a muted player, and every sound rendered offline with its waveform checked (length, silence at both ends, no clipping, loudness, and its shape: three blasts, falling notes, a run of chirps). `npm test` covers the same rules with a fake clock (`test/emotes.test.js`, `party-kit/test/sounds.test.js`).
+- `node preview/shoot-emotes.mjs` takes a still of every emote candidate's held pose and of the three ways to trigger them at sideways-phone size, works the wheel by pointer, and checks the preview on an upright and a sideways phone for errors and sideways scrolling.
 - `npm run test:feel` (with `npm run dev` running) goes through how the room feels in real pages and over sockets: the way in on a phone and on a wide screen, one screen per room and its grace, the four buttons, the cooldown ring and the room enforcing it, the bump frame by frame, that nobody can be kept on the floor, the board opening and closing with the vote carrying on, and that a bump sets no timer. It takes stills of each, the bump's with the page's clock held still.
 - `npm run test:lobby` (with `npm run dev` running) puts four socket players through an evening (when the coin toss picks Cork & Bell, a whole round of it over sockets, which makes the run a minute and a half longer), sends a party of two off to an outside game, then checks that a lobby nobody touches goes silent: no messages, no timer, nothing added to the budget.
 - `npm run lobby:shots` drives real pages in a headless, muted browser and takes a still of every state on a big screen, a sideways phone and an upright one, checking that no text spills out of its place and that no card runs off a screen. It follows an outside game all the way to its address (the browser is handed a stand-in page, so no test touches the real site), and with `--plain=<a server with the test games off>` it also takes the wall as production hangs it. Stills land in `lobby/test/shots/`, which is not committed; a chosen few are in `lobby/shots/`.
