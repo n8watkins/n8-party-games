@@ -107,7 +107,8 @@ try {
 
   // The big screen starts the party and holds no seat.
   const screen = await open("screen", { width: 1920, height: 1080 });
-  await screen.goto(base + "/lobby/?start");
+  // (cork-quality: if this run's coin toss picks Cork & Bell, the game draws at its low quality.)
+  await screen.goto(base + "/lobby/?start&cork-quality=low");
   await screen.click("text=Use this as the room's screen");
   await screen.click("text=Show the room here");
   await screen.waitForSelector("svg.scene text");
@@ -119,7 +120,7 @@ try {
 
   // A phone held sideways joins with the code.
   const phone = await open("phone", { width: 844, height: 390 }, { deviceScaleFactor: 2, hasTouch: true });
-  await phone.goto(base + "/lobby/?join=" + pin);
+  await phone.goto(base + "/lobby/?join=" + pin + "&cork-quality=low");
   await phone.waitForSelector(".door-title");
   await phone.fill("input[name=nickname]", "Dolly");
   await shot(phone, "03-phone-join");
@@ -234,11 +235,11 @@ try {
   await screen.waitForSelector('iframe[title="Cork & Bell"], .card .places', { timeout: 12000 });
   const corkWon = (await screen.locator('iframe[title="Cork & Bell"]').count()) > 0;
   if (corkWon) {
-    console.log("     the toss picked Cork & Bell: waiting for its round to end (ninety seconds)...");
-    await sleep(12000);
-    await shot(screen, "22a-screen-cork-and-bell");
-    await shot(phone, "23a-phone-cork-and-bell");
-    await screen.waitForSelector(".card .places", { timeout: 110000 });
+    // No stills of the game from here: this run's browser draws WebGL in software, and a still of
+    // a 1920 x 1080 screen with four stalls on it does not come back in time. lobby/test/e2e-cork.mjs
+    // takes them (with --win=1, on the real graphics card).
+    console.log("     the toss picked Cork & Bell: waiting for its round to end (ninety seconds, and no stills of the game in this run)...");
+    await screen.waitForSelector(".card .places", { timeout: 180000 });
   }
   await sleep(300);
   await shot(screen, "22-screen-second-result");
