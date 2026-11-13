@@ -77,11 +77,13 @@ try {
   check((await screen.evaluate(() => window.__room3d?.look)) === "3d" && (await screen.locator("svg.scene").count()) === 0, "the 3D look drew it, and the flat drawing is not in the page");
   check((await screen.locator(".l3-pin").textContent()) === pin && (await screen.evaluate(() => document.querySelector(".l3-qr").naturalWidth > 0)), "the code and its QR code are on the wall");
   const boxes = await screen.evaluate(() => window.__room3d.room.boxes.map((b) => b.name));
+  const blurbs = await screen.evaluate(() => window.__room3d.room.boxes.map((b) => b.blurb));
   const N = boxes.length;
   const light = (i, off = 0) => Math.round(boxCentre(i, N) + off);
   const dark = (i) => Math.round(boxCentre(i, N) + lightHalf(N) + 22);
-  const signs = await words(screen, ".l3-sign b");
-  check(JSON.stringify(signs) === JSON.stringify(boxes), "one sign per box, from the game list: " + signs.join(", "));
+  const signs = await words(screen, ".l3-sign .l3-about");
+  check(JSON.stringify(signs) === JSON.stringify(blurbs), "one sign per box, from the game list (" + boxes.join(", ") + ")");
+  check((await screen.locator(".l3-sign b").count()) === 0, "a game's name is on its box and not on its sign");
   await sleep(1500);
   await shot(screen, "01-screen-empty-room");
   await tidy(screen, "big screen, empty room");
@@ -175,10 +177,27 @@ try {
   await shot(phone, "06-phone-jump");
   fitch.send({ t: "m", x: fitch.x, d: -1, r: fitch.rev });
   fitch.send({ t: "m", x: fitch.x, d: 0, r: fitch.rev });
+  // The shared story (lobby/shared/bump.js): the bumper winds up and strikes, the other is thrown, lies down, gets up, is safe.
+  // The page itself notes what it draws, frame by frame: a test looking in from outside is too slow to catch a tenth of a second.
+  await screen.evaluate(() => {
+    window.__states = new Set();
+    const look = () => {
+      for (const p of window.__room3d.pieces.values()) {
+        if (p.attack) window.__states.add("attacking");
+        if (p.knock) window.__states.add("knocked");
+        if (p.pawn.dizzy) window.__states.add("dizzy");
+      }
+      if ((window.__looks = (window.__looks ?? 0) + 1) < 400) requestAnimationFrame(look);
+    };
+    requestAnimationFrame(look);
+  });
   fitch.send({ t: "b" });
   await sleep(160);
   await shot(screen, "07-screen-bump");
-  await sleep(700);
+  await sleep(2200);
+  const states = await screen.evaluate(() => [...window.__states]);
+  check(["attacking", "knocked", "dizzy"].every((s) => states.includes(s)), "a bump plays the shared story in 3D: " + states.join(", "));
+  await sleep(1200);
   mabel.goto(light(CORK, -45));
 
   // ---------------------------------------------------------------- the count, the game and back
@@ -186,7 +205,7 @@ try {
   mabel.goto(light(COIN, -62));
   await screen.waitForSelector(".l3-count:not([hidden])", { timeout: 8000 });
   await screen.waitForSelector(".l3-sign.lead", { timeout: 2000 });
-  const lead = await screen.locator(".l3-sign.lead b").textContent();
+  const lead = boxes[blurbs.indexOf(await screen.locator(".l3-sign.lead .l3-about").textContent())];
   // Software drawing makes a still slow, and the game is three seconds long: start waiting for its card now.
   const result = screen.waitForSelector(".card .places", { timeout: 30000 });
   await shot(screen, "08-screen-count");
@@ -201,22 +220,6 @@ try {
   await tidy(screen, "big screen, back with scores");
   const board = (await words(screen, ".l3-board")).join(" ");
   check(/after 1 game/.test(board) && /Dolly/.test(board), "the Tonight board shows the game and the players: " + board.replace(/\s+/g, " ").slice(0, 80));
-
-  // ---------------------------------------------------------------- a tie
-  mabel.goto(light(CORK, -45));
-  fitch.goto(light(CORK, 50));
-  tom.goto(light(COIN, 55));
-  await walkTo(light(COIN, -40));
-  await screen.waitForFunction(() => document.querySelector(".chip")?.textContent === "TIE", null, { timeout: 20000 });
-  const afterToss = screen.waitForSelector(".card", { timeout: 30000 });
-  const tossed = (await words(screen, ".l3-chip")).length === 2 && (await screen.locator(".l3-toss").isVisible());
-  await sleep(600);
-  await shot(screen, "12-screen-coin-toss");
-  await tidy(screen, "big screen, coin toss");
-  await shot(phone, "13-phone-coin-toss");
-  check(tossed, "a tie is a coin toss everybody watches, heads on one box and tails on the other");
-  await afterToss;
-  await screen.waitForSelector(".card", { state: "detached", timeout: 15000 });
 
   // ---------------------------------------------------------------- dropping out
   await sleep(300);
@@ -257,6 +260,18 @@ try {
   await upright.click("text=Leave the party");
   await upright.waitForSelector("text=You left the party");
   check((await upright.locator(".look3d").count()) === 0, "leaving takes the 3D room out of the page");
+
+  // ---------------------------------------------------------------- a tie
+  // Last, because whichever game wins it, the room is done with here: only the test game plays
+  // inside the room, and any other winner sends every page off to that game's own site.
+  mabel.goto(light(CORK, 0));
+  fitch.goto(light(COIN, 0));
+  await screen.waitForFunction(() => document.querySelector(".chip")?.textContent === "TIE", null, { timeout: 30000 });
+  const tossed = (await words(screen, ".l3-chip")).length === 2 && (await screen.locator(".l3-toss").isVisible());
+  await sleep(600);
+  await shot(screen, "12-screen-coin-toss");
+  await tidy(screen, "big screen, coin toss");
+  check(tossed, "a tie is a coin toss everybody watches, heads on one box and tails on the other");
 
   // A page that asks for 3D in a browser with no WebGL at all gets the flat room, and says so
   // once in the console, which is a warning and not an error of the page's.
