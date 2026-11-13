@@ -227,7 +227,8 @@ try {
   await sleep(300);
   const droppedAgain = Date.now();
   console.log(`     waiting out the screen's grace (${SCREEN_GRACE_MS / 1000} seconds)...`);
-  await sleep(SCREEN_GRACE_MS - 1500 - (Date.now() - droppedAgain));
+  // Asked well inside the grace: on a loaded machine a request can take a couple of seconds to be answered.
+  await sleep(SCREEN_GRACE_MS - 4000 - (Date.now() - droppedAgain));
   const almost = await call("POST", "/join/" + host.pin, { as: "screen" });
   check(almost.status === 409, `still refused ${Date.now() - droppedAgain} ms after it dropped`);
   await sleep(SCREEN_GRACE_MS + 400 - (Date.now() - droppedAgain));
@@ -295,12 +296,13 @@ try {
       return { name: b.getAttribute("aria-label"), word: b.querySelector(".ctl-word")?.textContent, icon: !!b.querySelector("svg.ctl-icon path"), x: r.left + r.width / 2, w: r.width, h: r.height, radius: css.borderRadius, border: css.borderTopWidth + " " + css.borderTopStyle, background: css.backgroundColor, key: getComputedStyle(b.querySelector(".ctl-key")).display };
     }),
   );
-  check(buttons.map((b) => b.word).join() === "Left,Right,Jump,Bump" && buttons.every((b) => b.icon), "four buttons, each with a picture and a word: " + buttons.map((b) => b.word).join(", "));
+  // Five buttons since the emote wheel joined the bar (emotes/wheel.js): it sits before jump, under the right thumb.
+  check(buttons.map((b) => b.word).join() === "Left,Right,Emote,Jump,Bump" && buttons.every((b) => b.icon), "five buttons, each with a picture and a word: " + buttons.map((b) => b.word).join(", "));
   check(new Set(buttons.map((b) => `${b.w}x${b.h}/${b.radius}/${b.border}`)).size === 1 && buttons[0].w >= 48, `they are one family: the same size, shape and outline (${buttons[0].w} x ${buttons[0].h} px)`);
-  check(buttons[0].background === buttons[1].background && buttons[1].background === buttons[2].background, "jump looks like the walk buttons: " + buttons[2].background);
-  check(buttons[3].background !== buttons[2].background && /244, 180, 83/.test(buttons[3].background), "bump alone carries the accent when it is ready: " + buttons[3].background);
+  check(buttons[0].background === buttons[1].background && buttons[1].background === buttons[3].background && buttons[2].background === buttons[3].background, "jump and the emote button look like the walk buttons: " + buttons[3].background);
+  check(buttons[4].background !== buttons[3].background && /244, 180, 83/.test(buttons[4].background), "bump alone carries the amber accent when it is ready: " + buttons[4].background);
   const half = 844 / 2;
-  check(buttons[0].x < buttons[1].x && buttons[1].x < half && buttons[2].x > half && buttons[3].x > buttons[2].x, "walking is under the left thumb, jump and bump under the right, bump in the corner");
+  check(buttons[0].x < buttons[1].x && buttons[1].x < half && buttons[2].x > half && buttons[3].x > buttons[2].x && buttons[4].x > buttons[3].x, "walking is under the left thumb, emote, jump and bump under the right, bump in the corner");
   check(buttons.every((b) => b.key === "none"), "a phone shows no keyboard hints");
   await shot(phone, "f10-phone-buttons-bump-ready");
   await tidy(phone, "sideways phone, buttons");
@@ -313,14 +315,14 @@ try {
   await sleep(250);
   const cooling = await phone.evaluate(() => {
     const b = document.querySelector(".ctl-bump");
-    return { classes: b.className, label: b.getAttribute("aria-label"), dash: document.querySelector(".ctl-ring-sweep").getAttribute("stroke-dasharray"), background: getComputedStyle(b).backgroundColor, ring: getComputedStyle(b.querySelector(".ctl-ring")).opacity };
+    return { classes: b.className, label: b.getAttribute("aria-label"), dash: document.querySelector(".ctl-bump .ctl-ring-sweep").getAttribute("stroke-dasharray"), background: getComputedStyle(b).backgroundColor, ring: getComputedStyle(b.querySelector(".ctl-ring")).opacity };
   });
   check(/cooling/.test(cooling.classes) && cooling.label === "Bump, recharging" && !/244, 180, 83/.test(cooling.background) && cooling.ring === "1", "after a bump the button is dim and its ring shows: " + cooling.background);
   await shot(phone, "f11-phone-bump-cooling");
   const fills = [parseFloat(cooling.dash)];
   for (let i = 0; i < 3; i++) {
     await sleep(500);
-    fills.push(parseFloat(await phone.locator(".ctl-ring-sweep").getAttribute("stroke-dasharray")));
+    fills.push(parseFloat(await phone.locator(".ctl-bump .ctl-ring-sweep").getAttribute("stroke-dasharray")));
   }
   check(fills.every((f, i) => i === 0 || f > fills[i - 1]) && fills[0] < 25 && fills.at(-1) > 55, "the ring sweeps round as it recharges: " + fills.map((f) => f + "%").join(", "));
   await shot(phone, "f12-phone-bump-ring-most-of-the-way");
@@ -359,7 +361,7 @@ try {
   await laptop.waitForSelector("svg.scene text");
   await sleep(600);
   const keys = await laptop.evaluate(() => [...document.querySelectorAll(".ctl-key")].map((k) => [k.textContent, getComputedStyle(k).display !== "none"]));
-  check(keys.every(([, shown]) => shown) && keys.map(([k]) => k).join() === "←,→,↑,B", "a laptop player sees the same four buttons with their keys: " + keys.map(([k]) => k).join(", "));
+  check(keys.every(([, shown]) => shown) && keys.map(([k]) => k).join() === "←,→,1-6,↑,B", "a laptop player sees the same five buttons with their keys: " + keys.map(([k]) => k).join(", "));
   await laptop.keyboard.press("b");
   await sleep(300);
   check(await laptop.evaluate(() => document.querySelector(".ctl-bump").classList.contains("cooling")), "pressing B bumps, and the button in the bottom bar shows the cooldown");
@@ -668,7 +670,7 @@ try {
   await upright.waitForSelector("svg.scene text");
   await sleep(800);
   const uprightButtons = await upright.evaluate(() => [...document.querySelectorAll(".bar-player .ctl")].map((b) => b.getBoundingClientRect()).map((r) => ({ x: r.left + r.width / 2, w: r.width })));
-  check(uprightButtons.length === 4 && uprightButtons.every((b) => b.w >= 56) && uprightButtons[1].x < 195 && uprightButtons[2].x > 195, "an upright phone has the same four buttons, larger, walking on the left and jump and bump on the right");
+  check(uprightButtons.length === 5 && uprightButtons.every((b) => b.w >= 56) && uprightButtons[1].x < 195 && uprightButtons[2].x > 195, "an upright phone has the same five buttons, larger, walking on the left and emote, jump and bump on the right");
   await shot(upright, "f44-upright-buttons");
   await tidy(upright, "upright phone, buttons");
   // Its camera is close in: the board is along the wall to the right.
