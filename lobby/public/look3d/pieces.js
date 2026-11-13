@@ -6,7 +6,7 @@
 // into a walk, rocks from foot to foot, stretches in the air and squashes on landing.
 import * as THREE from "./three.js";
 import { PX, SPACE, walkX } from "./space.js";
-import { IMMUNE_MS, IMPACT_MS, PIECE_PIVOT, STUN_MS, attackPose, impactPoint, knockPose } from "../shared/bump.js";
+import { IMMUNE_MS, IMPACT_MS, PIECE_HEAD, PIECE_PIVOT, STUN_MS, attackPose, impactPoint, knockPose } from "../shared/bump.js";
 import { JUMP_MS, WALK_SPEED, jumpHeight } from "../shared/world.js";
 
 /** How big a piece is beside the room. */
@@ -132,8 +132,9 @@ export function disposePawn(pawn) {
 // degrees. The flat drawing turns those numbers into SVG (../bump-draw.js); this turns the same
 // numbers into a pawn. So the two drawings show the same story at the same moments:
 //
-//   the bumper   winding (lifts and leans back) -> striking (slams forward) -> recovering
-//   the victim   standing -> hit (squashed) -> flying (thrown, tipping over) -> down (lying on
+//   the bumper   winding (picked up by its head, base swung back) -> striking (the base kicks
+//                forward and up, low into the other piece) -> recovering (follows through, set down)
+//   the victim   standing -> hit (kicked low) -> flying (thrown feet first, tipping over) -> down (lying on
 //                the floor) -> rising -> safe (up, and cannot be knocked again for a while)
 //
 // A piece's record carries two things the room view (room3d.js) writes when it hears of a bump:
@@ -142,6 +143,8 @@ export function disposePawn(pawn) {
 
 const UPRIGHT = { x: null, dx: 0, lift: 0, lean: 0, pivot: 0, sx: 1, sy: 1, state: "idle", dizzy: false, safe: false, shock: false, burst: null, dust: null };
 const RAD = Math.PI / 180;
+/** The shared poses give the height of a piece's head for the flat pawn; this pawn's head (the middle of its ball) is here. */
+const HEAD_SCALE = (0.9 * SIZE) / PX / PIECE_HEAD;
 
 /**
  * How a bump has a piece standing right now.
@@ -178,7 +181,8 @@ export function bumpPose(piece, now) {
   if (a) {
     const pose = attackPose(now - a.at, a.dir, a.landed);
     if (pose.state === "idle") piece.attack = null;
-    else return { ...UPRIGHT, dx: pose.dx, lift: pose.lift, lean: -pose.tilt * RAD, sx: pose.sx, sy: pose.sy, state: pose.state };
+    // The bumper swings from its head, like a pendulum held at the top: a lean throws its base, not its head.
+    else return { ...UPRIGHT, dx: pose.dx, lift: pose.lift, lean: -pose.tilt * RAD, pivot: pose.pivot * HEAD_SCALE, sx: pose.sx, sy: pose.sy, state: pose.state };
   }
   return UPRIGHT;
 }
