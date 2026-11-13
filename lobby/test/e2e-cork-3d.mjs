@@ -75,7 +75,16 @@ try {
   const look = () =>
     page.evaluate(() => {
       const r = window.__room3d;
-      return { frames: r.drawn.frames, lost: r.renderer.getContext().isContextLost(), shown: getComputedStyle(r.el).visibility !== "hidden", heap: performance.memory ? Math.round(performance.memory.usedJSHeapSize / 1048576) : null, textures: r.renderer.info.memory.textures, geometries: r.renderer.info.memory.geometries };
+      // Everything the room could ever hand the graphics card: what is in its scene, drawn yet or not.
+      const held = { textures: new Set(), geometries: new Set(r.coolArcs ?? []) };
+      r.scene.traverse((o) => {
+        if (o.geometry) held.geometries.add(o.geometry);
+        for (const m of [].concat(o.material ?? [])) {
+          if (m.map) held.textures.add(m.map);
+          for (const u of Object.values(m.uniforms ?? {})) if (u.value?.isTexture) held.textures.add(u.value);
+        }
+      });
+      return { most: { textures: held.textures.size, geometries: held.geometries.size }, frames: r.drawn.frames, lost: r.renderer.getContext().isContextLost(), shown: getComputedStyle(r.el).visibility !== "hidden", heap: performance.memory ? Math.round(performance.memory.usedJSHeapSize / 1048576) : null, textures: r.renderer.info.memory.textures, geometries: r.renderer.info.memory.geometries };
     });
   const start = await look();
   console.log(`     the 3D room (${skin}) is up: ${start.textures} textures, ${start.geometries} geometries, ${start.heap ?? "?"} MB of script memory`);
@@ -105,7 +114,8 @@ try {
     await sleep(1500);
     const after = await look();
     check(after.shown && !after.lost && after.frames > b1.frames, `round ${round}: the game is taken away and the 3D room draws again (${after.frames - b1.frames} frames in a second and a half)`);
-    check(after.textures === start.textures && after.geometries <= start.geometries + 30, `round ${round}: the room holds what it held before (${after.textures} textures, ${after.geometries} geometries)`);
+    // Things are handed to the graphics card the first time they are drawn (an owl that has not flown yet has not been), so the count may rise to what the room holds, and never past it.
+    check(after.textures <= after.most.textures && after.geometries <= after.most.geometries, `round ${round}: nothing is left behind on the graphics card (${after.textures} textures of the room's ${after.most.textures}, ${after.geometries} geometries of its ${after.most.geometries})`);
     heaps.push(after.heap);
     // The card with the result goes away by itself; then the next vote.
     await page.waitForSelector(".card", { state: "detached", timeout: 15000 }).catch(() => {});

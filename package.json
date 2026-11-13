@@ -43,6 +43,7 @@
     "test:frames": "node lobby/test/e2e-frames.mjs",
     "lobby:shots": "node lobby/test/shoot.mjs",
     "lobby:measure": "node lobby/test/measure.mjs",
+    "test:cork:3d": "node lobby/test/e2e-cork-3d.mjs",
     "lobby:shots:3d": "node lobby/test/shoot-3d.mjs",
     "lobby:stills:3d": "node lobby/test/shoot-3d-stills.mjs",
     "lobby:measure:3d": "node lobby/test/measure-3d.mjs",
