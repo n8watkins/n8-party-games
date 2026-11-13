@@ -62,8 +62,8 @@ export const RECIPES = {
       p.chain(bus, p.shaper(2.6), p.filter("highpass", 180), p.filter("peaking", 1700, 1, 6), p.filter("lowpass", 5200, 0.9), p.out);
       for (const [s, len] of [
         [0, 0.11],
-        [0.18, 0.11],
-        [0.36, 0.8],
+        [0.2, 0.11],
+        [0.4, 0.8],
       ]) {
         const s0 = t + s;
         for (const [ratio, type, g] of [
@@ -76,10 +76,10 @@ export const RECIPES = {
           // The reed catches flat, settles on its note, and sags as the can lets go.
           const o = p.osc(type, f * ratio * 0.9, s0, s0 + len + 0.14);
           o.frequency.linearRampToValueAtTime(f * ratio, s0 + 0.035);
-          o.frequency.setValueAtTime(f * ratio, s0 + len);
-          o.frequency.linearRampToValueAtTime(f * ratio * 0.93, s0 + len + 0.09);
+          o.frequency.setValueAtTime(f * ratio, s0 + len - 0.02);
+          o.frequency.linearRampToValueAtTime(f * ratio * 0.94, s0 + len + 0.04);
           const env = p.amp();
-          p.gate(env.gain, s0, g, 0.012, len, 0.08);
+          p.gate(env.gain, s0, g, 0.012, len, 0.04);
           p.chain(o, env, bus);
         }
         const hiss = p.amp();
@@ -254,7 +254,7 @@ export const RECIPES = {
       p.chain(p.noise(t, t + 2.5), p.filter("lowpass", 380), night, p.out);
       for (const c of [
         { f: 4600, pan: -0.45, gain: 0.55, starts: [0.08, 0.52, 0.96, 1.4, 1.84], pulses: 4 },
-        { f: 4150, pan: 0.5, gain: 0.3, starts: [0.3, 0.75, 1.19, 1.63, 2.07], pulses: 3 },
+        { f: 4150, pan: 0.5, gain: 0.3, starts: [0.3, 0.75, 1.19, 1.63], pulses: 3 },
       ]) {
         const g = p.amp(0);
         p.chain(g, p.amp(c.gain), p.pan(c.pan), p.out);

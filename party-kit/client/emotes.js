@@ -104,13 +104,16 @@ export function mayExpress(kind, at, now, { playing = false, rules = DURING_PLAY
   return { ok: true, wait: 0 };
 }
 
+/** A real page waits out its own cooldown, so the room refuses it by network jitter at most: never by this much. */
+export const EAGER_MS = 500;
+
 /**
  * A refusal that came far too soon is not a page that misjudged the clock by a few hundred
  * milliseconds: a real page never sends during its own cooldown. The room counts such a message
  * against the socket's rate limit, so a script that hammers the button loses its connection.
  */
 export function tooEager(kind, wait) {
-  return wait > COOLDOWNS[kind] / 2;
+  return wait > EAGER_MS;
 }
 
 // ---------------------------------------------------------------- the messages

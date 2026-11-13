@@ -79,7 +79,9 @@ describe("the rules", () => {
 
   it("counts only a far-too-early request as flooding", () => {
     expect(tooEager("emote", 200)).toBe(false);
+    expect(tooEager("sound", 450)).toBe(false);
     expect(tooEager("emote", EMOTE_COOLDOWN_MS - 100)).toBe(true);
+    expect(tooEager("sound", 1000)).toBe(true);
     expect(tooEager("sound", -1)).toBe(false);
   });
 });

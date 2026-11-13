@@ -2,6 +2,8 @@
 // room drawn as one picture (scene.js), and the words and buttons over it (hud.js). This file
 // joins them to the room over the kit's client and to the player's keys and fingers.
 import { PartyClient } from "/party-kit/client/party-client.js";
+import { emoteById, soundById, soundPlaysHere } from "/party-kit/client/emotes.js";
+import { SoundBoard } from "/party-kit/client/sounds.js";
 import { openBoard } from "./board.js";
 import { buzz } from "./bump-draw.js";
 import { openDoor } from "./door.js";
@@ -44,6 +46,15 @@ let bye = null;
 const held = [];
 /** When anyone last did anything, as far as this page knows: the room is put away after twenty idle minutes. */
 let stirAt = performance.now();
+
+/**
+ * This device's soundboard player (the kit's). The browser allows sound only after a tap or a
+ * key on the page, so every one tries to unlock it; until then a sound is simply not played.
+ * The tests read what it did through __partyRoom (they run muted).
+ */
+const sounds = new SoundBoard();
+globalThis.__partyRoom = { sounds };
+for (const type of ["pointerdown", "keydown"]) addEventListener(type, () => sounds.unlock(), { capture: true, passive: true });
 
 const phone = () => Math.min(innerWidth, innerHeight) < 520;
 const isPlayer = () => link.you?.role === "player";
@@ -184,6 +195,7 @@ function boardLine(now) {
 function apply(next) {
   room = next;
   voteAt = performance.now();
+  sounds.setRoom(room.code);
   if (!scene) return;
   scene.setRoom(room, voteAt);
   const me = isPlayer() ? room.members[link.you.seat] : null;
@@ -239,6 +251,11 @@ link.on("message", (msg) => {
     case "fix":
       pilot?.place(msg.x, msg.rev, now);
       break;
+    case "e":
+    case "sb":
+      stirAt = now;
+      expressed(msg);
+      break;
     case "vote":
       room.vote = msg.vote;
       voteAt = now;
@@ -258,6 +275,23 @@ link.on("message", (msg) => {
       break;
   }
 });
+
+/**
+ * Someone sent an emote or a sound. A sound plays from the big screen when the room has one,
+ * and on every player's device when it has none (the kit's rule), unless this device muted it.
+ * Everybody sees who did it, muted or not.
+ *
+ * How emotes and sounds look is waiting on the owner's picks (/preview/emotes/ locally): until
+ * then the room says it in a note at the top, "Tom: Air horn".
+ */
+function expressed(msg) {
+  const who = room?.members[msg.s];
+  if (!who) return;
+  const what = msg.t === "e" ? emoteById(msg.e) : soundById(msg.k);
+  if (!what) return;
+  hud?.note(`${who.name}: ${what.name}`, who.colour);
+  if (msg.t === "sb" && soundPlaysHere(link.you?.role, room.screens)) void sounds.play(msg.k, { from: who.name });
+}
 
 /** The blow lands a moment after the bump: both phones buzz then, the one that was hit longer. */
 function feelBump(msg) {
