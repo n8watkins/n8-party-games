@@ -183,11 +183,11 @@ try {
   const shots = await fired();
   check(shots === clicks, `a click on the picture fires a cork: ${shots} corks from ${clicks} clicks`);
   await frames.screen.waitForFunction((n) => window.__cab.session.sims[0].shots >= n, shots, { timeout: 30000 }).catch(() => {});
-  // The room is the judge of what was fired. A cork that reaches it later than the game allows
-  // (its SIM_DELAY, 0.3 s) is not counted there, though the page that fired it showed it: on
-  // this machine the Windows Chrome's link to the server in WSL now and then takes that long.
-  // That is the game's own rule (cork-and-bell), so the check is that the big screen shows what
-  // the room counted, and a cork the room did not count is reported, not failed.
+  // The room is the judge of what was fired. The room relays every cork Ada's page sends, but
+  // the game's own simulation in the room (cork-and-bell) sometimes counts fewer than the page
+  // showed, on main too: a difference between the game's page and its room, not the party
+  // room's relay. So the check is that the big screen shows what the room counted, and a cork
+  // the room did not count is reported, not failed.
   const roomShots = async () => {
     // The room simulates 0.3 s behind its clock and sends a snapshot every half second: give the
     // last cork time to be judged, up to five seconds.
