@@ -102,18 +102,23 @@ describe("which games the party can play", () => {
     expect(standingsFromRows(null)).toEqual([]);
   });
 
-  it("hangs Cork & Bell, Who Am I? and two coming-soon boxes on the production wall, and no test game", () => {
-    expect(WALL.boxes.map((b) => b.id)).toEqual(["cork-and-bell", "who-am-i", "tin-derby", "flood"]);
-    expect(WALL.boxes[0]).toMatchObject({ name: "Cork & Bell", badge: "any", min: 2, max: 4, soon: false, url: "/cork-and-bell/" });
+  it("hangs Cork & Bell, Who Am I? and three coming-soon boxes on the production wall, and no test game", () => {
+    expect(WALL.boxes.map((b) => b.id)).toEqual(["cork-and-bell", "who-am-i", "tin-derby", "flood", "fox-trouble"]);
+    // Cork & Bell also plays alone, so a party of one can pick it.
+    expect(WALL.boxes[0]).toMatchObject({ name: "Cork & Bell", badge: "any", min: 1, max: 4, soon: false, url: "/cork-and-bell/" });
     expect(WALL.boxes[1]).toMatchObject({ name: "Who Am I?", badge: "phones", min: 2, max: 2, soon: false, url: "https://whoami.n8builds.dev/" });
-    expect(WALL.boxes.filter((b) => b.soon).map((b) => b.badge)).toEqual(["screen", "phones"]);
+    expect(WALL.boxes.filter((b) => b.soon).map((b) => [b.name, b.badge, playersLabel(b.min, b.max)])).toEqual([
+      ["Tin Derby", "screen", "2-4 players"],
+      ["Flood", "phones", "1-4 players"],
+      ["Fox Trouble", "phones", "2-4 players"],
+    ]);
     expect(WALL.boxes.some((b) => b.test)).toBe(false);
     for (const b of WALL.boxes) expect(b.blurb.length, b.id).toBeGreaterThan(5);
     expect([...WALL.games.keys()]).toEqual([]);
   });
 
   it("adds Coin Flip only where the environment switches test games on", () => {
-    expect(TEST_WALL.boxes.map((b) => b.id)).toEqual(["cork-and-bell", "coin-flip", "who-am-i", "tin-derby", "flood"]);
+    expect(TEST_WALL.boxes.map((b) => b.id)).toEqual(["cork-and-bell", "coin-flip", "who-am-i", "tin-derby", "flood", "fox-trouble"]);
     expect(TEST_WALL.boxes[1]).toMatchObject({ test: true, min: 1, url: null });
     expect([...TEST_WALL.games.keys()]).toEqual(["coin-flip"]);
     expect(wallFor({ PARTY_TEST_GAMES: "on" })).toBe(TEST_WALL);

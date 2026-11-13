@@ -23,7 +23,13 @@ Make each window short and wide to see what a sideways phone sees, or use the br
 3. Walk with the arrow keys (or A and D), jump with Space, bump with B, and open the door button with Escape. On a touch screen the same things are buttons.
 4. Stand both pieces in Coin Flip's light: "Starts in 3" counts down, the game plays, and both are back by the door with points on the Tonight board.
 5. Stand one piece in each lit light for a tie and its coin toss.
-6. Close one window to see the piece turn grey, and fade thirty seconds later.
+6. Stand both pieces in Who Am I?'s light: "Opens in 3" counts down, a card says where everyone is going, and both windows go to its own site.
+7. Close one window to see the piece turn grey, and fade thirty seconds later.
+
+Coin Flip is a test game.
+It hangs on the wall only where `PARTY_TEST_GAMES` is `"on"`, which is the `local` environment in `wrangler.jsonc` (`npm run dev` and the test runs).
+Production has no such variable, so its wall is Cork & Bell, Who Am I? and the three coming-soon boxes (Tin Derby, Flood, Fox Trouble).
+To see the wall as production hangs it: `npx wrangler dev --local --env local --port 8792 --var PARTY_TEST_GAMES:off`.
 
 For a big screen, open a third window, choose "Use this as the room's screen" and type the code.
 For phones on the same network, `npm run dev:lan` prints the address to open; the QR code on the wall then points at it.
@@ -32,22 +38,40 @@ Stills of the main states, from a real run, are in [`shots/`](shots/).
 ## What is built
 
 - The room in the bar look, drawn with plain shapes as one SVG, the same picture on every device.
-- Game boxes from each game's manifest: name, one line about it, the device badge (cyan any device, violet a phone each, amber phones and a big screen) and the player count.
+- Game boxes from each game's manifest. The name is on the poster, once. The sign under it has one line about the game, how many can play ("1-4 players") and the device badge (cyan any device, violet a phone each, amber phones and a big screen). Every sign says how many can play, the coming-soon ones too. On a phone, with five boxes or more, a sign is too narrow for the line of words at a size worth reading, so it keeps the count and the badge and the words are left to bigger screens.
 - The join code and its QR code on the wall, and a Tonight board with 3, 2 and 1 points for first, second and third.
 - Pawns in the four seat colours with name tags: walk, jump, and a weak bump everyone has.
 - The vote: standing in a light is your vote, a visible count runs when every connected player stands in some light, the light with the most players wins, stepping out of every light stops it, and "Waiting for" names who is in the dark.
 - A tie is settled by a coin toss everybody watches. A phone in the closer view pulls back to the whole room for the count and the toss.
 - A player alone can start: one piece in a light runs the same three-second count.
-- A game the party cannot play has its light off and says why in a few words ("Needs 2 players", "Needs a big screen", "Coming soon").
+- A game the party cannot play has its light off and says why in a few words ("Needs 2 players", "For 2 players", "Needs a big screen", "Coming soon").
+- Outside games: a game that plays on a site of its own hangs on the wall with an address instead of a hosted game (below).
 - A big screen that joins with the code and holds no seat, and a player's view with buttons, a "Whole room / Closer" switch and a "turn your phone" hint when upright.
 - Joining in the middle of a vote, a dropped phone that turns grey, comes back to its seat or fades with a note, and "Leave the party" behind the door button. Whenever the set of connected players changes, the count starts over.
 - Someone who left or dropped and joins again under the same name gets their points back.
 - A game started with the party's seats, ended with places, and everyone returned to the lobby with points: the seam in `party-kit/GAME-CONTRACT.md`, "The lobby hooks".
 
+## Outside games
+
+An outside game is not on the kit: it has a site and rooms of its own.
+In `wall.js` it is an entry with a `url` where a hosted game has a server definition (`OUTSIDE`), and its poster says "ON ITS OWN SITE".
+Who Am I? (`https://whoami.n8builds.dev/`) is the first.
+
+- Its light follows the same rule as any game's: on when the party is a size the game takes. Who Am I? is for exactly two players (its engine's `MAX_PLAYERS`, and it needs both to start), so with one player its sign says "Needs 2 players" and with three or four "For 2 players".
+- The count reads "Who Am I? opens in 3", not "starts".
+- When it wins the count or the coin toss, the room sends every page `away { id, name, url, in }`. Every player's page and the big screen show a card, "Off to Who Am I?", for six seconds (`AWAY_MS`) and then go to the address. The card says the party's code does not work there (one of them makes a room on that site and the others join it) and that nobody scores. "Go now" goes at once; "Stay in the room" keeps that one device here.
+- Nothing starts in the room, so nothing ticks and no room time is spent: it costs the one wake-up that ended the count.
+- The Tonight board gets no points from an outside game, and it does not count as a game played.
+- Afterwards the party room is left alone. The pieces are put back by the door, and a new count cannot start for twelve seconds, so anyone who stayed is not sent off again at once. Once the pages have gone the room is empty: the seats are let go after thirty seconds and the room closes a minute after the last page left, by the usual rules. Coming back to the room's address inside that minute finds the same seat and points; after it, the party has ended and a new one is started.
+- The page only ever follows an `https` address or a page of this site, and only one that came from the room's own wall.
+
+Cork & Bell hangs the same way for now, with its own page on this site (`/cork-and-bell/`) as the address, because it does not open inside the room yet.
+
 ## What is not built
 
-- Cork & Bell does not open inside the room. Its light is on and it can win the vote; the room then shows a card that says so, with a link to the game's own page, and nobody scores.
-- Coin Flip is a placeholder, marked "TEST GAME" on its box. Who Am I?, Tin Derby and Flood are names and pictures only.
+- Cork & Bell does not open inside the room. Its light is on and it can win the vote; everyone is then sent to the game's own page as with an outside game, and nobody scores.
+- Coin Flip is a placeholder for local play and the tests, marked "TEST GAME" on its box. Tin Derby, Flood and Fox Trouble are names and pictures only.
+- A party's code, seats and points do not carry over to an outside game's site.
 - No skins, no abilities, no chat bubbles, no walking through the door, no "host starts" setting, no other rooms.
 - "Back to the room" in the middle of a game.
 
@@ -116,8 +140,8 @@ Once a real game is hosted in the room, its rounds will cost what they cost in t
 | `shared/status.js` | The words under the room. |
 | `server/lobby-core.js` | The room as plain logic with an injected clock: seats, the vote, the game seam, the Tonight board, sleeping and closing. |
 | `server/lobby-room.js` | The Durable Object around it: sockets, relaying, the alarm, the budget. |
-| `games/coin-flip.js` | The test game. |
-| `wall.js` | Which boxes hang on the wall and which can start. |
+| `games/coin-flip.js` | The test game, hung only where `PARTY_TEST_GAMES` is on. |
+| `wall.js` | Which boxes hang on the wall (hosted, outside, test, coming soon), which can start, and the wall each environment gets. |
 | `public/` | The page at `/lobby/`: the way in, the scene, the buttons and words over it, and each game's view. |
 | `test/` | Unit tests, the socket test, the browser run and the cost measurement. |
 
@@ -126,7 +150,7 @@ Once a real game is hosted in the room, its rounds will cost what they cost in t
 ## Tests
 
 - `npm test` runs the unit tests with the kit's: the room's rules (`test/lobby-core.test.js`) and the shared logic, the awake meter and the socket rate limit (`test/shared.test.js`).
-- `npm run test:lobby` (with `npm run dev` running) puts four socket players through an evening, then checks that a lobby nobody touches goes silent: no messages, no timer, nothing added to the budget.
-- `npm run lobby:shots` drives real pages in a headless, muted browser and takes a still of every state on a big screen, a sideways phone and an upright one, checking that no text spills out of its place. Stills land in `lobby/test/shots/`, which is not committed; a chosen few are in `lobby/shots/`.
+- `npm run test:lobby` (with `npm run dev` running) puts four socket players through an evening, sends a party of two off to an outside game, then checks that a lobby nobody touches goes silent: no messages, no timer, nothing added to the budget.
+- `npm run lobby:shots` drives real pages in a headless, muted browser and takes a still of every state on a big screen, a sideways phone and an upright one, checking that no text spills out of its place and that no card runs off a screen. It follows an outside game all the way to its address (the browser is handed a stand-in page, so no test touches the real site), and with `--plain=<a server with the test games off>` it also takes the wall as production hangs it. Stills land in `lobby/test/shots/`, which is not committed; a chosen few are in `lobby/shots/`.
 - `npm run lobby:measure` is the cost measurement above.
 - `node lobby/test/e2e-budget.mjs` checks what happens when the allowance is spent; its header says which server to start.

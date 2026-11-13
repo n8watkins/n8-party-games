@@ -79,6 +79,20 @@ const ART = {
     };
     g.append(wave(208, "#5d8fe6"), wave(234, "#3f6fd0"), wave(262, "#2f55b5"));
   },
+
+  "fox-trouble"(g, w, h) {
+    g.append(s("rect", { width: w, height: h, fill: "#173b33" }), s("rect", { y: 112, width: w, height: h - 112, fill: "#1f4a40" }));
+    g.append(title("FOX", w / 2, 50, 42, "#ffe9c7", w - 30), title("TROUBLE", w / 2, 92, 42, "#ffe9c7", w - 30));
+    const cx = w / 2;
+    // A fox's face, looking pleased with itself: two ears, a mask, pale cheeks, half-shut eyes.
+    for (const k of [-1, 1]) {
+      g.append(s("polygon", { points: `${cx + k * 60},160 ${cx + k * 48},112 ${cx + k * 14},146`, fill: "#e8792b" }), s("polygon", { points: `${cx + k * 52},150 ${cx + k * 46},126 ${cx + k * 28},146`, fill: "#3a2018" }));
+    }
+    g.append(s("polygon", { points: `${cx - 64},154 ${cx},136 ${cx + 64},154 ${cx},244`, fill: "#e8792b" }));
+    for (const k of [-1, 1]) g.append(s("polygon", { points: `${cx + k * 64},154 ${cx + k * 14},196 ${cx},244`, fill: "#fbefd9" }));
+    for (const k of [-1, 1]) g.append(s("path", { d: `M${cx + k * 34},176 q${-k * 9},10 ${-k * 20},3`, stroke: "#2a1610", "stroke-width": 5, "stroke-linecap": "round", fill: "none" }));
+    g.append(s("circle", { cx, cy: 238, r: 7, fill: "#2a1610" }));
+  },
 };
 
 /** Draws the box art for `id` into `g`; a game with no picture of its own gets its name on a plain panel. */

@@ -54,8 +54,8 @@ Make at most a handful of rooms when checking.
 ## The party room
 
 19. Open `https://partygames.n8builds.dev/` on a laptop, start a party as the room's screen, and join it from two phones with the code or the QR code on the wall.
-20. Walk about, vote, let Coin Flip start and come back, then put the phones down with the room open for at least 8 minutes.
-21. In the dashboard open the `LobbyRoom` namespace's Metrics tab: expect requests while people moved and one short blip of duration for the game, and nothing at all while the phones lay still.
+20. Check the wall: Cork & Bell, Who Am I?, Tin Derby, Flood and Fox Trouble, and no Coin Flip (the test game hangs only where `PARTY_TEST_GAMES` is `"on"`, which production is not). Walk about and stand in different lights, then put the phones down with the room open for at least 8 minutes. Last of all, stand both phones in Who Am I?'s light: after the count a card says "Off to Who Am I?" and the laptop and both phones go to `https://whoami.n8builds.dev/`.
+21. In the dashboard open the `LobbyRoom` namespace's Metrics tab: expect requests while people moved, and nothing at all while the phones lay still. An outside game adds no duration: nothing is played in the room.
 22. If duration grows while nobody touches anything, something is keeping the room awake, so set `PARTY_ROOM_BUDGET_SHARE` to a tiny value (open party rooms close within three minutes and no new ones open) and investigate.
 23. Confirm that `https://partygames.n8builds.dev/api/lobby/debug` answers 404: the door into the budget's books is for local tests only.
 24. After a busy evening, compare Durable Objects requests under Billable Usage with the numbers in `lobby/README.md`: requests, not duration, are what a busy party room uses most of. The `usage` key in step 17 also holds the requests the party rooms counted (`dayRequests`, `monthRequests`).

@@ -48,7 +48,8 @@ export function boxFromManifest(manifest, extra = {}) {
     name: manifest.name,
     blurb: manifest.blurb ?? extra.blurb ?? "",
     badge: badgeFor(manifest.devices),
-    min: manifest.players?.min ?? 1,
+    // A game that also plays alone (`players.solo`) can be picked by a party of one.
+    min: manifest.players?.solo ? 1 : (manifest.players?.min ?? 1),
     max: manifest.players?.max ?? 4,
     soon: !!extra.soon,
     test: !!extra.test,

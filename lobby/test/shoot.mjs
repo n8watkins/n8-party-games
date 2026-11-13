@@ -2,7 +2,11 @@
 // on a phone, against a running local server. The browser is headless and muted, and is closed
 // at the end whatever happens.
 //
-//   node lobby/test/shoot.mjs [--base=http://localhost:8791] [--out=lobby/test/shots]
+//   node lobby/test/shoot.mjs [--base=http://localhost:8791] [--out=lobby/test/shots] [--plain=http://localhost:8792]
+//
+// --plain is a second server with the test games switched off, as production has them
+// (`npx wrangler dev --local --env local --port 8792 --var PARTY_TEST_GAMES:off`): the run then
+// also takes stills of the wall as production hangs it and checks that Coin Flip is not on it.
 //
 // One page is the room's big screen (1920 x 1080), one is a player's phone held sideways
 // (844 x 390) and, at the end, one is a phone held upright (390 x 844). The other players are
@@ -27,7 +31,7 @@ const check = (ok, what) => {
   if (!ok) problems.push(what);
 };
 
-const N = 5;
+const N = 6;
 const [CORK, COIN, WHO] = [0, 1, 2];
 /** Where the outside game lives. No test goes there: the browser is handed a stand-in page for the address. */
 const WHO_SITE = "https://whoami.n8builds.dev/";
@@ -125,8 +129,10 @@ try {
   await shot(phone, "04-phone-alone-closer");
   await tidy(phone, "phone, alone");
   await shot(screen, "05-screen-one-player");
-  const whyNot = await screen.evaluate(() => [...document.querySelectorAll("svg.scene text")].filter((t) => !t.closest("[display=none]")).map((t) => t.textContent).filter((t) => /Needs|Coming soon/.test(t)));
-  check(whyNot.filter((t) => t === "Needs 2 players").length === 2 && !whyNot.includes("Needs a player") && whyNot.filter((t) => t === "Coming soon").length === 2, "a game the party cannot play says why: " + [...new Set(whyNot)].join(", "));
+  const whyNot = await screen.evaluate(() => [...document.querySelectorAll("svg.scene text")].filter((t) => !t.closest("[display=none]")).map((t) => t.textContent).filter((t) => /Needs|coming soon/i.test(t)));
+  check(whyNot.filter((t) => t === "Needs 2 players").length === 1 && !whyNot.includes("Needs a player") && whyNot.filter((t) => t === "COMING SOON").length === 3 && !whyNot.includes("Coming soon"), "alone, Who Am I? says it needs two, Cork & Bell can be picked, and three posters say coming soon: " + [...new Set(whyNot)].join(", "));
+  const counts = await screen.evaluate(() => [...document.querySelectorAll("svg.scene text")].filter((t) => !t.closest("[display=none]") && t.getAttribute("display") !== "none").map((t) => t.textContent).filter((t) => /^\d(-\d)? players?$/.test(t)));
+  check(counts.join() === "1-4 players,1-4 players,2-4 players,1-4 players,2-4 players", "every other sign says plainly how many can play: " + counts.join(", "));
 
   // Three more players, as sockets.
   const sessions = [];
@@ -348,6 +354,39 @@ try {
   const board2 = watcher.seen.findLast((m) => m.room)?.room;
   check(board2.tonight.games === 0 && board2.members.filter(Boolean).every((m) => m.points === 0) && !watcher.seen.some((m) => m.t === "start"), "no game started in the room and nobody scored");
   watcher.ws.close();
+
+  // ---------------------------------------------------------------- the wall as production hangs it
+  const plain = opt("plain", "");
+  if (plain) {
+    const wall = await open("production wall", { width: 1920, height: 1080 });
+    await wall.goto(plain + "/lobby/?start");
+    await wall.click("text=Use this as the room's screen");
+    await wall.click("text=Show the room here");
+    await wall.waitForSelector("svg.scene text");
+    const pin3 = (await wall.locator(".code-digits").textContent()).trim();
+    const pocket = await open("production phone", { width: 844, height: 390 }, { deviceScaleFactor: 2, hasTouch: true });
+    await pocket.goto(plain + "/lobby/?join=" + pin3);
+    await pocket.fill("input[name=nickname]", "Cass");
+    await pocket.click("text=Join the party");
+    await pocket.waitForSelector("svg.scene text");
+    const other = partyApi(plain);
+    const dee = other.connect(await other.call("POST", "/join/" + pin3, { nickname: "Dee" }));
+    await dee.opened;
+    await dee.wait((m) => m.room?.members.filter((x) => x?.connected).length === 2, 8000, 0);
+    await pocket.click(".zoom-btn");
+    await sleep(900);
+    await shot(wall, "40-screen-production-wall");
+    await shot(pocket, "41-phone-production-wall");
+    await tidy(wall, "big screen, production wall");
+    await tidy(pocket, "phone, production wall");
+    const words = await wall.evaluate(() => [...document.querySelectorAll("svg.scene text")].filter((t) => !t.closest("[display=none]")).map((t) => t.textContent));
+    check(dee.room.boxes.map((b) => b.id).join() === "cork-and-bell,who-am-i,tin-derby,flood,fox-trouble", "production hangs five boxes: Cork & Bell, Who Am I?, Tin Derby, Flood and Fox Trouble");
+    check(!words.some((t) => /coin flip|test game/i.test(t)), "and no test game");
+    const once = ["Cork & Bell", "Who Am I?", "FLOOD"].every((name) => words.filter((t) => t === name).length === 1) && words.filter((t) => ["TIN", "DERBY", "FOX", "TROUBLE"].includes(t)).length === 4;
+    check(once, "every game's name is written once, on its poster");
+    check(dee.room.vote.lights["cork-and-bell"] === null && dee.room.vote.lights["who-am-i"] === null, "with two players both Cork & Bell and Who Am I? can be picked");
+    dee.ws.close();
+  }
 
   check(errors.length === 0, "no page reported an error" + (errors.length ? ": " + errors.slice(0, 4).join(" | ") : ""));
   for (const c of [mabel, fitch]) c.ws.close();

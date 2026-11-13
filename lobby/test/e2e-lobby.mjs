@@ -22,7 +22,7 @@ const check = (ok, what) => {
   if (!ok) problems.push(what);
 };
 
-const N = 5;
+const N = 6;
 const COIN = 1; // Coin Flip's place on the wall
 const CORK = 0;
 const WHO = 2; // Who Am I?, an outside game
@@ -54,7 +54,7 @@ const [A, B, C, D] = [a, b, cy, d].map(connect);
 const all = [A, B, C, D];
 await Promise.all(all.map((c) => c.opened));
 const hello = await A.wait((m) => m.t === "hello", 8000, 0);
-check(hello.you.seat === 0 && hello.room.boxes.length === N && hello.room.pin === a.pin, "hello: your seat, the code and the five boxes on the wall");
+check(hello.you.seat === 0 && hello.room.boxes.length === N && hello.room.pin === a.pin, "hello: your seat, the code and the six boxes on the wall");
 await D.wait((m) => m.t === "hello", 8000, 0);
 await A.wait((m) => m.room?.members.filter((x) => x?.connected).length === 4, 8000, 0);
 check(
@@ -62,7 +62,7 @@ check(
   "everyone starts by the door, in the dark, and the room is waiting for all four",
 );
 const lights = A.room.vote.lights;
-check(lights["cork-and-bell"] === null && lights["coin-flip"] === null && lights["who-am-i"] === "For 2 players" && lights["tin-derby"] === "Coming soon" && lights.flood === "Coming soon", "two lights are on (Cork & Bell, Coin Flip); Who Am I? is for two, and the rest say Coming soon");
+check(lights["cork-and-bell"] === null && lights["coin-flip"] === null && lights["who-am-i"] === "For 2 players" && lights["tin-derby"] === "Coming soon" && lights.flood === "Coming soon" && lights["fox-trouble"] === "Coming soon", "two lights are on (Cork & Bell, Coin Flip); Who Am I? is for two, and the rest say Coming soon");
 A.send("ping");
 await sleep(300);
 check(A.raw.includes("pong"), "the keep-alive is answered");
