@@ -453,13 +453,16 @@ export function boxArt(box, images = {}) {
       g.fillText("TEST GAME", 0, 4);
       g.restore();
     }
-    if (box.soon) {
+    // A band across the foot of the box says what kind of box it is, when it is not a game that
+    // simply starts here: not built yet, or played on a site of its own.
+    const band = box.soon ? "COMING SOON" : box.url ? (box.url.startsWith("https://") ? "ON ITS OWN SITE" : "ON ITS OWN PAGE") : "";
+    if (band) {
       g.fillStyle = "rgba(18,11,8,.92)";
       g.fillRect(0, H - 132, W, 132);
       g.fillStyle = "#f6ead2";
       g.font = '700 50px ui-monospace, "SF Mono", Menlo, Consolas, monospace';
-      g.letterSpacing = "10px";
-      g.fillText("COMING SOON", W / 2 + 5, H - 62);
+      g.letterSpacing = band.length > 12 ? "5px" : "10px";
+      g.fillText(band, W / 2 + 4, H - 62);
       g.letterSpacing = "0px";
     }
     // A soft printed edge.

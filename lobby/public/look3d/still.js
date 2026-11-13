@@ -114,7 +114,7 @@ if (show) {
 }
 
 const bare = query.get("bare") === "1";
-const hud = bare ? null : new Hud(app, { role, seat: YOU, on: { steer() {}, jump() {}, bump() {}, zoom() {}, leave() {} } });
+const hud = bare ? null : new Hud(app, { role, seat: YOU, on: { steer() {}, jump() {}, bump() {}, zoom() {}, leave() {}, away() {} } });
 const zoom = query.get("zoom") === "closer" ? "closer" : "room";
 const walk = query.get("walk") === "1";
 // The count and the toss are held at their moment unless the still is asked to run.

@@ -550,3 +550,64 @@
 .l3-host .brand {
   color: var(--l3-ink);
 }
+
+/* ------------------------------------------------------------ the sign, now that the name is on the box */
+/* A game's name is on its box and nowhere else. The sign says one thing about the game, how
+   many play and on what: the same on every wall, flat or 3D. */
+.l3-sign {
+  height: calc(var(--m) * 0.74);
+}
+.l3-about {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  margin: 0;
+  white-space: normal;
+  text-wrap: balance;
+  font: 600 calc(var(--m) * 0.128) / 1.22 var(--text);
+  color: var(--sign-ink, var(--ink));
+}
+.l3-sign.shut .l3-about {
+  color: rgba(255, 255, 255, 0.5);
+}
+.l3-neon .l3-about {
+  text-shadow: 0 0 calc(var(--m) * 0.1) rgb(var(--neon));
+}
+.l3-neon .l3-sign.shut .l3-about,
+.l3-neon .l3-sign.lead .l3-about {
+  text-shadow: none;
+}
+.l3-row {
+  margin-top: calc(var(--m) * 0.06);
+}
+.l3-compact .l3-sign {
+  height: calc(var(--m) * 0.42);
+}
+.l3-compact .l3-row {
+  margin-top: 0;
+}
+.l3-compact .l3-seats {
+  display: inline;
+  font-size: calc(var(--m) * 0.15 * var(--fit, 1));
+}
+
+/* The Tonight board opens when it is tapped. */
+.l3-board.l3-opens {
+  pointer-events: auto;
+  cursor: pointer;
+}
+.l3-board.l3-opens:focus-visible {
+  outline: 3px solid var(--accent);
+  outline-offset: 3px;
+}
+.l3-open-mark {
+  position: absolute;
+  right: calc(var(--m) * 0.07);
+  top: calc(var(--m) * 0.07);
+  width: calc(var(--m) * 0.11);
+  height: calc(var(--m) * 0.11);
+  border-top: 2px solid currentColor;
+  border-right: 2px solid currentColor;
+  opacity: 0.6;
+}

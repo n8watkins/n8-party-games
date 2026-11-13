@@ -3,10 +3,10 @@
 import { describe, expect, it } from "vitest";
 import { IDLE_SHUTDOWN_MS, RECONNECT_GRACE_MS, STALE_ROOM_MS } from "../../party-kit/src/core/room-core.js";
 import { game as coinFlip, FLIP_MS, manifest as coinFlipManifest } from "../games/coin-flip.js";
-import { BUDGET_CLOSE_MS, LobbyCore, MAX_ROOM_LIFE_MS } from "../server/lobby-core.js";
-import { COUNT_MS, SETTLE_MS, TOSS_MS, boxFromManifest } from "../shared/vote.js";
-import { BUMP_PUSH, POSITION_SLACK, boxCentre, lightAt, spawnX } from "../shared/world.js";
-import { standIn } from "../wall.js";
+import { BUDGET_CLOSE_MS, LobbyCore, MAX_ROOM_LIFE_MS, SCREEN_GRACE_MS } from "../server/lobby-core.js";
+import { AWAY_MS, COUNT_MS, SETTLE_MS, TOSS_MS, boxFromManifest } from "../shared/vote.js";
+import { BUMP_COOLDOWN_MS, COOLDOWN_SLACK_MS, IMMUNE_MS, STUN_MS, knockLanding } from "../shared/bump.js";
+import { POSITION_SLACK, boxCentre, lightAt, spawnX } from "../shared/world.js";
 
 const duo = { id: "duo", name: "Duo", players: { min: 2, max: 4 }, devices: { phone: true, desktop: true } };
 const big = { id: "big", name: "Big", players: { min: 1, max: 4 }, devices: { phone: true, sharedScreen: "required" } };
@@ -17,7 +17,7 @@ function wall() {
   const boxes = [boxFromManifest(coinFlipManifest, { test: true }), boxFromManifest(duo), boxFromManifest(big), boxFromManifest(soon, { soon: true })];
   const games = new Map([
     ["coin-flip", coinFlip],
-    ["duo", standIn({ ...duo, path: "/duo/" })],
+    ["duo", coinFlip],
     ["big", coinFlip],
   ]);
   return { boxes, games };
@@ -66,7 +66,7 @@ describe("joining", () => {
     expect(core.view(1000).members.filter(Boolean).map((m) => m.name)).toEqual(["Ann", "ann 2"]);
   });
 
-  it("lets big screens watch without a seat, and never shows a token", () => {
+  it("lets a big screen watch without a seat, and never shows a token", () => {
     const core = room();
     const screen = core.watch(1000);
     core.connect(screen.token, 1000);
@@ -76,6 +76,63 @@ describe("joining", () => {
     expect(core.identify(screen.token)).toEqual({ role: "screen", seat: -1 });
     expect(JSON.stringify(view)).not.toContain(ann.token);
     expect(JSON.stringify(view)).not.toContain(screen.token);
+  });
+
+  it("has one screen: a second device is told so, and the place frees up when the first is gone", () => {
+    const core = room();
+    seated(core, "Ann");
+    const first = core.watch(1000);
+    // Asked for but not connected yet: the place is already taken.
+    expect(core.watch(1500)).toMatchObject({ ok: false, error: "screen_taken" });
+    core.connect(first.token, 2000);
+    expect(core.screenHeld(60_000)).toBe(true);
+    expect(core.watch(60_000)).toMatchObject({ ok: false, error: "screen_taken" });
+    expect(core.watch(60_000).message).toMatch(/already has its screen.*join as a player/i);
+    // It drops: the place is kept for the grace, so a reload gets it back.
+    core.disconnect(first.token, 70_000);
+    expect(core.watch(70_000 + SCREEN_GRACE_MS - 1)).toMatchObject({ ok: false, error: "screen_taken" });
+    expect(core.connect(first.token, 75_000)).toEqual({ role: "screen", seat: -1 });
+    // Gone for longer than the grace: another device takes the place, and the old one's is no longer good.
+    core.disconnect(first.token, 80_000);
+    expect(core.screenHeld(80_000 + SCREEN_GRACE_MS)).toBe(false);
+    const second = core.watch(80_000 + SCREEN_GRACE_MS);
+    expect(second.ok).toBe(true);
+    expect(core.connect(first.token, 96_000)).toBeNull();
+    expect(core.connect(second.token, 96_000)).toEqual({ role: "screen", seat: -1 });
+    expect(core.view(96_000).screens).toBe(1);
+    // "Stop showing the room" frees it at once.
+    core.leave(second.token, 97_000);
+    expect(core.watch(97_000).ok).toBe(true);
+    // None of this is timed: the room has no wake-up for a screen.
+    expect(core.nextWake(97_000)).toBeGreaterThan(97_000 + SCREEN_GRACE_MS);
+  });
+
+  it("keeps the screen's place through a sleep, for the screen that is still there", () => {
+    const core = room();
+    const screen = core.watch(1000);
+    core.connect(screen.token, 1000);
+    const woken = LobbyCore.restore(wall(), structuredClone(core.serialize()), 50_000);
+    woken.resume(screen.token, null);
+    expect(woken.watch(90_000)).toMatchObject({ ok: false, error: "screen_taken" });
+  });
+
+  it("lets a dropped screen's grace run on through a sleep, not start over", () => {
+    const core = room();
+    seated(core, "Ann");
+    const screen = core.watch(1000);
+    core.connect(screen.token, 1000);
+    core.disconnect(screen.token, 20_000);
+    core.disconnect(screen.token, 24_000); // told twice: the grace still runs from the first
+    // The room sleeps and is woken by the very request that asks for the screen.
+    const early = LobbyCore.restore(wall(), structuredClone(core.serialize()), 20_000 + SCREEN_GRACE_MS - 1);
+    expect(early.watch(20_000 + SCREEN_GRACE_MS - 1)).toMatchObject({ ok: false, error: "screen_taken" });
+    const late = LobbyCore.restore(wall(), structuredClone(core.serialize()), 20_000 + SCREEN_GRACE_MS);
+    expect(late.watch(20_000 + SCREEN_GRACE_MS).ok).toBe(true);
+    // A room saved before screens had a grace wakes with its screen's place held for one.
+    const old = { ...structuredClone(core.serialize()), screens: [screen.token] };
+    const woken = LobbyCore.restore(wall(), old, 90_000);
+    expect(woken.screenHeld(90_000)).toBe(true);
+    expect(woken.screenHeld(90_000 + SCREEN_GRACE_MS)).toBe(false);
   });
 });
 
@@ -210,7 +267,8 @@ describe("the vote", () => {
 });
 
 describe("bumps", () => {
-  it("nudges the nearest piece in front, weakly, with a cooldown", () => {
+  /** Ann at 400 facing right, Bo just in front of her at 460, both in the first light. */
+  function pair() {
     const core = room();
     seated(core, "Ann");
     seated(core, "Bo");
@@ -218,13 +276,72 @@ describe("bumps", () => {
     stand(core, 1, 0, 2000, 460);
     core.move(0, { x: 400, d: 1, r: 0 }, 2000);
     core.move(0, { x: 400, d: 0, r: 0 }, 2000);
+    return core;
+  }
+
+  it("knocks the nearest piece in front a long way, with a cooldown the room enforces", () => {
+    const core = pair();
     const hit = core.bump(0, 2100);
-    expect(hit).toMatchObject({ t: "b", s: 0, to: 1, x: 460 + BUMP_PUSH, rev: 1 });
+    expect(hit).toMatchObject({ t: "b", s: 0, f: 1, to: 1, x: knockLanding(460, 1, 4), rev: 1 });
+    // Out of the light it stood in, into the dark beyond it.
+    expect(lightAt(460, 4)).toBe(0);
+    expect(lightAt(hit.x, 4)).toBe(-1);
+    expect(hit.x).toBeGreaterThan(460 + 90);
+    // Too soon: nothing happens, and the room can say how long is left.
     expect(core.bump(0, 2200)).toBeNull();
-    // Behind the bumper's back nothing is hit.
-    core.move(0, { x: 400, d: -1, r: 0 }, 3200);
-    core.move(0, { x: 400, d: 0, r: 0 }, 3200);
-    expect(core.bump(0, 3300)).toMatchObject({ to: -1 });
+    expect(core.bumpWait(0, 2200)).toEqual({ t: "cd", in: BUMP_COOLDOWN_MS - 100 });
+    expect(core.bump(0, 2100 + BUMP_COOLDOWN_MS - COOLDOWN_SLACK_MS - 1)).toBeNull();
+    // Behind the bumper's back nothing is hit, and a miss spends the cooldown all the same.
+    core.move(0, { x: 400, d: -1, r: 0 }, 5000);
+    core.move(0, { x: 400, d: 0, r: 0 }, 5000);
+    expect(core.bump(0, 5000)).toMatchObject({ to: -1 });
+    expect(core.bump(0, 5500)).toBeNull();
+  });
+
+  it("takes the knocked piece's control for well under a second, and not a moment longer", () => {
+    const core = pair();
+    const hit = core.bump(0, 2100);
+    expect(STUN_MS).toBeLessThan(800);
+    // On the floor the piece stays where it landed, whatever its page says, and cannot bump back.
+    expect(core.move(1, { x: hit.x, d: 1, r: hit.rev }, 2100 + STUN_MS - 1)).toBeNull();
+    expect(core.bump(1, 2100 + STUN_MS - 1)).toBeNull();
+    expect(core.view(2400).members[1]).toMatchObject({ x: hit.x, d: 0, down: STUN_MS - 300, safe: STUN_MS + IMMUNE_MS - 300 });
+    // Up again: it walks and bumps as before.
+    expect(core.move(1, { x: hit.x, d: -1, r: hit.rev }, 2100 + STUN_MS)).toMatchObject({ relay: { s: 1, d: -1 } });
+    expect(core.bump(1, 2100 + STUN_MS)).toMatchObject({ s: 1, f: -1 });
+  });
+
+  it("never lets a player be kept on the floor: a knocked piece cannot be knocked again until it has been up a while", () => {
+    const core = pair();
+    seated(core, "Cy");
+    seated(core, "Di");
+    const first = core.bump(0, 2100);
+    // Two more players stand either side of where Bo landed, facing him, and bump as soon as they can.
+    for (const [seat, side] of [
+      [2, -1],
+      [3, 1],
+    ]) {
+      stand(core, seat, 0, 2150, first.x + side * 100);
+      core.move(seat, { x: first.x + side * 100, d: -side, r: 0 }, 2150);
+      core.move(seat, { x: first.x + side * 100, d: 0, r: 0 }, 2150);
+    }
+    const safeUntil = 2100 + STUN_MS + IMMUNE_MS;
+    expect(core.bump(2, 2200)).toMatchObject({ to: -1 });
+    expect(core.bump(3, safeUntil - 1)).toMatchObject({ to: -1 });
+    expect(core.members[1].x).toBe(first.x);
+    // Bo was in control from getting up until now: longer than he was down.
+    expect(IMMUNE_MS).toBeGreaterThan(STUN_MS);
+    // One player alone can never do it either: the cooldown outlasts the floor and the safe time.
+    expect(BUMP_COOLDOWN_MS - COOLDOWN_SLACK_MS).toBeGreaterThan(STUN_MS + IMMUNE_MS);
+    expect(core.bump(2, 2200 + BUMP_COOLDOWN_MS)).toMatchObject({ to: 1 });
+  });
+
+  it("remembers a knock through a sleep", () => {
+    const core = pair();
+    core.bump(0, 2100);
+    const woken = LobbyCore.restore(wall(), structuredClone(core.serialize()), 2300);
+    expect(woken.view(2300).members[1].down).toBe(STUN_MS - 200);
+    expect(woken.bump(0, 2300)).not.toBeNull(); // a sleep forgets the cooldown, which only ever helps the player
   });
 
   it("can knock a player out of their light, which stops the count", () => {
@@ -363,15 +480,78 @@ describe("a game and the Tonight board", () => {
     expect(ended.last.rows.map((r) => r.seat).sort()).toEqual([0, 1]);
   });
 
-  it("shows a card and awards nothing for a game that cannot open in the room yet", () => {
-    const core = room();
+});
+
+describe("an outside game", () => {
+  const away = { id: "away", name: "Away", players: { min: 2, max: 2 }, devices: { phone: true, desktop: false }, url: "https://away.example/" };
+  /** Coin Flip and a game that plays on a site of its own, for exactly two. */
+  function outsideRoom() {
+    const boxes = [boxFromManifest(coinFlipManifest, { test: true }), boxFromManifest(away)];
+    return new LobbyCore({ boxes, games: new Map([["coin-flip", coinFlip]]), seed: 7, code: "BCDFGH", now: 1000 });
+  }
+
+  it("has its light on only for a party of the size it takes", () => {
+    const core = outsideRoom();
     seated(core, "Ann");
+    expect(core.lights().away).toBe("Needs 2 players");
     seated(core, "Bo");
-    const started = core.startGame("duo", 2000);
-    expect(started.ended.last).toMatchObject({ game: "duo", name: "Duo", rows: [], note: { kind: "stand-in", path: "/duo/" } });
-    expect(core.view(2000)).toMatchObject({ phase: "lobby", tonight: { games: 0 } });
+    expect(core.lights().away).toBeNull();
+    seated(core, "Cy");
+    expect(core.lights().away).toBe("For 2 players");
   });
 
+  it("sends everyone to its own site when it wins the count: no game, no points, pieces back by the door", () => {
+    const core = outsideRoom();
+    seated(core, "Ann");
+    seated(core, "Bo");
+    stand(core, 0, 1, 2000);
+    stand(core, 1, 1, 2000);
+    core.evaluate(2000);
+    expect(core.count).not.toBeNull();
+    const out = core.tick(2000 + COUNT_MS);
+    expect(out).toMatchObject({ start: null, close: null, changed: true, away: { id: "away", name: "Away", url: "https://away.example/", in: AWAY_MS } });
+    const view = core.view(2000 + COUNT_MS);
+    expect(view).toMatchObject({ phase: "lobby", game: null, last: null, tonight: { games: 0 } });
+    expect(view.members.filter(Boolean).map((m) => m.points)).toEqual([0, 0]);
+    for (const m of view.members.filter(Boolean)) expect(m).toMatchObject({ x: spawnX(m.seat, 2), rev: 1 });
+    expect(core.round).toBe(0);
+    // Whoever stays is not sent off again the moment they step back into the light.
+    stand(core, 0, 1, 2000 + COUNT_MS + 100);
+    stand(core, 1, 1, 2000 + COUNT_MS + 100);
+    core.evaluate(2000 + COUNT_MS + 200);
+    expect(core.count).toBeNull();
+    expect(core.nextWake(2000 + COUNT_MS + 200)).toBe(2000 + COUNT_MS + AWAY_MS + SETTLE_MS);
+  });
+
+  it("is sent to when it wins the toss as well", () => {
+    const core = outsideRoom();
+    seated(core, "Ann");
+    seated(core, "Bo");
+    stand(core, 0, 0, 2000);
+    stand(core, 1, 1, 2000);
+    core.evaluate(2000);
+    core.tick(2000 + COUNT_MS);
+    core.toss.winner = "away";
+    expect(core.tick(2000 + COUNT_MS + TOSS_MS)).toMatchObject({ start: null, away: { id: "away" } });
+  });
+
+  it("leaves the room to empty and close by the usual rule once the pages have gone", () => {
+    const core = outsideRoom();
+    const ann = seated(core, "Ann");
+    const bo = seated(core, "Bo");
+    stand(core, 0, 1, 2000);
+    stand(core, 1, 1, 2000);
+    core.evaluate(2000);
+    const at = 2000 + COUNT_MS;
+    core.tick(at);
+    core.disconnect(ann.token, at + AWAY_MS);
+    core.disconnect(bo.token, at + AWAY_MS);
+    expect(core.tick(at + AWAY_MS + IDLE_SHUTDOWN_MS - 1).close).toBeNull();
+    expect(core.tick(at + AWAY_MS + IDLE_SHUTDOWN_MS).close).toBe("empty");
+  });
+});
+
+describe("a dropped toss", () => {
   it("does not start a game the party can no longer play when the toss ends", () => {
     const core = room();
     seated(core, "Ann");
@@ -392,7 +572,7 @@ describe("sleeping and closing", () => {
     seated(core, "Ann");
     seated(core, "Bo");
     stand(core, 0, 0, 2000);
-    // One in a light, one in the dark, nobody moving: the next wake-up is the ten-minute "forgotten" check.
+    // One in a light, one in the dark, nobody moving: the next wake-up is the twenty-minute "forgotten" check.
     expect(core.nextWake(3000)).toBe(2000 + STALE_ROOM_MS);
     expect(core.tick(2000 + STALE_ROOM_MS - 1).close).toBeNull();
     expect(core.tick(2000 + STALE_ROOM_MS).close).toBe("stale");
@@ -405,6 +585,23 @@ describe("sleeping and closing", () => {
     expect(core.nextWake(5000)).toBe(5000 + RECONNECT_GRACE_MS);
     core.tick(5000 + RECONNECT_GRACE_MS);
     expect(core.tick(5000 + IDLE_SHUTDOWN_MS).close).toBe("empty");
+  });
+
+  it("still closes a minute after the last person went when it was put to sleep in between", () => {
+    const core = room();
+    const ann = seated(core, "Ann");
+    core.disconnect(ann.token, 5000);
+    core.tick(5000 + RECONNECT_GRACE_MS);
+    // An empty room is put to sleep within seconds and woken by its alarm: the minute is counted
+    // from when it emptied, not from each waking (which would keep it for twenty minutes, waking every one).
+    const woken = LobbyCore.restore(wall(), structuredClone(core.serialize()), 5000 + IDLE_SHUTDOWN_MS);
+    expect(woken.tick(5000 + IDLE_SHUTDOWN_MS).close).toBe("empty");
+    // A room saved while people were in it, and woken with nobody (a restart): empty from the waking.
+    const busy = room();
+    seated(busy, "Bo");
+    const restarted = LobbyCore.restore(wall(), structuredClone(busy.serialize()), 90_000);
+    expect(restarted.tick(90_000 + IDLE_SHUTDOWN_MS - 1).close).toBeNull();
+    expect(restarted.tick(90_000 + IDLE_SHUTDOWN_MS).close).toBe("empty");
   });
 
   it("closes when it reaches its longest life, but not in the middle of a game", () => {

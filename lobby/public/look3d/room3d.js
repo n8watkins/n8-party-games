@@ -12,10 +12,11 @@
 //   - The picture is drawn at no more than twice the screen's CSS size and never more than a
 //     fixed number of pixels; it steps down if frames are slow, draws a third as often when
 //     nothing moves, and not at all while the page is hidden (the page's frame loop stops).
+import { IMPACT_MS, cooldownFraction } from "../shared/bump.js";
 import { ROOM, boxCentre, lightHalf, posAt } from "../shared/world.js";
 import { Life } from "./life.js";
 import { ART_IMAGES, boxArt, boxSide, canvasOf } from "./paint.js";
-import { dressPawn, disposePawn, fadePawn, makePawn, posePawn } from "./pieces.js";
+import { dressPawn, disposePawn, fadePawn, makePawn, posePawn, resumeKnock, startAttack, startKnock } from "./pieces.js";
 import { SKINS, liveSkin } from "./skins.js";
 import { CAM, D_WALL, FRAME, PX, SPACE, U, layout, place, walkX, wallX, wallY } from "./space.js";
 import * as THREE from "./three.js";
@@ -197,6 +198,8 @@ export class Room3D {
     this.size = "";
     this.slow = { ms: 16, frames: 0, tried: null, locked: false };
     this.drawn = { frames: 0, cpu: 0 };
+    this.joltAt = -Infinity;
+    this.joltSize = 0;
 
     const renderer = (this.renderer = new THREE.WebGLRenderer({ canvas, context }));
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -625,6 +628,8 @@ export class Room3D {
         dressPawn(p.pawn, m.colour, m.connected);
       }
       p.member = m;
+      // On the floor or just up from it already (this page arrived in the middle of a bump).
+      resumeKnock(p, m.x, m.down ?? 0, m.safe ?? 0, now);
     }
     for (const [seat, p] of this.pieces) {
       if (!seen.has(seat) && !p.leaving) p.leaving = now;
@@ -641,7 +646,7 @@ export class Room3D {
   }
 
   piece(m) {
-    const p = { fx: { char: 0, hopAt: -Infinity }, seat: m.seat, rx: m.x, net: { x: m.x, d: m.d, t: 0 }, face: 1, rev: m.rev, jumpAt: -Infinity, lungeAt: -Infinity, lungeDir: 1, hitAt: -Infinity, hitDir: 1, leaving: 0, level: 0, look: "", tag: null, member: m };
+    const p = { fx: { char: 0, hopAt: -Infinity }, seat: m.seat, rx: m.x, net: { x: m.x, d: m.d, t: 0 }, face: 1, rev: m.rev, jumpAt: -Infinity, attack: null, knock: null, leaving: 0, level: 0, look: "", tag: null, member: m };
     p.pawn = makePawn(this.radial);
     p.pawn.ring.visible = m.seat === this.opts.own;
     this.cast.add(p.pawn.group, p.pawn.blob, p.pawn.ring);
@@ -666,22 +671,101 @@ export class Room3D {
   /** A bump: the bumper lunges, and whoever it lands on is knocked along. How that looks is pieces.js, bumpPose. */
   onBump(msg, now) {
     const by = this.pieces.get(msg.s);
+    const landed = msg.to >= 0;
+    let began = now;
     if (by) {
-      by.lungeAt = now;
-      by.lungeDir = msg.f || 1;
       by.face = msg.f || by.face;
+      if (msg.s === this.opts.own && by.attack && now - by.attack.at < 600) {
+        // The viewer's own bump began when the button went down (ownBump), not when the room answered.
+        by.attack.landed = landed;
+        began = Math.max(by.attack.at, now - IMPACT_MS);
+      } else startAttack(by, msg.f, now, landed);
     }
-    const hit = msg.to >= 0 ? this.pieces.get(msg.to) : null;
+    const hit = landed ? this.pieces.get(msg.to) : null;
     if (hit) {
-      hit.hitDir = Math.sign(msg.x - hit.rx) || msg.f || 1;
-      hit.net = { x: msg.x, d: hit.net.d, t: now };
+      hit.net = { x: msg.x, d: 0, t: now };
       hit.rev = msg.rev;
-      hit.hitAt = now;
+      startKnock(hit, msg.x, began);
     }
     // If it happened by the room's feature, the feature is knocked too (look3d/life.js).
     // Where they are is taken from what the room said, not from where this device has drawn them
     // so far, so that a slow screen and a fast one agree.
     this.life?.onBump(by ? (msg.s === this.opts.own ? by.rx : posAt(by.net, now)) : null, hit ? msg.x : null);
+  }
+
+  /** Where a blow lands: a burst of sparks, a flash, and a jolt of the picture. The place is {x, y} in world units. */
+  burst(at, now, calm) {
+    this.life.emit("bump.hit");
+    this.joltAt = now;
+    this.joltSize = 9;
+    if (calm) return;
+    place(at.x, at.y, SPACE.walkZ + 0.2, this.at);
+    for (let i = 0; i < 14; i++) {
+      const a = (i / 14) * Math.PI * 2;
+      const fast = i % 2 ? 2.6 : 1.5;
+      this.life.sparks.add(this.at.x, this.at.y, this.at.z, Math.cos(a) * fast, Math.sin(a) * fast, 0.28, i % 2 ? 0.2 : 0.3, i % 2 ? 0xfff6d8 : 0xffd75e, 0);
+    }
+    this.life.sparks.add(this.at.x, this.at.y, this.at.z, 0, 0, 0.2, 1.3, 0xfff6d8, 0, 0.6);
+  }
+
+  /** Where a knocked piece comes down: dust along the floor, and a smaller jolt. */
+  dust(x, now, calm) {
+    this.life.emit("bump.floor");
+    this.joltAt = now;
+    this.joltSize = 5;
+    if (calm) return;
+    for (let i = 0; i < 6; i++) {
+      const side = i % 2 ? 1 : -1;
+      this.life.smoke.add(walkX(x) + side * 0.1, 0.07, SPACE.walkZ + 0.12, side * (0.5 + (i >> 1) * 0.45), 0.12 + i * 0.04, 0.45, 0.24, this.skin.dust ?? 0x6a5a4a, 0, 1.3);
+    }
+  }
+
+  /**
+   * The ring under the viewer's own piece: it fills as the bump recharges and flashes when it
+   * is ready. It is given the viewer's Pilot. Returns true while it is changing.
+   */
+  cooldown(own, now) {
+    const mine = own ? this.pieces.get(this.opts.own) : null;
+    const left = mine && own.cooling ? own.cooling(now) : 0;
+    const cooling = left > 0;
+    if (cooling !== this.cooling) {
+      this.cooling = cooling;
+      if (!cooling) this.readyAt = now;
+    }
+    const flash = (now - (this.readyAt ?? -Infinity)) / 420;
+    if (!mine || (!cooling && !(flash < 1))) {
+      if (this.coolRing) this.coolRing.visible = false;
+      return false;
+    }
+    if (!this.coolRing) {
+      // Twenty-four arcs, made once: the ring is whichever is as full as the cooldown.
+      this.coolArcs = Array.from({ length: 25 }, (_, i) => new THREE.RingGeometry(0.52, 0.6, 40, 1, Math.PI / 2, -Math.max(0.001, (i / 24) * Math.PI * 2)));
+      this.coolRing = new THREE.Mesh(this.coolArcs[0], new THREE.MeshBasicMaterial({ color: this.skin.accent, transparent: true, depthWrite: false, side: THREE.DoubleSide }));
+      this.coolRing.rotation.x = -Math.PI / 2;
+      this.coolRing.renderOrder = 3;
+      this.cast.add(this.coolRing);
+    }
+    const ring = this.coolRing;
+    ring.visible = true;
+    ring.geometry = this.coolArcs[cooling ? Math.round(cooldownFraction(left) * 24) : 24];
+    ring.position.set(walkX(mine.rx), 0.014, SPACE.walkZ);
+    ring.scale.setScalar(cooling ? 1 : 1 + flash * 0.4);
+    ring.material.opacity = cooling ? 0.9 : 1 - flash;
+    return true;
+  }
+
+  /** The viewer's own piece began a bump: it winds up at once, before the room has said who it hit. */
+  ownBump(now) {
+    const p = this.pieces.get(this.opts.own);
+    if (p) startAttack(p, p.face, now);
+  }
+
+  /** A blow jolts the picture for a moment: how far, in world units. (The frame applies it; this is for the page, which need not.) */
+  jolt(now) {
+    const u = (now - this.joltAt) / 170;
+    if (!(u >= 0 && u < 1) || this.life?.calmQuery?.matches) return { x: 0, y: 0 };
+    const k = this.joltSize * (1 - u);
+    return { x: Math.sin(u * 30) * k, y: Math.cos(u * 23) * k * 0.6 };
   }
 
   /** The viewer's own piece jumped (its Pilot says so; nothing comes back from the room). */
@@ -751,7 +835,10 @@ export class Room3D {
   frame(now, dt, own, frame) {
     let busy = this.resize();
     // The page eases the frame's corner and size and leaves its scale behind, so work the scale out.
-    const view = { x: frame.x, y: frame.y, width: frame.width, height: frame.height, scale: (this.el.clientWidth || 1) / frame.width };
+    // A blow jolts the picture for a moment; the framing itself does not move.
+    const jolt = this.jolt(now);
+    if (jolt.x || jolt.y) busy = true;
+    const view = { x: frame.x + jolt.x, y: frame.y + jolt.y, width: frame.width, height: frame.height, scale: (this.el.clientWidth || 1) / frame.width };
     if (this.words.frame(view) || busy) {
       // The frame slides and scales; the camera stays where it is.
       const k = 1 / D_WALL;
@@ -799,6 +886,7 @@ export class Room3D {
     // Pieces: the player's own from its Pilot, everyone else's eased toward where they should be.
     const ordered = [];
     const alive = [];
+    const calm = !!this.life.calmQuery?.matches;
     for (const [seat, p] of this.pieces) {
       let alpha = 1;
       if (p.leaving) {
@@ -824,7 +912,9 @@ export class Room3D {
         if (Math.abs(target - p.rx) < 0.3) p.rx = target;
         walking = (p.net.d !== 0 && target > ROOM.minX && target < ROOM.maxX) || Math.abs(target - p.rx) > 6;
       }
-      const pose = posePawn(p.pawn, p, now, dt, { walking, lit: this.lightAt(p.rx) });
+      const pose = posePawn(p.pawn, p, now, dt, { walking, lit: this.lightAt(p.rx), calm });
+      if (pose.burst) this.burst(pose.burst, now, calm);
+      if (pose.dust !== null) this.dust(pose.dust, now, calm);
       alive.push({ seat, x: p.rx, up: pose.up, air: p.pawn.air, fx: p.fx });
       if (pose.moving) busy = true;
       p.up = pose.up;
@@ -847,6 +937,9 @@ export class Room3D {
       this.words.placeTag(p.tag, view, p.rx, p.up, p.level, p.shock, p.alpha);
       prev = p;
     }
+
+    // Under the viewer's own piece: how far its bump has recharged.
+    if (this.cooldown(own, now)) busy = true;
 
     // The count and the toss.
     if (vote.count && lobby) {

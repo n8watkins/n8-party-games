@@ -264,7 +264,8 @@ try {
   try {
     const plain = await (await bare.newContext({ viewport: { width: 1280, height: 720 } })).newPage();
     plain.on("pageerror", (e) => errors.push(`no-webgl: ${e.message}`));
-    await plain.goto(`${base}/lobby/?join=${pin}&look=3d`);
+    // A room has one screen, and this room's is the page above, so this browser starts a party of its own.
+    await plain.goto(`${base}/lobby/?start&look=3d`);
     await plain.click("text=Use this as the room's screen");
     await plain.click("text=Show the room here");
     const flat = await plain.waitForSelector("svg.scene text", { timeout: 20000 }).catch(() => null);

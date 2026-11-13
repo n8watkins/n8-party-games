@@ -13,7 +13,7 @@ import { makeRng } from "./rng.js";
 export const RECONNECT_GRACE_MS = 30_000;
 export const IDLE_SHUTDOWN_MS = 60_000;
 /** A room where nobody has done anything for this long, outside a round, is closed: a forgotten tab. */
-export const STALE_ROOM_MS = 10 * 60_000;
+export const STALE_ROOM_MS = 20 * 60_000;
 export const NAME_MAX = 14;
 /** Shared screens one room keeps registered: every one is saved with the room, so they are capped. */
 export const MAX_SCREENS = 4;
@@ -415,6 +415,7 @@ export class RoomCore {
       seats: this.seats,
       screens: [...this.screens.keys()],
       hostToken: this.hostToken,
+      emptySince: this.emptySince,
       createdAt: this.createdAt,
     };
   }
@@ -430,7 +431,9 @@ export class RoomCore {
     room.lastActive = data.lastActive ?? now;
     room.seats = data.seats.map((s) => (s ? { ...s, connected: false, droppedAt: s.kind === "human" ? now : s.droppedAt } : null));
     for (const token of data.screens) room.screens.set(token, { connected: false });
-    room.emptySince = now;
+    // When the last person went, if they had: kept through a sleep, so "empty for a minute" is
+    // counted from then and not from every time the room wakes up.
+    room.emptySince = data.emptySince ?? now;
     return room;
   }
 }

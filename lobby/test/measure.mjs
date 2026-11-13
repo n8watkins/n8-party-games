@@ -54,7 +54,8 @@ let pings = 0;
 let voting = false;
 const callVote = voteEvery > 0 ? setInterval(() => (voting = true), voteEvery * 1000) : null;
 clients[0].ws.addEventListener("message", (e) => {
-  if (typeof e.data === "string" && e.data.startsWith('{"t":"end"')) voting = false;
+  // A game played here ends; an outside game sends everyone off (these players stay, as a page may).
+  if (typeof e.data === "string" && (e.data.startsWith('{"t":"end"') || e.data.startsWith('{"t":"away"'))) voting = false;
 });
 
 /** One scripted player: picks somewhere to go, walks there, stands a while, now and then jumps or bumps. */
@@ -68,7 +69,8 @@ function bot(c) {
       c.send(m);
     },
   });
-  c.onPlaced = (x, rev) => pilot.place(x, rev, Date.now());
+  // Like the page: a knock lays the piece down where the room threw it; anything else just places it.
+  c.onPlaced = (x, rev, knocked) => (knocked ? pilot.knock(x, rev, Date.now()) : pilot.place(x, rev, Date.now()));
   let lights = "";
   let goal = c.x;
   let voteGoal = null;
@@ -128,17 +130,19 @@ const keepAlive = setInterval(() => {
 let games = 0;
 let seenTo = 0;
 const progress = setInterval(() => {
-  games += clients[0].seen.slice(seenTo).filter((m) => m.t === "end").length;
+  games += clients[0].seen.slice(seenTo).filter((m) => m.t === "end" || m.t === "away").length;
   seenTo = clients[0].seen.length;
   console.log(`     ${Math.round((Date.now() - started) / 60_000)} min: ${sentAt.length} messages, ${games} games`);
 }, 60_000);
 await sleep(minutes * 60_000);
 [...timers, keepAlive, progress, callVote].forEach((t) => t && clearInterval(t));
-games += clients[0].seen.slice(seenTo).filter((m) => m.t === "end").length;
+games += clients[0].seen.slice(seenTo).filter((m) => m.t === "end" || m.t === "away").length;
 const seconds = (Date.now() - started) / 1000;
 const ends = clients[0].seen.filter((m) => m.t === "end");
 const flips = ends.filter((m) => m.last.game === "coin-flip").length;
 const tossed = clients[0].seen.filter((m) => m.t === "vote" && m.vote.toss).length;
+const bumps = clients[0].seen.filter((m) => m.t === "b");
+const knocks = bumps.filter((m) => m.to >= 0).length;
 
 // Closing the sockets makes the room report everything it still owes.
 for (const c of clients) c.ws.close();
@@ -162,10 +166,11 @@ const f = (n, d = 1) => n.toLocaleString("en-US", { maximumFractionDigits: d, mi
 
 console.log(`
 What ${players} players wandering and voting for ${f(seconds / 60, 1)} minutes cost
-(${games} votes won: ${flips} games of Coin Flip played, ${games - flips} for a game that does not open here yet, ${tossed} coin tosses)
+(${games} votes won: ${flips} games of Coin Flip played, ${games - flips} for a game that plays on its own page, ${tossed} coin tosses)
 
   Messages to the room      ${f(messages, 0)} in all, ${f(messages / seconds, 2)} a second (${f(messages / seconds / players, 2)} per player)
   Keep-alives               ${f(pings, 0)} (one per player every 20 seconds, answered without waking the room)
+  Bumps                     ${f(bumps.length, 0)}, of which ${f(knocks, 0)} knocked somebody over (each is one of the messages above)
   Awake time                ${f(awake, 2)} seconds in all, ${f((awake / seconds) * 60, 3)} seconds per minute
                             (each event counted as its real time, and never less than ${EVENT_FLOOR_MS} ms; a game's tick loop second for second)
                             of which Coin Flip being played: ${f(heldSeconds, 1)} seconds (${FLIP_MS / 1000} each); the lobby itself: ${f((Math.max(0, awake - heldSeconds) / seconds) * 60, 3)} seconds per minute

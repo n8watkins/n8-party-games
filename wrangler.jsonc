@@ -80,7 +80,10 @@
         "PARTY_SIM_LATENCY": "on",
         "PARTY_RATE_LIMIT": "off",
         // Lets the tests and the cost measurements read the room budget and a room's inner state.
-        "PARTY_DEBUG": "on"
+        "PARTY_DEBUG": "on",
+        // Hangs Coin Flip, the placeholder game, on the party room's wall. Local play and the
+        // test runs only: production has no such variable, so its wall has no test game.
+        "PARTY_TEST_GAMES": "on"
       }
     }
   }

@@ -81,20 +81,35 @@ export class Words {
     h("div", "l3-rule", "", el);
     this.rows = h("div", "l3-rows", "", el);
     this.foot = h("small", "", "", el);
+    // The board can be opened: tapping it calls the page (opts.onBoard), as the flat drawing's does.
+    if (!this.opts.onBoard) return;
+    el.classList.add("l3-opens");
+    el.setAttribute("role", "button");
+    el.setAttribute("tabindex", "0");
+    el.setAttribute("aria-label", "Open the Tonight board");
+    h("span", "l3-open-mark", "", el);
+    el.addEventListener("click", () => this.opts.onBoard());
+    el.addEventListener("keydown", (e) => {
+      if (e.key !== "Enter" && e.key !== " ") return;
+      e.preventDefault();
+      this.opts.onBoard();
+    });
   }
 
-  /** The sign under a box: the game's name, one line about it, the device badge and how many play. */
+  /**
+   * The sign under a box: one line about the game, how many play and the device badge. The
+   * game's name is on its box and nowhere else, as on the flat wall.
+   */
   sign(box, i) {
     const L = this.L;
     const el = at(h("div", `l3-sign n${i % 6}`, "", this.wall), worldX(L.xs[i]) - L.signW / 2, L.signTop, L.signW);
     const sign = { box, el, key: "" };
     sign.chip = h("span", "l3-chip", "", el);
     sign.chip.hidden = true;
-    h("b", "l3-fit", box.name, el);
-    if (box.blurb) h("span", "l3-about l3-fit", box.blurb, el);
+    if (box.blurb) h("span", "l3-about", box.blurb, el);
     sign.row = h("span", "l3-row l3-fits", "", el);
-    sign.badge = h("span", `l3-need ${BADGE_CLASS[box.badge] ?? "any"}`, BADGES[box.badge] ?? "", sign.row);
     sign.seats = h("span", "l3-seats", playersLabel(box.min, box.max), sign.row);
+    sign.badge = h("span", `l3-need ${BADGE_CLASS[box.badge] ?? "any"}`, BADGES[box.badge] ?? "", sign.row);
     sign.why = h("span", "l3-why", "", sign.row);
     sign.why.hidden = true;
     return sign;

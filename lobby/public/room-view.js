@@ -23,6 +23,7 @@ import { Scene } from "./scene.js";
  * @property {(msg: object, now: number) => void} onMove     someone moved
  * @property {(msg: object, now: number) => void} onBump     someone bumped (and perhaps hit someone)
  * @property {(now: number) => void} ownJump                 the viewer's own piece jumped
+ * @property {(now: number) => void} ownBump                 the viewer's own piece began a bump (the room has not answered yet)
  * @property {() => number} ownX                             where the viewer's own piece is drawn, for the camera
  * @property {(compact: boolean, room: object, now: number) => void} setCompact  the phone's bigger signs and tags, on or off
  * @property {(now: number, dt: number, pilot: object | null, view: object) => void} frame
@@ -30,7 +31,10 @@ import { Scene } from "./scene.js";
  * @property {() => void} destroy                            take it out of the page
  */
 
-/** @typedef {{compact: boolean, own: number, host: string, qr: string, skin?: string}} RoomViewOptions */
+/**
+ * @typedef {{compact: boolean, own: number, host: string, qr: string, skin?: string, onBoard?: () => void}} RoomViewOptions
+ *   onBoard: called when the Tonight board on the wall is tapped, so the page can open it.
+ */
 
 const LOOK_KEY = "party-room:look";
 const SKIN_KEY = "party-room:skin";
@@ -80,7 +84,9 @@ class FlatRoomView extends Scene {
   }
 
   frame(now, dt, pilot, view) {
-    set(this.svg, { viewBox: `${view.x.toFixed(2)} ${view.y.toFixed(2)} ${view.width.toFixed(2)} ${view.height.toFixed(2)}` });
+    // A blow jolts the picture for a moment (scene.jolt); the framing itself does not move.
+    const jolt = this.jolt(now);
+    set(this.svg, { viewBox: [view.x + jolt.x, view.y + jolt.y, view.width, view.height].map((n) => n.toFixed(2)).join(" ") });
     super.frame(now, dt, pilot, view);
   }
 

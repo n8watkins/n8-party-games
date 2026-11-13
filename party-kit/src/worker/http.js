@@ -17,6 +17,7 @@ export const STATUS = {
   forbidden_origin: 403,
   not_found: 404,
   room_full: 409,
+  screen_taken: 409,
   in_progress: 409,
   too_large: 413,
   rate_limited: 429,
