@@ -17,8 +17,8 @@
     "lamp-3.webp",
     "lamp-4.webp"
   ],
-  "lampGain": 2.828,
-  "exposure": 1.15,
+  "lampGain": 3.818,
+  "exposure": 0.7,
   "env": "env.webp",
   "juke": {
     "file": "juke.webp",

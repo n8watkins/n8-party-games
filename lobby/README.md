@@ -40,13 +40,14 @@ For phones on the same network, `npm run dev:lan` prints the address to open; th
 Stills of the main states, from a real run, are in [`shots/`](shots/).
 The ones whose names start with `f` are from `npm run test:feel`: the bump moment by moment (wind-up, hit, thrown, on the floor, up and safe), the buttons and the cooldown ring, the board opened large, and the way in on a phone.
 
-## The two drawings
+## The three drawings
 
-The room is drawn twice, from the same room state, rules and controls.
-Both are a "room view" (`public/room-view.js`), which is all the page knows about a drawing.
+The room is drawn three ways, from the same room state, rules and controls.
+Each is a "room view" (`public/room-view.js`), which is all the page knows about a drawing.
 
 - **Flat** (`public/scene.js`): one SVG of plain shapes. It is the default.
 - **3D** (`public/look3d/`): a three.js scene in the look of the approved stills, with every word laid over it as HTML. It is a preview until the owner approves it.
+- **Baked** (`public/baked/`): the bar as a rendered picture, with the pieces drawn live over it. It is a preview too, and is described under "The baked look" below.
 
 To see the 3D look, add `?look=3d` to the room's address, for example `http://localhost:8791/lobby/?start&look=3d`.
 The choice is remembered on that device, because the room's own address carries no query and a phone that scans the code on the wall arrives without one; `?look=flat` goes back.
@@ -93,6 +94,31 @@ The bump is the shared one (`shared/bump.js`): the 3D look draws the same states
 The bumper winds up and slams forward; whoever it hits is squashed, thrown, lies on the floor with crosses for eyes, gets up and flickers while it cannot be knocked again.
 There is a burst of sparks where the blow lands, dust where the piece comes down, a small jolt of the picture, and a ring under your own piece that fills as your bump recharges.
 The 3D wall follows the flat one: a game's name is on its box and nowhere else, the sign under it says one thing about the game, how many play and on what, and the Tonight board opens when it is tapped.
+
+### The baked look
+
+To see it, add `?look=baked` to the room's address, for example `http://localhost:8791/lobby/?start&look=baked`.
+The choice is remembered on that device like the 3D look's; `?look=flat` goes back.
+It is the bar only, and only on today's wall of five boxes.
+
+The 3D look's camera never moves, so the room does not have to be drawn every frame: it can be one picture.
+The baked look's room is a Cycles render from that same camera, made by the script that renders the landing page's hero (`landing/tools/blender/room.py`, the shots named `plate-*`).
+Only what changes is drawn live:
+
+- **The lamps.** The plate is a base picture with no game lamp on, and one more picture per lamp of only what that lamp adds: its bulb, its beam in the haze, its pool on the floor and what bounces off it. Light adds up, so a small shader adds them with one number per lamp, and any combination of lamps on, off and brighter is right without another render. A box that leads tints its lamp's light gold and gets a gold face on its frame.
+- **The posters, signs, join code and Tonight board.** They are data, so the plate's frames are empty and the live ones sit in them, placed by the same layout as the 3D look (`look3d/space.js`).
+- **The pieces.** Each pool has a real cone of light for whoever stands in it, the room itself (rendered all round from where the pieces stand) is what shines in their lacquer, a piece's shadow leans away from the nearest lit lamp, and a faint reflection stands under it in the floor.
+- **The room's life.** The dust, the cat and the moth are the 3D look's, drawn over the plate. The jukebox is a rendered picture standing in the 3D look's jukebox, so it still rocks and flashes when it is knocked, with its running lights live over the rendered tubes.
+
+It is built as the 3D look with its walls swapped for a picture (`RoomBaked extends Room3D`), and it calls `look3d/pieces.js` for every pose, so a change to how a piece moves or is bumped arrives in both.
+What it gives up: the lamps are in the picture, so a jump under one does not set it swinging.
+
+A wall with another number of boxes (the local environment hangs Coin Flip as a sixth) is drawn by the 3D look as it stands, and so is the room on a device where the plate does not arrive.
+To see the baked look locally, start the server with production's wall: `npx wrangler dev --local --env local --port 8791 --var PARTY_TEST_GAMES:off`.
+A device that did not ask for it downloads none of it.
+
+To make the plate again: `landing/tools/blender/plate.sh` (about 45 minutes of rendering, every job under ten), then `node lobby/tools/pack-baked.mjs`, which writes `public/baked/bar/` and prints the bytes.
+The raw renders are not committed.
 
 ## What is built
 
@@ -272,6 +298,8 @@ A lobby nobody touches costs nothing: no timer, no messages, nothing counted, an
 | `games/coin-flip.js` | The test game, hung only where `PARTY_TEST_GAMES` is on. |
 | `wall.js` | Which boxes hang on the wall (hosted, outside, test, coming soon), which can start, and the wall each environment gets. |
 | `public/room-view.js` | The seam between the page and a drawing of the room: the interface both drawings keep, and which one a device gets. |
+| `public/baked/` | The baked drawing: `room-baked.js`, and the bar's packed plate in `bar/` (`plate.json` says what it covers). |
+| `tools/pack-baked.mjs` | Packs the rendered plate for the baked look. |
 | `public/look3d/` | The 3D drawing: the scene (`room3d.js`), the words over it (`words.js`), the pieces (`pieces.js`), the rooms as skins (`skins.js`), a posed room (`still.html`) and the rooms page (`rooms/`). |
 | `test/` | Unit tests, the socket test, the browser run and the cost measurement. |
 

@@ -23,7 +23,10 @@ const opt = (k, d) => (args.find((a) => a.startsWith("--" + k + "=")) ?? "--" + 
 const base = opt("base", "http://localhost:8791");
 const out = resolve(opt("out", "lobby/test/shots/3d-live"));
 const skin = opt("room", "bar");
-const look = `look=3d&room=${skin}&gl=any`;
+// --look=baked runs the same evening in the baked look (the bar as a rendered picture; it needs a wall of five
+// boxes, so a server started with --var PARTY_TEST_GAMES:off).
+const lookName = opt("look", "3d");
+const look = `look=${lookName}&room=${skin}&gl=any`;
 mkdirSync(out, { recursive: true });
 const { call, connect } = partyApi(base);
 const problems = [];
@@ -74,7 +77,7 @@ try {
   await screen.waitForSelector(".l3-sign");
   const pin = (await screen.locator(".code-digits").textContent()).trim();
   check(/^\d{4}$/.test(pin), "the big screen shows the room in 3D and its code (" + pin + ")");
-  check((await screen.evaluate(() => window.__room3d?.look)) === "3d" && (await screen.locator("svg.scene").count()) === 0, "the 3D look drew it, and the flat drawing is not in the page");
+  check((await screen.evaluate(() => window.__room3d?.look)) === lookName && (await screen.locator("svg.scene").count()) === 0, "the 3D look drew it, and the flat drawing is not in the page");
   check((await screen.locator(".l3-pin").textContent()) === pin && (await screen.evaluate(() => document.querySelector(".l3-qr").naturalWidth > 0)), "the code and its QR code are on the wall");
   const boxes = await screen.evaluate(() => window.__room3d.room.boxes.map((b) => b.name));
   const blurbs = await screen.evaluate(() => window.__room3d.room.boxes.map((b) => b.blurb));

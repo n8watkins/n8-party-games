@@ -833,10 +833,13 @@ if PASS == "juke":
     # The jukebox under the Tonight board, alone: the room is kept only to catch its shadow and
     # to be seen in its chrome. The live room stands this picture in the plate and rocks it.
     for o in list(bpy.data.objects):
-        if o.type == "MESH" and o.name == "floor":
-            o.is_shadow_catcher = True
-        elif o.type == "MESH":
+        if o.type == "MESH":
             o.visible_camera = False
+    # Only the floor right in front of the jukebox catches its shadow (the wall behind it shades the rest).
+    bpy.ops.mesh.primitive_plane_add(size=1, location=G(JUKE_X, 0.002, -2.5 + 0.95))
+    catcher = bpy.context.object
+    catcher.scale = (2.6, 1.7, 1)
+    catcher.is_shadow_catcher = True
     wood = boards("juke wood", rgb("#7a4424"), rgb("#4a2814"), board=4, along="Z", rough=0.35, coat=0.7, grain=0.7)
     dark = principled("juke dark", rgb("#120a07"), rough=0.5)
     chrome = principled("juke chrome", rgb("#d8c9a8"), rough=0.18, metal=1.0)

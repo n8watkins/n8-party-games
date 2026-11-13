@@ -47,12 +47,12 @@ const save = async (img, name) => {
   await img.toFile(join(out, name));
   sizes[name] = statSync(join(out, name)).size;
 };
-await save(sharp(base).webp({ quality: 84, effort: 6 }), "base-3840.webp");
-await save(sharp(base).resize({ width: 2560 }).webp({ quality: 84, effort: 6 }), "base-2560.webp");
+await save(sharp(base).webp({ quality: 92, effort: 6 }), "base-3840.webp");
+await save(sharp(base).resize({ width: 2560 }).webp({ quality: 90, effort: 6 }), "base-2560.webp");
 const lamps = [];
 for (let i = 0; i < BOXES; i++) {
   lamps.push(`lamp-${i}.webp`);
-  await save(sharp(need(`plate-lamp${i}.png`)).removeAlpha().webp({ quality: 78, effort: 6 }), `lamp-${i}.webp`);
+  await save(sharp(need(`plate-lamp${i}.png`)).removeAlpha().webp({ quality: 86, effort: 6 }), `lamp-${i}.webp`);
 }
 await save(sharp(need("plate-env.png")).removeAlpha().resize({ width: 1024 }).webp({ quality: 80, effort: 6 }), "env.webp");
 await save(sharp(need("plate-juke.png")).webp({ quality: 86, alphaQuality: 90, effort: 6 }), "juke.webp");
@@ -62,8 +62,9 @@ const info = {
   rect: RECT,
   base: { large: "base-3840.webp", small: "base-2560.webp" },
   lamps,
-  lampGain: Number((2 ** -LAMP_STOPS).toFixed(3)),
-  exposure: 1.15,
+  // What a lamp's pass is multiplied by to put back what LAMP_STOPS took, and a little more: the live room's pools read better a touch hotter than the render's.
+  lampGain: Number((2 ** -LAMP_STOPS * 1.35).toFixed(3)),
+  exposure: 0.7,
   env: "env.webp",
   juke: { file: "juke.webp", rect: JUKE },
 };

@@ -92,6 +92,9 @@ function plateMaterial(plate) {
         vec2 out2 = abs(vUv - 0.5) - 0.5;
         float past = max(out2.x, out2.y);
         sum *= 1.0 - smoothstep(0.0, 0.12, past);
+        // The corners of the room fall away a little, as they do in the hero picture.
+        vec2 c = (uv - vec2(0.5, 0.46)) * vec2(1.0, 1.25);
+        sum *= 1.0 - 0.55 * smoothstep(0.28, 0.75, length(c));
         gl_FragColor = vec4(sum * uExposure, 1.0);
         #include <tonemapping_fragment>
         #include <colorspace_fragment>
@@ -148,14 +151,14 @@ export class RoomBaked extends Room3D {
   /** Once the plate is here: the room's light for the pieces, in place of the 3D look's three plain lights. */
   dressRoom() {
     for (const o of this.scene.children) {
-      if (o.isHemisphereLight) o.intensity = 0.2;
-      else if (o.isDirectionalLight) o.intensity = o.position.y > 8 ? 0 : 0.3; // the overhead lamp goes: each pool has its own now
+      if (o.isHemisphereLight) o.intensity = 0.13;
+      else if (o.isDirectionalLight) o.intensity = o.position.y > 8 ? 0 : 0.2; // the overhead lamp goes: each pool has its own now
     }
     const pmrem = new THREE.PMREMGenerator(this.renderer);
     this.envMap = pmrem.fromEquirectangular(this.plate.env).texture;
     pmrem.dispose();
     this.scene.environment = this.envMap;
-    this.scene.environmentIntensity = 0.4;
+    this.scene.environmentIntensity = 0.3;
   }
 
   build(room) {
@@ -196,8 +199,20 @@ export class RoomBaked extends Room3D {
     if (this.plain) super.doorway(L);
   }
 
+  /** The string of bulbs is in the picture; what is added here is only the soft glow round each, which a camera would see. */
   bulbs() {
-    if (this.plain) super.bulbs();
+    if (this.plain) return super.bulbs();
+    const n = 29;
+    const glows = new THREE.InstancedMesh(new THREE.PlaneGeometry(0.62, 0.62), new THREE.MeshBasicMaterial({ map: this.radial, color: 0xffc27a, transparent: true, opacity: 0.34, blending: THREE.AdditiveBlending, depthWrite: false }), n);
+    const o = new THREE.Object3D();
+    for (let i = 0; i < n; i++) {
+      const t = i / (n - 1);
+      o.position.set((t - 0.5) * (SPACE.w - 0.5), 5.6 + Math.pow(((t * 4) % 1) - 0.5, 2) * 1.25, SPACE.zBack + 0.5);
+      o.updateMatrix();
+      glows.setMatrixAt(i, o.matrix);
+    }
+    glows.renderOrder = -6;
+    this.stuff.add(glows);
   }
 
   /** One game box: its poster in the plate's empty frame, its gold edge, and the light its lamp gives the pieces. */
@@ -221,6 +236,10 @@ export class RoomBaked extends Room3D {
     b.beam.position.set(x, SPACE.lampY / 2, z);
     b.beam.renderOrder = 6;
     this.stuff.add(b.beam);
+    // The glow round a lamp that is on.
+    b.halo = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ map: this.radial, color: SKIN.light, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false }));
+    b.halo.position.set(x, SPACE.lampY + 0.04, z + 0.05);
+    this.stuff.add(b.halo);
 
     // On the wall: the poster as a box in the frame, and the frame's gold face for the box that leads.
     const g = new THREE.Group();
@@ -230,19 +249,27 @@ export class RoomBaked extends Room3D {
     tex.anisotropy = Math.min(8, this.renderer.capabilities.getMaxAnisotropy());
     b.art = new THREE.MeshBasicMaterial({ map: tex });
     b.side = new THREE.MeshBasicMaterial({ color: new THREE.Color(boxSide(box)).multiplyScalar(0.5) });
-    const carton = new THREE.Mesh(new THREE.BoxGeometry(L.bw, L.bh, 0.3), [b.side, b.side, b.side, b.side, b.art, b.side]);
+    // Two draws a poster: the box's sides as one mesh, and its printed front as another.
+    const carton = new THREE.Mesh(new THREE.BoxGeometry(L.bw, L.bh, 0.3), b.side);
     carton.position.z = 0.2;
-    g.add(carton);
+    const front = new THREE.Mesh(new THREE.PlaneGeometry(L.bw, L.bh), b.art);
+    front.position.z = 0.351;
+    g.add(carton, front);
     const [nw, nh] = [L.bw + FRAME.gap * 2, L.bh + FRAME.gap * 2];
     const bar = FRAME.bar;
     b.goldFace = new THREE.MeshBasicMaterial({ color: new THREE.Color(SKIN.accent).multiplyScalar(1.5), transparent: true, opacity: 0, depthWrite: false });
-    for (const [w, h, dx, dy] of [[bar, nh + bar * 2, -nw / 2 - bar / 2, 0], [bar, nh + bar * 2, nw / 2 + bar / 2, 0], [nw, bar, 0, nh / 2 + bar / 2], [nw, bar, 0, -nh / 2 - bar / 2]]) {
-      const face = new THREE.Mesh(new THREE.PlaneGeometry(w, h), b.goldFace);
-      face.position.set(dx, dy, FRAME.depth + 0.002);
-      g.add(face);
-    }
+    const ring = new THREE.Shape();
+    ring.moveTo(-nw / 2 - bar, -nh / 2 - bar).lineTo(nw / 2 + bar, -nh / 2 - bar).lineTo(nw / 2 + bar, nh / 2 + bar).lineTo(-nw / 2 - bar, nh / 2 + bar).closePath();
+    const hole = new THREE.Path();
+    hole.moveTo(-nw / 2, -nh / 2).lineTo(-nw / 2, nh / 2).lineTo(nw / 2, nh / 2).lineTo(nw / 2, -nh / 2).closePath();
+    ring.holes.push(hole);
+    b.goldMesh = new THREE.Mesh(new THREE.ShapeGeometry(ring), b.goldFace);
+    b.goldMesh.position.z = FRAME.depth + 0.002;
+    b.goldMesh.visible = false;
+    g.add(b.goldMesh);
     b.glow = new THREE.Mesh(new THREE.PlaneGeometry(nw + 1.6, nh + 1.6), new THREE.MeshBasicMaterial({ map: this.radial, color: SKIN.accent, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false }));
     b.glow.position.z = FRAME.depth + 0.004;
+    b.glow.visible = false;
     g.add(b.glow);
     this.stuff.add(g);
     return b;
@@ -253,17 +280,22 @@ export class RoomBaked extends Room3D {
     if (this.plain) return super.light(b);
     const level = b.level;
     const glowing = Math.min(1, level * 8);
-    const gain = (this.plate.info.lampGain ?? 2.83) * (0.5 * glowing + 0.5 * level);
+    const gain = (this.plate.info.lampGain ?? 2.83) * (0.3 * glowing + 0.7 * level);
     const u = this.plateMat.uniforms;
     u.uGain.value[b.i] = gain;
     u.uGold.value[b.i] = b.gold;
-    b.spot.intensity = 5 * (0.5 * glowing + 0.5 * level);
+    b.spot.intensity = 4.6 * (0.3 * glowing + 0.7 * level);
+    b.spot.visible = level > 0.002;
     b.spot.color.set(SKIN.light).lerp(new THREE.Color(SKIN.accent), b.gold * 0.6);
     b.beam.material.uniforms.uStrength.value = 0.05 * glowing + 0.05 * level;
     b.beam.visible = level > 0.002;
+    b.halo.visible = level > 0.002;
+    b.halo.material.opacity = (0.14 + 0.3 * Math.min(level, 1.3)) * glowing;
+    b.halo.scale.setScalar(1.3 + level * 0.9);
     b.art.color.setScalar(0.17 + 0.68 * glowing + 0.2 * b.gold);
     b.goldFace.opacity = b.gold;
     b.glow.material.opacity = 0.45 * b.gold;
+    b.goldMesh.visible = b.glow.visible = b.gold > 0.003;
   }
 
   // ---------------------------------------------------------------- the jukebox, as a picture
@@ -295,6 +327,11 @@ export class RoomBaked extends Room3D {
     picture.position.set((l + r) / 2 - group.position.x, (t + bt) / 2, 0);
     picture.renderOrder = -5;
     group.add(picture);
+    // Its solid part also takes its place in depth, so what passes behind it (the cat, along the foot of the wall) is hidden by it.
+    const solid = new THREE.Mesh(picture.geometry, new THREE.MeshBasicMaterial({ map: this.plate.juke, alphaTest: 0.6, colorWrite: false }));
+    solid.position.copy(picture.position);
+    solid.renderOrder = -4;
+    group.add(solid);
     this.juke = { group, picture };
   }
 
@@ -337,16 +374,20 @@ export class RoomBaked extends Room3D {
       // The shadow: short and dark right under a lamp, longer and leaning away from it further out, faint in the dark.
       const lamp = this.lampOver(p.rx);
       const away = lamp.lit > 0 ? Math.max(-1, Math.min(1, (p.rx - lamp.x) / (this.half + 60))) : 0;
-      pawn.blob.position.x += away * 0.16;
-      pawn.blob.scale.x *= 1 + Math.abs(away) * 0.5;
-      pawn.blob.material.opacity *= 0.62 + 0.38 * lamp.lit;
+      pawn.blob.position.x += away * 0.2;
+      pawn.blob.scale.multiplyScalar(1.3);
+      pawn.blob.scale.x *= 1 + Math.abs(away) * 0.6;
+      pawn.blob.material.opacity = Math.min(1, pawn.blob.material.opacity * (1.0 + 0.8 * lamp.lit));
 
       // The reflection: the same piece, standing on its head under the floor.
       let r = pawn.reflection;
       if (!r) {
+        // Only the body is mirrored: a floor this soft does not hold a pair of eyes.
         r = pawn.reflection = pawn.group.clone();
         r.traverse((o) => {
           if (!o.isMesh) return;
+          o.visible = o.material === pawn.mat;
+          if (!o.visible) return;
           o.material = o.material.clone();
           Object.assign(o.material, { transparent: true, depthWrite: false, side: THREE.DoubleSide });
           o.renderOrder = -2;
@@ -360,17 +401,13 @@ export class RoomBaked extends Room3D {
       mt.rotation.copy(tilt.rotation);
       mt.scale.copy(tilt.scale);
       mturn.rotation.copy(turn.rotation);
-      const shine = (0.1 + 0.16 * lamp.lit) * pawn.fade * Math.max(0, 1 - pawn.group.position.y * 0.9);
-      turn.children.forEach((mesh, i) => {
-        const m = mturn.children[i];
-        m.visible = mesh.visible;
-        m.material.color?.copy(mesh.material.color);
-        m.material.opacity = shine;
-      });
+      const body = mturn.children[0];
+      body.material.color.copy(pawn.mat.color);
+      body.material.opacity = (0.07 + 0.13 * lamp.lit) * pawn.fade * Math.max(0, 1 - pawn.group.position.y * 0.9);
     }
     for (const r of [...this.mirror.children]) {
       if ([...seen].some((pawn) => pawn.reflection === r)) continue;
-      r.traverse((o) => o.isMesh && o.material.dispose());
+      r.traverse((o) => o.isMesh && o.visible && o.material.dispose());
       this.mirror.remove(r);
     }
   }
@@ -381,7 +418,7 @@ export class RoomBaked extends Room3D {
 
   destroy() {
     this.scene.onBeforeRender = () => {};
-    this.mirror.traverse((o) => o.isMesh && o.material.dispose());
+    this.mirror.traverse((o) => o.isMesh && o.visible && o.material.dispose());
     this.envMap?.dispose();
     for (const t of [this.plate?.base, this.plate?.env, this.plate?.juke, ...(this.plate?.lamps ?? [])]) t?.dispose();
     super.destroy();

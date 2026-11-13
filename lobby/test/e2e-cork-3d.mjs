@@ -27,6 +27,8 @@ const base = opt("base", "http://localhost:8791");
 const rounds = Number(opt("rounds", "3"));
 const skin = opt("room", "ship");
 const soft = opt("soft", "0") === "1";
+// --look=baked runs the same evening under the baked look (the bar as a rendered picture).
+const look = opt("look", "3d");
 const { api, call } = partyApi(base);
 const problems = [];
 const check = (ok, what) => {
@@ -41,7 +43,7 @@ try {
   const page = await context.newPage();
   const errors = [];
   page.on("pageerror", (e) => errors.push(e.message));
-  await page.goto(`${base}/lobby/?start&look=3d&room=${skin}&cork-auto=1&cork-quality=low${soft ? "&gl=any" : ""}`);
+  await page.goto(`${base}/lobby/?start&look=${look}&room=${skin}&cork-auto=1&cork-quality=low${soft ? "&gl=any" : ""}`);
   await page.fill("input[name=nickname]", "Sol");
   await page.click("text=Start the party");
   await page.waitForSelector(".look3d canvas", { timeout: 60000 });
