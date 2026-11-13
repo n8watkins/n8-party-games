@@ -1,8 +1,8 @@
 // The rules of the vote, as plain logic: which games the party can play, who is voting for
 // what, who leads, and what a place in a game is worth tonight. Shared by the room and the page.
 
-/** Everyone stands in a light for this long and the game starts. */
-export const COUNT_MS = 3000;
+/** Everyone stands in a light for this long and the game starts: long enough to shout about it, call a friend over or change your mind. The last three seconds tick harder. */
+export const COUNT_MS = 10_000;
 /** A tie is settled by a coin toss everybody watches for this long. */
 export const TOSS_MS = 3200;
 /** After a game the room rests this long before a new count may begin, so the result can be read. */

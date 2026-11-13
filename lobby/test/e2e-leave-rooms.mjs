@@ -196,7 +196,7 @@ try {
   watcher.send({ t: "pick", v: "roof" });
   const inGame = await watcher.wait((m) => m.t === "pick-no", 3000).catch(() => null);
   check(!!inGame, "no pick is taken during a game");
-  await watcher.wait((m) => m.t === "end", 10000).catch(() => null);
+  await watcher.wait((m) => m.t === "end", 12000, mark).catch(() => null);
   check(watcher.room.room === "camp", "the party is still in the campfire after it");
 
   // It survives the room sleeping: nobody touches it for a while.

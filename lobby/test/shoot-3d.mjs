@@ -207,7 +207,7 @@ try {
   await screen.waitForSelector(".l3-sign.lead", { timeout: 2000 });
   const lead = boxes[blurbs.indexOf(await screen.locator(".l3-sign.lead .l3-about").textContent())];
   // Software drawing makes a still slow, and the game is three seconds long: start waiting for its card now.
-  const result = screen.waitForSelector(".card .places", { timeout: 30000 });
+  const result = screen.waitForSelector(".card .places", { timeout: 45000 });
   await shot(screen, "08-screen-count");
   await tidy(screen, "big screen, count");
   await shot(phone, "09-phone-count");
@@ -237,7 +237,7 @@ try {
   // The phone's player leaves for good, which frees a seat for the next device.
   await phone.click(".door-btn");
   await phone.click("text=Leave the party");
-  await phone.waitForSelector("text=You left the party");
+  await phone.waitForSelector(".note-chip >> text=You left party");
 
   // ---------------------------------------------------------------- an upright phone, then a laptop
   const upright = await open("upright", { width: 390, height: 844 }, { deviceScaleFactor: 2, hasTouch: true });
@@ -258,7 +258,7 @@ try {
   // ---------------------------------------------------------------- leaving, and no WebGL
   await upright.click(".door-btn");
   await upright.click("text=Leave the party");
-  await upright.waitForSelector("text=You left the party");
+  await upright.waitForSelector(".note-chip >> text=You left party");
   check((await upright.locator(".look3d").count()) === 0, "leaving takes the 3D room out of the page");
 
   // ---------------------------------------------------------------- a tie

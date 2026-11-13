@@ -94,7 +94,7 @@ B.goto(light(COIN, -40));
 C.goto(light(COIN, 40));
 D.goto(light(COIN, 80));
 const counting = await A.wait((m) => voteOf(m)?.count, 4000, mark);
-check(counting.vote.count.endsIn > 2500 && counting.vote.leaders.join() === "coin-flip", "everyone in a light: the count runs (Starts in 3) and Coin Flip leads");
+check(counting.vote.count.endsIn > 2500 && counting.vote.leaders.join() === "coin-flip", "everyone in a light: the count runs (Starts in 10) and Coin Flip leads");
 mark = A.seen.length;
 D.goto(dark(COIN));
 const paused = await A.wait((m) => m.t === "vote" && !m.vote.count, 4000, mark);
@@ -106,7 +106,7 @@ check(!A.seen.slice(mark).some((m) => m.t === "start"), "nothing starts while so
 mark = A.seen.length;
 D.goto(light(COIN, 80));
 const t0 = Date.now();
-const start = await A.wait((m) => m.t === "start", 6000, mark);
+const start = await A.wait((m) => m.t === "start", 13000, mark);
 check(start.room.phase === "playing" && start.room.game.id === "coin-flip" && start.s.seats.length === 4, `the count ends and Coin Flip starts with the party's four seats (${Date.now() - t0} ms)`);
 const end = await A.wait((m) => m.t === "end", 8000, mark);
 const rows = end.last.rows;
@@ -131,7 +131,7 @@ check(tossed.between.length === 2 && tossed.between.includes(tossed.winner), "th
 // Bell is ninety, so when the toss picks it this run is a minute and a half longer.
 let end2;
 if (tossed.winner === "cork-and-bell") {
-  const begun = await A.wait((m) => m.t === "start", 8000, mark);
+  const begun = await A.wait((m) => m.t === "start", 13000, mark);
   check(begun.room.game.id === "cork-and-bell" && begun.s.seats.length === 4 && begun.s.seed > 0, "Cork & Bell won: a battle starts for the party's four seats");
   console.log("     a round of Cork & Bell: ninety seconds...");
   // Ann fires a cork every second for a while, stamped with the round's own time, as her page would.
@@ -246,7 +246,7 @@ const debug = async (code = "") => (await fetch(api + "/debug" + (code ? "/" + c
   P.goto(light(WHO, -30));
   Q.goto(light(WHO, 30));
   const t1 = Date.now();
-  const away = await P.wait((m) => m.t === "away", 8000, from);
+  const away = await P.wait((m) => m.t === "away", 15000, from);
   const awayQ = await Q.wait((m) => m.t === "away", 2000, 0);
   check(away.id === "who-am-i" && away.url === box.url && away.in >= 5000 && awayQ.url === box.url, `it wins the count: both pages are told to go to ${away.url} in ${away.in / 1000} seconds (${Date.now() - t1} ms)`);
   const then = await P.wait((m) => m.t === "room", 4000, P.seen.indexOf(away));

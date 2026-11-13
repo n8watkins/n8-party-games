@@ -22,11 +22,11 @@ Make each window short and wide to see what a sideways phone sees, or use the br
 2. In the second window type the four-digit code from the sign on the wall, type a name and join.
 3. Walk with the arrow keys (or A and D), jump with the up arrow (or Space), bump with B, and open the door button with Escape. On a touch screen the same things are four buttons, and on a laptop each button shows its key.
 4. Stand one piece just in front of the other and bump: the bumper winds up and slams, the other is thrown back, tips over and gets up. The bump button's ring shows the cooldown.
-5. Stand both pieces in Coin Flip's light: "Starts in 3" counts down, the game plays, and both are back by the door with points on the Tonight board.
+5. Stand both pieces in Coin Flip's light: "Starts in 10" counts down, the game plays, and both are back by the door with points on the Tonight board.
 6. Click the Tonight board on the wall to open it large; click anywhere, press Escape or go back to close it.
 7. Stand one piece in each lit light for a tie and its coin toss.
 8. Stand both pieces in Cork & Bell's light: the battle starts for the two of you inside the room, each window shows its own stall (a third window as the room's screen shows both), and ninety seconds later both are back by the door with the scores on a card and points on the Tonight board. One piece alone in that light gets a round to itself.
-9. Stand both pieces in Who Am I?'s light: "Opens in 3" counts down, a card says where everyone is going, and both windows go to its own site.
+9. Stand both pieces in Who Am I?'s light: "Opens in 10" counts down, a card says where everyone is going, and both windows go to its own site.
 10. Close one window to see the piece turn grey, and fade thirty seconds later.
 
 Coin Flip is a test game.
@@ -104,9 +104,10 @@ The 3D wall follows the flat one: a game's name is on its box and nowhere else, 
 - A player's four buttons as one family: left and right under the left thumb, jump and bump under the right, each with a picture and a word. Bump alone carries the accent colour, because it is the one move with a cooldown.
 - A way in that fits the device: a phone leads with playing and keeps "Use this phone as the room's screen" as a small link, a wide screen is offered both as two cards, and either can change its mind.
 - One screen per room. A second device that asks to be the screen is told one is connected and offered a seat, and the way in does not offer it at all once the code is typed.
-- The vote: standing in a light is your vote, a visible count runs when every connected player stands in some light, the light with the most players wins, stepping out of every light stops it, and "Waiting for" names who is in the dark.
+- The vote: standing in a light is your vote, a visible count of ten seconds runs when every connected player stands in some light, the light with the most players wins, stepping out of every light stops it, and "Waiting for" names who is in the dark.
+- The count is large on the wall (a ring over the leading box) and just above the bottom bar (`public/count-tick.js`). Every second ticks; the last three tick harder: the number turns gold and pops, a phone gives a short buzz, and the page announces `count.tick` and `count.last` as `party-room:sound` events for the sound system.
 - A tie is settled by a coin toss everybody watches. A phone in the closer view pulls back to the whole room for the count and the toss.
-- A player alone can start: one piece in a light runs the same three-second count.
+- A player alone can start: one piece in a light runs the same ten-second count.
 - A game the party cannot play has its light off and says why in a few words ("Needs 2 players", "For 2 players", "Needs a big screen", "Coming soon").
 - Outside games: a game that plays on a site of its own hangs on the wall with an address instead of a hosted game (below).
 - A big screen that joins with the code and holds no seat, and a player's view with buttons, a "Whole room / Closer" switch and a "turn your phone" hint when upright.
@@ -146,7 +147,7 @@ In `wall.js` it is an entry with a `url` where a hosted game has a server defini
 Who Am I? (`https://whoami.n8builds.dev/`) is the first.
 
 - Its light follows the same rule as any game's: on when the party is a size the game takes. Who Am I? is for exactly two players (its engine's `MAX_PLAYERS`, and it needs both to start), so with one player its sign says "Needs 2 players" and with three or four "For 2 players".
-- The count reads "Who Am I? opens in 3", not "starts".
+- The count reads "Who Am I? opens in 10", not "starts".
 - When it wins the count or the coin toss, the room sends every page `away { id, name, url, in }`. Every player's page and the big screen show a card, "Off to Who Am I?", for six seconds (`AWAY_MS`) and then go to the address. The card says the party's code does not work there (one of them makes a room on that site and the others join it) and that nobody scores. "Go now" goes at once; "Stay in the room" keeps that one device here.
 - Nothing starts in the room, so nothing ticks and no room time is spent: it costs the one wake-up that ended the count.
 - The Tonight board gets no points from an outside game, and it does not count as a game played.

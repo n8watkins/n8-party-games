@@ -9,6 +9,7 @@ import { h } from "./dom.js";
 import { GAME_VIEWS } from "./games/views.js";
 import { farewellKind, goFront } from "./farewell.js";
 import { Hud } from "./hud.js";
+import { CountTick } from "./count-tick.js";
 import { RoomMenu } from "./room-menu.js";
 import { chosenLook, hardware3D, openRoomView, preferFlat } from "./room-view.js";
 import { SlowWatch } from "./slow-room.js";
@@ -48,6 +49,8 @@ let entering = false;
 let board = null;
 /** Rooms and the door button, and the room picker (room-menu.js). */
 let menu = null;
+/** The count, large, over the foot of the room (count-tick.js). */
+let count = null;
 /** What every room view is opened with, apart from its look and skin. */
 let viewBase = null;
 /** The room (skin) the view on the page draws, and whether it is being swapped for another. */
@@ -92,6 +95,8 @@ function teardown() {
   stage = null;
   app.classList.remove("in-game");
   menu?.destroy();
+  count?.destroy();
+  count = null;
   menu = null;
   hud?.destroy();
   hud = null;
@@ -150,6 +155,7 @@ async function enter() {
     },
   });
   menu = new RoomMenu(hud.el, { role: link.you.role, seat: link.you.seat, onPick: (id) => link.send({ t: "pick", v: id }) });
+  count = new CountTick(hud.el, { buzz: isPlayer() ? buzz : null });
   slow.start(scene.look, performance.now(), simpler);
   zoom = phone() ? "closer" : "room";
   apply(room);
@@ -601,6 +607,7 @@ function frame(t) {
     slow.frame(now, dt);
   }
   hud.update(room, room.vote, now, voteAt, zoom, now - stirAt);
+  count?.update(room, room.vote.count ? Math.max(0, room.vote.count.endsIn - (now - voteAt)) : null, hud.barHeight());
 }
 
 // ---------------------------------------------------------------- begin

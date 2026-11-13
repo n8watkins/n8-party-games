@@ -145,7 +145,7 @@ try {
   await walk(cy, watcher, 2, light(50));
   await screen.waitForFunction(() => /Cork & Bell starts in/.test(document.querySelector(".status-main")?.textContent ?? ""), null, { timeout: 8000 });
   await shot(screen, "50-screen-count-cork-and-bell");
-  const start = await watcher.wait((m) => m.t === "start", 9000, 0);
+  const start = await watcher.wait((m) => m.t === "start", 16000, 0);
   const startedAt = Date.now();
   check(start.room.phase === "playing" && start.room.game.id === "cork-and-bell" && start.s.seats.map((s) => s.seat).join() === "0,1,2", "the count ends and a battle starts for the party's three seats, with no waiting room");
 
