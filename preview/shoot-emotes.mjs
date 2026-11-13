@@ -1,12 +1,14 @@
-// Stills of the emotes and sounds preview, from the local server's /preview/emotes/ (built with
-// --preview: npm run dev). Headless, muted, and closed at the end whatever happens.
+// Stills and checks of the emotes preview (second round), from the local server's
+// /preview/emotes/ (built with --preview: npm run dev). Headless, muted, and closed at the end
+// whatever happens.
 //
-//   node preview/shoot-emotes.mjs [--base=http://localhost:8791] [--out=lobby/test/shots/emotes]
+//   node preview/shoot-emotes.mjs [--base=http://localhost:8791] [--out=lobby/test/shots/emotes-v2]
 //
-// Every candidate's held pose at sideways-phone size (844 x 390), the three ways to trigger them,
-// and the whole page on a phone held upright and sideways. It also checks that no page reports
-// an error and that the page never scrolls sideways. Stills land in --out, which is not
-// committed; a chosen dozen are copied to preview/shots/ by hand.
+// Stills: every candidate's held pose at sideways-phone size (844 x 390), and the list's
+// pictures at their real size (a phone showing the whole room, and a big screen) as two sheets,
+// for the across-the-room test. Checks: on a sideways phone, an upright phone and a laptop the
+// page itself never scrolls, the stage stays where it is while the list scrolls and a row far
+// down is tapped, the wheel works by pointer, and no page reports an error.
 import { mkdirSync } from "node:fs";
 import { resolve } from "node:path";
 import { chromium } from "playwright";
@@ -14,7 +16,7 @@ import { chromium } from "playwright";
 const args = process.argv.slice(2);
 const opt = (k, d) => (args.find((a) => a.startsWith("--" + k + "=")) ?? "--" + k + "=" + d).split("=").slice(1).join("=");
 const base = opt("base", "http://localhost:8791");
-const out = resolve(opt("out", "lobby/test/shots/emotes"));
+const out = resolve(opt("out", "lobby/test/shots/emotes-v2"));
 mkdirSync(out, { recursive: true });
 const problems = [];
 const check = (ok, what) => {
@@ -24,6 +26,7 @@ const check = (ok, what) => {
 
 const SIDEWAYS = { viewport: { width: 844, height: 390 }, deviceScaleFactor: 2, hasTouch: true };
 const UPRIGHT = { viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, hasTouch: true };
+const LAPTOP = { viewport: { width: 1280, height: 800 }, deviceScaleFactor: 1 };
 const browser = await chromium.launch({ headless: true, args: ["--mute-audio"] });
 try {
   const errors = [];
@@ -37,37 +40,49 @@ try {
     return page;
   }
 
-  const ids = await (await open(SIDEWAYS)).evaluate(() => [...document.querySelectorAll(".card")].map((c) => c.dataset.id));
-  check(ids.length >= 18, `${ids.length} candidates on the page`);
+  const first = await open(SIDEWAYS);
+  const ids = await first.evaluate(() => [...document.querySelectorAll(".row")].map((r) => r.dataset.id));
+  await first.context().close();
+  check(ids.length >= 16, `${ids.length} candidates in the list`);
   for (const id of ids) {
     const page = await open(SIDEWAYS, `#still=${id}&look=B`);
     await page.screenshot({ path: `${out}/${id}.png` });
     await page.context().close();
   }
   console.log(`     stills: ${ids.length} held poses`);
-  for (const look of ["A", "C"]) {
-    const page = await open(SIDEWAYS, `#still=dab&look=${look}`);
-    await page.screenshot({ path: `${out}/dab-${look}.png` });
+
+  // The across-the-room sheets: the list alone, tall enough to hold every row.
+  for (const [name, hash] of [
+    ["sheet-phone", ""],
+    ["sheet-screen", "#size=screen"],
+  ]) {
+    const page = await open({ viewport: { width: 760, height: 5200 }, deviceScaleFactor: 1 }, hash);
+    await page.locator("#rows").screenshot({ path: `${out}/${name}.png` });
     await page.context().close();
   }
-  for (const how of ["wheel", "slots", "strip"]) {
-    const page = await open(SIDEWAYS, `#still=${how}`);
-    await page.waitForTimeout(300);
-    await page.screenshot({ path: `${out}/trigger-${how}.png`, fullPage: false });
-    await page.context().close();
-  }
-  console.log("     stills: the three ways to trigger, and treatments A and C");
+  console.log("     stills: the list's pictures at a phone's and a big screen's real size");
 
   for (const [name, how] of [
     ["sideways", SIDEWAYS],
     ["upright", UPRIGHT],
+    ["laptop", LAPTOP],
   ]) {
     const page = await open(how);
-    const wide = await page.evaluate(() => document.documentElement.scrollWidth > innerWidth + 1);
-    check(!wide, `${name}: the page does not scroll sideways`);
-    await page.screenshot({ path: `${out}/page-${name}.png`, fullPage: true });
-    // The wheel: hold, flick up and to the right, let go: the stage plays that slot.
-    await page.locator("#emote-btn").scrollIntoViewIfNeeded();
+    await page.screenshot({ path: `${out}/page-${name}.png` });
+    const scrolls = await page.evaluate(() => document.scrollingElement.scrollHeight > innerHeight + 1 || document.scrollingElement.scrollWidth > innerWidth + 1);
+    check(!scrolls, `${name}: the page itself does not scroll`);
+    const before = await page.locator("#stage").boundingBox();
+    // Scroll the list to its end and tap the last row: it plays, and the stage has not moved.
+    await page.locator("#pane-list").evaluate((p) => (p.scrollTop = p.scrollHeight));
+    const last = page.locator(".row").last();
+    await last.click();
+    await page.waitForTimeout(300);
+    const after = await page.locator("#stage").boundingBox();
+    const playing = await page.locator(".row.playing").getAttribute("data-id");
+    check(Math.abs(before.y - after.y) < 1 && Math.abs(before.x - after.x) < 1 && before.height > 120 && playing === ids.at(-1), `${name}: tapping the last row plays it (${playing}) and the stage stays in view (${Math.round(after.width)} x ${Math.round(after.height)})`);
+    await page.screenshot({ path: `${out}/page-${name}-scrolled.png` });
+    // The wheel: hold, flick up and to the right, let go.
+    await page.locator('[data-pane="wheel"]').click();
     const box = await page.locator("#emote-btn").boundingBox();
     const [x, y] = [box.x + box.width / 2, box.y + box.height / 2];
     await page.mouse.move(x, y);
@@ -75,10 +90,11 @@ try {
     const opened = await page.locator("#wheel.open").count();
     await page.mouse.move(x + 25, y - 25, { steps: 3 });
     await page.mouse.move(x + 50, y - 30, { steps: 3 });
-    await page.screenshot({ path: `${out}/wheel-held-${name}.png` });
+    await page.screenshot({ path: `${out}/wheel-${name}.png` });
     await page.mouse.up();
-    const now = await page.locator("#now").textContent();
-    check(opened === 1 && (await page.locator("#wheel.open").count()) === 0 && !now.startsWith("Tap an emote"), `${name}: hold and flick opens the wheel and plays the slot (${now.trim()})`);
+    const now = await page.locator("#now .name").textContent();
+    check(opened === 1 && (await page.locator("#wheel.open").count()) === 0, `${name}: hold and flick opens the wheel and plays a slot (${now})`);
+    await page.locator('[data-pane="picks"]').click();
     await page.locator("#copy").click();
     check((await page.locator("#picks").inputValue()).includes("My wheel:"), `${name}: the picks list is there to copy`);
     await page.context().close();

@@ -1,17 +1,18 @@
-// Makes the emotes and sounds preview as one self-contained page, for the owner to open on his
+// Makes the emotes preview (second round) as one self-contained page for the owner to open on his
 // phone, and as a small local site at /preview/emotes/ (built only with --preview, never for
 // production: scripts/build-public.mjs).
 //
-//   node preview/make-emotes-artifact.mjs     writes preview/emotes-artifact.html
+//   node preview/make-emotes-artifact.mjs     writes preview/emotes-artifact-v2.html
 //
 // The page is preview/emotes/page.html (title, styles, markup) and preview/emotes/preview.js.
-// The kit's own sound engine (party-kit/client/sound-recipes.js and sounds.js) is inlined into
-// it, so every sound in the preview is exactly the one the room would play.
+// Inlined into it: the kit's sound player (party-kit/client/sounds.js), so the preview plays
+// sounds exactly as the room would, and the recordings in preview/sounds/ (made by
+// preview/recordings/process.mjs, each a CC0 recording with where it came from) as data: URIs.
+// The recordings and the page that embeds them are not committed until the owner picks; without
+// them the page still works, silently.
 //
-// The artifact has no doctype, <html>, <head> or <body> (its host wraps it). The local site
-// wraps it in a document of its own and moves the styles and the script into files, because the
-// site's Content-Security-Policy allows no inline style or script.
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+// The first round is preview/emotes-artifact.html, kept as it was shown.
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -25,16 +26,24 @@ const plain = (path) =>
     .replace(/^import .*;$/gm, "")
     .replace(/^export /gm, "");
 
+/** The recordings, each with a data: URI, or none when they have not been made on this machine. */
+function clips() {
+  const list = join(HERE, "sounds", "sounds.json");
+  if (!existsSync(list)) return [];
+  return JSON.parse(readFileSync(list, "utf8")).map((c) => ({ ...c, uri: "data:audio/mpeg;base64," + readFileSync(join(HERE, "sounds", c.file)).toString("base64") }));
+}
+
 /** The page in its parts: {title, style, markup, script}. */
 export function parts() {
   const page = read("preview/emotes/page.html");
   const title = /<title>[\s\S]*?<\/title>/.exec(page)[0];
   const style = /<style>([\s\S]*?)<\/style>/.exec(page)[1];
   const markup = page.replace(title, "").replace(/<style>[\s\S]*?<\/style>/, "").trim();
-  const kit = `${plain("party-kit/client/sound-recipes.js")}\n${plain("party-kit/client/sounds.js")}`;
   const script = [
-    "// The party kit's sound engine, as the room ships it (party-kit/client/sound-recipes.js, sounds.js).",
-    `const { SoundBoard } = (() => {\n${kit}\nreturn { SoundBoard };\n})();`,
+    "// The party kit's player for emotes' sounds, as the room ships it (party-kit/client/sounds.js).",
+    `const { SoundBoard, defineSound } = (() => {\n${plain("party-kit/client/sounds.js")}\nreturn { SoundBoard, defineSound };\n})();`,
+    "// The recordings: CC0, from the pages named in each entry.",
+    `const CLIPS = ${JSON.stringify(clips())};`,
     "// The preview itself (preview/emotes/preview.js).",
     `(() => {\n${read("preview/emotes/preview.js")}\n})();`,
   ].join("\n");
@@ -60,8 +69,8 @@ export function writeSite(dir) {
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  const out = join(HERE, "emotes-artifact.html");
+  const out = join(HERE, "emotes-artifact-v2.html");
   const html = artifact();
   writeFileSync(out, html);
-  console.log(`${out}: ${(Buffer.byteLength(html) / 1024).toFixed(0)} KiB`);
+  console.log(`${out}: ${(Buffer.byteLength(html) / 1024).toFixed(0)} KiB, ${clips().length} recordings`);
 }
