@@ -166,10 +166,10 @@ const f = (n, d = 1) => n.toLocaleString("en-US", { maximumFractionDigits: d, mi
 console.log(`
 What ${players} players wandering and voting for ${f(seconds / 60, 1)} minutes cost
 (${games} votes won: ${flips} games of Coin Flip played, ${games - flips} for a game that does not open here yet, ${tossed} coin tosses)
-(${bumps.length} bumps, of which ${knocks} knocked somebody over)
 
   Messages to the room      ${f(messages, 0)} in all, ${f(messages / seconds, 2)} a second (${f(messages / seconds / players, 2)} per player)
   Keep-alives               ${f(pings, 0)} (one per player every 20 seconds, answered without waking the room)
+  Bumps                     ${f(bumps.length, 0)}, of which ${f(knocks, 0)} knocked somebody over (each is one of the messages above)
   Awake time                ${f(awake, 2)} seconds in all, ${f((awake / seconds) * 60, 3)} seconds per minute
                             (each event counted as its real time, and never less than ${EVENT_FLOOR_MS} ms; a game's tick loop second for second)
                             of which Coin Flip being played: ${f(heldSeconds, 1)} seconds (${FLIP_MS / 1000} each); the lobby itself: ${f((Math.max(0, awake - heldSeconds) / seconds) * 60, 3)} seconds per minute

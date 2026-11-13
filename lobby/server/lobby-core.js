@@ -509,8 +509,9 @@ export class LobbyCore {
       rows.push({ seat, name: m.name, colour: m.colour, place, points });
     }
     rows.sort((p, q) => p.place - q.place || p.seat - q.seat);
-    if (rows.length) this.gamesPlayed += 1;
+    // The night's list of games, for the board opened large: this one's name and who won it.
     record(this.history, { round: this.round, name: this.boxes.find((box) => box.id === a.id)?.name ?? a.id, rows });
+    if (rows.length) this.gamesPlayed += 1;
     this.last = { round: this.round, game: a.id, name: this.boxes.find((box) => box.id === a.id)?.name ?? a.id, rows, note: game.note ?? null, at: now };
     this.activity = { kind: "lobby" };
     for (const m of this.present()) {
