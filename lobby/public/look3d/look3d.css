@@ -1,0 +1,532 @@
+/* The words of the 3D look (look3d/words.js). The room is a 3D picture on a canvas; every word
+   is HTML laid over it from the same camera. Sizes are in metres of wall: --m is one metre in
+   screen pixels, worked out from --k (screen pixels per world unit), which words.js sets.
+   The warm bar room is the base; a skin changes the custom properties (look3d/skins.js). */
+
+/* Abril Fatface is Cork & Bell's own copy, already on the site. Caveat and Nunito are here. */
+@font-face {
+  font-family: "Abril Fatface";
+  src: url("/cork-and-bell/game/fonts/AbrilFatface-Regular.ttf") format("truetype");
+  font-display: swap;
+}
+@font-face {
+  font-family: "Caveat";
+  font-weight: 700;
+  src: url("fonts/caveat-latin-700-normal.woff2") format("woff2");
+  font-display: swap;
+}
+@font-face {
+  font-family: "Nunito";
+  font-weight: 900;
+  src: url("fonts/nunito-latin-900-normal.woff2") format("woff2");
+  font-display: swap;
+}
+
+.look3d {
+  --k: 1;
+  --m: calc(var(--k) * 125.55px);
+  --ink: #fff3e2;
+  --soft: #dbbfa2;
+  --dim: #a98d74;
+  --accent: #f6b35c;
+  --accent-rgb: 246, 179, 92;
+  --plate: rgba(30, 17, 12, 0.93);
+  --plate-line: rgba(246, 190, 130, 0.34);
+  --title: "Abril Fatface", Georgia, "Times New Roman", serif;
+  --title-w: 400;
+  --title-size: 1;
+  --title-case: none;
+  --title-space: 0;
+  --text: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --mono: ui-monospace, "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace;
+  --chalk: "Caveat", "Segoe Print", "Bradley Hand", "Chalkboard SE", cursive;
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  background: #03050c;
+  color: var(--ink);
+  font-family: var(--text);
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-font-smoothing: antialiased;
+}
+.look3d canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+.l3-wall,
+.l3-tags,
+.l3-over {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+}
+.l3-wall {
+  will-change: transform;
+}
+.l3-wall > * {
+  position: absolute;
+}
+.l3-fit {
+  display: block;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+/* ------------------------------------------------------------ the join sign */
+.l3-join {
+  padding: calc(var(--m) * 0.1) calc(var(--m) * 0.1) calc(var(--m) * 0.11);
+  background: var(--plate);
+  border: 1px solid var(--plate-line);
+  border-radius: calc(var(--m) * 0.08);
+  text-align: center;
+  box-shadow: 0 calc(var(--m) * 0.04) calc(var(--m) * 0.12) rgba(0, 0, 0, 0.45);
+}
+.l3-join small {
+  display: block;
+  font: 700 calc(var(--m) * 0.098) / 1 var(--mono);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  color: var(--accent);
+}
+.l3-qr {
+  display: block;
+  width: calc(var(--m) * 1.2);
+  height: calc(var(--m) * 1.2);
+  margin: calc(var(--m) * 0.09) auto;
+  padding: calc(var(--m) * 0.04);
+  border-radius: calc(var(--m) * 0.04);
+  background: #fff7ea;
+}
+.l3-pin {
+  font: 700 calc(var(--m) * 0.56) / 1 var(--mono);
+  letter-spacing: 0.04em;
+  color: #fff;
+}
+.l3-addr {
+  margin-top: calc(var(--m) * 0.07);
+  font: 500 calc(var(--m) * 0.1 * var(--fit, 1)) / 1.1 var(--mono);
+  letter-spacing: -0.01em;
+  color: var(--soft);
+}
+
+/* ------------------------------------------------------------ the Tonight board */
+.l3-board {
+  padding: calc(var(--m) * 0.1) calc(var(--m) * 0.13) calc(var(--m) * 0.12);
+  background: radial-gradient(120% 90% at 30% 20%, #2e3b36, #1b2522 70%);
+  border: calc(var(--m) * 0.075) solid #7b4a2b;
+  border-radius: calc(var(--m) * 0.05);
+  box-shadow:
+    inset 0 0 calc(var(--m) * 0.2) rgba(0, 0, 0, 0.6),
+    0 calc(var(--m) * 0.05) calc(var(--m) * 0.14) rgba(0, 0, 0, 0.5);
+  font-family: var(--chalk);
+  color: #f3eedf;
+}
+.l3-board h3 {
+  margin: 0;
+  font: 700 calc(var(--m) * 0.34) / 1 var(--chalk);
+  text-align: center;
+}
+.l3-rule {
+  height: 2px;
+  margin: calc(var(--m) * 0.06) 0 calc(var(--m) * 0.08);
+  background: rgba(243, 238, 223, 0.55);
+  border-radius: 2px;
+}
+.l3-rows {
+  min-height: calc(var(--m) * 1.47);
+}
+.l3-line {
+  display: grid;
+  grid-template-columns: calc(var(--m) * 0.19) calc(var(--m) * 0.17) 1fr auto;
+  align-items: center;
+  font: 700 calc(var(--m) * 0.3) / 1.22 var(--chalk);
+}
+.l3-line u {
+  text-decoration: none;
+  opacity: 0.65;
+  font-size: 0.8em;
+}
+.l3-line i {
+  width: calc(var(--m) * 0.11);
+  height: calc(var(--m) * 0.11);
+  border-radius: 50%;
+  background: #8a8d94;
+  box-shadow: 0 0 0 1.5px rgba(243, 238, 223, 0.7);
+}
+.l3-name {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  padding-right: 0.2em;
+}
+.l3-line s {
+  text-decoration: none;
+  text-align: right;
+}
+.l3-line s.fresh {
+  color: #ffd75e;
+  text-shadow: 0 0 calc(var(--m) * 0.1) rgba(255, 210, 122, 0.8);
+}
+.l3-nobody {
+  padding-top: calc(var(--m) * 0.3);
+  text-align: center;
+  font: 700 calc(var(--m) * 0.24) / 1.2 var(--chalk);
+  opacity: 0.75;
+}
+.l3-board small {
+  display: block;
+  margin-top: calc(var(--m) * 0.09);
+  text-align: center;
+  font: 700 calc(var(--m) * 0.16) / 1.15 var(--chalk);
+  opacity: 0.78;
+}
+/* A lit panel in place of the chalkboard. */
+.l3-led .l3-board {
+  background: color-mix(in srgb, var(--plate) 70%, #000);
+  border: 1.5px solid rgba(var(--accent-rgb), 0.6);
+  border-radius: calc(var(--m) * 0.07);
+  box-shadow: 0 0 calc(var(--m) * 0.3) rgba(var(--accent-rgb), 0.22);
+  color: var(--ink);
+  padding: calc(var(--m) * 0.16) calc(var(--m) * 0.15) calc(var(--m) * 0.17);
+}
+.l3-led .l3-board h3 {
+  font: 700 calc(var(--m) * 0.16) / 1.5 var(--mono);
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+.l3-led .l3-rule {
+  height: 1.5px;
+  background: rgba(var(--accent-rgb), 0.45);
+}
+.l3-led .l3-line {
+  font: 700 calc(var(--m) * 0.19) / 1.75 var(--mono);
+}
+.l3-led .l3-nobody {
+  font: 500 calc(var(--m) * 0.13) / 1.4 var(--mono);
+}
+.l3-led .l3-board small {
+  font: 500 calc(var(--m) * 0.098) / 1.4 var(--mono);
+}
+
+/* ------------------------------------------------------------ the sign under a box */
+.l3-sign {
+  padding: calc(var(--m) * 0.08) calc(var(--m) * 0.06) calc(var(--m) * 0.09);
+  background: var(--sign-bg, var(--plate));
+  border: calc(var(--sign-border, 1) * 1px) solid var(--sign-line, var(--plate-line));
+  border-radius: calc(var(--sign-radius, 9) * var(--k) * 1px);
+  text-align: center;
+  box-shadow: 0 calc(var(--m) * 0.04) calc(var(--m) * 0.12) rgba(0, 0, 0, 0.45);
+  transition:
+    background-color 0.25s,
+    border-color 0.25s,
+    box-shadow 0.25s,
+    opacity 0.25s;
+}
+.l3-sign b {
+  font: var(--title-w) calc(var(--m) * 0.3 * var(--title-size) * var(--fit, 1)) / 1.12 var(--title);
+  letter-spacing: var(--title-space);
+  text-transform: var(--title-case);
+  color: var(--sign-ink, var(--ink));
+}
+.l3-about {
+  margin-top: calc(var(--m) * 0.035);
+  font: 500 calc(var(--m) * 0.112 * var(--fit, 1)) / 1.2 var(--text);
+  color: var(--sign-soft, var(--soft));
+}
+.l3-row {
+  display: flex;
+  align-items: center;
+  justify-content: safe center;
+  gap: calc(var(--m) * 0.06 * var(--fit, 1));
+  margin-top: calc(var(--m) * 0.07);
+  min-height: calc(var(--m) * 0.19);
+  overflow: hidden;
+}
+.l3-need {
+  padding: calc(var(--m) * 0.035) calc(var(--m) * 0.085);
+  border-radius: 99px;
+  background: #38bdf8;
+  color: #0b0a12;
+  font: 700 calc(var(--m) * 0.106 * var(--fit, 1)) / 1.1 var(--text);
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+}
+.l3-need.phones {
+  background: #b39dfc;
+}
+.l3-need.screen {
+  background: #fbbf24;
+}
+.l3-seats {
+  font: 600 calc(var(--m) * 0.098 * var(--fit, 1)) / 1 var(--text);
+  color: var(--sign-soft, var(--soft));
+  white-space: nowrap;
+}
+.l3-why {
+  padding: calc(var(--m) * 0.035) calc(var(--m) * 0.1);
+  border-radius: 99px;
+  background: #ffe2d6;
+  color: #5a1408;
+  font: 800 calc(var(--m) * 0.112 * var(--fit, 1)) / 1.1 var(--text);
+  white-space: nowrap;
+}
+/* A game this party cannot play: its light is off, and the sign says why. */
+.l3-sign.shut {
+  background: rgba(14, 10, 10, 0.93);
+  border-style: dashed;
+  border-color: rgba(255, 255, 255, 0.28);
+}
+.l3-sign.shut b {
+  color: rgba(255, 255, 255, 0.45);
+}
+.l3-sign.shut .l3-about {
+  color: rgba(255, 255, 255, 0.34);
+}
+.l3-sign.off {
+  opacity: 0.45;
+}
+.l3-sign.tied {
+  border-color: var(--accent);
+  box-shadow: 0 0 calc(var(--m) * 0.3) rgba(var(--accent-rgb), 0.4);
+}
+.l3-sign.lead {
+  background: var(--accent);
+  border-color: #fff;
+  box-shadow: 0 0 calc(var(--m) * 0.4) rgba(var(--accent-rgb), 0.55);
+}
+.l3-sign.lead b,
+.l3-sign.lead .l3-about,
+.l3-sign.lead .l3-seats {
+  color: #160c06;
+  text-shadow: none;
+}
+.l3-sign.lead .l3-need {
+  background: #160c06;
+  color: #fff;
+}
+.l3-chip {
+  position: absolute;
+  left: 50%;
+  top: 0;
+  transform: translate(-50%, -62%);
+  padding: calc(var(--m) * 0.03) calc(var(--m) * 0.12);
+  border-radius: 99px;
+  background: #f2c14e;
+  color: #2a1a04;
+  font: 800 calc(var(--m) * 0.13) / 1.1 var(--text);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
+}
+/* Signs that glow in their box's own colour. */
+.l3-neon .l3-sign {
+  --neon: 255, 95, 176;
+  border-color: rgba(var(--neon), 0.8);
+  box-shadow: 0 0 calc(var(--m) * 0.22) rgba(var(--neon), 0.45);
+}
+.l3-neon .l3-sign b {
+  color: #fff;
+  text-shadow:
+    0 0 calc(var(--m) * 0.08) rgb(var(--neon)),
+    0 0 calc(var(--m) * 0.24) rgb(var(--neon));
+}
+.l3-neon .l3-sign.shut {
+  box-shadow: none;
+  border-color: rgba(255, 255, 255, 0.28);
+}
+.l3-neon .l3-sign.shut b {
+  color: rgba(255, 255, 255, 0.45);
+  text-shadow: none;
+}
+.l3-neon .l3-sign.lead b {
+  text-shadow: none;
+  color: #160c06;
+}
+.l3-neon .l3-sign.n1 {
+  --neon: 79, 227, 255;
+}
+.l3-neon .l3-sign.n2 {
+  --neon: 255, 212, 92;
+}
+.l3-neon .l3-sign.n3 {
+  --neon: 143, 123, 255;
+}
+.l3-neon .l3-sign.n4 {
+  --neon: 127, 224, 138;
+}
+.l3-neon .l3-sign.n5 {
+  --neon: 255, 138, 92;
+}
+/* A phone needs fewer, bigger words. */
+.l3-compact .l3-sign {
+  padding: calc(var(--m) * 0.07) calc(var(--m) * 0.05) calc(var(--m) * 0.08);
+}
+.l3-compact .l3-sign b {
+  font-size: calc(var(--m) * 0.34 * var(--title-size) * var(--fit, 1));
+}
+.l3-compact .l3-about,
+.l3-compact .l3-seats {
+  display: none;
+}
+.l3-compact .l3-need {
+  font-size: calc(var(--m) * 0.165 * var(--fit, 1));
+}
+.l3-compact .l3-why {
+  font-size: calc(var(--m) * 0.16 * var(--fit, 1));
+}
+.l3-compact .l3-row {
+  min-height: calc(var(--m) * 0.27);
+}
+
+/* ------------------------------------------------------------ name tags */
+.l3-tag {
+  position: absolute;
+  left: 0;
+  top: 0;
+  display: flex;
+  align-items: center;
+  gap: calc(var(--m) * 0.055);
+  padding: calc(var(--m) * 0.04) calc(var(--m) * 0.1) calc(var(--m) * 0.04) calc(var(--m) * 0.07);
+  border-radius: 99px;
+  background: rgba(10, 8, 8, 0.8);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  font: 600 calc(var(--m) * 0.138) / 1.1 var(--text);
+  letter-spacing: -0.005em;
+  white-space: nowrap;
+  color: #fff3e2;
+  will-change: transform;
+}
+.l3-tag i {
+  flex: none;
+  width: calc(var(--m) * 0.09);
+  height: calc(var(--m) * 0.09);
+  border-radius: 50%;
+  background: #8a8d94;
+  box-shadow: 0 0 0 1.5px rgba(255, 255, 255, 0.28);
+}
+.l3-tag.grey {
+  color: #c9ccd2;
+  border-style: dashed;
+  font-style: italic;
+}
+.l3-tag.you {
+  background: #fffaf0;
+  color: #140c08;
+  border-color: #fff;
+  font-weight: 800;
+  box-shadow: 0 0 calc(var(--m) * 0.2) rgba(255, 255, 255, 0.35);
+}
+.l3-tag.you i {
+  box-shadow: 0 0 0 1.5px rgba(6, 10, 22, 0.5);
+}
+.l3-tag.you::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 100%;
+  margin-left: calc(var(--m) * -0.06);
+  border: calc(var(--m) * 0.06) solid transparent;
+  border-top-color: #fffaf0;
+  border-bottom: 0;
+}
+/* Just hit: a "!" over the tag. */
+.l3-tag.hit::before {
+  content: "!";
+  position: absolute;
+  left: 50%;
+  bottom: 100%;
+  transform: translateX(-50%);
+  font: 400 calc(var(--m) * 0.38) / 1 var(--title);
+  color: #ffd75e;
+  text-shadow: 0 2px 6px rgba(0, 0, 0, 0.6);
+}
+.l3-compact .l3-tag {
+  font-size: calc(var(--m) * 0.2);
+}
+
+/* ------------------------------------------------------------ the count and the toss */
+.l3-count {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: calc(var(--m) * 1.14);
+  height: calc(var(--m) * 1.14);
+  display: grid;
+  place-items: center;
+  align-content: center;
+  text-align: center;
+}
+.l3-compact .l3-count {
+  width: calc(var(--m) * 1.5);
+  height: calc(var(--m) * 1.5);
+  font-size: 1.32em;
+}
+.l3-count svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+.l3-count-back {
+  fill: #160c06;
+  stroke: rgba(255, 255, 255, 0.22);
+  stroke-width: 5;
+}
+.l3-count-arc {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 6;
+  stroke-linecap: round;
+}
+.l3-count small {
+  position: relative;
+  font: 700 calc(var(--m) * 0.094) / 1 var(--mono);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: #f6ead2;
+}
+.l3-compact .l3-count small {
+  font-size: calc(var(--m) * 0.124);
+}
+.l3-count b {
+  position: relative;
+  font: 800 calc(var(--m) * 0.56) / 1 var(--text);
+  color: #fff;
+}
+.l3-compact .l3-count b {
+  font-size: calc(var(--m) * 0.74);
+}
+.l3-toss {
+  position: absolute;
+  left: 0;
+  top: 0;
+  display: grid;
+  justify-items: center;
+  gap: calc(var(--m) * 0.06);
+  padding: calc(var(--m) * 0.1) calc(var(--m) * 0.34) calc(var(--m) * 0.14);
+  background: var(--plate);
+  border: 1px solid var(--plate-line);
+  border-radius: calc(var(--m) * 0.14);
+  box-shadow: 0 calc(var(--m) * 0.05) calc(var(--m) * 0.2) rgba(0, 0, 0, 0.5);
+}
+.l3-toss b {
+  font: var(--title-w) calc(var(--m) * 0.52) / 1 var(--title);
+  color: #fff;
+}
+.l3-toss span {
+  padding: calc(var(--m) * 0.04) calc(var(--m) * 0.13);
+  border-radius: 99px;
+  background: #f2c14e;
+  color: #2a1a04;
+  font: 800 calc(var(--m) * 0.15) / 1.1 var(--text);
+  white-space: nowrap;
+}
