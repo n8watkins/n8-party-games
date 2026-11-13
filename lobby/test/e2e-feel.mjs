@@ -415,9 +415,10 @@ try {
   const frames = (await recording).map((f) => ({ t: f.t, a: read(f.pieces[0]), v: read(f.pieces[1]) }));
   const still = frames[0];
   const attack = frames.filter((f) => Math.abs(f.a.tilt) > 0.5 || Math.abs(f.a.x - still.a.x) > 0.5);
-  const wound = attack.filter((f) => f.a.tilt < -8 && f.a.y < still.a.y - 12 && f.a.x < still.a.x - 8);
-  const struck = attack.filter((f) => f.a.tilt > 12 && f.a.x > still.a.x + 30);
-  check(wound.length >= 2 && struck.length >= 2 && wound[0].t < struck[0].t, `on the big screen the bumper lifts and leans back, then slams forward (${wound.length} frames wound up, ${struck.length} striking)`);
+  // A kick: picked up by its head, the base swings back (a clockwise tilt about the head, facing right), then whips forward (anticlockwise).
+  const wound = attack.filter((f) => f.a.tilt > 15 && f.a.y < still.a.y - 12);
+  const struck = attack.filter((f) => f.a.tilt < -30 && Math.abs(f.a.x - still.a.x) < 25);
+  check(wound.length >= 2 && struck.length >= 2 && wound[0].t < struck[0].t, `on the big screen the bumper is lifted with its base swung back, then kicks it forward while its head stays put (${wound.length} frames wound up, ${struck.length} striking)`);
   check(frames.at(-1).a.x === still.a.x && frames.at(-1).a.tilt === 0, "and is back on its feet where it stood");
   const flying = frames.filter((f) => f.v.y < still.v.y - 20 && Math.abs(f.v.tilt) > 15);
   const flat = frames.filter((f) => Math.abs(f.v.tilt) > 85);
