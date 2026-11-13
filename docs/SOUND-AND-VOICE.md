@@ -1,9 +1,30 @@
 # Emotes, soundboard, voice lines and live voice
 
 Written 2026-11-12.
-This is a plan, not a build: nothing described here exists yet.
 It covers how players express themselves in the party room and in games, from the cheapest idea to the hardest.
 Everything here belongs to the party kit, not to any one game, so it is built once and every game inherits it.
+
+## Status (2026-11-13)
+
+Layers 1 and 2 are being built (branch `feat/emotes-sounds`).
+What does not depend on taste is built and tested; the look is waiting on the owner's picks.
+
+Built:
+
+- The rules, in the kit (`party-kit/client/emotes.js`): the message shapes, a per-player cooldown the room enforces (1.5 s for an emote, 4 s for a sound), and a game's say over them during play (`manifest.lobby.emotes` and `.sounds`; by default emotes yes, sounds no).
+- The room passes each one on and is done: one event, no wake-up, no timer. It tells a page that sent one too soon how long is left, and a script that keeps sending them is closed within about two seconds.
+- The sounds, made in the browser with Web Audio (`party-kit/client/sound-recipes.js`): no audio file is shipped or fetched, so the licence question is settled for every built-in sound. There are 30: 18 for the board and 12 short stings an emote can carry.
+- The player on each device (`party-kit/client/sounds.js`): volume, "mute all sounds" and "mute this player", kept on the device. It plays nothing before the browser allows sound and never plays a backlog when it does. It plays from the big screen only when the room has one, and on every player's device when it has none.
+- Until the look is chosen, the room says who did what in a note at the top ("Tom: Air horn"), so a sound is never the only signal.
+
+Waiting on the owner's picks:
+
+- Which emotes, how they look, and the button and its wheel.
+- Which sounds go on the board and which ride on emotes.
+- The preview to pick from is `preview/emotes-artifact.html` (one page, also at `/preview/emotes/` in the local build only).
+- So far the owner chose the hold-and-flick wheel as the trigger, and both kinds of sound: each emote carries its own, and a separate board is there to play with.
+
+Not done: own voice lines (layer 3) and live voice (layer 4).
 
 ## The short version
 
@@ -28,7 +49,9 @@ What it is: a tap shows a bubble or a small animation over your piece, as in TFT
 
 What it is: a tap plays a short sound that everyone hears, such as an air horn, a sad trombone, applause, a drum sting, or a spoken "Hurry up!".
 
-- The sounds ship with the kit as small audio files, so sending one is still just a tiny message naming the sound.
+- The sounds are made in the browser from oscillators, noise and filters (decided 2026-11-13), so sending one is still just a tiny message naming the sound and there is no audio file to licence.
+  Each is rendered once per device into a buffer and then played with a single node.
+  Crowds and voices (applause, a crowd's "ooooh", canned laughter) are where made-up sounds fall short; found public-domain recordings could replace those few if the owner approves specific ones.
 - No microphone, no permission prompt, and no privacy question.
 - Where the sound plays matters:
   - If the room has a big screen, the sound plays from the big screen only, like a speaker in the room.
@@ -63,6 +86,13 @@ Limits that keep it cheap and safe:
 - A clip is by its nature a recording, and the screen says so plainly when you record it.
 
 Cost: a handful of slightly larger messages when a player joins, then the same as the soundboard.
+
+How it will slot in beside the built-in sounds (designed, not built):
+
+- A clip is named by who owns it and which of their slots it is, so there are no global ids to manage: a page sends `{ t: "sb", k: "own:2" }` and the room relays `{ t: "sb", s: <seat>, k: "own:2" }`.
+- The room checks the clip exists for that seat, with the same 4-second cooldown and flood rule as any sound.
+- On each page a clip is one more named sound for the player (`defineSound` in `party-kit/client/sounds.js`), so muting, "mute this player", the big-screen rule and unlocking need nothing new.
+- On the board, a player's own clips are pads beside the built-in ones (the preview shows three mock pads).
 
 To check on real phones before building: iPhones and Android phones record in different audio formats, and each must be able to play the other's clips.
 The safe route is to convert every clip to one plain format on the device before sending it.
@@ -180,6 +210,7 @@ Each step is a well-specified build, so none of them needs the most capable mode
 
 1. The first emotes and sounds: is the starting list right (wave, laugh, taunt, hurry up; air horn, sad trombone, applause, drum sting, "Hurry up!")?
 2. Where the built-in sounds come from: recorded by us, generated, or a licensed library.
+   Decided: generated in the browser; found public-domain recordings are allowed too, each one approved by name first.
 3. Own voice lines: are 4 clips of 3 seconds each the right size?
 4. Whether to run the live voice test after layer 3, or leave live voice alone for now.
 

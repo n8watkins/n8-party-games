@@ -15,8 +15,14 @@
 //   room -> sender { t: "wait", k: "emote" | "sound", in: ms }   refused: too soon (in > 0),
 //                                                                or not allowed now (in: -1)
 //
-// The pictures are in emote-art.js and the sounds themselves in sounds.js. A room turns all of
-// this on; a game says whether it may be used during play (GAME-CONTRACT.md, "Emotes and sounds").
+// The sounds themselves are in sounds.js and sound-recipes.js. How emotes look is waiting on
+// the owner's picks (preview/emotes-artifact.html), so the lists below are the first set, not
+// the final one. A room turns all of this on; a game says whether it may be used during play
+// (GAME-CONTRACT.md, "Emotes and sounds").
+//
+// A player's own recorded clips (docs/SOUND-AND-VOICE.md, layer 3, not built) are meant to slot
+// in as sounds named by their slot, "own:0" to "own:3", relayed with the sender's seat like any
+// other: the room would check that the sender has that clip.
 
 /** The emotes, in the order they are offered. `key` is the key that sends it from a keyboard. */
 export const EMOTES = [
