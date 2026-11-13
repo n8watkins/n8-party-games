@@ -46,6 +46,7 @@ Every skin keeps the layout exactly and changes the wall, the floor, the lamps, 
 A skin is one description in `public/look3d/skins.js`, and nothing else in the 3D look knows a room by name.
 All of them, with a still each and four more rooms that are only concepts, are on the rooms page: `/lobby/look3d/rooms/`.
 A posed room with nobody connected is at `/lobby/look3d/still.html?room=<skin>`; its header comment lists what it can show.
+Chosen stills of the 3D look, from a live run and from posed rooms, are in [`shots/3d/`](shots/3d/).
 
 How the 3D look stays cheap for a phone:
 
