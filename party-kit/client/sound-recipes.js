@@ -693,4 +693,229 @@ export const RECIPES = {
       scrape.gain.value = 0;
     },
   },
+
+  // ---------------------------------------------------------------- short stings that ride on an emote
+
+  /** A sparkle: five quick bright pings going up, and a shimmer. */
+  sparkle: {
+    length: 0.9,
+    loudness: 0.11,
+    build(p, t) {
+      const bus = p.amp(1);
+      bus.connect(p.out);
+      bus.connect(roomSend(p, 0.8, 0.3, 0.9));
+      [2093, 2637, 3136, 4186, 5274].forEach((f, i) => {
+        const g = p.amp();
+        const at = t + i * 0.045;
+        p.hit(g.gain, at, 0.5, 0.002, 0.35);
+        p.chain(p.osc("sine", f, at, at + 0.4), g, p.pan((i - 2) * 0.3), bus);
+      });
+      const air = p.amp();
+      p.gate(air.gain, t, 0.08, 0.05, 0.25, 0.3);
+      p.chain(p.noise(t, t + 0.7), p.filter("highpass", 8000), air, bus);
+    },
+  },
+
+  /** A slow clap in an empty hall: three claps, unimpressed. */
+  slowclap: {
+    length: 1.9,
+    build(p, t) {
+      const hall = roomSend(p, 1.4, 0.45, 0.5);
+      for (const s of [0, 0.55, 1.1]) {
+        const at = t + s;
+        for (const [freq, q, peak, decay] of [
+          [1400, 1.2, 0.9, 0.07],
+          [650, 1.5, 0.5, 0.1],
+        ]) {
+          const g = p.amp();
+          p.hit(g.gain, at, peak, 0.001, decay);
+          const clap = p.chain(p.noise(at, at + 0.2), p.filter("bandpass", freq, q), g);
+          clap.connect(p.out);
+          clap.connect(hall);
+        }
+      }
+    },
+  },
+
+  /** Popcorn: three crunchy mouthfuls. */
+  chomp: {
+    length: 0.75,
+    build(p, t) {
+      for (const s of [0, 0.19, 0.38]) {
+        const at = t + s;
+        const thud = p.amp();
+        p.hit(thud.gain, at, 0.5, 0.002, 0.07);
+        p.chain(p.osc("sine", 130, at, at + 0.1), thud, p.out);
+        for (let i = 0; i < 7; i++) {
+          const g = p.amp();
+          const tick = at + p.r(0, 0.05);
+          p.hit(g.gain, tick, p.r(0.3, 0.8), 0.0005, p.r(0.008, 0.02));
+          p.chain(p.noise(tick, tick + 0.04), p.filter("bandpass", p.r(2200, 4200), 1.2), g, p.out);
+        }
+      }
+    },
+  },
+
+  /** A balloon let go: a wobbling squeal that runs out of air. */
+  squeak: {
+    length: 0.85,
+    loudness: 0.12,
+    build(p, t) {
+      const dur = 0.72;
+      const o = p.osc("sawtooth", 900, t, t + dur);
+      p.curve(o.frequency, t, dur, (u) => (900 + 600 * Math.sin(Math.PI * Math.min(1, u * 1.4)) - 500 * u * u) * (1 + 0.08 * Math.sin(2 * Math.PI * 26 * u * dur)));
+      const g = p.amp(0);
+      p.curve(g.gain, t, dur, (u) => Math.min(1, u * 30) * (1 - u) * (0.7 + 0.3 * Math.sin(2 * Math.PI * 31 * u * dur)));
+      p.chain(o, p.filter("bandpass", 1500, 2.5), g, p.out);
+    },
+  },
+
+  /** A salt shaker: a few dry shakes. */
+  shaker: {
+    length: 1.1,
+    build(p, t) {
+      for (let i = 0; i < 6; i++) {
+        const at = t + i * 0.14;
+        const g = p.amp();
+        g.gain.setValueAtTime(0, at);
+        g.gain.linearRampToValueAtTime(i % 2 ? 0.5 : 0.8, at + 0.018);
+        g.gain.exponentialRampToValueAtTime(0.002, at + 0.09);
+        g.gain.linearRampToValueAtTime(0, at + 0.1);
+        p.chain(p.noise(at, at + 0.12), p.filter("highpass", 5000), p.filter("peaking", 8000, 1, 4), g, p.out);
+      }
+    },
+  },
+
+  /** A nervous gulp. */
+  gulp: {
+    length: 0.5,
+    build(p, t) {
+      const voice = formants(p, p.out, [
+        [500, 4, 1],
+        [1100, 5, 0.4],
+      ]);
+      const o = p.osc("triangle", 300, t, t + 0.4);
+      o.frequency.exponentialRampToValueAtTime(110, t + 0.12);
+      o.frequency.setValueAtTime(170, t + 0.2);
+      o.frequency.exponentialRampToValueAtTime(260, t + 0.3);
+      const g = p.amp(0);
+      g.gain.setValueAtTime(0, t);
+      g.gain.linearRampToValueAtTime(0.9, t + 0.01);
+      g.gain.linearRampToValueAtTime(0, t + 0.13);
+      g.gain.setValueAtTime(0, t + 0.2);
+      g.gain.linearRampToValueAtTime(0.5, t + 0.21);
+      g.gain.linearRampToValueAtTime(0, t + 0.32);
+      p.chain(o, g, voice);
+    },
+  },
+
+  /** Mwah: lips parting with a pop, and a little "ah". */
+  kiss: {
+    length: 0.55,
+    build(p, t) {
+      const pop = p.amp();
+      p.hit(pop.gain, t, 0.9, 0.001, 0.03);
+      p.chain(p.noise(t, t + 0.05), p.filter("bandpass", 1300, 2), pop, p.out);
+      const chirp = p.osc("sine", 600, t, t + 0.08);
+      chirp.frequency.exponentialRampToValueAtTime(1300, t + 0.05);
+      const cg = p.amp();
+      p.hit(cg.gain, t, 0.5, 0.002, 0.05);
+      p.chain(chirp, cg, p.out);
+      const ah = formants(p, p.out, [
+        [750, 5, 1],
+        [1200, 6, 0.5],
+      ]);
+      const o = p.osc("sawtooth", 260, t + 0.05, t + 0.32);
+      o.frequency.linearRampToValueAtTime(210, t + 0.3);
+      const g = p.amp();
+      p.gate(g.gain, t + 0.05, 0.4, 0.03, 0.15, 0.1);
+      p.chain(o, g, ah);
+    },
+  },
+
+  /** A small fire: crackles and pops over a low roar. */
+  crackle: {
+    length: 1.7,
+    loudness: 0.11,
+    build(p, t) {
+      const roar = p.amp();
+      p.gate(roar.gain, t, 0.3, 0.2, 1.2, 0.3);
+      p.chain(p.noise(t, t + 1.7), p.filter("lowpass", 300), roar, p.out);
+      for (let i = 0; i < 40; i++) {
+        const at = t + p.r(0.05, 1.45);
+        const g = p.amp();
+        p.hit(g.gain, at, p.r(0.2, 1), 0.0005, p.r(0.004, 0.02));
+        p.chain(p.noise(at, at + 0.03), p.filter("bandpass", p.r(1500, 6000), 1), g, p.pan(p.r(-0.5, 0.5)), p.out);
+      }
+    },
+  },
+
+  /** A whoosh through the air. */
+  swish: {
+    length: 0.5,
+    build(p, t) {
+      const dur = 0.38;
+      const f = p.filter("bandpass", 400, 2);
+      p.curve(f.frequency, t, dur, (u) => 400 + 3000 * Math.sin(Math.PI * Math.min(1, u * 1.2)));
+      const g = p.amp(0);
+      p.curve(g.gain, t, dur, (u) => Math.sin(Math.PI * u) ** 2);
+      p.chain(p.noise(t, t + dur), f, g, p.out);
+    },
+  },
+
+  /** Something soft and wet landing hard. */
+  splat: {
+    length: 0.8,
+    build(p, t) {
+      const thud = p.osc("sine", 140, t, t + 0.3);
+      thud.frequency.exponentialRampToValueAtTime(55, t + 0.15);
+      const tg = p.amp();
+      p.hit(tg.gain, t, 0.9, 0.002, 0.2);
+      p.chain(thud, tg, p.out);
+      const wet = p.amp();
+      p.hit(wet.gain, t, 0.9, 0.002, 0.22);
+      p.chain(p.noise(t, t + 0.3), p.filter("lowpass", 1100, 1.5), wet, p.out);
+      [0.28, 0.42, 0.58].forEach((s, i) => {
+        const at = t + s;
+        const drip = p.osc("sine", 700 - i * 60, at, at + 0.08);
+        drip.frequency.exponentialRampToValueAtTime(320, at + 0.06);
+        const g = p.amp();
+        p.hit(g.gain, at, 0.25, 0.002, 0.05);
+        p.chain(drip, g, p.out);
+      });
+    },
+  },
+
+  /** A high five: one sharp slap. */
+  slap: {
+    length: 0.6,
+    build(p, t) {
+      const bus = p.amp(1);
+      bus.connect(p.out);
+      bus.connect(roomSend(p, 0.6, 0.3, 0.6));
+      for (const [freq, q, peak, decay] of [
+        [2200, 0.8, 1, 0.05],
+        [900, 1.2, 0.6, 0.09],
+      ]) {
+        const g = p.amp();
+        p.hit(g.gain, t, peak, 0.0008, decay);
+        p.chain(p.noise(t, t + 0.15), p.filter("bandpass", freq, q), g, bus);
+      }
+    },
+  },
+
+  /** A cork popping out. */
+  pop: {
+    length: 0.4,
+    build(p, t) {
+      const o = p.osc("sine", 500, t, t + 0.06);
+      o.frequency.exponentialRampToValueAtTime(1600, t + 0.03);
+      const g = p.amp();
+      p.hit(g.gain, t, 0.9, 0.001, 0.04);
+      p.chain(o, g, p.out);
+      const n = p.amp();
+      p.hit(n.gain, t, 0.5, 0.001, 0.03);
+      p.chain(p.noise(t, t + 0.05), p.filter("bandpass", 1800, 1), n, p.out);
+    },
+  },
 };
