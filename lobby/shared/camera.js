@@ -46,11 +46,12 @@ export function signTop(n) {
  */
 export const CORNER_CLEAR = 58;
 /**
- * The top right corner of a phone's screen holds buttons (Rooms and the door, room-menu.js): in
- * "whole room", when the room is narrower than the screen, it is set to the left of them, so they
- * cover nothing on the wall. CSS pixels.
+ * The top right corner of a phone's screen holds three buttons (sound, Rooms and the door:
+ * room-menu.js, hud.js): in "whole room", when the room is narrower than the screen, it is set to
+ * the left of them, so they cover nothing on the wall; when there is not quite room for that, it
+ * goes as far left as it can. CSS pixels.
  */
-export const CORNER_WIDTH = 112;
+export const CORNER_WIDTH = 162;
 /** An upright phone shows this much of the room's width around the player. */
 export const UPRIGHT_WIDTH = 720;
 
@@ -88,6 +89,7 @@ export function camera({ w, h, bar = 0, mode = "room", focusX = 960, phone = fal
   // A sideways phone's whole room: in the middle of what the corner buttons leave, if it fits there.
   const across = (frame.right - frame.left) * scale;
   if (sideways && !following && across + CORNER_WIDTH <= w) x = frame.left - (w - CORNER_WIDTH - across) / 2 / scale;
+  else if (sideways && !following && across < w) x = frame.left;
   // The foot of the frame sits on top of the bar; the floor carries on under it. An upright
   // phone has room to spare, so the room sits in the middle of what is left above the bar.
   let y = frame.bottom - open / scale;

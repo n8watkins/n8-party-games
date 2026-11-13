@@ -259,8 +259,10 @@ describe("what a device shows", () => {
       const v = camera({ w, h, bar: 70, phone: true });
       expect(v.y).toBeLessThanOrEqual(PHONE_FRAME.top + 0.01);
       expect(v.y + (h - 70) / v.scale).toBeGreaterThanOrEqual(PHONE_FRAME.bottom - 0.01);
-      // The board's right edge (world 1858) is left of the corner buttons.
-      expect((1858 - v.x) * v.scale).toBeLessThanOrEqual(w - CORNER_WIDTH + 0.01);
+      // The board's right edge (world 1858) is left of the corner buttons, or as far left as it goes.
+      const across = (PHONE_FRAME.right - PHONE_FRAME.left) * v.scale;
+      if (across + CORNER_WIDTH <= w) expect((1858 - v.x) * v.scale).toBeLessThanOrEqual(w - CORNER_WIDTH + 0.01);
+      else expect(v.x).toBeCloseTo(PHONE_FRAME.left);
       expect((PHONE_FRAME.left - v.x) * v.scale).toBeGreaterThanOrEqual(-0.01);
     }
   });
