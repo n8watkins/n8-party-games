@@ -52,7 +52,8 @@ try {
     return page;
   }
   async function join(page, pin, nickname) {
-    await page.goto(`${base}/lobby/?join=${pin}`);
+    // ?full=on: a browser driven by a test is otherwise never put full screen on the way in.
+    await page.goto(`${base}/lobby/?join=${pin}&full=on`);
     await page.fill("input[name=nickname]", nickname);
     await page.tap("button[type=submit]");
     await page.waitForSelector(".bar", { timeout: 30000 });

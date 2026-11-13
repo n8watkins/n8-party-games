@@ -29,8 +29,11 @@ export const iPhone = () => /iPhone|iPod/.test(navigator.userAgent) || (/Macinto
 const chromeOnIOS = () => /CriOS/.test(navigator.userAgent);
 
 /** Asks for full screen, sideways. Must be called from a tap. Quietly does nothing where it cannot. */
-export function goFullscreen() {
+export function goFullscreen(asked = false) {
   if (standalone() || !canFullscreen() || document.fullscreenElement) return;
+  // A browser driven by a test run is not put full screen on the way in (the run resizes its
+  // windows); ?full=on asks for it anyway. The corner button always works.
+  if (!asked && navigator.webdriver && new URLSearchParams(location.search).get("full") !== "on") return;
   // Only a touch device is turned sideways; a laptop's screen is wide already.
   root
     .requestFullscreen({ navigationUI: "hide" })
@@ -82,7 +85,7 @@ export class ScreenFit {
       document.exitFullscreen().catch(() => {});
     } else {
       this.wanted = true;
-      goFullscreen();
+      goFullscreen(true);
     }
   }
 
@@ -102,7 +105,7 @@ export class ScreenFit {
     back.addEventListener("click", () => {
       back.remove();
       this.wanted = true;
-      goFullscreen();
+      goFullscreen(true);
     });
     setTimeout(() => back.remove(), 8000);
   }

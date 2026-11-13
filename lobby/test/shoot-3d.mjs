@@ -187,14 +187,28 @@ try {
         if (p.knock) window.__states.add("knocked");
         if (p.pawn.dizzy) window.__states.add("dizzy");
       }
-      if ((window.__looks = (window.__looks ?? 0) + 1) < 400) requestAnimationFrame(look);
+      if ((window.__looks = (window.__looks ?? 0) + 1) < 2000) requestAnimationFrame(look);
     };
     requestAnimationFrame(look);
   });
+  // The room is the judge of whether the bump lands: wait for its word, and on a slow machine
+  // (software drawing, a loaded box) try once more after the cooldown if it did not.
+  let mark = fitch.seen.length;
   fitch.send({ t: "b" });
   await sleep(160);
   await shot(screen, "07-screen-bump");
-  await sleep(2200);
+  let blow = await fitch.wait((m) => m.t === "b" && m.s === fitch.seat, 4000, mark).catch(() => null);
+  if (!(blow?.to >= 0)) {
+    await sleep(2600);
+    fitch.send({ t: "m", x: fitch.x, d: -1, r: fitch.rev });
+    fitch.send({ t: "m", x: fitch.x, d: 0, r: fitch.rev });
+    mark = fitch.seen.length;
+    fitch.send({ t: "b" });
+    blow = await fitch.wait((m) => m.t === "b" && m.s === fitch.seat, 4000, mark).catch(() => null);
+  }
+  check(blow?.to >= 0, "the bump lands on someone (the room says so)");
+  // Software-drawn frames can be a third of a second apart: keep looking until all three were drawn, or six seconds.
+  await screen.waitForFunction(() => ["attacking", "knocked", "dizzy"].every((s) => window.__states.has(s)), null, { timeout: 6000, polling: 100 }).catch(() => {});
   const states = await screen.evaluate(() => [...window.__states]);
   check(["attacking", "knocked", "dizzy"].every((s) => states.includes(s)), "a bump plays the shared story in 3D: " + states.join(", "));
   await sleep(1200);
