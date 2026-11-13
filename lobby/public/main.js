@@ -87,7 +87,7 @@ async function enter() {
   entering = true;
   const joinUrl = await link.joinUrl("/lobby/");
   compact = phone() && isPlayer();
-  const made = room ? await openRoomView(app, { ...chosen, compact, own: isPlayer() ? link.you.seat : -1, host: new URL(joinUrl).host, qr: link.qrUrl(joinUrl), onBoard: showBoard }) : null;
+  const made = room ? await openRoomView(app, { ...chosen, boxes: room.boxes.length, compact, own: isPlayer() ? link.you.seat : -1, host: new URL(joinUrl).host, qr: link.qrUrl(joinUrl), onBoard: showBoard }) : null;
   entering = false;
   stirAt = performance.now();
   if (!room) return void made?.destroy();

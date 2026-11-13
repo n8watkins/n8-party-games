@@ -18,8 +18,8 @@
 // that decides how a piece stands and moves is still look3d/pieces.js, called and not copied,
 // so a change to the bump there arrives here for free.
 //
-// The plate is made for one wall (plate.json says how many boxes). A room with a different
-// number of boxes, or a device where the plate does not load, gets the 3D look drawn as it is.
+// A plate is made for one wall (bar/<boxes>/plate.json). A room whose wall has no plate, or a
+// device where the plate does not load, gets the 3D look drawn as it is.
 import { boxCentre } from "../shared/world.js";
 import { boxArt, boxSide } from "../look3d/paint.js";
 import { Room3D } from "../look3d/room3d.js";
@@ -27,15 +27,17 @@ import { SKINS } from "../look3d/skins.js";
 import { CAM, D_WALL, FRAME, PX, SPACE, U, walkX, wallX, wallY } from "../look3d/space.js";
 import * as THREE from "../look3d/three.js";
 
-const HERE = new URL("./bar/", import.meta.url);
+/** The bar's plates, one folder per wall: bar/5/ is the wall of five boxes. */
+const BAR = new URL("./bar/", import.meta.url);
 
 /** The bar, with the jukebox kept and everything else of its life as it is. */
 const SKIN = SKINS.bar;
+const GOLD = new THREE.Color(SKIN.accent);
 
-function loadTexture(file, { srgb = true, mips = true } = {}) {
+function loadTexture(here, file, { srgb = true, mips = true } = {}) {
   return new Promise((done, fail) => {
     new THREE.TextureLoader().load(
-      new URL(file, HERE).href,
+      new URL(file, here).href,
       (t) => {
         t.colorSpace = srgb ? THREE.SRGBColorSpace : THREE.NoColorSpace;
         t.generateMipmaps = mips;
@@ -48,18 +50,20 @@ function loadTexture(file, { srgb = true, mips = true } = {}) {
   });
 }
 
-/** Everything the plate is made of, loaded together: {info, base, lamps, env, juke}. */
-async function loadPlate(renderer) {
-  const info = await (await fetch(new URL("plate.json", HERE))).json();
+/** Everything the plate for a wall of `boxes` boxes is made of, loaded together: {info, base, lamps, env, juke}. */
+async function loadPlate(renderer, boxes) {
+  const here = new URL(`${boxes}/`, BAR);
+  const answer = await fetch(new URL("plate.json", here));
+  if (!answer.ok) throw new Error(`there is no plate for a wall of ${boxes} boxes`);
+  const info = await answer.json();
   // The big base picture where the screen can show it and the device can hold it; the smaller one otherwise.
   const sharp = Math.max(screen.width, screen.height) * Math.min(window.devicePixelRatio || 1, 2) > 2100 && renderer.capabilities.maxTextureSize >= 4096;
   const [base, env, juke, ...lamps] = await Promise.all([
-    loadTexture(sharp ? info.base.large : info.base.small),
-    loadTexture(info.env, { mips: false }),
-    loadTexture(info.juke.file),
-    ...info.lamps.map((file) => loadTexture(file)),
+    loadTexture(here, sharp ? info.base.large : info.base.small),
+    loadTexture(here, info.env, { mips: false }),
+    loadTexture(here, info.juke.file),
+    ...info.lamps.map((file) => loadTexture(here, file, { mips: false })),
   ]);
-  base.anisotropy = Math.min(4, renderer.capabilities.getMaxAnisotropy());
   env.mapping = THREE.EquirectangularReflectionMapping;
   return { info, base, lamps, env, juke };
 }
@@ -87,14 +91,15 @@ function plateMaterial(plate) {
       void main(){
         vec2 uv = clamp(vUv, 0.0, 1.0);
         vec3 sum = texture2D(uBase, uv).rgb;
-        ${Array.from({ length: n }, (_, i) => `sum += texture2D(uLamps[${i}], uv).rgb * uGain[${i}] * mix(vec3(1.0), uGoldTint * 1.25, uGold[${i}]);`).join("\n        ")}
+        // A lamp that is off is not looked up at all.
+        ${Array.from({ length: n }, (_, i) => `if (uGain[${i}] > 0.0) sum += texture2D(uLamps[${i}], uv).rgb * uGain[${i}] * mix(vec3(1.0), uGoldTint * 1.25, uGold[${i}]);`).join("\n        ")}
         // Past the picture's edge the room carries on as darkness, not as a smear of its last row.
         vec2 out2 = abs(vUv - 0.5) - 0.5;
         float past = max(out2.x, out2.y);
         sum *= 1.0 - smoothstep(0.0, 0.12, past);
         // The corners of the room fall away a little, as they do in the hero picture.
         vec2 c = (uv - vec2(0.5, 0.46)) * vec2(1.0, 1.25);
-        sum *= 1.0 - 0.55 * smoothstep(0.28, 0.75, length(c));
+        sum *= 1.0 - 0.4 * smoothstep(0.3, 0.8, length(c));
         gl_FragColor = vec4(sum * uExposure, 1.0);
         #include <tonemapping_fragment>
         #include <colorspace_fragment>
@@ -126,7 +131,7 @@ export class RoomBaked extends Room3D {
   static async open(root, opts) {
     const view = await super.open(root, { ...opts, skin: "bar" });
     try {
-      view.plate = await loadPlate(view.renderer);
+      view.plate = await loadPlate(view.renderer, opts.boxes ?? 5);
     } catch (err) {
       view.destroy();
       throw err;
@@ -284,13 +289,13 @@ export class RoomBaked extends Room3D {
     const u = this.plateMat.uniforms;
     u.uGain.value[b.i] = gain;
     u.uGold.value[b.i] = b.gold;
+    // The spot stays in the scene at nothing when its lamp is off: taking a light out would rebuild every piece's shader.
     b.spot.intensity = 4.6 * (0.3 * glowing + 0.7 * level);
-    b.spot.visible = level > 0.002;
-    b.spot.color.set(SKIN.light).lerp(new THREE.Color(SKIN.accent), b.gold * 0.6);
+    b.spot.color.set(SKIN.light).lerp(GOLD, b.gold * 0.6);
     b.beam.material.uniforms.uStrength.value = 0.05 * glowing + 0.05 * level;
     b.beam.visible = level > 0.002;
     b.halo.visible = level > 0.002;
-    b.halo.material.opacity = (0.14 + 0.3 * Math.min(level, 1.3)) * glowing;
+    b.halo.material.opacity = (0.3 + 0.4 * Math.min(level, 1.3)) * glowing;
     b.halo.scale.setScalar(1.3 + level * 0.9);
     b.art.color.setScalar(0.17 + 0.68 * glowing + 0.2 * b.gold);
     b.goldFace.opacity = b.gold;
@@ -388,8 +393,7 @@ export class RoomBaked extends Room3D {
           if (!o.isMesh) return;
           o.visible = o.material === pawn.mat;
           if (!o.visible) return;
-          o.material = o.material.clone();
-          Object.assign(o.material, { transparent: true, depthWrite: false, side: THREE.DoubleSide });
+          o.material = new THREE.MeshBasicMaterial({ transparent: true, depthWrite: false, side: THREE.DoubleSide });
           o.renderOrder = -2;
         });
         this.mirror.add(r);
@@ -402,8 +406,8 @@ export class RoomBaked extends Room3D {
       mt.scale.copy(tilt.scale);
       mturn.rotation.copy(turn.rotation);
       const body = mturn.children[0];
-      body.material.color.copy(pawn.mat.color);
-      body.material.opacity = (0.07 + 0.13 * lamp.lit) * pawn.fade * Math.max(0, 1 - pawn.group.position.y * 0.9);
+      body.material.color.copy(pawn.mat.color).multiplyScalar(0.35 + 0.65 * lamp.lit);
+      body.material.opacity = (0.1 + 0.16 * lamp.lit) * pawn.fade * Math.max(0, 1 - pawn.group.position.y * 0.9);
     }
     for (const r of [...this.mirror.children]) {
       if ([...seen].some((pawn) => pawn.reflection === r)) continue;

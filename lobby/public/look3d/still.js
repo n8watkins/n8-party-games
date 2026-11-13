@@ -39,8 +39,9 @@ const BOXES = [
   boxFromManifest({ id: "flood", name: "Flood", blurb: "Climb before the water rises", players: { min: 2, max: 4 }, devices: { phone: true, desktop: false } }),
 ];
 const baked = query.get("look") === "baked";
-// The baked look's plate is today's wall: five boxes.
+// The baked look is shown on today's wall of five boxes (&boxes=6 adds the local test game's box).
 if (baked) BOXES.push(boxFromManifest({ id: "fox-trouble", name: "Fox Trouble", blurb: "Solve the room together, cause trouble", players: { min: 2, max: 4 }, devices: { phone: true, desktop: false } }));
+if (baked && query.get("boxes") === "6") BOXES.splice(1, 0, boxFromManifest({ id: "coin-flip", name: "Coin Flip", blurb: "Test game: luck picks the order", players: { min: 1, max: 4 }, devices: { phone: true, desktop: true } }));
 const N = BOXES.length;
 const light = (i, off = 0) => Math.round(boxCentre(i, N) + off);
 /** Where the room's feature is (look3d/space.js, boardX), in world units. */
@@ -99,6 +100,7 @@ const phone = () => Math.min(innerWidth, innerHeight) < 520;
 const room = fixture();
 const View = baked ? (await import("../baked/room-baked.js")).RoomBaked : Room3D;
 const view3d = await View.open(app, {
+  boxes: N,
   concept: true,
   skin: query.get("room") ?? "bar",
   compact: phone() && role === "player",

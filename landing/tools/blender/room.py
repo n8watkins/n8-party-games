@@ -12,6 +12,8 @@
 #   plate-env     the room all round from where the pieces stand, for their reflections
 #   plate-juke    the jukebox alone on a clear picture, with its shadow
 #   plate-all     base and every lamp in one picture, to look at (not shipped)
+#   ship-still    a first still of the Star Lounge from the same camera: the bar's layout with
+#                 a wall of glass, a planet going by and a cooler light (a study, not a plate)
 # A fourth argument "x0,y0,x1,y1" (fractions of the frame, from the top left) renders only that
 # part, so a large plate can be made in tiles that each stay under ten minutes.
 #
@@ -50,8 +52,9 @@ WALL_X = POOL_X
 # The live room's numbers (lobby/shared/world.js and lobby/public/look3d/space.js): the picture
 # is 1920 x 1080 world units, one unit is 1 / U metres on the back wall, and the camera stands
 # at CAM looking straight at the wall. The plate is that same picture with a margin all round.
-PLATE = re.match(r"plate(\d?)-(.+)$", SHOT)
+PLATE = re.match(r"(?:plate|ship)(\d?)-(.+)$", SHOT)
 PASS = PLATE.group(2) if PLATE else ""
+SHIP = SHOT.startswith("ship")
 U = 125.55
 CAM = (0.0, 4.2, 17.5)
 PLATE_RECT = dict(x0=-320, y0=-180, x1=2240, y1=1260)   # world units: 2560 x 1440
@@ -71,7 +74,9 @@ if PLATE:
     BOX_H = BOX_W * 1.4
     BOX_Y = wall_y(150) - BOX_H / 2
     END_X = -wall_x(181)
-    GAMES = [f"game {i}" for i in range(N)]
+    GAMES = ["cork", "who", "wind", "flood", "fox"] if SHIP else [f"game {i}" for i in range(N)]
+    if SHIP:
+        PLATE_RECT = dict(x0=0, y0=0, x1=1920, y1=1080)
 SEAT = ["#c8382c", "#2f6f8f", "#d9a02a", "#3f7a4a"]
 WARM = (1.0, 0.78, 0.52)
 
@@ -190,6 +195,13 @@ if PLATE:
         levels=[1.0 if (i == ONLY_LAMP or PASS in ("all", "env")) else 0.0 for i in range(N)],
         size=(1024, 512) if PASS == "env" else (3840, 2160) if PASS in ("base", "juke") else (1920, 1080),
         cam=CAM, look=(0.0, mid_y, -2.5), lens=36 * (CAM[2] + 2.5) / wm, fstop=64, focus=(0, 0, 0), players=[])
+    if SHIP:
+        SHOTS[SHOT].update(levels=[1.2, 0.7, 0, 0, 0], size=(2400, 1350), players=[
+            dict(seat=0, skin="pawn", x=POOL_X[0] - 0.42, face=0.5),
+            dict(seat=1, skin="pawn", x=POOL_X[0] + 0.4, face=-0.5, y=0.2, squash=1.05),
+            dict(seat=2, skin="pawn", x=POOL_X[1] + 0.05, face=0.1),
+            dict(seat=3, skin="pawn", x=POOL_X[2] + 0.5, face=-0.7, lean=0.08),
+        ])
 S = SHOTS[SHOT]
 
 # ------------------------------------------------------------------ set-up
@@ -221,7 +233,7 @@ scene.render.film_transparent = bool(S.get("alone"))
 scene.render.image_settings.file_format = "PNG"
 scene.render.image_settings.color_mode = "RGBA" if S.get("alone") else "RGB"
 scene.render.image_settings.compression = 60
-if PLATE and PASS != "all":
+if PLATE and PASS != "all" and not SHIP:
     # The live room adds the passes together itself, so they are saved plain: no film curve, no
     # look. A lamp's pass is saved darker than it is (LAMP_STOPS) so its brightest floor is not cut off.
     scene.view_settings.view_transform = "Standard"
@@ -569,10 +581,10 @@ if not ALONE:
         for (w, h, dx, dy) in [(bar, nh + bar * 2, -nw / 2 - bar / 2, 0), (bar, nh + bar * 2, nw / 2 + bar / 2, 0), (nw, bar, 0, nh / 2 + bar / 2), (nw, bar, 0, -nh / 2 - bar / 2)]:
             box("frame", (x + dx, BOX_Y + dy, zb + nd / 2), (w, h, nd), fm, bevel=0.012)
         plane("niche", (x, BOX_Y, zb + 0.004), nw, nh, dark_m)
-        if PLATE:
+        if PLATE and not SHIP:
             continue   # the poster and its sign are drawn live, in this empty frame
         art = picture(f"art {game}", f"box-{game}.png", glow=(2.2 if gold else 1.5) if on else 0.5, rough=0.4, dim=1.0 if on else 0.3)
-        side = principled(f"side {game}", rgb({"cork": "#4a0e0c", "who": "#cfc4b2", "flood": "#10224f", "wind": "#8a6540"}[game]), rough=0.6)
+        side = principled(f"side {game}", rgb({"cork": "#4a0e0c", "who": "#cfc4b2", "flood": "#10224f", "wind": "#8a6540", "fox": "#143d27"}[game]), rough=0.6)
         b = box(f"box {game}", (x, BOX_Y, zb + 0.05 + BOX_D / 2), (BOX_W, BOX_H, BOX_D), side, bevel=0.008)
         plane(f"front {game}", (x, BOX_Y, zb + 0.05 + BOX_D + 0.002), BOX_W - 0.012, BOX_H - 0.012, art)
         if on:
@@ -580,6 +592,8 @@ if not ALONE:
             area(f"box light {game}", (x, BOX_Y + 0.3, zb + 2.2), (x, BOX_Y, zb), 55 * (2.0 if gold else 1.0), 1.6, color=WARM)
             if gold:
                 point("gold glow", (x, BOX_Y, zb + 0.6), 260, color=(1.0, 0.62, 0.25), radius=0.6)
+        if SHIP:
+            continue
         sz = SIZES[f"sign-{i}"]
         top = BOX_Y - nh / 2 - 0.16
         plane(f"sign {game}", (x, top - sz["h"] / 2, zb + 0.03), sz["w"], sz["h"], picture(f"sign {game}", f"sign-{i}.png", glow=1.1 if on else 0.45, alpha=True))
@@ -944,11 +958,112 @@ glare.threshold = 1.6
 glare.size = 8
 glare.mix = -0.72
 comp = ct.nodes.new("CompositorNodeComposite")
-if ALONE or (PLATE and PASS != "all"):
+if ALONE or (PLATE and PASS != "all" and not SHIP):
     ct.links.new(rl.outputs["Image"], comp.inputs["Image"])
 else:
     ct.links.new(rl.outputs["Image"], glare.inputs["Image"])
     ct.links.new(glare.outputs["Image"], comp.inputs["Image"])
+
+if SHIP:
+    # ---- The Star Lounge, as a study: the bar's room turned into a ship's lounge by changing
+    # what it is made of, with a wall of glass where the boards were and a planet going by.
+    def metal(name, hex_, rough=0.35, m=0.6, coat=0.3):
+        return principled(name, rgb(hex_), rough=rough, metal=m, coat=coat)
+
+    hull = metal("hull", "#1b2748", rough=0.4)
+    panel = principled("panel", rgb("#c9d3e6"), rough=0.3, coat=0.5)
+    trim = metal("trim", "#aab6cc", rough=0.22, m=1.0)
+    strip = emission("strip", (0.35, 0.8, 1.0, 1), 9.0)
+    deck = principled("deck", rgb("#26355f"), rough=0.24, coat=1.0, coat_rough=0.06)
+    swap = {"side wall": hull, "ceiling": hull, "dado": panel, "side dado": panel, "floor": deck, "frame": trim, "door frame": trim,
+            "door": metal("ship door", "#22336e", rough=0.3), "dado rail": strip, "side rail": strip, "skirting": strip}
+    for o in list(bpy.data.objects):
+        base = o.name.split(".")[0]
+        if base in ("back wall", "picture rail", "string", "string bulb") or base.startswith("cord") or base.startswith("cap "):
+            bpy.data.objects.remove(o, do_unlink=True)
+        elif base in swap:
+            o.data.materials.clear(); o.data.materials.append(swap[base])
+        elif base.startswith("shade"):
+            o.data.materials.clear(); o.data.materials.append(principled("ship lamp", rgb("#dfe8f5"), rough=0.25, coat=0.6))
+    for light in bpy.data.lights:
+        if light.name.startswith("lamp "):
+            light.color = (0.82, 0.92, 1.0)
+        elif light.name in ("fill", "faces"):
+            light.color = (0.7, 0.8, 1.0); light.energy *= 0.6
+    for m in bpy.data.materials:
+        if m.name.startswith("bulb "):
+            m.node_tree.nodes["Emission"].inputs["Color"].default_value = (0.82, 0.92, 1.0, 1)
+    zb = ROOM["z_back"]
+    # The window: one sheet of glass above the panels, between metal ribs, with a lit sill.
+    glass = bpy.data.materials.new("glass"); glass.use_nodes = True
+    gb = glass.node_tree.nodes["Principled BSDF"]
+    gb.inputs["Base Color"].default_value = (0.9, 0.96, 1.0, 1); gb.inputs["Roughness"].default_value = 0.02
+    gb.inputs["Transmission Weight"].default_value = 1.0; gb.inputs["IOR"].default_value = 1.02
+    box("window", (0, 1.25 + (ROOM["h"] - 1.25) / 2, zb - 0.02), (ROOM["w"] + 0.4, ROOM["h"] - 1.25, 0.02), glass, bevel=0)
+    gaps = [WALL_X[0] - (WALL_X[1] - WALL_X[0]) / 2 + k * (WALL_X[1] - WALL_X[0]) for k in range(len(WALL_X) + 1)]
+    for gx in [-ROOM["w"] / 2 + 0.1] + gaps[1:-1:1] + [ROOM["w"] / 2 - 0.1]:
+        box("rib", (gx, 1.25 + (ROOM["h"] - 1.25) / 2, zb + 0.02), (0.16, ROOM["h"] - 1.25, 0.22), trim, bevel=0.03)
+        box("rib light", (gx, 1.25 + (ROOM["h"] - 1.25) / 2, zb + 0.135), (0.03, ROOM["h"] - 1.6, 0.01), strip, bevel=0)
+    box("sill", (0, 1.3, zb + 0.06), (ROOM["w"], 0.1, 0.2), trim, bevel=0.02)
+    # Lines of light in the deck, running the length of the room.
+    for lz in (-1.2, 2.1, 5.0):
+        box("deck light", (0, 0.004, lz), (ROOM["w"], 0.006, 0.035), strip, bevel=0)
+    # Outside: stars, a sun off to the left, and a banded planet with a ring filling much of the view.
+    wt = world.node_tree
+    wt.nodes["Background"].inputs["Strength"].default_value = 1.0
+    vor = wt.nodes.new("ShaderNodeTexVoronoi"); vor.inputs["Scale"].default_value = 110
+    star = wt.nodes.new("ShaderNodeMath"); star.operation = "LESS_THAN"; star.inputs[1].default_value = 0.06
+    wt.links.new(vor.outputs["Distance"], star.inputs[0])
+    twinkle = wt.nodes.new("ShaderNodeMath"); twinkle.operation = "MULTIPLY"; twinkle.inputs[1].default_value = 14.0
+    wt.links.new(star.outputs[0], twinkle.inputs[0])
+    wt.links.new(twinkle.outputs[0], wt.nodes["Background"].inputs["Color"])
+    sun = bpy.data.lights.new("sun", "SUN"); sun.energy = 5.5; sun.angle = math.radians(2); sun.color = (1.0, 0.96, 0.9)
+    so = bpy.data.objects.new("sun", sun); bpy.context.collection.objects.link(so)
+    so.rotation_euler = (G(0, 0, 0) - G(-70, 40, 30)).to_track_quat("-Z", "Y").to_euler()
+    pm = bpy.data.materials.new("planet"); pm.use_nodes = True
+    nt = pm.node_tree; pb = nt.nodes["Principled BSDF"]
+    co = nt.nodes.new("ShaderNodeTexCoord"); mp = nt.nodes.new("ShaderNodeMapping"); mp.inputs["Scale"].default_value = (0.012, 0.012, 0.4)
+    nt.links.new(co.outputs["Object"], mp.inputs[0])
+    nz = nt.nodes.new("ShaderNodeTexNoise"); nz.inputs["Scale"].default_value = 1.0; nz.inputs["Detail"].default_value = 9; nz.inputs["Distortion"].default_value = 0.5
+    nt.links.new(mp.outputs[0], nz.inputs["Vector"])
+    ramp = nt.nodes.new("ShaderNodeValToRGB")
+    els = ramp.color_ramp.elements
+    els[0].position = 0.3; els[0].color = rgb("#7a3a22")
+    els[1].position = 0.72; els[1].color = rgb("#f1d7a8")
+    for pos, hex_ in [(0.42, "#d98f55"), (0.52, "#f4c98a"), (0.6, "#b86a3a")]:
+        e = els.new(pos); e.color = rgb(hex_)
+    nt.links.new(nz.outputs["Fac"], ramp.inputs[0]); nt.links.new(ramp.outputs["Color"], pb.inputs["Base Color"])
+    pb.inputs["Roughness"].default_value = 0.85
+    # Its air: a thin blue edge that shows where the planet turns away.
+    lw = nt.nodes.new("ShaderNodeLayerWeight"); lw.inputs["Blend"].default_value = 0.22
+    nt.links.new(lw.outputs["Facing"], pb.inputs["Emission Strength"]); pb.inputs["Emission Color"].default_value = (0.25, 0.5, 1.0, 1)
+    bpy.ops.mesh.primitive_uv_sphere_add(radius=30, segments=128, ring_count=64, location=G(9, -5, -110))
+    planet = finish(bpy.context.object, pm)
+    planet.rotation_euler = (math.radians(18), math.radians(-12), 0)
+    rm = bpy.data.materials.new("ring"); rm.use_nodes = True
+    rnt = rm.node_tree; rb = rnt.nodes["Principled BSDF"]
+    rco = rnt.nodes.new("ShaderNodeTexCoord"); rsep = rnt.nodes.new("ShaderNodeVectorMath"); rsep.operation = "LENGTH"
+    rnt.links.new(rco.outputs["Object"], rsep.inputs[0])
+    rw = rnt.nodes.new("ShaderNodeTexWave"); rw.inputs["Scale"].default_value = 0.9; rw.inputs["Distortion"].default_value = 0.0
+    rn = rnt.nodes.new("ShaderNodeTexNoise"); rn.noise_dimensions = "1D"; rn.inputs["Scale"].default_value = 1.6; rn.inputs["Detail"].default_value = 6
+    rnt.links.new(rsep.outputs["Value"], rn.inputs["W"])
+    rb.inputs["Base Color"].default_value = rgb("#e9d9bb"); rb.inputs["Roughness"].default_value = 0.9
+    ra = rnt.nodes.new("ShaderNodeMath"); ra.operation = "MULTIPLY"; ra.inputs[1].default_value = 0.85
+    rnt.links.new(rn.outputs["Fac"], ra.inputs[0]); rnt.links.new(ra.outputs[0], rb.inputs["Alpha"])
+    bm_r = bmesh.new()
+    bmesh.ops.create_circle(bm_r, cap_ends=False, radius=58, segments=160)
+    inner = bmesh.ops.create_circle(bm_r, cap_ends=False, radius=38, segments=160)
+    bmesh.ops.bridge_loops(bm_r, edges=bm_r.edges[:])
+    rme = bpy.data.meshes.new("ring"); bm_r.to_mesh(rme); bm_r.free()
+    ring = bpy.data.objects.new("ring", rme); bpy.context.collection.objects.link(ring)
+    ring.location = planet.location; ring.rotation_euler = (math.radians(12), math.radians(-14), 0)
+    ring.data.materials.append(rm)
+    # A small moon, nearer and to the left.
+    bpy.ops.mesh.primitive_uv_sphere_add(radius=1.7, segments=64, ring_count=32, location=G(-8.5, 9.5, -45))
+    finish(bpy.context.object, principled("moon", rgb("#9aa3b5"), rough=0.9))
+    for o in bpy.data.objects:
+        if o.name == "haze":
+            o.data.materials[0].node_tree.nodes["Volume Scatter"].inputs["Density"].default_value = 0.012
 
 if ONLY_LAMP is not None:
     for light in bpy.data.lights:

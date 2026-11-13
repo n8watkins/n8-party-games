@@ -34,8 +34,9 @@ import { Scene } from "./scene.js";
  */
 
 /**
- * @typedef {{compact: boolean, own: number, host: string, qr: string, skin?: string, onBoard?: () => void}} RoomViewOptions
+ * @typedef {{compact: boolean, own: number, host: string, qr: string, skin?: string, boxes?: number, onBoard?: () => void}} RoomViewOptions
  *   onBoard: called when the Tonight board on the wall is tapped, so the page can open it.
+ *   boxes: how many boxes hang on the room's wall, which the baked look needs before it starts (its picture is of one wall).
  */
 
 const LOOK_KEY = "party-room:look";

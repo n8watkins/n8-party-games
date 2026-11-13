@@ -99,7 +99,7 @@ The 3D wall follows the flat one: a game's name is on its box and nowhere else, 
 
 To see it, add `?look=baked` to the room's address, for example `http://localhost:8791/lobby/?start&look=baked`.
 The choice is remembered on that device like the 3D look's; `?look=flat` goes back.
-It is the bar only, and only on today's wall of five boxes.
+It is the bar only.
 
 The 3D look's camera never moves, so the room does not have to be drawn every frame: it can be one picture.
 The baked look's room is a Cycles render from that same camera, made by the script that renders the landing page's hero (`landing/tools/blender/room.py`, the shots named `plate-*`).
@@ -113,12 +113,13 @@ Only what changes is drawn live:
 It is built as the 3D look with its walls swapped for a picture (`RoomBaked extends Room3D`), and it calls `look3d/pieces.js` for every pose, so a change to how a piece moves or is bumped arrives in both.
 What it gives up: the lamps are in the picture, so a jump under one does not set it swinging.
 
-A wall with another number of boxes (the local environment hangs Coin Flip as a sixth) is drawn by the 3D look as it stands, and so is the room on a device where the plate does not arrive.
-To see the baked look locally, start the server with production's wall: `npx wrangler dev --local --env local --port 8791 --var PARTY_TEST_GAMES:off`.
-A device that did not ask for it downloads none of it.
+A plate is a picture of one wall, so there is one per number of boxes: `public/baked/bar/5/` for production's wall and `public/baked/bar/6/` for the local one, which hangs Coin Flip as a sixth.
+A wall with no plate is drawn by the 3D look as it stands, and so is the room on a device where the plate does not arrive.
+A device that did not ask for the baked look downloads none of it.
 
-To make the plate again: `landing/tools/blender/plate.sh` (about 45 minutes of rendering, every job under ten), then `node lobby/tools/pack-baked.mjs`, which writes `public/baked/bar/` and prints the bytes.
+To make a plate again: `landing/tools/blender/plate.sh 5` (about 45 minutes of rendering, every job under ten), then `node lobby/tools/pack-baked.mjs 5`, which writes `public/baked/bar/5/` and prints the bytes.
 The raw renders are not committed.
+When a game is added to the wall, its plate must be rendered before the baked look shows that wall.
 
 ## What is built
 
@@ -298,7 +299,7 @@ A lobby nobody touches costs nothing: no timer, no messages, nothing counted, an
 | `games/coin-flip.js` | The test game, hung only where `PARTY_TEST_GAMES` is on. |
 | `wall.js` | Which boxes hang on the wall (hosted, outside, test, coming soon), which can start, and the wall each environment gets. |
 | `public/room-view.js` | The seam between the page and a drawing of the room: the interface both drawings keep, and which one a device gets. |
-| `public/baked/` | The baked drawing: `room-baked.js`, and the bar's packed plate in `bar/` (`plate.json` says what it covers). |
+| `public/baked/` | The baked drawing: `room-baked.js`, and the bar's packed plates in `bar/<boxes>/` (each `plate.json` says what it covers). |
 | `tools/pack-baked.mjs` | Packs the rendered plate for the baked look. |
 | `public/look3d/` | The 3D drawing: the scene (`room3d.js`), the words over it (`words.js`), the pieces (`pieces.js`), the rooms as skins (`skins.js`), a posed room (`still.html`) and the rooms page (`rooms/`). |
 | `test/` | Unit tests, the socket test, the browser run and the cost measurement. |
@@ -319,4 +320,5 @@ A lobby nobody touches costs nothing: no timer, no messages, nothing counted, an
 - `npm run lobby:shots:3d` also checks the rooms' life: that two devices in a room agree what time it is in the room and when each passing thing next comes, that a bump by the room's feature sets it off on both and announces its sound by name, and that none of it sends a message.
 - `npm run test:cork:3d` plays several rounds of Cork & Bell inside a room that is in the 3D look, on the Windows side's graphics card: under the game the 3D room is hidden and draws nothing, both pictures keep their WebGL context, the room draws again afterwards, and memory does not climb.
 - `npm run lobby:measure:3d` measures the 3D look's frame time on the Windows side's graphics card, in a headless Chrome. It is a desktop card at a phone's screen size, not a phone.
+- The baked look uses the same tools with `--look=baked`: `npm run lobby:shots:3d -- --look=baked` (the live run), `npm run test:cork:3d -- --look=baked --room=bar` (the room hides under a round of Cork & Bell and comes back), and `npm run lobby:measure:3d -- --look=baked --rooms=bar`. `node lobby/test/shoot-baked-stills.mjs` takes its posed stills, `node lobby/test/side-by-side.mjs` sets them beside the landing page's hero, and `node lobby/test/weigh-baked.mjs` prints what each look downloads.
 - `node lobby/test/e2e-budget.mjs` checks what happens when the allowance is spent; its header says which server to start.

@@ -28,7 +28,7 @@ const rounds = Number(opt("rounds", "3"));
 const skin = opt("room", "ship");
 const soft = opt("soft", "0") === "1";
 // --look=baked runs the same evening under the baked look (the bar as a rendered picture).
-const look = opt("look", "3d");
+const lookName = opt("look", "3d");
 const { api, call } = partyApi(base);
 const problems = [];
 const check = (ok, what) => {
@@ -43,7 +43,7 @@ try {
   const page = await context.newPage();
   const errors = [];
   page.on("pageerror", (e) => errors.push(e.message));
-  await page.goto(`${base}/lobby/?start&look=${look}&room=${skin}&cork-auto=1&cork-quality=low${soft ? "&gl=any" : ""}`);
+  await page.goto(`${base}/lobby/?start&look=${lookName}&room=${skin}&cork-auto=1&cork-quality=low${soft ? "&gl=any" : ""}`);
   await page.fill("input[name=nickname]", "Sol");
   await page.click("text=Start the party");
   await page.waitForSelector(".look3d canvas", { timeout: 60000 });
@@ -83,9 +83,11 @@ try {
         if (o.geometry) held.geometries.add(o.geometry);
         for (const m of [].concat(o.material ?? [])) {
           if (m.map) held.textures.add(m.map);
-          for (const u of Object.values(m.uniforms ?? {})) if (u.value?.isTexture) held.textures.add(u.value);
+          for (const u of Object.values(m.uniforms ?? {})) for (const v of [].concat(u.value)) if (v?.isTexture) held.textures.add(v);
         }
       });
+      // The baked look also holds the room's surroundings for the pieces' shine: the picture, and what the renderer made of it.
+      for (const t of [r.scene.environment, r.plate?.env]) if (t) held.textures.add(t);
       return { most: { textures: held.textures.size, geometries: held.geometries.size }, frames: r.drawn.frames, lost: r.renderer.getContext().isContextLost(), shown: getComputedStyle(r.el).visibility !== "hidden", heap: performance.memory ? Math.round(performance.memory.usedJSHeapSize / 1048576) : null, textures: r.renderer.info.memory.textures, geometries: r.renderer.info.memory.geometries };
     });
   const start = await look();

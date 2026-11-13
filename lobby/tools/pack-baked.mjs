@@ -1,7 +1,8 @@
 // Packs the bar's rendered plate for the baked look into lobby/public/baked/bar.
 //
 //   landing/tools/blender/plate.sh       renders the passes (about 45 minutes, not committed)
-//   node lobby/tools/pack-baked.mjs      joins, sizes and compresses them, and writes plate.json
+//   node lobby/tools/pack-baked.mjs [boxes]   joins, sizes and compresses them, and writes plate.json
+//                                        (boxes: 5, production's wall and the default, or 6, the local wall with its test game)
 //
 // What it writes, and why each is the size it is:
 //   base-3840.webp, base-2560.webp   the room with no game lamp on. 1.5 and 1 pixel per world
@@ -20,11 +21,13 @@ import { fileURLToPath } from "node:url";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const renders = resolve(here, "..", "..", "landing", "tools", "blender", "out");
-const out = resolve(here, "..", "public", "baked", "bar");
+const BOXES = Number(process.argv[2] ?? 5);
+// The renders for five boxes are named plate-*, for any other wall plate<boxes>-* (landing/tools/blender/room.py).
+const PREFIX = BOXES === 5 ? "plate" : `plate${BOXES}`;
+const out = resolve(here, "..", "public", "baked", "bar", String(BOXES));
 mkdirSync(out, { recursive: true });
 
 /** The same numbers as landing/tools/blender/room.py (PLATE_RECT, LAMP_STOPS and the jukebox's part of the frame). */
-const BOXES = 5;
 const RECT = { x0: -320, y0: -180, x1: 2240, y1: 1260 };
 const JUKE = { x0: 1560, y0: 500, x1: 1900, y1: 860 };
 const LAMP_STOPS = -1.5;
@@ -36,7 +39,7 @@ const need = (file) => {
 };
 
 // The base was rendered in two halves, to keep each job short.
-const [left, right] = [need("plate-base-0_0_500_1000.png"), need("plate-base-500_0_1000_1000.png")];
+const [left, right] = [need(`${PREFIX}-base-0_0_500_1000.png`), need(`${PREFIX}-base-500_0_1000_1000.png`)];
 const [lm, rm] = [await sharp(left).metadata(), await sharp(right).metadata()];
 const base = await sharp({ create: { width: lm.width + rm.width, height: lm.height, channels: 3, background: "#000" } })
   .composite([{ input: left, left: 0, top: 0 }, { input: right, left: lm.width, top: 0 }])
@@ -52,9 +55,9 @@ await save(sharp(base).resize({ width: 2560 }).webp({ quality: 90, effort: 6 }),
 const lamps = [];
 for (let i = 0; i < BOXES; i++) {
   lamps.push(`lamp-${i}.webp`);
-  await save(sharp(need(`plate-lamp${i}.png`)).removeAlpha().webp({ quality: 86, effort: 6 }), `lamp-${i}.webp`);
+  await save(sharp(need(`${PREFIX}-lamp${i}.png`)).removeAlpha().webp({ quality: 86, effort: 6 }), `lamp-${i}.webp`);
 }
-await save(sharp(need("plate-env.png")).removeAlpha().resize({ width: 1024 }).webp({ quality: 80, effort: 6 }), "env.webp");
+await save(sharp(need(`${PREFIX}-env.png`)).removeAlpha().resize({ width: 1024 }).webp({ quality: 80, effort: 6 }), "env.webp");
 await save(sharp(need("plate-juke.png")).webp({ quality: 86, alphaQuality: 90, effort: 6 }), "juke.webp");
 
 const info = {
@@ -64,7 +67,7 @@ const info = {
   lamps,
   // What a lamp's pass is multiplied by to put back what LAMP_STOPS took, and a little more: the live room's pools read better a touch hotter than the render's.
   lampGain: Number((2 ** -LAMP_STOPS * 1.35).toFixed(3)),
-  exposure: 0.7,
+  exposure: 0.88,
   env: "env.webp",
   juke: { file: "juke.webp", rect: JUKE },
 };
