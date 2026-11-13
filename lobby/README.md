@@ -38,6 +38,7 @@ For a big screen, open a third window, choose "Use this as the room's screen" an
 A room has one screen: a fourth window that asks to be it is told so and offered a seat.
 For phones on the same network, `npm run dev:lan` prints the address to open; the QR code on the wall then points at it.
 Stills of the main states, from a real run, are in [`shots/`](shots/).
+Stills of leaving, the room picker, the count, the poster card and the browser's bars (before and after) are in [`shots/leave-and-rooms/`](shots/leave-and-rooms/).
 The ones whose names start with `f` are from `npm run test:feel`: the bump moment by moment (wind-up, hit, thrown, on the floor, up and safe), the buttons and the cooldown ring, the board opened large, and the way in on a phone.
 
 ## The two drawings
