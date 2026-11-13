@@ -484,7 +484,14 @@ input {
   font-weight: 700;
 }
 .points {
+  min-width: 1.7em;
+  text-align: right;
   font: 800 1.1em/1 var(--mono);
+}
+/* What a game that keeps score was played for; the points beside it are what it adds tonight. */
+.score {
+  font: 700 0.9em/1 var(--mono);
+  color: #5a4636;
 }
 
 /* ------------------------------------------------------------ a game laid over the room */
@@ -496,6 +503,22 @@ input {
   padding: 16px;
   background: rgba(8, 4, 3, 0.95);
   overflow: auto;
+}
+/*
+ * A game whose view covers everything (Cork & Bell): it gets the whole screen, the room is not
+ * drawn under it, and of the room's own things only the door button, the notes and the word
+ * about the connection stay on top. The door button is already sized for a phone held sideways.
+ */
+#app.in-game .stage {
+  padding: 0;
+  overflow: hidden;
+  background: #0b1020;
+}
+#app.in-game svg.scene,
+#app.in-game .bar,
+#app.in-game .turn-hint,
+#app.in-game .banner {
+  display: none;
 }
 .flip {
   display: grid;

@@ -256,6 +256,8 @@ export class Hud {
       h("span", "place", PLACES[row.place - 1] ?? String(row.place), li);
       h("span", "dot", "", li).style.background = row.colour;
       h("span", "who-name", row.name, li);
+      // A game that keeps score: the score is what was played for, the points are what it adds tonight.
+      if (typeof row.score === "number") h("span", "score", row.score.toLocaleString("en-US"), li);
       h("span", "points", row.points ? `+${row.points}` : "0", li);
     }
     h("p", "card-foot", "Points go on the Tonight board.", card);

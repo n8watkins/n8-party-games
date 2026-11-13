@@ -38,7 +38,7 @@ The live address is shared by everyone, and Cloudflare sees your real address th
 Make at most a handful of rooms when checking.
 
 9. Open `https://partygames.n8builds.dev/api/party/config` and confirm `simLatency` is `false`, and that `turnstileSiteKey` is the site key once the bot check is on (`null` until then).
-10. Confirm `https://partygames.n8builds.dev/cork-and-bell/` loads over HTTPS with `Content-Security-Policy`, `X-Content-Type-Options`, `X-Frame-Options` and `Referrer-Policy` headers, and that `/package.json`, `/wrangler.jsonc` and `/party-kit/README.md` answer 404.
+10. Confirm `https://partygames.n8builds.dev/cork-and-bell/` loads over HTTPS with `Content-Security-Policy`, `X-Content-Type-Options`, `X-Frame-Options` (`SAMEORIGIN`: the party room shows the game in a frame, and no other site may) and `Referrer-Policy` headers, and that `/package.json`, `/wrangler.jsonc` and `/party-kit/README.md` answer 404.
 11. Open `https://partygames.n8builds.dev/` and confirm the front page shows "Start a party" and "Join with a code"; then open the game on a laptop, make a room, and join it by PIN from a phone.
 12. Open `https://partygames.n8builds.dev/api/party/scores/cork-and-bell` and confirm it answers `{"ok":true,"top":[...]}`.
 
@@ -54,8 +54,8 @@ Make at most a handful of rooms when checking.
 ## The party room
 
 19. Open `https://partygames.n8builds.dev/` on a laptop, start a party as the room's screen, and join it from two phones with the code or the QR code on the wall.
-20. Check the wall: Cork & Bell, Who Am I?, Tin Derby, Flood and Fox Trouble, and no Coin Flip (the test game hangs only where `PARTY_TEST_GAMES` is `"on"`, which production is not). Walk about and stand in different lights, then put the phones down with the room open for at least 8 minutes. Last of all, stand both phones in Who Am I?'s light: after the count a card says "Off to Who Am I?" and the laptop and both phones go to `https://whoami.n8builds.dev/`.
-21. In the dashboard open the `LobbyRoom` namespace's Metrics tab: expect requests while people moved, and nothing at all while the phones lay still. An outside game adds no duration: nothing is played in the room.
+20. Check the wall: Cork & Bell, Who Am I?, Tin Derby, Flood and Fox Trouble, and no Coin Flip (the test game hangs only where `PARTY_TEST_GAMES` is `"on"`, which production is not). Stand both phones in Cork & Bell's light: the battle opens on both phones and the laptop shows both stalls, and ninety seconds later everyone is back in the room with the scores on a card and points on the Tonight board. Then walk about, and put the phones down with the room open for at least 8 minutes. Last of all, stand both phones in Who Am I?'s light: after the count a card says "Off to Who Am I?" and the laptop and both phones go to `https://whoami.n8builds.dev/`.
+21. In the dashboard open the `LobbyRoom` namespace's Metrics tab: expect requests while people moved, one block of duration of about a minute and a half for the round of Cork & Bell (the room is awake for all of a round, as a game's own room is), and nothing at all while the phones lay still. An outside game adds no duration: nothing is played in the room.
 22. If duration grows while nobody touches anything, something is keeping the room awake, so set `PARTY_ROOM_BUDGET_SHARE` to a tiny value (open party rooms close within three minutes and no new ones open) and investigate.
 23. Confirm that `https://partygames.n8builds.dev/api/lobby/debug` answers 404: the door into the budget's books is for local tests only.
 24. After a busy evening, compare Durable Objects requests under Billable Usage with the numbers in `lobby/README.md`: requests, not duration, are what a busy party room uses most of. The `usage` key in step 17 also holds the requests the party rooms counted (`dayRequests`, `monthRequests`).

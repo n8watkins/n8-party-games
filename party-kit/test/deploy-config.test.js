@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { unstable_readConfig } from "wrangler";
 import { describe, expect, it } from "vitest";
 import { OUT, SERVED, build } from "../../scripts/build-public.mjs";
+import { headersFile } from "../build/public.mjs";
 
 const read = (env) => unstable_readConfig({ config: "wrangler.jsonc", env });
 
@@ -79,7 +80,13 @@ describe("the public folder", () => {
     expect(headers).not.toContain("unsafe-inline");
     expect(headers).not.toContain("unsafe-eval");
     expect(headers).toContain("X-Content-Type-Options: nosniff");
-    expect(headers).toContain("frame-ancestors 'none'");
+    // The party room frames a hosted game's own page: this site may frame itself, and nobody else may.
+    expect(headers).toContain("frame-ancestors 'self'");
+    expect(headers).toContain("X-Frame-Options: SAMEORIGIN");
+    expect(headers).toMatch(/frame-src 'self' https:\/\/challenges\.cloudflare\.com;/);
+    // A site that frames nothing keeps the kit's default: no framing at all.
+    expect(headersFile([])).toContain("frame-ancestors 'none'");
+    expect(headersFile([])).toContain("X-Frame-Options: DENY");
   });
 
   it("lets the zone's Cloudflare Web Analytics beacon load and report, and nothing else from outside", () => {

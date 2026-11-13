@@ -60,6 +60,10 @@ const leftAt = Date.now();
 
 const [A, B, C, D] = [a, b, cy, d].map(connect);
 const all = [A, B, C, D];
+// A page keeps its socket alive by itself (the keep-alive the room answers without waking). These
+// bare sockets must too, or a round of Cork & Bell in which they say nothing for ninety seconds
+// gets them taken for phones that have gone.
+const breathing = setInterval(() => all.forEach((c) => c.send("ping")), 20_000);
 await Promise.all(all.map((c) => c.opened));
 const hello = await A.wait((m) => m.t === "hello", 8000, 0);
 check(hello.you.seat === 0 && hello.room.boxes.length === N && hello.room.pin === a.pin, "hello: your seat, the code and the six boxes on the wall");
@@ -122,16 +126,28 @@ check(tied.vote.leaders.join() === "cork-and-bell,coin-flip", "two against two i
 const toss = await A.wait((m) => voteOf(m)?.toss, 6000, mark);
 const tossed = voteOf(toss).toss;
 check(tossed.between.length === 2 && tossed.between.includes(tossed.winner), "the tie is settled by a coin toss everybody is shown: " + tossed.winner);
-// Cork & Bell does not open inside the room yet, so it hangs as an outside game: winning sends
-// every page to its own page. Coin Flip plays here.
-const after = await A.wait((m) => m.t === "end" || m.t === "away", 12000, mark);
-let end2 = after;
+// Either game is played inside the room. Coin Flip is over in three seconds; a round of Cork &
+// Bell is ninety, so when the toss picks it this run is a minute and a half longer.
+let end2;
 if (tossed.winner === "cork-and-bell") {
-  check(after.t === "away" && after.url === "/cork-and-bell/" && after.in > 3000, "Cork & Bell won: every page is told it is off to the game's own page");
-  end2 = await A.wait((m) => m.t === "room", 4000, A.seen.indexOf(after));
-  check(end2.room.tonight.games === 1 && end2.room.members.every((m) => m.points === points[m.name]), "and nobody scores");
+  const begun = await A.wait((m) => m.t === "start", 8000, mark);
+  check(begun.room.game.id === "cork-and-bell" && begun.s.seats.length === 4 && begun.s.seed > 0, "Cork & Bell won: a battle starts for the party's four seats");
+  console.log("     a round of Cork & Bell: ninety seconds...");
+  // Ann fires a cork every second for a while, stamped with the round's own time, as her page would.
+  const roundTime = () => (Date.now() - begun.s.startAt) / 1000 - 3;
+  await sleep(4000);
+  for (let i = 0; i < 12; i++) {
+    A.send({ t: "in", d: { f: [Math.round(roundTime() * 1000) / 1000, -0.6 + (i % 5) * 0.3, 1.2] } });
+    await sleep(1000);
+  }
+  const fired = A.seen.slice(mark).filter((m) => m.t === "ev").flatMap((m) => m.ev).filter((e) => e.k === "f" && e.seat === 0).length;
+  check(fired >= 10 && A.seen.slice(mark).some((m) => m.t === "snap" && m.s.stalls?.length === 4), `the room takes a player's inputs and relays them (${fired} of 12 corks), and sends its snapshots`);
+  end2 = await A.wait((m) => m.t === "end", 110000, mark);
+  const ann = end2.result.find((r) => r.seat === 0);
+  check(end2.last.rows.length === 4 && ann.shots >= 10 && end2.last.rows.every((r) => typeof r.score === "number") && end2.room.tonight.games === 2, `it ends with places and scores: ${end2.last.rows.map((r) => `${r.name} ${r.score} (+${r.points})`).join(", ")}`);
 } else {
-  check(after.t === "end" && end2.last.rows.length === 4 && end2.room.tonight.games === 2, "Coin Flip won: a second game is on the board");
+  end2 = await A.wait((m) => m.t === "end", 12000, mark);
+  check(end2.last.rows.length === 4 && end2.room.tonight.games === 2, "Coin Flip won: a second game is on the board");
 }
 check(end2.room.phase === "lobby", "and everyone is back in the lobby again");
 
@@ -260,6 +276,7 @@ if (!books.ok) {
   check(inner.timer === false && inner.sockets === 4, "back in the lobby no timer is running (three players and the screen are connected)");
 
   // -------------------------------------------------------------- nobody touches anything
+  clearInterval(breathing);
   if (quietSeconds > 0) {
     console.log(`     nobody touches anything for ${quietSeconds} seconds...`);
     // What the evening left behind runs out first (the rest after the last game, a short wake-up).

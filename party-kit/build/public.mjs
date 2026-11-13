@@ -57,8 +57,13 @@ function inlineScriptHashes(files) {
 /**
  * The headers for every static file (Workers Static Assets reads `_headers`; it is not served).
  * Responses made by the Worker itself (the API) set their own: see party-kit/src/worker/http.js.
+ *
+ * `frames` is who may put this site's pages in a frame. "none" (the default): nobody. "self": the
+ * site's own pages, and only those, which a site needs when one of its pages shows another of
+ * its pages in a frame (the party room mounts a game's page that way). No other site ever may.
  */
-export function headersFile(scriptHashes) {
+export function headersFile(scriptHashes, { frames = "none" } = {}) {
+  const own = frames === "self";
   const csp = [
     "default-src 'self'",
     `script-src 'self' ${scriptHashes.join(" ")} ${TURNSTILE} ${WEB_ANALYTICS_SCRIPT}`.replace(/\s+/g, " "),
@@ -66,18 +71,18 @@ export function headersFile(scriptHashes) {
     "img-src 'self' data: blob:",
     "font-src 'self'",
     `connect-src 'self' ${WEB_ANALYTICS_REPORT}`,
-    `frame-src ${TURNSTILE}`,
+    `frame-src ${own ? "'self' " : ""}${TURNSTILE}`,
     "worker-src 'self' blob:",
     "object-src 'none'",
     "base-uri 'none'",
     "form-action 'self'",
-    "frame-ancestors 'none'",
+    `frame-ancestors ${own ? "'self'" : "'none'"}`,
   ].join("; ");
   return [
     "/*",
     `  Content-Security-Policy: ${csp}`,
     "  X-Content-Type-Options: nosniff",
-    "  X-Frame-Options: DENY",
+    `  X-Frame-Options: ${own ? "SAMEORIGIN" : "DENY"}`,
     "  Referrer-Policy: strict-origin-when-cross-origin",
     "  Permissions-Policy: camera=(), microphone=(), geolocation=(), payment=(), usb=()",
     "",
@@ -87,9 +92,9 @@ export function headersFile(scriptHashes) {
 /**
  * Empties `out` and fills it from `entries`: each `{from, to}` copies the file or folder at the
  * absolute path `from` to the site path `to` (no leading slash). Writes the `_headers` file.
- * Returns every file written as `{path, bytes}`, sorted by path.
+ * Returns every file written as `{path, bytes}`, sorted by path. `frames` is passed to headersFile.
  */
-export function buildPublic({ out, entries }) {
+export function buildPublic({ out, entries, frames = "none" }) {
   rmSync(out, { recursive: true, force: true });
   mkdirSync(out, { recursive: true });
   for (const { from, to } of entries) {
@@ -103,7 +108,7 @@ export function buildPublic({ out, entries }) {
   const files = walk(out);
   const tooBig = files.filter((f) => statSync(f).size > MAX_FILE_BYTES);
   if (tooBig.length) throw new Error(`Over the 25 MiB per-file limit: ${tooBig.map((f) => relative(out, f)).join(", ")}`);
-  writeFileSync(join(out, "_headers"), headersFile(inlineScriptHashes(files)));
+  writeFileSync(join(out, "_headers"), headersFile(inlineScriptHashes(files), { frames }));
   return files.map((f) => ({ path: relative(out, f).split(sep).join("/"), bytes: statSync(f).size })).sort((a, b) => a.path.localeCompare(b.path));
 }
 

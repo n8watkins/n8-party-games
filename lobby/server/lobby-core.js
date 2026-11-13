@@ -74,7 +74,11 @@ export class LobbyCore {
   join(nickname, now, token = randomToken()) {
     const name = cleanName(nickname);
     if (!name) return fail("bad_name", "Pick a nickname first.");
-    const seat = this.members.findIndex((m) => m === null);
+    // While a game is on, a seat somebody left in the middle of it still has a stall in the
+    // round (the game's stand-in is playing it): a newcomer is never given that seat.
+    const inPlay = this.activity.kind === "game" ? this.activity.seats : [];
+    const seat = this.members.findIndex((m, i) => m === null && !inPlay.includes(i));
+    if (seat === -1 && this.members.includes(null)) return fail("room_full", "A game is on and its seats are taken. Join when it ends.");
     if (seat === -1) return fail("room_full", "This party is full: four players at most.");
     const taken = new Set(this.present().map((m) => m.name.toLowerCase()));
     let unique = name;
@@ -499,7 +503,11 @@ export class LobbyCore {
       if (!m || !a.seats.includes(seat) || !(place >= 1) || rows.some((r) => r.seat === seat)) continue;
       const points = pointsForPlace(place);
       m.points += points;
-      rows.push({ seat, name: m.name, colour: m.colour, place, points });
+      const row = { seat, name: m.name, colour: m.colour, place, points };
+      // A game that keeps score says so in its result rows: the card shows it beside the place.
+      const score = Array.isArray(result) ? result.find((r) => r?.seat === seat)?.score : undefined;
+      if (typeof score === "number") row.score = score;
+      rows.push(row);
     }
     rows.sort((p, q) => p.place - q.place || p.seat - q.seat);
     if (rows.length) this.gamesPlayed += 1;
