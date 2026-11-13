@@ -6,22 +6,24 @@ Everything here belongs to the party kit, not to any one game, so it is built on
 
 ## Status (2026-11-13)
 
-The owner's decisions on 2026-11-13, after the first preview:
+The owner's decisions on 2026-11-13:
 
 - **Just emotes.** The soundboard (layer 2) is dropped: "I think we just kill the idea of a soundboard. Just emotes." Own voice lines (layer 3) are parked with it, since they were pads on that board.
-- **An emote may carry its own short sound**, a recording from a public-domain library rather than one made in the browser (he judged the made-up ones bad by ear). Only CC0 or an equally free licence, each file's source recorded, nothing committed until he picks.
-- **The wheel** (hold the button and flick) is the way to send one on a phone; a laptop uses the number keys 1 to 6 for the same six.
-- Of the first round of emotes, four made sense to him: the world's smallest violin, popcorn, the slow clap, and point and laugh (without the other piece looking knocked out). A second round, built to that standard, was shown next; the third gave the pawn detailed floating hands, which the owner found "kind of creepy"; in the fourth (`preview/emotes-artifact-v4.html`) every limb is a stick arm in the piece's colour, with no arms, a mitten or a small cartoon hand depending on what the emote needs, and every emote is data (`preview/emotes/rig.js`) that both the flat room and the 3D look can draw. His sound picks so far: violin A, popcorn B, slow clap C, red card B, lighter C.
+- **An emote may carry its own short sound**, a recording from a public-domain library rather than one made in the browser (he judged the made-up ones bad by ear). Only CC0 or an equally free licence, each file's source recorded.
+- **The wheel** (hold the button and flick, or tap and pick) is the way to send one on a phone; a laptop uses the number keys 1 to 6 for the same six.
+- Four rounds of previews led to the set. Of the first, four made sense to him (the world's smallest violin, popcorn, the slow clap, and point and laugh); the third gave the pawn detailed floating hands, which he found "kind of creepy"; the fourth, with every limb a stick arm in the piece's colour ending in nothing, a mitten or a small cartoon hand, he approved: "These are solid."
+- **The final fourteen**: popcorn, slow clap, point and laugh, red card, hurry up, thumbs up, confetti, boo, GG, shh, lighter up, Huh?, fuming, and throw a tomato. The violin is out; the tomato came back from the first round, redrawn so it splats on the floor and the target only flinches.
+- **His sound picks**: popcorn B, slow clap C, red card B, lighter C; the rest are my choice. Fuming is a kettle whistling, the tomato a squish.
+- **The room's own sounds** are wanted too (steps, the kick, the count, the toss, people coming and going, the room changing, a game starting, the result) and a quiet first pass of the 3D rooms' ambience, all CC0, with the same player, volume and mute.
 
-Built (branch `feat/emotes-sounds`):
+Built (branch `feat/emotes-sounds`); how it works is in `lobby/README.md` ("Emotes" and "Sound"):
 
 - The rules, in the kit (`party-kit/client/emotes.js`): the message shapes, a per-player cooldown the room enforces (1.5 s), and a game's say during play (`manifest.lobby.emotes` and `.emoteSounds`; by default emotes yes, their sounds no).
 - The room passes each emote on and is done: one event, no wake-up, no timer. It tells a page that sent one too soon how long is left, and a script that keeps sending them is closed within about two seconds.
-- The player on each device (`party-kit/client/sounds.js`) for an emote's recording: volume, "mute all sounds" and "mute this player", kept on the device. It plays nothing before the browser allows sound and never plays a backlog when it does. It plays from the big screen only when the room has one, and on every player's device when it has none.
-- Until the look is chosen, the room says who did what in a note at the top ("Tom: Slow clap"), so a sound is never the only signal.
-- The tools that find, check and prepare the recordings: `preview/recordings/` (each file's title, author, page, licence line and the date it was read are in `records.json`).
-
-Waiting on the owner's picks: which emotes, how they look over a piece, and which recording each carries. When he picks, the chosen files go in with a credits file.
+- The fourteen, drawn in both looks from one set of poses (`lobby/public/emotes/`), the wheel in the control bar, and the six on it chosen by each player.
+- The player on each device (`party-kit/client/sounds.js`): volume, a separate ambience volume, "mute all sounds" (one tap, in the corner) and "mute this player", kept on the device. It plays nothing before the browser allows sound and never plays a backlog when it does.
+- The room's own sounds (`lobby/public/room-sounds.js`). A device's own feedback plays on its own phone; everything shared plays from the big screen when there is one, and on every phone when there is not.
+- 44 recordings, about 270 KB, in `lobby/public/sounds/` with `CREDITS.txt`; the tools that find, check and prepare them are in `preview/recordings/`.
 
 Not done: live voice (layer 4). The sections below are the plan as it was written on 2026-11-12; layers 2 and 3 are kept for the record.
 

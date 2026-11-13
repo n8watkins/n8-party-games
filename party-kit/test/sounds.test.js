@@ -1,4 +1,4 @@
-// The player for emotes' sounds on one device, without a browser: what it keeps, and that it
+// The player for the room's sounds on one device, without a browser: what it keeps, and that it
 // never plays (or queues) anything before sound is allowed. Playing real recordings is checked
 // in a real, muted browser by lobby/test/e2e-emotes.mjs.
 import { describe, expect, it } from "vitest";
@@ -55,6 +55,17 @@ describe("one device's player", () => {
     expect(await board.play("test-clap")).toBe("muted");
     expect(board.voices).toEqual([]);
     expect(board.log.map((l) => l.what)).toEqual(["locked", "unknown", "muted", "muted"]);
+  });
+
+  it("keeps the ambience volume apart, and an ambience at nothing plays nothing", async () => {
+    defineSound("test-owl", "data:audio/mpeg;base64,");
+    const storage = memory();
+    const board = new SoundBoard({ storage });
+    expect(board.ambience).toBe(0.6);
+    board.setAmbience(0);
+    expect(new SoundBoard({ storage }).ambience).toBe(0);
+    expect(await board.play("test-owl", { bus: "ambient" })).toBe("muted");
+    expect(await board.play("test-owl")).toBe("locked");
   });
 
   it("does not break where storage is refused", () => {

@@ -165,7 +165,7 @@ Coin Flip's view lives in this repository (`lobby/public/games/`), mapped by id 
 
 ### Emotes
 
-The party room has emotes: a tap shows something over your piece on every device, and an emote may carry a short sound of its own.
+The party room has emotes: a player picks one from a wheel and their piece performs it on every device, and an emote may carry a short sound of its own.
 They belong to the kit (`party-kit/client/emotes.js`), and the room turns them on.
 In the room's lobby both are always allowed.
 While a game is played, the game decides, and a game that says nothing needs to do nothing:
