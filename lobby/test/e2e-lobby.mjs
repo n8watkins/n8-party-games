@@ -56,7 +56,9 @@ const left = await call("POST", "/rooms", { nickname: "Zed" });
 const Z = connect(left);
 await Z.opened;
 await Z.wait((m) => m.t === "hello", 8000, 0);
-Z.ws.close();
+// Leaves on purpose (a player who only drops has a seat held for two minutes: test:drop).
+Z.send({ t: "leave" });
+await Z.closed;
 const leftAt = Date.now();
 
 const [A, B, C, D] = [a, b, cy, d].map(connect);

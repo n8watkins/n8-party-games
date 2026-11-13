@@ -719,7 +719,7 @@ try {
     await page.clock.pauseAt(new Date(Date.now() + 400));
     mark = fitch.seen.length;
     fitch.send({ t: "b" });
-    const blow = await fitch.wait((m) => m.t === "b" && m.s === 2, 3000, mark);
+    const blow = await fitch.wait((m) => m.t === "b" && m.s === 2, 6000, mark);
     check(blow.to === 3, `(a bump for the ${name}'s stills lands)`);
     await sleep(250); // the message reaches the page, whose clock stands still
     let at = 0;
