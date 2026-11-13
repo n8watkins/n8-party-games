@@ -250,6 +250,15 @@ export function createLobbyRoom(wallFor) {
         case "in":
           if (player) core.gameInput(entry.seat, msg.d, now);
           return;
+        case "pick": {
+          // The party moves to another room: one stored value and one relayed message. Refused
+          // (to that page only) when it is not the host's tap or not the moment.
+          const picked = core.setRoom(entry.token, msg.v, now);
+          if (!picked.ok) return this.send(entry, { t: "pick-no", why: picked.why, v: core.room });
+          this.broadcast({ t: "pick", v: picked.room, by: picked.by });
+          void this.save();
+          return;
+        }
         case "leave":
           core.leave(entry.token, now);
           this.drop(ws, entry, 1000, "left");

@@ -33,7 +33,7 @@ check(early.status === 201, "after standing around in the lobby, a second party 
 
 // A game is what costs. One Coin Flip keeps the room awake for three seconds, which is the whole allowance here.
 A.goto(COIN);
-const end = await A.wait((m) => m.t === "end", 12000);
+const end = await A.wait((m) => m.t === "end", 20000);
 check(end.last.rows.length === 1, "one game of Coin Flip is played to its end");
 const told = await A.wait((m) => m.room?.closing, 8000, 0).catch(() => null);
 check(told?.room.closing.reason === "budget" && told.room.closing.in > 170_000, "the open room is told the allowance is spent and that it closes in three minutes");

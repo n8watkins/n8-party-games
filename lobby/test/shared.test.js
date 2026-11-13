@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 import { AwakeMeter, EVENT_FLOOR_MS, addRoomTime, emptyUsage, rollOver } from "../../party-kit/src/worker/budget-logic.js";
 import { SOCKET_RATE, newBucket, strike, takeMessage } from "../../party-kit/src/worker/limit-logic.js";
 import { game as coinFlip, FLIP_MS } from "../games/coin-flip.js";
-import { camera, CLOSER, PHONE_FRAME } from "../shared/camera.js";
+import { camera, CLOSER, CORNER_CLEAR, PHONE_FRAME, PIECE_CSS, PIECE_HEIGHT, SIGN_TOP } from "../shared/camera.js";
 import { Pilot, SEND_GAP_MS } from "../shared/pilot.js";
 import { playerLine, statusLine } from "../shared/status.js";
 import { badgeFor, boxFromManifest, leaders, playersLabel, pointsForPlace, standingsFromRows, tally, whereabouts, whyNot } from "../shared/vote.js";
@@ -216,12 +216,32 @@ describe("what a device shows", () => {
   it("goes closer around the player's own piece and stays inside the room", () => {
     const whole = camera({ w: 844, h: 390, bar: 64, phone: true });
     const mid = camera({ w: 844, h: 390, bar: 64, phone: true, mode: "closer", focusX: 900 });
-    expect(mid.scale).toBeCloseTo((844 / 1920) * CLOSER);
+    // Zoomed so a piece is a comfortable size, as long as the signs stay on the screen.
+    expect(mid.scale).toBeCloseTo(Math.max((844 / 1920) * CLOSER, Math.min(PIECE_CSS / PIECE_HEIGHT, (390 - 64 - CORNER_CLEAR) / (PHONE_FRAME.bottom - SIGN_TOP))));
+    expect(mid.scale).toBeGreaterThanOrEqual((844 / 1920) * CLOSER);
     expect(mid.scale).toBeGreaterThan(whole.scale);
     expect(mid.x + mid.width / 2).toBeCloseTo(900);
     expect(camera({ w: 844, h: 390, bar: 64, phone: true, mode: "closer", focusX: 150 }).x).toBe(0);
     const right = camera({ w: 844, h: 390, bar: 64, phone: true, mode: "closer", focusX: 1800 });
     expect(right.x + right.width).toBeCloseTo(1920);
+  });
+
+  it("zooms a small phone in further, and keeps the signs clear of the corner buttons", () => {
+    const old = (w, h) => Math.max(Math.min(w / 1840, (h - 64) / 832), (w / 1920) * CLOSER);
+    const small = camera({ w: 667, h: 375, bar: 64, phone: true, mode: "closer", focusX: 900 });
+    expect(small.scale * PIECE_HEIGHT).toBeGreaterThan(old(667, 375) * PIECE_HEIGHT + 8);
+    for (const [w, h] of [
+      [667, 375],
+      [844, 390],
+      [932, 430],
+    ]) {
+      const v = camera({ w, h, bar: 64, phone: true, mode: "closer", focusX: 900 });
+      expect(v.scale).toBeGreaterThanOrEqual(old(w, h) - 1e-9);
+      expect(v.scale * PIECE_HEIGHT).toBeLessThanOrEqual(PIECE_CSS + 0.01);
+      if (v.scale > old(w, h) + 1e-9) expect((SIGN_TOP - v.y) * v.scale).toBeGreaterThanOrEqual(CORNER_CLEAR - 0.01);
+    }
+    // A laptop's "Closer" keeps the width rule.
+    expect(camera({ w: 1280, h: 800, bar: 80, mode: "closer" }).scale).toBeCloseTo(Math.max(Math.min(1280 / 1920, 720 / 990), (1280 / 1920) * CLOSER));
   });
 
   it("still works on an upright phone: a slice of the room around the player", () => {
