@@ -27,12 +27,13 @@ export const isRoom = (id) => typeof id === "string" && ROOMS.some((room) => roo
 export const roomName = (id) => ROOMS.find((room) => room.id === id)?.name ?? "The bar";
 
 /**
- * Why the room cannot be changed right now, in a few words, or null when it can. `vote` and
+ * Why the room cannot be changed right now, in plain words someone can act on, or null when it can. `vote` and
  * `phase` are what the room view carries.
  */
 export function roomLocked({ phase, vote }) {
-  if (phase === "playing") return "Not while a game is on";
-  if (vote?.toss) return "Not during the coin toss";
-  if (vote?.count) return "Not during the count";
+  if (phase === "playing") return "A game is on. You can change the room when it ends.";
+  if (vote?.toss) return "A coin toss is picking the game. Wait a moment.";
+  // A player alone who stands in a light starts the count, so say how to stop it.
+  if (vote?.count) return "The count is running. Step out of the light to change the room.";
   return null;
 }

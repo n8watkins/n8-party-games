@@ -60,7 +60,7 @@ describe("the party's room", () => {
     const core = room();
     const ann = seated(core, "Ann");
     const bo = seated(core, "Bo");
-    expect(core.setRoom(bo.token, "ship", 2000)).toMatchObject({ ok: false, why: "Only the host picks the room." });
+    expect(core.setRoom(bo.token, "ship", 2000)).toMatchObject({ ok: false, why: "Only the one who started the party can change the room." });
     expect(core.setRoom(ann.token, "ship", 2000)).toEqual({ ok: true, room: "ship", by: 0 });
     expect(core.view(2000).room).toBe("ship");
     expect(core.setRoom(ann.token, "nowhere", 9000)).toMatchObject({ ok: false });
@@ -79,13 +79,13 @@ describe("the party's room", () => {
     const ann = seated(core, "Ann");
     stand(core, ann.seat, 2000);
     expect(core.count).not.toBe(null);
-    expect(core.setRoom(ann.token, "ship", 2100)).toMatchObject({ ok: false, why: "Not during the count" });
+    expect(core.setRoom(ann.token, "ship", 2100)).toMatchObject({ ok: false, why: expect.stringMatching(/count is running/) });
     core.toss = { between: ["a", "b"], winner: "a", endsAt: 9000 };
-    expect(core.setRoom(ann.token, "ship", 2100)).toMatchObject({ ok: false, why: "Not during the coin toss" });
+    expect(core.setRoom(ann.token, "ship", 2100)).toMatchObject({ ok: false, why: expect.stringMatching(/coin toss/) });
     core.toss = null;
     core.count = null;
     core.startGame("coin-flip", 2200);
-    expect(core.setRoom(ann.token, "ship", 2300)).toMatchObject({ ok: false, why: "Not while a game is on" });
+    expect(core.setRoom(ann.token, "ship", 2300)).toMatchObject({ ok: false, why: expect.stringMatching(/game is on/) });
   });
 
   it("passes to the first player still here when the host leaves, and to them while the host is away", () => {
@@ -102,14 +102,17 @@ describe("the party's room", () => {
     expect(core.setRoom(bo.token, "roof", 4000 + RECONNECT_GRACE_MS)).toMatchObject({ ok: true });
   });
 
-  it("is picked by the room's screen when the screen made the party", () => {
+  it("is picked by the first player, and the screen too, when a big screen made the party", () => {
     const core = room();
     const screen = core.watch(1000);
     core.connect(screen.token, 1000);
-    const ann = seated(core, "Ann");
     expect(core.view(1000).picker).toEqual({ seat: -1 });
-    expect(core.setRoom(ann.token, "ship", 2000)).toMatchObject({ ok: false });
-    expect(core.setRoom(screen.token, "ship", 2000)).toMatchObject({ ok: true, by: -1 });
+    const ann = seated(core, "Ann");
+    const bo = seated(core, "Bo");
+    expect(core.view(1000).picker).toEqual({ seat: ann.seat });
+    expect(core.setRoom(bo.token, "ship", 2000)).toMatchObject({ ok: false });
+    expect(core.setRoom(ann.token, "ship", 2000)).toMatchObject({ ok: true, by: 0 });
+    expect(core.setRoom(screen.token, "camp", 2000 + ROOM_COOLDOWN_MS)).toMatchObject({ ok: true, by: -1 });
     core.leave(screen.token, 3000);
     expect(core.view(3000).picker).toEqual({ seat: ann.seat });
   });

@@ -119,8 +119,8 @@ try {
   await phone.click(".rooms-btn");
   await sleep(500);
   await shot(phone, "03-phone-picker-not-host");
-  const line = await phone.locator(".picker-line").textContent();
-  check(line === "Ada picks the room.", `a guest sees who picks: "${line}"`);
+  const line = await phone.locator(".picker-why").textContent();
+  check(/Only Ada can change the room/.test(line), `a guest sees who picks: "${line}"`);
   await phone.click(".room-card[data-room=camp]", { force: true });
   await sleep(600);
   check((await phone.locator(".picker").count()) === 1 && watcher.room.room === "ship", "and a guest's tap changes nothing");
@@ -137,7 +137,7 @@ try {
   await host.click(".rooms-btn");
   await sleep(400);
   await shot(host, "04-laptop-picker-host");
-  check((await host.locator(".picker-line").textContent()) === "Pick where the party is. Everyone moves with you.", "the host is told their pick moves everyone");
+  check(/Everyone in the party sees the room you choose/.test(await host.locator(".picker-line").textContent()), "the host is told their pick moves everyone");
   await host.click(".room-card[data-room=camp]");
   const moved = await watcher.wait((m) => m.t === "pick", 5000).catch(() => null);
   check(moved?.v === "camp" && moved.by === 0, "the host's pick is one relayed message: " + JSON.stringify(moved && { v: moved.v, by: moved.by }));
@@ -184,8 +184,8 @@ try {
   const counting = await watcher.wait((m) => m.t === "vote" && m.vote.count, 6000, mark).catch(() => null);
   check(!!counting, "the count runs");
   await host.click(".rooms-btn");
-  const lockLine = await host.locator(".picker-line").textContent();
-  check(/^Not during the count/.test(lockLine), `the picker says why it is shut during the count: "${lockLine}"`);
+  const lockLine = await host.locator(".picker-why").textContent();
+  check(/count is running/.test(lockLine), `the picker says why it is shut during the count: "${lockLine}"`);
   await shot(host, "09-laptop-picker-during-count");
   await host.click(".room-card[data-room=roof]", { force: true });
   const quiet = await watcher.wait((m) => m.t === "pick", 1500).catch(() => null);

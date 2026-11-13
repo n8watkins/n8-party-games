@@ -164,6 +164,7 @@ async function enter() {
     },
   });
   menu = new RoomMenu(hud.el, { role: link.you.role, seat: link.you.seat, onPick: (id) => link.send({ t: "pick", v: id }) });
+  if (menu.mine(room)) menu.hint();
   count = new CountTick(hud.el, { buzz: isPlayer() ? buzz : null });
   fit = new ScreenFit(menu.corner, app);
   void keepAwake();
@@ -415,11 +416,14 @@ link.on("message", (msg) => {
       const by = msg.by === -1 ? "The room's screen" : room.members[msg.by]?.name;
       hud?.note(`${by ? `${by} picked` : "Now in"} ${roomName(msg.v).replace(/^The /, "the ")}`, room.members[msg.by]?.colour);
       menu?.update(room);
+      menu?.picked(msg.v);
       void showRoom();
       break;
     }
     case "pick-no":
-      hud?.note(msg.why);
+      // Said in the picker when it is open, as a note over the room when it is not.
+      if (menu?.isOpen) menu.refused(msg.why);
+      else hud?.note(msg.why);
       break;
     case "note":
       if (msg.k === "left") hud?.note(`${msg.name} left`, msg.colour);

@@ -243,6 +243,9 @@ export class LobbyCore {
   /** Whose taps change the room right now: the host, or while the host is away the first connected player. */
   pickerToken() {
     const host = this.identify(this.hostToken);
+    // A party started on a big screen (a TV, often with nothing to tap) is picked for by its
+    // first player; the screen's own taps still count (setRoom).
+    if (host?.role === "screen" && this.connected().length) return this.connected()[0].token;
     const here = host && (host.role === "screen" ? this.screens.get(this.hostToken).connected : this.members[host.seat].connected);
     if (here) return this.hostToken;
     return this.connected()[0]?.token ?? (host ? this.hostToken : null);
@@ -260,7 +263,7 @@ export class LobbyCore {
    */
   setRoom(token, id, now) {
     if (!isRoom(id)) return { ok: false, why: "That is not a room." };
-    if (token !== this.pickerToken()) return { ok: false, why: "Only the host picks the room." };
+    if (token !== this.pickerToken() && token !== this.hostToken) return { ok: false, why: "Only the one who started the party can change the room." };
     const locked = roomLocked({ phase: this.activity.kind === "game" ? "playing" : "lobby", vote: { count: this.count, toss: this.toss } });
     if (locked) return { ok: false, why: locked };
     if (id === this.room) return { ok: false, why: "The party is in that room already." };
