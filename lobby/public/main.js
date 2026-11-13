@@ -141,7 +141,7 @@ async function enter() {
   entering = true;
   const joinUrl = await link.joinUrl("/lobby/");
   compact = phone() && isPlayer();
-  viewBase = { compact, own: isPlayer() ? link.you.seat : -1, host: new URL(joinUrl).host, qr: link.qrUrl(joinUrl), onBoard: showBoard };
+  viewBase = { compact, own: isPlayer() ? link.you.seat : -1, host: new URL(joinUrl).host, qr: link.qrUrl(joinUrl), onBoard: showBoard, baked: chosen.baked, boxes: room?.boxes.length };
   // The party's room. A party started with ?room= moves there at once: its maker is the host.
   let skin = room?.room;
   if (room && startRoom && startRoom !== room.room && room.picker && (room.picker.seat === -1 ? link.you.role === "screen" : room.picker.seat === link.you.seat)) {

@@ -43,12 +43,11 @@ const siteEntries = [
 ];
 
 /**
- * Pages still waiting for the owner's approval, as {from, to}. They are built only with
- * --preview, which the local environment's build command passes (wrangler.jsonc, env.local) and
- * the production one does not, so they can be opened locally at /preview/... and never reach the
- * live site. None at the moment: the emotes preview became the room's emotes on 2026-11-13.
+ * Pages still waiting for the owner's approval. They are built only with --preview, which the
+ * local environment's build command passes (wrangler.jsonc, env.local) and the production one
+ * does not, so they can be opened locally at /preview/... and never reach the live site.
  */
-const previewEntries = [];
+const previewEntries = [{ from: join(ROOT, "landing", "public"), to: "preview/landing" }];
 const PREVIEW = process.argv.includes("--preview");
 
 const entries = [kitClientEntry(), ...siteEntries, ...GAMES.flatMap(gameEntries), ...(PREVIEW ? previewEntries : [])];

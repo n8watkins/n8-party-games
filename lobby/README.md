@@ -49,10 +49,40 @@ Both are a "room view" (`public/room-view.js`), which is all the page knows abou
 - **3D** (`public/look3d/`): a three.js scene in the look of the approved stills, with every word laid over it as HTML. It is the room's normal look.
 - **Flat** (`public/scene.js`): one SVG of plain shapes. It is the fallback.
 
+The 3D look has a second way to draw the bar, as a rendered picture: "The baked bar" below.
+
 A device with hardware WebGL 2 gets the 3D look.
 One without it, or one whose only WebGL is a software renderer (SwiftShader, llvmpipe), gets the flat drawing, and downloads none of the 3D look: it is checked before anything of it is fetched (`hardware3D` in `public/room-view.js`).
 `?look=flat` asks for the flat drawing on purpose and is remembered on that device, because the room's own address carries no query; `?look=3d` goes back.
 If the 3D room stays slow on a device after it has stepped its own picture down (below), the device is offered "Simpler room" once (`public/slow-room.js`), which switches it to the flat drawing and remembers that.
+
+### The baked bar
+
+To see it, open the room with `?look=baked`, for example `http://localhost:8791/lobby/?start&look=baked`, in a party whose room is the bar.
+The switch is remembered on that device; `?look=3d` switches it off again.
+A device with it on gets the baked bar whenever the party's room is the bar, and the 3D look's own drawing for every other room.
+To make it the bar's drawing for everyone, `chosenLook` in `public/room-view.js` has the one line to change.
+
+The 3D look's camera never moves, so the room does not have to be drawn every frame: it can be one picture.
+The baked bar's room is a Cycles render from that same camera, made by the script that renders the landing page's hero (`landing/tools/blender/room.py`, the shots named `plate-*`).
+Only what changes is drawn live:
+
+- **The lamps.** The plate is a base picture with no game lamp on, and one more picture per lamp of only what that lamp adds: its bulb, its beam in the haze, its pool on the floor and what bounces off it. Light adds up, so a small shader adds them with one number per lamp, and any combination of lamps on, off and brighter is right without another render. A lamp that is off is not looked up at all. A box that leads tints its lamp's light gold and gets a gold face on its frame.
+- **The posters, signs, join code and Tonight board.** They are data, so the plate's frames are empty and the live ones sit in them, placed by the same layout as the 3D look (`look3d/space.js`). What can be tapped in the 3D look can be tapped here: those marks are the page's, not the drawing's.
+- **The pieces.** Each pool has a real cone of light for whoever stands in it, the room itself (rendered all round from where the pieces stand) is what shines in their lacquer, a piece's shadow leans away from the nearest lit lamp, and a faint reflection stands under it in the floor.
+- **The room's life.** The dust, the cat and the moth are the 3D look's, drawn over the plate. The jukebox is a rendered picture standing in the 3D look's jukebox, so it still rocks and flashes when it is knocked, with its running lights live over the rendered tubes.
+
+It is built as the 3D look with its walls swapped for a picture (`RoomBaked extends Room3D`), and to the page it is the 3D look.
+It calls `look3d/pieces.js` for every pose, so a change to how a piece moves or is kicked arrives in both.
+What it gives up: the lamps are in the picture, so a jump under one does not set it swinging.
+
+A plate is a picture of one wall, so there is one per number of boxes: `public/baked/bar/5/` for production's wall and `public/baked/bar/6/` for the local one, which hangs Coin Flip as a sixth.
+A wall with no plate is drawn by the 3D look as it stands, and so is the room on a device where the plate does not arrive.
+A device that has not switched it on downloads none of it.
+
+To make a plate again: `landing/tools/blender/plate.sh 5` (about 45 minutes of rendering, every job under ten), then `node lobby/tools/pack-baked.mjs 5`, which writes `public/baked/bar/5/` and prints the bytes.
+The raw renders are not committed.
+When a game is added to the wall, its plate must be rendered before the baked bar shows that wall.
 
 ### The party's room
 
@@ -373,6 +403,8 @@ A lobby nobody touches costs nothing: no timer, no messages, nothing counted, an
 | `public/touch.js` | What can be touched on the wall, and the cards it opens. |
 | `public/screen-fit.js` | Full screen, the Home Screen card on an iPhone, and the room sized to what is visible. |
 | `public/slow-room.js` | The one offer of the simpler room to a device the 3D room is too slow on. |
+| `public/baked/` | The baked bar: `room-baked.js`, and the bar's packed plates in `bar/<boxes>/` (each `plate.json` says what it covers). |
+| `tools/pack-baked.mjs` | Packs the rendered plate for the baked bar. |
 | `public/look3d/` | The 3D drawing: the scene (`room3d.js`), the words over it (`words.js`), the pieces (`pieces.js`), the rooms as skins (`skins.js`), a posed room (`still.html`) and the rooms page (`rooms/`). |
 | `test/` | Unit tests, the socket test, the browser run and the cost measurement. |
 
@@ -397,4 +429,5 @@ A lobby nobody touches costs nothing: no timer, no messages, nothing counted, an
 - `npm run lobby:shots:bump` takes the bump moment by moment in both looks, flat and 3D, on a big screen and a sideways phone, with each page's clock held still: wind-up, contact, follow-through, the victim in the air, landed, getting up and up again. In the flat look it also reads off the page that the bumper's base is what travels and its head stays put. Stills land in `lobby/test/shots/bump/`.
 - `npm run test:cork:3d` plays several rounds of Cork & Bell inside a room that is in the 3D look, on the Windows side's graphics card: under the game the 3D room is hidden and draws nothing, both pictures keep their WebGL context, the room draws again afterwards, and memory does not climb.
 - `npm run lobby:measure:3d` measures the 3D look's frame time on the Windows side's graphics card, in a headless Chrome. It is a desktop card at a phone's screen size, not a phone.
+- The baked bar uses the same tools with `--look=baked`: `npm run lobby:shots:3d -- --look=baked` (the live run), `npm run test:cork:3d -- --look=baked --room=bar` (the room hides under a round of Cork & Bell and comes back), and `npm run lobby:measure:3d -- --look=baked --rooms=bar`. `node lobby/test/shoot-baked-stills.mjs` takes its posed stills, `node lobby/test/side-by-side.mjs` sets them beside the landing page's hero, and `node lobby/test/weigh-baked.mjs` prints what each look downloads.
 - `node lobby/test/e2e-budget.mjs` checks what happens when the allowance is spent; its header says which server to start.

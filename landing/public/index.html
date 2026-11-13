@@ -1,0 +1,445 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#120b08" />
+    <!--
+      The site's working name is "n8 Party Games". It is written in this file only, on every
+      element marked data-site-name (and in the title and description just below): replace it there.
+
+      The two ways in, "Start a party" and "Join with a code", are wired in one place: the
+      block marked "THE WAY IN" in the hero. Every other button on the page scrolls back to it.
+    -->
+    <title>n8 Party Games</title>
+    <meta name="description" content="n8 Party Games: a party room for two to four friends. Start it on a laptop or TV, join from your phone with a four-digit code, and vote for the next game by standing under its lamp. Free, no app, no account." />
+    <link rel="icon" href="data:," />
+    <link rel="preload" href="fonts/abril-fatface.woff2" as="font" type="font/woff2" crossorigin />
+    <link rel="stylesheet" href="landing.css" />
+    <script src="landing.js" defer></script>
+  </head>
+  <body>
+    <a class="skip" href="#start">Skip to start or join</a>
+
+    <header class="top">
+      <a class="wordmark" href="#top" aria-label="n8 Party Games, top of the page">
+        <svg class="wordmark-lamp" viewBox="0 0 32 32" width="28" height="28" aria-hidden="true">
+          <path d="M16 1v6" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+          <path d="M13.2 7h5.600L27 19H5z" fill="currentColor" />
+          <ellipse cx="16" cy="19.600" rx="5" ry="2.400" fill="#fff3e2" />
+          <path d="M9 24l-3 6h20l-3-6z" fill="currentColor" opacity=".28" />
+        </svg>
+        <span data-site-name>n8 Party Games</span>
+      </a>
+      <nav class="top-nav" aria-label="On this page">
+        <a href="#night">How a night works</a>
+        <a href="#games">Games</a>
+        <a href="#rooms">Rooms</a>
+        <a href="#pieces">Pieces</a>
+        <a href="#build">Build a game</a>
+      </nav>
+      <a class="top-source" href="https://github.com/n8watkins/n8-party-games">
+        <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path fill="currentColor" d="M12 .5a11.500 11.500 0 0 0-3.640 22.410c.580.100.790-.250.790-.560v-2c-3.200.700-3.880-1.360-3.880-1.360-.520-1.330-1.280-1.690-1.280-1.690-1.050-.710.080-.700.080-.700 1.160.080 1.770 1.190 1.770 1.190 1.030 1.760 2.700 1.250 3.360.960.100-.750.400-1.250.730-1.540-2.550-.290-5.240-1.280-5.240-5.680 0-1.260.450-2.280 1.190-3.090-.120-.290-.520-1.460.110-3.050 0 0 .970-.310 3.170 1.180a11 11 0 0 1 5.780 0c2.200-1.490 3.170-1.180 3.170-1.180.630 1.590.230 2.760.110 3.050.740.810 1.190 1.830 1.190 3.090 0 4.410-2.690 5.380-5.250 5.670.410.360.780 1.060.780 2.140v3.170c0 .310.210.670.800.560A11.500 11.500 0 0 0 12 .5z"/></svg>
+        <span>Source</span>
+      </a>
+    </header>
+
+    <main id="top">
+      <!-- ============================== The hero ============================== -->
+      <section class="hero" aria-labelledby="hero-title">
+        <!--
+          The stage. Today it is a rendered picture. A live or looping view of the room can
+          replace the <img> later: anything put in .stage-view fills the same 2:1 frame, and the
+          lamp glows above it are placed on that frame, not on the page.
+        -->
+        <div class="stage" aria-hidden="true">
+          <div class="stage-view">
+            <img
+              src="img/hero-1400.webp"
+              srcset="img/hero-900.webp 900w, img/hero-1400.webp 1400w, img/hero-2000.webp 2000w"
+              sizes="(min-aspect-ratio: 2/1) 100vw, 200vh"
+              width="2000" height="1000" alt="" fetchpriority="high" decoding="async" />
+            <span class="glow glow-a"></span>
+            <span class="glow glow-b"></span>
+          </div>
+        </div>
+
+        <div class="hero-inner">
+          <div class="hero-copy">
+            <p class="eyebrow">Free. No app. No account.</p>
+            <h1 id="hero-title">Walk in. Pick a light. Play.</h1>
+            <p class="lead">A party room for two to four friends. Open it on a laptop or a TV, join from your own phones with a four-digit code, and vote for the next game by standing under its lamp.</p>
+
+            <!-- ========== THE WAY IN: the only place the start and join routes are written ========== -->
+            <div class="entry" id="start">
+              <form class="join" action="/lobby/" method="get">
+                <label class="join-label" for="join-code">Join with a code</label>
+                <div class="join-row">
+                  <input class="join-code" id="join-code" name="join" type="text" inputmode="numeric" autocomplete="off" autocapitalize="off" spellcheck="false" size="4" maxlength="4" pattern="[0-9]{4}" placeholder="0000" required aria-describedby="join-help" />
+                  <button class="button join-go" type="submit">Join</button>
+                </div>
+                <p class="join-help" id="join-help">The four digits on the room's wall.</p>
+              </form>
+              <div class="entry-or" role="presentation"><span>or</span></div>
+              <a class="button primary start" href="/lobby/?start">Start a party</a>
+              <p class="entry-note">You get a code and a QR to share. Alone? <a href="/cork-and-bell/">Play Cork &amp; Bell</a> on its own.</p>
+              <p class="entry-screen"><a href="/lobby/?start&amp;as=screen">Use this phone as the room's screen</a></p>
+            </div>
+            <!-- ========== end of THE WAY IN ========== -->
+          </div>
+        </div>
+        <p class="stage-caption">A picture of the room in full swing, and where it is going. <a href="#pieces">Today everyone plays as a pawn.</a></p>
+      </section>
+
+      <!-- ============================== The pitch in three ============================== -->
+      <section class="facts" aria-label="In short">
+        <ul>
+          <li>
+            <svg viewBox="0 0 24 24" width="26" height="26" aria-hidden="true"><rect x="7" y="2.500" width="10" height="19" rx="2.200" fill="none" stroke="currentColor" stroke-width="1.800"/><path d="M10.500 18.500h3" stroke="currentColor" stroke-width="1.800" stroke-linecap="round"/></svg>
+            <div><strong>Everyone uses their own phone</strong><span>A code or a QR gets you in. Nothing to install, nobody signs up.</span></div>
+          </li>
+          <li>
+            <svg viewBox="0 0 24 24" width="26" height="26" aria-hidden="true"><rect x="2.500" y="4" width="19" height="12.500" rx="1.800" fill="none" stroke="currentColor" stroke-width="1.800"/><path d="M8 20.500h8M12 16.500v4" stroke="currentColor" stroke-width="1.800" stroke-linecap="round"/></svg>
+            <div><strong>Any screen is the big screen</strong><span>A laptop or a TV shows the whole room once it types the code.</span></div>
+          </li>
+          <li>
+            <svg viewBox="0 0 24 24" width="26" height="26" aria-hidden="true"><path d="M12 2v4M9.800 6h4.400L20 15H4z" fill="none" stroke="currentColor" stroke-width="1.800" stroke-linejoin="round" stroke-linecap="round"/><ellipse cx="12" cy="20" rx="7" ry="2" fill="none" stroke="currentColor" stroke-width="1.800"/></svg>
+            <div><strong>One room, many games</strong><span>The party stays together and walks from game to game.</span></div>
+          </li>
+        </ul>
+      </section>
+
+      <!-- ============================== How a night works ============================== -->
+      <section class="night band" id="night" aria-labelledby="night-title">
+        <header class="section-head">
+          <p class="eyebrow">How a night works</p>
+          <h2 id="night-title">Five things happen, over and over.</h2>
+        </header>
+
+        <ol class="steps">
+          <li class="step">
+            <figure class="shot"><img src="img/scene-join-800.webp" srcset="img/scene-join-800.webp 800w, img/scene-join-1600.webp 1600w" sizes="(min-width: 900px) 560px, 100vw" width="1600" height="1000" alt="The end of the room: a sign on the wall with a QR code and the code 4827 beside a green door. A blue pawn looks up at it." loading="lazy" decoding="async" /></figure>
+            <div class="step-text">
+              <p class="step-n" aria-hidden="true">1</p>
+              <h3>Join</h3>
+              <p>Whoever starts the party gets a four-digit code and a QR code on the room's wall. Friends scan it or type the code, pick a name, and they are in. Up to four play.</p>
+            </div>
+          </li>
+          <li class="step">
+            <figure class="shot"><img src="img/scene-walk-800.webp" srcset="img/scene-walk-800.webp 800w, img/scene-walk-1600.webp 1600w" sizes="(min-width: 900px) 560px, 100vw" width="1600" height="1000" alt="Four pawns in red, blue, yellow and green walk in through the open door toward the lit lamps." loading="lazy" decoding="async" /></figure>
+            <div class="step-text">
+              <p class="step-n" aria-hidden="true">2</p>
+              <h3>Walk</h3>
+              <p>You are a small piece in a side-view room. Walk, jump, and knock your friends about. On a phone the controls are buttons under your thumbs; on a laptop they are the arrow keys.</p>
+            </div>
+          </li>
+          <li class="step">
+            <figure class="shot"><img src="img/scene-count-800.webp" srcset="img/scene-count-800.webp 800w, img/scene-count-1600.webp 1600w" sizes="(min-width: 900px) 560px, 100vw" width="1600" height="1000" alt="All four pawns stand in the pool of light under the Cork and Bell box, whose frame glows gold." loading="lazy" decoding="async" /></figure>
+            <div class="step-text">
+              <p class="step-n" aria-hidden="true">3</p>
+              <h3>Vote</h3>
+              <p>Every game is a box on the wall with a lamp over it. Standing in its pool of light is your vote. When everyone is in a light, a three-second count starts. Step out and it stops.</p>
+              <div class="aside">
+                <img src="img/scene-toss-800.webp" width="800" height="500" alt="A gold coin spins in the air between two lit boxes while four pawns look up at it." loading="lazy" decoding="async" />
+                <p><strong>A tie is a coin toss.</strong> Everybody watches it. And yes, you can bump a friend out of a light before the count ends.</p>
+              </div>
+            </div>
+          </li>
+          <li class="step">
+            <figure class="shot"><img src="img/cork-play-800.webp" srcset="img/cork-play-800.webp 800w, img/cork-play-1600.webp 1600w" sizes="(min-width: 900px) 560px, 100vw" width="1600" height="1000" alt="Cork and Bell being played: a fairground shooting gallery with teapots, stars and a cork gun." loading="lazy" decoding="async" /></figure>
+            <div class="step-text">
+              <p class="step-n" aria-hidden="true">4</p>
+              <h3>Play</h3>
+              <p>The game with the most pieces in its light wins the vote and the whole party plays it, each on their own device.</p>
+              <p class="honest"><strong>Where this is today:</strong> Cork &amp; Bell plays right inside the room, a stall each, for ninety seconds. Who Am I? still sends its two players to its own site.</p>
+            </div>
+          </li>
+          <li class="step">
+            <figure class="shot"><img src="img/scene-score-800.webp" srcset="img/scene-score-800.webp 800w, img/scene-score-1600.webp 1600w" sizes="(min-width: 900px) 560px, 100vw" width="1600" height="1000" alt="Four pawns look up at the Tonight chalkboard. The yellow one wears a crown." loading="lazy" decoding="async" /></figure>
+            <div class="step-text">
+              <p class="step-n" aria-hidden="true">5</p>
+              <h3>Score</h3>
+              <p>Everyone lands back in the room. The Tonight chalkboard gives 3 points for first, 2 for second and 1 for third, and keeps the tally across every game you play that night.</p>
+              <div class="chalk" role="img" aria-label="The Tonight chalkboard: Dolly 7, Mabel 5, Tom 4, Fitch 2, after 3 games.">
+                <p class="chalk-title">Tonight</p>
+                <ol>
+                  <li><i class="seat seat-c"></i><span>Dolly</span><b>7</b></li>
+                  <li><i class="seat seat-a"></i><span>Mabel</span><b>5</b></li>
+                  <li><i class="seat seat-d"></i><span>Tom</span><b>4</b></li>
+                  <li><i class="seat seat-b"></i><span>Fitch</span><b>2</b></li>
+                </ol>
+                <p class="chalk-foot">after 3 games</p>
+              </div>
+            </div>
+          </li>
+        </ol>
+        <p class="again">Then the lights come back on, and you vote again.</p>
+      </section>
+
+      <!-- ============================== The games ============================== -->
+      <section class="games band wall" id="games" aria-labelledby="games-title">
+        <header class="section-head">
+          <p class="eyebrow">The games</p>
+          <h2 id="games-title">Boxes on the wall.</h2>
+          <p class="section-lead">A lit box can be played today. A dark one is still being made, and its lamp stays off until it is ready.</p>
+        </header>
+
+        <ul class="boxes">
+          <li class="box is-on">
+            <span class="lamp" aria-hidden="true"></span>
+            <a class="box-art" href="/cork-and-bell/" tabindex="-1" aria-hidden="true"><img src="img/box-cork.webp" width="560" height="784" alt="" loading="lazy" decoding="async" /></a>
+            <div class="box-plate">
+              <h3>Cork &amp; Bell</h3>
+              <p class="box-line">A 1930s fairground shooting gallery. Pop the targets, ring the bell.</p>
+              <p class="box-need"><span class="need any">Any device</span><span>1 to 4 players</span></p>
+              <a class="button small primary" href="/cork-and-bell/">Play now</a>
+            </div>
+          </li>
+          <li class="box is-on">
+            <span class="lamp" aria-hidden="true"></span>
+            <a class="box-art" href="https://whoami.n8builds.dev" tabindex="-1" aria-hidden="true"><img src="img/box-who.webp" width="560" height="784" alt="" loading="lazy" decoding="async" /></a>
+            <div class="box-plate">
+              <h3>Who Am I?</h3>
+              <p class="box-line">A guessing game. You each get a secret identity that only the other player can see. Plays on its own site.</p>
+              <p class="box-need"><span class="need phones">A phone each</span><span>2 players</span></p>
+              <a class="button small" href="https://whoami.n8builds.dev">Its own site<span class="visually-hidden">: Who Am I?</span> <span aria-hidden="true">&#8599;</span></a>
+            </div>
+          </li>
+          <li class="box is-off">
+            <span class="lamp" aria-hidden="true"></span>
+            <div class="box-art"><img src="img/box-flood.webp" width="560" height="784" alt="" loading="lazy" decoding="async" /></div>
+            <div class="box-plate">
+              <h3>Flood</h3>
+              <p class="box-line">A tile puzzle race.</p>
+              <p class="box-state">Coming soon</p>
+            </div>
+          </li>
+          <li class="box is-off">
+            <span class="lamp" aria-hidden="true"></span>
+            <div class="box-art"><img src="img/box-wind.webp" width="560" height="784" alt="" loading="lazy" decoding="async" /></div>
+            <div class="box-plate">
+              <h3>Bathtub Regatta</h3>
+              <p class="box-line">Wind-up boats and bath toys in a tub. Your piece rides the boat.</p>
+              <p class="box-state">Coming soon</p>
+            </div>
+          </li>
+          <li class="box is-off">
+            <span class="lamp" aria-hidden="true"></span>
+            <div class="box-art"><img src="img/box-fox.webp" width="560" height="784" alt="" loading="lazy" decoding="async" /></div>
+            <div class="box-plate">
+              <h3>Fox Trouble</h3>
+              <p class="box-line">A co-op puzzle, with pranks.</p>
+              <p class="box-state">Coming soon</p>
+            </div>
+          </li>
+        </ul>
+
+        <div class="feature">
+          <figure class="feature-shot">
+            <img src="img/cork-play-800.webp" srcset="img/cork-play-800.webp 800w, img/cork-play-1600.webp 1600w" sizes="(min-width: 900px) 660px, 100vw" width="1600" height="1000" alt="Cork and Bell: a striped fairground stall at dusk with rows of teapots, stars and moons, and a cork gun in the foreground." loading="lazy" decoding="async" />
+            <figcaption>Cork &amp; Bell, as it plays today. Not a mockup.</figcaption>
+          </figure>
+          <div class="feature-text">
+            <p class="eyebrow">Playable right now</p>
+            <h3>Cork &amp; Bell</h3>
+            <p>Wren &amp; Tolliver's travelling gallery, some evening in the 1930s. You get a cork gun, ninety seconds and a wall of teapots, stars and moons. Play one stall alone, or battle two to four stalls side by side with a code.</p>
+            <ul class="ticks">
+              <li>Plays on a phone, a laptop or a TV</li>
+              <li>Solo play runs entirely on your own device</li>
+              <li>Its own repository, its own license</li>
+            </ul>
+            <p class="feature-actions">
+              <a class="button primary" href="/cork-and-bell/">Play Cork &amp; Bell</a>
+              <a class="button quiet" href="https://github.com/n8watkins/cork-and-bell">Read its source</a>
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============================== The pieces ============================== -->
+      <section class="pieces band" id="pieces" aria-labelledby="pieces-title">
+        <header class="section-head">
+          <p class="eyebrow">The pieces</p>
+          <h2 id="pieces-title">Pick who you are. Each one has a move.</h2>
+          <p class="section-lead">One move per piece, on a cooldown, for getting in the way of a vote. <strong>Today everyone is a pawn, and the pawn's knock-back works.</strong> The other three pieces and their moves are designed and drawn, not playable yet.</p>
+        </header>
+
+        <ul class="cast">
+          <li class="piece">
+            <figure class="piece-shot"><img src="img/scene-charge-800.webp" srcset="img/scene-charge-800.webp 800w, img/scene-charge-1600.webp 1600w" sizes="(min-width: 900px) 580px, 100vw" width="1600" height="1000" alt="A red pawn charges through a pool of light and sends a blue robot flying, with sparks between them." loading="lazy" decoding="async" /></figure>
+            <div class="piece-body">
+              <div class="piece-stand" aria-hidden="true"><img class="idle idle-hop" src="img/piece-pawn.webp" width="360" height="400" alt="" loading="lazy" decoding="async" /></div>
+              <div class="piece-text">
+                <p class="chip now">Playable today</p>
+                <h3>Pawn</h3>
+                <p class="move"><strong>Charge.</strong> Wind up, slam, and whoever it lands on is knocked back out of their light. It works today, with a cooldown before the next one.</p>
+              </div>
+            </div>
+          </li>
+          <li class="piece">
+            <figure class="piece-shot"><img src="img/scene-hook-800.webp" srcset="img/scene-hook-800.webp 800w, img/scene-hook-1600.webp 1600w" sizes="(min-width: 900px) 580px, 100vw" width="1600" height="1000" alt="A blue robot fires a hook on a chain from its chest and drags a startled red pawn out of its light." loading="lazy" decoding="async" /></figure>
+            <div class="piece-body">
+              <div class="piece-stand" aria-hidden="true"><img class="idle idle-tilt" src="img/piece-robot.webp" width="360" height="400" alt="" loading="lazy" decoding="async" /></div>
+              <div class="piece-text">
+                <p class="chip soon">Coming</p>
+                <h3>Robot</h3>
+                <p class="move"><strong>Hook.</strong> A claw on a chain, fired from the chest. It drags one player across the floor to the robot.</p>
+              </div>
+            </div>
+          </li>
+          <li class="piece">
+            <figure class="piece-shot duo">
+              <img src="img/scene-absorb-800.webp" width="800" height="500" alt="A yellow slime goes soft and wide, and the robot that hooked it is pulled toward the slime instead." loading="lazy" decoding="async" />
+              <img src="img/scene-harden-800.webp" width="800" height="500" alt="The slime turns into a hard, faceted dome, and the pawn that charged it bounces off into the air." loading="lazy" decoding="async" />
+            </figure>
+            <div class="piece-body">
+              <div class="piece-stand" aria-hidden="true"><img class="idle idle-squish" src="img/piece-slime.webp" width="360" height="400" alt="" loading="lazy" decoding="async" /></div>
+              <div class="piece-text">
+                <p class="chip soon">Coming</p>
+                <h3>Slime</h3>
+                <p class="move"><strong>Absorb or harden.</strong> Hold to go soft and turn a hook around. Tap to go hard and throw a charge back. Guess wrong and nothing happens.</p>
+              </div>
+            </div>
+          </li>
+          <li class="piece">
+            <figure class="piece-shot"><img src="img/scene-fade-800.webp" srcset="img/scene-fade-800.webp 800w, img/scene-fade-1600.webp 1600w" sizes="(min-width: 900px) 580px, 100vw" width="1600" height="1000" alt="A pale ghost has faded to an outline and a charging red pawn passes straight through it." loading="lazy" decoding="async" /></figure>
+            <div class="piece-body">
+              <div class="piece-stand" aria-hidden="true"><img class="idle idle-float" src="img/piece-ghost.webp" width="360" height="400" alt="" loading="lazy" decoding="async" /></div>
+              <div class="piece-text">
+                <p class="chip soon">Coming</p>
+                <h3>Ghost</h3>
+                <p class="move"><strong>Fade.</strong> For a moment nothing can touch it. The catch: a faded ghost does not count as a vote.</p>
+              </div>
+            </div>
+          </li>
+        </ul>
+      </section>
+
+      <!-- ============================== The rooms ============================== -->
+      <section class="rooms band" id="rooms" aria-labelledby="rooms-title">
+        <header class="section-head">
+          <p class="eyebrow">The rooms</p>
+          <h2 id="rooms-title">Same room, different night.</h2>
+          <p class="section-lead">A room is a skin. The lamps, the boxes and the rules stay where they are, so if you know one room you know them all. <strong>Today the room is the bar.</strong> The other five are concept drawings, and they are being built.</p>
+        </header>
+
+        <div class="roomset">
+          <input class="room-pick" type="radio" name="room" id="room-bar" checked />
+          <input class="room-pick" type="radio" name="room" id="room-tech" />
+          <input class="room-pick" type="radio" name="room" id="room-fair" />
+          <input class="room-pick" type="radio" name="room" id="room-attic" />
+          <input class="room-pick" type="radio" name="room" id="room-roof" />
+          <input class="room-pick" type="radio" name="room" id="room-camp" />
+          <div class="room-tabs" role="group" aria-label="Choose a room to look at">
+            <label for="room-bar">The bar <small>today</small></label>
+            <label for="room-tech">Tech room</label>
+            <label for="room-fair">Fairground</label>
+            <label for="room-attic">Attic</label>
+            <label for="room-roof">Rooftop</label>
+            <label for="room-camp">Campfire</label>
+          </div>
+          <div class="room-views">
+            <figure class="room-view view-bar"><img src="img/room-bar-800.webp" srcset="img/room-bar-800.webp 800w, img/room-bar-1600.webp 1600w" sizes="(min-width: 1240px) 1160px, 100vw" width="1600" height="900" alt="The bar: dark wood boards, a green dado, red enamel lamps and a string of warm bulbs." loading="lazy" decoding="async" /><figcaption><strong>The bar.</strong> Warm wood, enamel lamps, a chalkboard. The room you get today.</figcaption></figure>
+            <figure class="room-view view-tech"><img src="img/room-tech-800.webp" srcset="img/room-tech-800.webp 800w, img/room-tech-1600.webp 1600w" sizes="(min-width: 1240px) 1160px, 100vw" width="1600" height="900" alt="The tech room: navy walls on a lit grid, with cyan light strips." loading="lazy" decoding="async" /><figcaption><strong>Tech room.</strong> Navy, a lit grid, and an LED board for the score.</figcaption></figure>
+            <figure class="room-view view-fair"><img src="img/room-fairground-800.webp" srcset="img/room-fairground-800.webp 800w, img/room-fairground-1600.webp 1600w" sizes="(min-width: 1240px) 1160px, 100vw" width="1600" height="900" alt="The fairground: red and cream striped canvas under a night sky, with coloured bulbs and bunting." loading="lazy" decoding="async" /><figcaption><strong>Fairground.</strong> Striped canvas, sawdust and coloured bulbs. Cork &amp; Bell's home turf.</figcaption></figure>
+            <figure class="room-view view-attic"><img src="img/room-attic-800.webp" srcset="img/room-attic-800.webp 800w, img/room-attic-1600.webp 1600w" sizes="(min-width: 1240px) 1160px, 100vw" width="1600" height="900" alt="The attic: sloping beams, one long cupboard holding the boxes, and the lights falling on a rug." loading="lazy" decoding="async" /><figcaption><strong>Attic.</strong> The boxes live in one long cupboard and the lights fall on a rug.</figcaption></figure>
+            <figure class="room-view view-roof"><img src="img/room-rooftop-800.webp" srcset="img/room-rooftop-800.webp 800w, img/room-rooftop-1600.webp 1600w" sizes="(min-width: 1240px) 1160px, 100vw" width="1600" height="900" alt="The rooftop: a city skyline at night, with each box framed in its own neon colour." loading="lazy" decoding="async" /><figcaption><strong>Rooftop.</strong> A skyline, neon frames, and a lit panel instead of chalk.</figcaption></figure>
+            <figure class="room-view view-camp"><img src="img/room-campfire-800.webp" srcset="img/room-campfire-800.webp 800w, img/room-campfire-1600.webp 1600w" sizes="(min-width: 1240px) 1160px, 100vw" width="1600" height="900" alt="The campfire: boxes hung between trees, paper lanterns for lamps, a tent for a door and a fire." loading="lazy" decoding="async" /><figcaption><strong>Campfire.</strong> Boxes hung between trees, paper lanterns, and a tent for a door.</figcaption></figure>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============================== Big screen and phones ============================== -->
+      <section class="devices band" id="devices" aria-labelledby="devices-title">
+        <header class="section-head">
+          <p class="eyebrow">Big screen and phones</p>
+          <h2 id="devices-title">One room on every screen.</h2>
+        </header>
+        <div class="devices-grid">
+          <div class="rig" aria-hidden="true">
+            <div class="tv"><img src="img/hero-full-800.webp" srcset="img/hero-full-800.webp 800w, img/hero-full-1600.webp 1600w" sizes="(min-width: 900px) 620px, 92vw" width="1600" height="900" alt="" loading="lazy" decoding="async" /></div>
+            <div class="handset"><img src="img/hero-phone-844.webp" srcset="img/hero-phone-844.webp 844w, img/hero-phone-1688.webp 1688w" sizes="(min-width: 900px) 330px, 56vw" width="1688" height="780" alt="" loading="lazy" decoding="async" /></div>
+          </div>
+          <ul class="points">
+            <li>
+              <h3>The big screen</h3>
+              <p>Open the site on any laptop or TV, type the code, and choose "Use this as the room's screen". It shows the whole room for everyone and nobody plays from it.</p>
+            </li>
+            <li>
+              <h3>Your phone</h3>
+              <p>Hold it sideways. You see the same room, live, closer in on your own piece, with the buttons under your thumbs. One tap pulls back to the whole room.</p>
+            </li>
+            <li>
+              <h3>No big screen? Fine.</h3>
+              <p>Phones alone can run the room. A game that needs a shared screen keeps its light off and says so.</p>
+            </li>
+          </ul>
+        </div>
+        <p class="fine">The two screens above are concept drawings of the room's interface. Today's room is a first playable version and looks plainer.</p>
+      </section>
+
+      <!-- ============================== Open source ============================== -->
+      <section class="build band" id="build" aria-labelledby="build-title">
+        <div class="build-grid">
+          <div>
+            <p class="eyebrow">Open source</p>
+            <h2 id="build-title">Build a game for the room.</h2>
+            <p class="section-lead">The room, the party kit under it, and every game are MIT licensed. Each game is its own repository and plays on its own. A written game contract says what a game must export for the room to host it, so you can make one too.</p>
+            <ul class="ticks">
+              <li>The kit handles codes, seats, reconnects, and bots that take over a dropped seat</li>
+              <li>A game exports two things: its rules for the server, and a manifest</li>
+              <li>Solo play costs nothing to host, and rooms sleep when nobody moves</li>
+            </ul>
+            <p class="feature-actions">
+              <a class="button primary" href="https://github.com/n8watkins/n8-party-games/blob/main/party-kit/GAME-CONTRACT.md">Read the game contract</a>
+            </p>
+            <p class="sources">Source: <a href="https://github.com/n8watkins/n8-party-games">the room and the kit</a> and <a href="https://github.com/n8watkins/cork-and-bell">Cork &amp; Bell</a>, both on GitHub.</p>
+          </div>
+          <figure class="code">
+            <figcaption>Cork &amp; Bell's manifest, from its <code>party.js</code></figcaption>
+<pre><code><span class="k">export const</span> manifest = {
+  id: <span class="s">"cork-and-bell"</span>,
+  name: <span class="s">"Cork &amp; Bell"</span>,
+  path: <span class="s">"/cork-and-bell/"</span>,
+  players: { min: <span class="n">2</span>, max: <span class="n">4</span>, solo: <span class="n">true</span> },
+  devices: {
+    phone: <span class="n">true</span>,
+    desktop: <span class="n">true</span>,
+    sharedScreen: <span class="n">true</span>,
+    sideways: <span class="s">"preferred"</span>,
+  },
+  public: [
+    { from: <span class="s">"index.html"</span>, to: <span class="s">"index.html"</span> },
+    { from: <span class="s">"game"</span>, to: <span class="s">"game"</span> },
+  ],
+};</code></pre>
+          </figure>
+        </div>
+      </section>
+
+      <!-- ============================== The close ============================== -->
+      <section class="close" aria-labelledby="close-title">
+        <span class="lamp" aria-hidden="true"></span>
+        <h2 id="close-title">The lights are on.</h2>
+        <p>Get two to four people and a screen. Starting is one tap.</p>
+        <p class="close-actions">
+          <a class="button primary" href="#start">Start a party</a>
+          <a class="button" href="#start">Join with a code</a>
+        </p>
+      </section>
+    </main>
+
+    <footer class="foot">
+      <div class="foot-row">
+        <p class="foot-mark"><span data-site-name>n8 Party Games</span> <small>a working name</small></p>
+        <nav aria-label="Elsewhere">
+          <a href="https://n8builds.dev">n8builds.dev</a>
+          <a href="https://github.com/n8watkins/n8-party-games">GitHub</a>
+          <a href="https://github.com/n8watkins/n8-party-games/blob/main/LICENSE">MIT License</a>
+          <a href="https://whoami.n8builds.dev">Who Am I?</a>
+        </nav>
+      </div>
+      <p class="foot-fine">The room pictures on this page are renders and concept drawings of a room that is still being built. The Cork &amp; Bell pictures are the game as it plays. Lettering: Abril Fatface and Caveat, under the SIL Open Font License.</p>
+    </footer>
+  </body>
+</html>
