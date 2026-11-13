@@ -19,12 +19,12 @@
   // before every `wrangler dev` and `wrangler deploy`, and on changes while `wrangler dev` runs.
   "build": {
     "command": "node scripts/build-public.mjs",
-    "watch_dir": ["party-kit/client", "scripts", "games.js"]
+    "watch_dir": ["party-kit/client", "party-kit/src", "lobby/public", "lobby/shared", "lobby/server", "lobby/games", "lobby/wall.js", "site", "scripts", "games.js", "worker.js"]
   },
   "assets": {
     "directory": "./dist/public",
     "binding": "ASSETS",
-    "run_worker_first": ["/", "/api/*"]
+    "run_worker_first": ["/api/*"]
   },
   "observability": {
     "enabled": true,
@@ -33,6 +33,7 @@
   "durable_objects": {
     "bindings": [
       { "name": "PARTY_ROOMS", "class_name": "PartyRoom" },
+      { "name": "PARTY_LOBBIES", "class_name": "LobbyRoom" },
       { "name": "PARTY_PINS", "class_name": "PinDirectory" },
       { "name": "PARTY_LIMITER", "class_name": "RateLimiter" },
       { "name": "PARTY_BUDGET", "class_name": "RoomBudget" },
@@ -42,7 +43,8 @@
   "migrations": [
     { "tag": "v1", "new_sqlite_classes": ["PartyRoom", "PinDirectory", "RateLimiter"] },
     { "tag": "v2", "new_sqlite_classes": ["RoomBudget"] },
-    { "tag": "v3", "new_sqlite_classes": ["ScoreBoard"] }
+    { "tag": "v3", "new_sqlite_classes": ["ScoreBoard"] },
+    { "tag": "v4", "new_sqlite_classes": ["LobbyRoom"] }
   ],
   "vars": {
     // The owner's rule for the whole party game system: hosted rooms may use 10% of the Workers
@@ -65,6 +67,7 @@
       "durable_objects": {
         "bindings": [
           { "name": "PARTY_ROOMS", "class_name": "PartyRoom" },
+          { "name": "PARTY_LOBBIES", "class_name": "LobbyRoom" },
           { "name": "PARTY_PINS", "class_name": "PinDirectory" },
           { "name": "PARTY_LIMITER", "class_name": "RateLimiter" },
           { "name": "PARTY_BUDGET", "class_name": "RoomBudget" },
@@ -75,7 +78,9 @@
         "PARTY_ROOM_BUDGET_SHARE": "0.1",
         // Lets tests ask for simulated latency (?lag=150) and run many headless players.
         "PARTY_SIM_LATENCY": "on",
-        "PARTY_RATE_LIMIT": "off"
+        "PARTY_RATE_LIMIT": "off",
+        // Lets the tests and the cost measurements read the room budget and a room's inner state.
+        "PARTY_DEBUG": "on"
       }
     }
   }

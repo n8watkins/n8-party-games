@@ -9,10 +9,11 @@ Play it at https://partygames.n8builds.dev.
 
 ## What is here
 
-This repository is two things: the party kit, and the party site that puts the games together.
+This repository is three things: the party kit, the party room (the lobby), and the party site that puts them and the games together.
 
 - [`party-kit/`](party-kit/README.md) - the rooms: PINs, seats, reconnects, bots that take over a dropped seat, and a budget that caps how much hosted time rooms may use. It runs on Cloudflare Workers and Durable Objects. Games take it from here as a dependency.
-- [`games.js`](games.js), [`worker.js`](worker.js) and [`scripts/`](scripts/build-public.mjs) - the party site: one Worker that serves every hosted game beside the kit, so a group can change games without leaving.
+- [`lobby/`](lobby/README.md) - the party room: one room where up to four players vote for the next game by standing in its light, play it, and come back with points. A first playable version.
+- [`games.js`](games.js), [`worker.js`](worker.js), [`site/`](site/index.html) and [`scripts/`](scripts/build-public.mjs) - the party site: one Worker that serves a plain front page, the party room and every hosted game beside the kit.
 - [`party-kit/GAME-CONTRACT.md`](party-kit/GAME-CONTRACT.md) - what a game must export for the site to host it.
 - [`DEPLOY.md`](DEPLOY.md) - the checklist for every deploy.
 
@@ -20,15 +21,18 @@ Each game is its own repository, and plays on its own from there:
 
 - [Cork & Bell](https://github.com/n8watkins/cork-and-bell) - a 1930s fairground shooting gallery at dusk. One stall on your own, or a battle of two to four stalls side by side. Built with three.js and light baked in Blender.
 
-A shared lobby, where the party stays together and votes on the next game, is being designed.
+Cork & Bell hangs on the party room's wall, but does not open inside the room yet: that is the next piece of work.
+Until then the room's one playable game is Coin Flip, a placeholder that is clearly marked as a test.
 
 ## Run it
 
 ```sh
 npm install
-npm run dev     # http://localhost:8791/cork-and-bell/
+npm run dev     # http://localhost:8791/ (the party room) and /cork-and-bell/ (the game on its own)
 npm test
 ```
+
+To try the party room on one laptop, open `http://localhost:8791/` in two browser windows, start a party in one and join with its code in the other.
 
 Everything runs locally; no Cloudflare account is needed to play or develop.
 See the kit's README for the other commands.
@@ -47,9 +51,11 @@ The game in turn takes the kit from this repository as a development dependency,
 ## What it costs to host
 
 Static files and solo play cost nothing.
-Only multiplayer rooms use paid compute, and only while a round is being played: rooms sleep in between.
-The room budget in the party kit closes battles for the day or month once a set share of the plan's allowance is used.
-The details are in the [party kit README](party-kit/README.md).
+Only rooms use paid compute, and only while they are awake.
+A game's own room is awake while a round is being played and sleeps in between.
+The party room is awake for the instant each move takes to pass on, and for the few seconds a game is played; a lobby nobody touches is asleep.
+The room budget in the party kit closes rooms for the day or month once a set share of the plan's allowance is used.
+The details are in the [party kit README](party-kit/README.md), and the party room's measured numbers are in the [lobby README](lobby/README.md).
 
 ## License
 

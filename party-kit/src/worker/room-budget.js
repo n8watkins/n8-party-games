@@ -15,9 +15,9 @@ export class RoomBudget extends DurableObject {
     return budgetState(await this.ctx.storage.get(STORAGE_KEY), limitsFromEnv(this.env), now);
   }
 
-  /** Records that a room was awake for `ms` and returns the state afterwards. */
-  async spend(ms, now = Date.now()) {
-    const usage = addRoomTime(await this.ctx.storage.get(STORAGE_KEY), ms, now);
+  /** Records that a room was awake for `ms` (and billed `requests` requests) and returns the state afterwards. */
+  async spend(ms, requests = 0, now = Date.now()) {
+    const usage = addRoomTime(await this.ctx.storage.get(STORAGE_KEY), ms, now, requests);
     await this.ctx.storage.put(STORAGE_KEY, usage);
     return budgetState(usage, limitsFromEnv(this.env), now);
   }
@@ -39,8 +39,14 @@ export async function roomBudgetState(env) {
   return stub ? stub.state() : "open";
 }
 
-/** Reports room time. Returns the state afterwards ("open" when no budget is configured). */
-export async function spendRoomTime(env, ms) {
+/** Reports room time and requests. Returns the state afterwards ("open" when no budget is configured). */
+export async function spendRoomTime(env, ms, requests = 0) {
   const stub = budget(env);
-  return stub ? stub.spend(ms) : "open";
+  return stub ? stub.spend(ms, requests) : "open";
+}
+
+/** For the owner and the measurements: usage against the limits, or null when no budget is configured. */
+export async function roomBudgetReport(env) {
+  const stub = budget(env);
+  return stub ? stub.report() : null;
 }

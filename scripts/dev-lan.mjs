@@ -11,7 +11,7 @@ const addresses = Object.values(networkInterfaces())
 // Prefer an ordinary home or office address over VPN ranges.
 const lan = addresses.find((a) => /^(192\.168\.|10\.|172\.(1[6-9]|2\d|3[01])\.)/.test(a)) ?? addresses[0] ?? "localhost";
 const origin = `http://${lan}:${port}`;
-console.log(`Shared screen:  ${origin}/cork-and-bell/`);
-console.log(`Phones join at: ${origin}/cork-and-bell/ (or scan the QR code in the lobby)`);
+console.log(`The party room:        ${origin}/ (start a party on the big screen, then phones scan the QR code on its wall)`);
+console.log(`Cork & Bell on its own: ${origin}/cork-and-bell/ (or scan the QR code in its waiting room)`);
 const child = spawn("npx", ["wrangler", "dev", "--local", "--env", "local", "--ip", "0.0.0.0", "--port", port, "--var", `PARTY_PUBLIC_ORIGIN:${origin}`], { stdio: "inherit" });
 child.on("exit", (code) => process.exit(code ?? 0));

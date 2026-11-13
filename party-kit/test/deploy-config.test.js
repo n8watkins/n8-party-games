@@ -17,6 +17,8 @@ describe("the production configuration", () => {
     expect(prod.vars.PARTY_SIM_LATENCY).toBe("off");
     expect(prod.vars.PARTY_ROOM_BUDGET_SHARE).toBe("0.1");
     expect(prod.vars.PARTY_ROOM_BUDGET_DAY_SHARE).toBeUndefined();
+    // The door into the budget's books and a room's inner state is for local tests only.
+    expect(prod.vars.PARTY_DEBUG).toBeUndefined();
   });
 
   it("answers only at its custom domain", () => {
@@ -33,7 +35,7 @@ describe("the production configuration", () => {
     expect(prod.observability.enabled).toBe(true);
     expect(prod.assets.directory).toBe("./dist/public");
     expect(prod.build.command).toBe("node scripts/build-public.mjs");
-    expect(prod.durable_objects.bindings.map((b) => b.name).sort()).toEqual(["PARTY_BUDGET", "PARTY_LIMITER", "PARTY_PINS", "PARTY_ROOMS", "PARTY_SCORES"]);
+    expect(prod.durable_objects.bindings.map((b) => b.name).sort()).toEqual(["PARTY_BUDGET", "PARTY_LIMITER", "PARTY_LOBBIES", "PARTY_PINS", "PARTY_ROOMS", "PARTY_SCORES"]);
   });
 });
 

@@ -12,6 +12,41 @@ export const RATE_LIMITS = {
   score_long: { limit: 60, windowMs: 24 * 60 * 60_000 },
 };
 
+/**
+ * What one open socket may send. A bucket holds `burst` messages and refills at `perSecond`; a
+ * message that finds it empty is dropped and counts as a strike, and a socket that reaches
+ * `strikes` is closed. Incoming messages are billed whether or not they are dropped, so a client
+ * that keeps flooding has to lose its connection, not only its messages.
+ */
+export const SOCKET_RATE = { burst: 40, perSecond: 20, strikes: 60 };
+
+/** A full bucket for a socket that has just opened (or a room that has just woken). */
+export function newBucket(now, rule = SOCKET_RATE) {
+  return { tokens: rule.burst, at: now, strikes: 0 };
+}
+
+/**
+ * Takes one message out of the bucket. Returns "ok", "drop" (over the rate, the message is
+ * ignored) or "close" (too many drops: the socket goes). `weight` lets a malformed or oversized
+ * message count for more than one strike.
+ */
+export function takeMessage(bucket, now, rule = SOCKET_RATE, weight = 1) {
+  bucket.tokens = Math.min(rule.burst, bucket.tokens + (Math.max(0, now - bucket.at) / 1000) * rule.perSecond);
+  bucket.at = now;
+  if (bucket.tokens >= 1) {
+    bucket.tokens -= 1;
+    return "ok";
+  }
+  bucket.strikes += weight;
+  return bucket.strikes >= rule.strikes ? "close" : "drop";
+}
+
+/** A message that could not be read at all (too long, not JSON, not an object) is a strike on its own. */
+export function strike(bucket, rule = SOCKET_RATE, weight = 5) {
+  bucket.strikes += weight;
+  return bucket.strikes >= rule.strikes ? "close" : "drop";
+}
+
 /** The window after one more attempt at `now`. */
 export function nextWindow(current, rule, now) {
   const window = now - current.start >= rule.windowMs ? { start: now, count: 0 } : { ...current };

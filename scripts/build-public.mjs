@@ -26,9 +26,20 @@ function gameEntries({ manifest }) {
   return manifest.public.map((file) => ({ from: join(from, file.from), to: `${under}/${file.to}` }));
 }
 
-const entries = [kitClientEntry(), ...GAMES.flatMap(gameEntries)];
+/**
+ * The site's own pages: the front page, and the party room (the lobby) with the plain logic
+ * its page shares with the room (lobby/shared). The lobby's server code is not among them.
+ */
+const siteEntries = [
+  { from: join(ROOT, "site", "index.html"), to: "index.html" },
+  { from: join(ROOT, "site", "site.css"), to: "site.css" },
+  { from: join(ROOT, "lobby", "public"), to: "lobby" },
+  { from: join(ROOT, "lobby", "shared"), to: "lobby/shared" },
+];
 
-/** Every site path that is served: the kit's browser files and each game's public files. */
+const entries = [kitClientEntry(), ...siteEntries, ...GAMES.flatMap(gameEntries)];
+
+/** Every site path that is served: the kit's browser files, the site's pages and each game's public files. */
 export const SERVED = entries.map((entry) => entry.to);
 
 export function build() {

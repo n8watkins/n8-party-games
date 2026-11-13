@@ -14,5 +14,5 @@ export default defineConfig({
       { find: /^n8-party-games\/kit\/build$/, replacement: kit("build/public.mjs") },
     ],
   },
-  test: { include: ["party-kit/test/**/*.test.js"], environment: "node" },
+  test: { include: ["party-kit/test/**/*.test.js", "lobby/test/**/*.test.js"], environment: "node" },
 });

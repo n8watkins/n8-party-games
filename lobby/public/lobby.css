@@ -1,0 +1,738 @@
+/* The party room. The room itself is one SVG (scene.js); this styles its lettering and
+   everything laid over it. Fonts are the device's own: nothing is downloaded. */
+:root {
+  --bg: #0d0806;
+  --panel: #17100c;
+  --line: #3b2a1f;
+  --ink: #fbf3e2;
+  --soft: #cdbfa6;
+  --amber: #f4b453;
+  --amber-ink: #1e1410;
+  --cream: #f4e6cf;
+  --display: Georgia, "Times New Roman", "Noto Serif", "DejaVu Serif", serif;
+  --ui: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --mono: ui-monospace, "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace;
+  --chalk: "Segoe Print", "Bradley Hand", "Chalkboard SE", "Comic Sans MS", cursive;
+  --bar: clamp(56px, 8.34vh, 90px);
+}
+* {
+  box-sizing: border-box;
+}
+html,
+body {
+  height: 100%;
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--ui);
+  overflow: hidden;
+  overscroll-behavior: none;
+  -webkit-text-size-adjust: 100%;
+}
+[hidden] {
+  display: none !important;
+}
+button,
+input {
+  font: inherit;
+  color: inherit;
+}
+#app {
+  position: fixed;
+  inset: 0;
+}
+
+/* ------------------------------------------------------------ the room's lettering */
+.scene {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.t-display {
+  font-family: var(--display);
+  font-weight: 700;
+}
+.t-poster {
+  font-family: var(--ui);
+  font-weight: 900;
+}
+.t-ui {
+  font-family: var(--ui);
+}
+.t-mono {
+  font-family: var(--mono);
+}
+.t-chalk {
+  font-family: var(--chalk);
+}
+.t-semi {
+  font-weight: 600;
+}
+.t-bold {
+  font-weight: 800;
+}
+
+/* ------------------------------------------------------------ over the room */
+.hud {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+}
+.hud > * {
+  pointer-events: auto;
+}
+.dot {
+  display: inline-block;
+  flex: none;
+  width: 0.72em;
+  height: 0.72em;
+  border-radius: 50%;
+  background: #888;
+  box-shadow: 0 0 0 1.5px rgba(251, 243, 226, 0.55);
+}
+.chip {
+  flex: none;
+  padding: 0.28em 0.8em;
+  border-radius: 0.3em;
+  background: var(--amber);
+  color: var(--amber-ink);
+  font: 700 0.62em/1.3 var(--mono);
+  letter-spacing: 0.2em;
+  white-space: nowrap;
+}
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 0.5em;
+  font-weight: 700;
+  color: #f6d9a0;
+  white-space: nowrap;
+}
+.brand-mark {
+  width: 1.05em;
+  height: 0.72em;
+  border-radius: 0.2em;
+  background: var(--amber);
+}
+
+/* The strip over the foot of the picture. */
+.bar {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  background: rgba(10, 6, 4, 0.96);
+  border-top: 3px solid #b9853a;
+  padding-bottom: env(safe-area-inset-bottom);
+  padding-left: max(2vw, env(safe-area-inset-left));
+  padding-right: max(2vw, env(safe-area-inset-right));
+}
+.bar-screen {
+  height: var(--bar);
+  gap: 3vw;
+  font-size: clamp(15px, 2.42vh, 28px);
+}
+.bar-screen .status {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.7em;
+  white-space: nowrap;
+  overflow: hidden;
+}
+.status-main {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.status-sub {
+  color: var(--soft);
+  display: flex;
+  align-items: center;
+  gap: 0.45em;
+  min-width: 0;
+}
+.who {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.32em;
+  color: var(--ink);
+  font-weight: 700;
+}
+.code {
+  display: flex;
+  align-items: center;
+  gap: 0.5em;
+  white-space: nowrap;
+}
+.code-label {
+  width: 3.2em;
+  white-space: normal;
+  font: 600 0.5em/1.2 var(--mono);
+  letter-spacing: 0.22em;
+  color: var(--soft);
+}
+.code-digits {
+  font: 800 1.7em/1 var(--mono);
+  letter-spacing: 0.08em;
+}
+
+/* A player's buttons. */
+.bar-player {
+  min-height: 64px;
+  gap: 12px;
+  padding-top: 6px;
+  padding-bottom: max(6px, env(safe-area-inset-bottom));
+  font-size: 14px;
+  touch-action: none;
+}
+.pad {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.round {
+  flex: none;
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: #1d130e;
+  border: 2px solid #5a4030;
+  color: var(--ink);
+  cursor: pointer;
+  touch-action: none;
+  -webkit-tap-highlight-color: transparent;
+}
+.round.held,
+.round:active {
+  background: #3a281c;
+  border-color: var(--amber);
+}
+.round:focus-visible,
+.pill-btn:focus-visible,
+.button:focus-visible,
+.plain:focus-visible,
+.choice:focus-visible {
+  outline: 3px solid #fff;
+  outline-offset: 2px;
+}
+.jump-btn {
+  background: var(--amber);
+  border-color: var(--amber);
+  color: var(--amber-ink);
+}
+.jump-btn:active {
+  background: #ffcb7a;
+}
+.bump-btn.cooling {
+  opacity: 0.45;
+}
+.pill-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 40px;
+  padding: 0 14px 0 10px;
+  border-radius: 20px;
+  background: #1d130e;
+  border: 2px solid #5a4030;
+  font-weight: 700;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.pill-icon {
+  display: grid;
+}
+.bar-player .status {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  white-space: nowrap;
+  overflow: hidden;
+}
+.status-label {
+  flex: none;
+  color: var(--soft);
+}
+.bar-player .status-main {
+  flex: none;
+  font-weight: 800;
+  font-size: 1.15em;
+}
+.status-main.muted {
+  color: var(--soft);
+}
+.status-rule {
+  flex: none;
+  width: 1px;
+  height: 1.4em;
+  background: #5a4030;
+  margin: 0 4px;
+}
+.bar-player .status-sub {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: block;
+}
+
+.door-btn {
+  position: absolute;
+  top: max(10px, env(safe-area-inset-top));
+  right: max(10px, env(safe-area-inset-right));
+  width: 42px;
+  height: 42px;
+  background: rgba(23, 16, 12, 0.88);
+}
+.notes {
+  position: absolute;
+  top: max(12px, env(safe-area-inset-top));
+  left: 50%;
+  transform: translateX(-50%);
+  display: grid;
+  gap: 6px;
+  justify-items: center;
+  pointer-events: none;
+}
+.note,
+.banner,
+.link-state {
+  display: flex;
+  align-items: center;
+  gap: 0.5em;
+  padding: 0.42em 1em;
+  border-radius: 2em;
+  background: rgba(23, 16, 12, 0.94);
+  border: 1.5px solid var(--line);
+  font-weight: 700;
+  font-size: clamp(15px, 2.3vh, 26px);
+  white-space: nowrap;
+  transition: opacity 0.6s;
+}
+.note.going {
+  opacity: 0;
+}
+.banner {
+  position: absolute;
+  top: max(58px, calc(env(safe-area-inset-top) + 58px));
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 14px;
+  border-color: var(--amber);
+}
+.link-state {
+  position: absolute;
+  top: max(12px, env(safe-area-inset-top));
+  left: max(12px, env(safe-area-inset-left));
+  font-size: 14px;
+  color: var(--amber);
+}
+.turn-hint {
+  display: none;
+}
+
+/* The door button's sheet, the card after a game, and the notice when the room is gone. */
+.sheet-back,
+.card-back {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  background: rgba(8, 4, 3, 0.62);
+  overflow: auto;
+}
+.card-back.solid {
+  background: var(--bg);
+}
+.sheet,
+.card {
+  width: min(100%, 460px);
+  display: grid;
+  gap: 12px;
+  padding: 20px;
+  border-radius: 16px;
+  background: var(--cream);
+  color: #1e1410;
+  box-shadow: 0 18px 60px rgba(0, 0, 0, 0.55);
+}
+.choice {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px;
+  border: 0;
+  border-radius: 12px;
+  background: #ecd9b9;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.choice-icon {
+  flex: none;
+  width: 46px;
+  height: 46px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: #9c2b20;
+  color: #fff6e2;
+}
+.choice-words {
+  display: grid;
+  gap: 2px;
+}
+.choice-words strong {
+  font-size: 18px;
+}
+.choice-words span {
+  color: #5a4636;
+  font-size: 14px;
+}
+.button,
+.plain {
+  display: block;
+  width: 100%;
+  min-height: 48px;
+  padding: 12px 18px;
+  border-radius: 24px;
+  border: 0;
+  font-weight: 800;
+  font-size: 16px;
+  text-align: center;
+  text-decoration: none;
+  cursor: pointer;
+}
+.button {
+  background: var(--amber);
+  color: var(--amber-ink);
+}
+.button[disabled] {
+  opacity: 0.6;
+}
+.plain {
+  background: transparent;
+  color: inherit;
+  box-shadow: inset 0 0 0 2px currentColor;
+  opacity: 0.86;
+}
+.card-kicker {
+  font: 700 12px/1 var(--mono);
+  letter-spacing: 0.22em;
+  color: #9c2b20;
+}
+.card-title,
+.flip-title {
+  margin: 0;
+  font: 700 32px/1.1 var(--display);
+}
+.card-text,
+.card-foot {
+  margin: 0;
+  line-height: 1.45;
+  color: #3a2a1c;
+}
+.card-foot {
+  font-size: 14px;
+  color: #5a4636;
+}
+.places {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+}
+.places li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border-radius: 10px;
+  background: #ecd9b9;
+  font-size: 18px;
+}
+.places .dot {
+  box-shadow: 0 0 0 1.5px rgba(30, 20, 16, 0.5);
+}
+.place {
+  width: 2.2em;
+  font: 700 0.8em/1 var(--mono);
+  color: #5a4636;
+}
+.who-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 700;
+}
+.points {
+  font: 800 1.1em/1 var(--mono);
+}
+
+/* ------------------------------------------------------------ a game laid over the room */
+.stage {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  background: rgba(8, 4, 3, 0.95);
+  overflow: auto;
+}
+.flip {
+  display: grid;
+  gap: 10px;
+  justify-items: center;
+  text-align: center;
+}
+.flip .card-kicker {
+  color: var(--amber);
+}
+.flip-sub {
+  margin: 0;
+  color: var(--soft);
+}
+.flip-row {
+  display: flex;
+  gap: clamp(14px, 4vw, 44px);
+  margin-top: 14px;
+  perspective: 600px;
+}
+.flip-who {
+  display: grid;
+  gap: 10px;
+  justify-items: center;
+}
+.flip-coin {
+  width: clamp(54px, 13vmin, 120px);
+  height: clamp(54px, 13vmin, 120px);
+  border-radius: 50%;
+  border: 4px solid rgba(255, 255, 255, 0.7);
+  box-shadow: inset 0 0 0 6px rgba(0, 0, 0, 0.18);
+  animation: flip 0.55s linear infinite;
+}
+.flip-who:nth-child(2) .flip-coin {
+  animation-duration: 0.62s;
+}
+.flip-who:nth-child(3) .flip-coin {
+  animation-duration: 0.48s;
+}
+.flip-who:nth-child(4) .flip-coin {
+  animation-duration: 0.7s;
+}
+.flip-name {
+  font-weight: 700;
+}
+@keyframes flip {
+  to {
+    transform: rotateX(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .flip-coin {
+    animation-duration: 2.4s;
+  }
+}
+
+/* ------------------------------------------------------------ the way in */
+.door {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  overflow: auto;
+  background: radial-gradient(120% 90% at 50% 0%, #24160f 0%, var(--bg) 70%);
+}
+.door-card {
+  width: min(100%, 480px);
+  display: grid;
+  gap: 14px;
+}
+.door-title {
+  margin: 4px 0 0;
+  font: 700 clamp(32px, 6vw, 46px) / 1.05 var(--display);
+  color: #f6d9a0;
+}
+.door-sub {
+  margin: 0;
+  color: var(--soft);
+  line-height: 1.45;
+}
+.door-form {
+  display: grid;
+  gap: 12px;
+}
+.field {
+  display: grid;
+  gap: 6px;
+}
+.field-label {
+  font-size: 14px;
+  color: var(--soft);
+}
+.input {
+  width: 100%;
+  min-height: 52px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  border: 2px solid #5a4030;
+  background: #120b08;
+  font-size: 20px;
+}
+.input:focus-visible {
+  outline: 3px solid var(--amber);
+  outline-offset: 1px;
+}
+.input-code {
+  font: 800 34px/1 var(--mono);
+  letter-spacing: 0.3em;
+  text-align: center;
+}
+.roles {
+  display: grid;
+  gap: 8px;
+}
+.role {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  border: 2px solid #5a4030;
+  cursor: pointer;
+}
+.role.picked {
+  border-color: var(--amber);
+  background: rgba(244, 180, 83, 0.1);
+}
+.role input {
+  width: 20px;
+  height: 20px;
+  margin: 2px 0 0;
+  accent-color: var(--amber);
+}
+.role-words {
+  display: grid;
+  gap: 2px;
+}
+.role-words span {
+  color: var(--soft);
+  font-size: 14px;
+  line-height: 1.35;
+}
+.door-error {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: #fbe3da;
+  color: #7a1d12;
+  font-weight: 600;
+}
+
+/* ------------------------------------------------------------ an upright phone */
+@media (orientation: portrait) and (max-width: 560px) {
+  .hud-player .bar-player {
+    flex-wrap: wrap;
+    row-gap: 10px;
+    justify-content: space-between;
+    padding-top: 10px;
+  }
+  .hud-player .bar-player .status {
+    order: -1;
+    flex: 0 0 100%;
+    min-height: 26px;
+  }
+  .hud-player .round {
+    width: 64px;
+    height: 64px;
+  }
+  .hud-player .zoom-btn {
+    display: none;
+  }
+  .hud-player .turn-hint {
+    position: absolute;
+    top: max(10px, env(safe-area-inset-top));
+    left: max(10px, env(safe-area-inset-left));
+    right: 62px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 9px 12px;
+    border-radius: 12px;
+    background: var(--amber);
+    color: var(--amber-ink);
+    font-weight: 700;
+    font-size: 13.5px;
+    line-height: 1.25;
+  }
+  .hud-player .notes {
+    top: max(64px, calc(env(safe-area-inset-top) + 64px));
+  }
+  .note {
+    font-size: 15px;
+  }
+}
+
+/* A big screen is read from across the room: its cards and the game laid over it are larger. */
+@media (min-width: 1500px) and (min-height: 800px) {
+  .sheet,
+  .card,
+  .flip {
+    zoom: 1.6;
+  }
+}
+
+/* A short, wide screen (a phone held sideways): everything laid over the room is a size smaller. */
+@media (max-height: 520px) {
+  .note {
+    font-size: 15px;
+    padding: 0.3em 0.85em;
+  }
+  .door-btn {
+    width: 38px;
+    height: 38px;
+  }
+  .sheet,
+  .card {
+    gap: 8px;
+    padding: 14px;
+  }
+  .card-title,
+  .flip-title {
+    font-size: 24px;
+  }
+  .places li {
+    padding: 5px 10px;
+    font-size: 16px;
+  }
+  .button,
+  .plain {
+    min-height: 42px;
+    padding: 9px 16px;
+  }
+  .card-foot {
+    display: none;
+  }
+  .door {
+    place-items: start center;
+  }
+}
