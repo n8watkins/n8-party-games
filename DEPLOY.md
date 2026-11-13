@@ -44,7 +44,7 @@ Make at most a handful of rooms when checking.
 
 ## Confirming that waiting rooms sleep
 
-13. Play one round to the end, then leave the room open in the lobby on both devices for at least 8 minutes (an untouched room closes after 10).
+13. Play one round to the end, then leave the room open in the lobby on both devices for at least 8 minutes (an untouched room closes after 20).
 14. In the Cloudflare dashboard, go to Workers & Pages, open Durable Objects, and look at the account-level usage, then open the `PartyRoom` namespace and its Metrics tab.
 15. Expect activity during the round and only short blips (the 10 second pings) while the room waits in the lobby, not a solid block of active time.
 16. Check the same period under Manage Account, Billing, Billable Usage, where Durable Objects duration (GB-seconds) should grow during the round and stay nearly flat while the room sleeps.

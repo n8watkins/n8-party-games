@@ -9,7 +9,7 @@ import { BUMP_COOLDOWN_MS } from "./shared/world.js";
 const PLACES = ["1st", "2nd", "3rd", "4th"];
 
 const CLOSED = {
-  room_idle: ["The room closed", "Nobody had moved for ten minutes, so the room was put away."],
+  room_idle: ["The room closed", "Nobody had moved for twenty minutes, so the room was put away."],
   room_expired: ["The party is over", "A room lasts four hours. Start a new one to carry on."],
   allowance_spent: ["The rooms are closed for today", "Today's hosting allowance is used up. Party rooms open again tomorrow, and each game still plays on its own page."],
   seat_lost: ["Your seat was given up", "You were away for a while, so the room let your seat go. Join again with the code."],

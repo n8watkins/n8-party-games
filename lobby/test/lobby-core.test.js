@@ -392,7 +392,7 @@ describe("sleeping and closing", () => {
     seated(core, "Ann");
     seated(core, "Bo");
     stand(core, 0, 0, 2000);
-    // One in a light, one in the dark, nobody moving: the next wake-up is the ten-minute "forgotten" check.
+    // One in a light, one in the dark, nobody moving: the next wake-up is the twenty-minute "forgotten" check.
     expect(core.nextWake(3000)).toBe(2000 + STALE_ROOM_MS);
     expect(core.tick(2000 + STALE_ROOM_MS - 1).close).toBeNull();
     expect(core.tick(2000 + STALE_ROOM_MS).close).toBe("stale");

@@ -100,7 +100,7 @@ Once a real game is hosted in the room, its rounds will cost what they cost in t
 
 ## Limits, and what happens when the allowance is spent
 
-- A room closes one minute after the last person goes, and after ten minutes in which nobody did anything (the kit's two rules, unchanged). A page warns its player two minutes before the second.
+- A room closes one minute after the last person goes, and after twenty minutes in which nobody did anything (the kit's two rules). A page warns its player two minutes before the second.
 - A room closes four hours after it was made, never in the middle of a game. Pages warn five minutes before.
 - One socket may send a burst of 40 messages, then 20 a second. More are dropped, and a socket that keeps flooding is closed and its seat given up. A message over 512 bytes, or one that is not JSON, is dropped and counts five times.
 - When the day's or month's allowance is spent: no new party can start (the front page's way in answers that the rooms are full, and that each game still plays on its own page); an open room finishes the game it is playing, starts no other, tells everyone "This room closes in 3:00", and closes three minutes later.

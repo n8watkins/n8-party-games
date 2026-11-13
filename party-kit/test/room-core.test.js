@@ -377,7 +377,7 @@ describe("the room budget", () => {
 });
 
 describe("sleeping and forgotten rooms", () => {
-  it("closes a room nobody has touched for ten minutes, but never during a round", () => {
+  it("closes a room nobody has touched for twenty minutes, but never during a round", () => {
     const core = room();
     const ann = seated(core, "Ann");
     expect(core.nextWake(1000)).toBe(1000 + STALE_ROOM_MS);

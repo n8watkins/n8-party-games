@@ -332,7 +332,7 @@ export function createLobbyRoom(wall) {
      *     dropped phone that came back) is pushed back: an alarm ringing for nothing is a
      *     billed request.
      *   - The slow "forgotten room" check creeps later with every message and is left alone:
-     *     it rings early once in ten minutes, finds nothing to do and is set again.
+     *     it rings early once in twenty minutes, finds nothing to do and is set again.
      */
     arm(now) {
       const wake = this.core?.nextWake(now) ?? null;

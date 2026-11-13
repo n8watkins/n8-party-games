@@ -36,7 +36,7 @@ let veil = null;
 let bye = null;
 /** Which walk keys and buttons are down, newest last, so the latest one wins. */
 const held = [];
-/** When anyone last did anything, as far as this page knows: the room is put away after ten idle minutes. */
+/** When anyone last did anything, as far as this page knows: the room is put away after twenty idle minutes. */
 let stirAt = performance.now();
 
 const phone = () => Math.min(innerWidth, innerHeight) < 520;
