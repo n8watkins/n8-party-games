@@ -119,8 +119,8 @@ try {
   await phone.click(".rooms-btn");
   await sleep(500);
   await shot(phone, "03-phone-picker-not-host");
-  const line = await phone.locator(".picker-line").textContent();
-  check(line === "Ada picks the room.", `a guest sees who picks: "${line}"`);
+  const line = await phone.locator(".picker-why").textContent();
+  check(/Only Ada can change the room/.test(line), `a guest sees who picks: "${line}"`);
   await phone.click(".room-card[data-room=camp]", { force: true });
   await sleep(600);
   check((await phone.locator(".picker").count()) === 1 && watcher.room.room === "ship", "and a guest's tap changes nothing");
@@ -137,7 +137,7 @@ try {
   await host.click(".rooms-btn");
   await sleep(400);
   await shot(host, "04-laptop-picker-host");
-  check((await host.locator(".picker-line").textContent()) === "Pick where the party is. Everyone moves with you.", "the host is told their pick moves everyone");
+  check(/Everyone in the party sees the room you choose/.test(await host.locator(".picker-line").textContent()), "the host is told their pick moves everyone");
   await host.click(".room-card[data-room=camp]");
   const moved = await watcher.wait((m) => m.t === "pick", 5000).catch(() => null);
   check(moved?.v === "camp" && moved.by === 0, "the host's pick is one relayed message: " + JSON.stringify(moved && { v: moved.v, by: moved.by }));
@@ -155,7 +155,7 @@ try {
   // Not by a guest's message either: the room is the judge.
   watcher.send({ t: "pick", v: "roof" });
   const refusedGuest = await watcher.wait((m) => m.t === "pick-no", 4000).catch(() => null);
-  check(refusedGuest?.why === "Only the host picks the room.", "a guest's pick message is refused by the room: " + refusedGuest?.why);
+  check(refusedGuest?.why === "Only the one who started the party can change the room.", "a guest's pick message is refused by the room: " + refusedGuest?.why);
 
   // A latecomer gets the party's room.
   const late = await open("late phone", { width: 390, height: 844 }, { deviceScaleFactor: 2, hasTouch: true }, true);
@@ -184,8 +184,8 @@ try {
   const counting = await watcher.wait((m) => m.t === "vote" && m.vote.count, 6000, mark).catch(() => null);
   check(!!counting, "the count runs");
   await host.click(".rooms-btn");
-  const lockLine = await host.locator(".picker-line").textContent();
-  check(/^Not during the count/.test(lockLine), `the picker says why it is shut during the count: "${lockLine}"`);
+  const lockLine = await host.locator(".picker-why").textContent();
+  check(/count is running/.test(lockLine), `the picker says why it is shut during the count: "${lockLine}"`);
   await shot(host, "09-laptop-picker-during-count");
   await host.click(".room-card[data-room=roof]", { force: true });
   const quiet = await watcher.wait((m) => m.t === "pick", 1500).catch(() => null);
@@ -274,8 +274,8 @@ try {
   const dropper = await open("dropping phone", { width: 844, height: 390 }, { deviceScaleFactor: 2, hasTouch: true });
   await join(dropper, pin, "Fay");
   await dropper.goto("about:blank");
-  console.log("     a phone drops for 32 seconds...");
-  await sleep(32_000);
+  console.log("     a phone drops for longer than its seat is held (12 s and then 120 s)...");
+  await sleep(135_000);
   watcher.goto(light(COIN, 200)); // a move, so the room looks at its clock
   await sleep(1500);
   await dropper.goto(`${base}/lobby/`);
@@ -355,7 +355,8 @@ try {
   // Ada and Wes stand in Who Am I?'s light; Ada stays.
   watcher.goto(light(WHO, 40));
   await walkAda(light(WHO, -40));
-  await host.waitForSelector(".card.away", { timeout: 15000 }).catch(() => {});
+  // The walk, then the ten-second count, then the card.
+  await host.waitForSelector(".card.away", { timeout: 30000 }).catch(() => {});
   check((await host.locator(".card.away").count()) === 1, "an outside game's send-off card comes up");
   await host.click("text=Stay in the room");
   await sleep(7000);

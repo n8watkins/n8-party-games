@@ -17,7 +17,7 @@
 // which way it walks, and works out the rest (lobby/shared/world.js). Everything that depends
 // on time (the count, the toss, a dropped phone's grace, closing) is a wake-up: nextWake().
 import { makeRng } from "../../party-kit/src/core/rng.js";
-import { IDLE_SHUTDOWN_MS, NAME_MAX, RECONNECT_GRACE_MS, SEAT_COLOURS, STALE_ROOM_MS, cleanName, randomToken } from "../../party-kit/src/core/room-core.js";
+import { IDLE_SHUTDOWN_MS, NAME_MAX, SEAT_COLOURS, STALE_ROOM_MS, cleanName, randomToken } from "../../party-kit/src/core/room-core.js";
 import { AWAY_MS, COUNT_MS, SETTLE_MS, TOSS_MS, leaders, pointsForPlace, standingsFromRows, tally, whyNot } from "../shared/vote.js";
 import { bumpTarget, cooldownLeft, isDown, isSafe, knockLanding, knocked, mayBump } from "../shared/bump.js";
 import { DEFAULT_ROOM, ROOM_COOLDOWN_MS, isRoom, roomLocked } from "../shared/rooms.js";
@@ -35,6 +35,18 @@ export const BUDGET_CLOSE_MS = 3 * 60_000;
  * before another device may take it. Nothing is timed: it is looked at when somebody asks.
  */
 export const SCREEN_GRACE_MS = 15_000;
+/**
+ * A phone that drops: its piece turns grey at once (the room hears the socket close, or the page
+ * closes it when the phone is locked or put away), and if it is not back this long later the
+ * piece fades and the room says "Nat left". The vote carries on without it from the drop.
+ */
+export const DROP_FADE_MS = 12_000;
+/**
+ * But its seat, points and name are kept this much longer: a phone that comes back within it
+ * (unlocked, signal back) is seated again by the door, as itself, without going through the way
+ * in. An empty room with a seat held waits for it this long before it closes.
+ */
+export const SEAT_HOLD_MS = 120_000;
 /** How many people who left are remembered by name, so coming back restores their points. */
 const MAX_REMEMBERED = 12;
 
@@ -71,6 +83,8 @@ export class LobbyCore {
     this.closing = null;
     /** lower-case name -> points, for people who left and may come back. */
     this.remembered = new Map();
+    /** token -> {seat, name, points, at}: seats of dropped players held after their piece faded (SEAT_HOLD_MS). */
+    this.held = new Map();
     this.notes = [];
     this.voteKey = "";
     this.createdAt = now;
@@ -92,13 +106,14 @@ export class LobbyCore {
   // ---------------------------------------------------------------- coming and going
 
   /** Adds a player to the first free seat, by the door. Works at any time, mid-vote included. */
-  join(nickname, now, token = randomToken()) {
+  join(nickname, now, token = randomToken(), wantSeat = -1) {
     const name = cleanName(nickname);
     if (!name) return fail("bad_name", "Pick a nickname first.");
     // While a game is on, a seat somebody left in the middle of it still has a stall in the
     // round (the game's stand-in is playing it): a newcomer is never given that seat.
     const inPlay = this.activity.kind === "game" ? this.activity.seats : [];
-    const seat = this.members.findIndex((m, i) => m === null && !inPlay.includes(i));
+    const free = (i) => this.members[i] === null && !inPlay.includes(i);
+    const seat = wantSeat >= 0 && free(wantSeat) ? wantSeat : this.members.findIndex((m, i) => free(i));
     if (seat === -1 && this.members.includes(null)) return fail("room_full", "A game is on and its seats are taken. Join when it ends.");
     if (seat === -1) return fail("room_full", "This party is full: four players at most.");
     const taken = new Set(this.present().map((m) => m.name.toLowerCase()));
@@ -161,7 +176,7 @@ export class LobbyCore {
 
   /** A socket opened for this token. Returns the identity, or null when the token is not valid (any more). */
   connect(token, now) {
-    const who = this.identify(token);
+    const who = this.identify(token) ?? this.reclaim(token, now);
     if (!who) return null;
     if (who.role === "screen") {
       Object.assign(this.screens.get(token), { connected: true, droppedAt: null });
@@ -224,6 +239,28 @@ export class LobbyCore {
     this.noteEmpty(now);
   }
 
+  /**
+   * A dropped player whose piece faded is back within SEAT_HOLD_MS: seated again by the door with
+   * the same name, points and token, in the same seat if it is free. Null when it is too late or
+   * the party is full.
+   */
+  reclaim(token, now) {
+    const held = token && this.held.get(token);
+    if (!held) return null;
+    this.held.delete(token);
+    if (now - held.at > SEAT_HOLD_MS) return null;
+    if (held.points > 0) this.remembered.set(held.name.toLowerCase(), held.points);
+    const taken = new Set(this.present().map((m) => m.name.toLowerCase()));
+    const joined = this.join(taken.has(held.name.toLowerCase()) ? `${held.name.slice(0, NAME_MAX - 2)} 2` : held.name, now, token, held.seat);
+    return joined.ok ? { role: "player", seat: joined.seat } : null;
+  }
+
+  /** Seats held for players who dropped, still within SEAT_HOLD_MS (the rest are forgotten). */
+  heldSeats(now) {
+    for (const [token, held] of this.held) if (now - held.at > SEAT_HOLD_MS) this.held.delete(token);
+    return this.held.size;
+  }
+
   /** The player chose "Leave the party": no grace. */
   leave(token, now) {
     const who = this.identify(token);
@@ -245,6 +282,9 @@ export class LobbyCore {
   /** Whose taps change the room right now: the host, or while the host is away the first connected player. */
   pickerToken() {
     const host = this.identify(this.hostToken);
+    // A party started on a big screen (a TV, often with nothing to tap) is picked for by its
+    // first player; the screen's own taps still count (setRoom).
+    if (host?.role === "screen" && this.connected().length) return this.connected()[0].token;
     const here = host && (host.role === "screen" ? this.screens.get(this.hostToken).connected : this.members[host.seat].connected);
     if (here) return this.hostToken;
     return this.connected()[0]?.token ?? (host ? this.hostToken : null);
@@ -262,7 +302,7 @@ export class LobbyCore {
    */
   setRoom(token, id, now) {
     if (!isRoom(id)) return { ok: false, why: "That is not a room." };
-    if (token !== this.pickerToken()) return { ok: false, why: "Only the host picks the room." };
+    if (token !== this.pickerToken() && token !== this.hostToken) return { ok: false, why: "Only the one who started the party can change the room." };
     const locked = roomLocked({ phase: this.activity.kind === "game" ? "playing" : "lobby", vote: { count: this.count, toss: this.toss } });
     if (locked) return { ok: false, why: locked };
     if (id === this.room) return { ok: false, why: "The party is in that room already." };
@@ -467,7 +507,8 @@ export class LobbyCore {
     if (inLobby) {
       // A dropped phone's grace runs out: the piece fades and its vote stops counting.
       for (const m of this.present()) {
-        if (!m.connected && m.droppedAt !== null && now - m.droppedAt >= RECONNECT_GRACE_MS) {
+        if (!m.connected && m.droppedAt !== null && now - m.droppedAt >= DROP_FADE_MS) {
+          this.held.set(m.token, { seat: m.seat, name: m.name, points: m.points, at: now });
           this.remove(m, "dropped");
           out.changed = true;
         }
@@ -496,7 +537,7 @@ export class LobbyCore {
         }
       }
     }
-    if (this.emptySince !== null && now - this.emptySince >= IDLE_SHUTDOWN_MS) out.close = "empty";
+    if (this.emptySince !== null && now - this.emptySince >= this.emptyLimit(now)) out.close = "empty";
     else if (inLobby && !out.start && !out.away) {
       if (now - this.lastActive >= STALE_ROOM_MS) out.close = "stale";
       else if (now - this.createdAt >= MAX_ROOM_LIFE_MS) out.close = "expired";
@@ -536,10 +577,15 @@ export class LobbyCore {
     this.count = null;
   }
 
+  /** How long an empty room waits before it closes: longer while a dropped player's seat is held. */
+  emptyLimit(now) {
+    return this.heldSeats(now) ? SEAT_HOLD_MS : IDLE_SHUTDOWN_MS;
+  }
+
   /** When the room should next be woken if nothing else happens (for the alarm), or null. */
   nextWake(now) {
     let at = Infinity;
-    if (this.emptySince !== null) at = Math.min(at, this.emptySince + IDLE_SHUTDOWN_MS);
+    if (this.emptySince !== null) at = Math.min(at, this.emptySince + this.emptyLimit(now));
     if (this.activity.kind === "lobby") {
       at = Math.min(at, this.lastActive + STALE_ROOM_MS, this.createdAt + MAX_ROOM_LIFE_MS);
       if (this.closing) at = Math.min(at, this.closing.at);
@@ -547,7 +593,7 @@ export class LobbyCore {
       if (this.toss) at = Math.min(at, this.toss.endsAt);
       // The rest after a game: a count may be due the moment it is over, if anyone is here to vote.
       if (this.holdUntil > now && this.connected().length) at = Math.min(at, this.holdUntil);
-      for (const m of this.present()) if (!m.connected && m.droppedAt !== null) at = Math.min(at, m.droppedAt + RECONNECT_GRACE_MS);
+      for (const m of this.present()) if (!m.connected && m.droppedAt !== null) at = Math.min(at, m.droppedAt + DROP_FADE_MS);
     }
     return at === Infinity ? null : Math.max(at, now + 20);
   }
@@ -694,6 +740,7 @@ export class LobbyCore {
       holdUntil: this.holdUntil,
       closing: this.closing,
       remembered: [...this.remembered],
+      held: [...this.held],
       createdAt: this.createdAt,
       lastActive: this.lastActive,
       emptySince: this.emptySince,
@@ -723,6 +770,7 @@ export class LobbyCore {
     room.holdUntil = data.holdUntil ?? 0;
     room.closing = data.closing ?? null;
     room.remembered = new Map(data.remembered ?? []);
+    room.held = new Map(data.held ?? []);
     room.createdAt = data.createdAt;
     room.lastActive = data.lastActive ?? now;
     // When the last person went, if they had: kept through a sleep, so "empty for a minute" is

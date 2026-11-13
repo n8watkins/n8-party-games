@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 import { AwakeMeter, EVENT_FLOOR_MS, addRoomTime, emptyUsage, rollOver } from "../../party-kit/src/worker/budget-logic.js";
 import { SOCKET_RATE, newBucket, strike, takeMessage } from "../../party-kit/src/worker/limit-logic.js";
 import { game as coinFlip, FLIP_MS } from "../games/coin-flip.js";
-import { camera, CLOSER, CORNER_CLEAR, PHONE_FRAME, PIECE_CSS, PIECE_HEIGHT, SIGN_TOP } from "../shared/camera.js";
+import { camera, CLOSER, CORNER_CLEAR, CORNER_WIDTH, PHONE_FRAME, PIECE_CSS, PIECE_HEIGHT, SIGN_TOP, signTop } from "../shared/camera.js";
 import { Pilot, SEND_GAP_MS } from "../shared/pilot.js";
 import { playerLine, statusLine } from "../shared/status.js";
 import { badgeFor, boxFromManifest, leaders, playersLabel, pointsForPlace, standingsFromRows, tally, whereabouts, whyNot } from "../shared/vote.js";
@@ -217,7 +217,7 @@ describe("what a device shows", () => {
     const whole = camera({ w: 844, h: 390, bar: 64, phone: true });
     const mid = camera({ w: 844, h: 390, bar: 64, phone: true, mode: "closer", focusX: 900 });
     // Zoomed so a piece is a comfortable size, as long as the signs stay on the screen.
-    expect(mid.scale).toBeCloseTo(Math.max((844 / 1920) * CLOSER, Math.min(PIECE_CSS / PIECE_HEIGHT, (390 - 64 - CORNER_CLEAR) / (PHONE_FRAME.bottom - SIGN_TOP))));
+    expect(mid.scale).toBeCloseTo(Math.max((844 / 1920) * CLOSER, Math.min(PIECE_CSS / PIECE_HEIGHT, (390 - 64 - CORNER_CLEAR) / (PHONE_FRAME.bottom - signTop(5)))));
     expect(mid.scale).toBeGreaterThanOrEqual((844 / 1920) * CLOSER);
     expect(mid.scale).toBeGreaterThan(whole.scale);
     expect(mid.x + mid.width / 2).toBeCloseTo(900);
@@ -238,10 +238,33 @@ describe("what a device shows", () => {
       const v = camera({ w, h, bar: 64, phone: true, mode: "closer", focusX: 900 });
       expect(v.scale).toBeGreaterThanOrEqual(old(w, h) - 1e-9);
       expect(v.scale * PIECE_HEIGHT).toBeLessThanOrEqual(PIECE_CSS + 0.01);
-      if (v.scale > old(w, h) + 1e-9) expect((SIGN_TOP - v.y) * v.scale).toBeGreaterThanOrEqual(CORNER_CLEAR - 0.01);
+      if (v.scale > old(w, h) + 1e-9) expect((signTop(5) - v.y) * v.scale).toBeGreaterThanOrEqual(CORNER_CLEAR - 0.01);
     }
     // A laptop's "Closer" keeps the width rule.
     expect(camera({ w: 1280, h: 800, bar: 80, mode: "closer" }).scale).toBeCloseTo(Math.max(Math.min(1280 / 1920, 720 / 990), (1280 / 1920) * CLOSER));
+  });
+
+  it("knows where the signs are for any number of boxes, in whichever drawing has them higher", () => {
+    expect(signTop(4)).toBe(SIGN_TOP);
+    expect(signTop(5)).toBeCloseTo(451, 0);
+    expect(signTop(6)).toBeCloseTo(391, 0);
+  });
+
+  it("shows a sideways phone the lamps, the beams and the pools, with the corner buttons to the right of the room", () => {
+    for (const [w, h] of [
+      [667, 320],
+      [844, 390],
+      [932, 430],
+    ]) {
+      const v = camera({ w, h, bar: 70, phone: true });
+      expect(v.y).toBeLessThanOrEqual(PHONE_FRAME.top + 0.01);
+      expect(v.y + (h - 70) / v.scale).toBeGreaterThanOrEqual(PHONE_FRAME.bottom - 0.01);
+      // The board's right edge (world 1858) is left of the corner buttons, or as far left as it goes.
+      const across = (PHONE_FRAME.right - PHONE_FRAME.left) * v.scale;
+      if (across + CORNER_WIDTH <= w) expect((1858 - v.x) * v.scale).toBeLessThanOrEqual(w - CORNER_WIDTH + 0.01);
+      else expect(v.x).toBeCloseTo(PHONE_FRAME.left);
+      expect((PHONE_FRAME.left - v.x) * v.scale).toBeGreaterThanOrEqual(-0.01);
+    }
   });
 
   it("still works on an upright phone: a slice of the room around the player", () => {

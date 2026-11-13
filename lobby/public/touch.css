@@ -1,6 +1,7 @@
-/* What can be touched on the wall (touch.js): one language for all of it. A small round mark in
-   the top right corner of the thing, a press when it is tapped, and a hand on a laptop. The
-   first time a device is in a room the marks say "tap" once. */
+/* What can be touched on the wall (touch.js): one language for all of it, kept quiet. The first
+   time a device is in a room a small round mark pulses on each thing and the board's says "tap";
+   after that the marks are gone, and a touchable thing answers a tap with a press of light. On a
+   laptop the mark comes back under the pointer, with a hand cursor. */
 .touch-layer {
   position: absolute;
   inset: 0;
@@ -33,7 +34,7 @@
   background: rgba(23, 16, 12, 0.78);
   border: 1.5px solid rgba(246, 217, 160, 0.55);
   color: #f6d9a0;
-  opacity: 0.8;
+  opacity: 0;
   transition: opacity 0.2s, transform 0.2s;
 }
 /* A poster's mark sits in the corner of its art, clear of the sign's words; the feature's at its foot. */
@@ -42,6 +43,9 @@
   bottom: 30%;
   right: 50%;
   transform: translateX(50%);
+}
+.spot:focus-visible .spot-mark {
+  opacity: 1;
 }
 .spot:focus-visible {
   outline: 3px solid #fff;
@@ -187,14 +191,10 @@
   }
 }
 
-/* The board opens itself in both drawings: its spot is the mark only, and taps go through. The
-   drawings' own corner arrows give way to the one mark every touchable thing has. */
+/* The board opens itself in both drawings (each draws a small arrow in its corner): its spot is
+   the first-time mark only, and taps go through. */
 .spot.spot-only {
   pointer-events: none;
-}
-svg.scene path:has(+ .board-hit),
-.l3-open-mark {
-  display: none;
 }
 .code-back {
   cursor: pointer;

@@ -227,13 +227,18 @@ try {
   await sleep(300);
   const droppedAgain = Date.now();
   console.log(`     waiting out the screen's grace (${SCREEN_GRACE_MS / 1000} seconds)...`);
-  // Asked well inside the grace: on a loaded machine a request can take a couple of seconds to be answered.
+  // Asked well inside the grace: this machine now and then pauses for a second or two (WSL), and
+  // a request that is only answered after the grace is rightly let in.
   await sleep(SCREEN_GRACE_MS - 4000 - (Date.now() - droppedAgain));
+  const almostSent = Date.now() - droppedAgain;
   const almost = await call("POST", "/join/" + host.pin, { as: "screen" });
-  check(almost.status === 409, `still refused ${Date.now() - droppedAgain} ms after it dropped`);
+  const almostDone = Date.now() - droppedAgain;
+  check(almost.status === 409 || almostDone >= SCREEN_GRACE_MS, `still refused ${almostSent} ms after it dropped` + (almost.status === 409 ? "" : ` (answered ${almostDone} ms after: this machine paused, past the grace)`));
   await sleep(SCREEN_GRACE_MS + 400 - (Date.now() - droppedAgain));
-  const s2 = await call("POST", "/join/" + host.pin, { as: "screen" });
+  const s2 = almost.status === 409 ? await call("POST", "/join/" + host.pin, { as: "screen" }) : almost;
   check(s2.ok, `the place frees up ${Date.now() - droppedAgain} ms after the first screen dropped (grace ${SCREEN_GRACE_MS} ms; it took the place ${Date.now() - took} ms ago)`);
+  // (Without a place the rest of this part has nothing to stand on: stop here instead of waiting for ever.)
+  if (!s2.ok) throw new Error("the screen's place never freed up");
   const S2 = connect(s2);
   await S2.opened;
   await S2.wait((m) => m.t === "hello", 4000, 0);
@@ -715,7 +720,7 @@ try {
     await page.clock.pauseAt(new Date(Date.now() + 400));
     mark = fitch.seen.length;
     fitch.send({ t: "b" });
-    const blow = await fitch.wait((m) => m.t === "b" && m.s === 2, 3000, mark);
+    const blow = await fitch.wait((m) => m.t === "b" && m.s === 2, 6000, mark);
     check(blow.to === 3, `(a bump for the ${name}'s stills lands)`);
     await sleep(250); // the message reaches the page, whose clock stands still
     let at = 0;

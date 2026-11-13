@@ -74,9 +74,29 @@
   color: #5a4636;
   line-height: 1.35;
 }
-.picker-line.locked {
-  color: #9c2b20;
+/* Why the cards cannot be tapped right now, in plain words; it shakes when a card is tapped anyway. */
+.picker-why {
+  margin: 0;
+  padding: 8px 12px;
+  border-radius: 10px;
+  background: #f3d3c4;
+  color: #7a1f16;
   font-weight: 700;
+  line-height: 1.3;
+}
+.picker-why.nudge {
+  animation: why-nudge 0.4s ease-out;
+}
+@keyframes why-nudge {
+  20% {
+    transform: translateX(-6px);
+  }
+  50% {
+    transform: translateX(5px);
+  }
+  80% {
+    transform: translateX(-2px);
+  }
 }
 .picker-grid {
   display: grid;
@@ -132,11 +152,36 @@
 .room-card.here .room-here {
   display: block;
 }
+/* A card that cannot be tapped now looks it: grey, faded, and not lifted on a press. */
 .room-card.off {
-  cursor: default;
+  cursor: not-allowed;
+  opacity: 0.55;
 }
 .room-card.off img {
-  filter: saturate(0.6) brightness(0.8);
+  filter: grayscale(1) brightness(0.75);
+}
+/* A tap that works answers at once. */
+.room-card:not(.off):not(.here):active {
+  transform: scale(0.97);
+}
+.room-going {
+  display: none;
+  position: absolute;
+  inset: 0 0 auto 0;
+  aspect-ratio: 320 / 165;
+  place-items: center;
+  background: rgba(18, 11, 8, 0.6);
+  color: #fff6e2;
+  font-weight: 800;
+}
+.room-card.going {
+  border-color: var(--amber);
+}
+.room-card.going .room-going {
+  display: grid;
+}
+.sheet-back.waiting .room-card:not(.going) {
+  opacity: 0.5;
 }
 .room-card:not(.off):not(.here):hover,
 .room-card:not(.off):not(.here):active {
@@ -253,4 +298,20 @@
     top: calc(max(10px, env(safe-area-inset-top)) + 54px);
     right: max(10px, env(safe-area-inset-right));
   }
+}
+
+/* The first time a host is in a room: what Rooms is for, under the button. */
+.rooms-hint {
+  position: absolute;
+  top: calc(max(10px, env(safe-area-inset-top)) + 54px);
+  right: max(10px, env(safe-area-inset-right));
+  max-width: 220px;
+  padding: 8px 12px;
+  border-radius: 12px;
+  background: var(--cream);
+  color: #1e1410;
+  font-weight: 700;
+  font-size: 14px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+  cursor: pointer;
 }

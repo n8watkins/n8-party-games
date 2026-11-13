@@ -27,7 +27,7 @@ Make each window short and wide to see what a sideways phone sees, or use the br
 7. Stand one piece in each lit light for a tie and its coin toss.
 8. Stand both pieces in Cork & Bell's light: the battle starts for the two of you inside the room, each window shows its own stall (a third window as the room's screen shows both), and ninety seconds later both are back by the door with the scores on a card and points on the Tonight board. One piece alone in that light gets a round to itself.
 9. Stand both pieces in Who Am I?'s light: "Opens in 10" counts down, a card says where everyone is going, and both windows go to its own site.
-10. Close one window to see the piece turn grey, and fade thirty seconds later.
+10. Close one window to see the piece turn grey at once, and fade twelve seconds later.
 
 Coin Flip is a test game.
 It hangs on the wall only where `PARTY_TEST_GAMES` is `"on"`, which is the `local` environment in `wrangler.jsonc` (`npm run dev` and the test runs).
@@ -38,7 +38,7 @@ For a big screen, open a third window, choose "Use this as the room's screen" an
 A room has one screen: a fourth window that asks to be it is told so and offered a seat.
 For phones on the same network, `npm run dev:lan` prints the address to open; the QR code on the wall then points at it.
 Stills of the main states, from a real run, are in [`shots/`](shots/).
-Stills of leaving, the room picker, the count, the poster card and the browser's bars (before and after) are in [`shots/leave-and-rooms/`](shots/leave-and-rooms/).
+Stills of leaving, the room picker, the count, the poster card and the browser's bars (before and after) are in [`shots/leave-and-rooms/`](shots/leave-and-rooms/), and of the picker saying why, the phone framing before and after, and the rooms' passing things in [`shots/phone-pass/`](shots/phone-pass/).
 The ones whose names start with `f` are from `npm run test:feel`: the bump moment by moment (wind-up, hit, thrown, on the floor, up and safe), the buttons and the cooldown ring, the board opened large, and the way in on a phone.
 
 ## The two drawings
@@ -89,8 +89,8 @@ When a game is added to the wall, its plate must be rendered before the baked ba
 The 3D look has seven rooms: the bar (where a party starts), the star lounge (`ship`), the arcade, the campfire (`camp`), the rooftop (`roof`), the studio (`navy`) and the pier fair (`fair`).
 Which room a party is in is one shared choice, kept with the room on the server (`room` in the room view, saved with the room, so it survives the room sleeping) and seen by every device.
 "Rooms", in the top right corner beside the door button, opens the picker: each room as a card with its picture (`public/rooms/<id>.webp`, fetched only when the picker opens) and its name.
-Everyone can open it; only the host's taps apply, and the others see "Ada picks the room".
-The host is the device that made the party, the room's screen included; when it leaves for good the first player still here takes over, and while it is only dropped the first connected player picks for it (`picker` in the room view says who).
+Everyone can open it; only the host's taps apply, and the others' cards look disabled with "Only Ada can change the room". A card that cannot be tapped (during the count, a coin toss or a game, or in the few seconds after a change) looks disabled and the picker says why in plain words, such as "The count is running. Step out of the light to change the room."; a tap that works shows "Going there..." at once. The first time a host is in a room, a bubble under Rooms says what it is for.
+The host is the player who made the party; when a big screen made it, its first player picks (and the screen still can). When the host leaves for good the first player still here takes over, and while it is only dropped the first connected player picks for it (`picker` in the room view says who).
 A pick is one small message (`pick`), which the room checks (host only, never during the count, the coin toss or a game, at most once every four seconds) and relays to everyone as one message; the picker says why it is shut when it is.
 Every device then dims the room, swaps it and brings the lights up together, and a note says who moved the party where.
 A device drawing the flat room only shows the note.
@@ -110,7 +110,7 @@ There are three kinds of thing, all drawn on the device from what every device a
 None of it sends a message, asks the room anything or changes a rule: it cannot move a piece, block a vote or decide who was bumped.
 
 - **Ambient**: always on. A fire, bulbs that chase round a frame, a sky going by a window.
-- **Events**: something passes now and then, such as an owl, a plane or a comet. They run off the room's own clock and a sequence seeded by the room's code, so every screen in a room sees the same owl at the same moment. The clock is how long the room has been open, which the room view already carries as `closesIn`; devices agree to within the lag of one message.
+- **Events**: something passes now and then, such as an owl, a plane or a comet. They run off the room's own clock and a sequence seeded by the room's code, so every screen in a room sees the same owl at the same moment. The clock is how long the room has been open, which the room view already carries as `closesIn`; devices agree to within the lag of one message. Things that fly or float go through the clear band over the boxes (5.25 to 5.95 m up the wall, under the top of a phone's view), in front of the wall's furniture, so no poster, sign or board hides them and they cover no poster's name or the join code; what passes outside a window (the star lounge's comet, moon and traffic) goes by in the same band.
 - **Reactions**: set off by pieces, from where they stand, when they jump and who was bumped, all of which every device hears already. Jump under a lamp and it swings. Stand by the campfire and your piece gets sooty. Under the Tonight board every room has one feature of its own (a jukebox, a prize wheel, a claw machine) which is knocked when someone is bumped beside it.
 
 Each event and reaction announces itself by name on `window` as a `party-room:sound` event (`detail: {name, room}`); every skin lists its names and what each should sound like under `sounds`.
@@ -148,7 +148,7 @@ The 3D wall follows the flat one: a game's name is on its box and nowhere else, 
   | --- | --- |
   | Leave the party | "You left party 1234." Rejoin |
   | The room's screen: Stop showing | "This screen stopped showing party 1234." Show it again |
-  | Away longer than thirty seconds | "You were away too long, so party 1234 let your seat go." Rejoin |
+  | Away longer than two minutes (the piece fades after twelve seconds; the seat is held for two minutes more) | "You were away too long, so party 1234 let your seat go." Rejoin |
   | A screen away too long, and another took its place | "Another screen is showing party 1234 now." Join as a player |
   | Nobody moved for twenty minutes | "Party 1234 closed: nobody moved for twenty minutes." |
   | Four hours | "Party 1234 is over: a party lasts four hours." |
@@ -157,7 +157,7 @@ The 3D wall follows the flat one: a game's name is on its box and nowhere else, 
 
   A wrong code is said in the way in as soon as all four digits are typed, a full party says so with "Start a party instead" beside it, a second screen is offered a seat, and "Stay in the room" on an outside game's card leaves you in the live room.
 - The door button and Rooms say what they do ("Leave", "Stop showing" on the room's screen, "Rooms") for the first nine seconds a device is in the room, then fold to their pictures.
-- What can be touched on the wall looks it (`public/touch.js`): the Tonight board, each poster, the join sign and, in 3D, the room's own feature carry the same small round mark, give a press when tapped and a hand cursor on a laptop, and the first time a device is in a room the marks pulse and the board's says "tap". A poster opens a small card beside it: its line, players, devices, "Stand under its lamp to vote" and a high score where the game keeps one; it closes by itself after seven seconds or as soon as the piece moves. The join sign opens the code and QR code large, for showing a friend. The room's feature (the jukebox, the globe, the claw...) plays the reaction a bump by it would, on that device only and at most every second and a half. None of it sends anything to the room.
+- What can be touched on the wall looks it (`public/touch.js`): the Tonight board, each poster, the join sign and, in 3D, the room's own feature answer a tap with a press of light and give a hand cursor on a laptop. The first time a device is in a room a small round mark pulses on each of them and the board's says "tap"; after that the marks are gone (a laptop shows one under the pointer), and the boards keep their own small arrow. A poster opens a small card beside it: its line, players, devices, "Stand under its lamp to vote" and a high score where the game keeps one; it closes by itself after seven seconds or as soon as the piece moves. The join sign opens the code and QR code large, for showing a friend. The room's feature (the jukebox, the globe, the claw...) plays the reaction a bump by it would, on that device only and at most every second and a half. None of it sends anything to the room.
 - Game boxes from each game's manifest. The name is on the poster, once. The sign under it has one line about the game, how many can play ("1-4 players") and the device badge (cyan any device, violet a phone each, amber phones and a big screen). Every sign says how many can play, the coming-soon ones too. On a phone, with five boxes or more, a sign is too narrow for the line of words at a size worth reading, so it keeps the count and the badge and the words are left to bigger screens.
 - The join code and its QR code on the wall, and a Tonight board with 3, 2 and 1 points for first, second and third.
 - The Tonight board opens large when it is tapped or clicked, on a phone, a laptop or the big screen: places, names and points, and every game played so far with who won it. A tap, Escape or the back gesture closes it. The piece stays where it stands meanwhile, so its vote carries on, and the open board says what the room is doing.
@@ -172,9 +172,30 @@ The 3D wall follows the flat one: a game's name is on its box and nowhere else, 
 - A game the party cannot play has its light off and says why in a few words ("Needs 2 players", "For 2 players", "Needs a big screen", "Coming soon").
 - Outside games: a game that plays on a site of its own hangs on the wall with an address instead of a hosted game (below).
 - A big screen that joins with the code and holds no seat, and a player's view with buttons, a "Whole room / Closer" switch and a "turn your phone" hint when upright.
-- A phone held sideways starts in the closer view, following its own piece. On a phone, Closer zooms until a piece is 90 CSS pixels tall (about 14 mm), but never less than the old rule (the room's width times 1.25) and never so close that the signs go under the buttons in the corner (`shared/camera.js`). A small phone (667 x 375) gets pieces 72 pixels tall where it had 61, a large one (932 x 430) 88 where it had 86, and a typical one (844 x 390) keeps 77, where the signs are the limit.
+- A phone held sideways starts in the closer view, following its own piece (`shared/camera.js`).
+  - Whole room shows everything from the tops of the lamps to the pools of light and the pieces' feet, with no empty strip of floor; when the room is narrower than the screen it is set to the left of the buttons in the corner, so they cover nothing on the wall.
+  - Closer zooms until a piece is 90 CSS pixels tall (about 14 mm), but not so close that the signs go under the corner buttons (the 3D look's signs sit higher with more boxes), and never smaller than 70 pixels.
+
+  | Phone (sideways, CSS pixels) | Closer: piece | Whole room: piece |
+  | --- | --- | --- |
+  | 667 x 375 | 75 | 48 |
+  | 667 x 320 (browser bars showing) | 70 | 40 |
+  | 844 x 390 | 79 | 51 |
+  | 852 x 342 (bars) | 70 | 43 |
+  | 932 x 430 | 90 | 57 |
+  | 932 x 380 (bars) | 76 | 49 |
 - The browser's bars out of the way, as far as each browser allows (`public/screen-fit.js`). Where a page can go full screen (Android Chrome, desktop browsers), the tap that joins or starts a party does so and turns a phone sideways where the browser lets it; the door button's sheet has a full screen choice (a laptop also has it in the corner; a phone keeps its corner to Rooms and the door so the wall stays clear); if the browser drops out by itself, one tap back is offered, once. An iPhone has no full screen for a page: there a card says once how to add the site to the Home Screen (with the steps for Safari and for Chrome on iPhone), and the door button's sheet opens it again. The site has a web app manifest (`site/manifest.webmanifest`, with icons drawn by `scripts/make-icons.py`), so a site added to the Home Screen opens without browser bars. The room is always as tall as what is visible (`visualViewport`), and a screen wake lock is held while in a room.
 - Joining in the middle of a vote, a dropped phone that turns grey, comes back to its seat or fades with a note, and "Leave the party" behind the door button. Whenever the set of connected players changes, the count starts over.
+- How a drop shows (`public/connection.js`, `server/lobby-core.js`):
+
+  | | When |
+  | --- | --- |
+  | The piece turns grey for everyone | At once when the phone is locked or put away, its browser goes offline or the page is closed (the page closes its own connection); 25 to 30 seconds after a signal is lost without a word, at the next thing anyone does |
+  | The phone's own page says "Reconnecting..." | At once in the same cases; within 16 seconds of a connection that quietly died (no reply to the keep-alive) |
+  | The piece fades and "Nat left" shows | 12 seconds after the drop; the vote goes on without it from the drop |
+  | The seat, name and points are held | 2 minutes more: back within it, the phone is seated again as itself without the way in; after it, the front page offers Rejoin |
+
+  None of it is timed in the room except the fade, which is the room's alarm; a silent socket is looked at when the room is awake anyway, at most every 5 seconds.
 - Someone who left or dropped and joins again under the same name gets their points back.
 - A game started with the party's seats, ended with places, and everyone returned to the lobby with points: the seam in `party-kit/GAME-CONTRACT.md`, "The lobby hooks".
 - Cork & Bell played inside the room through that seam (below).
@@ -214,7 +235,7 @@ Who Am I? (`https://whoami.n8builds.dev/`) is the first.
 - When it wins the count or the coin toss, the room sends every page `away { id, name, url, in }`. Every player's page and the big screen show a card, "Off to Who Am I?", for six seconds (`AWAY_MS`) and then go to the address. The card says the party's code does not work there (one of them makes a room on that site and the others join it) and that nobody scores. "Go now" goes at once; "Stay in the room" keeps that one device here.
 - Nothing starts in the room, so nothing ticks and no room time is spent: it costs the one wake-up that ended the count.
 - The Tonight board gets no points from an outside game, and it does not count as a game played.
-- Afterwards the party room is left alone. The pieces are put back by the door, and a new count cannot start for twelve seconds, so anyone who stayed is not sent off again at once. Once the pages have gone the room is empty: the seats are let go after thirty seconds and the room closes a minute after the last page left, by the usual rules. Coming back to the room's address inside that minute finds the same seat and points; after it, the party has ended and a new one is started.
+- Afterwards the party room is left alone. The pieces are put back by the door, and a new count cannot start for twelve seconds, so anyone who stayed is not sent off again at once. Once the pages have gone the room is empty: the pieces fade after twelve seconds, their seats are held two minutes more, and the room closes when they are let go, by the usual rules. Coming back to the room's address inside that time finds the same seat and points; after it, the party has ended and a new one is started.
 - The page only ever follows an `https` address or a page of this site, and only one that came from the room's own wall.
 
 A hosted game whose manifest names no view for the room would hang the same way, with its own page on this site as the address.
@@ -299,10 +320,10 @@ So the room is built to be asleep, and to hear as little as it can.
 
 - **Each player's page moves its own piece, and says so only when something changes.** A message goes out when a piece changes direction, jumps, or steps into or out of a light that is on. Walking in a straight line sends nothing: movement has one speed and no acceleration, so everyone, the room included, carries a piece forward from where it was last heard of (`shared/world.js`, `posAt`).
 - **The room relays and judges only what must be fair.** It passes a move on to the others, works out who stands in which light, starts and stops the count, decides the toss, and decides who a bump lands on. It never trusts a position that could not have been reached, and corrects the page that sent it.
-- **Nothing ticks in the lobby.** There is no loop. Everything that depends on time (the count's end, the toss, a dropped phone's thirty seconds, closing) is the object's alarm, which lets it sleep in between.
+- **Nothing ticks in the lobby.** There is no loop. Everything that depends on time (the count's end, the toss, a dropped phone's twelve seconds, closing) is the object's alarm, which lets it sleep in between.
 - **A bump is one event and no wake-up.** The room judges it the moment the message arrives. The knock, the safe time and the cooldown are three times written on a piece and looked at when the next message comes; nothing is scheduled for them, and a knocked piece sends nothing back.
 - **The screen's grace is not timed either.** A room has one screen, and when it drops its place is kept for 15 seconds (a reload, a wifi blip). That is only looked at when another device asks to be the screen.
-- **The keep-alive never wakes the room.** A page sends the text `ping` every 20 seconds and the runtime itself answers `pong` (`setWebSocketAutoResponse`).
+- **The keep-alive never wakes the room.** A page sends the text `ping` every 10 seconds and the runtime itself answers `pong` (`setWebSocketAutoResponse`).
 - **A timer runs only while a game is played**, at the game's own tick rate.
 
 Other players' pieces look smooth because each page draws them a little way toward where they should be on every frame, instead of jumping to what the network last said.
@@ -422,6 +443,8 @@ A lobby nobody touches costs nothing: no timer, no messages, nothing counted, an
 - `npm run test:frames` checks in a real browser who may frame the site: a page on another origin is refused for the room, the game and the front page, and a page of the site itself is not (the party room frames a game's page).
 - `npm run test:leave-rooms` (with `npm run dev` running) goes through every way out of the room in real pages and the room picker on two 3D devices: leaving from a sideways phone, an upright one and the room's screen, Rejoin and Show it again, a seat given up after a drop, a screen whose place was taken, the lines for a room that closed, a rejoin that cannot work, a wrong code, a full party, a second screen, "Stay in the room"; and that the host's pick reaches every device with the lights going down and up, a guest's does not, nothing changes during the count or a game, a latecomer gets the party's room, a start link's `?room=` is the starting room, it survives the room sleeping, and a device without hardware 3D loads none of it. It takes about four minutes.
 - `npm run test:screen` checks the web app manifest and its icons, full screen on the way in and the one tap back on Android, the Home Screen card on an iPhone, nothing at all from the Home Screen, and the room at the sizes phones show with their bars on screen (nothing cut off, nothing scrolls, every button 44 pixels).
+- `npm run test:room-pick` (with `npm run dev` running) taps room cards on emulated phones: a host who started alone, the same host standing in a light (the count), straight after a change, after a reload, after leaving and rejoining, a guest, and a party started on a big screen.
+- `npm run test:drop` times a drop: a locked phone grey within a fraction of a second, "Nat left" at about twelve seconds, back in its seat as itself after twenty; an offline browser the same; a silent socket shown grey at the next thing anyone does after 25 seconds.
 - `npm run lobby:measure` is the cost measurement above. `-- --game=cork-and-bell` makes every vote a round of Cork & Bell.
 - `npm run lobby:shots:3d` is the same kind of run in the 3D look: a big screen, a sideways phone, an upright phone and a laptop in one live room, with checks that the 3D look drew it, that the words say what the room says, and that a device without hardware WebGL falls back to the flat drawing. Stills land in `lobby/test/shots/3d-live/`.
 - `npm run lobby:stills:3d` takes a still of every skin and of the bar at every moment from posed rooms, into `lobby/test/shots/3d/`, and checks that every room's signs are the same size and in the same place. With `-- --only=loops` it takes each live room's five second show frame by frame. `python3 lobby/test/make-room-pictures.py` then turns the stills and the frames into the pictures the rooms page shows. `-- --gpu=1` uses the Windows side's graphics card, which is much quicker.

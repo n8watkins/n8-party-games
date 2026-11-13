@@ -56,7 +56,9 @@ const left = await call("POST", "/rooms", { nickname: "Zed" });
 const Z = connect(left);
 await Z.opened;
 await Z.wait((m) => m.t === "hello", 8000, 0);
-Z.ws.close();
+// Leaves on purpose (a player who only drops has a seat held for two minutes: test:drop).
+Z.send({ t: "leave" });
+await Z.closed;
 const leftAt = Date.now();
 
 const [A, B, C, D] = [a, b, cy, d].map(connect);
@@ -257,7 +259,7 @@ const debug = async (code = "") => (await fetch(api + "/debug" + (code ? "/" + c
   Q.ws.close();
   await sleep(600);
   const left = (await debug(p.code)).room;
-  if (left) check(left.sockets === 0 && left.timer === false && left.alarmIn > 20_000 && left.alarmIn <= 60_000, `once both pages have gone the room holds no socket and no timer; it next wakes in ${Math.round(left.alarmIn / 1000)} seconds to let the two seats go, and closes a minute after it emptied`);
+  if (left) check(left.sockets === 0 && left.timer === false && left.alarmIn > 5_000 && left.alarmIn <= 12_000, `once both pages have gone the room holds no socket and no timer; it next wakes in ${Math.round(left.alarmIn / 1000)} seconds to fade the two pieces (their seats are then held two minutes before it closes)`);
 
   // A party of three does not fit.
   const r = await call("POST", "/rooms", { nickname: "Ria" });

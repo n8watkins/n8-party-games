@@ -45,7 +45,7 @@ check(refused.status === 503 && refused.error === "battles_full" && /party rooms
 // Friends can still come in to say goodbye, but no game starts.
 const b = await call("POST", "/join/" + a.pin, { nickname: "Bo" });
 check(b.ok, "the open room can still be joined");
-const B = connect(b);
+const B = connect(b, { keepAlive: false });
 await B.opened;
 await sleep(7000);
 let mark = A.seen.length;

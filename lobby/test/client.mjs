@@ -13,12 +13,18 @@ export function partyApi(base) {
     return { status: res.status, ...(await res.json().catch(() => ({}))) };
   }
 
-  /** Opens a socket for a session ({code, token, seat}) and returns a small client around it. */
-  function connect(session) {
+  /**
+   * Opens a socket for a session ({code, token, seat}) and returns a small client around it. It
+   * sends the keep-alive every ten seconds, as a page does (the room lets a socket silent for 25
+   * seconds go), unless `keepAlive: false` (a phone that loses its signal without a word).
+   */
+  function connect(session, { keepAlive = true } = {}) {
     const url = new URL(api + "/rooms/" + session.code + "/ws", base);
     url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
     url.searchParams.set("token", session.token);
     const ws = new WebSocket(url);
+    const alive = keepAlive ? setInterval(() => ws.readyState === 1 && ws.send("ping"), 10_000) : null;
+    alive?.unref?.();
     const seen = [];
     const raw = [];
     const waiters = [];
@@ -46,7 +52,7 @@ export function partyApi(base) {
           setTimeout(() => reject(new Error("timed out waiting")), ms);
         }),
       opened: new Promise((r) => (ws.onopen = r)),
-      closed: new Promise((r) => (ws.onclose = (e) => r({ code: e.code, reason: e.reason }))),
+      closed: new Promise((r) => (ws.onclose = (e) => (clearInterval(alive), r({ code: e.code, reason: e.reason })))),
       /** Says where the piece is, standing still, in steps the room believes. */
       goto(x) {
         while (Math.abs(x - c.x) > POSITION_SLACK - 20) {

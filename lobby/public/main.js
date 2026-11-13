@@ -12,6 +12,7 @@ import { GAME_VIEWS } from "./games/views.js";
 import { farewellKind, goFront } from "./farewell.js";
 import { Hud } from "./hud.js";
 import { TouchSpots } from "./touch.js";
+import { KEEP_ALIVE_MS, watchConnection } from "./connection.js";
 import { CountTick } from "./count-tick.js";
 import { RoomMenu } from "./room-menu.js";
 import { RoomSounds, defineRoomSounds, emoteSound } from "./room-sounds.js";
@@ -33,7 +34,9 @@ let look = chosen.look === "3d" && !hardware3D(params) ? "flat" : chosen.look;
 /** A start link may name the room the party starts in (?start&room=ship). */
 const startRoom = params.has("start") && isRoom(params.get("room")) ? params.get("room") : null;
 // The keep-alive is a fixed text the room answers without waking up (lobby/server/lobby-room.js).
-const link = new PartyClient({ api: "/api/lobby", quietPing: { text: "ping", everyMs: 20_000 }, lag: Number(params.get("lag") ?? 0) });
+const link = new PartyClient({ api: "/api/lobby", quietPing: { text: "ping", everyMs: KEEP_ALIVE_MS }, lag: Number(params.get("lag") ?? 0) });
+// A locked phone, an offline browser and a connection that quietly died are seen at once (connection.js).
+watchConnection(link, { player: () => isPlayer() });
 
 let door = null;
 let scene = null;
@@ -189,6 +192,7 @@ async function enter() {
   });
   menu = new RoomMenu(hud.el, { role: link.you.role, seat: link.you.seat, onPick: (id) => link.send({ t: "pick", v: id }) });
   hud.muteButton(menu.corner);
+  if (menu.mine(room)) menu.hint();
   count = new CountTick(hud.el, { buzz: isPlayer() ? buzz : null });
   fit = new ScreenFit(menu.corner, app);
   void keepAwake();
@@ -466,11 +470,14 @@ link.on("message", (msg) => {
       const by = msg.by === -1 ? "The room's screen" : room.members[msg.by]?.name;
       hud?.note(`${by ? `${by} picked` : "Now in"} ${roomName(msg.v).replace(/^The /, "the ")}`, room.members[msg.by]?.colour);
       menu?.update(room);
+      menu?.picked(msg.v);
       void showRoom();
       break;
     }
     case "pick-no":
-      hud?.note(msg.why);
+      // Said in the picker when it is open, as a note over the room when it is not.
+      if (menu?.isOpen) menu.refused(msg.why);
+      else hud?.note(msg.why);
       break;
     case "note":
       if (msg.k === "left") hud?.note(`${msg.name} left`, msg.colour);
@@ -763,7 +770,7 @@ function frame(t) {
   focus += (mine - focus) * Math.min(1, dt * 7);
   // While a count or a coin toss is on, a phone pulls back to the whole room: that is where it happens.
   const drama = room.phase === "lobby" && (room.vote.count || room.vote.toss);
-  const aim = camera({ w: innerWidth, h: innerHeight, bar: hud.barHeight(), mode: isPlayer() && !drama ? zoom : "room", focusX: focus, phone: phone() });
+  const aim = camera({ w: innerWidth, h: innerHeight, bar: hud.barHeight(), mode: isPlayer() && !drama ? zoom : "room", focusX: focus, phone: phone(), boxes: room.boxes.length });
   // The view glides from one framing to the next, except when the window itself changes shape.
   const size = `${innerWidth}x${innerHeight}`;
   if (!view || size !== viewSize) view = aim;

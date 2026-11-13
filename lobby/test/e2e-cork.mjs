@@ -114,8 +114,12 @@ try {
   await screen.click("text=Show the room here");
   await screen.waitForSelector("svg.scene text");
   const pin = (await screen.locator(".code-digits").textContent()).trim();
+  /** The corks each page sends, as sent, with this machine's clock then: to explain a cork the room did not count. */
+  const sentCorks = {};
   const join = async (name, viewport, query) => {
     const page = await open(name, viewport, { hasTouch: true });
+    sentCorks[name] = [];
+    page.on("websocket", (ws) => ws.on("framesent", (f) => typeof f.payload === "string" && f.payload.includes('"f":[') && sentCorks[name].push({ d: JSON.parse(f.payload).d.f[0], at: Date.now() })));
     await page.goto(base + "/lobby/?join=" + pin + "&look=flat" + query);
     await page.fill("input[name=nickname]", name);
     await page.click("text=Join the party");
@@ -201,6 +205,8 @@ try {
   if (counted !== shots) {
     const taken = watcher.seen.filter((m) => m.t === "ev").flatMap((m) => m.ev.filter((e) => e.k === "f" && e.seat === 0).map((e) => e.at.toFixed(3)));
     console.log(`     note: the room counted ${counted} of the ${shots} corks Ada's page showed (it relayed them at round times ${taken.join(", ")})`);
+    const roundAt = (ms) => ((ms - start.s.startAt) / 1000 - 3).toFixed(3);
+    console.log(`     Ada's page stamped them ${sentCorks.Ada.map((c) => `${c.d.toFixed(3)} (sent at ${roundAt(c.at)} by this machine's clock)`).join(", ")}`);
   }
   check(counted > 0 && onScreen[0].shots === counted && onScreen[2].shots > 0 && onScreen[1].shots === 0, `the room relays it: the big screen has counted ${onScreen[0].shots} of Ada's corks (the room ${counted}), ${onScreen[2].shots} of Cy's bot's and none of Bea's, who never fired`);
 

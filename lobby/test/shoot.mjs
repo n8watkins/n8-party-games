@@ -267,7 +267,7 @@ try {
   await tidy(phone, "phone, door sheet");
   check((await phone.locator("text=Leave the party").count()) === 1, "the door button offers Leave the party");
   await phone.click("text=Stay");
-  console.log("     waiting for the dropped phone's grace to run out (30 seconds)...");
+  console.log("     waiting for the dropped phone's piece to fade (twelve seconds)...");
   await screen.waitForSelector(".note", { timeout: 40000 });
   await sleep(450);
   await shot(screen, "27-screen-tom-left");
