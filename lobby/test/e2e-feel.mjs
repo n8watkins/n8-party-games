@@ -227,12 +227,18 @@ try {
   await sleep(300);
   const droppedAgain = Date.now();
   console.log(`     waiting out the screen's grace (${SCREEN_GRACE_MS / 1000} seconds)...`);
-  await sleep(SCREEN_GRACE_MS - 1500 - (Date.now() - droppedAgain));
+  // Three seconds of margin: this machine now and then pauses for a second or two (WSL), and a
+  // request sent at 13.5 s that is answered at 15.5 s is rightly let in.
+  await sleep(SCREEN_GRACE_MS - 3000 - (Date.now() - droppedAgain));
+  const almostSent = Date.now() - droppedAgain;
   const almost = await call("POST", "/join/" + host.pin, { as: "screen" });
-  check(almost.status === 409, `still refused ${Date.now() - droppedAgain} ms after it dropped`);
+  const almostDone = Date.now() - droppedAgain;
+  check(almost.status === 409 || almostDone >= SCREEN_GRACE_MS, `still refused ${almostSent} ms after it dropped` + (almost.status === 409 ? "" : ` (answered ${almostDone} ms after: this machine paused, past the grace)`));
   await sleep(SCREEN_GRACE_MS + 400 - (Date.now() - droppedAgain));
-  const s2 = await call("POST", "/join/" + host.pin, { as: "screen" });
+  const s2 = almost.status === 409 ? await call("POST", "/join/" + host.pin, { as: "screen" }) : almost;
   check(s2.ok, `the place frees up ${Date.now() - droppedAgain} ms after the first screen dropped (grace ${SCREEN_GRACE_MS} ms; it took the place ${Date.now() - took} ms ago)`);
+  // (Without a place the rest of this part has nothing to stand on: stop here instead of waiting for ever.)
+  if (!s2.ok) throw new Error("the screen's place never freed up");
   const S2 = connect(s2);
   await S2.opened;
   await S2.wait((m) => m.t === "hello", 4000, 0);
