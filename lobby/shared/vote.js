@@ -41,7 +41,8 @@ export function playersLabel(min, max) {
 /**
  * A box on the wall, from a game's manifest. `extra` is what the site adds: `blurb` until the
  * manifest carries one, `soon` for a game that is not built, `test` for a placeholder, and `url`
- * for an outside game: one that plays at an address of its own instead of inside the room.
+ * for an outside game: one that plays at an address of its own instead of inside the room,
+ * and `view` for a hosted game: the address of the module that shows it inside the room.
  */
 export function boxFromManifest(manifest, extra = {}) {
   return {
@@ -55,6 +56,8 @@ export function boxFromManifest(manifest, extra = {}) {
     soon: !!extra.soon,
     test: !!extra.test,
     url: extra.url ?? manifest.url ?? null,
+    // Where the page finds the view of a game that opens inside the room (GAME-CONTRACT.md, "In the browser").
+    view: extra.view ?? null,
     art: extra.art ?? manifest.id,
     // Whether emotes and sounds may be used while it is played (the kit's defaults when the manifest says nothing).
     play: playRules(manifest),

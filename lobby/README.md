@@ -25,8 +25,9 @@ Make each window short and wide to see what a sideways phone sees, or use the br
 5. Stand both pieces in Coin Flip's light: "Starts in 3" counts down, the game plays, and both are back by the door with points on the Tonight board.
 6. Click the Tonight board on the wall to open it large; click anywhere, press Escape or go back to close it.
 7. Stand one piece in each lit light for a tie and its coin toss.
-8. Stand both pieces in Who Am I?'s light: "Opens in 3" counts down, a card says where everyone is going, and both windows go to its own site.
-9. Close one window to see the piece turn grey, and fade thirty seconds later.
+8. Stand both pieces in Cork & Bell's light: the battle starts for the two of you inside the room, each window shows its own stall (a third window as the room's screen shows both), and ninety seconds later both are back by the door with the scores on a card and points on the Tonight board. One piece alone in that light gets a round to itself.
+9. Stand both pieces in Who Am I?'s light: "Opens in 3" counts down, a card says where everyone is going, and both windows go to its own site.
+10. Close one window to see the piece turn grey, and fade thirty seconds later.
 
 Coin Flip is a test game.
 It hangs on the wall only where `PARTY_TEST_GAMES` is `"on"`, which is the `local` environment in `wrangler.jsonc` (`npm run dev` and the test runs).
@@ -39,9 +40,63 @@ For phones on the same network, `npm run dev:lan` prints the address to open; th
 Stills of the main states, from a real run, are in [`shots/`](shots/).
 The ones whose names start with `f` are from `npm run test:feel`: the bump moment by moment (wind-up, hit, thrown, on the floor, up and safe), the buttons and the cooldown ring, the board opened large, and the way in on a phone.
 
+## The two drawings
+
+The room is drawn twice, from the same room state, rules and controls.
+Both are a "room view" (`public/room-view.js`), which is all the page knows about a drawing.
+
+- **Flat** (`public/scene.js`): one SVG of plain shapes. It is the default.
+- **3D** (`public/look3d/`): a three.js scene in the look of the approved stills, with every word laid over it as HTML. It is a preview until the owner approves it.
+
+To see the 3D look, add `?look=3d` to the room's address, for example `http://localhost:8791/lobby/?start&look=3d`.
+The choice is remembered on that device, because the room's own address carries no query and a phone that scans the code on the wall arrives without one; `?look=flat` goes back.
+A device without hardware WebGL 2 gets the flat drawing even when it asks for 3D.
+
+The 3D room has skins: `&room=bar` (the default), `ship` (the star lounge), `arcade`, `camp`, `roof`, `navy` (the studio) or `fair` (the pier fair).
+Every skin keeps the layout exactly, and the game boxes and their signs are the same size and in the same place in every room.
+A skin changes the wall, the floor, the lamps, the lettering, the trim, and what the room does.
+A skin is one description in `public/look3d/skins.js`, and nothing else in the 3D look knows a room by name.
+All of them, with a still each, a short loop for the live ones, and three more rooms that are only concepts, are on the rooms page: `/lobby/look3d/rooms/`.
+A posed room with nobody connected is at `/lobby/look3d/still.html?room=<skin>`; its header comment lists what it can show, and `&show=1&run=1` plays a little show.
+
+### Rooms that are alive
+
+Each skin lists its life (`life: [...]` in `skins.js`), and `public/look3d/life.js` runs it.
+There are three kinds of thing, all drawn on the device from what every device already knows.
+None of it sends a message, asks the room anything or changes a rule: it cannot move a piece, block a vote or decide who was bumped.
+
+- **Ambient**: always on. A fire, bulbs that chase round a frame, a sky going by a window.
+- **Events**: something passes now and then, such as an owl, a plane or a comet. They run off the room's own clock and a sequence seeded by the room's code, so every screen in a room sees the same owl at the same moment. The clock is how long the room has been open, which the room view already carries as `closesIn`; devices agree to within the lag of one message.
+- **Reactions**: set off by pieces, from where they stand, when they jump and who was bumped, all of which every device hears already. Jump under a lamp and it swings. Stand by the campfire and your piece gets sooty. Under the Tonight board every room has one feature of its own (a jukebox, a prize wheel, a claw machine) which is knocked when someone is bumped beside it.
+
+Nothing plays a sound.
+Each event and reaction announces itself by name on `window` as a `party-room:sound` event (`detail: {name, room}`), for the sound system to listen for; every skin lists its names and what each should sound like under `sounds`.
+People who ask their device for less motion get the ambient life only: events do not fly, and reactions do not wobble, hop or throw sparks.
+While only ambient life is running the room is drawn every other frame, and every frame as soon as anything else moves.
+Chosen stills of the 3D look, from a live run and from posed rooms, are in [`shots/3d/`](shots/3d/).
+
+How the 3D look stays cheap for a phone:
+
+- The camera never moves. A device shows a different part of the room by sliding and scaling the frame (`public/look3d/space.js`), so the picture is the flat drawing's picture, one world unit to one pixel, and nothing needs real light.
+- Walls, floors and box art are painted once on canvases. A lamp's light is a cone of glow and a pool worked out in the floor's own shader. A piece's shadow is a soft blob. There are no shadow maps.
+- The picture is drawn at no more than twice the screen's CSS size and never more than about 2560 x 1440 pixels. It steps down if frames are slow, draws a third as often when nothing moves, and stops while the page is hidden.
+- A room's life is budgeted the same way: its many small lights are one mesh each, its sparks and smoke are two pools of dots, and its feature is not worked out while it is off the screen.
+- Under a game that covers the room (Cork & Bell in its frame) the 3D room is hidden and draws no frames, so the game has the graphics card to itself; it draws again when the game is taken away.
+- A device that did not ask for the 3D look downloads none of it: the page loads `look3d/` only when `?look=3d` was given.
+- It asks nothing of the room: no message is sent or changed for it, and an idle room still sleeps.
+
+three.js is not a second copy: the 3D look imports the build Cork & Bell already ships (`public/look3d/three.js` is the one line that says where).
+The 3D look also loads two small fonts of its own (`public/look3d/fonts/`, with their licences) and borrows Cork & Bell's Abril Fatface.
+
+Pieces move with weight in the 3D look: they lean into a walk, rock from foot to foot, stretch in the air and squash on landing (`public/look3d/pieces.js`).
+The bump is the shared one (`shared/bump.js`): the 3D look draws the same states at the same moments as the flat drawing, from the same poses, in `bumpPose` in that file under the heading "THE BUMP, DRAWN".
+The bumper winds up and slams forward; whoever it hits is squashed, thrown, lies on the floor with crosses for eyes, gets up and flickers while it cannot be knocked again.
+There is a burst of sparks where the blow lands, dust where the piece comes down, a small jolt of the picture, and a ring under your own piece that fills as your bump recharges.
+The 3D wall follows the flat one: a game's name is on its box and nowhere else, the sign under it says one thing about the game, how many play and on what, and the Tonight board opens when it is tapped.
+
 ## What is built
 
-- The room in the bar look, drawn with plain shapes as one SVG, the same picture on every device.
+- The room in the bar look, drawn with plain shapes as one SVG, the same picture on every device (and, as a preview, in 3D: see above).
 - Game boxes from each game's manifest. The name is on the poster, once. The sign under it has one line about the game, how many can play ("1-4 players") and the device badge (cyan any device, violet a phone each, amber phones and a big screen). Every sign says how many can play, the coming-soon ones too. On a phone, with five boxes or more, a sign is too narrow for the line of words at a size worth reading, so it keeps the count and the badge and the words are left to bigger screens.
 - The join code and its QR code on the wall, and a Tonight board with 3, 2 and 1 points for first, second and third.
 - The Tonight board opens large when it is tapped or clicked, on a phone, a laptop or the big screen: places, names and points, and every game played so far with who won it. A tap, Escape or the back gesture closes it. The piece stays where it stands meanwhile, so its vote carries on, and the open board says what the room is doing.
@@ -58,6 +113,7 @@ The ones whose names start with `f` are from `npm run test:feel`: the bump momen
 - Joining in the middle of a vote, a dropped phone that turns grey, comes back to its seat or fades with a note, and "Leave the party" behind the door button. Whenever the set of connected players changes, the count starts over.
 - Someone who left or dropped and joins again under the same name gets their points back.
 - A game started with the party's seats, ended with places, and everyone returned to the lobby with points: the seam in `party-kit/GAME-CONTRACT.md`, "The lobby hooks".
+- Cork & Bell played inside the room through that seam (below).
 
 ## The bump
 
@@ -97,16 +153,33 @@ Who Am I? (`https://whoami.n8builds.dev/`) is the first.
 - Afterwards the party room is left alone. The pieces are put back by the door, and a new count cannot start for twelve seconds, so anyone who stayed is not sent off again at once. Once the pages have gone the room is empty: the seats are let go after thirty seconds and the room closes a minute after the last page left, by the usual rules. Coming back to the room's address inside that minute finds the same seat and points; after it, the party has ended and a new one is started.
 - The page only ever follows an `https` address or a page of this site, and only one that came from the room's own wall.
 
-Cork & Bell hangs the same way for now, with its own page on this site (`/cork-and-bell/`) as the address, because it does not open inside the room yet.
+A hosted game whose manifest names no view for the room would hang the same way, with its own page on this site as the address.
+Cork & Bell did until it got one.
+
+## Cork & Bell in the room
+
+Cork & Bell is its own repository and package (`games.js`), and it is the first real game played inside the room.
+
+- **The wall.** Its sign reads "1-4 players": a battle is two to four stalls, and one player plays alone (`players.solo` in its manifest), so its light is on for any party.
+- **The start.** When it wins the count or the toss, the room calls its `game.create` with the party's seats, names and colours, and ticks it at its own thirty times a second. There is no waiting room and no ready step.
+- **On a player's device.** The room's page fetches the view the game's manifest names (`/cork-and-bell/game/party-view.js`) and mounts it over the room: the player's own stall, full screen, with the rivals' tokens to pick a target. The game's files are fetched ahead while the count is still running.
+- **On the big screen.** A spectator view: every stall in the round side by side, with names and scores, as the game's own shared screen shows a battle. Someone who joins the party in the middle of a round sees the same until it ends.
+- **A party of one** gets a round to itself, the same ninety seconds with nobody to send attacks to. It is first of one, so it puts three points on the Tonight board.
+- **The room's own things** on top of the game are the door button (already drawn for a phone held sideways: "Leave the party" works mid-round), the notes ("Tom left") and the word about the connection. The room's bars are put away and the room is not drawn under the game.
+- **A phone that drops** has its stall played by the game's stand-in until it is back; a reload in the middle comes back to the same stall with its score.
+- **The end.** After ninety seconds (or when only one stall still has corks) the game is taken away, everyone is back by the door, and the room's card shows who came where with the scores: 3, 2 and 1 points for the Tonight board, equal scores sharing a place.
+- **Nothing is left behind.** The game runs in a frame of its own page, so its listeners, timers, sound and WebGL context go when the frame goes; the view also lets the WebGL context and the sound go at once. `npm run test:cork` checks it on every device.
+
+The game's own page at `/cork-and-bell/` is unchanged: solo with the high score board, and battles in rooms of its own.
 
 ## What is not built
 
-- Cork & Bell does not open inside the room. Its light is on and it can win the vote; everyone is then sent to the game's own page as with an outside game, and nobody scores.
 - Coin Flip is a placeholder for local play and the tests, marked "TEST GAME" on its box. Tin Derby, Flood and Fox Trouble are names and pictures only.
 - A party's code, seats and points do not carry over to an outside game's site.
-- No skins, no abilities, no chat bubbles, no walking through the door, no "host starts" setting, no other rooms.
+- No piece skins, no abilities, no chat bubbles, no walking through the door, no "host starts" setting. Other rooms exist only as skins of the 3D preview.
 - No sound for the bump, and no buzz on phones whose browser has none (Safari on an iPhone).
-- "Back to the room" in the middle of a game.
+- "Back to the room" in the middle of a game: a round runs its ninety seconds, and a player can still leave the party.
+- In the room Cork & Bell has no high score entry, no rematch button and no end card of its own: the room's card shows the scores, and the vote is the rematch. The high score board stays on the game's own page.
 
 ## How it stays cheap
 
@@ -132,14 +205,14 @@ The room budget's books were read before and after.
 (Fresh storage matters: the books are shared by every room on a server, so rooms left over from other runs are counted too.)
 These are local measurements of the room's own counting, not a Cloudflare bill: check them against the dashboard after a real evening (`DEPLOY.md`, "The party room").
 
-| | Only wandering | Wandering and voting |
-| --- | --- | --- |
-| What happened | no game was started | 24 votes won: 11 games of Coin Flip, 13 for Cork & Bell (an outside game for now: nothing is played in the room for it), 20 coin tosses |
-| Messages to the room | 2.55 a second (0.64 per player) | 3.76 a second (0.94 per player) |
-| Awake time | 0.28 seconds per minute | 3.77 seconds per minute, of which Coin Flip's three-second tick loop is 3.3 and the lobby itself 0.47 |
-| Duration | 2.2 GB-seconds per room-hour | 28.9 GB-seconds per room-hour |
-| Requests | 562 per room-hour | 1,243 per room-hour |
-| Room-hours a month the 10% of time buys (40,000 GB-s) | 18,385 | 1,383 |
+| | Only wandering | Wandering and voting, short games | Cork & Bell, round after round |
+| --- | --- | --- | --- |
+| What happened | no game was started | 24 votes won: 11 games of Coin Flip (three seconds each) and 13 that sent everyone to an outside game, 20 coin tosses | 5 rounds of Cork & Bell in 10.2 minutes, each player firing a cork about every 1.3 seconds (1,372 corks) |
+| Messages to the room | 2.55 a second (0.64 per player) | 3.76 a second (0.94 per player) | 2.98 a second (0.75 per player) |
+| Awake time | 0.28 seconds per minute | 3.77 seconds per minute, of which Coin Flip's tick loop is 3.3 and the lobby itself 0.47 | 46.4 seconds per minute, of which the rounds are 46.3 (94.6 seconds each) and the lobby itself 0.07 |
+| Duration | 2.2 GB-seconds per room-hour | 28.9 GB-seconds per room-hour | 356 GB-seconds per room-hour |
+| Requests | 562 per room-hour | 1,243 per room-hour | 838 per room-hour |
+| Room-hours a month the 10% of time buys (40,000 GB-s) | 18,385 | 1,383 | 112 |
 
 The stronger bump did not change this.
 Measured again on 2026-11-12 with the knock-back in, the same four players wandering for ten minutes (each pressing bump about once in fourteen seconds, as before) used 0.21 awake seconds per minute, 1.99 messages a second (0.50 per player), 1.6 GB-seconds and 585 requests per room-hour.
@@ -147,22 +220,32 @@ That is within the run-to-run spread of the first column (shorter runs the same 
 Measure on a server nobody else is using and that has been quiet for two minutes: a room that just closed reports its last requests into the same books.
 
 For scale: a room that is awake all the time, as a game's own room is during a round, uses 461 GB-seconds per room-hour, and the 10% buys 87 hours of that.
-The second column is a keen party that starts a vote every half minute; most evenings will sit between the two.
+The second column is a keen party that starts a vote every half minute, measured before Cork & Bell opened in the room (a vote for it then sent everyone to its own page).
 An outside game winning the vote costs one wake-up and no duration: nothing is played in the room.
+
+**A round of Cork & Bell is what a party room costs.**
+The room is awake for all of a round, as the game's own room is: 94.6 seconds (the count-in, ninety seconds and the hold at the end), which is 12.1 GB-seconds, whether one plays or four.
+`npm run test:cork` reads the same figure from the books for a battle of three and for a round played alone.
+The 10% of a month (40,000 GB-seconds) is about 3,300 rounds, and a day's tenth of that (4,000) about 330 rounds across every party room there is.
+Everything between rounds costs next to nothing by comparison, so an evening costs its rounds: a party that plays six rounds in an hour uses about 73 GB-seconds, and the 10% buys about 550 such hours a month.
+The third column is the ceiling: a party that votes again the moment each round ends.
+All of it is counted against the shared room budget second for second (`PARTY_ROOM_BUDGET_SHARE`), and when the day's or month's allowance is spent the round in play finishes and no other starts (below).
+After a round the room is asleep again: no timer, and the next wake-up is the slow "forgotten room" check twenty minutes away (both checked by `test:cork`).
 
 How the awake time is counted: every event (a message, an alarm, a join) as the time its handler took and never less than 2 ms, and a game's tick loop second for second.
 The floor is a deliberate overcount, since a handler that only does arithmetic takes well under a millisecond.
 Cloudflare bills a Durable Object while it runs code or cannot sleep, and not while it is idle and able to hibernate, even before it has been put to sleep (their pricing page says so in those words).
-If it did bill every second in which any message arrived, these same runs would be 350 to 385 GB-seconds per room-hour and the 10% would buy about 105 to 115 room-hours: that is the worst case, and even then the lobby costs less than a room that is always awake.
+If it did bill every second in which any message arrived, the first two runs would be 350 to 385 GB-seconds per room-hour and the 10% would buy about 105 to 115 room-hours: that is the worst case, and even then the lobby costs less than a room that is always awake.
+(For the third run that reading makes little difference, 422 against 356: the room is awake for the rounds anyway.)
 
 **Requests are the tighter of the two allowances.**
 The plan includes one million Durable Object requests a month for the whole account, and the owner's 10% rule is about time, not requests.
+That holds for the lobby and for short games; with Cork & Bell round after round it is time that runs out first (112 room-hours against 119).
 At the rates above, a million requests is 800 to 1,780 room-hours, and a tenth of it 80 to 178.
 Past the included million they cost $0.15 a million: 8 to 19 cents per 1,000 room-hours.
 The budget counts the party rooms' requests (`dayRequests` and `monthRequests` beside the time) so the owner can see them, but only time closes anything.
 
 A lobby nobody touches costs nothing: no timer, no messages, nothing counted, and locally the room object is put to sleep while the test waits (`npm run test:lobby` checks all of it over 25 seconds).
-Once a real game is hosted in the room, its rounds will cost what they cost in the game's own room: all of the round's time.
 
 ## Limits, and what happens when the allowance is spent
 
@@ -188,6 +271,8 @@ Once a real game is hosted in the room, its rounds will cost what they cost in t
 | `public/` | The page at `/lobby/`: the way in (`door.js`), the scene (`scene.js`), the bump as drawn (`bump-draw.js`), the buttons (`controls.js`), the words over the room (`hud.js`), the board opened large (`board.js`), and each game's view. |
 | `games/coin-flip.js` | The test game, hung only where `PARTY_TEST_GAMES` is on. |
 | `wall.js` | Which boxes hang on the wall (hosted, outside, test, coming soon), which can start, and the wall each environment gets. |
+| `public/room-view.js` | The seam between the page and a drawing of the room: the interface both drawings keep, and which one a device gets. |
+| `public/look3d/` | The 3D drawing: the scene (`room3d.js`), the words over it (`words.js`), the pieces (`pieces.js`), the rooms as skins (`skins.js`), a posed room (`still.html`) and the rooms page (`rooms/`). |
 | `test/` | Unit tests, the socket test, the browser run and the cost measurement. |
 
 `shared/` is plain logic used by both the room and the page, and it is served to the browser; `server/` and `test/` never are.
@@ -196,7 +281,14 @@ Once a real game is hosted in the room, its rounds will cost what they cost in t
 
 - `npm test` runs the unit tests with the kit's: the room's rules (`test/lobby-core.test.js`), the shared logic, the awake meter and the socket rate limit (`test/shared.test.js`), the bump (`test/bump.test.js`), the Tonight board (`test/tonight.test.js`) and the way in (`test/entry.test.js`).
 - `npm run test:feel` (with `npm run dev` running) goes through how the room feels in real pages and over sockets: the way in on a phone and on a wide screen, one screen per room and its grace, the four buttons, the cooldown ring and the room enforcing it, the bump frame by frame, that nobody can be kept on the floor, the board opening and closing with the vote carrying on, and that a bump sets no timer. It takes stills of each, the bump's with the page's clock held still.
-- `npm run test:lobby` (with `npm run dev` running) puts four socket players through an evening, sends a party of two off to an outside game, then checks that a lobby nobody touches goes silent: no messages, no timer, nothing added to the budget.
+- `npm run test:lobby` (with `npm run dev` running) puts four socket players through an evening (when the coin toss picks Cork & Bell, a whole round of it over sockets, which makes the run a minute and a half longer), sends a party of two off to an outside game, then checks that a lobby nobody touches goes silent: no messages, no timer, nothing added to the budget.
 - `npm run lobby:shots` drives real pages in a headless, muted browser and takes a still of every state on a big screen, a sideways phone and an upright one, checking that no text spills out of its place and that no card runs off a screen. It follows an outside game all the way to its address (the browser is handed a stand-in page, so no test touches the real site), and with `--plain=<a server with the test games off>` it also takes the wall as production hangs it. Stills land in `lobby/test/shots/`, which is not committed; a chosen few are in `lobby/shots/`.
-- `npm run lobby:measure` is the cost measurement above.
+- `npm run test:cork` plays Cork & Bell inside the room in real pages (headless and muted): a party of three and a big screen, clicks that fire, a reload in the middle, the end, that nothing of the game is left on the page, a party of one, and what the two rounds cost. It takes about four minutes. With `-- --win=1` it uses the game's own tool to drive Chrome on the Windows side, on the real graphics card. Without it, Playwright's browser in WSL draws WebGL in software and its pages run seconds behind the room, so the run says so and leaves out the reload, the door sheet and the stills; everything the room decides is checked either way.
+- `npm run test:frames` checks in a real browser who may frame the site: a page on another origin is refused for the room, the game and the front page, and a page of the site itself is not (the party room frames a game's page).
+- `npm run lobby:measure` is the cost measurement above. `-- --game=cork-and-bell` makes every vote a round of Cork & Bell.
+- `npm run lobby:shots:3d` is the same kind of run in the 3D look: a big screen, a sideways phone, an upright phone and a laptop in one live room, with checks that the 3D look drew it, that the words say what the room says, and that a device without hardware WebGL falls back to the flat drawing. Stills land in `lobby/test/shots/3d-live/`.
+- `npm run lobby:stills:3d` takes a still of every skin and of the bar at every moment from posed rooms, into `lobby/test/shots/3d/`, and checks that every room's signs are the same size and in the same place. With `-- --only=loops` it takes each live room's five second show frame by frame. `python3 lobby/test/make-room-pictures.py` then turns the stills and the frames into the pictures the rooms page shows. `-- --gpu=1` uses the Windows side's graphics card, which is much quicker.
+- `npm run lobby:shots:3d` also checks the rooms' life: that two devices in a room agree what time it is in the room and when each passing thing next comes, that a bump by the room's feature sets it off on both and announces its sound by name, and that none of it sends a message.
+- `npm run test:cork:3d` plays several rounds of Cork & Bell inside a room that is in the 3D look, on the Windows side's graphics card: under the game the 3D room is hidden and draws nothing, both pictures keep their WebGL context, the room draws again afterwards, and memory does not climb.
+- `npm run lobby:measure:3d` measures the 3D look's frame time on the Windows side's graphics card, in a headless Chrome. It is a desktop card at a phone's screen size, not a phone.
 - `node lobby/test/e2e-budget.mjs` checks what happens when the allowance is spent; its header says which server to start.

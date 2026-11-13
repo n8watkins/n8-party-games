@@ -1,16 +1,16 @@
 // The party room's page. It is three things on top of each other: the way in (door.js), the
-// room drawn as one picture (scene.js), and the words and buttons over it (hud.js). This file
-// joins them to the room over the kit's client and to the player's keys and fingers.
+// room drawn as one picture (a room view: room-view.js), and the words and buttons over it
+// (hud.js). This file joins them to the room over the kit's client and to the player's keys and fingers.
 import { PartyClient } from "/party-kit/client/party-client.js";
 import { emoteById, soundById, soundPlaysHere } from "/party-kit/client/emotes.js";
 import { SoundBoard } from "/party-kit/client/sounds.js";
 import { openBoard } from "./board.js";
 import { buzz } from "./bump-draw.js";
 import { openDoor } from "./door.js";
-import { h, s, set } from "./dom.js";
+import { h } from "./dom.js";
 import { GAME_VIEWS } from "./games/views.js";
 import { Hud, showClosed } from "./hud.js";
-import { Scene } from "./scene.js";
+import { chosenLook, openRoomView } from "./room-view.js";
 import { IMPACT_MS } from "./shared/bump.js";
 import { camera } from "./shared/camera.js";
 import { Pilot } from "./shared/pilot.js";
@@ -18,11 +18,12 @@ import { playerLine, statusLine } from "./shared/status.js";
 
 const params = new URLSearchParams(location.search);
 const app = document.getElementById("app");
+/** Which drawing of the room this device asked for (flat unless ?look=3d). */
+const chosen = chosenLook(params);
 // The keep-alive is a fixed text the room answers without waking up (lobby/server/lobby-room.js).
 const link = new PartyClient({ api: "/api/lobby", quietPing: { text: "ping", everyMs: 20_000 }, lag: Number(params.get("lag") ?? 0) });
 
 let door = null;
-let svg = null;
 let scene = null;
 let hud = null;
 let pilot = null;
@@ -82,11 +83,12 @@ function teardown() {
   door = null;
   stage?.unmount();
   stage = null;
+  app.classList.remove("in-game");
   hud?.destroy();
   hud = null;
-  svg?.remove();
+  scene?.destroy();
   stageBox?.remove();
-  svg = scene = pilot = stageBox = view = null;
+  scene = pilot = stageBox = view = null;
   litKey = "";
   held.length = 0;
 }
@@ -95,21 +97,20 @@ function teardown() {
 async function enter() {
   entering = true;
   const joinUrl = await link.joinUrl("/lobby/");
+  compact = phone() && isPlayer();
+  const made = room ? await openRoomView(app, { ...chosen, compact, own: isPlayer() ? link.you.seat : -1, host: new URL(joinUrl).host, qr: link.qrUrl(joinUrl), onBoard: showBoard }) : null;
   entering = false;
   stirAt = performance.now();
-  if (!room) return;
+  if (!room) return void made?.destroy();
   veil?.remove();
   veil = null;
   door?.close();
   door = null;
   // The address is now just the room; a reload comes back to the same seat from the saved session.
   history.replaceState(null, "", "/lobby/");
-  svg = s("svg", { class: "scene", preserveAspectRatio: "xMidYMid slice", role: "img", "aria-label": "The party room" });
-  app.append(svg);
+  scene = made;
   stageBox = h("div", "stage", "", app);
   stageBox.hidden = true;
-  compact = phone() && isPlayer();
-  scene = new Scene(svg, { compact, own: isPlayer() ? link.you.seat : -1, host: new URL(joinUrl).host, qr: link.qrUrl(joinUrl), onBoard: showBoard });
   scene.build(room);
   hud = new Hud(app, {
     role: link.you.role,
@@ -260,6 +261,7 @@ link.on("message", (msg) => {
       room.vote = msg.vote;
       voteAt = now;
       scene.setVote(msg.vote, now);
+      warmUp(msg.vote);
       tellLit(now);
       break;
     case "note":
@@ -290,6 +292,7 @@ function expressed(msg) {
   const what = msg.t === "e" ? emoteById(msg.e) : soundById(msg.k);
   if (!what) return;
   hud?.note(`${who.name}: ${what.name}`, who.colour);
+  scene?.onExpress(msg, performance.now());
   if (msg.t === "sb" && soundPlaysHere(link.you?.role, room.screens)) void sounds.play(msg.k, { from: who.name });
 }
 
@@ -302,20 +305,68 @@ function feelBump(msg) {
 }
 
 // A game: the room page shows the game's own view while it is on, and the result when it ends.
+// A view comes from this repository (GAME_VIEWS: the test game) or from the game's own files, at
+// the address its box carries (`view`, from the manifest's `lobby.view`). A game's module is
+// fetched when it is first needed, so `stage` stands in for the view at once and hands on
+// whatever the room says in the meantime.
+
+/** How much of the top right corner the door button takes: a game's own buttons stand clear of it. */
+const DOOR_INSET = { top: 56, right: 56 };
+
+/** The view module of a game that opens inside the room, by box. Loaded once. */
+const viewModules = new Map();
+function viewModule(box) {
+  if (GAME_VIEWS[box.id]) return Promise.resolve({ mount: GAME_VIEWS[box.id] });
+  if (!box.view) return Promise.resolve(null);
+  if (!viewModules.has(box.id)) {
+    // Only ever a module of this site: the address comes from the room's wall, and is checked anyway.
+    const address = new URL(box.view, location.href);
+    viewModules.set(box.id, address.origin === location.origin ? import(address.href) : Promise.resolve(null));
+  }
+  return viewModules.get(box.id);
+}
+
 function startStage(snapshot) {
-  if (stage || !room?.game) return;
-  const mount = GAME_VIEWS[room.game.id];
-  if (!mount) return;
+  if (stage || !room?.game || !stageBox) return;
+  const box = room.boxes.find((b) => b.id === room.game.id);
+  if (!box) return;
   steerNow(0);
   held.length = 0;
-  stageBox.hidden = false;
-  stage = mount(stageBox, { room, you: link.you, snapshot });
+  const mine = { view: null, waiting: [], gone: false };
+  const pass = (method, args) => (mine.view ? mine.view[method](...args) : mine.waiting.push([method, args]));
+  stage = {
+    events: (...args) => pass("events", args),
+    snapshot: (...args) => pass("snapshot", args),
+    unmount() {
+      mine.gone = true;
+      mine.view?.unmount();
+    },
+  };
+  const ctx = { room, you: link.you, snapshot, send: (data) => link.sendInput(data), now: () => link.now(), inset: DOOR_INSET, params };
+  viewModule(box)
+    .then((module) => {
+      if (mine.gone || !module?.mount) return;
+      stageBox.hidden = false;
+      mine.view = module.mount(stageBox, ctx);
+      // A view that covers everything: the room's bars are put away and the room is not drawn under it.
+      app.classList.toggle("in-game", !!mine.view.full);
+      for (const [method, args] of mine.waiting.splice(0)) mine.view[method](...args);
+    })
+    .catch((err) => hud?.note(`The game could not be shown: ${err.message}`));
 }
 
 function endStage() {
   stage?.unmount();
   stage = null;
+  app.classList.remove("in-game");
   if (stageBox) stageBox.hidden = true;
+}
+
+/** While a count runs for a game with a view of its own, its files are fetched ahead of the start. */
+function warmUp(vote) {
+  if (!vote?.count || vote.leaders.length !== 1) return;
+  const box = room.boxes.find((b) => b.id === vote.leaders[0]);
+  if (box?.view) void viewModule(box).then((module) => module?.preload?.()).catch(() => {});
 }
 
 link.on("start", (msg) => {
@@ -323,7 +374,7 @@ link.on("start", (msg) => {
   startStage(msg.s);
 });
 link.on("events", (events) => stage?.events(events));
-link.on("snapshot", (snapshot) => (stage ? stage.snapshot(snapshot) : startStage(snapshot)));
+link.on("snapshot", (snapshot, now, full) => (stage ? stage.snapshot(snapshot, now, full) : startStage(snapshot)));
 link.on("end", (msg) => {
   stirAt = performance.now();
   endStage();
@@ -435,11 +486,8 @@ function frame(t) {
   // A window dragged across the phone size gets the other set of signs.
   if ((phone() && isPlayer()) !== compact) {
     compact = phone() && isPlayer();
-    scene.opts.compact = compact;
-    scene.tagSize = compact ? 26 : 21;
     zoom = phone() ? "closer" : "room";
-    scene.build(room);
-    scene.setRoom(room, now);
+    scene.setCompact(compact, room, now);
   }
   if (pilot) {
     // Asked every frame, so a piece that was knocked down walks on by itself once it is up,
@@ -459,10 +507,8 @@ function frame(t) {
   if (!view || size !== viewSize) view = aim;
   else for (const k of ["x", "y", "width", "height"]) view[k] += (aim[k] - view[k]) * Math.min(1, dt * 9);
   viewSize = size;
-  // A blow jolts the picture for a moment (scene.jolt); the framing itself does not move.
-  const jolt = scene.jolt(now);
-  set(svg, { viewBox: `${(view.x + jolt.x).toFixed(2)} ${(view.y + jolt.y).toFixed(2)} ${view.width.toFixed(2)} ${view.height.toFixed(2)}` });
-  scene.frame(now, dt, pilot, view);
+  // Under a game that covers everything the room is not drawn.
+  if (!app.classList.contains("in-game")) scene.frame(now, dt, pilot, view);
   hud.update(room, room.vote, now, voteAt, zoom, now - stirAt);
 }
 
