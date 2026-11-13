@@ -26,6 +26,8 @@ const pictures = [
   { name: "screen-toss", size: SCREEN, query: "shot=toss" },
   { name: "screen-all-on", size: SCREEN, query: "shot=vote" },
   { name: "screen-bare", size: SCREEN, query: "shot=live&bare=1" },
+  // By the jukebox: two pieces away from the lamps, to see how a piece sits in the room where no pool lights it.
+  { name: "screen-by-the-jukebox", size: SCREEN, query: "shot=live&show=1" },
   { name: "phone-whole-room", size: PHONE, query: "shot=live&as=player&zoom=room" },
   { name: "phone-closer", size: PHONE, query: "shot=live&as=player&zoom=closer" },
   { name: "upright", size: UPRIGHT, query: "shot=live&as=player" },
@@ -44,7 +46,7 @@ try {
     page.on("console", (m) => m.type() === "error" && errors.push(m.text()));
     await page.goto(`${base}/lobby/look3d/still.html?gl=any&${p.look === "3d" ? "" : "look=baked&"}${p.query}`);
     await page.waitForSelector("html[data-ready]", { timeout: 120000 });
-    await page.waitForTimeout(1500);
+    await page.waitForTimeout(p.wait ?? 1500);
     const stats = await page.evaluate(() => window.__still.report());
     await page.screenshot({ path: `${out}/${p.name}.png` });
     console.log(`${errors.length ? "FAIL " : "ok   "}${p.name}: look ${stats.look ?? "3d"}, ${stats.calls} draw calls, ${stats.triangles} triangles${errors.length ? "\n     " + errors.join("\n     ") : ""}`);

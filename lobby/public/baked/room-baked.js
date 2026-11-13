@@ -156,14 +156,14 @@ export class RoomBaked extends Room3D {
   /** Once the plate is here: the room's light for the pieces, in place of the 3D look's three plain lights. */
   dressRoom() {
     for (const o of this.scene.children) {
-      if (o.isHemisphereLight) o.intensity = 0.13;
-      else if (o.isDirectionalLight) o.intensity = o.position.y > 8 ? 0 : 0.2; // the overhead lamp goes: each pool has its own now
+      if (o.isHemisphereLight) o.intensity = 0.34;
+      else if (o.isDirectionalLight) o.intensity = o.position.y > 8 ? 0 : 0.5; // the overhead lamp goes: each pool has its own now
     }
     const pmrem = new THREE.PMREMGenerator(this.renderer);
     this.envMap = pmrem.fromEquirectangular(this.plate.env).texture;
     pmrem.dispose();
     this.scene.environment = this.envMap;
-    this.scene.environmentIntensity = 0.3;
+    this.scene.environmentIntensity = 0.5;
   }
 
   build(room) {
@@ -290,7 +290,7 @@ export class RoomBaked extends Room3D {
     u.uGain.value[b.i] = gain;
     u.uGold.value[b.i] = b.gold;
     // The spot stays in the scene at nothing when its lamp is off: taking a light out would rebuild every piece's shader.
-    b.spot.intensity = 4.6 * (0.3 * glowing + 0.7 * level);
+    b.spot.intensity = 3.8 * (0.3 * glowing + 0.7 * level);
     b.spot.color.set(SKIN.light).lerp(GOLD, b.gold * 0.6);
     b.beam.material.uniforms.uStrength.value = 0.05 * glowing + 0.05 * level;
     b.beam.visible = level > 0.002;
