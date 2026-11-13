@@ -37,7 +37,7 @@ for (const skin of skins) {
   if (skin.live) {
     const loop = el("a", "picture", "", pictures);
     loop.href = `../still.html?room=${skin.id}&show=1&run=1`;
-    picture(loop, `${skin.id}.webp`, `${skin.name}, moving: something passes, someone is bumped by the room's own thing, someone jumps under a lamp`, 720, 405);
+    picture(loop, `${skin.id}.webp`, `${skin.name}, moving: something passes, someone is bumped by the room's own thing, someone jumps under a lamp`, 640, 360);
     el("span", "caption", "Five seconds of it, on a loop", loop);
   }
 

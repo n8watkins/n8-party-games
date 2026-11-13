@@ -124,7 +124,7 @@ a:focus-visible {
   gap: 12px;
 }
 .pictures.two {
-  grid-template-columns: 1280fr 1173fr;
+  grid-template-columns: 1280fr 1174fr;
   align-items: start;
 }
 .picture {

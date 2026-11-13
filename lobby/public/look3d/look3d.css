@@ -611,3 +611,8 @@
   border-right: 2px solid currentColor;
   opacity: 0.6;
 }
+
+/* Under a game that covers everything the room is not drawn (main.js stops its frames), and is not shown. */
+#app.in-game .look3d {
+  visibility: hidden;
+}

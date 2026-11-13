@@ -38,7 +38,9 @@
     "playtest:battle": "node node_modules/cork-and-bell/tools/playtest-battle.mjs",
     "test:room": "node party-kit/test/e2e-room.mjs",
     "test:lobby": "node lobby/test/e2e-lobby.mjs",
+    "test:cork": "node lobby/test/e2e-cork.mjs",
     "test:feel": "node lobby/test/e2e-feel.mjs",
+    "test:frames": "node lobby/test/e2e-frames.mjs",
     "lobby:shots": "node lobby/test/shoot.mjs",
     "lobby:measure": "node lobby/test/measure.mjs",
     "lobby:shots:3d": "node lobby/test/shoot-3d.mjs",
@@ -51,7 +53,7 @@
     "lean-qr": "^2.7.4"
   },
   "devDependencies": {
-    "cork-and-bell": "github:n8watkins/cork-and-bell#f21e2d975683ebd8ef0bf52cd793c5ad2c0981bc",
+    "cork-and-bell": "github:n8watkins/cork-and-bell#adb6e7b20fd5bb7a2ac45de045bfea839e5946fe",
     "playwright": "^1.64.1",
     "vitest": "4.1",
     "wrangler": "^4.157.0"

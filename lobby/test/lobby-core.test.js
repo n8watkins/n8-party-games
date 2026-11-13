@@ -2,6 +2,7 @@
 // count, ties, bumps, coming and going, starting a game, the Tonight board, sleeping and closing.
 import { describe, expect, it } from "vitest";
 import { IDLE_SHUTDOWN_MS, RECONNECT_GRACE_MS, STALE_ROOM_MS } from "../../party-kit/src/core/room-core.js";
+import * as cork from "cork-and-bell";
 import { game as coinFlip, FLIP_MS, manifest as coinFlipManifest } from "../games/coin-flip.js";
 import { BUDGET_CLOSE_MS, LobbyCore, MAX_ROOM_LIFE_MS, SCREEN_GRACE_MS } from "../server/lobby-core.js";
 import { AWAY_MS, COUNT_MS, SETTLE_MS, TOSS_MS, boxFromManifest } from "../shared/vote.js";
@@ -480,6 +481,118 @@ describe("a game and the Tonight board", () => {
     expect(ended.last.rows.map((r) => r.seat).sort()).toEqual([0, 1]);
   });
 
+  it("never gives a newcomer the seat of someone who left in the middle of a game", () => {
+    const core = room();
+    seated(core, "Ann");
+    const bo = seated(core, "Bo");
+    core.startGame("coin-flip", 2000);
+    core.leave(bo.token, 2100);
+    // Seat 1 is free in the room but still has a part in the game: the newcomer gets seat 2.
+    expect(seated(core, "Cy", 2200).seat).toBe(2);
+    seated(core, "Di", 2200);
+    expect(core.join("Eve", 2300)).toMatchObject({ ok: false, error: "room_full", message: "A game is on and its seats are taken. Join when it ends." });
+    core.gameTick(2000 + FLIP_MS);
+    expect(core.join("Eve", 2000 + FLIP_MS + 10)).toMatchObject({ ok: true, seat: 1 });
+  });
+});
+
+describe("Cork & Bell through the seam", () => {
+  const manifest = cork.manifest;
+  /** The site's own wall entry for the hosted game, with the game itself. */
+  function corkRoom() {
+    const boxes = [boxFromManifest(manifest, { view: manifest.path + manifest.lobby.view })];
+    return new LobbyCore({ boxes, games: new Map([[manifest.id, cork.game]]), seed: 21, code: "BCDFGH", now: 1000 });
+  }
+  /** Runs the room's game loop at the game's own rate until the game ends. A seat fires when `aims` says so. */
+  function playOut(core, from, aims = () => null) {
+    const step = 1000 / cork.game.tickHz;
+    let now = from;
+    let ended = null;
+    let snapshots = 0;
+    const kinds = new Set();
+    while (!ended && now < from + 110_000) {
+      now += step;
+      for (const seat of core.activity.seats) {
+        const aim = aims(seat, core.activity.state, now);
+        if (aim) core.gameInput(seat, aim, now);
+      }
+      const out = core.gameTick(now);
+      for (const e of out.events) kinds.add(e.k);
+      if (out.snapshot) snapshots++;
+      ended = out.ended;
+    }
+    return { ended, now, snapshots, kinds };
+  }
+  /** The game's own stand-in, used here as a hand on the gun. */
+  const botAim = (seat, state, now) => cork.game.bot(state, seat, now)[0] ?? null;
+
+  it("hangs with a sign that reads 1-4 and a light that is on for one player", () => {
+    const core = corkRoom();
+    expect(core.boxes[0]).toMatchObject({ min: 1, max: 4, url: null, view: "/cork-and-bell/game/party-view.js" });
+    expect(core.lights()).toEqual({ "cork-and-bell": "Needs a player" });
+    seated(core, "Ann");
+    expect(core.lights()).toEqual({ "cork-and-bell": null });
+  });
+
+  it("starts a battle for the party's seats, plays ninety seconds, and turns the scores into 3, 2 and 1", () => {
+    const core = corkRoom();
+    for (const n of ["Ann", "Bo", "Cy", "Di"]) seated(core, n);
+    for (const seat of [0, 1, 2, 3]) stand(core, seat, 0, 2000);
+    core.evaluate(2000);
+    expect(core.tick(2000 + COUNT_MS).start).toBe("cork-and-bell");
+    const at = 2000 + COUNT_MS;
+    expect(core.startGame("cork-and-bell", at)).toEqual({ ok: true, ended: null });
+    expect(core.view(at)).toMatchObject({ phase: "playing", game: { id: "cork-and-bell", name: "Cork & Bell", round: 1 } });
+    expect(core.activity.state.seats.map((s) => [s.seat, s.name])).toEqual([[0, "Ann"], [1, "Bo"], [2, "Cy"], [3, "Di"]]);
+    // Nothing of the lobby wakes the room while the game is on: the game's own timer does.
+    expect(core.nextWake(at)).toBeNull();
+    // Three play; Di holds the gun and never fires.
+    const { ended, now, snapshots, kinds } = playOut(core, at, (seat, state, t) => (seat === 3 ? null : botAim(seat, state, t)));
+    expect((now - at) / 1000).toBeGreaterThan(93);
+    expect((now - at) / 1000).toBeLessThan(97);
+    expect(snapshots).toBeGreaterThan(150);
+    expect([...kinds]).toEqual(expect.arrayContaining(["f", "atk", "time"]));
+    const rows = ended.last.rows;
+    expect(rows).toHaveLength(4);
+    expect(rows.map((r) => r.place)).toEqual([1, 2, 3, 4]);
+    expect(rows.map((r) => r.points)).toEqual([3, 2, 1, 0]);
+    expect(rows[3]).toMatchObject({ name: "Di", score: 0 });
+    for (let i = 1; i < rows.length; i++) expect(rows[i].score).toBeLessThanOrEqual(rows[i - 1].score);
+    expect(ended.result.map((r) => r.seat)).toEqual(rows.map((r) => r.seat));
+    const view = core.view(now);
+    expect(view).toMatchObject({ phase: "lobby", game: null, tonight: { games: 1 } });
+    expect(view.members.map((m) => m.points).sort()).toEqual([0, 1, 2, 3]);
+    for (const m of view.members) expect(m).toMatchObject({ x: spawnX(m.seat, 1), rev: 1 });
+    // Asleep again: after the rest, the next wake-up is the slow "forgotten room" check.
+    expect(core.nextWake(now + SETTLE_MS + 1)).toBe(now + STALE_ROOM_MS);
+  });
+
+  it("gives a party of one a round to itself", () => {
+    const core = corkRoom();
+    seated(core, "Ann");
+    stand(core, 0, 0, 2000);
+    core.evaluate(2000);
+    expect(core.tick(2000 + COUNT_MS).start).toBe("cork-and-bell");
+    core.startGame("cork-and-bell", 2000 + COUNT_MS);
+    const { ended } = playOut(core, 2000 + COUNT_MS, botAim);
+    expect(ended.last.rows).toHaveLength(1);
+    expect(ended.last.rows[0]).toMatchObject({ name: "Ann", place: 1, points: 3 });
+    expect(ended.last.rows[0].score).toBeGreaterThan(0);
+  });
+
+  it("plays a dropped player's stall with the game's own stand-in until they are back", () => {
+    const core = corkRoom();
+    seated(core, "Ann");
+    const bo = seated(core, "Bo");
+    core.startGame("cork-and-bell", 2000);
+    core.disconnect(bo.token, 2100);
+    const { ended } = playOut(core, 2000);
+    // Ann never fired; Bo was away for the whole round and the stand-in scored for the seat.
+    const [first, second] = ended.last.rows;
+    expect(first).toMatchObject({ seat: 1, place: 1 });
+    expect(first.score).toBeGreaterThan(0);
+    expect(second).toMatchObject({ seat: 0, score: 0 });
+  });
 });
 
 describe("an outside game", () => {

@@ -273,6 +273,22 @@ try {
   await tidy(screen, "big screen, coin toss");
   check(tossed, "a tie is a coin toss everybody watches, heads on one box and tails on the other");
 
+  // ---------------------------------------------------------------- nobody else pays for it
+  // A device that never asked for the 3D look gets today's flat room and downloads none of the
+  // 3D look: not its scripts, not three.js, not its fonts or pictures.
+  const flatContext = await browser.newContext({ viewport: { width: 1280, height: 720 } });
+  const flatPage = await flatContext.newPage();
+  const fetched = [];
+  flatPage.on("request", (r) => fetched.push(new URL(r.url()).pathname));
+  await flatPage.goto(`${base}/lobby/?start`);
+  await flatPage.click("text=Use this as the room's screen");
+  await flatPage.click("text=Show the room here");
+  await flatPage.waitForSelector("svg.scene text");
+  await sleep(1500);
+  const extra = fetched.filter((path) => /look3d|three|\/vendor\/|AbrilFatface/.test(path));
+  check((await flatPage.locator(".look3d").count()) === 0 && extra.length === 0, "without ?look=3d the room is the flat one and nothing of the 3D look is downloaded (" + fetched.length + " requests" + (extra.length ? ", but: " + extra.join(", ") : "") + ")");
+  await flatContext.close();
+
   // A page that asks for 3D in a browser with no WebGL at all gets the flat room, and says so
   // once in the console, which is a warning and not an error of the page's.
   const bare = await chromium.launch({ headless: true, args: ["--mute-audio", "--disable-3d-apis"] });
