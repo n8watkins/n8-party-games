@@ -217,7 +217,7 @@ export function attackPose(ms, dir = 1, landed = false) {
   // The base has whipped forward and up into the other piece's belly; the head has hardly moved.
   const contact = { dx: 12 * side, lift: 12, tilt: -46 * side, sx: 0.97, sy: 1.07 };
   // The follow-through: the base carries on up past where the other piece was.
-  const through = { dx: 18 * side, lift: 26, tilt: -68 * side, sx: 0.98, sy: 1.04 };
+  const through = { dx: 18 * side, lift: 28, tilt: -62 * side, sx: 0.98, sy: 1.04 };
   // Hanging upright just off the floor, about to be set down.
   const held = { dx: 0, lift: 7, tilt: 0, sx: 1, sy: 1 };
   if (state === "winding") {
