@@ -3,7 +3,8 @@
 // agree on where a piece is and which light it stands in.
 //
 // The room is a side view, 1920 units wide. A piece only has an x: it walks left and right
-// along the floor. Jumping is for show and changes nothing the room decides.
+// along the floor. Jumping is for show and changes nothing the room decides. The bump has a
+// file of its own (lobby/shared/bump.js).
 
 /** The room in world units (the big screen at 1920 x 1080 shows one unit per pixel). */
 export const ROOM = {
@@ -22,11 +23,6 @@ export const ROOM = {
 export const WALK_SPEED = 430;
 export const JUMP_MS = 520;
 export const JUMP_HEIGHT = 110;
-
-/** A bump reaches this far in front of a piece, and pushes whoever it finds this far. It is weak on purpose. */
-export const BUMP_REACH = 120;
-export const BUMP_PUSH = 90;
-export const BUMP_COOLDOWN_MS = 900;
 
 /** How far from where the room thinks a piece is a client may say it is. Beyond it, the room corrects the client. */
 export const POSITION_SLACK = 420;
@@ -81,22 +77,4 @@ export function jumpHeight(ms) {
   if (!(ms > 0) || ms >= JUMP_MS) return 0;
   const u = ms / JUMP_MS;
   return 4 * JUMP_HEIGHT * u * (1 - u);
-}
-
-/**
- * Who a bump lands on: the nearest other piece within reach in front of the bumper (a piece
- * standing right on top of it counts too). `others` is [{seat, x}]. Returns a seat or -1.
- */
-export function bumpTarget(x, face, others) {
-  let best = -1;
-  let bestGap = Infinity;
-  for (const other of others) {
-    const ahead = (other.x - x) * (face || 1);
-    if (ahead < -20 || ahead > BUMP_REACH) continue;
-    if (Math.abs(ahead) < bestGap) {
-      bestGap = Math.abs(ahead);
-      best = other.seat;
-    }
-  }
-  return best;
 }

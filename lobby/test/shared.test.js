@@ -9,7 +9,7 @@ import { camera, CLOSER, PHONE_FRAME } from "../shared/camera.js";
 import { Pilot, SEND_GAP_MS } from "../shared/pilot.js";
 import { playerLine, statusLine } from "../shared/status.js";
 import { badgeFor, boxFromManifest, leaders, playersLabel, pointsForPlace, standingsFromRows, tally, whereabouts, whyNot } from "../shared/vote.js";
-import { BUMP_REACH, JUMP_HEIGHT, JUMP_MS, ROOM, WALK_SPEED, boxCentre, boxWidth, bumpTarget, jumpHeight, lightAt, lightHalf, posAt, spawnX } from "../shared/world.js";
+import { JUMP_HEIGHT, JUMP_MS, ROOM, WALK_SPEED, boxCentre, boxWidth, jumpHeight, lightAt, lightHalf, posAt, spawnX } from "../shared/world.js";
 import { TEST_WALL, WALL, wallFor } from "../wall.js";
 
 describe("the room as numbers", () => {
@@ -43,17 +43,6 @@ describe("the room as numbers", () => {
     expect(jumpHeight(JUMP_MS / 2)).toBeCloseTo(JUMP_HEIGHT);
     expect(jumpHeight(JUMP_MS)).toBe(0);
     expect(jumpHeight(-5)).toBe(0);
-  });
-
-  it("lands a bump on the nearest piece in front, within reach", () => {
-    const others = [
-      { seat: 1, x: 560 },
-      { seat: 2, x: 530 },
-      { seat: 3, x: 400 },
-    ];
-    expect(bumpTarget(500, 1, others)).toBe(2);
-    expect(bumpTarget(500, -1, others)).toBe(3);
-    expect(bumpTarget(500, 1, [{ seat: 1, x: 500 + BUMP_REACH + 1 }])).toBe(-1);
   });
 });
 
@@ -206,9 +195,6 @@ describe("what a player's page sends", () => {
     p.place(600, 3, 1000);
     expect(p.x).toBe(600);
     expect(sent.at(-1)).toEqual({ t: "m", x: 600, d: 0, r: 3 });
-    expect(p.bump(2000)).toBe(true);
-    expect(p.bump(2100)).toBe(false);
-    expect(sent.at(-1)).toEqual({ t: "b" });
   });
 });
 

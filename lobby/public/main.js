@@ -2,13 +2,17 @@
 // room drawn as one picture (scene.js), and the words and buttons over it (hud.js). This file
 // joins them to the room over the kit's client and to the player's keys and fingers.
 import { PartyClient } from "/party-kit/client/party-client.js";
+import { openBoard } from "./board.js";
+import { buzz } from "./bump-draw.js";
 import { openDoor } from "./door.js";
 import { h, s, set } from "./dom.js";
 import { GAME_VIEWS } from "./games/views.js";
 import { Hud, showClosed } from "./hud.js";
 import { Scene } from "./scene.js";
+import { IMPACT_MS } from "./shared/bump.js";
 import { camera } from "./shared/camera.js";
 import { Pilot } from "./shared/pilot.js";
+import { playerLine, statusLine } from "./shared/status.js";
 
 const params = new URLSearchParams(location.search);
 const app = document.getElementById("app");
@@ -32,6 +36,8 @@ let view = null;
 let viewSize = "";
 let entering = false;
 let veil = null;
+/** The Tonight board opened large (board.js), or null. */
+let board = null;
 /** Set when this device chose to go, so the socket closing is not taken for the room ending. */
 let bye = null;
 /** Which walk keys and buttons are down, newest last, so the latest one wins. */
@@ -53,10 +59,12 @@ function sendMove(message) {
 function showDoor(message = "") {
   teardown();
   const code = params.get("join") ?? "";
-  door = openDoor(app, link, { mode: params.has("start") ? "start" : "join", code, message });
+  // A phone is a device to play on, so its way in leads with playing; a wide screen is offered both.
+  door = openDoor(app, link, { mode: params.has("start") ? "start" : "join", code, message, as: params.get("as") === "screen" ? "screen" : "player", small: phone() });
 }
 
 function teardown() {
+  hideBoard();
   veil?.remove();
   veil = null;
   door?.close();
@@ -90,7 +98,7 @@ async function enter() {
   stageBox = h("div", "stage", "", app);
   stageBox.hidden = true;
   compact = phone() && isPlayer();
-  scene = new Scene(svg, { compact, own: isPlayer() ? link.you.seat : -1, host: new URL(joinUrl).host, qr: link.qrUrl(joinUrl) });
+  scene = new Scene(svg, { compact, own: isPlayer() ? link.you.seat : -1, host: new URL(joinUrl).host, qr: link.qrUrl(joinUrl), onBoard: showBoard });
   scene.build(room);
   hud = new Hud(app, {
     role: link.you.role,
@@ -134,9 +142,41 @@ addEventListener("pageshow", (e) => {
 });
 
 function closed(reason) {
+  const pin = room?.pin ?? null;
   teardown();
   room = null;
-  veil = showClosed(app, reason);
+  veil = showClosed(app, reason, pin);
+}
+
+// ---------------------------------------------------------------- the Tonight board, large
+
+/**
+ * Opens the board large. The piece stops where it is and stays there, so its vote carries on.
+ * Opening adds a step to the browser's history, so a phone's back gesture closes it.
+ */
+function showBoard() {
+  if (board || !room || room.phase !== "lobby") return;
+  letGo();
+  board = openBoard(app, { room, own: isPlayer() ? link.you.seat : -1, onClose: () => hideBoard() });
+  history.pushState({ board: true }, "");
+}
+
+/** Closes the board. `byBack`: the back gesture did it, so the history step is already gone. */
+function hideBoard(byBack = false) {
+  if (!board) return;
+  board.remove();
+  board = null;
+  if (!byBack && history.state?.board) history.back();
+}
+addEventListener("popstate", () => hideBoard(true));
+
+/** What the room is doing, in a few words, for the foot of the open board. */
+function boardLine(now) {
+  const live = { ...room.vote, countLeft: room.vote.count ? room.vote.count.endsIn - (now - voteAt) : null };
+  const closingLeft = room.closing ? room.closing.in - (now - voteAt) : null;
+  if (!isPlayer()) return statusLine(room, live, closingLeft).main;
+  const line = playerLine(room, live, link.you.seat, closingLeft);
+  return `Your vote: ${line.vote}. ${line.rest}.`;
 }
 
 // ---------------------------------------------------------------- what the room says
@@ -151,10 +191,15 @@ function apply(next) {
     if (!pilot) {
       pilot = new Pilot({ lights: room.boxes.length, send: sendMove, x: me.x, rev: me.rev });
       focus = me.x;
+      // A page that arrives in the middle (a reload) takes the room's word on its bump.
+      if (me.down > 0) pilot.knock(me.x, me.rev, voteAt, me.down);
+      pilot.cool(me.cool ?? 0, voteAt);
     } else if (pilot.rev !== me.rev) pilot.place(me.x, me.rev, voteAt);
     tellLit(voteAt);
   }
   if (room.phase !== "playing" && stage) endStage();
+  // A game takes the whole screen: the board makes way for it.
+  if (room.phase === "playing") hideBoard();
 }
 
 /** Tells the player's Pilot which lights are on, whenever that changes: only those are worth reporting. */
@@ -183,7 +228,13 @@ link.on("message", (msg) => {
     case "b":
       scene.onBump(msg, now);
       stirAt = now;
-      if (pilot && msg.to === link.you.seat) pilot.place(msg.x, msg.rev, now);
+      // Knocked: the piece lies where the room threw it, and has nothing to say until it is up.
+      if (pilot && msg.to === link.you.seat) pilot.knock(msg.x, msg.rev, now);
+      feelBump(msg);
+      break;
+    case "cd":
+      // The room refused a bump: its word on how long is left replaces this page's guess.
+      pilot?.cool(msg.in, now);
       break;
     case "fix":
       pilot?.place(msg.x, msg.rev, now);
@@ -207,6 +258,14 @@ link.on("message", (msg) => {
       break;
   }
 });
+
+/** The blow lands a moment after the bump: both phones buzz then, the one that was hit longer. */
+function feelBump(msg) {
+  if (!isPlayer() || msg.to < 0) return;
+  const mine = link.you.seat;
+  if (msg.to === mine) setTimeout(() => buzz([70, 40, 30]), IMPACT_MS);
+  else if (msg.s === mine) setTimeout(() => buzz(30), IMPACT_MS);
+}
 
 // A game: the room page shows the game's own view while it is on, and the result when it ends.
 function startStage(snapshot) {
@@ -249,25 +308,29 @@ link.on("closed", (why, reason) => {
   bye = null;
   // A saved session whose room is gone leads back to the way in, not to a notice about a room never seen.
   if (!room) return showDoor(why === "seat_lost" ? "That seat is no longer held. Join again with the code." : "That party has ended.");
-  closed(said);
+  // A screen that was away too long finds another device showing the room.
+  closed(said === "seat_lost" && link.you?.role === "screen" ? "screen_lost" : said);
 });
 
 link.on("error", (err) => hud?.note(err.message));
 
 // ---------------------------------------------------------------- keys and fingers
 
-const canMove = () => !!pilot && room?.phase === "lobby" && !hud?.sheet && !hud?.card;
+const canMove = () => !!pilot && room?.phase === "lobby" && !hud?.sheet && !hud?.card && !board;
 
 function steerNow(d) {
   pilot?.steer(d, performance.now());
 }
+
+/** Which way the piece should be walking: the newest walk key or button still held, if it may move. */
+const wanted = () => (canMove() && held.length ? held[held.length - 1].d : 0);
 
 /** A walk key or button went down or up. The newest one still held decides the direction. */
 function press(id, d, down) {
   const i = held.findIndex((k) => k.id === id);
   if (i !== -1) held.splice(i, 1);
   if (down) held.push({ id, d });
-  steerNow(canMove() && held.length ? held[held.length - 1].d : 0);
+  steerNow(wanted());
 }
 
 function jump() {
@@ -275,9 +338,10 @@ function jump() {
   if (canMove() && pilot.jump(now)) scene.ownJump(now);
 }
 
+/** The wind-up starts the moment the button goes down; the room decides whether the blow lands. */
 function bump() {
   const now = performance.now();
-  if (canMove() && pilot.bump(now)) hud.bumped(now);
+  if (canMove() && pilot.bump(now)) scene.ownBump(now);
 }
 
 const WALK_KEYS = { ArrowLeft: -1, a: -1, A: -1, ArrowRight: 1, d: 1, D: 1 };
@@ -286,6 +350,7 @@ const BUMP_KEYS = new Set(["b", "B", "x", "X", "Shift"]);
 
 addEventListener("keydown", (e) => {
   if (!scene || e.target instanceof HTMLInputElement) return;
+  if (e.key === "Escape" && board) return hideBoard();
   if (e.key === "Escape") return hud?.sheet ? hud.sheet.click() : hud?.openSheet();
   if (e.key in WALK_KEYS) {
     if (!e.repeat) press(e.key.toLowerCase(), WALK_KEYS[e.key], true);
@@ -329,7 +394,8 @@ addEventListener("pointerdown", keepAwake, { passive: true });
 function frame(t) {
   requestAnimationFrame(frame);
   const now = performance.now();
-  const dt = Math.min(0.1, (t - (lastFrame || t)) / 1000);
+  // Never negative: a clock that steps back (a test holding time still) must not throw the pieces off the floor.
+  const dt = Math.max(0, Math.min(0.1, (t - (lastFrame || t)) / 1000));
   lastFrame = t;
   if (!scene || !room || !hud?.bar) return;
   // A window dragged across the phone size gets the other set of signs.
@@ -342,9 +408,13 @@ function frame(t) {
     scene.setRoom(room, now);
   }
   if (pilot) {
-    if (!canMove() && pilot.d) steerNow(0);
+    // Asked every frame, so a piece that was knocked down walks on by itself once it is up,
+    // if the key is still held, and one that may not move stands still.
+    pilot.steer(wanted(), now);
     pilot.step(now);
+    hud.pad?.show({ cooling: pilot.cooling(now), down: pilot.down(now) });
   }
+  board?.update(room, boardLine(now));
   const mine = isPlayer() ? scene.ownX() : 960;
   focus += (mine - focus) * Math.min(1, dt * 7);
   // While a count or a coin toss is on, a phone pulls back to the whole room: that is where it happens.
@@ -355,7 +425,9 @@ function frame(t) {
   if (!view || size !== viewSize) view = aim;
   else for (const k of ["x", "y", "width", "height"]) view[k] += (aim[k] - view[k]) * Math.min(1, dt * 9);
   viewSize = size;
-  set(svg, { viewBox: `${view.x.toFixed(2)} ${view.y.toFixed(2)} ${view.width.toFixed(2)} ${view.height.toFixed(2)}` });
+  // A blow jolts the picture for a moment (scene.jolt); the framing itself does not move.
+  const jolt = scene.jolt(now);
+  set(svg, { viewBox: `${(view.x + jolt.x).toFixed(2)} ${(view.y + jolt.y).toFixed(2)} ${view.width.toFixed(2)} ${view.height.toFixed(2)}` });
   scene.frame(now, dt, pilot, view);
   hud.update(room, room.vote, now, voteAt, zoom, now - stirAt);
 }

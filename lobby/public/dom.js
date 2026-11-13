@@ -57,11 +57,8 @@ export function icon(paths, size = 24) {
   return svg;
 }
 
+/** The pictures on a player's four buttons are in controls.js. */
 export const ICONS = {
-  left: "M15 5l-7 7 7 7",
-  right: "M9 5l7 7-7 7",
-  up: "M5 15l7-7 7 7",
-  bump: ["M4 12h9", "M10 7l5 5-5 5", "M19 5v14"],
   door: ["M14 4h5v16h-5", "M10 12H3", "M7 8l-4 4 4 4"],
   zoomOut: ["M11 18a7 7 0 1 0 0-14 7 7 0 0 0 0 14z", "M20 20l-4-4", "M8 11h6"],
   zoomIn: ["M11 18a7 7 0 1 0 0-14 7 7 0 0 0 0 14z", "M20 20l-4-4", "M8 11h6", "M11 8v6"],

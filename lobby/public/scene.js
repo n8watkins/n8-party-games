@@ -6,7 +6,10 @@
 // its Pilot, everyone else's carried forward from the last thing heard and eased toward it, so
 // movement looks smooth whatever the network does.
 import { drawArt } from "./art.js";
+import { BumpDraw, poseTransform } from "./bump-draw.js";
 import { fit, label, s, set, shade } from "./dom.js";
+import { IMPACT_MS } from "./shared/bump.js";
+import { standings } from "./shared/tonight.js";
 import { BADGES, playersLabel } from "./shared/vote.js";
 import { ROOM, boxCentre, boxWidth, jumpHeight, lightHalf, posAt } from "./shared/world.js";
 
@@ -56,6 +59,7 @@ export class Scene {
     this.signs = this.planSigns(room.boxes, boxWidth(n));
     this.boxes = room.boxes.map((box, i) => this.box(box, i, n));
     this.overlay();
+    this.bumpLayer();
     // Now that it is all in the page, make every line of text fit its place.
     for (const el of svg.querySelectorAll("[data-fit]")) fit(el, Number(el.dataset.fit));
     for (const b of this.boxes) this.layoutSign(b);
@@ -139,6 +143,32 @@ export class Scene {
     g.append(this.boardRows, this.boardFoot, label("1st 3 pts, 2nd 2, 3rd 1", { x: x + w / 2, y: y + hh - 28, "font-size": 16, fill: "#d9d2bf", "text-anchor": "middle", class: "t-chalk", "data-fit": w - 44 }));
     this.boardBox = { x, y, w };
     this.layers.wall.append(g);
+    this.boardButton(g, x, y, w, hh);
+  }
+
+  /**
+   * The board is a button: tapping or clicking it (or Enter on it) asks for the large view
+   * (opts.onBoard). A small mark in its corner says so.
+   */
+  boardButton(g, x, y, w, hh) {
+    if (!this.opts.onBoard) return;
+    g.append(s("path", { d: `M${x + w - 44},${y + 24} h14 v14 M${x + w - 30},${y + 24} l-13,13`, fill: "none", stroke: "#f3ecd9", "stroke-width": 3, "stroke-linecap": "round", "stroke-linejoin": "round", opacity: 0.7 }));
+    const hit = s("rect", { x, y, width: w, height: hh, rx: 6, fill: "#000", "fill-opacity": 0, class: "board-hit", role: "button", tabindex: 0, "aria-label": "Open the Tonight board" });
+    hit.addEventListener("click", () => this.opts.onBoard());
+    hit.addEventListener("keydown", (e) => {
+      if (e.key !== "Enter" && e.key !== " ") return;
+      e.preventDefault();
+      e.stopPropagation();
+      this.opts.onBoard();
+    });
+    g.append(hit);
+  }
+
+  /** Where the bump's bursts and dust are drawn (over the pieces, under their name tags), and the ring under the viewer's piece. */
+  bumpLayer() {
+    const fx = s("g");
+    this.layers.tags.before(fx);
+    this.bumps = new BumpDraw({ fx, floor: this.layers.shadows });
   }
 
   /** One game box: lamp, cone of light, poster, sign and the pool on the floor. */
@@ -298,6 +328,7 @@ export class Scene {
       if (m.d) p.face = m.d;
       if (p.rev !== m.rev) p.rx = m.x; // the room put it somewhere: no sliding across the floor
       p.rev = m.rev;
+      this.bumps.resume(p, m.x, m.down ?? 0, m.safe ?? 0, now);
       this.dress(p, m);
     }
     for (const [seat, p] of this.pieces) {
@@ -370,14 +401,15 @@ export class Scene {
 
   fillBoard(room) {
     const { x, w } = this.boardBox;
-    const rows = room.members.filter(Boolean).sort((a, b) => b.points - a.points || a.seat - b.seat);
+    const rows = standings(room.members);
     this.boardRows.replaceChildren();
     const fresh = room.last && room.last.ago < 9000 ? new Map(room.last.rows.map((r) => [r.seat, r.points])) : new Map();
     rows.forEach((m, i) => {
       const y = POSTER.top + 124 + i * 46;
       const name = label(m.name, { x: x + 76, y, "font-size": 27, fill: "#f3ecd9", class: "t-chalk" });
       this.boardRows.append(
-        label(String(i + 1), { x: x + 30, y, "font-size": 21, fill: "#d9d2bf", class: "t-chalk", opacity: 0.8 }),
+        // Equal points share a place; before the first game there are no places to speak of.
+        label(room.tonight.games ? String(m.place) : "", { x: x + 30, y, "font-size": 21, fill: "#d9d2bf", class: "t-chalk", opacity: 0.8 }),
         s("circle", { cx: x + 58, cy: y - 9, r: 8, fill: m.connected ? shade(m.colour, 0.18) : GREY, stroke: "#f3ecd9", "stroke-width": 1.5 }),
         name,
         label(String(m.points), { x: x + w - 30, y, "font-size": 30, fill: fresh.get(m.seat) ? "#ffd75e" : "#f3ecd9", "text-anchor": "end", class: "t-chalk" }),
@@ -393,15 +425,14 @@ export class Scene {
 
   /** A pawn in a seat's colour, with a shadow and a name tag. */
   piece(m) {
-    const p = { seat: m.seat, rx: m.x, net: { x: m.x, d: m.d, t: 0 }, face: 1, rev: m.rev, jumpAt: -Infinity, lungeAt: -Infinity, lungeDir: 1, hitAt: -Infinity, leaving: 0, level: 0, look: "" };
+    const p = { seat: m.seat, rx: m.x, net: { x: m.x, d: m.d, t: 0 }, face: 1, rev: m.rev, jumpAt: -Infinity, attack: null, knock: null, leaving: 0, level: 0, look: "" };
     p.shadow = s("ellipse", { cy: ROOM.floorY + 5, rx: 40, ry: 9, fill: "#000", opacity: 0.42 });
     p.base = s("ellipse", { cx: 0, cy: -8, rx: 39, ry: 11.5 });
     p.body = s("path", { d: "M-32,-10 C-31,-36 -15,-54 -13.5,-84 L13.5,-84 C15,-54 31,-36 32,-10 Z" });
     p.collar = s("ellipse", { cx: 0, cy: -84, rx: 22, ry: 8 });
     p.head = s("circle", { cx: 0, cy: -113, r: 28 });
     p.eyes = s("g", {}, s("ellipse", { cx: -9, cy: -113, rx: 3.8, ry: 5.6, fill: "#1a1210" }), s("ellipse", { cx: 9, cy: -113, rx: 3.8, ry: 5.6, fill: "#1a1210" }), s("circle", { cx: -8, cy: -115.5, r: 1.3, fill: "#fff" }), s("circle", { cx: 10, cy: -115.5, r: 1.3, fill: "#fff" }));
-    p.star = s("g", { display: "none" }, label("!", { x: 0, y: -160, "font-size": 40, fill: "#ffd75e", "text-anchor": "middle", class: "t-display" }));
-    p.g = s("g", {}, p.base, p.body, p.collar, p.head, s("ellipse", { cx: -10, cy: -125, rx: 9, ry: 6, fill: "#fff", opacity: 0.26 }), p.eyes, p.star);
+    p.g = s("g", { "data-seat": m.seat }, p.base, p.body, p.collar, p.head, s("ellipse", { cx: -10, cy: -125, rx: 9, ry: 6, fill: "#fff", opacity: 0.26 }), p.eyes);
     p.tagBack = s("rect", { rx: (this.tagSize + 14) / 2, "stroke-width": 1.5 });
     p.tagDot = s("circle", { r: this.tagSize * 0.3 });
     p.tagText = label("", { "font-size": this.tagSize, class: "t-ui t-semi" });
@@ -458,19 +489,27 @@ export class Scene {
     if (msg.j) p.jumpAt = now;
   }
 
-  /** A bump: the bumper lunges, and whoever it lands on is knocked along. */
+  /**
+   * A bump, as the room judged it: the bumper winds up and strikes, and whoever it lands on is
+   * thrown to where the room put them (lobby/shared/bump.js has the timings, bump-draw.js draws).
+   */
   onBump(msg, now) {
     const by = this.pieces.get(msg.s);
+    const landed = msg.to >= 0;
+    let began = now;
     if (by) {
-      by.lungeAt = now;
-      by.lungeDir = msg.f || 1;
       by.face = msg.f || by.face;
+      if (msg.s === this.opts.own && by.attack && now - by.attack.at < 600) {
+        // The viewer's own bump began when the button went down (ownBump), not when the room answered.
+        by.attack.landed = landed;
+        began = Math.max(by.attack.at, now - IMPACT_MS);
+      } else this.bumps.attack(by, msg.f, now, landed);
     }
-    const hit = msg.to >= 0 ? this.pieces.get(msg.to) : null;
+    const hit = landed ? this.pieces.get(msg.to) : null;
     if (hit) {
-      hit.net = { x: msg.x, d: hit.net.d, t: now };
+      hit.net = { x: msg.x, d: 0, t: now };
       hit.rev = msg.rev;
-      hit.hitAt = now;
+      this.bumps.knock(hit, msg.x, began);
     }
   }
 
@@ -478,6 +517,17 @@ export class Scene {
   ownJump(now) {
     const p = this.pieces.get(this.opts.own);
     if (p) p.jumpAt = now;
+  }
+
+  /** The viewer pressed bump: the wind-up starts at once, before the room has answered. */
+  ownBump(now) {
+    const p = this.pieces.get(this.opts.own);
+    if (p) this.bumps.attack(p, p.face, now);
+  }
+
+  /** How far the whole picture is jolted by a blow right now, in world units. */
+  jolt(now) {
+    return this.bumps.jolt(now);
   }
 
   /** Where the viewer's own piece is drawn, for the camera. */
@@ -516,17 +566,21 @@ export class Scene {
       }
       const up = jumpHeight(now - p.jumpAt);
       const bob = walking && !up ? Math.abs(Math.sin(now / 95)) * 5 : 0;
-      const lunge = Math.max(0, 1 - (now - p.lungeAt) / 190) * 24 * p.lungeDir;
-      const hit = now - p.hitAt < 420;
-      const tilt = hit ? Math.sin(((now - p.hitAt) / 420) * Math.PI) * 9 * (p.net.x > p.rx ? 1 : -1) : 0;
-      set(p.g, { transform: `translate(${(p.rx + lunge).toFixed(1)}, ${(ROOM.floorY - up - bob).toFixed(1)}) rotate(${tilt.toFixed(1)})` });
+      // Winding up, striking, thrown, lying or getting up: the bump's pose, on top of the walk.
+      const pose = this.bumps.pose(p, now);
+      if (pose.x !== null) p.rx = pose.x;
+      set(p.g, { transform: poseTransform(p.rx, ROOM.floorY - up - bob, pose) });
       set(p.eyes, { transform: `translate(${p.face * 5}, 0)` });
-      set(p.star, { display: hit ? null : "none" });
-      const squeeze = 1 - Math.min(0.45, up / 260);
-      set(p.shadow, { cx: p.rx.toFixed(1), rx: (40 * squeeze).toFixed(1), ry: (9 * squeeze).toFixed(1) });
-      p.up = up + bob;
+      this.bumps.dress(p, pose, now);
+      const air = up + Math.max(0, pose.lift);
+      const squeeze = 1 - Math.min(0.45, air / 260);
+      set(p.shadow, { cx: (p.rx + pose.dx).toFixed(1), rx: (40 * squeeze).toFixed(1), ry: (9 * squeeze).toFixed(1) });
+      p.up = air + bob;
       ordered.push(p);
     }
+    const mine = own ? this.pieces.get(this.opts.own) : null;
+    if (mine) this.bumps.cooldown(mine.rx, own.cooling(now), now);
+    this.bumps.frame(now);
     // Name tags that would sit on top of each other step up instead.
     ordered.sort((a, b) => a.rx - b.rx);
     let prev = null;

@@ -8,7 +8,8 @@
 // everyone to its own site, someone leaving, a dropped
 // phone coming back, a bump, a big screen, and a client that misbehaves. Then nobody touches
 // anything for --quiet seconds and the room must go silent (0 skips that part).
-import { BUMP_PUSH, boxCentre, lightHalf, spawnX } from "../shared/world.js";
+import { KNOCK_MIN, STUN_MS, knockLanding } from "../shared/bump.js";
+import { boxCentre, lightHalf, spawnX } from "../shared/world.js";
 import { partyApi, sleep } from "./client.mjs";
 
 const args = process.argv.slice(2);
@@ -147,7 +148,10 @@ A.send({ t: "m", x: 400, d: 1, r: A.rev });
 A.send({ t: "m", x: 400, d: 0, r: A.rev });
 A.send({ t: "b" });
 const bump = await B.wait((m) => m.t === "b" && m.s === 0, 4000, mark);
-check(bump.to === 1 && bump.x === 450 + BUMP_PUSH, "a bump nudges the player in front a short way");
+const lit = A.room.boxes.map((box, i) => (A.room.vote.lights[box.id] === null ? i : -1)).filter((i) => i >= 0);
+check(bump.to === 1 && bump.x === knockLanding(450, 1, N, lit) && bump.x >= 450 + KNOCK_MIN, "a bump knocks the player in front a long way (" + (bump.x - 450) + " units), into the dark");
+// The knocked piece gets up before anything else is asked of it.
+await sleep(STUN_MS + 60);
 B.send({ t: "m", x: B.x, d: 0, r: B.rev });
 
 // ---------------------------------------------------------------- leaving, dropping, coming back

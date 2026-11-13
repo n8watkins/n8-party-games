@@ -100,7 +100,8 @@ export function createLobbyRoom(wallFor) {
       if (!this.core) return null;
       const v = this.core.view(Date.now());
       const players = v.members.filter(Boolean).map((m) => m.name);
-      return { code: v.code, game: "party", phase: v.phase, players, full: players.length >= v.members.length };
+      // `screen`: the room's one screen is taken, so the way in does not offer to be it.
+      return { code: v.code, game: "party", phase: v.phase, players, full: players.length >= v.members.length, screen: this.core.screenHeld(Date.now()) };
     }
 
     async join({ nickname, as }) {
@@ -235,7 +236,12 @@ export function createLobbyRoom(wallFor) {
         }
         case "b": {
           const hit = player ? core.bump(entry.seat, now) : null;
-          if (!hit) return;
+          if (!hit) {
+            // Too soon: only the room knows for sure, so it tells that page how long is left.
+            const wait = player ? core.bumpWait(entry.seat, now) : null;
+            if (wait) this.send(entry, wait);
+            return;
+          }
           this.broadcast(hit);
           if (hit.to >= 0) for (const other of this.sockets.values()) if (other.seat === hit.to) this.keep(other);
           this.settle(now);

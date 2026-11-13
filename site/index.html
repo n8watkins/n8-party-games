@@ -10,11 +10,15 @@
   </head>
   <body>
     <!-- A plain front page: the real one is being designed separately. It only has to lead into the party room. -->
+    <!-- A phone is a device to play on: there the page leads with joining and playing (site.css),
+         and using the phone as the room's screen is a small link. A wide screen leads with starting
+         a party, and the next page offers both ways to be in it. -->
     <main>
       <p class="brand"><span class="brand-mark"></span>n8 Party</p>
       <h1>Party games for two to four, in one room.</h1>
-      <p class="lead">Start a party on a laptop or a TV, and everyone joins from their phone with a code.</p>
-      <a class="button" href="/lobby/?start">Start a party</a>
+      <p class="lead on-wide">Start a party on a laptop or a TV, and everyone joins from their phone with a code.</p>
+      <p class="lead on-phone">Join your friends with the code on their screen, or start a party and play from this phone.</p>
+      <a class="button start" href="/lobby/?start">Start a party</a>
       <form class="join" action="/lobby/" method="get">
         <label for="join">Join with a code</label>
         <div class="join-row">
@@ -22,6 +26,7 @@
           <button class="button quiet" type="submit">Join</button>
         </div>
       </form>
+      <a class="minor on-phone" href="/lobby/?start&amp;as=screen">Use this phone as the room's screen</a>
       <p class="aside">Or play one game on its own: <a href="/cork-and-bell/">Cork &amp; Bell</a>.</p>
     </main>
   </body>
