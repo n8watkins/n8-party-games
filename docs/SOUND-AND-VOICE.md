@@ -11,7 +11,7 @@ The owner's decisions on 2026-11-13, after the first preview:
 - **Just emotes.** The soundboard (layer 2) is dropped: "I think we just kill the idea of a soundboard. Just emotes." Own voice lines (layer 3) are parked with it, since they were pads on that board.
 - **An emote may carry its own short sound**, a recording from a public-domain library rather than one made in the browser (he judged the made-up ones bad by ear). Only CC0 or an equally free licence, each file's source recorded, nothing committed until he picks.
 - **The wheel** (hold the button and flick) is the way to send one on a phone; a laptop uses the number keys 1 to 6 for the same six.
-- Of the first round of emotes, four made sense to him: the world's smallest violin, popcorn, the slow clap, and point and laugh (without the other piece looking knocked out). A second round, built to that standard, is in `preview/emotes-artifact-v2.html`.
+- Of the first round of emotes, four made sense to him: the world's smallest violin, popcorn, the slow clap, and point and laugh (without the other piece looking knocked out). A second round, built to that standard, was shown next; in the third (`preview/emotes-artifact-v3.html`) the pawn has a pair of floating hands, so the violin, popcorn and slow clap are played properly, and every emote is data (`preview/emotes/rig.js`) that both the flat room and the 3D look can draw.
 
 Built (branch `feat/emotes-sounds`):
 

@@ -188,7 +188,7 @@ What works now:
 - Everybody sees who did what, muted or not: for now as a note at the top of the room ("Tom: Slow clap"). Both drawings take emotes through the room-view seam (`onExpress`), and neither draws them yet.
 - The 3D look announces its room's own sounds by name (`party-room:sound`, above); the kit's player can play named sounds (`defineSound`), so the two can be joined when those sounds exist.
 
-Waiting on the owner's picks: which emotes, how they look over a piece, the wheel in the real control bar, and the recordings. The page to pick from is `preview/emotes-artifact-v2.html` (made by `node preview/make-emotes-artifact.mjs`; it embeds the recordings, so it is not committed), also at `/preview/emotes/` when the local server runs (`npm run dev`); the production build leaves it out. The first round is `preview/emotes-artifact.html`. Stills are in `preview/shots/`.
+Waiting on the owner's picks: which emotes, how they look over a piece, the wheel in the real control bar, and the recordings. The page to pick from is `preview/emotes-artifact-v3.html` (made by `node preview/make-emotes-artifact.mjs`; it embeds the recordings, so it is not committed), also at `/preview/emotes/` when the local server runs (`npm run dev`); the production build leaves it out. The first round is `preview/emotes-artifact.html`. Stills are in `preview/shots/`.
 
 ## What is not built
 

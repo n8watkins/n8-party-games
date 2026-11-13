@@ -117,8 +117,8 @@ try {
   for (const c of [mabel, tom]) c.goto(Math.round(boxCentre(coin, N)));
   await mabel.wait((m) => m.t === "start", 9000, gameFrom);
   await sleep(EMOTE_COOLDOWN_MS);
-  mabel.send({ t: "e", e: "heart" });
-  check((await tom.wait((m) => m.t === "e" && m.e === "heart", 3000)).s === mabel.seat, "an emote during the game goes through");
+  mabel.send({ t: "e", e: "lighter" });
+  check((await tom.wait((m) => m.t === "e" && m.e === "lighter", 3000)).s === mabel.seat, "an emote during the game goes through");
   await mabel.wait((m) => m.t === "end", 15000, gameFrom);
   mabel.ws.close();
   tom.ws.close();
