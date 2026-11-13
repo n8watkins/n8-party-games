@@ -523,10 +523,10 @@ export class Scene {
     set(p.eyes, { display: "none" });
     set(p.emote.stage, { transform: `translate(${p.rx.toFixed(1)}, ${ROOM.floorY})` });
     p.emote.draw(e.pose, e.toward);
-    // The word over the head, clear of the name tag and of whatever the emote holds up; as easy to read as the tag.
+    // The word over the head, clear of the name tag and of whatever the emote holds up; as easy to read as the tag, and larger on a screen read from across the room.
     const tagTop = ROOM.floorY - 156 - p.up - p.level * (this.tagSize + 20) - (this.tagSize + 14);
     const y = Math.min(tagTop - 4, ROOM.floorY - p.up + poseTop(e.pose));
-    p.sticker.show(e.word, p.rx + e.pose.body.dx, y, this.tagSize / 21, e.pop);
+    p.sticker.show(e.word, p.rx + e.pose.body.dx, y, (this.tagSize / 21) * (this.opts.compact ? 1 : 1.25), e.pop);
   }
 
   /** Someone moved: where they are and which way they walk, as of now. */

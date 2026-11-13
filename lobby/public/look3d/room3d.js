@@ -832,10 +832,10 @@ export class Room3D {
     p.emote.figure.body.setAttribute("transform", `translate(${px(gx, gy)}) rotate(${spin.toFixed(2)}) scale(${(k * S).toFixed(4)})`);
     p.emote.figure.stage.setAttribute("transform", `translate(${px(p.rx, FEET_Y)}) scale(${(k * S).toFixed(4)})`);
     p.emote.figure.draw(e.pose, e.toward);
-    // The word: over the name tag and whatever the emote holds up, a little larger than the tag's words, and never too small to read.
+    // The word: over the name tag and whatever the emote holds up, larger than the tag's words (much larger on a screen read from across the room), and never too small to read.
     const tagTop = FEET_Y - PAWN_HEIGHT - 16 - p.up - p.level * ((p.tag?.h ?? 30) + 6) - (p.tag?.h ?? 30);
     const y = Math.min(tagTop - 6, gy + poseTop(e.pose) * S);
-    const scale = Math.max(0.62, k * 0.9 * (this.opts.compact ? 1.2 : 1));
+    const scale = Math.max(0.62, k * (this.opts.compact ? 1.08 : 1.25));
     const [sx, sy] = px(gx, y).split(",").map(Number);
     p.sticker.show(e.word, sx, sy, scale, e.pop);
     return true;
