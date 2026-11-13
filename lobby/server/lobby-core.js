@@ -14,15 +14,22 @@
 // which way it walks, and works out the rest (lobby/shared/world.js). Everything that depends
 // on time (the count, the toss, a dropped phone's grace, closing) is a wake-up: nextWake().
 import { makeRng } from "../../party-kit/src/core/rng.js";
-import { IDLE_SHUTDOWN_MS, MAX_SCREENS, NAME_MAX, RECONNECT_GRACE_MS, SEAT_COLOURS, STALE_ROOM_MS, cleanName, randomToken } from "../../party-kit/src/core/room-core.js";
+import { IDLE_SHUTDOWN_MS, NAME_MAX, RECONNECT_GRACE_MS, SEAT_COLOURS, STALE_ROOM_MS, cleanName, randomToken } from "../../party-kit/src/core/room-core.js";
 import { COUNT_MS, SETTLE_MS, TOSS_MS, leaders, pointsForPlace, standingsFromRows, tally, whyNot } from "../shared/vote.js";
-import { BUMP_COOLDOWN_MS, BUMP_PUSH, POSITION_SLACK, bumpTarget, clampX, lightAt, posAt, spawnX } from "../shared/world.js";
+import { bumpTarget, cooldownLeft, isDown, isSafe, knockLanding, knocked, mayBump } from "../shared/bump.js";
+import { record } from "../shared/tonight.js";
+import { POSITION_SLACK, clampX, lightAt, posAt, spawnX } from "../shared/world.js";
 
 export const MAX_PLAYERS = 4;
 /** A room is closed this long after it was made, whatever is going on: a party, not a tenancy. */
 export const MAX_ROOM_LIFE_MS = 4 * 60 * 60_000;
 /** When the hosting allowance is spent, open rooms are told and close this much later. */
 export const BUDGET_CLOSE_MS = 3 * 60_000;
+/**
+ * A room has one screen. When it drops, its place is kept this long (a reload, a wifi blip)
+ * before another device may take it. Nothing is timed: it is looked at when somebody asks.
+ */
+export const SCREEN_GRACE_MS = 15_000;
 /** How many people who left are remembered by name, so coming back restores their points. */
 const MAX_REMEMBERED = 12;
 
@@ -40,12 +47,14 @@ export class LobbyCore {
     this.pin = null;
     /** @type {Array<null | object>} */
     this.members = new Array(MAX_PLAYERS).fill(null);
-    /** Screens show the room and hold no seat. token -> {connected} */
+    /** The room's screen: it shows the room and holds no seat. There is one at most. token -> {connected, droppedAt} */
     this.screens = new Map();
     /** {kind: "lobby"} or {kind: "game", id, state, startedAt, ticks, seats} */
     this.activity = { kind: "lobby" };
     this.round = 0;
     this.gamesPlayed = 0;
+    /** The games played tonight and who won each, oldest first (lobby/shared/tonight.js). */
+    this.history = [];
     /** The last game's result, for the card everyone sees on the way back. */
     this.last = null;
     /** null, or {endsAt}: everyone is in a light. */
@@ -91,6 +100,8 @@ export class LobbyCore {
       face: 1,
       rev: 0,
       bumpAt: -Infinity,
+      stunUntil: 0,
+      immuneUntil: 0,
       points,
     };
     this.emptySince = null;
@@ -98,17 +109,23 @@ export class LobbyCore {
     return { ok: true, seat, token };
   }
 
-  /** Registers a big screen: it shows the room and holds no seat. */
+  /**
+   * Makes a device the room's screen: it shows the room and holds no seat. A room has one. A
+   * second device that asks is told so, and can join as a player instead.
+   */
   watch(now, token = randomToken()) {
-    if (this.screens.size >= MAX_SCREENS) {
-      // A screen that closed stays registered so it can come back; the oldest such one makes way.
-      const gone = [...this.screens].find(([, s]) => !s.connected);
-      if (!gone) return fail("room_full", "This party has all the screens it can take.");
-      this.screens.delete(gone[0]);
-    }
-    this.screens.set(token, { connected: false });
+    if (this.screenHeld(now)) return fail("screen_taken", "This party already has its screen. You can join as a player instead.");
+    // A screen that has been gone longer than the grace makes way; its token is no longer good.
+    this.screens.clear();
+    this.screens.set(token, { connected: false, droppedAt: now }); // not connected yet: the socket follows
     this.lastActive = now;
     return { ok: true, token };
+  }
+
+  /** Whether the screen's place is taken: one is connected, or dropped less than the grace ago. */
+  screenHeld(now) {
+    for (const screen of this.screens.values()) if (screen.connected || now - (screen.droppedAt ?? now) < SCREEN_GRACE_MS) return true;
+    return false;
   }
 
   /** Who a token belongs to: {role: "player", seat} | {role: "screen", seat: -1} | null. */
@@ -124,7 +141,7 @@ export class LobbyCore {
     const who = this.identify(token);
     if (!who) return null;
     if (who.role === "screen") {
-      this.screens.get(token).connected = true;
+      Object.assign(this.screens.get(token), { connected: true, droppedAt: null });
     } else {
       const m = this.members[who.seat];
       if (!m.connected) this.count = null;
@@ -144,7 +161,7 @@ export class LobbyCore {
     const who = this.identify(token);
     if (!who) return null;
     if (who.role === "screen") {
-      this.screens.get(token).connected = true;
+      Object.assign(this.screens.get(token), { connected: true, droppedAt: null });
     } else {
       const m = this.members[who.seat];
       m.connected = true;
@@ -167,7 +184,7 @@ export class LobbyCore {
     const who = this.identify(token);
     if (!who) return;
     if (who.role === "screen") {
-      this.screens.get(token).connected = false;
+      Object.assign(this.screens.get(token), { connected: false, droppedAt: now });
     } else {
       const m = this.members[who.seat];
       if (!m.connected) return;
@@ -237,6 +254,8 @@ export class LobbyCore {
     if (typeof data.x !== "number" || !Number.isFinite(data.x)) return null;
     // Sent before the player's page heard that the room had moved the piece: out of date.
     if ((data.r ?? 0) !== m.rev) return null;
+    // A piece that was knocked down lies where it landed until it is up again.
+    if (isDown(m, now)) return null;
     const d = data.d === 1 ? 1 : data.d === -1 ? -1 : 0;
     const expected = posAt(m, now);
     let x = clampX(data.x);
@@ -257,25 +276,35 @@ export class LobbyCore {
   }
 
   /**
-   * A bump: the room decides who, if anyone, it lands on, and nudges them. Everyone has it and
-   * it is weak. Returns the message for everybody, or null inside the cooldown.
+   * A bump: the room decides who, if anyone, it lands on, and knocks them down (the rules are
+   * lobby/shared/bump.js). Returns the message for everybody, or null when the piece may not
+   * bump yet (bumpWait says how long).
    */
   bump(seat, now) {
     const m = this.members[seat];
-    if (!m || this.activity.kind !== "lobby") return null;
-    if (now - m.bumpAt < BUMP_COOLDOWN_MS - 150) return null;
+    if (!m || this.activity.kind !== "lobby" || !mayBump(m, now).ok) return null;
     m.bumpAt = now;
     this.lastActive = now;
+    // A piece on the floor, or just up from it, cannot be knocked: nobody is kept down.
     const others = this.present()
-      .filter((o) => o.seat !== seat)
+      .filter((o) => o.seat !== seat && !isSafe(o, now))
       .map((o) => ({ seat: o.seat, x: posAt(o, now) }));
     const to = bumpTarget(posAt(m, now), m.face, others);
     if (to === -1) return { t: "b", s: seat, f: m.face, to: -1 };
     const o = this.members[to];
-    o.x = clampX(posAt(o, now) + m.face * BUMP_PUSH);
+    o.x = knockLanding(posAt(o, now), m.face, this.boxes.length);
+    o.d = 0;
     o.t = now;
     o.rev += 1;
-    return { t: "b", s: seat, f: m.face, to, x: Math.round(o.x), rev: o.rev };
+    Object.assign(o, knocked(now));
+    return { t: "b", s: seat, f: m.face, to, x: o.x, rev: o.rev };
+  }
+
+  /** For a bump the room refused: how long until that piece may bump, as the message for its page. */
+  bumpWait(seat, now) {
+    const m = this.members[seat];
+    if (!m || this.activity.kind !== "lobby") return null;
+    return { t: "cd", in: Math.round(mayBump(m, now).wait) };
   }
 
   /** Connected players and connected big screens: what decides which games can be played. */
@@ -476,6 +505,7 @@ export class LobbyCore {
     }
     rows.sort((p, q) => p.place - q.place || p.seat - q.seat);
     if (rows.length) this.gamesPlayed += 1;
+    record(this.history, { round: this.round, name: this.boxes.find((box) => box.id === a.id)?.name ?? a.id, rows });
     this.last = { round: this.round, game: a.id, name: this.boxes.find((box) => box.id === a.id)?.name ?? a.id, rows, note: game.note ?? null, at: now };
     this.activity = { kind: "lobby" };
     for (const m of this.present()) {
@@ -503,17 +533,25 @@ export class LobbyCore {
       game: a.kind === "game" ? { id: a.id, name: this.boxes.find((box) => box.id === a.id)?.name ?? a.id, round: this.round } : null,
       boxes: this.boxes,
       members: this.members.map((m) =>
-        m ? { seat: m.seat, name: m.name, colour: m.colour, connected: m.connected, x: Math.round(posAt(m, now)), d: m.d, rev: m.rev, points: m.points } : null,
+        m ? { seat: m.seat, name: m.name, colour: m.colour, connected: m.connected, x: Math.round(posAt(m, now)), d: m.d, rev: m.rev, points: m.points, ...this.bumpView(m, now) } : null,
       ),
       screens: this.screensConnected(),
       vote: this.voteView(now),
-      tonight: { games: this.gamesPlayed },
+      tonight: { games: this.gamesPlayed, played: this.history },
       last: this.last ? { ...this.last, ago: now - this.last.at } : null,
       closesIn: Math.max(0, this.createdAt + MAX_ROOM_LIFE_MS - now),
       // How long a room may go with nobody doing anything before it is put away.
       idleLimit: STALE_ROOM_MS,
       closing: this.closing ? { in: Math.max(0, this.closing.at - now), reason: this.closing.reason } : null,
     };
+  }
+
+  /**
+   * What a page needs to show a piece's bump: milliseconds until it may bump again (`cool`),
+   * until it is up from the floor (`down`) and until it can be knocked again (`safe`).
+   */
+  bumpView(m, now) {
+    return { cool: cooldownLeft(m.bumpAt ?? -Infinity, now), down: Math.max(0, (m.stunUntil ?? 0) - now), safe: Math.max(0, (m.immuneUntil ?? 0) - now) };
   }
 
   /** The room survives being put to sleep; a game in progress does not (it is short, and held awake). */
@@ -526,6 +564,7 @@ export class LobbyCore {
       screens: [...this.screens.keys()],
       round: this.round,
       gamesPlayed: this.gamesPlayed,
+      history: this.history,
       last: this.last,
       count: this.count,
       toss: this.toss,
@@ -542,9 +581,11 @@ export class LobbyCore {
     room.pin = data.pin;
     // Nobody is connected until their socket is seen again; a piece left mid-stride stands still.
     room.members = data.members.map((m) => (m ? { ...m, x: m.d ? posAt(m, now) : m.x, d: 0, t: now, connected: false, droppedAt: m.droppedAt ?? now, bumpAt: -Infinity } : null));
-    for (const token of data.screens) room.screens.set(token, { connected: false });
+    // One screen at most; its grace starts over, since nobody knows how long the room slept.
+    for (const token of data.screens.slice(-1)) room.screens.set(token, { connected: false, droppedAt: now });
     room.round = data.round;
     room.gamesPlayed = data.gamesPlayed;
+    room.history = data.history ?? [];
     room.last = data.last ?? null;
     room.count = data.count ?? null;
     room.toss = data.toss ?? null;

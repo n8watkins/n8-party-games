@@ -6,7 +6,11 @@
 // out of a light that is on. Walking in a straight line sends nothing: everyone else, and the
 // room, carry the piece forward from its last known place and direction (lobby/shared/world.js,
 // posAt). A light that is off is just more dark, so walking under it sends nothing either.
-import { BUMP_COOLDOWN_MS, JUMP_MS, WALK_SPEED, clampX, lightAt } from "./world.js";
+//
+// A bump is one more small message ("b"). Being knocked down sends nothing at all: the room
+// put the piece where it landed, and the piece simply cannot walk, jump or bump until it is up.
+import { BUMP_COOLDOWN_MS, STUN_MS } from "./bump.js";
+import { JUMP_MS, WALK_SPEED, clampX, lightAt } from "./world.js";
 
 /** Messages are at least this far apart, so mashing the keys cannot outrun the room's rate limit. */
 export const SEND_GAP_MS = 60;
@@ -27,7 +31,10 @@ export class Pilot {
     this.rev = rev;
     this.at = null;
     this.jumpAt = -Infinity;
-    this.bumpAt = -Infinity;
+    /** When the piece may bump again, as far as this page knows; the room has the last word (cool). */
+    this.coolUntil = -Infinity;
+    /** Knocked down until then: no walking, jumping or bumping. */
+    this.stunUntil = -Infinity;
     /** The lights that are on, by their place on the wall; null means all of them. */
     this.lit = null;
     this.zone = this.zoneAt(x);
@@ -58,9 +65,29 @@ export class Pilot {
     this.step(now);
   }
 
-  /** Walk left (-1), right (1) or stand (0). */
+  /**
+   * The room says the piece was knocked to x: it lies there, still, for `stun` milliseconds.
+   * Nothing is sent back: the room already knows, and a piece on the floor has no news.
+   */
+  knock(x, rev, now, stun = STUN_MS) {
+    this.advance(now);
+    this.x = clampX(x);
+    this.rev = rev;
+    this.d = 0;
+    this.zone = this.zoneAt(this.x);
+    this.dirty = false;
+    this.jumped = false;
+    this.stunUntil = now + stun;
+  }
+
+  /** Knocked down right now? */
+  down(now) {
+    return now < this.stunUntil;
+  }
+
+  /** Walk left (-1), right (1) or stand (0). A piece on the floor stands whatever is held. */
   steer(d, now) {
-    const next = d < 0 ? -1 : d > 0 ? 1 : 0;
+    const next = this.down(now) ? 0 : d < 0 ? -1 : d > 0 ? 1 : 0;
     if (next === this.d) return;
     this.advance(now);
     this.d = next;
@@ -70,7 +97,7 @@ export class Pilot {
   }
 
   jump(now) {
-    if (now - this.jumpAt < JUMP_MS) return false;
+    if (now - this.jumpAt < JUMP_MS || this.down(now)) return false;
     this.advance(now);
     this.jumpAt = now;
     this.jumped = true;
@@ -79,12 +106,22 @@ export class Pilot {
     return true;
   }
 
-  /** Asks the room for a bump. The room decides whether it lands. */
+  /** Asks the room for a bump. The room decides whether it lands, and enforces the cooldown. */
   bump(now) {
-    if (now - this.bumpAt < BUMP_COOLDOWN_MS) return false;
-    this.bumpAt = now;
+    if (now < this.coolUntil || this.down(now)) return false;
+    this.coolUntil = now + BUMP_COOLDOWN_MS;
     this.send({ t: "b" });
     return true;
+  }
+
+  /** The room's word on the cooldown: the piece may bump again in `left` milliseconds. */
+  cool(left, now) {
+    this.coolUntil = now + Math.max(0, left);
+  }
+
+  /** Milliseconds until the piece may bump again (0: ready). */
+  cooling(now) {
+    return Math.max(0, this.coolUntil - now);
   }
 
   /** Call every frame (or every few tens of milliseconds): moves the piece and sends what is due. */

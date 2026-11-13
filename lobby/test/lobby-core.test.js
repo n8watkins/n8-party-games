@@ -3,9 +3,10 @@
 import { describe, expect, it } from "vitest";
 import { IDLE_SHUTDOWN_MS, RECONNECT_GRACE_MS, STALE_ROOM_MS } from "../../party-kit/src/core/room-core.js";
 import { game as coinFlip, FLIP_MS, manifest as coinFlipManifest } from "../games/coin-flip.js";
-import { BUDGET_CLOSE_MS, LobbyCore, MAX_ROOM_LIFE_MS } from "../server/lobby-core.js";
+import { BUDGET_CLOSE_MS, LobbyCore, MAX_ROOM_LIFE_MS, SCREEN_GRACE_MS } from "../server/lobby-core.js";
 import { COUNT_MS, SETTLE_MS, TOSS_MS, boxFromManifest } from "../shared/vote.js";
-import { BUMP_PUSH, POSITION_SLACK, boxCentre, lightAt, spawnX } from "../shared/world.js";
+import { BUMP_COOLDOWN_MS, COOLDOWN_SLACK_MS, IMMUNE_MS, STUN_MS, knockLanding } from "../shared/bump.js";
+import { POSITION_SLACK, boxCentre, lightAt, spawnX } from "../shared/world.js";
 import { standIn } from "../wall.js";
 
 const duo = { id: "duo", name: "Duo", players: { min: 2, max: 4 }, devices: { phone: true, desktop: true } };
@@ -66,7 +67,7 @@ describe("joining", () => {
     expect(core.view(1000).members.filter(Boolean).map((m) => m.name)).toEqual(["Ann", "ann 2"]);
   });
 
-  it("lets big screens watch without a seat, and never shows a token", () => {
+  it("lets a big screen watch without a seat, and never shows a token", () => {
     const core = room();
     const screen = core.watch(1000);
     core.connect(screen.token, 1000);
@@ -76,6 +77,44 @@ describe("joining", () => {
     expect(core.identify(screen.token)).toEqual({ role: "screen", seat: -1 });
     expect(JSON.stringify(view)).not.toContain(ann.token);
     expect(JSON.stringify(view)).not.toContain(screen.token);
+  });
+
+  it("has one screen: a second device is told so, and the place frees up when the first is gone", () => {
+    const core = room();
+    seated(core, "Ann");
+    const first = core.watch(1000);
+    // Asked for but not connected yet: the place is already taken.
+    expect(core.watch(1500)).toMatchObject({ ok: false, error: "screen_taken" });
+    core.connect(first.token, 2000);
+    expect(core.screenHeld(60_000)).toBe(true);
+    expect(core.watch(60_000)).toMatchObject({ ok: false, error: "screen_taken" });
+    expect(core.watch(60_000).message).toMatch(/already has its screen.*join as a player/i);
+    // It drops: the place is kept for the grace, so a reload gets it back.
+    core.disconnect(first.token, 70_000);
+    expect(core.watch(70_000 + SCREEN_GRACE_MS - 1)).toMatchObject({ ok: false, error: "screen_taken" });
+    expect(core.connect(first.token, 75_000)).toEqual({ role: "screen", seat: -1 });
+    // Gone for longer than the grace: another device takes the place, and the old one's is no longer good.
+    core.disconnect(first.token, 80_000);
+    expect(core.screenHeld(80_000 + SCREEN_GRACE_MS)).toBe(false);
+    const second = core.watch(80_000 + SCREEN_GRACE_MS);
+    expect(second.ok).toBe(true);
+    expect(core.connect(first.token, 96_000)).toBeNull();
+    expect(core.connect(second.token, 96_000)).toEqual({ role: "screen", seat: -1 });
+    expect(core.view(96_000).screens).toBe(1);
+    // "Stop showing the room" frees it at once.
+    core.leave(second.token, 97_000);
+    expect(core.watch(97_000).ok).toBe(true);
+    // None of this is timed: the room has no wake-up for a screen.
+    expect(core.nextWake(97_000)).toBeGreaterThan(97_000 + SCREEN_GRACE_MS);
+  });
+
+  it("keeps the screen's place through a sleep, for the screen that is still there", () => {
+    const core = room();
+    const screen = core.watch(1000);
+    core.connect(screen.token, 1000);
+    const woken = LobbyCore.restore(wall(), structuredClone(core.serialize()), 50_000);
+    woken.resume(screen.token, null);
+    expect(woken.watch(90_000)).toMatchObject({ ok: false, error: "screen_taken" });
   });
 });
 
@@ -210,7 +249,8 @@ describe("the vote", () => {
 });
 
 describe("bumps", () => {
-  it("nudges the nearest piece in front, weakly, with a cooldown", () => {
+  /** Ann at 400 facing right, Bo just in front of her at 460, both in the first light. */
+  function pair() {
     const core = room();
     seated(core, "Ann");
     seated(core, "Bo");
@@ -218,13 +258,72 @@ describe("bumps", () => {
     stand(core, 1, 0, 2000, 460);
     core.move(0, { x: 400, d: 1, r: 0 }, 2000);
     core.move(0, { x: 400, d: 0, r: 0 }, 2000);
+    return core;
+  }
+
+  it("knocks the nearest piece in front a long way, with a cooldown the room enforces", () => {
+    const core = pair();
     const hit = core.bump(0, 2100);
-    expect(hit).toMatchObject({ t: "b", s: 0, to: 1, x: 460 + BUMP_PUSH, rev: 1 });
+    expect(hit).toMatchObject({ t: "b", s: 0, f: 1, to: 1, x: knockLanding(460, 1, 4), rev: 1 });
+    // Out of the light it stood in, into the dark beyond it.
+    expect(lightAt(460, 4)).toBe(0);
+    expect(lightAt(hit.x, 4)).toBe(-1);
+    expect(hit.x).toBeGreaterThan(460 + 90);
+    // Too soon: nothing happens, and the room can say how long is left.
     expect(core.bump(0, 2200)).toBeNull();
-    // Behind the bumper's back nothing is hit.
-    core.move(0, { x: 400, d: -1, r: 0 }, 3200);
-    core.move(0, { x: 400, d: 0, r: 0 }, 3200);
-    expect(core.bump(0, 3300)).toMatchObject({ to: -1 });
+    expect(core.bumpWait(0, 2200)).toEqual({ t: "cd", in: BUMP_COOLDOWN_MS - 100 });
+    expect(core.bump(0, 2100 + BUMP_COOLDOWN_MS - COOLDOWN_SLACK_MS - 1)).toBeNull();
+    // Behind the bumper's back nothing is hit, and a miss spends the cooldown all the same.
+    core.move(0, { x: 400, d: -1, r: 0 }, 5000);
+    core.move(0, { x: 400, d: 0, r: 0 }, 5000);
+    expect(core.bump(0, 5000)).toMatchObject({ to: -1 });
+    expect(core.bump(0, 5500)).toBeNull();
+  });
+
+  it("takes the knocked piece's control for well under a second, and not a moment longer", () => {
+    const core = pair();
+    const hit = core.bump(0, 2100);
+    expect(STUN_MS).toBeLessThan(800);
+    // On the floor the piece stays where it landed, whatever its page says, and cannot bump back.
+    expect(core.move(1, { x: hit.x, d: 1, r: hit.rev }, 2100 + STUN_MS - 1)).toBeNull();
+    expect(core.bump(1, 2100 + STUN_MS - 1)).toBeNull();
+    expect(core.view(2400).members[1]).toMatchObject({ x: hit.x, d: 0, down: STUN_MS - 300, safe: STUN_MS + IMMUNE_MS - 300 });
+    // Up again: it walks and bumps as before.
+    expect(core.move(1, { x: hit.x, d: -1, r: hit.rev }, 2100 + STUN_MS)).toMatchObject({ relay: { s: 1, d: -1 } });
+    expect(core.bump(1, 2100 + STUN_MS)).toMatchObject({ s: 1, f: -1 });
+  });
+
+  it("never lets a player be kept on the floor: a knocked piece cannot be knocked again until it has been up a while", () => {
+    const core = pair();
+    seated(core, "Cy");
+    seated(core, "Di");
+    const first = core.bump(0, 2100);
+    // Two more players stand either side of where Bo landed, facing him, and bump as soon as they can.
+    for (const [seat, side] of [
+      [2, -1],
+      [3, 1],
+    ]) {
+      stand(core, seat, 0, 2150, first.x + side * 100);
+      core.move(seat, { x: first.x + side * 100, d: -side, r: 0 }, 2150);
+      core.move(seat, { x: first.x + side * 100, d: 0, r: 0 }, 2150);
+    }
+    const safeUntil = 2100 + STUN_MS + IMMUNE_MS;
+    expect(core.bump(2, 2200)).toMatchObject({ to: -1 });
+    expect(core.bump(3, safeUntil - 1)).toMatchObject({ to: -1 });
+    expect(core.members[1].x).toBe(first.x);
+    // Bo was in control from getting up until now: longer than he was down.
+    expect(IMMUNE_MS).toBeGreaterThan(STUN_MS);
+    // One player alone can never do it either: the cooldown outlasts the floor and the safe time.
+    expect(BUMP_COOLDOWN_MS - COOLDOWN_SLACK_MS).toBeGreaterThan(STUN_MS + IMMUNE_MS);
+    expect(core.bump(2, 2200 + BUMP_COOLDOWN_MS)).toMatchObject({ to: 1 });
+  });
+
+  it("remembers a knock through a sleep", () => {
+    const core = pair();
+    core.bump(0, 2100);
+    const woken = LobbyCore.restore(wall(), structuredClone(core.serialize()), 2300);
+    expect(woken.view(2300).members[1].down).toBe(STUN_MS - 200);
+    expect(woken.bump(0, 2300)).not.toBeNull(); // a sleep forgets the cooldown, which only ever helps the player
   });
 
   it("can knock a player out of their light, which stops the count", () => {
