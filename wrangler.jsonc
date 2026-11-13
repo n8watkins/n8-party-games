@@ -68,7 +68,7 @@
       // scripts/build-public.mjs. The production build above never passes --preview.
       "build": {
         "command": "node scripts/build-public.mjs --preview",
-        "watch_dir": ["party-kit/client", "party-kit/src", "lobby/public", "lobby/shared", "lobby/server", "lobby/games", "lobby/wall.js", "site", "preview", "scripts", "games.js", "worker.js"]
+        "watch_dir": ["party-kit/client", "party-kit/src", "lobby/public", "lobby/shared", "lobby/server", "lobby/games", "lobby/wall.js", "site", "preview/emotes", "scripts", "games.js", "worker.js"]
       },
       "durable_objects": {
         "bindings": [
