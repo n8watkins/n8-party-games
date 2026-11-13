@@ -21,7 +21,7 @@ import { IDLE_SHUTDOWN_MS, NAME_MAX, RECONNECT_GRACE_MS, SEAT_COLOURS, STALE_ROO
 import { AWAY_MS, COUNT_MS, SETTLE_MS, TOSS_MS, leaders, pointsForPlace, standingsFromRows, tally, whyNot } from "../shared/vote.js";
 import { bumpTarget, cooldownLeft, isDown, isSafe, knockLanding, knocked, mayBump } from "../shared/bump.js";
 import { record } from "../shared/tonight.js";
-import { DURING_PLAY, cooldownLeft as expressLeft, mayExpress, relayFor, waitMessage } from "../../party-kit/client/emotes.js";
+import { DURING_PLAY, cooldownLeft as emoteLeft, mayEmote, relayEmote, waitMessage } from "../../party-kit/client/emotes.js";
 import { POSITION_SLACK, clampX, lightAt, posAt, spawnX } from "../shared/world.js";
 
 export const MAX_PLAYERS = 4;
@@ -109,7 +109,6 @@ export class LobbyCore {
       rev: 0,
       bumpAt: -Infinity,
       emoteAt: -Infinity,
-      soundAt: -Infinity,
       stunUntil: 0,
       immuneUntil: 0,
       points,
@@ -323,19 +322,18 @@ export class LobbyCore {
   }
 
   /**
-   * An emote or a sound from a player (the kit's rules: party-kit/client/emotes.js). Returns
-   * {relay} for everybody else, or {refused} for the sender: too soon, or not allowed while the
-   * game being played says so. Nothing is scheduled: the cooldown is a time written on the piece.
+   * An emote from a player (the kit's rules: party-kit/client/emotes.js). Returns {relay} for
+   * everybody else, or {refused, wait} for the sender: too soon, or not allowed while the game
+   * being played says so. Nothing is scheduled: the cooldown is a time written on the piece.
    */
-  express(seat, kind, id, now) {
+  emote(seat, id, now) {
     const m = this.members[seat];
     if (!m) return null;
-    const stamp = kind === "emote" ? "emoteAt" : "soundAt";
-    const verdict = mayExpress(kind, m[stamp], now, { playing: this.activity.kind === "game", rules: this.playRules() });
-    if (!verdict.ok) return { refused: waitMessage(kind, verdict.wait), wait: verdict.wait };
-    m[stamp] = now;
+    const verdict = mayEmote(m.emoteAt, now, { playing: this.activity.kind === "game", rules: this.playRules() });
+    if (!verdict.ok) return { refused: waitMessage(verdict.wait), wait: verdict.wait };
+    m.emoteAt = now;
     this.lastActive = now;
-    return { relay: relayFor(kind, seat, id) };
+    return { relay: relayEmote(seat, id) };
   }
 
   /** What the game being played allows (its box carries the manifest's word), or the defaults. */
@@ -600,7 +598,7 @@ export class LobbyCore {
       game: a.kind === "game" ? { id: a.id, name: this.boxes.find((box) => box.id === a.id)?.name ?? a.id, round: this.round } : null,
       boxes: this.boxes,
       members: this.members.map((m) =>
-        m ? { seat: m.seat, name: m.name, colour: m.colour, connected: m.connected, x: Math.round(posAt(m, now)), d: m.d, rev: m.rev, points: m.points, ...this.bumpView(m, now), ...this.expressView(m, now) } : null,
+        m ? { seat: m.seat, name: m.name, colour: m.colour, connected: m.connected, x: Math.round(posAt(m, now)), d: m.d, rev: m.rev, points: m.points, ...this.bumpView(m, now), emoteCool: Math.round(emoteLeft(m.emoteAt, now)) } : null,
       ),
       screens: this.screensConnected(),
       vote: this.voteView(now),
@@ -619,11 +617,6 @@ export class LobbyCore {
    */
   bumpView(m, now) {
     return { cool: cooldownLeft(m.bumpAt ?? -Infinity, now), down: Math.max(0, (m.stunUntil ?? 0) - now), safe: Math.max(0, (m.immuneUntil ?? 0) - now) };
-  }
-
-  /** Milliseconds until a piece may send an emote (`emoteCool`) and a sound (`soundCool`), for a page that arrives in the middle. */
-  expressView(m, now) {
-    return { emoteCool: Math.round(expressLeft("emote", m.emoteAt, now)), soundCool: Math.round(expressLeft("sound", m.soundAt, now)) };
   }
 
   /** The room survives being put to sleep; a game in progress does not (it is short, and held awake). */

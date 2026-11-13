@@ -1,30 +1,13 @@
-// The soundboard's player on one device, without a browser: what it keeps, and that it never
-// plays (or queues) anything before sound is allowed. The sounds themselves are rendered and
-// checked in a real, muted browser by lobby/test/e2e-emotes.mjs.
+// The player for emotes' sounds on one device, without a browser: what it keeps, and that it
+// never plays (or queues) anything before sound is allowed. Playing real recordings is checked
+// in a real, muted browser by lobby/test/e2e-emotes.mjs.
 import { describe, expect, it } from "vitest";
-import { PREFS_KEY, SoundBoard, recipeOf, seeded, soundNames } from "../client/sounds.js";
-import { SOUNDS } from "../client/emotes.js";
+import { PREFS_KEY, SoundBoard, defineSound, hasSound } from "../client/sounds.js";
 
 function memory() {
   const kept = new Map();
   return { getItem: (k) => kept.get(k) ?? null, setItem: (k, v) => kept.set(k, String(v)), kept };
 }
-
-describe("the sound recipes", () => {
-  it("has a recipe for every sound on the board, each under three seconds", () => {
-    for (const { id } of SOUNDS) expect(soundNames()).toContain(id);
-    for (const name of soundNames()) {
-      expect(typeof recipeOf(name).build, name).toBe("function");
-      expect(recipeOf(name).length, name).toBeLessThanOrEqual(3.2);
-    }
-  });
-
-  it("makes the same noise every time", () => {
-    const a = seeded(9);
-    const b = seeded(9);
-    for (let i = 0; i < 5; i++) expect(a()).toBe(b());
-  });
-});
 
 describe("one device's player", () => {
   it("starts at a sensible volume, unmuted", () => {
@@ -55,14 +38,21 @@ describe("one device's player", () => {
     expect(board.isPlayerMuted("Tom")).toBe(false);
   });
 
+  it("knows a sound only once it is defined", () => {
+    expect(hasSound("test-ding")).toBe(false);
+    defineSound("test-ding", "data:audio/mpeg;base64,");
+    expect(hasSound("test-ding")).toBe(true);
+  });
+
   it("says why it played nothing, and queues nothing while sound is not allowed", async () => {
+    defineSound("test-clap", "data:audio/mpeg;base64,");
     const board = new SoundBoard({ storage: null, room: "1234" });
-    expect(await board.play("horn")).toBe("locked");
+    expect(await board.play("test-clap")).toBe("locked");
     expect(await board.play("nope")).toBe("unknown");
     board.mutePlayer("Tom", true);
-    expect(await board.play("horn", { from: "Tom" })).toBe("muted");
+    expect(await board.play("test-clap", { from: "Tom" })).toBe("muted");
     board.setMuted(true);
-    expect(await board.play("horn")).toBe("muted");
+    expect(await board.play("test-clap")).toBe("muted");
     expect(board.voices).toEqual([]);
     expect(board.log.map((l) => l.what)).toEqual(["locked", "unknown", "muted", "muted"]);
   });

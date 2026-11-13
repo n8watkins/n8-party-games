@@ -22,10 +22,10 @@ import { Scene } from "./scene.js";
  * @property {(vote: object, now: number) => void} setVote   the vote changed: lights, who stands where, count, toss
  * @property {(msg: object, now: number) => void} onMove     someone moved
  * @property {(msg: object, now: number) => void} onBump     someone bumped (and perhaps hit someone)
- * @property {(msg: object, now: number) => void} onExpress  someone sent an emote ({t: "e", s, e}) or a sound ({t: "sb", s, k}):
- *   shown over their piece (the kit's rules: party-kit/client/emotes.js). Neither drawing shows
- *   it yet: how emotes look waits on the owner's picks (preview/emotes-artifact.html), and the
- *   page says it in a note meanwhile.
+ * @property {(msg: object, now: number) => void} onExpress  someone sent an emote ({t: "e", s, e}): shown over
+ *   their piece (the kit's rules: party-kit/client/emotes.js). Neither drawing shows it yet: how
+ *   emotes look waits on the owner's picks (preview/emotes-artifact-v2.html), and the page says
+ *   it in a note meanwhile.
  * @property {(now: number) => void} ownJump                 the viewer's own piece jumped
  * @property {(now: number) => void} ownBump                 the viewer's own piece began a bump (the room has not answered yet)
  * @property {() => number} ownX                             where the viewer's own piece is drawn, for the camera
@@ -80,7 +80,7 @@ class FlatRoomView extends Scene {
     this.look = "flat";
   }
 
-  /** An emote or a sound over someone's piece. Drawn here once the owner has picked how they look. */
+  /** An emote over someone's piece. Drawn here once the owner has picked how they look. */
   onExpress() {}
 
   setCompact(compact, room, now) {

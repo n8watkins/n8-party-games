@@ -768,7 +768,7 @@ export class Room3D {
     return { x: Math.sin(u * 30) * k, y: Math.cos(u * 23) * k * 0.6 };
   }
 
-  /** An emote or a sound over someone's piece (room-view.js): not drawn in 3D yet. */
+  /** An emote over someone's piece (room-view.js): not drawn in 3D yet. */
   onExpress() {}
 
   /** The viewer's own piece jumped (its Pilot says so; nothing comes back from the room). */

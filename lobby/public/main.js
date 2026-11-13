@@ -2,8 +2,8 @@
 // room drawn as one picture (a room view: room-view.js), and the words and buttons over it
 // (hud.js). This file joins them to the room over the kit's client and to the player's keys and fingers.
 import { PartyClient } from "/party-kit/client/party-client.js";
-import { emoteById, soundById, soundPlaysHere } from "/party-kit/client/emotes.js";
-import { SoundBoard } from "/party-kit/client/sounds.js";
+import { DURING_PLAY, emoteById, soundAllowedNow, soundPlaysHere } from "/party-kit/client/emotes.js";
+import { SoundBoard, defineSound, hasSound } from "/party-kit/client/sounds.js";
 import { openBoard } from "./board.js";
 import { buzz } from "./bump-draw.js";
 import { openDoor } from "./door.js";
@@ -54,7 +54,7 @@ let stirAt = performance.now();
  * The tests read what it did through __partyRoom (they run muted).
  */
 const sounds = new SoundBoard();
-globalThis.__partyRoom = { sounds };
+globalThis.__partyRoom = { sounds, defineSound };
 for (const type of ["pointerdown", "keydown"]) addEventListener(type, () => sounds.unlock(), { capture: true, passive: true });
 
 const phone = () => Math.min(innerWidth, innerHeight) < 520;
@@ -253,9 +253,8 @@ link.on("message", (msg) => {
       pilot?.place(msg.x, msg.rev, now);
       break;
     case "e":
-    case "sb":
       stirAt = now;
-      expressed(msg);
+      emoted(msg);
       break;
     case "vote":
       room.vote = msg.vote;
@@ -279,21 +278,22 @@ link.on("message", (msg) => {
 });
 
 /**
- * Someone sent an emote or a sound. A sound plays from the big screen when the room has one,
- * and on every player's device when it has none (the kit's rule), unless this device muted it.
- * Everybody sees who did it, muted or not.
+ * Someone sent an emote. Everybody sees who did it. Its own sound, if it has one, plays from the
+ * big screen when the room has one and on every player's device when it has none (the kit's
+ * rule), unless this device muted it or the game being played does not allow it.
  *
- * How emotes and sounds look is waiting on the owner's picks (/preview/emotes/ locally): until
- * then the room says it in a note at the top, "Tom: Air horn".
+ * How emotes look is waiting on the owner's picks (preview/emotes-artifact-v2.html): until then
+ * the room says it in a note at the top ("Tom: Slow clap"), and no emote has a sound yet.
  */
-function expressed(msg) {
+function emoted(msg) {
   const who = room?.members[msg.s];
-  if (!who) return;
-  const what = msg.t === "e" ? emoteById(msg.e) : soundById(msg.k);
-  if (!what) return;
+  const what = emoteById(msg.e);
+  if (!who || !what) return;
   hud?.note(`${who.name}: ${what.name}`, who.colour);
   scene?.onExpress(msg, performance.now());
-  if (msg.t === "sb" && soundPlaysHere(link.you?.role, room.screens)) void sounds.play(msg.k, { from: who.name });
+  const playing = room.phase === "playing";
+  const rules = room.boxes.find((b) => b.id === room.game?.id)?.play ?? DURING_PLAY;
+  if (hasSound(msg.e) && soundAllowedNow(playing, rules) && soundPlaysHere(link.you?.role, room.screens)) void sounds.play(msg.e, { from: who.name });
 }
 
 /** The blow lands a moment after the bump: both phones buzz then, the one that was hit longer. */

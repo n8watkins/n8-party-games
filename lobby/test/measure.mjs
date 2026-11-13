@@ -3,8 +3,7 @@
 //
 //   node lobby/test/measure.mjs [--base=http://localhost:8791] [--minutes=10] [--players=4] [--vote-every=60] [--game=cork-and-bell] [--express=0]
 //
-// --express=1: the players also use emotes and sounds, a lively party's worth: each sends an
-// emote about once in ten seconds and a sound about once in twenty-five.
+// --express=1: the players also send emotes, a lively party's worth: each about once in ten seconds.
 //
 // The players wander between the lights, standing in one for a while, jumping and bumping now
 // and then. Every --vote-every seconds they agree to play: each picks a light and stays in it
@@ -36,8 +35,7 @@ const voteEvery = Number(opt("vote-every", "60"));
 /** The one game every vote goes to, or "" for whichever light a player fancies. */
 const onlyGame = opt("game", "");
 const express = opt("express", "0") === "1";
-const EMOTE_IDS = ["wave", "laugh", "taunt", "hurry", "cheer", "cry", "heart", "shrug"];
-const SOUND_IDS = ["horn", "trombone", "applause", "rimshot", "boing", "crickets", "ding", "scratch"];
+const EMOTE_IDS = ["violin", "popcorn", "slowclap", "pointlaugh", "ten", "redcard"];
 const pick = (list) => list[Math.floor(Math.random() * list.length)];
 const { api, call, connect } = partyApi(base);
 const books = async () => (await (await fetch(api + "/debug")).json()).budget?.usage;
@@ -142,10 +140,6 @@ function bot(c) {
       c.send({ t: "e", e: pick(EMOTE_IDS) }); // about once in ten seconds
       sentAt.push(now);
     }
-    if (express && Math.random() < 1 / (30 * 25)) {
-      c.send({ t: "sb", k: pick(SOUND_IDS) }); // about once in twenty-five
-      sentAt.push(now);
-    }
     pilot.step(now);
   }, 33);
 }
@@ -214,7 +208,7 @@ What ${players} players wandering and voting for ${f(seconds / 60, 1)} minutes c
   Messages to the room      ${f(messages, 0)} in all, ${f(messages / seconds, 2)} a second (${f(messages / seconds / players, 2)} per player)
   Keep-alives               ${f(pings, 0)} (one per player every 20 seconds, answered without waking the room)
   Bumps                     ${f(bumps.length, 0)}, of which ${f(knocks, 0)} knocked somebody over (each is one of the messages above)
-  Emotes and sounds         ${f(clients[0].seen.filter((m) => m.t === "e").length, 0)} emotes and ${f(clients[0].seen.filter((m) => m.t === "sb").length, 0)} sounds seen by one player, ${f(clients.reduce((n, c) => n + c.seen.filter((m) => m.t === "wait").length, 0), 0)} refused for coming too soon
+  Emotes                    ${f(clients[0].seen.filter((m) => m.t === "e").length, 0)} seen by one player, ${f(clients.reduce((n, c) => n + c.seen.filter((m) => m.t === "wait").length, 0), 0)} refused for coming too soon
   Awake time                ${f(awake, 2)} seconds in all, ${f((awake / seconds) * 60, 3)} seconds per minute
                             (each event counted as its real time, and never less than ${EVENT_FLOOR_MS} ms; a game's tick loop second for second)
                             of which games being played: ${f(heldSeconds, 1)} seconds (${ends.length ? f(heldSeconds / ends.length, 1) : "0"} a game); the lobby itself: ${f((Math.max(0, awake - heldSeconds) / seconds) * 60, 3)} seconds per minute

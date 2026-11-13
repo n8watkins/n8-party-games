@@ -1,18 +1,15 @@
-// The room's sounds, made in the browser. No audio file is shipped or fetched: every sound is a
-// recipe of oscillators, noise and filters (sound-recipes.js), rendered once per device through
-// an OfflineAudioContext into a buffer and then played with a single node. So a sound costs the
-// same to play on a cheap phone as a click, sounds the same on every device, and the tests can
-// render each one and look at its waveform without a speaker (test browsers stay muted).
+// One device's player for the short sounds emotes carry. The sounds are recordings (each one
+// CC0, from a named library, listed in a credits file once the owner has picked them): a sound is
+// named, given an address (a file on the site, or a data: URI), fetched and decoded the first
+// time it is needed, and then played with a single node.
 //
-// A SoundBoard is one device's player:
-//   - nothing plays until the browser allows it (a tap or a key on this page): unlock() is
-//     called from every tap and key, and a sound asked for before that is simply not played.
-//     Nothing is queued, so unlocking never plays a backlog.
-//   - volume, "mute all sounds" and "mute this player" are kept on the device.
-//   - one sound at a time per player (a new one cuts the old), and at most MAX_VOICES at once.
-//   - other parts of a room (a crackling fire, an owl, a plane going over) can add sounds of
-//     their own by name with define(), and play them with the same play().
-import { RECIPES } from "./sound-recipes.js";
+//   - Nothing plays until the browser allows it (a tap or a key on this page): unlock() is called
+//     from every tap and key, and a sound asked for before that is simply not played. Nothing is
+//     queued, so unlocking never plays a backlog.
+//   - Volume, "mute all sounds" and "mute this player" are kept on the device.
+//   - One sound at a time per player (a new one cuts the old), and at most MAX_VOICES at once.
+//   - Other parts of a room (a crackling fire, an owl, a plane going over) can add sounds of
+//     their own by name with defineSound(), and play them with the same play().
 
 /** How many sounds may play over each other on one device. */
 export const MAX_VOICES = 4;
@@ -21,230 +18,21 @@ export const LATE_MS = 350;
 /** Where the device's choices are kept. */
 export const PREFS_KEY = "party-kit:sound";
 
-// ---------------------------------------------------------------- rendering
+/** Every sound by name: name -> address (a site path or a data: URI). */
+const BOOK = new Map();
 
-/** A small seeded random source, so every render of a sound is the same. */
-export function seeded(seed) {
-  let a = seed >>> 0;
-  return () => {
-    a = (a + 0x6d2b79f5) >>> 0;
-    let t = a;
-    t = Math.imul(t ^ (t >>> 15), t | 1);
-    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
-
-/**
- * What a recipe builds with: the context, where to plug in (`out`), a seeded random source and
- * small helpers. Every helper returns a Web Audio node; nothing here knows about any one sound.
- */
-export class Patch {
-  constructor(ctx, out, seed = 1) {
-    this.ctx = ctx;
-    this.out = out;
-    this.rnd = seeded(seed);
-    const len = ctx.sampleRate * 2;
-    this.white = ctx.createBuffer(1, len, ctx.sampleRate);
-    const data = this.white.getChannelData(0);
-    for (let i = 0; i < len; i++) data[i] = this.rnd() * 2 - 1;
-  }
-
-  /** A random number between lo and hi. */
-  r(lo = 0, hi = 1) {
-    return lo + this.rnd() * (hi - lo);
-  }
-
-  osc(type, freq, start, stop) {
-    const o = this.ctx.createOscillator();
-    o.type = type;
-    o.frequency.setValueAtTime(freq, start);
-    o.start(start);
-    o.stop(stop);
-    return o;
-  }
-
-  /** Looping white noise from a random place in the buffer. */
-  noise(start, stop) {
-    const s = this.ctx.createBufferSource();
-    s.buffer = this.white;
-    s.loop = true;
-    s.start(start, this.r(0, 1.8));
-    s.stop(stop);
-    return s;
-  }
-
-  filter(type, freq, q = 0.707, gainDb = 0) {
-    const f = this.ctx.createBiquadFilter();
-    f.type = type;
-    f.frequency.value = freq;
-    f.Q.value = q;
-    f.gain.value = gainDb;
-    return f;
-  }
-
-  amp(value = 0) {
-    const g = this.ctx.createGain();
-    g.gain.value = value;
-    return g;
-  }
-
-  pan(x) {
-    const p = this.ctx.createStereoPanner();
-    p.pan.value = Math.max(-1, Math.min(1, x));
-    return p;
-  }
-
-  /** Soft clipping: `drive` above 1 adds the rasp of a reed or an overdriven speaker. */
-  shaper(drive) {
-    const w = this.ctx.createWaveShaper();
-    const n = 2048;
-    const curve = new Float32Array(n);
-    for (let i = 0; i < n; i++) {
-      const x = (i / (n - 1)) * 2 - 1;
-      curve[i] = Math.tanh(x * drive) / Math.tanh(drive);
-    }
-    w.curve = curve;
-    w.oversample = "2x";
-    return w;
-  }
-
-  /** A small room: a burst of decaying noise as an impulse, for a little air around a sound. */
-  room(seconds = 0.8, bright = 0.5) {
-    const c = this.ctx.createConvolver();
-    const len = Math.floor(this.ctx.sampleRate * seconds);
-    const ir = this.ctx.createBuffer(2, len, this.ctx.sampleRate);
-    for (let ch = 0; ch < 2; ch++) {
-      const d = ir.getChannelData(ch);
-      let low = 0;
-      for (let i = 0; i < len; i++) {
-        const t = i / len;
-        low += (this.rnd() * 2 - 1 - low) * (0.08 + bright * 0.6);
-        d[i] = low * Math.pow(1 - t, 3) * (i < 40 ? i / 40 : 1);
-      }
-    }
-    c.buffer = ir;
-    return c;
-  }
-
-  /** Connects nodes one into the next and returns the last. */
-  chain(...nodes) {
-    for (let i = 1; i < nodes.length; i++) nodes[i - 1].connect(nodes[i]);
-    return nodes[nodes.length - 1];
-  }
-
-  // ---- envelopes on an AudioParam. All start and end at silence, so nothing clicks.
-
-  /** A strike: up to `peak` in `attack` seconds, then dying away to a thousandth of it over `decay` seconds. */
-  hit(param, t, peak, attack, decay) {
-    param.setValueAtTime(0, t);
-    param.linearRampToValueAtTime(peak, t + attack);
-    param.exponentialRampToValueAtTime(Math.max(1e-5, peak * 0.001), t + attack + decay);
-    param.linearRampToValueAtTime(0, t + attack + decay + 0.005);
-  }
-
-  /** A held note: up in `attack`, held at `peak` until `t + len`, down to silence in `release`. */
-  gate(param, t, peak, attack, len, release) {
-    param.setValueAtTime(0, t);
-    param.linearRampToValueAtTime(peak, t + attack);
-    param.setValueAtTime(peak, t + Math.max(attack, len));
-    param.linearRampToValueAtTime(0, t + Math.max(attack, len) + release);
-  }
-
-  /** Sets a param to follow f(u) for u from 0 to 1 over [t, t + dur], as a curve of `steps` points. */
-  curve(param, t, dur, f, steps = 256) {
-    const v = new Float32Array(steps);
-    for (let i = 0; i < steps; i++) v[i] = f(i / (steps - 1));
-    param.setValueCurveAtTime(v, t, dur);
-  }
-}
-
-const OfflineCtx = () => globalThis.OfflineAudioContext || globalThis.webkitOfflineAudioContext;
-
-/** Every sound by name: the built-in recipes, and whatever a room has added with define(). */
-const BOOK = new Map(Object.entries(RECIPES));
-
-/** Adds (or replaces) a sound by name for every board on this page: `{length, level, build(patch, t)}`. */
-export function defineSound(name, recipe) {
-  BOOK.set(name, recipe);
+/** Adds (or replaces) a sound by name for every player on this page. */
+export function defineSound(name, address) {
+  BOOK.set(name, address);
 }
 
 export function soundNames() {
   return [...BOOK.keys()];
 }
 
-export function recipeOf(name) {
-  return BOOK.get(name) ?? null;
+export function hasSound(name) {
+  return BOOK.has(name);
 }
-
-/**
- * Renders one sound to an AudioBuffer: built in an OfflineAudioContext, then trimmed of its
- * silent tail and brought to its loudness (`level` is a peak between 0 and 1). Works in any
- * browser, playing nothing, so the tests use it too.
- */
-export async function renderSound(name, sampleRate = 44100) {
-  const recipe = BOOK.get(name);
-  if (!recipe) throw new Error(`No such sound: ${name}`);
-  const Ctx = OfflineCtx();
-  const ctx = new Ctx(2, Math.ceil(recipe.length * sampleRate), sampleRate);
-  const out = ctx.createGain();
-  out.connect(ctx.destination);
-  recipe.build(new Patch(ctx, out, recipe.seed ?? hash(name)), 0.01);
-  const buffer = await ctx.startRendering();
-  return finish(buffer, recipe.level ?? PEAK_MAX, recipe.loudness ?? LOUDNESS);
-}
-
-/** Every sound is brought to about this loudness (RMS), so none is much louder than another... */
-export const LOUDNESS = 0.15;
-/** ...without its peaks going over this. */
-export const PEAK_MAX = 0.95;
-
-function hash(text) {
-  let h = 2166136261;
-  for (const c of text) h = Math.imul(h ^ c.charCodeAt(0), 16777619);
-  return h >>> 0;
-}
-
-/**
- * Brings a rendered sound to its loudness (RMS over the part that sounds) with its peak at most
- * `level`, cuts the silence after it and fades its last few milliseconds.
- */
-function finish(buffer, level, loudness) {
-  const chans = [...Array(buffer.numberOfChannels)].map((_, i) => buffer.getChannelData(i));
-  let peak = 0;
-  let sum = 0;
-  let n = 0;
-  for (const d of chans) for (let i = 0; i < d.length; i++) peak = Math.max(peak, Math.abs(d[i]));
-  for (const d of chans) {
-    for (let i = 0; i < d.length; i++) {
-      if (Math.abs(d[i]) < peak * 0.01) continue;
-      sum += d[i] * d[i];
-      n += 1;
-    }
-  }
-  const rms = n ? Math.sqrt(sum / n) : 0;
-  const k = peak > 0 ? Math.min(level / peak, rms > 0 ? loudness / rms : Infinity) : 0;
-  let last = 0;
-  const quiet = peak * 0.0015;
-  for (const d of chans) {
-    for (let i = d.length - 1; i > last; i--) {
-      if (Math.abs(d[i]) > quiet) {
-        last = i;
-        break;
-      }
-    }
-  }
-  const fade = Math.floor(buffer.sampleRate * 0.012);
-  const end = Math.min(buffer.length, last + fade);
-  const out = new AudioBuffer({ numberOfChannels: chans.length, length: Math.max(1, end), sampleRate: buffer.sampleRate });
-  chans.forEach((d, ch) => {
-    const o = out.getChannelData(ch);
-    for (let i = 0; i < end; i++) o[i] = d[i] * k * (i > end - fade ? (end - i) / fade : 1);
-  });
-  return out;
-}
-
-// ---------------------------------------------------------------- one device's player
 
 function loadPrefs(storage) {
   try {
@@ -273,7 +61,7 @@ export class SoundBoard {
     this.buffers = new Map();
     this.voices = [];
     this.listeners = new Set();
-    /** The last few things this board did with a request, newest last: for the tests and for a "why no sound" hint. */
+    /** The last few things this player did with a request, newest last: for the tests and for a "why no sound" hint. */
     this.log = [];
   }
 
@@ -303,15 +91,9 @@ export class SoundBoard {
     try {
       if (!this.ctx) {
         this.ctx = new Ctx({ latencyHint: "interactive" });
-        this.limiter = this.ctx.createDynamicsCompressor();
-        this.limiter.threshold.value = -6;
-        this.limiter.knee.value = 4;
-        this.limiter.ratio.value = 12;
-        this.limiter.attack.value = 0.002;
-        this.limiter.release.value = 0.15;
         this.master = this.ctx.createGain();
         this.master.gain.value = this.volume;
-        this.limiter.connect(this.master).connect(this.ctx.destination);
+        this.master.connect(this.ctx.destination);
         this.ctx.addEventListener?.("statechange", () => this.changed());
       }
       const silence = this.ctx.createBufferSource();
@@ -325,15 +107,14 @@ export class SoundBoard {
     return this.unlocked;
   }
 
-  /** Renders the given sounds ahead of time, one after another, so the first play is instant. */
+  /** Fetches and decodes the given sounds ahead of time, one after another, so the first play is instant. */
   async warm(names = soundNames()) {
     for (const name of names) await this.buffer(name).catch(() => null);
   }
 
   buffer(name) {
     if (!this.buffers.has(name)) {
-      const rate = this.ctx?.sampleRate ?? 44100;
-      const job = renderSound(name, rate);
+      const job = bytesOf(BOOK.get(name)).then((bytes) => new Promise((resolve, reject) => this.ctx.decodeAudioData(bytes, resolve, reject)));
       job.catch(() => this.buffers.delete(name));
       this.buffers.set(name, job);
     }
@@ -397,7 +178,7 @@ export class SoundBoard {
     const src = this.ctx.createBufferSource();
     src.buffer = buffer;
     const gain = this.ctx.createGain();
-    src.connect(gain).connect(this.limiter);
+    src.connect(gain).connect(this.master);
     const voice = { src, gain, who };
     src.onended = () => (this.voices = this.voices.filter((v) => v !== voice));
     this.voices.push(voice);
@@ -438,6 +219,19 @@ export class SoundBoard {
     }
     this.changed();
   }
+}
+
+/**
+ * The bytes at an address. A data: URI is decoded here rather than fetched: a site's
+ * Content-Security-Policy may allow fetching only from the site itself.
+ */
+async function bytesOf(address) {
+  const inline = /^data:[^;,]*;base64,(.*)$/s.exec(address);
+  if (!inline) return (await fetch(address)).arrayBuffer();
+  const raw = atob(inline[1]);
+  const bytes = new Uint8Array(raw.length);
+  for (let i = 0; i < raw.length; i++) bytes[i] = raw.charCodeAt(i);
+  return bytes.buffer;
 }
 
 function safeStorage() {
