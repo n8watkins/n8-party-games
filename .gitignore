@@ -3,3 +3,11 @@ node_modules/
 dist/
 # Stills from `npm run lobby:shots`. A chosen few are kept in lobby/shots/.
 lobby/test/shots/
+# Recordings for the emotes preview, their downloads, and the preview that embeds them: no audio
+# is committed until the owner picks (preview/recordings/ makes them again).
+preview/sounds/
+preview/recordings/raw/
+preview/recordings/*.wav
+preview/emotes-artifact-v2.html
+preview/emotes-artifact-v3.html
+preview/emotes-artifact-v4.html

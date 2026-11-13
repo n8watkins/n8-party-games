@@ -15,16 +15,21 @@
 import { IMPACT_MS, cooldownFraction } from "../shared/bump.js";
 import { COUNT_MS } from "../shared/vote.js";
 import { ROOM, boxCentre, lightHalf, posAt } from "../shared/world.js";
+import { Expressions, poseTop } from "../emotes/play.js";
+import { EmoteFigure, Sticker } from "../emotes/svg.js";
+import { EmoteArms, RIG_UNIT } from "./emote-arms.js";
 import { Life } from "./life.js";
 import { ART_IMAGES, boxArt, boxSide, canvasOf } from "./paint.js";
-import { dressPawn, disposePawn, fadePawn, makePawn, posePawn, resumeKnock, startAttack, startKnock } from "./pieces.js";
+import { PAWN_HEIGHT, dressPawn, disposePawn, fadePawn, makePawn, posePawn, resumeKnock, startAttack, startKnock } from "./pieces.js";
 import { SKINS, liveSkin } from "./skins.js";
-import { CAM, D_WALL, FRAME, PX, SPACE, U, layout, place, walkX, wallX, wallY } from "./space.js";
+import { CAM, D_WALL, FEET_Y, FRAME, PX, SPACE, U, layout, place, walkX, wallX, wallY } from "./space.js";
 import * as THREE from "./three.js";
 import { Words } from "./words.js";
 
 /** How quickly another player's piece closes on where it should be (per second). The flat drawing's number. */
 const EASE = 14;
+/** The red a fuming piece goes. */
+const FUMING = new THREE.Color("#ff2a14");
 /** How bright a lamp burns for 0, 1, 2, 3 and 4 players standing under it. */
 const LEVELS = [0.16, 0.6, 1.2, 1.4, 1.55];
 /** Painted walls and floors: pixels per metre. */
@@ -180,7 +185,8 @@ export class Room3D {
     el.append(canvas);
     root.append(el);
     const skin = opts.concept && SKINS[opts.skin] ? SKINS[opts.skin] : liveSkin(opts.skin);
-    return new Room3D(el, canvas, context, opts, skin, images);
+    // `this`, not Room3D by name: the baked look (../baked/room-baked.js) is this room with its walls swapped for a picture.
+    return new this(el, canvas, context, opts, skin, images);
   }
 
   constructor(el, canvas, context, opts, skin, images) {
@@ -191,6 +197,8 @@ export class Room3D {
     this.skin = skin;
     this.images = images;
     this.pieces = new Map();
+    /** Who is doing which emote (emotes/play.js). */
+    this.expressions = new Expressions();
     this.boxes = [];
     this.room = null;
     this.vote = null;
@@ -656,6 +664,10 @@ export class Room3D {
 
   removePiece(p) {
     this.cast.remove(p.pawn.group, p.pawn.blob, p.pawn.ring);
+    p.emote?.arms.dispose();
+    p.emote?.figure.remove();
+    p.sticker?.remove();
+    this.expressions.stop(p.seat);
     disposePawn(p.pawn);
     p.tag?.el.remove();
   }
@@ -767,6 +779,67 @@ export class Room3D {
     if (!(u >= 0 && u < 1) || this.life?.calmQuery?.matches) return { x: 0, y: 0 };
     const k = this.joltSize * (1 - u);
     return { x: Math.sin(u * 30) * k, y: Math.cos(u * 23) * k * 0.6 };
+  }
+
+  /** Someone sent an emote (room-view.js): it starts on their piece now, in place of any they were doing. */
+  onExpress(msg, now) {
+    const where = [...this.pieces.values()].filter((p) => !p.leaving).map((p) => ({ seat: p.seat, x: p.rx, face: p.face }));
+    this.expressions.start(msg.s, msg.e, now, where);
+  }
+
+  /**
+   * A piece's emote for this frame, after its pawn is posed: the body's lean and lift and the
+   * red of fuming on the pawn, the arms as meshes (emote-arms.js), and the props, effects and
+   * the word over its head in SVG over the picture (emotes/svg.js), placed the way the name
+   * tags are. Returns whether one is on.
+   */
+  express(p, now, view, calm) {
+    const e = this.expressions.pose(p.seat, now, (seat) => this.pieces.get(seat)?.rx, calm);
+    if (!e) {
+      if (p.emote) {
+        p.emote.arms.dispose();
+        p.emote.figure.remove();
+        p.emote = null;
+        p.sticker.show(null);
+      }
+      return false;
+    }
+    const colour = p.member?.colour ?? "#8a8d94";
+    if (!p.emote) {
+      const figure = new EmoteFigure(colour, { face: false, limbs: false });
+      this.words.emotes.append(figure.stage, figure.body);
+      p.emote = { arms: new EmoteArms(p.pawn, colour), figure };
+      p.sticker ??= new Sticker(this.words.stickers);
+    }
+    const pawn = p.pawn;
+    const b = e.pose.body;
+    // The body: lifted, nudged and leaned about its foot, on top of whatever the walk and the bump did.
+    const metres = RIG_UNIT * (PAWN_HEIGHT * PX / 1.115);
+    pawn.group.position.x += b.dx * metres;
+    pawn.group.position.y += b.lift * metres;
+    pawn.tilt.rotation.z -= (b.rot * Math.PI) / 180;
+    if (b.tint > 0) {
+      pawn.mat.color.lerp(FUMING, b.tint * 0.8);
+      pawn.mat.emissive.lerp(FUMING, b.tint * 0.6);
+    }
+    p.emote.arms.set(e.pose);
+    // In SVG: room units become world units at the walking line (S), then screen pixels (k).
+    const k = view.scale;
+    const S = RIG_UNIT * (PAWN_HEIGHT / 1.115);
+    const gx = 960 + pawn.group.position.x / PX;
+    const gy = FEET_Y - pawn.group.position.y / PX;
+    const spin = (-pawn.tilt.rotation.z * 180) / Math.PI;
+    const px = (x, y) => `${((x - view.x) * k).toFixed(1)},${((y - view.y) * k).toFixed(1)}`;
+    p.emote.figure.body.setAttribute("transform", `translate(${px(gx, gy)}) rotate(${spin.toFixed(2)}) scale(${(k * S).toFixed(4)})`);
+    p.emote.figure.stage.setAttribute("transform", `translate(${px(p.rx, FEET_Y)}) scale(${(k * S).toFixed(4)})`);
+    p.emote.figure.draw(e.pose, e.toward);
+    // The word: over the name tag and whatever the emote holds up, larger than the tag's words (much larger on a screen read from across the room), and never too small to read.
+    const tagTop = FEET_Y - PAWN_HEIGHT - 16 - p.up - p.level * ((p.tag?.h ?? 30) + 6) - (p.tag?.h ?? 30);
+    const y = Math.min(tagTop - 6, gy + poseTop(e.pose) * S);
+    const scale = Math.max(0.62, k * (this.opts.compact ? 1.08 : 1.25));
+    const [sx, sy] = px(gx, y).split(",").map(Number);
+    p.sticker.show(e.word, sx, sy, scale, e.pop);
+    return true;
   }
 
   /** The viewer's own piece jumped (its Pilot says so; nothing comes back from the room). */
@@ -936,6 +1009,7 @@ export class Room3D {
       if (Math.abs(want - p.level) > 0.004) busy = true;
       p.level += (want - p.level) * Math.min(1, dt * 12);
       this.words.placeTag(p.tag, view, p.rx, p.up, p.level, p.shock, p.alpha);
+      if (this.express(p, now, view, calm)) busy = true;
       prev = p;
     }
 

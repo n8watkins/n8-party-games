@@ -1,0 +1,286 @@
+/* Emotes and sound (emotes/wheel.js, hud.js): the emote button in the bar, its wheel, the
+   sheet for choosing the wheel's six, the sound controls on the door button's sheet, and the
+   one-tap mute in the corner. */
+
+/* The emote button is one of the bar's round buttons; teal while it is ready, so it reads apart from bump. */
+.ctl-emote:not(.cooling) {
+  border-color: #3f9e8f;
+  color: #bff3e8;
+}
+.ctl-emote.cooling {
+  border-color: #33241a;
+  color: #8d7f6f;
+}
+.ctl-emote .ctl-ring-sweep {
+  stroke: #4fc3b0;
+}
+.ctl-emote .ctl-ring-track {
+  stroke: rgba(79, 195, 176, 0.2);
+}
+.ctl-emote:not(.cooling) .ctl-ring {
+  opacity: 0;
+}
+
+/* The wheel: six pictures round a hub, over the room. Flicked to while the finger is down; tapped once it is open. */
+.wheel-back {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  pointer-events: none;
+}
+.wheel-back.tap {
+  pointer-events: auto;
+  background: rgba(8, 4, 3, 0.35);
+}
+.wheel {
+  position: absolute;
+  pointer-events: none;
+}
+.wheel-back.tap .wheel {
+  pointer-events: auto;
+}
+.wheel-ring {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+.wheel-wedge {
+  fill: rgba(23, 16, 12, 0.95);
+  stroke: #5a4030;
+  stroke-width: 2;
+}
+.wheel-wedge.hot {
+  fill: #123a33;
+  stroke: #4fc3b0;
+  stroke-width: 3;
+}
+.wheel-pick {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  display: grid;
+  justify-items: center;
+  gap: 1px;
+  min-width: 64px;
+  min-height: 64px;
+  padding: 2px;
+  border: 0;
+  border-radius: 14px;
+  background: transparent;
+  color: var(--ink);
+  cursor: pointer;
+}
+.wheel-pick:focus-visible {
+  outline: 3px solid #fff;
+}
+.wheel-name {
+  font: 700 12px/1.1 var(--ui);
+  white-space: nowrap;
+}
+.wheel-key {
+  display: none;
+  position: absolute;
+  top: 0;
+  right: 2px;
+  padding: 1px 4px;
+  border-radius: 5px;
+  background: var(--cream);
+  color: #1e1410;
+  font: 700 10px/1.2 var(--mono);
+}
+@media (hover: hover) and (pointer: fine) {
+  .wheel-key {
+    display: block;
+  }
+}
+.wheel-hub {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 27%;
+  aspect-ratio: 1;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: #0d0806;
+  border: 2px solid #4fc3b0;
+  color: var(--soft);
+  font: 700 12px var(--ui);
+  pointer-events: none;
+}
+
+/* Choosing the six. */
+.sheet.loadout {
+  width: min(100%, 620px);
+  max-height: calc(100% - 8px);
+  overflow: auto;
+}
+.loadout-title {
+  margin: 0;
+  font: 700 24px/1.1 var(--display);
+}
+.loadout-line {
+  margin: 0;
+  color: #5a4636;
+  font-size: 14px;
+}
+.loadout-slots {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 6px;
+}
+.loadout-all {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(84px, 1fr));
+  gap: 6px;
+}
+.loadout-slot,
+.loadout-emote {
+  position: relative;
+  display: grid;
+  justify-items: center;
+  gap: 2px;
+  min-height: 44px;
+  padding: 6px 4px;
+  border: 2px solid transparent;
+  border-radius: 12px;
+  background: #2a1c14;
+  color: var(--ink);
+  font: 700 12px/1.15 var(--ui);
+  text-align: center;
+  cursor: pointer;
+}
+.loadout-slot.sel {
+  border-color: #4fc3b0;
+  background: #123a33;
+}
+.loadout-emote.on {
+  border-color: #6b5442;
+}
+.loadout-key {
+  position: absolute;
+  top: 3px;
+  left: 5px;
+  font: 700 11px var(--mono);
+  color: var(--soft);
+}
+.loadout-row {
+  display: flex;
+  gap: 10px;
+}
+.loadout-row > * {
+  flex: 1;
+}
+.loadout-reset {
+  background: #ecd9b9;
+  color: #1e1410;
+}
+
+/* Sound on the door button's sheet: one switch for everything, the volume, the room's own life. */
+.sound-set {
+  display: grid;
+  gap: 8px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: #ecd9b9;
+}
+.sound-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  font-weight: 800;
+}
+.sound-toggle {
+  min-height: 44px;
+  padding: 0 16px;
+  border: 0;
+  border-radius: 22px;
+  background: #1e1410;
+  color: var(--ink);
+  font-weight: 800;
+  cursor: pointer;
+}
+.sound-toggle[aria-pressed="true"] {
+  background: #9c2b20;
+}
+.sound-row {
+  display: grid;
+  grid-template-columns: minmax(0, 9.5em) minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  font-size: 14px;
+  color: #5a4636;
+}
+.sound-row input {
+  width: 100%;
+  min-height: 32px;
+  accent-color: #9c2b20;
+}
+.sound-set.off .sound-row {
+  opacity: 0.45;
+}
+.wheel-choice .choice-icon {
+  background: #1f6b60;
+}
+
+/* The one-tap mute in the corner, crossed out while sound is off. */
+.sound-btn[aria-pressed="true"] {
+  border-color: #9c2b20;
+  color: #ffb4a6;
+}
+
+/* A phone held sideways is short: the door sheet goes two columns wide, its choices on the left
+   and sound on the right, so it fits the height of the screen; the sheets are a size smaller. */
+@media (max-height: 520px) and (min-width: 600px) {
+  .sheet.door-sheet {
+    width: min(100%, 780px);
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    align-items: start;
+  }
+  .door-sheet .sound-set {
+    grid-column: 2;
+    grid-row: 1 / span 3;
+  }
+  .door-sheet .choice {
+    padding: 9px 12px;
+  }
+  .door-sheet .choice-icon {
+    width: 40px;
+    height: 40px;
+  }
+  .door-sheet .choice-words strong {
+    font-size: 16px;
+  }
+  .door-sheet .sound-row {
+    grid-template-columns: 1fr;
+    gap: 2px;
+  }
+}
+@media (max-height: 520px) {
+  .loadout-title {
+    font-size: 20px;
+  }
+  .loadout-line {
+    display: none;
+  }
+  .loadout-all {
+    grid-template-columns: repeat(auto-fill, minmax(76px, 1fr));
+  }
+  .sound-set {
+    gap: 4px;
+    padding: 8px 12px;
+  }
+}
+/* An upright phone: the bar has five buttons in a row, so each is a little narrower. */
+@media (orientation: portrait) and (max-width: 560px) {
+  .hud-player .bar-player .round.ctl {
+    width: 58px;
+    height: 58px;
+  }
+  .loadout-slots {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}

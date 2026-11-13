@@ -1,18 +1,24 @@
-// Everything laid over the room: the bottom line a big screen shows, a player's buttons, the
-// door button and its "Leave the party" sheet, notes ("Tom left"), the card after a game, and
-// what to say when the connection is gone. When the room is gone the page goes to the front page (farewell.js).
+// Everything laid over the room: the bottom line a big screen shows, a player's buttons and
+// emote wheel, the door button and its sheet (leave, the emote wheel's six, sound), the one-tap
+// mute, notes ("Tom left"), the card after a game, and what to say when the connection is gone. When the room is gone the page goes to the front page (farewell.js).
 import { Controls } from "./controls.js";
 import { ICONS, h, icon } from "./dom.js";
+import { EmoteWheel, openLoadout } from "./emotes/wheel.js";
 import { playerLine, statusLine } from "./shared/status.js";
 import { SETTLE_MS, whereabouts } from "./shared/vote.js";
 
 const PLACES = ["1st", "2nd", "3rd", "4th"];
+/** A speaker with its sound, a speaker crossed out, and the wheel's six. */
+const ICON_SOUND = ["M4 9.5v5h3.5l4.5 4V5.5l-4.5 4H4z", "M15.5 9a4 4 0 0 1 0 6", "M18.5 6.5a7.5 7.5 0 0 1 0 11"];
+const ICON_MUTED = ["M4 9.5v5h3.5l4.5 4V5.5l-4.5 4H4z", "M16 9.5l5 5", "M21 9.5l-5 5"];
+const WHEEL_ICON = ["M12 3a9 9 0 1 0 0 18a9 9 0 1 0 0-18z", "M12 3v18", "M4.2 7.5l15.6 9", "M4.2 16.5l15.6-9"];
 
 export class Hud {
   /**
    * @param {HTMLElement} root
-   * @param {{role: "player" | "screen", seat: number, on: object}} opts  `on` holds the callbacks:
-   *   steer(d), jump(), bump(), zoom(), leave(), away(url)
+   * @param {{role: "player" | "screen", seat: number, sound: object, on: object}} opts  `sound` is the
+   *   page's SoundBoard (party-kit/client/sounds.js); `on` holds the callbacks: steer(d), jump(),
+   *   bump(), zoom(), leave(), away(url), emote(id) (true when it went), colour() (the player's seat colour)
    */
   constructor(root, opts) {
     this.opts = opts;
@@ -61,6 +67,7 @@ export class Hud {
     const left = h("div", "pad pad-left", "", bar);
     const right = h("div", "pad pad-right", "");
     this.pad = new Controls(left, right, this.on);
+    this.wheel = new EmoteWheel(right, this.el, { send: (id) => this.on.emote(id), colour: () => this.on.colour() });
     this.zoomBtn = h("button", "pill-btn zoom-btn", "", left);
     this.zoomBtn.type = "button";
     this.zoomIcon = h("span", "pill-icon", "", this.zoomBtn);
@@ -157,7 +164,7 @@ export class Hud {
     if (this.sheet) return;
     const screen = this.opts.role === "screen";
     const sheet = (this.sheet = h("div", "sheet-back", "", this.el));
-    const box = h("div", "sheet", "", sheet);
+    const box = h("div", "sheet door-sheet", "", sheet);
     box.setAttribute("role", "dialog");
     box.setAttribute("aria-label", "Leave");
     const leave = h("button", "choice", "", box);
@@ -167,11 +174,25 @@ export class Hud {
     const words = h("span", "choice-words", "", leave);
     h("strong", "", screen ? "Stop showing the room" : "Leave the party", words);
     h("span", "", screen ? "Only this screen. The party carries on." : "Only you. Your piece walks out of the door.", words);
+    if (this.wheel) {
+      const pick = h("button", "choice wheel-choice", "", box);
+      pick.type = "button";
+      h("span", "choice-icon", "", pick).append(icon(WHEEL_ICON, 22));
+      const w = h("span", "choice-words", "", pick);
+      h("strong", "", "Your emote wheel", w);
+      h("span", "", "Choose the six on it.", w);
+      pick.addEventListener("click", () => {
+        close();
+        this.loadout();
+      });
+    }
+    this.soundSet(box);
     const stay = h("button", "plain", screen ? "Keep showing it" : "Stay", box);
     stay.type = "button";
     const close = () => {
       sheet.remove();
       this.sheet = null;
+      this.offSound?.();
     };
     leave.addEventListener("click", () => {
       close();
@@ -182,6 +203,66 @@ export class Hud {
       if (e.target === sheet) close();
     });
     stay.focus();
+  }
+
+  // ---------------------------------------------------------------- emotes and sound
+
+  /** The sheet for choosing the wheel's six. */
+  loadout() {
+    if (!this.wheel) return;
+    this.loadoutSheet?.close();
+    this.loadoutSheet = openLoadout(this.el, { ids: this.wheel.ids, colour: this.on.colour(), onSave: (ids) => this.wheel.setIds(ids) });
+  }
+
+  /** On the door button's sheet: sound on or off for everything, its volume, and the room's own life. */
+  soundSet(parent) {
+    const board = this.opts.sound;
+    if (!board) return;
+    const set = h("div", "sound-set", "", parent);
+    const head = h("div", "sound-head", "", set);
+    h("span", "", "Sound", head);
+    const toggle = h("button", "sound-toggle", "", head);
+    toggle.type = "button";
+    toggle.addEventListener("click", () => board.setMuted(!board.muted));
+    const slider = (name, value, change) => {
+      const row = h("label", "sound-row", "", set);
+      h("span", "", name, row);
+      const input = h("input", "", "", row);
+      input.type = "range";
+      input.min = "0";
+      input.max = "100";
+      input.value = String(Math.round(value * 100));
+      input.addEventListener("input", () => change(Number(input.value) / 100));
+      return input;
+    };
+    const volume = slider("Volume", board.volume, (v) => board.setVolume(v));
+    const ambience = slider("The room's own life", board.ambience, (v) => board.setAmbience(v));
+    const draw = () => {
+      toggle.textContent = board.muted ? "Off: turn on" : "On: turn off";
+      toggle.setAttribute("aria-pressed", String(board.muted));
+      toggle.setAttribute("aria-label", board.muted ? "Sound is off. Turn it on" : "Sound is on. Turn it off");
+      set.classList.toggle("off", board.muted);
+      volume.disabled = ambience.disabled = board.muted;
+    };
+    draw();
+    this.offSound = board.onChange(draw);
+  }
+
+  /** The one-tap mute, first in the room's corner: everything on this device, kept on the device. */
+  muteButton(corner) {
+    const board = this.opts.sound;
+    if (!board) return;
+    const btn = (this.mute = h("button", "round corner-btn sound-btn", ""));
+    btn.type = "button";
+    corner.prepend(btn);
+    btn.addEventListener("click", () => board.setMuted(!board.muted));
+    const draw = () => {
+      btn.replaceChildren(icon(board.muted ? ICON_MUTED : ICON_SOUND, 20));
+      btn.setAttribute("aria-pressed", String(board.muted));
+      btn.setAttribute("aria-label", board.muted ? "Sound is off. Turn it on" : "Sound is on. Turn it off");
+    };
+    draw();
+    this.offMute = board.onChange(draw);
   }
 
   // ---------------------------------------------------------------- after a game
@@ -261,6 +342,10 @@ export class Hud {
 
   destroy() {
     clearInterval(this.awayTimer);
+    this.offSound?.();
+    this.offMute?.();
+    this.wheel?.destroy();
+    this.loadoutSheet?.close();
     this.el.remove();
   }
 }

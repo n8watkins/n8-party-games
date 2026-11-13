@@ -14,6 +14,7 @@ This repository is three things: the party kit, the party room (the lobby), and 
 - [`party-kit/`](party-kit/README.md) - the rooms: PINs, seats, reconnects, bots that take over a dropped seat, and a budget that caps how much hosted time rooms may use. It runs on Cloudflare Workers and Durable Objects. Games take it from here as a dependency.
 - [`lobby/`](lobby/README.md) - the party room: one room where up to four players vote for the next game by standing in its light, play it, and come back with points. A first playable version.
 - [`games.js`](games.js), [`worker.js`](worker.js), [`site/`](site/index.html) and [`scripts/`](scripts/build-public.mjs) - the party site: one Worker that serves a plain front page, the party room and every hosted game beside the kit.
+- [`landing/`](landing/public/index.html) - a new front page that is waiting for approval. Only the local build serves it, at `/preview/landing/`; its pictures are made by the scripts in `landing/tools/`.
 - [`party-kit/GAME-CONTRACT.md`](party-kit/GAME-CONTRACT.md) - what a game must export for the site to host it.
 - [`DEPLOY.md`](DEPLOY.md) - the checklist for every deploy.
 
@@ -62,3 +63,10 @@ The details are in the [party kit README](party-kit/README.md), and the party ro
 
 The code is under the [MIT License](LICENSE).
 Each game carries its own license and the licenses of what it includes.
+
+The party room's sounds (`lobby/public/sounds/*.mp3`) are not under the MIT License.
+Every one of them was made from a recording released under Creative Commons Zero (CC0 1.0, public domain).
+Most of the room's own sounds come from Kenney's Impact Sounds, Interface Sounds, Casino Audio and RPG Audio packs (kenney.nl).
+The emote sounds, and a few room sounds, come from single recordings on Freesound by sammy214, semccab, schots, SpliceSound, DavidJGurney, tonmayster, Streety, dr_skitz, Breviceps, connerdrake98, DeezSoundzTho, esperar, keweldog, kaydinhamby, qubodup, Raventhornn, simkiott, skymary and florianreichelt.
+[`lobby/public/sounds/CREDITS.txt`](lobby/public/sounds/CREDITS.txt) names the recording behind each file, with its page, and [`preview/recordings/sources.json`](preview/recordings/sources.json) keeps the full source record (title, author, page, licence as read on the page, and the date it was read).
+`preview/recordings/ship.mjs` remakes the files from those recordings.

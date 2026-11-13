@@ -83,6 +83,7 @@ export class TouchSpots {
     el.addEventListener("click", (e) => {
       e.stopPropagation();
       spot.press();
+      this.on.tap?.();
       act();
     });
     return spot;

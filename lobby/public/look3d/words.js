@@ -36,7 +36,14 @@ export class Words {
     this.opts = opts;
     this.skin = skin;
     this.wall = h("div", "l3-wall", "", root);
+    // Emotes' props and effects under the name tags, and their words over them (room3d.js express), in screen pixels.
+    this.emotes = root.appendChild(document.createElementNS(SVG, "svg"));
+    this.emotes.setAttribute("class", "l3-emotes");
+    this.emotes.setAttribute("aria-hidden", "true");
     this.tags = h("div", "l3-tags", "", root);
+    this.stickers = root.appendChild(document.createElementNS(SVG, "svg"));
+    this.stickers.setAttribute("class", "l3-emotes");
+    this.stickers.setAttribute("aria-hidden", "true");
     this.over = h("div", "l3-over", "", root);
     this.signs = [];
     this.k = 0;
