@@ -91,7 +91,8 @@ export class BumpDraw {
     if (a) {
       const pose = attackPose(now - a.at, a.dir, a.landed);
       if (pose.state === "idle") p.attack = null;
-      else return { x: null, dx: pose.dx, lift: pose.lift, tilt: pose.tilt, pivot: 0, sx: pose.sx, sy: pose.sy, state: pose.state, dizzy: false, safe: false };
+      // The bumper swings from its head (pose.pivot), so a tilt throws its base, not its head.
+      else return { x: null, dx: pose.dx, lift: pose.lift, tilt: pose.tilt, pivot: pose.pivot, sx: pose.sx, sy: pose.sy, state: pose.state, dizzy: false, safe: false };
     }
     return STILL;
   }
