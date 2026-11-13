@@ -8,11 +8,14 @@
 // with one translate, and the tags follow their pieces along the walking line the same way.
 import { h } from "../dom.js";
 import { BADGES, playersLabel } from "../shared/vote.js";
-import { FEET_Y, SPACE, worldX } from "./space.js";
+import { FEET_Y, worldX } from "./space.js";
 import { PAWN_HEIGHT } from "./pieces.js";
 
 const BADGE_CLASS = { any: "any", phones: "phones", screen: "screen" };
 const SVG = "http://www.w3.org/2000/svg";
+/** The middle of the join sign and of the Tonight board, in world units: clear of the first and last box. */
+const JOIN_X = 181;
+const BOARD_X = 1722;
 
 /** Puts an element's corner at a world position inside a layer sized by --k. */
 function at(el, x, y, w = null) {
@@ -42,6 +45,9 @@ export class Words {
     root.classList.toggle("l3-led", !!skin.words?.led);
     root.classList.toggle("l3-neon", !!skin.words?.neon);
     root.classList.toggle("l3-compact", !!opts.compact);
+    // Lettering that arrives late changes how wide the words are.
+    this.refit = () => (this.needsFit = true);
+    document.fonts.addEventListener("loadingdone", this.refit);
   }
 
   // ---------------------------------------------------------------- building
@@ -59,7 +65,7 @@ export class Words {
 
   /** "Scan or type the code": the QR code, the four digits and the address, over the door. */
   joinSign(room) {
-    const el = at(h("div", "l3-join", "", this.wall), worldX(-SPACE.endX) - 113, 133, 226);
+    const el = at(h("div", "l3-join", "", this.wall), JOIN_X - 106, 133, 212);
     h("small", "", "Scan or type the code", el);
     const qr = h("img", "l3-qr", "", el);
     qr.alt = "";
@@ -70,7 +76,7 @@ export class Words {
 
   /** The Tonight board. Its rows are filled in by setRoom. */
   board() {
-    const el = at(h("div", "l3-board", "", this.wall), worldX(SPACE.endX) - 119, 136, 238);
+    const el = at(h("div", "l3-board", "", this.wall), BOARD_X - 118, 136, 236);
     h("h3", "", "Tonight", el);
     h("div", "l3-rule", "", el);
     this.rows = h("div", "l3-rows", "", el);
@@ -153,6 +159,7 @@ export class Words {
       const key = `${st.on}/${st.why}/${st.gold}/${st.tied}/${st.landed}/${st.side}`;
       if (!sign || sign.key === key) return;
       sign.key = key;
+      this.needsFit = true;
       sign.el.classList.toggle("shut", !st.on && !!st.why && !st.gold);
       sign.el.classList.toggle("off", !st.on && !st.why && !st.gold);
       sign.el.classList.toggle("lead", st.gold);
@@ -227,7 +234,7 @@ export class Words {
       el.style.removeProperty("--fit");
       const room = el.clientWidth;
       const need = el.scrollWidth;
-      if (room > 0 && need > room) el.style.setProperty("--fit", (Math.floor((room / need) * 97) / 100).toFixed(2));
+      if (room > 0 && need > room) el.style.setProperty("--fit", (Math.floor(((room - 2) / need) * 96) / 100).toFixed(2));
     }
   }
 
@@ -257,6 +264,7 @@ export class Words {
   }
 
   destroy() {
+    document.fonts.removeEventListener("loadingdone", this.refit);
     this.wall.remove();
     this.tags.remove();
     this.over.remove();

@@ -29,9 +29,41 @@ For a big screen, open a third window, choose "Use this as the room's screen" an
 For phones on the same network, `npm run dev:lan` prints the address to open; the QR code on the wall then points at it.
 Stills of the main states, from a real run, are in [`shots/`](shots/).
 
+## The two drawings
+
+The room is drawn twice, from the same room state, rules and controls.
+Both are a "room view" (`public/room-view.js`), which is all the page knows about a drawing.
+
+- **Flat** (`public/scene.js`): one SVG of plain shapes. It is the default.
+- **3D** (`public/look3d/`): a three.js scene in the look of the approved stills, with every word laid over it as HTML. It is a preview until the owner approves it.
+
+To see the 3D look, add `?look=3d` to the room's address, for example `http://localhost:8791/lobby/?start&look=3d`.
+The choice is remembered on that device, because the room's own address carries no query and a phone that scans the code on the wall arrives without one; `?look=flat` goes back.
+A device without hardware WebGL 2 gets the flat drawing even when it asks for 3D.
+
+The 3D room has skins: `&room=bar` (the default), `navy`, `roof`, `camp` or `fair`.
+Every skin keeps the layout exactly and changes the wall, the floor, the lamps, the lettering, the sign style and a few small extras.
+A skin is one description in `public/look3d/skins.js`, and nothing else in the 3D look knows a room by name.
+All of them, with a still each and four more rooms that are only concepts, are on the rooms page: `/lobby/look3d/rooms/`.
+A posed room with nobody connected is at `/lobby/look3d/still.html?room=<skin>`; its header comment lists what it can show.
+
+How the 3D look stays cheap for a phone:
+
+- The camera never moves. A device shows a different part of the room by sliding and scaling the frame (`public/look3d/space.js`), so the picture is the flat drawing's picture, one world unit to one pixel, and nothing needs real light.
+- Walls, floors and box art are painted once on canvases. A lamp's light is a cone of glow and a pool worked out in the floor's own shader. A piece's shadow is a soft blob. There are no shadow maps.
+- The picture is drawn at no more than twice the screen's CSS size and never more than about 2560 x 1440 pixels. It steps down if frames are slow, draws a third as often when nothing moves, and stops while the page is hidden.
+- It asks nothing of the room: no message is sent or changed for it, and an idle room still sleeps.
+
+three.js is not a second copy: the 3D look imports the build Cork & Bell already ships (`public/look3d/three.js` is the one line that says where).
+The 3D look also loads two small fonts of its own (`public/look3d/fonts/`, with their licences) and borrows Cork & Bell's Abril Fatface.
+
+Pieces move with weight in the 3D look: they lean into a walk, rock from foot to foot, stretch in the air and squash on landing (`public/look3d/pieces.js`).
+A bump is drawn from the two moments the room knows today, the lunge and the hit.
+The one place where richer bump states plug in is `bumpPose` in that file, under the heading "BUMP STATES PLUG IN HERE".
+
 ## What is built
 
-- The room in the bar look, drawn with plain shapes as one SVG, the same picture on every device.
+- The room in the bar look, drawn with plain shapes as one SVG, the same picture on every device (and, as a preview, in 3D: see above).
 - Game boxes from each game's manifest: name, one line about it, the device badge (cyan any device, violet a phone each, amber phones and a big screen) and the player count.
 - The join code and its QR code on the wall, and a Tonight board with 3, 2 and 1 points for first, second and third.
 - Pawns in the four seat colours with name tags: walk, jump, and a weak bump everyone has.
@@ -48,7 +80,7 @@ Stills of the main states, from a real run, are in [`shots/`](shots/).
 
 - Cork & Bell does not open inside the room. Its light is on and it can win the vote; the room then shows a card that says so, with a link to the game's own page, and nobody scores.
 - Coin Flip is a placeholder, marked "TEST GAME" on its box. Who Am I?, Tin Derby and Flood are names and pictures only.
-- No skins, no abilities, no chat bubbles, no walking through the door, no "host starts" setting, no other rooms.
+- No piece skins, no abilities, no chat bubbles, no walking through the door, no "host starts" setting. Other rooms exist only as skins of the 3D preview.
 - "Back to the room" in the middle of a game.
 
 ## How it stays cheap
@@ -119,6 +151,8 @@ Once a real game is hosted in the room, its rounds will cost what they cost in t
 | `games/coin-flip.js` | The test game. |
 | `wall.js` | Which boxes hang on the wall and which can start. |
 | `public/` | The page at `/lobby/`: the way in, the scene, the buttons and words over it, and each game's view. |
+| `public/room-view.js` | The seam between the page and a drawing of the room: the interface both drawings keep, and which one a device gets. |
+| `public/look3d/` | The 3D drawing: the scene (`room3d.js`), the words over it (`words.js`), the pieces (`pieces.js`), the rooms as skins (`skins.js`), a posed room (`still.html`) and the rooms page (`rooms/`). |
 | `test/` | Unit tests, the socket test, the browser run and the cost measurement. |
 
 `shared/` is plain logic used by both the room and the page, and it is served to the browser; `server/` and `test/` never are.
@@ -129,4 +163,7 @@ Once a real game is hosted in the room, its rounds will cost what they cost in t
 - `npm run test:lobby` (with `npm run dev` running) puts four socket players through an evening, then checks that a lobby nobody touches goes silent: no messages, no timer, nothing added to the budget.
 - `npm run lobby:shots` drives real pages in a headless, muted browser and takes a still of every state on a big screen, a sideways phone and an upright one, checking that no text spills out of its place. Stills land in `lobby/test/shots/`, which is not committed; a chosen few are in `lobby/shots/`.
 - `npm run lobby:measure` is the cost measurement above.
+- `npm run lobby:shots:3d` is the same kind of run in the 3D look: a big screen, a sideways phone, an upright phone and a laptop in one live room, with checks that the 3D look drew it, that the words say what the room says, and that a device without hardware WebGL falls back to the flat drawing. Stills land in `lobby/test/shots/3d-live/`.
+- `npm run lobby:stills:3d` takes a still of every skin and of the bar at every moment from posed rooms, into `lobby/test/shots/3d/`. With `-- --publish=1` it also rewrites the pictures the rooms page shows.
+- `npm run lobby:measure:3d` measures the 3D look's frame time on the Windows side's graphics card, in a headless Chrome. It is a desktop card at a phone's screen size, not a phone.
 - `node lobby/test/e2e-budget.mjs` checks what happens when the allowance is spent; its header says which server to start.

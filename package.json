@@ -40,6 +40,9 @@
     "test:lobby": "node lobby/test/e2e-lobby.mjs",
     "lobby:shots": "node lobby/test/shoot.mjs",
     "lobby:measure": "node lobby/test/measure.mjs",
+    "lobby:shots:3d": "node lobby/test/shoot-3d.mjs",
+    "lobby:stills:3d": "node lobby/test/shoot-3d-stills.mjs",
+    "lobby:measure:3d": "node lobby/test/measure-3d.mjs",
     "test:production": "node party-kit/test/e2e-production.mjs",
     "test:turnstile": "node party-kit/test/e2e-turnstile.mjs"
   },

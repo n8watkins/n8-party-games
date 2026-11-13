@@ -15,7 +15,7 @@ export const U = 125.55;
 const Y0 = 6.25;
 export const CAM = { y: 4.2, z: 17.5 };
 /** The room in metres: its width, its height, the back wall, the front of the stage, the walking line. */
-export const SPACE = { w: 14.2, h: 6.8, zBack: -2.5, zFront: 3.0, walkZ: 0.6, lampY: 5.25, endX: 6.05 };
+export const SPACE = { w: 14.2, h: 6.8, zBack: -2.5, zFront: 3.0, walkZ: 0.6, lampY: 5.25 };
 export const D_WALL = CAM.z - SPACE.zBack;
 /** How much nearer the walking line is than the wall: a metre there covers 1 / WALK metres of wall. */
 export const WALK = (CAM.z - SPACE.walkZ) / D_WALL;
@@ -65,8 +65,9 @@ export function layout(n) {
     /** World y of the top of the signs under the boxes, and the width of a sign in world units. */
     signTop: worldY(by - bh / 2 - FRAME.gap - FRAME.bar) + 8,
     signW: Math.min(262, boxWidth(n)),
-    doorX: -SPACE.endX,
-    boardX: SPACE.endX,
+    /** The door under the join sign and the shelf under the Tonight board (look3d/words.js places the two signs). */
+    doorX: wallX(181),
+    boardX: wallX(1722),
     wallW: SPACE.w,
     zBack: SPACE.zBack,
     walkZ: SPACE.walkZ,

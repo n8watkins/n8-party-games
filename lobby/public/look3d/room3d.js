@@ -49,7 +49,7 @@ function loadStyle() {
 function loadFonts() {
   const wanted = ['400 40px "Abril Fatface"', '900 40px "Nunito"', '700 40px "Caveat"'];
   const loaded = Promise.all(wanted.map((font) => document.fonts.load(font))).catch(() => {});
-  return Promise.race([loaded, new Promise((done) => setTimeout(done, 2500))]);
+  return Promise.race([loaded, new Promise((done) => setTimeout(done, 4000))]);
 }
 
 async function loadImages() {
@@ -259,7 +259,8 @@ export class Room3D {
     const L = (this.L = layout(room.boxes.length));
     this.half = lightHalf(L.n);
     this.shell(L);
-    this.doorway();
+    this.doorway(L);
+    this.shelf(L);
     this.bulbs();
     this.boxes = room.boxes.map((box, i) => this.box(box, i, L));
     this.skin.extras?.({ THREE, add: (thing) => this.stuff.add(thing), radial: this.radial, L, room: SPACE, flicker: (fn) => this.flickers.push(fn) });
@@ -325,9 +326,9 @@ export class Room3D {
   }
 
   /** The door latecomers come through, at the left end. Some rooms paint their own way in on the wall. */
-  doorway() {
+  doorway(L) {
     if (this.skin.doorway !== "door") return;
-    const x = -SPACE.endX;
+    const x = L.doorX;
     const [w, h] = [1.0, 2.2];
     const z = SPACE.zBack;
     const warm = new THREE.Color(0xffc777);
@@ -352,6 +353,44 @@ export class Room3D {
     const sill = new THREE.Mesh(new THREE.PlaneGeometry(w - 0.06, 0.03), new THREE.MeshBasicMaterial({ color: warm }));
     sill.position.set(x, 0.02, z + 0.075);
     this.stuff.add(leaf, frame, port, knob, portGlow, sill);
+  }
+
+  /** A shelf under the Tonight board with a few spare game boxes on it: the games still to come. */
+  shelf(L) {
+    const x = L.boardX;
+    const y = 1.15;
+    const z = SPACE.zBack;
+    const plank = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.07, 0.5), new THREE.MeshBasicMaterial({ color: this.skin.plank }));
+    plank.position.set(x, y, z + 0.25);
+    const brackets = new THREE.Mesh(joined([[new THREE.BoxGeometry(0.05, 0.3, 0.4), -0.55, 0, 0], [new THREE.BoxGeometry(0.05, 0.3, 0.4), 0.55, 0, 0]]), this.frameMat);
+    brackets.position.set(x, y - 0.18, z + 0.2);
+    this.stuff.add(plank, brackets);
+    // Three cartons: two standing, one leaning on them. Plain lids, no names: the wall says what can be played.
+    for (const [dx, w, h, turn, lean, colour] of [
+      [-0.42, 0.5, 0.7, 0.3, 0, 0x2f6f5a],
+      [0.02, 0.46, 0.64, -0.2, 0, 0x8c2f3a],
+      [0.47, 0.44, 0.6, -0.1, 0.24, 0x2f4f8c],
+    ]) {
+      const lid = canvasOf(64, 96, (g) => {
+        g.fillStyle = `#${colour.toString(16).padStart(6, "0")}`;
+        g.fillRect(0, 0, 64, 96);
+        g.fillStyle = "rgba(255,240,210,.82)";
+        g.fillRect(8, 12, 48, 14);
+        g.fillStyle = "rgba(255,240,210,.3)";
+        g.beginPath();
+        g.arc(32, 58, 17, 0, 7);
+        g.fill();
+        g.strokeStyle = "rgba(255,255,255,.2)";
+        g.lineWidth = 3;
+        g.strokeRect(2, 2, 60, 92);
+      });
+      const side = new THREE.MeshLambertMaterial({ color: new THREE.Color(colour).multiplyScalar(0.6) });
+      const front = new THREE.MeshBasicMaterial({ map: textureOf(lid, this.renderer), color: 0xb8b8b8 });
+      const carton = new THREE.Mesh(new THREE.BoxGeometry(w, h, 0.12), [side, side, side, side, front, side]);
+      carton.position.set(x + dx, y + 0.035 + h / 2 - lean * 0.06, z + 0.26);
+      carton.rotation.set(0, turn, lean);
+      this.stuff.add(carton);
+    }
   }
 
   /** A string of small bulbs, where the room has one: two meshes for all of them. */
@@ -495,7 +534,7 @@ export class Room3D {
     b.art = new THREE.MeshBasicMaterial({ map: tex });
     if (skin.mount === "hatch") {
       // A hatch window: the picture behind a rounded pane, in a heavy rim.
-      const r = L.bw * 0.3;
+      const r = L.bw * 0.2;
       const pane = new THREE.ShapeGeometry(roundedRect(L.bw, L.bh, r), 10);
       const uv = pane.attributes.uv;
       for (let v = 0; v < uv.count; v++) uv.setXY(v, uv.getX(v) / L.bw + 0.5, uv.getY(v) / L.bh + 0.5);
@@ -729,8 +768,10 @@ export class Room3D {
    * Draws one frame. `own` is the viewer's Pilot (or null for a screen), `view` the part of
    * the room to show, in world units (lobby/shared/camera.js).
    */
-  frame(now, dt, own, view) {
+  frame(now, dt, own, frame) {
     let busy = this.resize();
+    // The page eases the frame's corner and size and leaves its scale behind, so work the scale out.
+    const view = { x: frame.x, y: frame.y, width: frame.width, height: frame.height, scale: (this.el.clientWidth || 1) / frame.width };
     if (this.words.frame(view) || busy) {
       // The frame slides and scales; the camera stays where it is.
       const k = 1 / D_WALL;

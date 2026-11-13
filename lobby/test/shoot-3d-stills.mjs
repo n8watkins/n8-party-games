@@ -56,7 +56,13 @@ try {
     page.on("pageerror", (e) => errors.push(e.message));
     page.on("console", (m) => m.type() === "error" && errors.push(m.text()));
     await page.goto(`${base}/lobby/look3d/still.html?gl=any&${picture.query}`);
-    await page.waitForSelector("html[data-ready]", { timeout: 60000 });
+    const ready = await page.waitForSelector("html[data-ready]", { timeout: 60000, state: "attached" }).catch(() => null);
+    if (!ready) {
+      console.log("FAIL " + picture.file + ": the room never drew: " + (errors.join(" | ") || "no error reported"));
+      problems.push(picture.file);
+      await context.close();
+      continue;
+    }
     await page.waitForTimeout(1200);
     // What a still cannot be trusted to show: a line of words wider than its place.
     const spills = await page.evaluate(() => [...document.querySelectorAll(".l3-fit, .l3-fits, .l3-name")].filter((el) => el.scrollWidth > el.clientWidth + 1).map((el) => el.textContent));

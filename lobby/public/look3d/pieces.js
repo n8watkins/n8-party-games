@@ -133,7 +133,7 @@ export function bumpPose(piece, now) {
   if (knock >= 0 && knock < 1) {
     // Shoved at the foot: the head lags behind, then the piece rocks itself upright like a skittle.
     const dir = piece.hitDir || 1;
-    pose.lean += dir * 0.36 * Math.exp(-3.4 * knock) * Math.cos(knock * 13);
+    pose.lean += dir * 0.3 * Math.exp(-3.4 * knock) * Math.cos(knock * 13);
     pose.lift += 16 * Math.sin(Math.PI * Math.min(1, knock * 2.4));
     pose.squash -= 0.1 * Math.exp(-6 * knock) * Math.cos(knock * 16);
     pose.shock = knock < 0.6;

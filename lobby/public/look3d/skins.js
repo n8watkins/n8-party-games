@@ -632,9 +632,9 @@ const submarine = {
     g.fillRect(0, h - 0.92 * k, w, 0.92 * k);
     if (!side) {
       // Gauges and a valve wheel in the gaps between the hatch windows.
-      L.gaps.forEach((xm, i) => {
+      L.gaps.slice(1).forEach((xm, i) => {
         const x = (xm + L.wallW / 2) * k;
-        const y = h - (i % 2 ? 4.55 : 3.1) * k;
+        const y = h - (i % 2 ? 3.1 : 4.55) * k;
         const r = 0.15 * k;
         g.fillStyle = "#a9772c";
         g.beginPath();
@@ -750,7 +750,7 @@ const train = {
         g.roundRect(x - ww / 2, top, ww, bottom - top, 0.1 * k);
         g.clip();
         fade(g, w, h, [[0, "#0a1230"], [0.7, "#2a3a6a"], [1, "#4a5a86"]], top, bottom);
-        stars(g, w, bottom - 0.6 * k, 300, 5 + Math.round(xm * 10), top);
+        stars(g, w, bottom - 0.6 * k, 300, 100 + Math.abs(Math.round(xm * 10)), top);
         g.fillStyle = "#0c1326";
         g.beginPath();
         g.moveTo(x - ww, bottom);
