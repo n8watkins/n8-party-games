@@ -24,7 +24,7 @@ Everything else is already in the repository.
 2. Start `npm run dev` and run `npm run test:room`, `npm run test:lobby` and `npm run playtest:battle`, and stop if anything fails. The playtest needs the Windows Chrome (its default `--win=1`); with `--win=0` the software renderer is too slow and it reports missed moments.
 3. Start `npx wrangler dev --local --env="" --port 8804 --local-upstream localhost:8804 --persist-to <an empty folder>` and run `npm run test:production -- http://localhost:8804` to check the production settings locally. `--local-upstream` keeps the local address; without it the custom domain becomes the Worker's own address and the QR check fails.
 4. On that same server, confirm `/package.json`, `/wrangler.jsonc` and `/party-kit/README.md` answer 404.
-5. Run `npm run assets:list` and read the list once: it must hold only the front page, the party room's page (`lobby/`, with `lobby/shared/` and nothing from `lobby/server/` or `lobby/test/`), the kit's browser files, and the games' pages, scripts, styles, models, textures and fonts.
+5. Run `npm run assets:list` and read the list once: it must hold only the front page (with `front.js`, the web app manifest `manifest.webmanifest` and its `icons/`), the party room's page (`lobby/`, with `lobby/shared/` and nothing from `lobby/server/` or `lobby/test/`), the kit's browser files, and the games' pages, scripts, styles, models, textures and fonts.
 
 ## Deploying
 

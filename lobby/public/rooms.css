@@ -1,0 +1,256 @@
+/* The room's top right corner (room-menu.js): Rooms and the door button, the room picker, and
+   the lights going down and up when the party moves to another room (main.js). */
+
+.corner {
+  position: absolute;
+  top: max(10px, env(safe-area-inset-top));
+  right: max(10px, env(safe-area-inset-right));
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+/* Both buttons: a round picture, with its word beside it while the room is new to this device.
+   44 pixels is the smallest tap target anywhere. */
+.corner .door-btn,
+.corner-btn {
+  position: static;
+  width: auto;
+  min-width: 44px;
+  height: 44px;
+  border-radius: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 0 10px;
+  background: rgba(23, 16, 12, 0.88);
+  font-weight: 800;
+  font-size: 14px;
+  line-height: 1;
+  white-space: nowrap;
+}
+.door-word {
+  max-width: 9em;
+  overflow: hidden;
+  transition: max-width 0.4s ease;
+}
+.corner .door-btn .door-word {
+  padding-right: 2px;
+}
+.corner.folded .door-word,
+#app.in-game .door-word {
+  max-width: 0;
+}
+.corner.folded .door-btn,
+.corner.folded .corner-btn,
+#app.in-game .door-btn {
+  gap: 0;
+  padding: 0;
+  width: 44px;
+}
+/* A game that covers the room has the corner to itself and its door button: the room cannot be changed then. */
+#app.in-game .rooms-btn {
+  display: none;
+}
+.rooms-btn.locked {
+  opacity: 0.55;
+}
+
+/* The picker. */
+.sheet.picker {
+  width: min(100%, 760px);
+  gap: 14px;
+}
+.picker-head {
+  display: grid;
+  gap: 4px;
+}
+.picker-title {
+  margin: 0;
+  font: 700 28px/1.1 var(--display);
+}
+.picker-line {
+  margin: 0;
+  color: #5a4636;
+  line-height: 1.35;
+}
+.picker-line.locked {
+  color: #9c2b20;
+  font-weight: 700;
+}
+.picker-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+.room-card {
+  position: relative;
+  display: grid;
+  gap: 0;
+  padding: 0;
+  border: 3px solid transparent;
+  border-radius: 12px;
+  overflow: hidden;
+  background: #241511;
+  color: #fbf3e2;
+  text-align: left;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.room-card img {
+  display: block;
+  width: 100%;
+  height: auto;
+  aspect-ratio: 320 / 165;
+  object-fit: cover;
+  background: #120b08;
+}
+.room-name {
+  padding: 7px 10px 8px;
+  font-weight: 800;
+  font-size: 15px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.room-here {
+  display: none;
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  padding: 3px 8px;
+  border-radius: 10px;
+  background: var(--amber);
+  color: var(--amber-ink);
+  font-weight: 800;
+  font-size: 12px;
+}
+.room-card.here {
+  border-color: var(--amber);
+  cursor: default;
+}
+.room-card.here .room-here {
+  display: block;
+}
+.room-card.off {
+  cursor: default;
+}
+.room-card.off img {
+  filter: saturate(0.6) brightness(0.8);
+}
+.room-card:not(.off):not(.here):hover,
+.room-card:not(.off):not(.here):active {
+  border-color: #f6d9a0;
+}
+.room-card:focus-visible {
+  outline: 3px solid #1e1410;
+  outline-offset: 2px;
+}
+
+/* A phone held sideways: two rows of four, small. */
+@media (max-height: 520px) {
+  .sheet.picker {
+    gap: 8px;
+    padding: 12px 14px;
+  }
+  .picker-title {
+    font-size: 20px;
+  }
+  .picker-head {
+    grid-template-columns: auto 1fr;
+    align-items: baseline;
+    gap: 12px;
+  }
+  .picker-line {
+    font-size: 14px;
+  }
+  .picker-grid {
+    gap: 8px;
+  }
+  .room-name {
+    padding: 4px 8px 5px;
+    font-size: 13px;
+  }
+}
+/* An upright phone: two across. */
+@media (max-width: 560px) {
+  .picker-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+/* A big screen: bigger cards. */
+@media (min-width: 1500px) and (min-height: 800px) {
+  .sheet.picker {
+    width: min(100%, 1100px);
+  }
+  .picker-title {
+    font-size: 40px;
+  }
+  .picker-line,
+  .room-name {
+    font-size: 20px;
+  }
+}
+
+/* The lights go down, the room changes, the lights come up. Above the room, under everything else. */
+.room-dim {
+  position: absolute;
+  inset: 0;
+  background: #000;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.28s ease-in;
+}
+.room-dim.on {
+  opacity: 1;
+}
+.room-dim.rising {
+  transition: opacity 0.45s ease-out;
+}
+
+/* The 3D room is too slow on this device: the flat one is offered, once (slow-room.js). */
+.slow-offer {
+  position: absolute;
+  top: max(64px, calc(env(safe-area-inset-top) + 64px));
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 6px 6px 16px;
+  border-radius: 26px;
+  background: var(--cream);
+  color: #1e1410;
+  font-weight: 700;
+  white-space: nowrap;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+}
+.slow-go {
+  min-height: 44px;
+  padding: 0 16px;
+  border: 0;
+  border-radius: 22px;
+  background: var(--amber);
+  color: var(--amber-ink);
+  font: inherit;
+  font-weight: 800;
+  cursor: pointer;
+}
+.slow-no {
+  width: 44px;
+  height: 44px;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: #5a4636;
+  font-size: 24px;
+  cursor: pointer;
+}
+
+/* An upright phone: the hint to turn the phone sits under the corner, so both can be read and tapped. */
+@media (orientation: portrait) and (max-width: 560px) {
+  .hud-player .turn-hint {
+    top: calc(max(10px, env(safe-area-inset-top)) + 54px);
+    right: max(10px, env(safe-area-inset-right));
+  }
+}
