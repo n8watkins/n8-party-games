@@ -1,7 +1,7 @@
 // The room a party is in: one shared choice, picked by the host, kept through a sleep, refused
 // during the count, the coin toss and a game, and not changed twice within a few seconds.
 import { describe, expect, it } from "vitest";
-import { RECONNECT_GRACE_MS } from "../../party-kit/src/core/room-core.js";
+import { DROP_FADE_MS as RECONNECT_GRACE_MS } from "../server/lobby-core.js";
 import { game as coinFlip, manifest as coinFlipManifest } from "../games/coin-flip.js";
 import { LobbyCore } from "../server/lobby-core.js";
 import { DEFAULT_ROOM, ROOMS, ROOM_COOLDOWN_MS, isRoom, roomLocked } from "../shared/rooms.js";

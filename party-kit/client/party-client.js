@@ -142,11 +142,17 @@ export class PartyClient {
     this.ws = ws;
     ws.onopen = () => {
       this.retry = 0;
+      this.heardAt = Date.now();
       this.setStatus("open");
       this.pingPace = 0;
       this.setPingPace(this.pingPaceFor(this.room));
     };
-    ws.onmessage = (event) => this.onMessage(event.data);
+    ws.onmessage = (event) => {
+      // When the room was last heard from, the automatic keep-alive reply included: a page can
+      // tell a connection that has quietly died from one that is merely quiet.
+      this.heardAt = Date.now();
+      this.onMessage(event.data);
+    };
     ws.onclose = (event) => {
       if (this.ws !== ws) return;
       clearInterval(this.pingTimer);

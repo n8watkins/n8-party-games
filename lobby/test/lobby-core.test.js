@@ -1,10 +1,10 @@
 // The party room's rules, driven directly with a fake clock: seats, movement, the vote, the
 // count, ties, bumps, coming and going, starting a game, the Tonight board, sleeping and closing.
 import { describe, expect, it } from "vitest";
-import { IDLE_SHUTDOWN_MS, RECONNECT_GRACE_MS, STALE_ROOM_MS } from "../../party-kit/src/core/room-core.js";
+import { IDLE_SHUTDOWN_MS, STALE_ROOM_MS } from "../../party-kit/src/core/room-core.js";
 import * as cork from "cork-and-bell";
 import { game as coinFlip, FLIP_MS, manifest as coinFlipManifest } from "../games/coin-flip.js";
-import { BUDGET_CLOSE_MS, LobbyCore, MAX_ROOM_LIFE_MS, SCREEN_GRACE_MS } from "../server/lobby-core.js";
+import { BUDGET_CLOSE_MS, DROP_FADE_MS as RECONNECT_GRACE_MS, LobbyCore, MAX_ROOM_LIFE_MS, SCREEN_GRACE_MS, SEAT_HOLD_MS } from "../server/lobby-core.js";
 import { AWAY_MS, COUNT_MS, SETTLE_MS, TOSS_MS, boxFromManifest } from "../shared/vote.js";
 import { BUMP_COOLDOWN_MS, COOLDOWN_SLACK_MS, IMMUNE_MS, STUN_MS, knockLanding } from "../shared/bump.js";
 import { POSITION_SLACK, boxCentre, lightAt, spawnX } from "../shared/world.js";
@@ -659,8 +659,9 @@ describe("an outside game", () => {
     core.tick(at);
     core.disconnect(ann.token, at + AWAY_MS);
     core.disconnect(bo.token, at + AWAY_MS);
-    expect(core.tick(at + AWAY_MS + IDLE_SHUTDOWN_MS - 1).close).toBeNull();
-    expect(core.tick(at + AWAY_MS + IDLE_SHUTDOWN_MS).close).toBe("empty");
+    // Their seats are held for a while, in case they come straight back, and then it closes.
+    expect(core.tick(at + AWAY_MS + SEAT_HOLD_MS - 1).close).toBeNull();
+    expect(core.tick(at + AWAY_MS + SEAT_HOLD_MS).close).toBe("empty");
   });
 });
 
@@ -691,13 +692,37 @@ describe("sleeping and closing", () => {
     expect(core.tick(2000 + STALE_ROOM_MS).close).toBe("stale");
   });
 
-  it("closes a minute after the last person goes", () => {
+  it("closes a minute after the last person leaves, and waits longer for one who only dropped", () => {
+    const left = room();
+    const bo = seated(left, "Bo");
+    left.leave(bo.token, 5000);
+    expect(left.tick(5000 + IDLE_SHUTDOWN_MS).close).toBe("empty");
     const core = room();
     const ann = seated(core, "Ann");
     core.disconnect(ann.token, 5000);
     expect(core.nextWake(5000)).toBe(5000 + RECONNECT_GRACE_MS);
     core.tick(5000 + RECONNECT_GRACE_MS);
-    expect(core.tick(5000 + IDLE_SHUTDOWN_MS).close).toBe("empty");
+    expect(core.tick(5000 + IDLE_SHUTDOWN_MS).close).toBeNull();
+    expect(core.tick(5000 + SEAT_HOLD_MS).close).toBe("empty");
+  });
+
+  it("fades a dropped piece quickly, and seats it again as itself if it comes back while its seat is held", () => {
+    const core = room();
+    const ann = seated(core, "Ann");
+    const bo = seated(core, "Bo");
+    core.members[ann.seat].points = 5;
+    core.disconnect(ann.token, 5000);
+    expect(core.view(5000).members[ann.seat].connected).toBe(false);
+    core.tick(5000 + RECONNECT_GRACE_MS);
+    expect(core.view(5000 + RECONNECT_GRACE_MS).members[ann.seat]).toBeNull();
+    expect(core.drainNotes()).toEqual([expect.objectContaining({ k: "left", why: "dropped", name: "Ann" })]);
+    // Back a minute later: the same seat, name and points, with the same token.
+    expect(core.connect(ann.token, 65_000)).toEqual({ role: "player", seat: ann.seat });
+    expect(core.view(65_000).members[ann.seat]).toMatchObject({ name: "Ann", points: 5, connected: true });
+    // Too late: the token is no longer good.
+    core.disconnect(bo.token, 70_000);
+    core.tick(70_000 + RECONNECT_GRACE_MS);
+    expect(core.connect(bo.token, 70_000 + RECONNECT_GRACE_MS + SEAT_HOLD_MS + 1)).toBeNull();
   });
 
   it("still closes a minute after the last person went when it was put to sleep in between", () => {
@@ -707,14 +732,15 @@ describe("sleeping and closing", () => {
     core.tick(5000 + RECONNECT_GRACE_MS);
     // An empty room is put to sleep within seconds and woken by its alarm: the minute is counted
     // from when it emptied, not from each waking (which would keep it for twenty minutes, waking every one).
-    const woken = LobbyCore.restore(wall(), structuredClone(core.serialize()), 5000 + IDLE_SHUTDOWN_MS);
-    expect(woken.tick(5000 + IDLE_SHUTDOWN_MS).close).toBe("empty");
-    // A room saved while people were in it, and woken with nobody (a restart): empty from the waking.
+    const woken = LobbyCore.restore(wall(), structuredClone(core.serialize()), 5000 + SEAT_HOLD_MS);
+    expect(woken.tick(5000 + SEAT_HOLD_MS).close).toBe("empty");
+    // A room saved while people were in it, and woken with nobody (a restart): empty from the
+    // waking, and their seats are held for them, so it waits as for anyone who dropped.
     const busy = room();
     seated(busy, "Bo");
     const restarted = LobbyCore.restore(wall(), structuredClone(busy.serialize()), 90_000);
-    expect(restarted.tick(90_000 + IDLE_SHUTDOWN_MS - 1).close).toBeNull();
-    expect(restarted.tick(90_000 + IDLE_SHUTDOWN_MS).close).toBe("empty");
+    expect(restarted.tick(90_000 + SEAT_HOLD_MS - 1).close).toBeNull();
+    expect(restarted.tick(90_000 + SEAT_HOLD_MS).close).toBe("empty");
   });
 
   it("closes when it reaches its longest life, but not in the middle of a game", () => {

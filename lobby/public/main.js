@@ -10,6 +10,7 @@ import { GAME_VIEWS } from "./games/views.js";
 import { farewellKind, goFront } from "./farewell.js";
 import { Hud } from "./hud.js";
 import { TouchSpots } from "./touch.js";
+import { KEEP_ALIVE_MS, watchConnection } from "./connection.js";
 import { CountTick } from "./count-tick.js";
 import { RoomMenu } from "./room-menu.js";
 import { chosenLook, hardware3D, openRoomView, preferFlat } from "./room-view.js";
@@ -30,7 +31,9 @@ let look = chosen.look === "3d" && !hardware3D(params) ? "flat" : chosen.look;
 /** A start link may name the room the party starts in (?start&room=ship). */
 const startRoom = params.has("start") && isRoom(params.get("room")) ? params.get("room") : null;
 // The keep-alive is a fixed text the room answers without waking up (lobby/server/lobby-room.js).
-const link = new PartyClient({ api: "/api/lobby", quietPing: { text: "ping", everyMs: 20_000 }, lag: Number(params.get("lag") ?? 0) });
+const link = new PartyClient({ api: "/api/lobby", quietPing: { text: "ping", everyMs: KEEP_ALIVE_MS }, lag: Number(params.get("lag") ?? 0) });
+// A locked phone, an offline browser and a connection that quietly died are seen at once (connection.js).
+watchConnection(link, { player: () => isPlayer() });
 
 let door = null;
 let scene = null;

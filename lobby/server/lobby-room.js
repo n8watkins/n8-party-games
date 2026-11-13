@@ -24,10 +24,14 @@ const CLOSE_TOO_FAST = 4008;
 /** Lobby messages are a few dozen bytes; a game's inputs are not much more. Anything longer is dropped. */
 export const MAX_MESSAGE_BYTES = 512;
 /** The keep-alive the page sends, and the reply the runtime gives without waking the room. */
-export const KEEP_ALIVE = { text: "ping", reply: "pong", everyMs: 20_000 };
-/** A socket that has said nothing at all for this long (not even a keep-alive) belongs to a phone that is gone. */
-const SILENT_MS = 90_000;
-const REAP_EVERY_MS = 15_000;
+export const KEEP_ALIVE = { text: "ping", reply: "pong", everyMs: 10_000 };
+/**
+ * A socket that has said nothing at all for this long (not even a keep-alive, which a page sends
+ * every ten seconds) belongs to a phone that is gone: it lost its signal without closing. Looked
+ * at whenever anything happens in the room, at most every five seconds; nothing is timed for it.
+ */
+const SILENT_MS = 25_000;
+const REAP_EVERY_MS = 5_000;
 /** The join code is kept alive while the room is in use (it lapses 15 minutes after its last refresh). */
 const PIN_REFRESH_MS = 5 * 60_000;
 /** An alarm due within this long is a count, a toss, a rest or a grace: worth pushing back when it is no longer wanted. */
