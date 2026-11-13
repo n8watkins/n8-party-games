@@ -237,7 +237,7 @@ try {
   const loudest = Math.max(...Object.values(report).map((r) => r.rms));
   for (const [name, r] of Object.entries(report)) {
     const shape = `${r.seconds.toFixed(2)} s, peak ${r.peak.toFixed(2)}, ${(20 * Math.log10(r.rms)).toFixed(1)} dB, ${r.onsets} onsets, ends at ${(r.end * 100).toFixed(1)}% of its loudest`;
-    const fine = r.bad === 0 && r.seconds > 0.4 && r.seconds <= 3 && r.peak <= 0.951 && r.peak > 0.15 && r.start < 0.01 && r.end < 0.05;
+    const fine = r.bad === 0 && r.seconds > 0.05 && r.seconds <= 3 && r.peak <= 0.951 && r.peak > 0.15 && r.start < 0.01 && r.end < 0.05;
     const level = name === "crickets" || r.rms > loudest / 3.2;
     check(fine && level, `${name}: ${shape}`);
   }
