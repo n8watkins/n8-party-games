@@ -1,0 +1,231 @@
+Sounds of the party room
+
+Every file in this folder was made from a recording released under Creative Commons Zero
+(CC0 1.0, public domain: https://creativecommons.org/publicdomain/zero/1.0/). CC0 asks for no
+credit; it is given here anyway, with thanks. Each was trimmed, made mono and brought to an even
+loudness for the room (preview/recordings/ship.mjs); the slow clap is one clap repeated.
+
+emote-popcorn.mp3
+  "Bite potato chips" by sammy214
+  https://freesound.org/people/sammy214/sounds/316926/
+  Creative Commons 0, read on 2026-11-13
+
+emote-slowclap.mp3
+  "hand clap.wav" by semccab
+  https://freesound.org/people/semccab/sounds/154399/
+  Creative Commons 0, read on 2026-11-13; one clap from the recording, three times, 0.8 s apart
+
+emote-pointlaugh.mp3
+  "Laughter" by schots
+  https://freesound.org/people/schots/sounds/452749/
+  Creative Commons 0, read on 2026-11-13
+
+emote-redcard.mp3
+  "Referee whistle blow, gymnasium.wav" by SpliceSound
+  https://freesound.org/people/SpliceSound/sounds/218318/
+  Creative Commons 0, read on 2026-11-13
+
+emote-hurry.mp3
+  "Ticking Stopwatch (dry)" by DavidJGurney
+  https://freesound.org/people/DavidJGurney/sounds/275802/
+  Creative Commons 0, read on 2026-11-13
+
+emote-thumbsup.mp3
+  "desk bell center.mp3" by tonmayster
+  https://freesound.org/people/tonmayster/sounds/685111/
+  Creative Commons 0, read on 2026-11-13
+
+emote-confetti.mp3
+  "partypopper.flac" by Streety
+  https://freesound.org/people/Streety/sounds/26349/
+  Creative Commons 0, read on 2026-11-13
+
+emote-boo.mp3
+  "boo.wav" by dr_skitz
+  https://freesound.org/people/dr_skitz/sounds/353925/
+  Creative Commons 0, read on 2026-11-13
+
+emote-trophy.mp3
+  "Small applause" by Breviceps
+  https://freesound.org/people/Breviceps/sounds/462362/
+  Creative Commons 0, read on 2026-11-13
+
+emote-shush.mp3
+  "sh sound effect (voice shh)" by connerdrake98
+  https://freesound.org/people/connerdrake98/sounds/701175/
+  Creative Commons 0, read on 2026-11-13
+
+emote-lighter.mp3
+  "zippoopen.wav" by DeezSoundzTho
+  https://freesound.org/people/DeezSoundzTho/sounds/407428/
+  Creative Commons 0, read on 2026-11-13
+
+emote-scratch.mp3
+  "Hmm question.wav" by esperar
+  https://freesound.org/people/esperar/sounds/170768/
+  Creative Commons 0, read on 2026-11-13
+
+emote-steam.mp3
+  "whistling teapot.wav" by keweldog
+  https://freesound.org/people/keweldog/sounds/181718/
+  Creative Commons 0, read on 2026-11-13; the loudest part of the recording
+
+emote-tomato.mp3
+  "Tomato Squish.wav" by kaydinhamby
+  https://freesound.org/people/kaydinhamby/sounds/382637/
+  Creative Commons 0, read on 2026-11-13
+
+step-1.mp3
+  "Impact Sounds: footstep_carpet_000" by Kenney (kenney.nl)
+  https://kenney.nl/assets/impact-sounds
+  Creative Commons 0, read on 2026-11-13
+
+step-2.mp3
+  "Impact Sounds: footstep_carpet_001" by Kenney (kenney.nl)
+  https://kenney.nl/assets/impact-sounds
+  Creative Commons 0, read on 2026-11-13
+
+jump.mp3
+  "Interface Sounds: pluck_001" by Kenney (kenney.nl)
+  https://kenney.nl/assets/interface-sounds
+  Creative Commons 0, read on 2026-11-13
+
+land.mp3
+  "Impact Sounds: impactSoft_medium_001" by Kenney (kenney.nl)
+  https://kenney.nl/assets/impact-sounds
+  Creative Commons 0, read on 2026-11-13
+
+kick-swing.mp3
+  "Whoosh" by qubodup
+  https://freesound.org/people/qubodup/sounds/60013/
+  Creative Commons 0, read on 2026-11-13
+
+kick-hit.mp3
+  "Impact Sounds: impactPunch_heavy_000" by Kenney (kenney.nl)
+  https://kenney.nl/assets/impact-sounds
+  Creative Commons 0, read on 2026-11-13
+
+kick-tumble.mp3
+  "Impact Sounds: impactSoft_heavy_002" by Kenney (kenney.nl)
+  https://kenney.nl/assets/impact-sounds
+  Creative Commons 0, read on 2026-11-13
+
+light-in.mp3
+  "Interface Sounds: switch_002" by Kenney (kenney.nl)
+  https://kenney.nl/assets/interface-sounds
+  Creative Commons 0, read on 2026-11-13
+
+light-out.mp3
+  "Interface Sounds: switch_003" by Kenney (kenney.nl)
+  https://kenney.nl/assets/interface-sounds
+  Creative Commons 0, read on 2026-11-13
+
+count-tick.mp3
+  "Interface Sounds: tick_001" by Kenney (kenney.nl)
+  https://kenney.nl/assets/interface-sounds
+  Creative Commons 0, read on 2026-11-13
+
+count-last.mp3
+  "Interface Sounds: tick_002" by Kenney (kenney.nl)
+  https://kenney.nl/assets/interface-sounds
+  Creative Commons 0, read on 2026-11-13
+
+count-go.mp3
+  "Interface Sounds: confirmation_002" by Kenney (kenney.nl)
+  https://kenney.nl/assets/interface-sounds
+  Creative Commons 0, read on 2026-11-13
+
+toss-flip.mp3
+  "coin flip.wav" by Raventhornn
+  https://freesound.org/people/Raventhornn/sounds/181189/
+  Creative Commons 0, read on 2026-11-13
+
+toss-land.mp3
+  "Casino Audio: chip-lay-1" by Kenney (kenney.nl)
+  https://kenney.nl/assets/casino-audio
+  Creative Commons 0, read on 2026-11-13
+
+join.mp3
+  "Interface Sounds: drop_002" by Kenney (kenney.nl)
+  https://kenney.nl/assets/interface-sounds
+  Creative Commons 0, read on 2026-11-13
+
+leave.mp3
+  "Interface Sounds: back_002" by Kenney (kenney.nl)
+  https://kenney.nl/assets/interface-sounds
+  Creative Commons 0, read on 2026-11-13
+
+lights-down.mp3
+  "Interface Sounds: minimize_006" by Kenney (kenney.nl)
+  https://kenney.nl/assets/interface-sounds
+  Creative Commons 0, read on 2026-11-13
+
+lights-up.mp3
+  "Interface Sounds: maximize_006" by Kenney (kenney.nl)
+  https://kenney.nl/assets/interface-sounds
+  Creative Commons 0, read on 2026-11-13
+
+tap.mp3
+  "Interface Sounds: click_002" by Kenney (kenney.nl)
+  https://kenney.nl/assets/interface-sounds
+  Creative Commons 0, read on 2026-11-13
+
+game-start.mp3
+  "Interface Sounds: confirmation_003" by Kenney (kenney.nl)
+  https://kenney.nl/assets/interface-sounds
+  Creative Commons 0, read on 2026-11-13
+
+result.mp3
+  "Interface Sounds: confirmation_004" by Kenney (kenney.nl)
+  https://kenney.nl/assets/interface-sounds
+  Creative Commons 0, read on 2026-11-13
+
+amb-lamp-swing.mp3
+  "RPG Audio: creak1" by Kenney (kenney.nl)
+  https://kenney.nl/assets/rpg-audio
+  Creative Commons 0, read on 2026-11-13
+
+amb-piece-land.mp3
+  "Impact Sounds: impactWood_light_000" by Kenney (kenney.nl)
+  https://kenney.nl/assets/impact-sounds
+  Creative Commons 0, read on 2026-11-13
+
+amb-jukebox-skip.mp3
+  "record_scratch.wav" by simkiott
+  https://freesound.org/people/simkiott/sounds/43404/
+  Creative Commons 0, read on 2026-11-13
+
+amb-cat.mp3
+  "cat meow short" by skymary
+  https://freesound.org/people/skymary/sounds/412017/
+  Creative Commons 0, read on 2026-11-13
+
+amb-moth.mp3
+  "RPG Audio: cloth1" by Kenney (kenney.nl)
+  https://kenney.nl/assets/rpg-audio
+  Creative Commons 0, read on 2026-11-13
+
+amb-star-fall.mp3
+  "Interface Sounds: glass_001" by Kenney (kenney.nl)
+  https://kenney.nl/assets/interface-sounds
+  Creative Commons 0, read on 2026-11-13
+
+amb-comet.mp3
+  "Interface Sounds: glass_004" by Kenney (kenney.nl)
+  https://kenney.nl/assets/interface-sounds
+  Creative Commons 0, read on 2026-11-13
+
+amb-rocket.mp3
+  "quick woosh" by florianreichelt
+  https://freesound.org/people/florianreichelt/sounds/683101/
+  Creative Commons 0, read on 2026-11-13
+
+amb-satellite.mp3
+  "Interface Sounds: question_001" by Kenney (kenney.nl)
+  https://kenney.nl/assets/interface-sounds
+  Creative Commons 0, read on 2026-11-13
+
+amb-holo.mp3
+  "Interface Sounds: glitch_001" by Kenney (kenney.nl)
+  https://kenney.nl/assets/interface-sounds
+  Creative Commons 0, read on 2026-11-13

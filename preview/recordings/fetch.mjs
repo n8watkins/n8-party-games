@@ -33,6 +33,11 @@ const WANT = [
   ["shush", 151224], ["shush", 412673], ["shush", 701175],
   ["lighter", 398977], ["lighter", 742836], ["lighter", 407428],
   ["hmm", 170768], ["hmm", 170779], ["hmm", 445871],
+  ["whoosh", 60013], ["whoosh", 683101], ["whoosh", 19312],
+  ["coinflip", 181189], ["coinflip", 391958], ["coinflip", 766544],
+  ["splat", 382637], ["splat", 684877],
+  ["fuming", 181718], ["fuming", 234782], ["fuming", 211096],
+  ["meow", 412017], ["meow", 618900],
 ];
 
 const today = new Date().toISOString().slice(0, 10);

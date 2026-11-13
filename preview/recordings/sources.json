@@ -1,0 +1,741 @@
+[
+  {
+    "file": "emote-popcorn.mp3",
+    "kind": "emote",
+    "seconds": 2.04,
+    "bytes": 16553,
+    "edit": "trimmed",
+    "source": {
+      "title": "Bite potato chips",
+      "author": "sammy214",
+      "page": "https://freesound.org/people/sammy214/sounds/316926/",
+      "licence": "Creative Commons 0",
+      "licenceUrl": "http://creativecommons.org/publicdomain/zero/1.0/",
+      "licenceLine": "You can copy, modify, distribute and perform the sound, even for commercial purposes, all without the need of asking permission to the author.",
+      "fetched": "2026-11-13",
+      "freesoundId": 316926
+    }
+  },
+  {
+    "file": "emote-slowclap.mp3",
+    "kind": "emote",
+    "seconds": 2.14,
+    "bytes": 17389,
+    "edit": "one clap from the recording, three times, 0.8 s apart",
+    "source": {
+      "title": "hand clap.wav",
+      "author": "semccab",
+      "page": "https://freesound.org/people/semccab/sounds/154399/",
+      "licence": "Creative Commons 0",
+      "licenceUrl": "http://creativecommons.org/publicdomain/zero/1.0/",
+      "licenceLine": "You can copy, modify, distribute and perform the sound, even for commercial purposes, all without the need of asking permission to the author.",
+      "fetched": "2026-11-13",
+      "freesoundId": 154399
+    }
+  },
+  {
+    "file": "emote-pointlaugh.mp3",
+    "kind": "emote",
+    "seconds": 2.38,
+    "bytes": 19270,
+    "edit": "trimmed",
+    "source": {
+      "title": "Laughter",
+      "author": "schots",
+      "page": "https://freesound.org/people/schots/sounds/452749/",
+      "licence": "Creative Commons 0",
+      "licenceUrl": "http://creativecommons.org/publicdomain/zero/1.0/",
+      "licenceLine": "You can copy, modify, distribute and perform the sound, even for commercial purposes, all without the need of asking permission to the author.",
+      "fetched": "2026-11-13",
+      "freesoundId": 452749
+    }
+  },
+  {
+    "file": "emote-redcard.mp3",
+    "kind": "emote",
+    "seconds": 1.33,
+    "bytes": 10910,
+    "edit": "trimmed",
+    "source": {
+      "title": "Referee whistle blow, gymnasium.wav",
+      "author": "SpliceSound",
+      "page": "https://freesound.org/people/SpliceSound/sounds/218318/",
+      "licence": "Creative Commons 0",
+      "licenceUrl": "http://creativecommons.org/publicdomain/zero/1.0/",
+      "licenceLine": "You can copy, modify, distribute and perform the sound, even for commercial purposes, all without the need of asking permission to the author.",
+      "fetched": "2026-11-13",
+      "freesoundId": 218318
+    }
+  },
+  {
+    "file": "emote-hurry.mp3",
+    "kind": "emote",
+    "seconds": 2.04,
+    "bytes": 16553,
+    "edit": "trimmed",
+    "source": {
+      "title": "Ticking Stopwatch (dry)",
+      "author": "DavidJGurney",
+      "page": "https://freesound.org/people/DavidJGurney/sounds/275802/",
+      "licence": "Creative Commons 0",
+      "licenceUrl": "http://creativecommons.org/publicdomain/zero/1.0/",
+      "licenceLine": "You can copy, modify, distribute and perform the sound, even for commercial purposes, all without the need of asking permission to the author.",
+      "fetched": "2026-11-13",
+      "freesoundId": 275802
+    }
+  },
+  {
+    "file": "emote-thumbsup.mp3",
+    "kind": "emote",
+    "seconds": 1.93,
+    "bytes": 15717,
+    "edit": "trimmed",
+    "source": {
+      "title": "desk bell center.mp3",
+      "author": "tonmayster",
+      "page": "https://freesound.org/people/tonmayster/sounds/685111/",
+      "licence": "Creative Commons 0",
+      "licenceUrl": "http://creativecommons.org/publicdomain/zero/1.0/",
+      "licenceLine": "You can copy, modify, distribute and perform the sound, even for commercial purposes, all without the need of asking permission to the author.",
+      "fetched": "2026-11-13",
+      "freesoundId": 685111
+    }
+  },
+  {
+    "file": "emote-confetti.mp3",
+    "kind": "emote",
+    "seconds": 0.55,
+    "bytes": 4641,
+    "edit": "trimmed",
+    "source": {
+      "title": "partypopper.flac",
+      "author": "Streety",
+      "page": "https://freesound.org/people/Streety/sounds/26349/",
+      "licence": "Creative Commons 0",
+      "licenceUrl": "http://creativecommons.org/publicdomain/zero/1.0/",
+      "licenceLine": "You can copy, modify, distribute and perform the sound, even for commercial purposes, all without the need of asking permission to the author.",
+      "fetched": "2026-11-13",
+      "freesoundId": 26349
+    }
+  },
+  {
+    "file": "emote-boo.mp3",
+    "kind": "emote",
+    "seconds": 2.53,
+    "bytes": 20524,
+    "edit": "trimmed",
+    "source": {
+      "title": "boo.wav",
+      "author": "dr_skitz",
+      "page": "https://freesound.org/people/dr_skitz/sounds/353925/",
+      "licence": "Creative Commons 0",
+      "licenceUrl": "http://creativecommons.org/publicdomain/zero/1.0/",
+      "licenceLine": "You can copy, modify, distribute and perform the sound, even for commercial purposes, all without the need of asking permission to the author.",
+      "fetched": "2026-11-13",
+      "freesoundId": 353925
+    }
+  },
+  {
+    "file": "emote-trophy.mp3",
+    "kind": "emote",
+    "seconds": 3.03,
+    "bytes": 24494,
+    "edit": "trimmed",
+    "source": {
+      "title": "Small applause",
+      "author": "Breviceps",
+      "page": "https://freesound.org/people/Breviceps/sounds/462362/",
+      "licence": "Creative Commons 0",
+      "licenceUrl": "http://creativecommons.org/publicdomain/zero/1.0/",
+      "licenceLine": "You can copy, modify, distribute and perform the sound, even for commercial purposes, all without the need of asking permission to the author.",
+      "fetched": "2026-11-13",
+      "freesoundId": 462362
+    }
+  },
+  {
+    "file": "emote-shush.mp3",
+    "kind": "emote",
+    "seconds": 0.5,
+    "bytes": 4223,
+    "edit": "trimmed",
+    "source": {
+      "title": "sh sound effect (voice shh)",
+      "author": "connerdrake98",
+      "page": "https://freesound.org/people/connerdrake98/sounds/701175/",
+      "licence": "Creative Commons 0",
+      "licenceUrl": "http://creativecommons.org/publicdomain/zero/1.0/",
+      "licenceLine": "You can copy, modify, distribute and perform the sound, even for commercial purposes, all without the need of asking permission to the author.",
+      "fetched": "2026-11-13",
+      "freesoundId": 701175
+    }
+  },
+  {
+    "file": "emote-lighter.mp3",
+    "kind": "emote",
+    "seconds": 0.21,
+    "bytes": 1924,
+    "edit": "trimmed",
+    "source": {
+      "title": "zippoopen.wav",
+      "author": "DeezSoundzTho",
+      "page": "https://freesound.org/people/DeezSoundzTho/sounds/407428/",
+      "licence": "Creative Commons 0",
+      "licenceUrl": "http://creativecommons.org/publicdomain/zero/1.0/",
+      "licenceLine": "You can copy, modify, distribute and perform the sound, even for commercial purposes, all without the need of asking permission to the author.",
+      "fetched": "2026-11-13",
+      "freesoundId": 407428
+    }
+  },
+  {
+    "file": "emote-scratch.mp3",
+    "kind": "emote",
+    "seconds": 0.65,
+    "bytes": 5477,
+    "edit": "trimmed",
+    "source": {
+      "title": "Hmm question.wav",
+      "author": "esperar",
+      "page": "https://freesound.org/people/esperar/sounds/170768/",
+      "licence": "Creative Commons 0",
+      "licenceUrl": "http://creativecommons.org/publicdomain/zero/1.0/",
+      "licenceLine": "You can copy, modify, distribute and perform the sound, even for commercial purposes, all without the need of asking permission to the author.",
+      "fetched": "2026-11-13",
+      "freesoundId": 170768
+    }
+  },
+  {
+    "file": "emote-steam.mp3",
+    "kind": "emote",
+    "seconds": 2.35,
+    "bytes": 19061,
+    "edit": "the loudest part of the recording",
+    "source": {
+      "title": "whistling teapot.wav",
+      "author": "keweldog",
+      "page": "https://freesound.org/people/keweldog/sounds/181718/",
+      "licence": "Creative Commons 0",
+      "licenceUrl": "http://creativecommons.org/publicdomain/zero/1.0/",
+      "licenceLine": "You can copy, modify, distribute and perform the sound, even for commercial purposes, all without the need of asking permission to the author.",
+      "fetched": "2026-11-13",
+      "freesoundId": 181718
+    }
+  },
+  {
+    "file": "emote-tomato.mp3",
+    "kind": "emote",
+    "seconds": 0.42,
+    "bytes": 3596,
+    "edit": "trimmed",
+    "source": {
+      "title": "Tomato Squish.wav",
+      "author": "kaydinhamby",
+      "page": "https://freesound.org/people/kaydinhamby/sounds/382637/",
+      "licence": "Creative Commons 0",
+      "licenceUrl": "http://creativecommons.org/publicdomain/zero/1.0/",
+      "licenceLine": "You can copy, modify, distribute and perform the sound, even for commercial purposes, all without the need of asking permission to the author.",
+      "fetched": "2026-11-13",
+      "freesoundId": 382637
+    }
+  },
+  {
+    "file": "step-1.mp3",
+    "kind": "room",
+    "seconds": 0.1,
+    "bytes": 1088,
+    "edit": "trimmed",
+    "source": {
+      "title": "Impact Sounds: footstep_carpet_000",
+      "author": "Kenney (kenney.nl)",
+      "page": "https://kenney.nl/assets/impact-sounds",
+      "licence": "Creative Commons 0",
+      "licenceUrl": "http://creativecommons.org/publicdomain/zero/1.0/",
+      "licenceLine": "License.txt in the pack: \"Creative Commons Zero, CC0\"",
+      "fetched": "2026-11-13"
+    }
+  },
+  {
+    "file": "step-2.mp3",
+    "kind": "room",
+    "seconds": 0.18,
+    "bytes": 1715,
+    "edit": "trimmed",
+    "source": {
+      "title": "Impact Sounds: footstep_carpet_001",
+      "author": "Kenney (kenney.nl)",
+      "page": "https://kenney.nl/assets/impact-sounds",
+      "licence": "Creative Commons 0",
+      "licenceUrl": "http://creativecommons.org/publicdomain/zero/1.0/",
+      "licenceLine": "License.txt in the pack: \"Creative Commons Zero, CC0\"",
+      "fetched": "2026-11-13"
+    }
+  },
+  {
+    "file": "jump.mp3",
+    "kind": "room",
+    "seconds": 0.1,
+    "bytes": 1088,
+    "edit": "trimmed",
+    "source": {
+      "title": "Interface Sounds: pluck_001",
+      "author": "Kenney (kenney.nl)",
+      "page": "https://kenney.nl/assets/interface-sounds",
+      "licence": "Creative Commons 0",
+      "licenceUrl": "http://creativecommons.org/publicdomain/zero/1.0/",
+      "licenceLine": "License.txt in the pack: \"Creative Commons Zero, CC0\"",
+      "fetched": "2026-11-13"
+    }
+  },
+  {
+    "file": "land.mp3",
+    "kind": "room",
+    "seconds": 0.21,
+    "bytes": 1924,
+    "edit": "trimmed",
+    "source": {
+      "title": "Impact Sounds: impactSoft_medium_001",
+      "author": "Kenney (kenney.nl)",
+      "page": "https://kenney.nl/assets/impact-sounds",
+      "licence": "Creative Commons 0",
+      "licenceUrl": "http://creativecommons.org/publicdomain/zero/1.0/",
+      "licenceLine": "License.txt in the pack: \"Creative Commons Zero, CC0\"",
+      "fetched": "2026-11-13"
+    }
+  },
+  {
+    "file": "kick-swing.mp3",
+    "kind": "room",
+    "seconds": 0.47,
+    "bytes": 4014,
+    "edit": "trimmed",
+    "source": {
+      "title": "Whoosh",
+      "author": "qubodup",
+      "page": "https://freesound.org/people/qubodup/sounds/60013/",
+      "licence": "Creative Commons 0",
+      "licenceUrl": "http://creativecommons.org/publicdomain/zero/1.0/",
+      "licenceLine": "You can copy, modify, distribute and perform the sound, even for commercial purposes, all without the need of asking permission to the author.",
+      "fetched": "2026-11-13",
+      "freesoundId": 60013
+    }
+  },
+  {
+    "file": "kick-hit.mp3",
+    "kind": "room",
+    "seconds": 0.47,
+    "bytes": 4014,
+    "edit": "trimmed",
+    "source": {
+      "title": "Impact Sounds: impactPunch_heavy_000",
+      "author": "Kenney (kenney.nl)",
+      "page": "https://kenney.nl/assets/impact-sounds",
+      "licence": "Creative Commons 0",
+      "licenceUrl": "http://creativecommons.org/publicdomain/zero/1.0/",
+      "licenceLine": "License.txt in the pack: \"Creative Commons Zero, CC0\"",
+      "fetched": "2026-11-13"
+    }
+  },
+  {
+    "file": "kick-tumble.mp3",
+    "kind": "room",
+    "seconds": 0.6,
+    "bytes": 5059,
+    "edit": "trimmed",
+    "source": {
+      "title": "Impact Sounds: impactSoft_heavy_002",
+      "author": "Kenney (kenney.nl)",
+      "page": "https://kenney.nl/assets/impact-sounds",
+      "licence": "Creative Commons 0",
+      "licenceUrl": "http://creativecommons.org/publicdomain/zero/1.0/",
+      "licenceLine": "License.txt in the pack: \"Creative Commons Zero, CC0\"",
+      "fetched": "2026-11-13"
+    }
+  },
+  {
+    "file": "light-in.mp3",
+    "kind": "room",
+    "seconds": 0.16,
+    "bytes": 1506,
+    "edit": "trimmed",
+    "source": {
+      "title": "Interface Sounds: switch_002",
+      "author": "Kenney (kenney.nl)",
+      "page": "https://kenney.nl/assets/interface-sounds",
+      "licence": "Creative Commons 0",
+      "licenceUrl": "http://creativecommons.org/publicdomain/zero/1.0/",
+      "licenceLine": "License.txt in the pack: \"Creative Commons Zero, CC0\"",
+      "fetched": "2026-11-13"
+    }
+  },
+  {
+    "file": "light-out.mp3",
+    "kind": "room",
+    "seconds": 0.26,
+    "bytes": 2342,
+    "edit": "trimmed",
+    "source": {
+      "title": "Interface Sounds: switch_003",
+      "author": "Kenney (kenney.nl)",
+      "page": "https://kenney.nl/assets/interface-sounds",
+      "licence": "Creative Commons 0",
+      "licenceUrl": "http://creativecommons.org/publicdomain/zero/1.0/",
+      "licenceLine": "License.txt in the pack: \"Creative Commons Zero, CC0\"",
+      "fetched": "2026-11-13"
+    }
+  },
+  {
+    "file": "count-tick.mp3",
+    "kind": "room",
+    "seconds": 0.05,
+    "bytes": 670,
+    "edit": "trimmed",
+    "source": {
+      "title": "Interface Sounds: tick_001",
+      "author": "Kenney (kenney.nl)",
+      "page": "https://kenney.nl/assets/interface-sounds",
+      "licence": "Creative Commons 0",
+      "licenceUrl": "http://creativecommons.org/publicdomain/zero/1.0/",
+      "licenceLine": "License.txt in the pack: \"Creative Commons Zero, CC0\"",
+      "fetched": "2026-11-13"
+    }
+  },
+  {
+    "file": "count-last.mp3",
+    "kind": "room",
+    "seconds": 0.05,
+    "bytes": 670,
+    "edit": "trimmed",
+    "source": {
+      "title": "Interface Sounds: tick_002",
+      "author": "Kenney (kenney.nl)",
+      "page": "https://kenney.nl/assets/interface-sounds",
+      "licence": "Creative Commons 0",
+      "licenceUrl": "http://creativecommons.org/publicdomain/zero/1.0/",
+      "licenceLine": "License.txt in the pack: \"Creative Commons Zero, CC0\"",
+      "fetched": "2026-11-13"
+    }
+  },
+  {
+    "file": "count-go.mp3",
+    "kind": "room",
+    "seconds": 0.55,
+    "bytes": 4641,
+    "edit": "trimmed",
+    "source": {
+      "title": "Interface Sounds: confirmation_002",
+      "author": "Kenney (kenney.nl)",
+      "page": "https://kenney.nl/assets/interface-sounds",
+      "licence": "Creative Commons 0",
+      "licenceUrl": "http://creativecommons.org/publicdomain/zero/1.0/",
+      "licenceLine": "License.txt in the pack: \"Creative Commons Zero, CC0\"",
+      "fetched": "2026-11-13"
+    }
+  },
+  {
+    "file": "toss-flip.mp3",
+    "kind": "room",
+    "seconds": 0.99,
+    "bytes": 8194,
+    "edit": "trimmed",
+    "source": {
+      "title": "coin flip.wav",
+      "author": "Raventhornn",
+      "page": "https://freesound.org/people/Raventhornn/sounds/181189/",
+      "licence": "Creative Commons 0",
+      "licenceUrl": "http://creativecommons.org/publicdomain/zero/1.0/",
+      "licenceLine": "You can copy, modify, distribute and perform the sound, even for commercial purposes, all without the need of asking permission to the author.",
+      "fetched": "2026-11-13",
+      "freesoundId": 181189
+    }
+  },
+  {
+    "file": "toss-land.mp3",
+    "kind": "room",
+    "seconds": 0.13,
+    "bytes": 1297,
+    "edit": "trimmed",
+    "source": {
+      "title": "Casino Audio: chip-lay-1",
+      "author": "Kenney (kenney.nl)",
+      "page": "https://kenney.nl/assets/casino-audio",
+      "licence": "Creative Commons 0",
+      "licenceUrl": "http://creativecommons.org/publicdomain/zero/1.0/",
+      "licenceLine": "License.txt in the pack: \"\"",
+      "fetched": "2026-11-13"
+    }
+  },
+  {
+    "file": "join.mp3",
+    "kind": "room",
+    "seconds": 0.16,
+    "bytes": 1506,
+    "edit": "trimmed",
+    "source": {
+      "title": "Interface Sounds: drop_002",
+      "author": "Kenney (kenney.nl)",
+      "page": "https://kenney.nl/assets/interface-sounds",
+      "licence": "Creative Commons 0",
+      "licenceUrl": "http://creativecommons.org/publicdomain/zero/1.0/",
+      "licenceLine": "License.txt in the pack: \"Creative Commons Zero, CC0\"",
+      "fetched": "2026-11-13"
+    }
+  },
+  {
+    "file": "leave.mp3",
+    "kind": "room",
+    "seconds": 0.1,
+    "bytes": 1088,
+    "edit": "trimmed",
+    "source": {
+      "title": "Interface Sounds: back_002",
+      "author": "Kenney (kenney.nl)",
+      "page": "https://kenney.nl/assets/interface-sounds",
+      "licence": "Creative Commons 0",
+      "licenceUrl": "http://creativecommons.org/publicdomain/zero/1.0/",
+      "licenceLine": "License.txt in the pack: \"Creative Commons Zero, CC0\"",
+      "fetched": "2026-11-13"
+    }
+  },
+  {
+    "file": "lights-down.mp3",
+    "kind": "room",
+    "seconds": 0.39,
+    "bytes": 3387,
+    "edit": "trimmed",
+    "source": {
+      "title": "Interface Sounds: minimize_006",
+      "author": "Kenney (kenney.nl)",
+      "page": "https://kenney.nl/assets/interface-sounds",
+      "licence": "Creative Commons 0",
+      "licenceUrl": "http://creativecommons.org/publicdomain/zero/1.0/",
+      "licenceLine": "License.txt in the pack: \"Creative Commons Zero, CC0\"",
+      "fetched": "2026-11-13"
+    }
+  },
+  {
+    "file": "lights-up.mp3",
+    "kind": "room",
+    "seconds": 0.39,
+    "bytes": 3387,
+    "edit": "trimmed",
+    "source": {
+      "title": "Interface Sounds: maximize_006",
+      "author": "Kenney (kenney.nl)",
+      "page": "https://kenney.nl/assets/interface-sounds",
+      "licence": "Creative Commons 0",
+      "licenceUrl": "http://creativecommons.org/publicdomain/zero/1.0/",
+      "licenceLine": "License.txt in the pack: \"Creative Commons Zero, CC0\"",
+      "fetched": "2026-11-13"
+    }
+  },
+  {
+    "file": "tap.mp3",
+    "kind": "room",
+    "seconds": 0.05,
+    "bytes": 670,
+    "edit": "trimmed",
+    "source": {
+      "title": "Interface Sounds: click_002",
+      "author": "Kenney (kenney.nl)",
+      "page": "https://kenney.nl/assets/interface-sounds",
+      "licence": "Creative Commons 0",
+      "licenceUrl": "http://creativecommons.org/publicdomain/zero/1.0/",
+      "licenceLine": "License.txt in the pack: \"Creative Commons Zero, CC0\"",
+      "fetched": "2026-11-13"
+    }
+  },
+  {
+    "file": "game-start.mp3",
+    "kind": "room",
+    "seconds": 0.34,
+    "bytes": 2969,
+    "edit": "trimmed",
+    "source": {
+      "title": "Interface Sounds: confirmation_003",
+      "author": "Kenney (kenney.nl)",
+      "page": "https://kenney.nl/assets/interface-sounds",
+      "licence": "Creative Commons 0",
+      "licenceUrl": "http://creativecommons.org/publicdomain/zero/1.0/",
+      "licenceLine": "License.txt in the pack: \"Creative Commons Zero, CC0\"",
+      "fetched": "2026-11-13"
+    }
+  },
+  {
+    "file": "result.mp3",
+    "kind": "room",
+    "seconds": 0.52,
+    "bytes": 4432,
+    "edit": "trimmed",
+    "source": {
+      "title": "Interface Sounds: confirmation_004",
+      "author": "Kenney (kenney.nl)",
+      "page": "https://kenney.nl/assets/interface-sounds",
+      "licence": "Creative Commons 0",
+      "licenceUrl": "http://creativecommons.org/publicdomain/zero/1.0/",
+      "licenceLine": "License.txt in the pack: \"Creative Commons Zero, CC0\"",
+      "fetched": "2026-11-13"
+    }
+  },
+  {
+    "file": "amb-lamp-swing.mp3",
+    "kind": "ambient",
+    "seconds": 0.5,
+    "bytes": 4223,
+    "edit": "trimmed",
+    "source": {
+      "title": "RPG Audio: creak1",
+      "author": "Kenney (kenney.nl)",
+      "page": "https://kenney.nl/assets/rpg-audio",
+      "licence": "Creative Commons 0",
+      "licenceUrl": "http://creativecommons.org/publicdomain/zero/1.0/",
+      "licenceLine": "License.txt in the pack: \"\"",
+      "fetched": "2026-11-13"
+    }
+  },
+  {
+    "file": "amb-piece-land.mp3",
+    "kind": "ambient",
+    "seconds": 0.13,
+    "bytes": 1297,
+    "edit": "trimmed",
+    "source": {
+      "title": "Impact Sounds: impactWood_light_000",
+      "author": "Kenney (kenney.nl)",
+      "page": "https://kenney.nl/assets/impact-sounds",
+      "licence": "Creative Commons 0",
+      "licenceUrl": "http://creativecommons.org/publicdomain/zero/1.0/",
+      "licenceLine": "License.txt in the pack: \"Creative Commons Zero, CC0\"",
+      "fetched": "2026-11-13"
+    }
+  },
+  {
+    "file": "amb-jukebox-skip.mp3",
+    "kind": "ambient",
+    "seconds": 1.2,
+    "bytes": 9866,
+    "edit": "trimmed",
+    "source": {
+      "title": "record_scratch.wav",
+      "author": "simkiott",
+      "page": "https://freesound.org/people/simkiott/sounds/43404/",
+      "licence": "Creative Commons 0",
+      "licenceUrl": "http://creativecommons.org/publicdomain/zero/1.0/",
+      "licenceLine": "You can copy, modify, distribute and perform the sound, even for commercial purposes, all without the need of asking permission to the author.",
+      "fetched": "2026-11-13",
+      "freesoundId": 43404
+    }
+  },
+  {
+    "file": "amb-cat.mp3",
+    "kind": "ambient",
+    "seconds": 1.49,
+    "bytes": 12164,
+    "edit": "trimmed",
+    "source": {
+      "title": "cat meow short",
+      "author": "skymary",
+      "page": "https://freesound.org/people/skymary/sounds/412017/",
+      "licence": "Creative Commons 0",
+      "licenceUrl": "http://creativecommons.org/publicdomain/zero/1.0/",
+      "licenceLine": "You can copy, modify, distribute and perform the sound, even for commercial purposes, all without the need of asking permission to the author.",
+      "fetched": "2026-11-13",
+      "freesoundId": 412017
+    }
+  },
+  {
+    "file": "amb-moth.mp3",
+    "kind": "ambient",
+    "seconds": 0.52,
+    "bytes": 4432,
+    "edit": "trimmed",
+    "source": {
+      "title": "RPG Audio: cloth1",
+      "author": "Kenney (kenney.nl)",
+      "page": "https://kenney.nl/assets/rpg-audio",
+      "licence": "Creative Commons 0",
+      "licenceUrl": "http://creativecommons.org/publicdomain/zero/1.0/",
+      "licenceLine": "License.txt in the pack: \"\"",
+      "fetched": "2026-11-13"
+    }
+  },
+  {
+    "file": "amb-star-fall.mp3",
+    "kind": "ambient",
+    "seconds": 0.21,
+    "bytes": 1924,
+    "edit": "trimmed",
+    "source": {
+      "title": "Interface Sounds: glass_001",
+      "author": "Kenney (kenney.nl)",
+      "page": "https://kenney.nl/assets/interface-sounds",
+      "licence": "Creative Commons 0",
+      "licenceUrl": "http://creativecommons.org/publicdomain/zero/1.0/",
+      "licenceLine": "License.txt in the pack: \"Creative Commons Zero, CC0\"",
+      "fetched": "2026-11-13"
+    }
+  },
+  {
+    "file": "amb-comet.mp3",
+    "kind": "ambient",
+    "seconds": 0.55,
+    "bytes": 4641,
+    "edit": "trimmed",
+    "source": {
+      "title": "Interface Sounds: glass_004",
+      "author": "Kenney (kenney.nl)",
+      "page": "https://kenney.nl/assets/interface-sounds",
+      "licence": "Creative Commons 0",
+      "licenceUrl": "http://creativecommons.org/publicdomain/zero/1.0/",
+      "licenceLine": "License.txt in the pack: \"Creative Commons Zero, CC0\"",
+      "fetched": "2026-11-13"
+    }
+  },
+  {
+    "file": "amb-rocket.mp3",
+    "kind": "ambient",
+    "seconds": 0.16,
+    "bytes": 1506,
+    "edit": "trimmed",
+    "source": {
+      "title": "quick woosh",
+      "author": "florianreichelt",
+      "page": "https://freesound.org/people/florianreichelt/sounds/683101/",
+      "licence": "Creative Commons 0",
+      "licenceUrl": "http://creativecommons.org/publicdomain/zero/1.0/",
+      "licenceLine": "You can copy, modify, distribute and perform the sound, even for commercial purposes, all without the need of asking permission to the author.",
+      "fetched": "2026-11-13",
+      "freesoundId": 683101
+    }
+  },
+  {
+    "file": "amb-satellite.mp3",
+    "kind": "ambient",
+    "seconds": 0.52,
+    "bytes": 4432,
+    "edit": "trimmed",
+    "source": {
+      "title": "Interface Sounds: question_001",
+      "author": "Kenney (kenney.nl)",
+      "page": "https://kenney.nl/assets/interface-sounds",
+      "licence": "Creative Commons 0",
+      "licenceUrl": "http://creativecommons.org/publicdomain/zero/1.0/",
+      "licenceLine": "License.txt in the pack: \"Creative Commons Zero, CC0\"",
+      "fetched": "2026-11-13"
+    }
+  },
+  {
+    "file": "amb-holo.mp3",
+    "kind": "ambient",
+    "seconds": 0.05,
+    "bytes": 670,
+    "edit": "trimmed",
+    "source": {
+      "title": "Interface Sounds: glitch_001",
+      "author": "Kenney (kenney.nl)",
+      "page": "https://kenney.nl/assets/interface-sounds",
+      "licence": "Creative Commons 0",
+      "licenceUrl": "http://creativecommons.org/publicdomain/zero/1.0/",
+      "licenceLine": "License.txt in the pack: \"Creative Commons Zero, CC0\"",
+      "fetched": "2026-11-13"
+    }
+  }
+]
