@@ -22,7 +22,7 @@ function target(cx, cy, r, text) {
 const ART = {
   "cork-and-bell"(g, w, h) {
     g.append(s("rect", { width: w, height: h, fill: "#9c2b20" }), s("rect", { width: w, height: 64, fill: "#6f1a14" }));
-    g.append(title("Cork & Bell", w / 2, 43, 30, "#f6d9a0", w - 22, "t-display"));
+    g.append(title("Cork & Bell", w / 2, 46, 40, "#f6d9a0", w - 28, "t-display"));
     // The awning's scalloped edge.
     for (let i = 0, n = Math.ceil(w / 26); i <= n; i++) g.append(s("circle", { cx: i * 26, cy: 66, r: 13, fill: i % 2 ? "#f1e2c2" : "#c8382c" }));
     g.append(s("rect", { x: 14, y: 92, width: w - 28, height: 66, rx: 4, fill: "#183a2e" }), s("rect", { x: 14, y: 150, width: w - 28, height: 8, fill: "#c8963e" }));
@@ -39,16 +39,15 @@ const ART = {
     g.append(s("rect", { width: w, height: h, fill: "#1b4753" }), s("rect", { y: h - 86, width: w, height: 86, fill: "#143842" }));
     g.append(s("circle", { cx: w / 2, cy: 128, r: 66, fill: "#f3c240", stroke: "#a8780f", "stroke-width": 6 }), s("circle", { cx: w / 2, cy: 128, r: 51, fill: "none", stroke: "#c9972a", "stroke-width": 3 }));
     g.append(star(w / 2, 128, 34, "#a8780f"));
-    g.append(title("COIN FLIP", w / 2, 252, 30, "#fdf3d6", w - 24));
-    g.append(title("luck picks the order", w / 2, 278, 14, "#a9cdd6", w - 24, "t-ui"));
+    g.append(title("COIN FLIP", w / 2, 264, 38, "#fdf3d6", w - 22));
   },
 
   "who-am-i"(g, w, h) {
     g.append(s("rect", { width: w, height: h, fill: "#efe4d6" }));
     g.append(s("rect", { x: w / 2 - 52, y: 52, width: 104, height: 104, rx: 24, fill: "#5b3fd6" }), s("circle", { cx: w / 2, cy: 104, r: 33, fill: "#ffffff" }));
     g.append(label("?", { x: w / 2, y: 121, "font-size": 50, fill: "#5b3fd6", "text-anchor": "middle", class: "t-poster" }));
-    g.append(title("Who Am I?", w / 2, 222, 30, "#2a1b3d", w - 24));
-    g.append(s("rect", { x: w / 2 - 26, y: 240, width: 52, height: 4, rx: 2, fill: "#5b3fd6" }));
+    g.append(title("Who Am I?", w / 2, 218, 40, "#2a1b3d", w - 22));
+    g.append(s("rect", { x: w / 2 - 26, y: 234, width: 52, height: 4, rx: 2, fill: "#5b3fd6" }));
   },
 
   "tin-derby"(g, w, h) {

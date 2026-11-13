@@ -4,9 +4,8 @@ import { describe, expect, it } from "vitest";
 import { IDLE_SHUTDOWN_MS, RECONNECT_GRACE_MS, STALE_ROOM_MS } from "../../party-kit/src/core/room-core.js";
 import { game as coinFlip, FLIP_MS, manifest as coinFlipManifest } from "../games/coin-flip.js";
 import { BUDGET_CLOSE_MS, LobbyCore, MAX_ROOM_LIFE_MS } from "../server/lobby-core.js";
-import { COUNT_MS, SETTLE_MS, TOSS_MS, boxFromManifest } from "../shared/vote.js";
+import { AWAY_MS, COUNT_MS, SETTLE_MS, TOSS_MS, boxFromManifest } from "../shared/vote.js";
 import { BUMP_PUSH, POSITION_SLACK, boxCentre, lightAt, spawnX } from "../shared/world.js";
-import { standIn } from "../wall.js";
 
 const duo = { id: "duo", name: "Duo", players: { min: 2, max: 4 }, devices: { phone: true, desktop: true } };
 const big = { id: "big", name: "Big", players: { min: 1, max: 4 }, devices: { phone: true, sharedScreen: "required" } };
@@ -17,7 +16,7 @@ function wall() {
   const boxes = [boxFromManifest(coinFlipManifest, { test: true }), boxFromManifest(duo), boxFromManifest(big), boxFromManifest(soon, { soon: true })];
   const games = new Map([
     ["coin-flip", coinFlip],
-    ["duo", standIn({ ...duo, path: "/duo/" })],
+    ["duo", coinFlip],
     ["big", coinFlip],
   ]);
   return { boxes, games };
@@ -363,15 +362,78 @@ describe("a game and the Tonight board", () => {
     expect(ended.last.rows.map((r) => r.seat).sort()).toEqual([0, 1]);
   });
 
-  it("shows a card and awards nothing for a game that cannot open in the room yet", () => {
-    const core = room();
+});
+
+describe("an outside game", () => {
+  const away = { id: "away", name: "Away", players: { min: 2, max: 2 }, devices: { phone: true, desktop: false }, url: "https://away.example/" };
+  /** Coin Flip and a game that plays on a site of its own, for exactly two. */
+  function outsideRoom() {
+    const boxes = [boxFromManifest(coinFlipManifest, { test: true }), boxFromManifest(away)];
+    return new LobbyCore({ boxes, games: new Map([["coin-flip", coinFlip]]), seed: 7, code: "BCDFGH", now: 1000 });
+  }
+
+  it("has its light on only for a party of the size it takes", () => {
+    const core = outsideRoom();
     seated(core, "Ann");
+    expect(core.lights().away).toBe("Needs 2 players");
     seated(core, "Bo");
-    const started = core.startGame("duo", 2000);
-    expect(started.ended.last).toMatchObject({ game: "duo", name: "Duo", rows: [], note: { kind: "stand-in", path: "/duo/" } });
-    expect(core.view(2000)).toMatchObject({ phase: "lobby", tonight: { games: 0 } });
+    expect(core.lights().away).toBeNull();
+    seated(core, "Cy");
+    expect(core.lights().away).toBe("For 2 players");
   });
 
+  it("sends everyone to its own site when it wins the count: no game, no points, pieces back by the door", () => {
+    const core = outsideRoom();
+    seated(core, "Ann");
+    seated(core, "Bo");
+    stand(core, 0, 1, 2000);
+    stand(core, 1, 1, 2000);
+    core.evaluate(2000);
+    expect(core.count).not.toBeNull();
+    const out = core.tick(2000 + COUNT_MS);
+    expect(out).toMatchObject({ start: null, close: null, changed: true, away: { id: "away", name: "Away", url: "https://away.example/", in: AWAY_MS } });
+    const view = core.view(2000 + COUNT_MS);
+    expect(view).toMatchObject({ phase: "lobby", game: null, last: null, tonight: { games: 0 } });
+    expect(view.members.filter(Boolean).map((m) => m.points)).toEqual([0, 0]);
+    for (const m of view.members.filter(Boolean)) expect(m).toMatchObject({ x: spawnX(m.seat, 2), rev: 1 });
+    expect(core.round).toBe(0);
+    // Whoever stays is not sent off again the moment they step back into the light.
+    stand(core, 0, 1, 2000 + COUNT_MS + 100);
+    stand(core, 1, 1, 2000 + COUNT_MS + 100);
+    core.evaluate(2000 + COUNT_MS + 200);
+    expect(core.count).toBeNull();
+    expect(core.nextWake(2000 + COUNT_MS + 200)).toBe(2000 + COUNT_MS + AWAY_MS + SETTLE_MS);
+  });
+
+  it("is sent to when it wins the toss as well", () => {
+    const core = outsideRoom();
+    seated(core, "Ann");
+    seated(core, "Bo");
+    stand(core, 0, 0, 2000);
+    stand(core, 1, 1, 2000);
+    core.evaluate(2000);
+    core.tick(2000 + COUNT_MS);
+    core.toss.winner = "away";
+    expect(core.tick(2000 + COUNT_MS + TOSS_MS)).toMatchObject({ start: null, away: { id: "away" } });
+  });
+
+  it("leaves the room to empty and close by the usual rule once the pages have gone", () => {
+    const core = outsideRoom();
+    const ann = seated(core, "Ann");
+    const bo = seated(core, "Bo");
+    stand(core, 0, 1, 2000);
+    stand(core, 1, 1, 2000);
+    core.evaluate(2000);
+    const at = 2000 + COUNT_MS;
+    core.tick(at);
+    core.disconnect(ann.token, at + AWAY_MS);
+    core.disconnect(bo.token, at + AWAY_MS);
+    expect(core.tick(at + AWAY_MS + IDLE_SHUTDOWN_MS - 1).close).toBeNull();
+    expect(core.tick(at + AWAY_MS + IDLE_SHUTDOWN_MS).close).toBe("empty");
+  });
+});
+
+describe("a dropped toss", () => {
   it("does not start a game the party can no longer play when the toss ends", () => {
     const core = room();
     seated(core, "Ann");

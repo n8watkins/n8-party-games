@@ -19,6 +19,8 @@ describe("the production configuration", () => {
     expect(prod.vars.PARTY_ROOM_BUDGET_DAY_SHARE).toBeUndefined();
     // The door into the budget's books and a room's inner state is for local tests only.
     expect(prod.vars.PARTY_DEBUG).toBeUndefined();
+    // Coin Flip, the placeholder game, hangs only on the local wall.
+    expect(prod.vars.PARTY_TEST_GAMES).toBeUndefined();
   });
 
   it("answers only at its custom domain", () => {
@@ -45,6 +47,7 @@ describe("the local configuration", () => {
   it("keeps the switches the playtests need, with the same budget", () => {
     expect(local.vars.PARTY_SIM_LATENCY).toBe("on");
     expect(local.vars.PARTY_RATE_LIMIT).toBe("off");
+    expect(local.vars.PARTY_TEST_GAMES).toBe("on");
     expect(local.vars.PARTY_ROOM_BUDGET_SHARE).toBe("0.1");
     expect(local.name).toBe("n8-party-games-local");
   });

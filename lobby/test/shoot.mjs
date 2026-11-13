@@ -28,7 +28,9 @@ const check = (ok, what) => {
 };
 
 const N = 5;
-const [CORK, COIN] = [0, 1];
+const [CORK, COIN, WHO] = [0, 1, 2];
+/** Where the outside game lives. No test goes there: the browser is handed a stand-in page for the address. */
+const WHO_SITE = "https://whoami.n8builds.dev/";
 const light = (i, off = 0) => Math.round(boxCentre(i, N) + off);
 const dark = (i) => Math.round(boxCentre(i, N) + lightHalf(N) + 22);
 
@@ -37,6 +39,7 @@ try {
   const errors = [];
   async function open(name, viewport, extra = {}) {
     const context = await browser.newContext({ viewport, deviceScaleFactor: 1, ...extra });
+    await context.route(WHO_SITE + "**", (route) => route.fulfill({ contentType: "text/html", body: "<!doctype html><title>stand-in</title><p>A stand-in for the outside game's site.</p>" }));
     const page = await context.newPage();
     page.on("pageerror", (e) => errors.push(`${name}: ${e.message}`));
     page.on("console", (m) => m.type() === "error" && errors.push(`${name}: ${m.text()}`));
@@ -71,6 +74,11 @@ try {
       }
       for (const el of document.querySelectorAll(".status-main, .status-sub, .who-name, .card-title")) {
         if (el.scrollWidth > el.clientWidth + 1 && getComputedStyle(el).textOverflow !== "ellipsis") bad.push(`"${el.textContent.slice(0, 30)}" is clipped`);
+      }
+      // A card or a sheet is wholly on the screen: nothing of it is cut off by a short phone.
+      for (const el of document.querySelectorAll(".card, .sheet")) {
+        const r = el.getBoundingClientRect();
+        if (r.top < -1 || r.left < -1 || r.bottom > innerHeight + 1 || r.right > innerWidth + 1) bad.push(`a card runs off the screen (${Math.round(r.top)} to ${Math.round(r.bottom)} of ${innerHeight})`);
       }
       // In the room: every line of text marked to fit a width does fit it.
       for (const el of document.querySelectorAll("svg.scene [data-fit]")) {
@@ -118,7 +126,7 @@ try {
   await tidy(phone, "phone, alone");
   await shot(screen, "05-screen-one-player");
   const whyNot = await screen.evaluate(() => [...document.querySelectorAll("svg.scene text")].filter((t) => !t.closest("[display=none]")).map((t) => t.textContent).filter((t) => /Needs|Coming soon/.test(t)));
-  check(whyNot.includes("Needs 2 players") && !whyNot.includes("Needs a player") && whyNot.filter((t) => t === "Coming soon").length === 3, "a game the party cannot play says why: " + [...new Set(whyNot)].join(", "));
+  check(whyNot.filter((t) => t === "Needs 2 players").length === 2 && !whyNot.includes("Needs a player") && whyNot.filter((t) => t === "Coming soon").length === 2, "a game the party cannot play says why: " + [...new Set(whyNot)].join(", "));
 
   // Three more players, as sockets.
   const sessions = [];
@@ -128,21 +136,19 @@ try {
   await mabel.wait((m) => m.room?.members.filter((x) => x?.connected).length === 4, 8000, 0);
 
   // ---------------------------------------------------------------- the vote
-  const key = async (k, ms) => {
-    await phone.keyboard.down(k);
-    await sleep(ms);
-    await phone.keyboard.up(k);
-  };
-  const dollyX = () => mabel.room.members[0].x;
-  /** Walks the phone's piece to x with the keyboard, as a player would. */
-  async function walkTo(x) {
+  /** Walks a page's piece to x with the keyboard, as a player would. `watcher` is a socket that hears the moves. */
+  async function walk(page, watcher, seat, x) {
     for (let i = 0; i < 12; i++) {
       await sleep(120);
-      const gap = x - (mabel.seen.findLast((m) => m.t === "m" && m.s === 0)?.x ?? dollyX());
+      const gap = x - (watcher.seen.findLast((m) => (m.t === "m" && m.s === seat) || (m.t === "b" && m.to === seat))?.x ?? watcher.room.members[seat].x);
       if (Math.abs(gap) < 14) return;
-      await key(gap > 0 ? "ArrowRight" : "ArrowLeft", Math.max(40, Math.min(1500, (Math.abs(gap) / 430) * 1000)));
+      const k = gap > 0 ? "ArrowRight" : "ArrowLeft";
+      await page.keyboard.down(k);
+      await sleep(Math.max(40, Math.min(1500, (Math.abs(gap) / 430) * 1000)));
+      await page.keyboard.up(k);
     }
   }
+  const walkTo = (x) => walk(phone, mabel, 0, x);
   mabel.goto(light(CORK, -40));
   fitch.goto(light(CORK, 45));
   await walkTo(light(COIN));
@@ -216,10 +222,20 @@ try {
   await shot(screen, "21-screen-coin-landed");
   await screen.waitForSelector(".card", { timeout: 9000 });
   await sleep(300);
-  const standIn = (await screen.locator(".card-kicker").first().textContent()) === "NOT IN THE ROOM YET";
-  await shot(screen, standIn ? "22-screen-cork-and-bell-not-yet" : "22-screen-second-result");
-  await shot(phone, standIn ? "23-phone-cork-and-bell-not-yet" : "23-phone-second-result");
+  // Coin Flip plays here and shows its result. Cork & Bell does not open in the room yet, so it
+  // hangs as an outside game: its card says everyone is off to its own page, and "stay" keeps
+  // this run in the room.
+  const off = (await screen.locator(".card.away").count()) > 0;
+  await shot(screen, off ? "22-screen-off-to-cork-and-bell" : "22-screen-second-result");
+  await shot(phone, off ? "23-phone-off-to-cork-and-bell" : "23-phone-second-result");
   await tidy(phone, "phone, after the toss");
+  await tidy(screen, "big screen, after the toss");
+  if (off) {
+    await screen.click("text=Keep showing the room");
+    await phone.click("text=Stay in the room");
+    await sleep(6500);
+    check(new URL(screen.url()).pathname === "/lobby/" && new URL(phone.url()).pathname === "/lobby/", "a page that chose to stay is still in the room after the count");
+  }
   await screen.waitForSelector(".card", { state: "detached", timeout: 9000 });
 
   // ---------------------------------------------------------------- leaving
@@ -279,6 +295,59 @@ try {
   await shot(phone, "32-phone-left");
   await sleep(300);
   await shot(screen, "33-screen-dolly-left");
+
+  // ---------------------------------------------------------------- an outside game wins the vote
+  // A new party of two, the size Who Am I? takes: a phone held sideways and one held upright,
+  // with a big screen. Winning the vote sends all three to the game's own site.
+  const screen2 = await open("screen 2", { width: 1920, height: 1080 });
+  await screen2.goto(base + "/lobby/?start");
+  await screen2.click("text=Use this as the room's screen");
+  await screen2.click("text=Show the room here");
+  await screen2.waitForSelector("svg.scene text");
+  const pin2 = (await screen2.locator(".code-digits").textContent()).trim();
+  const players = [];
+  for (const [name, viewport] of [
+    ["Ada", { width: 844, height: 390 }],
+    ["Bea", { width: 390, height: 844 }],
+  ]) {
+    const page = await open(name, viewport, { deviceScaleFactor: 2, hasTouch: true });
+    await page.goto(base + "/lobby/?join=" + pin2);
+    await page.fill("input[name=nickname]", name);
+    await page.click("text=Join the party");
+    await page.waitForSelector("svg.scene text");
+    players.push(page);
+  }
+  const [ada, bea] = players;
+  const watcher = connect(await call("POST", "/join/" + pin2, { as: "screen" }));
+  await watcher.opened;
+  await watcher.wait((m) => m.room?.members.filter((x) => x?.connected).length === 2, 8000, 0);
+  await sleep(700);
+  await shot(screen2, "34-screen-party-of-two");
+  await tidy(screen2, "big screen, party of two");
+  const lit = await screen2.evaluate(() => [...document.querySelectorAll("svg.scene text")].filter((t) => !t.closest("[display=none]")).map((t) => t.textContent));
+  check(lit.includes("ON ITS OWN SITE") && lit.filter((t) => t === "Who Am I?").length === 1 && !lit.includes("Needs 2 players"), "Who Am I?'s light is on for two, its poster says it is on its own site, and its name is written once");
+  await walk(ada, watcher, 0, light(WHO, -40));
+  await walk(bea, watcher, 1, light(WHO, 40));
+  await screen2.waitForFunction(() => /opens in/.test(document.querySelector(".status-main")?.textContent ?? ""), null, { timeout: 8000 });
+  await sleep(250);
+  await shot(screen2, "35-screen-count-who-am-i");
+  await shot(ada, "36-phone-count-who-am-i");
+  await tidy(ada, "phone, count for an outside game");
+  check(/Who Am I\? opens in [123]\./.test(await screen2.locator(".status-main").textContent()), "the count says it opens, not starts");
+  for (const page of [screen2, ada, bea]) await page.waitForSelector(".card.away", { timeout: 6000 });
+  await sleep(350);
+  await shot(screen2, "37-screen-off-to-who-am-i");
+  await shot(ada, "38-phone-off-to-who-am-i");
+  await shot(bea, "39-upright-off-to-who-am-i");
+  for (const [page, name] of [[screen2, "big screen"], [ada, "phone"], [bea, "upright phone"]]) await tidy(page, name + ", off to an outside game");
+  const said = await ada.locator(".card.away").innerText();
+  check(said.includes("Off to Who Am I?") && said.includes("whoami.n8builds.dev") && said.includes(pin2) && /does not work there/.test(said) && /No Tonight points/.test(said), "the card says where everyone is going, that the code does not carry over, and that nobody scores");
+  check(/Go now \([1-6]\)/.test(said), "and counts down before it goes");
+  await Promise.all([screen2, ada, bea].map((page) => page.waitForURL(WHO_SITE + "**", { timeout: 10000 })));
+  check([screen2, ada, bea].every((page) => page.url() === WHO_SITE), "then the big screen and both phones go to " + WHO_SITE);
+  const board2 = watcher.seen.findLast((m) => m.room)?.room;
+  check(board2.tonight.games === 0 && board2.members.filter(Boolean).every((m) => m.points === 0) && !watcher.seen.some((m) => m.t === "start"), "no game started in the room and nobody scored");
+  watcher.ws.close();
 
   check(errors.length === 0, "no page reported an error" + (errors.length ? ": " + errors.slice(0, 4).join(" | ") : ""));
   for (const c of [mabel, fitch]) c.ws.close();

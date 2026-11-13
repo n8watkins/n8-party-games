@@ -3,7 +3,7 @@
 // what to say when the connection or the room is gone.
 import { ICONS, h, icon } from "./dom.js";
 import { playerLine, statusLine } from "./shared/status.js";
-import { SETTLE_MS } from "./shared/vote.js";
+import { SETTLE_MS, whereabouts } from "./shared/vote.js";
 import { BUMP_COOLDOWN_MS } from "./shared/world.js";
 
 const PLACES = ["1st", "2nd", "3rd", "4th"];
@@ -21,7 +21,7 @@ export class Hud {
   /**
    * @param {HTMLElement} root
    * @param {{role: "player" | "screen", seat: number, on: object}} opts  `on` holds the callbacks:
-   *   steer(d), jump(), bump(), zoom(), leave()
+   *   steer(d), jump(), bump(), zoom(), leave(), away(url)
    */
   constructor(root, opts) {
     this.opts = opts;
@@ -248,25 +248,17 @@ export class Hud {
     this.card?.remove();
     const back = (this.card = h("div", "card-back", "", this.el));
     const card = h("div", "card", "", back);
-    h("div", "card-kicker", last.note?.kind === "stand-in" ? "NOT IN THE ROOM YET" : "RESULT", card);
+    h("div", "card-kicker", "RESULT", card);
     h("h2", "card-title", last.name, card);
-    if (last.note?.kind === "stand-in") {
-      h("p", "card-text", `${last.name} won the vote, but it does not open inside the party room yet. That is the next piece of work. For now it plays on its own page.`, card);
-      const go = h("a", "button", `Open ${last.name}`, card);
-      go.href = last.note.path;
-      go.target = "_blank";
-      go.rel = "noopener";
-    } else {
-      const list = h("ol", "places", "", card);
-      for (const row of last.rows) {
-        const li = h("li", "", "", list);
-        h("span", "place", PLACES[row.place - 1] ?? String(row.place), li);
-        h("span", "dot", "", li).style.background = row.colour;
-        h("span", "who-name", row.name, li);
-        h("span", "points", row.points ? `+${row.points}` : "0", li);
-      }
-      h("p", "card-foot", "Points go on the Tonight board.", card);
+    const list = h("ol", "places", "", card);
+    for (const row of last.rows) {
+      const li = h("li", "", "", list);
+      h("span", "place", PLACES[row.place - 1] ?? String(row.place), li);
+      h("span", "dot", "", li).style.background = row.colour;
+      h("span", "who-name", row.name, li);
+      h("span", "points", row.points ? `+${row.points}` : "0", li);
     }
+    h("p", "card-foot", "Points go on the Tonight board.", card);
     const again = h("button", "plain", "Back to the room", card);
     again.type = "button";
     const done = () => {
@@ -278,7 +270,52 @@ export class Hud {
     again.addEventListener("click", done);
   }
 
+  // ---------------------------------------------------------------- off to an outside game
+
+  /**
+   * A game that plays on a site of its own won the vote. Leaving the page without a word would
+   * be a surprise, so this says where everyone is going and what does not come along, counts
+   * down, and then calls on.away(url). "Stay" keeps this device in the room.
+   * @param {{name: string, url: string, in: number}} msg  the room's "away" message
+   * @param {string | null} pin  the party's join code, which does not work on the other site
+   */
+  away(msg, pin) {
+    this.card?.remove();
+    clearInterval(this.awayTimer);
+    const screen = this.opts.role === "screen";
+    const back = (this.card = h("div", "card-back", "", this.el));
+    const card = h("div", "card away", "", back);
+    h("div", "card-kicker", "LEAVING THE ROOM", card);
+    h("h2", "card-title", `Off to ${msg.name}`, card);
+    const where = whereabouts(msg.url);
+    const place = where === "its own page" ? where : `its own site, ${where}`;
+    const code = pin ? `The party's code ${pin}` : "The party's code";
+    h("p", "card-text", `It plays on ${place}, not in this room. ${code} does not work there: one of you makes a room and the others join it. No Tonight points for this one.`, card);
+    const go = h("a", "button", "", card);
+    go.href = msg.url;
+    const stay = h("button", "plain", screen ? "Keep showing the room" : "Stay in the room", card);
+    stay.type = "button";
+    const endsAt = performance.now() + msg.in;
+    const close = () => {
+      clearInterval(this.awayTimer);
+      back.remove();
+      if (this.card === back) this.card = null;
+    };
+    const tick = () => {
+      const left = endsAt - performance.now();
+      go.textContent = `Go now (${Math.max(1, Math.ceil(left / 1000))})`;
+      if (left > 0) return;
+      clearInterval(this.awayTimer);
+      go.textContent = `Opening ${msg.name}...`;
+      this.on.away(msg.url);
+    };
+    this.awayTimer = setInterval(tick, 200);
+    tick();
+    stay.addEventListener("click", close);
+  }
+
   destroy() {
+    clearInterval(this.awayTimer);
     this.el.remove();
   }
 }
