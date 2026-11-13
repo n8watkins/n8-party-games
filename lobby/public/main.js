@@ -651,7 +651,7 @@ function frame(t) {
   focus += (mine - focus) * Math.min(1, dt * 7);
   // While a count or a coin toss is on, a phone pulls back to the whole room: that is where it happens.
   const drama = room.phase === "lobby" && (room.vote.count || room.vote.toss);
-  const aim = camera({ w: innerWidth, h: innerHeight, bar: hud.barHeight(), mode: isPlayer() && !drama ? zoom : "room", focusX: focus, phone: phone() });
+  const aim = camera({ w: innerWidth, h: innerHeight, bar: hud.barHeight(), mode: isPlayer() && !drama ? zoom : "room", focusX: focus, phone: phone(), boxes: room.boxes.length });
   // The view glides from one framing to the next, except when the window itself changes shape.
   const size = `${innerWidth}x${innerHeight}`;
   if (!view || size !== viewSize) view = aim;
