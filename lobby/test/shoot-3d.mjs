@@ -78,6 +78,11 @@ try {
   const pin = (await screen.locator(".code-digits").textContent()).trim();
   check(/^\d{4}$/.test(pin), "the big screen shows the room in 3D and its code (" + pin + ")");
   check((await screen.evaluate(() => window.__room3d?.look)) === lookName && (await screen.locator("svg.scene").count()) === 0, "the 3D look drew it, and the flat drawing is not in the page");
+  if (lookName === "baked") {
+    // The baked look has a plate for this wall, and drew the room from it (not its fallback, the 3D look's own walls).
+    const drawn = await screen.evaluate(() => ({ ...window.__room3d.stats(), boxes: window.__room3d.room.boxes.length, fetched: performance.getEntriesByType("resource").filter((r) => r.name.includes("/lobby/baked/bar/")).length }));
+    check(drawn.look === "baked" && drawn.plate >= 2560 && drawn.fetched >= drawn.boxes + 4, `the baked look drew the room from its plate for a wall of ${drawn.boxes} boxes (a ${drawn.plate} pixel base, ${drawn.fetched} of its files, ${drawn.calls} draw calls)`);
+  }
   check((await screen.locator(".l3-pin").textContent()) === pin && (await screen.evaluate(() => document.querySelector(".l3-qr").naturalWidth > 0)), "the code and its QR code are on the wall");
   const boxes = await screen.evaluate(() => window.__room3d.room.boxes.map((b) => b.name));
   const blurbs = await screen.evaluate(() => window.__room3d.room.boxes.map((b) => b.blurb));
@@ -288,8 +293,8 @@ try {
   await flatPage.click("text=Show the room here");
   await flatPage.waitForSelector("svg.scene text");
   await sleep(1500);
-  const extra = fetched.filter((path) => /look3d|three|\/vendor\/|AbrilFatface/.test(path));
-  check((await flatPage.locator(".look3d").count()) === 0 && extra.length === 0, "without ?look=3d the room is the flat one and nothing of the 3D look is downloaded (" + fetched.length + " requests" + (extra.length ? ", but: " + extra.join(", ") : "") + ")");
+  const extra = fetched.filter((path) => /look3d|\/lobby\/baked\/|three|\/vendor\/|AbrilFatface/.test(path));
+  check((await flatPage.locator(".look3d").count()) === 0 && extra.length === 0, "without ?look=3d the room is the flat one and nothing of the 3D look or of the baked look is downloaded (" + fetched.length + " requests" + (extra.length ? ", but: " + extra.join(", ") : "") + ")");
   await flatContext.close();
 
   // A page that asks for 3D in a browser with no WebGL at all gets the flat room, and says so
