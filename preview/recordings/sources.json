@@ -592,22 +592,6 @@
     }
   },
   {
-    "file": "amb-piece-land.mp3",
-    "kind": "ambient",
-    "seconds": 0.13,
-    "bytes": 1297,
-    "edit": "trimmed",
-    "source": {
-      "title": "Impact Sounds: impactWood_light_000",
-      "author": "Kenney (kenney.nl)",
-      "page": "https://kenney.nl/assets/impact-sounds",
-      "licence": "Creative Commons 0",
-      "licenceUrl": "http://creativecommons.org/publicdomain/zero/1.0/",
-      "licenceLine": "License.txt in the pack: \"Creative Commons Zero, CC0\"",
-      "fetched": "2026-11-13"
-    }
-  },
-  {
     "file": "amb-jukebox-skip.mp3",
     "kind": "ambient",
     "seconds": 1.2,

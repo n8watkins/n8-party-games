@@ -73,7 +73,6 @@ const SHIP = [
   { name: "result", src: ["interface-sounds", "confirmation_004.ogg"], max: 1.2, kind: "room" },
   // The rooms' own life, quiet: the bar and the star lounge.
   { name: "amb-lamp-swing", src: ["rpg-audio", "creak1.ogg"], max: 1.2, kind: "ambient" },
-  { name: "amb-piece-land", src: ["impact-sounds", "impactWood_light_000.ogg"], max: 0.5, kind: "ambient" },
   { name: "amb-jukebox-skip", src: 43404, max: 1.6, kind: "ambient" },
   { name: "amb-cat", src: 412017, max: 1.8, kind: "ambient" },
   { name: "amb-moth", src: ["rpg-audio", "cloth1.ogg"], max: 0.6, kind: "ambient" },

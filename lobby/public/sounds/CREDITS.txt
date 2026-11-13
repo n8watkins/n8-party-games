@@ -185,11 +185,6 @@ amb-lamp-swing.mp3
   https://kenney.nl/assets/rpg-audio
   Creative Commons 0, read on 2026-11-13
 
-amb-piece-land.mp3
-  "Impact Sounds: impactWood_light_000" by Kenney (kenney.nl)
-  https://kenney.nl/assets/impact-sounds
-  Creative Commons 0, read on 2026-11-13
-
 amb-jukebox-skip.mp3
   "record_scratch.wav" by simkiott
   https://freesound.org/people/simkiott/sounds/43404/

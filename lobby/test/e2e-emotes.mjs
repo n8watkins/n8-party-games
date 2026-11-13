@@ -9,11 +9,16 @@
 //                      and it says how long is left; nothing it does sets a wake-up or a timer
 //   flooding           a script hammering the button is closed; the others see one or two
 //   a game in play     emotes go through; their sounds stay quiet unless the game allows them
+//   the wheel          a tap opens it, a pick sends it; a number key sends one; the piece
+//                      performs it with its word over its head; the ring shows the cooldown
 //   an emote's sound   with no big screen, on the players' devices; with one, on the screen
-//                      only; nothing before a tap and nothing late after it; a muted player
+//                      only; nothing before a tap and nothing late after it; a muted player;
+//                      the one-tap mute, kept on the device
+//   the room's sounds  a phone hears its own steps and jump; with a big screen the room's
+//                      shared sounds (someone joining) come from the screen, not the phones;
+//                      no sound file is fetched before the room is drawn
 //
-// No emote has a recording yet (they wait on the owner's picks), so the pages are given a tiny
-// tone made here for one emote, as a data: URI.
+// The sounds are the room's own recordings (lobby/public/sounds).
 import { chromium } from "playwright";
 import { EMOTE_COOLDOWN_MS } from "../../party-kit/client/emotes.js";
 import { COUNT_MS } from "../shared/vote.js";
@@ -33,28 +38,6 @@ const section = (name) => console.log("\n     -- " + name);
 const debug = async (code) => (await (await fetch(api + "/debug/" + code)).json()).room;
 const quiet = (c, ms = 600) => sleep(ms).then(() => c.seen.filter((m) => m.t === "e" || m.t === "wait"));
 
-/** A quarter of a second of a soft tone, as a WAV data: URI. */
-function tone() {
-  const rate = 8000;
-  const n = rate / 4;
-  const data = Buffer.alloc(44 + n * 2);
-  data.write("RIFF", 0);
-  data.writeUInt32LE(36 + n * 2, 4);
-  data.write("WAVEfmt ", 8);
-  data.writeUInt32LE(16, 16);
-  data.writeUInt16LE(1, 20);
-  data.writeUInt16LE(1, 22);
-  data.writeUInt32LE(rate, 24);
-  data.writeUInt32LE(rate * 2, 28);
-  data.writeUInt16LE(2, 32);
-  data.writeUInt16LE(16, 34);
-  data.write("data", 36);
-  data.writeUInt32LE(n * 2, 40);
-  for (let i = 0; i < n; i++) data.writeInt16LE(Math.round(Math.sin((i / rate) * 2 * Math.PI * 440) * 8000 * Math.min(1, (n - i) / 400)), 44 + i * 2);
-  return "data:audio/wav;base64," + data.toString("base64");
-}
-const TONE = tone();
-
 const browser = await chromium.launch({ headless: true, args: ["--mute-audio", "--autoplay-policy=user-gesture-required"] });
 try {
   const errors = [];
@@ -65,10 +48,15 @@ try {
     page.on("console", (m) => m.type() === "error" && errors.push(`${name}: ${m.text()}`));
     return page;
   }
-  /** What a page's player did with the sounds it was asked to play, oldest first. */
-  const heard = (page) => page.evaluate(() => globalThis.__partyRoom.sounds.log.map((l) => l.what));
-  const notes = (page) => page.evaluate(() => [...document.querySelectorAll(".note")].map((n) => n.textContent));
-  const giveTone = (page) => page.evaluate((uri) => globalThis.__partyRoom.defineSound("slowclap", uri), TONE);
+  /** What a page's player did with the emote sounds it was asked to play, oldest first. */
+  const heard = (page) => page.evaluate(() => globalThis.__partyRoom.sounds.log.filter((l) => l.name.startsWith("emote-")).map((l) => l.what));
+  /** Every sound a page was asked for, by name, with what came of it. */
+  const asked = (page) => page.evaluate(() => globalThis.__partyRoom.sounds.log.map((l) => `${l.name}:${l.what}`));
+  /** The word over a piece's head, if an emote is on. */
+  const sticker = (page, word) =>
+    page
+      .waitForFunction((w) => [...document.querySelectorAll(".emote-sticker")].some((g) => g.getAttribute("display") !== "none" && g.textContent === w), word, { timeout: 2500 })
+      .then(() => word, async () => page.evaluate(() => [...document.querySelectorAll(".emote-sticker")].map((g) => g.getAttribute("display") + "/" + g.textContent).join(" ")));
 
   // ================================================================ the room's word
   section("the room's word: relays once, enforces the cooldown");
@@ -127,6 +115,8 @@ try {
   // ================================================================ an emote's sound
   section("no big screen: an emote's sound plays on the players' devices, after a tap");
   const phone = await open("phone");
+  const fetched = [];
+  phone.on("request", (r) => r.url().includes("/lobby/sounds/") && fetched.push({ url: r.url(), at: Date.now() }));
   const party = await call("POST", "/rooms", { nickname: "Ada" });
   const ada = connect(party);
   await ada.opened;
@@ -136,53 +126,112 @@ try {
   await phone.click("text=Join the party");
   await phone.waitForSelector("svg.scene text");
   // A reload: the page comes back to its seat with no tap yet, as a phone that was put away does.
+  fetched.length = 0;
   await phone.reload();
   await phone.waitForSelector("svg.scene text");
-  await giveTone(phone);
-  await sleep(600);
+  fetched.length = 0;
+  await sleep(1500);
+  check(fetched.length === 0, `no sound file is fetched before sound is allowed (${fetched.map((f) => f.url.split("/").pop()).join(", ")})`);
   ada.send({ t: "e", e: "slowclap" });
-  await phone.waitForFunction(() => globalThis.__partyRoom.sounds.log.length >= 1, null, { timeout: 4000 });
+  await phone.waitForFunction(() => globalThis.__partyRoom.sounds.log.some((l) => l.name.startsWith("emote-")), null, { timeout: 4000 });
   check((await heard(phone)).join() === "locked", "before any tap, the sound is not played: " + (await heard(phone)).join());
-  check((await notes(phone)).some((t) => t.includes("Ada: Slow clap")), "but the page still says who did it");
+  check((await sticker(phone, "*clap*")) === "*clap*", "but Ada's piece claps, with its word over its head");
   await phone.locator("svg.scene").dispatchEvent("pointerdown");
   await phone.waitForFunction(() => globalThis.__partyRoom.sounds.unlocked, null, { timeout: 4000 });
   await sleep(500);
   check((await heard(phone)).join() === "locked" && (await phone.evaluate(() => globalThis.__partyRoom.sounds.voices.length)) === 0, "a tap unlocks sound, and the one from before does not play late");
+  await phone.waitForFunction(() => globalThis.__partyRoom.sounds.decoded.size >= 20, null, { timeout: 15000 }).catch(() => {});
+  check(fetched.length >= 20, `once sound is allowed, the room's sounds are fetched (${fetched.length} files)`);
   await sleep(EMOTE_COOLDOWN_MS);
   ada.send({ t: "e", e: "slowclap" });
-  await phone.waitForFunction(() => globalThis.__partyRoom.sounds.log.length >= 2, null, { timeout: 4000 });
+  await phone.waitForFunction(() => globalThis.__partyRoom.sounds.log.filter((l) => l.name.startsWith("emote-")).length >= 2, null, { timeout: 4000 });
   check((await heard(phone)).at(-1) === "played", "after the tap the next one plays on the phone");
-  await sleep(EMOTE_COOLDOWN_MS);
-  ada.send({ t: "e", e: "tomato" });
-  await sleep(500);
-  check((await heard(phone)).length === 2, "an emote with no sound plays nothing");
 
-  section("muting a player: their sound is silent here, their name still shows");
+  section("the wheel: tap to open, tap one to send; a number key; the ring");
+  await phone.locator(".ctl-emote").click();
+  await phone.waitForSelector(".wheel-pick");
+  check((await phone.locator(".wheel-pick").count()) === 6, "the wheel holds six");
+  const names = await phone.locator(".wheel-name").allTextContents();
+  check(names.join() === "Popcorn,Slow clap,Laugh,Red card,Thumbs up,Tomato", "the starter six: " + names.join(", "));
+  const adaFrom = ada.seen.length;
+  await phone.locator(".wheel-pick").nth(5).click();
+  const thrown = await ada.wait((m) => m.t === "e", 3000, adaFrom);
+  check(thrown.e === "tomato" && (await phone.locator(".wheel-pick").count()) === 0, "a tap on the tomato sends it to the room, and the wheel closes");
+  await sleep(300);
+  check((await sticker(phone, "splat!")) === "splat!", "Bea's own piece throws it at once, on her phone");
+  check(await phone.locator(".ctl-emote.cooling").count() === 1, "the button recharges, with its ring");
+  check((await asked(phone)).at(-1)?.startsWith("emote-tomato"), "and with no big screen, her own phone plays its sound");
+  await phone.keyboard.press("2");
+  await sleep(400);
+  check(ada.seen.slice(adaFrom).filter((m) => m.t === "e").length === 1, "a number key during the cooldown sends nothing");
+  await sleep(EMOTE_COOLDOWN_MS);
+  check(await phone.locator(".ctl-emote.cooling").count() === 0, "after 1.5 s it is ready again");
+  await phone.keyboard.press("2");
+  check((await ada.wait((m) => m.t === "e" && m.e === "slowclap", 3000, adaFrom)).s !== ada.seat, "key 2 sends the second on the wheel");
+
+  section("the wheel's six are the player's own, kept on the device");
+  await phone.keyboard.press("Escape");
+  await phone.click("text=Your emote wheel");
+  await phone.locator(".loadout-slot").nth(0).click();
+  await phone.locator(".loadout-emote", { hasText: "Fuming" }).click();
+  await phone.click("text=Done");
+  const kept6 = await phone.evaluate(() => JSON.parse(localStorage.getItem("party-room:wheel")));
+  check(kept6[0] === "steam" && kept6.length === 6, "Fuming is on slot 1, and kept: " + kept6.join(", "));
+
+  section("muting a player: their sound is silent here, their emote still shows");
   await phone.evaluate(() => globalThis.__partyRoom.sounds.mutePlayer("Ada", true));
   await sleep(EMOTE_COOLDOWN_MS);
   ada.send({ t: "e", e: "slowclap" });
-  await phone.waitForFunction(() => globalThis.__partyRoom.sounds.log.length >= 3, null, { timeout: 4000 });
+  await phone.waitForFunction(() => globalThis.__partyRoom.sounds.log.filter((l) => l.name === "emote-slowclap").length >= 3, null, { timeout: 4000 });
   check((await heard(phone)).at(-1) === "muted", "Ada's slow clap is muted on Bea's phone");
   const kept = await phone.evaluate(() => JSON.parse(localStorage.getItem("party-kit:sound")));
   check(kept.players.names.includes("ada") && kept.players.room === party.code, "the mute is kept on the device, for this party");
   await phone.evaluate(() => globalThis.__partyRoom.sounds.mutePlayer("Ada", false));
 
-  section("with a big screen: the sound comes from the screen only");
+  section("the room's own sounds on a phone with no screen");
+  const mark = (await asked(phone)).length;
+  await phone.keyboard.down("ArrowRight");
+  await sleep(1200);
+  await phone.keyboard.up("ArrowRight");
+  await phone.keyboard.press("ArrowUp");
+  await sleep(900);
+  const mine = (await asked(phone)).slice(mark);
+  check(mine.some((x) => x.startsWith("step-")) && mine.some((x) => x.startsWith("jump:")) && mine.some((x) => x.startsWith("land:")), "Bea hears her own steps, jump and landing: " + [...new Set(mine.map((x) => x.split(":")[0]))].join(", "));
+
+  section("the one-tap mute: everything off, kept on the device");
+  await phone.locator(".sound-btn").click();
+  check((await phone.evaluate(() => JSON.parse(localStorage.getItem("party-kit:sound")).muted)) === true, "one tap, and sound is off on this device");
+  await phone.keyboard.press("ArrowUp");
+  await sleep(300);
+  check((await asked(phone)).at(-1) === "jump:muted", "and a jump is silent");
+  await phone.locator(".sound-btn").click();
+
+  section("with a big screen: shared sounds come from the screen only");
   const screen = await open("screen", { width: 1280, height: 720 });
   await screen.goto(base + "/lobby/?join=" + party.pin + "&as=screen");
   await screen.waitForSelector(".door-title");
   await screen.click("text=Show the room here");
   await screen.waitForSelector("svg.scene text");
-  await giveTone(screen);
   await sleep(800);
   const phoneBefore = (await heard(phone)).length;
   await sleep(EMOTE_COOLDOWN_MS);
   ada.send({ t: "e", e: "slowclap" });
-  await screen.waitForFunction(() => globalThis.__partyRoom.sounds.log.length >= 1, null, { timeout: 4000 });
+  await screen.waitForFunction(() => globalThis.__partyRoom.sounds.log.some((l) => l.name === "emote-slowclap"), null, { timeout: 4000 });
   await sleep(400);
-  check((await heard(screen)).at(-1) === "played", "the screen plays it (it was clicked on its way in)");
+  check((await heard(screen)).at(-1) === "played", "the screen plays the emote's sound (it was clicked on its way in)");
   check((await heard(phone)).length === phoneBefore, "the phone does not");
-  check((await notes(phone)).some((t) => t.includes("Ada: Slow clap")) && (await notes(screen)).some((t) => t.includes("Ada: Slow clap")), "both say who did it");
+  check((await sticker(phone, "*clap*")) === "*clap*" && (await sticker(screen, "*clap*")) === "*clap*", "both show it");
+  const phoneMark = (await asked(phone)).length;
+  const screenMark = (await asked(screen)).length;
+  const cy = connect(await call("POST", "/join/" + party.pin, { nickname: "Cy" }));
+  await cy.opened;
+  await screen.waitForFunction((n) => globalThis.__partyRoom.sounds.log.slice(n).some((l) => l.name === "join"), screenMark, { timeout: 4000 });
+  await phone.keyboard.press("ArrowUp");
+  await sleep(500);
+  const phoneHeard = (await asked(phone)).slice(phoneMark);
+  check(!phoneHeard.some((x) => x.startsWith("join:")), "Cy coming in chimes on the screen, not on Bea's phone");
+  check(phoneHeard.some((x) => x.startsWith("jump:")), "while Bea's own jump still sounds on her phone");
+  cy.ws.close();
   ada.ws.close();
 
   check(errors.length === 0, "no page reported an error" + (errors.length ? ": " + errors.join(" | ") : ""));
