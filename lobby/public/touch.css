@@ -1,0 +1,204 @@
+/* What can be touched on the wall (touch.js): one language for all of it. A small round mark in
+   the top right corner of the thing, a press when it is tapped, and a hand on a laptop. The
+   first time a device is in a room the marks say "tap" once. */
+.touch-layer {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+.spot {
+  position: absolute;
+  top: 0;
+  left: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  pointer-events: auto;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transform-origin: 0 0;
+}
+.spot-mark {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: rgba(23, 16, 12, 0.78);
+  border: 1.5px solid rgba(246, 217, 160, 0.55);
+  color: #f6d9a0;
+  opacity: 0.8;
+  transition: opacity 0.2s, transform 0.2s;
+}
+/* A poster's mark sits in the corner of its art, clear of the sign's words; the feature's at its foot. */
+.spot-feature .spot-mark {
+  top: auto;
+  bottom: 30%;
+  right: 50%;
+  transform: translateX(50%);
+}
+.spot:focus-visible {
+  outline: 3px solid #fff;
+  outline-offset: 2px;
+}
+@media (hover: hover) and (pointer: fine) {
+  .spot:hover {
+    box-shadow: inset 0 0 0 2px rgba(246, 217, 160, 0.55);
+  }
+  .spot:hover .spot-mark {
+    opacity: 1;
+  }
+}
+.spot.pressed {
+  animation: spot-press 0.32s ease-out;
+}
+@keyframes spot-press {
+  0% {
+    background: rgba(246, 217, 160, 0);
+  }
+  30% {
+    background: rgba(246, 217, 160, 0.22);
+  }
+  100% {
+    background: rgba(246, 217, 160, 0);
+  }
+}
+/* The first time: every mark pulses and says "tap" for a few seconds. */
+.touch-layer.hinting .spot-mark {
+  opacity: 1;
+  animation: spot-hint 1.2s ease-in-out 4;
+}
+.touch-layer.hinting .spot-board .spot-mark::after {
+  content: "tap";
+  position: absolute;
+  right: 28px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  background: rgba(23, 16, 12, 0.88);
+  color: #f6d9a0;
+  font-weight: 800;
+  font-size: 13px;
+}
+@keyframes spot-hint {
+  50% {
+    transform: scale(1.25);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .spot.pressed,
+  .touch-layer.hinting .spot-mark {
+    animation: none;
+  }
+}
+/* A game covering the room, a card or a sheet: nothing on the wall is offered. */
+#app.in-game .touch-layer {
+  display: none;
+}
+
+/* A poster's card: small, beside the poster, gone by itself. */
+.poster-card {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: min(300px, calc(100vw - 16px));
+  display: grid;
+  gap: 6px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: var(--cream);
+  color: #1e1410;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.55);
+  font-size: 14px;
+  line-height: 1.35;
+  cursor: pointer;
+}
+.poster-card p {
+  margin: 0;
+}
+.poster-name {
+  font: 700 20px/1.1 var(--display);
+}
+.poster-facts {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  font-weight: 700;
+}
+.poster-badge {
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-weight: 800;
+  font-size: 12px;
+}
+.badge-any {
+  background: #3db8ff;
+  color: #06263a;
+}
+.badge-phones {
+  background: #b79cf7;
+  color: #24124d;
+}
+.badge-screen {
+  background: #ffc93c;
+  color: #3a2a00;
+}
+.poster-how {
+  color: #5a4636;
+}
+.poster-best {
+  font-weight: 800;
+  color: #9c2b20;
+}
+
+/* The join sign opened large: the code and its QR code, for showing to a friend. */
+.code-large {
+  display: grid;
+  justify-items: center;
+  gap: 10px;
+  text-align: center;
+}
+.code-large img {
+  width: min(62vmin, 300px);
+  height: auto;
+  aspect-ratio: 1;
+  border-radius: 12px;
+  background: #f4ead2;
+  padding: 8px;
+}
+.code-large .code-digits-large {
+  font: 800 clamp(48px, 12vmin, 96px) / 1 var(--mono);
+  letter-spacing: 0.12em;
+}
+@media (max-height: 520px) {
+  .code-large {
+    grid-template-columns: auto auto;
+    align-items: center;
+    gap: 18px;
+  }
+  .code-large img {
+    width: min(58vh, 240px);
+    grid-row: span 3;
+  }
+}
+
+/* The board opens itself in both drawings: its spot is the mark only, and taps go through. The
+   drawings' own corner arrows give way to the one mark every touchable thing has. */
+.spot.spot-only {
+  pointer-events: none;
+}
+svg.scene path:has(+ .board-hit),
+.l3-open-mark {
+  display: none;
+}
+.code-back {
+  cursor: pointer;
+}
+.sheet.code-large {
+  width: auto;
+  max-width: calc(100vw - 32px);
+}

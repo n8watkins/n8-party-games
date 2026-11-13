@@ -19,11 +19,13 @@ export const PIECE_HEIGHT = 141;
  * with tiny pieces. The width rule above still sets the least it zooms.
  */
 export const PIECE_CSS = 90;
+/** The top of the signs under the posters, in world units (scene.js, SIGN_TOP). */
+export const SIGN_TOP = 454;
 /**
- * But never so close that the signs under the posters leave the top of the screen: "Closer"
- * always shows at least this much of the room above the foot of the frame (from the signs down).
+ * But never so close that the signs go under the buttons in the top corner (Rooms and the door,
+ * 44 pixels and their margin): the signs always start at least this far down the screen.
  */
-export const CLOSER_SHOWS = 520;
+export const CORNER_CLEAR = 58;
 /** An upright phone shows this much of the room's width around the player. */
 export const UPRIGHT_WIDTH = 720;
 
@@ -42,7 +44,7 @@ export function camera({ w, h, bar = 0, mode = "room", focusX = 960, phone = fal
   else if (mode === "closer") {
     const wide = (w / (FRAME.right - FRAME.left)) * CLOSER;
     // A phone zooms in to a comfortable piece, as long as the signs stay on the screen.
-    const comfy = phone ? Math.min(PIECE_CSS / PIECE_HEIGHT, open / CLOSER_SHOWS) : 0;
+    const comfy = phone ? Math.min(PIECE_CSS / PIECE_HEIGHT, (open - CORNER_CLEAR) / (frame.bottom - SIGN_TOP)) : 0;
     scale = Math.max(scale, wide, comfy);
   }
   const width = w / scale;

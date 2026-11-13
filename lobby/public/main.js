@@ -9,6 +9,7 @@ import { h } from "./dom.js";
 import { GAME_VIEWS } from "./games/views.js";
 import { farewellKind, goFront } from "./farewell.js";
 import { Hud } from "./hud.js";
+import { TouchSpots } from "./touch.js";
 import { CountTick } from "./count-tick.js";
 import { RoomMenu } from "./room-menu.js";
 import { chosenLook, hardware3D, openRoomView, preferFlat } from "./room-view.js";
@@ -51,11 +52,15 @@ let board = null;
 let menu = null;
 /** The count, large, over the foot of the room (count-tick.js). */
 let count = null;
+/** What can be touched on the wall: the board, the posters, the join sign, the 3D room's feature (touch.js). */
+let touch = null;
 /** What every room view is opened with, apart from its look and skin. */
 let viewBase = null;
 /** The room (skin) the view on the page draws, and whether it is being swapped for another. */
 let shownRoom = null;
 let swapping = false;
+/** The room a start link asked for, until the room has answered the pick (enter). */
+let pendingRoom = null;
 /** The black that comes down over the room while it changes (rooms.css). */
 let dim = null;
 /** Each piece as last heard of from a move, so a room view made mid-party puts it where it is now. */
@@ -96,6 +101,8 @@ function teardown() {
   app.classList.remove("in-game");
   menu?.destroy();
   count?.destroy();
+  touch?.destroy();
+  touch = null;
   count = null;
   menu = null;
   hud?.destroy();
@@ -121,7 +128,7 @@ async function enter() {
   if (room && startRoom && startRoom !== room.room && room.picker && (room.picker.seat === -1 ? link.you.role === "screen" : room.picker.seat === link.you.seat)) {
     link.send({ t: "pick", v: startRoom });
     // Taken as said: the room answers with the same, and nothing in between is newer.
-    skin = room.room = startRoom;
+    skin = room.room = pendingRoom = startRoom;
   }
   const made = room ? await openRoomView(app, { ...viewBase, look, skin }) : null;
   entering = false;
@@ -134,6 +141,8 @@ async function enter() {
   scene = made;
   shownRoom = skin;
   dim = h("div", "room-dim", "", app);
+  touch = new TouchSpots(app, dim, { code: () => ({ pin: room?.pin ?? "", qr: viewBase.qr, host: viewBase.host }), scene: () => scene });
+  touch.build(room);
   stageBox = h("div", "stage", "", app);
   stageBox.hidden = true;
   scene.build(room);
@@ -223,7 +232,7 @@ async function showRoom() {
     const before = new Set(app.children);
     const made = await openRoomView(app, { ...viewBase, compact, look: asked, skin });
     // Each drawing appends itself; it belongs under the stage and the words, where the last one was.
-    for (const el of [...app.children]) if (!before.has(el)) app.insertBefore(el, dim);
+    for (const el of [...app.children]) if (!before.has(el)) app.insertBefore(el, touch?.el ?? dim);
     if (!room || !scene?.paused) {
       made.destroy();
       break;
@@ -266,6 +275,8 @@ function simpler() {
 function showBoard() {
   if (board || !room || room.phase !== "lobby") return;
   letGo();
+  touch?.pressBoard();
+  touch?.closeCard();
   board = openBoard(app, { room, own: isPlayer() ? link.you.seat : -1, onClose: () => hideBoard() });
   history.pushState({ board: true }, "");
 }
@@ -295,6 +306,8 @@ let roomSeenAt = 0;
 
 function apply(next) {
   room = next;
+  // Until the room answers the start link's pick, its older words do not undo it.
+  if (pendingRoom) room.room = pendingRoom;
   voteAt = roomSeenAt = performance.now();
   if (!scene) return;
   scene.setRoom(room, voteAt);
@@ -329,10 +342,16 @@ function tellLit(now) {
 link.on("room", (next) => {
   if (scene) return apply(next);
   room = next;
+  if (pendingRoom) room.room = pendingRoom;
   if (!entering) void enter();
 });
 
 link.on("message", (msg) => {
+  // A change of room is kept even while the room is still being drawn for the first time.
+  if (msg.t === "pick" || msg.t === "pick-no") {
+    pendingRoom = null;
+    if (room) room.room = msg.v;
+  }
   if (!scene) return;
   const now = performance.now();
   switch (msg.t) {
@@ -507,7 +526,10 @@ function press(id, d, down) {
   const i = held.findIndex((k) => k.id === id);
   if (i !== -1) held.splice(i, 1);
   if (down) held.push({ id, d });
-  if (down) menu?.fold();
+  if (down) {
+    menu?.fold();
+    touch?.closeCard();
+  }
   steerNow(wanted());
 }
 
@@ -530,6 +552,7 @@ addEventListener("keydown", (e) => {
   if (!scene || e.target instanceof HTMLInputElement) return;
   if (e.key === "Escape" && board) return hideBoard();
   if (e.key === "Escape" && menu?.isOpen) return menu.close();
+  if (e.key === "Escape" && touch?.card) return touch.closeCard();
   if (e.key === "Escape") return hud?.sheet ? hud.sheet.click() : hud?.openSheet();
   if (e.key in WALK_KEYS) {
     if (!e.repeat) press(e.key.toLowerCase(), WALK_KEYS[e.key], true);
@@ -601,6 +624,7 @@ function frame(t) {
   if (!view || size !== viewSize) view = aim;
   else for (const k of ["x", "y", "width", "height"]) view[k] += (aim[k] - view[k]) * Math.min(1, dt * 9);
   viewSize = size;
+  touch?.place(view, scene);
   // Under a game that covers everything the room is not drawn.
   if (!app.classList.contains("in-game") && !swapping) {
     scene.frame(now, dt, pilot, view);
