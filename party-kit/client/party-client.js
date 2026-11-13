@@ -189,12 +189,13 @@ export class PartyClient {
       case "pong": {
         const t1 = Date.now();
         const rtt = t1 - msg.c;
-        // Keep the estimate from the quickest round trip seen lately: it has the least error.
-        if (!this.rtt || rtt <= this.rtt * 1.5) {
-          const offset = msg.s + rtt / 2 - t1;
-          this.clockOffset = this.rtt ? this.clockOffset * 0.7 + offset * 0.3 : offset;
-          this.rtt = this.rtt ? Math.min(this.rtt * 1.05, rtt) : rtt;
-        }
+        // The quickest round trip has the least error: a quicker one than any lately replaces the
+        // estimate outright (a round that starts while the page is busy loading can make the first
+        // round trip slow and the estimate off by a second); one nearly as quick nudges it.
+        const offset = msg.s + rtt / 2 - t1;
+        if (!this.rtt || rtt < this.rtt) this.clockOffset = offset;
+        else if (rtt <= this.rtt * 1.5) this.clockOffset = this.clockOffset * 0.7 + offset * 0.3;
+        this.rtt = this.rtt ? Math.min(this.rtt * 1.05, rtt) : rtt;
         break;
       }
       case "start":
@@ -231,6 +232,8 @@ export class PartyClient {
     this.pingPace = ms;
     clearInterval(this.pingTimer);
     this.ping();
+    // A round is starting: a few quick round trips straight away, so the clock is right from its first second.
+    if (ms === PING_EVERY_MS) for (const after of [250, 600, 1000]) setTimeout(() => this.pingPace === PING_EVERY_MS && this.ping(), after);
     this.pingTimer = setInterval(() => this.ping(), ms);
   }
 
