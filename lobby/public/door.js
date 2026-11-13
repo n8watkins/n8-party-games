@@ -7,6 +7,7 @@
 // that already has its screen offers only playing.
 import { botCheck } from "/party-kit/client/bot-check.js";
 import { h } from "./dom.js";
+import { goFullscreen } from "./screen-fit.js";
 import { ROLE_CARDS, doorPlan } from "./shared/entry.js";
 import { nameList } from "./shared/tonight.js";
 
@@ -184,6 +185,8 @@ export function openDoor(root, link, opts) {
 
     form.addEventListener("submit", async (e) => {
       e.preventDefault();
+      // The tap that takes someone into the room takes the browser's bars away too, where it can.
+      if (e.isTrusted) goFullscreen();
       error.hidden = true;
       const nickname = name ? name.value.trim() : "";
       if (as === "player" && !nickname) return fail("Type a name first.");

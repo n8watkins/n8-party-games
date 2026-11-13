@@ -1,0 +1,48 @@
+/* Getting the browser's bars out of the way (screen-fit.js). */
+
+/* The room is exactly as tall as what is visible: iPhone Safari's bars come and go, and the
+   visual viewport says what is left. Without a visual viewport, the dynamic viewport height. */
+#app {
+  bottom: auto;
+  height: 100%;
+  height: var(--seen-h, 100dvh);
+}
+
+/* One tap back into full screen, after the browser dropped out of it by itself. */
+.full-back {
+  position: absolute;
+  top: max(64px, calc(env(safe-area-inset-top) + 64px));
+  right: max(10px, env(safe-area-inset-right));
+  min-height: 44px;
+  padding: 0 18px;
+  border: 0;
+  border-radius: 22px;
+  background: var(--cream);
+  color: #1e1410;
+  font-weight: 800;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+  cursor: pointer;
+}
+
+/* An iPhone: how to play without the browser bar. */
+.sheet.home-tip {
+  width: min(100%, 520px);
+}
+.home-steps {
+  margin: 0;
+  padding-left: 1.4em;
+  display: grid;
+  gap: 6px;
+  line-height: 1.35;
+}
+@media (max-height: 520px) {
+  .home-steps {
+    font-size: 14px;
+    gap: 2px;
+  }
+}
+
+/* Every button over the room is at least 44 pixels tall, the zoom switch on a short screen too. */
+.pill-btn {
+  min-height: 44px;
+}

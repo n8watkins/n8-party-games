@@ -13,6 +13,7 @@ import { TouchSpots } from "./touch.js";
 import { CountTick } from "./count-tick.js";
 import { RoomMenu } from "./room-menu.js";
 import { chosenLook, hardware3D, openRoomView, preferFlat } from "./room-view.js";
+import { ScreenFit, fitVisible } from "./screen-fit.js";
 import { SlowWatch } from "./slow-room.js";
 import { IMPACT_MS } from "./shared/bump.js";
 import { camera } from "./shared/camera.js";
@@ -54,6 +55,8 @@ let menu = null;
 let count = null;
 /** What can be touched on the wall: the board, the posters, the join sign, the 3D room's feature (touch.js). */
 let touch = null;
+/** Full screen, and the way to it on an iPhone (screen-fit.js). */
+let fit = null;
 /** What every room view is opened with, apart from its look and skin. */
 let viewBase = null;
 /** The room (skin) the view on the page draws, and whether it is being swapped for another. */
@@ -103,6 +106,8 @@ function teardown() {
   count?.destroy();
   touch?.destroy();
   touch = null;
+  fit?.destroy();
+  fit = null;
   count = null;
   menu = null;
   hud?.destroy();
@@ -165,6 +170,8 @@ async function enter() {
   });
   menu = new RoomMenu(hud.el, { role: link.you.role, seat: link.you.seat, onPick: (id) => link.send({ t: "pick", v: id }) });
   count = new CountTick(hud.el, { buzz: isPlayer() ? buzz : null });
+  fit = new ScreenFit(menu.corner, app);
+  void keepAwake();
   slow.start(scene.look, performance.now(), simpler);
   zoom = phone() ? "closer" : "room";
   apply(room);
@@ -636,4 +643,6 @@ function frame(t) {
 
 // ---------------------------------------------------------------- begin
 
+// The room is laid out against what is really visible, whatever the browser's bars are doing.
+fitVisible();
 if (params.has("join") || params.has("start") || !link.resume()) showDoor();
