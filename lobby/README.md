@@ -21,7 +21,7 @@ Make each window short and wide to see what a sideways phone sees, or use the br
 1. In the first window choose "Start a party", type a name and start.
 2. In the second window type the four-digit code from the sign on the wall, type a name and join.
 3. Walk with the arrow keys (or A and D), jump with the up arrow (or Space), bump with B, and open the door button with Escape. On a touch screen the same things are four buttons, and on a laptop each button shows its key.
-4. Stand one piece just in front of the other and bump: the bumper winds up and slams, the other is thrown back, tips over and gets up. The bump button's ring shows the cooldown.
+4. Stand one piece just in front of the other and bump: the bumper is picked up by its head and kicks with its base, the other is thrown back feet first, tips over and gets up. The bump button's ring shows the cooldown.
 5. Stand both pieces in Coin Flip's light: "Starts in 3" counts down, the game plays, and both are back by the door with points on the Tonight board.
 6. Click the Tonight board on the wall to open it large; click anywhere, press Escape or go back to close it.
 7. Stand one piece in each lit light for a tie and its coin toss.
@@ -91,7 +91,7 @@ The 3D look also loads two small fonts of its own (`public/look3d/fonts/`, with 
 
 Pieces move with weight in the 3D look: they lean into a walk, rock from foot to foot, stretch in the air and squash on landing (`public/look3d/pieces.js`).
 The bump is the shared one (`shared/bump.js`): the 3D look draws the same states at the same moments as the flat drawing, from the same poses, in `bumpPose` in that file under the heading "THE BUMP, DRAWN".
-The bumper winds up and slams forward; whoever it hits is squashed, thrown, lies on the floor with crosses for eyes, gets up and flickers while it cannot be knocked again.
+The bumper is picked up by its head and kicks with its base; whoever it hits is squashed, thrown feet first, lies on the floor with crosses for eyes, gets up and flickers while it cannot be knocked again.
 There is a burst of sparks where the blow lands, dust where the piece comes down, a small jolt of the picture, and a ring under your own piece that fills as your bump recharges.
 The 3D wall follows the flat one: a game's name is on its box and nowhere else, the sign under it says one thing about the game, how many play and on what, and the Tonight board opens when it is tapped.
 
@@ -145,8 +145,8 @@ When a game is added to the wall, its plate must be rendered before the baked lo
 ## The bump
 
 Everyone has it, and it is meant to be felt: you pick your piece up and knock somebody over.
-The bumper lifts and leans back (110 ms), slams forward (60 ms), and both pieces hold still for a moment as the blow lands (50 ms) with a burst, a jolt of the picture and a short buzz on both phones where the phone has one.
-Whoever was hit is squashed, thrown back through the air while tipping right over (260 ms), lies on the floor (110 ms) and gets up (150 ms).
+It is a kick, never a headbutt. The bumper is picked up by its head, as if a hand had pinched the top, and its base swings back behind it (110 ms); the base whips forward and up into the other piece low down while the head barely moves (60 ms), and both pieces hold still for a moment as the blow lands (50 ms) with a burst, a jolt of the picture and a short buzz on both phones where the phone has one.
+Whoever was hit is kicked low, so its base is swept out from under it: it is squashed, thrown back through the air feet first while tipping right over (260 ms), lies on the floor (110 ms) and gets up (150 ms).
 
 | | Chosen | Why |
 | --- | --- | --- |
@@ -318,6 +318,7 @@ A lobby nobody touches costs nothing: no timer, no messages, nothing counted, an
 - `npm run lobby:shots:3d` is the same kind of run in the 3D look: a big screen, a sideways phone, an upright phone and a laptop in one live room, with checks that the 3D look drew it, that the words say what the room says, and that a device without hardware WebGL falls back to the flat drawing. Stills land in `lobby/test/shots/3d-live/`.
 - `npm run lobby:stills:3d` takes a still of every skin and of the bar at every moment from posed rooms, into `lobby/test/shots/3d/`, and checks that every room's signs are the same size and in the same place. With `-- --only=loops` it takes each live room's five second show frame by frame. `python3 lobby/test/make-room-pictures.py` then turns the stills and the frames into the pictures the rooms page shows. `-- --gpu=1` uses the Windows side's graphics card, which is much quicker.
 - `npm run lobby:shots:3d` also checks the rooms' life: that two devices in a room agree what time it is in the room and when each passing thing next comes, that a bump by the room's feature sets it off on both and announces its sound by name, and that none of it sends a message.
+- `npm run lobby:shots:bump` takes the bump moment by moment in both looks, flat and 3D, on a big screen and a sideways phone, with each page's clock held still: wind-up, contact, follow-through, the victim in the air, landed, getting up and up again. In the flat look it also reads off the page that the bumper's base is what travels and its head stays put. Stills land in `lobby/test/shots/bump/`.
 - `npm run test:cork:3d` plays several rounds of Cork & Bell inside a room that is in the 3D look, on the Windows side's graphics card: under the game the 3D room is hidden and draws nothing, both pictures keep their WebGL context, the room draws again afterwards, and memory does not climb.
 - `npm run lobby:measure:3d` measures the 3D look's frame time on the Windows side's graphics card, in a headless Chrome. It is a desktop card at a phone's screen size, not a phone.
 - The baked look uses the same tools with `--look=baked`: `npm run lobby:shots:3d -- --look=baked` (the live run), `npm run test:cork:3d -- --look=baked --room=bar` (the room hides under a round of Cork & Bell and comes back), and `npm run lobby:measure:3d -- --look=baked --rooms=bar`. `node lobby/test/shoot-baked-stills.mjs` takes its posed stills, `node lobby/test/side-by-side.mjs` sets them beside the landing page's hero, and `node lobby/test/weigh-baked.mjs` prints what each look downloads.

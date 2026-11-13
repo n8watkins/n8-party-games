@@ -12,9 +12,12 @@ import {
   HIT_PAUSE_MS,
   IMMUNE_MS,
   IMPACT_MS,
+  KICK_HEIGHT,
   KNOCK_CLEAR,
   KNOCK_DISTANCE,
   KNOCK_MIN,
+  PIECE_HEAD,
+  PIECE_PIVOT,
   RECOVER_MS,
   STUN_MS,
   WINDUP_MS,
@@ -179,24 +182,64 @@ describe("the bumper's states", () => {
     expect(b).toEqual(a);
   });
 
-  it("lifts and leans back, then slams forward the way it faces", () => {
+  /**
+   * Where the bumper's head and base are, from a pose, for a piece standing at x = 0: sideways
+   * (positive is the way it faces when dir is 1) and up from the floor. The pose tilts the
+   * piece clockwise about a point `pivot` above its foot.
+   */
+  function ends(pose) {
+    const a = (pose.tilt * Math.PI) / 180;
+    const base = { x: pose.dx - pose.pivot * Math.sin(a), up: pose.lift + pose.pivot * (1 - Math.cos(a)) };
+    const head = { x: pose.dx + (PIECE_HEAD - pose.pivot) * Math.sin(a), up: pose.lift + pose.pivot + (PIECE_HEAD - pose.pivot) * Math.cos(a) };
+    return { base, head };
+  }
+
+  it("is a kick: picked up by the head, the base swings back, then whips forward and up, low into the other piece", () => {
     const up = attackPose(WINDUP_MS - 1, 1);
     expect(up.state).toBe("winding");
+    expect(up.pivot).toBe(PIECE_HEAD);
+    // Picked up: the whole piece is off the floor, and the base is drawn back behind the head.
     expect(up.lift).toBeGreaterThan(30);
-    expect(up.dx).toBeLessThan(-15);
-    expect(up.tilt).toBeLessThan(-12);
-    const slam = attackPose(IMPACT_MS - 1, 1);
-    expect(slam.dx).toBeGreaterThan(40);
-    expect(slam.tilt).toBeGreaterThan(15);
-    expect(slam.lift).toBeLessThan(15);
+    expect(ends(up).base.x).toBeLessThan(-60);
+    expect(Math.abs(ends(up).head.x)).toBeLessThan(12);
+    const kick = attackPose(IMPACT_MS - 1, 1);
+    // The base is what reaches the other piece, far in front, at the height of its belly.
+    expect(ends(kick).base.x).toBeGreaterThan(80);
+    expect(ends(kick).base.up).toBeGreaterThan(KICK_HEIGHT - 12);
+    expect(ends(kick).base.up).toBeLessThan(KICK_HEIGHT + 20);
+    // The head barely moves forward: never a headbutt. The base leads it by a long way, all through the strike.
+    expect(Math.abs(ends(kick).head.x)).toBeLessThan(16);
+    for (let ms = IMPACT_MS - 6; ms < IMPACT_MS + HIT_PAUSE_MS + RECOVER_MS * 0.4; ms += 5) {
+      const now = ends(attackPose(ms, 1, true));
+      expect(now.base.x - now.head.x, `base ahead of head at ${ms}`).toBeGreaterThan(20);
+    }
+    for (let ms = 0; ms < 700; ms += 5) {
+      const now = ends(attackPose(ms, 1, true));
+      expect(Math.abs(now.head.x), `head at ${ms}`).toBeLessThan(22);
+      expect(now.base.up, `base above the floor at ${ms}`).toBeGreaterThanOrEqual(-0.001);
+    }
+    // The follow-through carries the base on up past where the other piece was.
+    const through = attackPose(IMPACT_MS + HIT_PAUSE_MS + RECOVER_MS * 0.26, 1, true);
+    expect(ends(through).base.up).toBeGreaterThan(ends(kick).base.up + 25);
+    // Set back down with a small settle: on the floor, upright, squashed a little, then still.
+    const settle = attackPose(IMPACT_MS + HIT_PAUSE_MS + RECOVER_MS * 0.9, 1, true);
+    expect(settle).toMatchObject({ state: "recovering", tilt: 0, dx: 0 });
+    expect(settle.lift).toBeLessThan(1);
+    expect(settle.sy).toBeLessThan(0.97);
     // Facing left it is the mirror image.
     const left = attackPose(IMPACT_MS - 1, -1);
-    expect(left.dx).toBeCloseTo(-slam.dx);
-    expect(left.tilt).toBeCloseTo(-slam.tilt);
-    expect(left.lift).toBeCloseTo(slam.lift);
-    expect(attackPose(5000, 1)).toEqual({ state: "idle", dx: 0, lift: 0, tilt: 0, sx: 1, sy: 1 });
+    expect(left.dx).toBeCloseTo(-kick.dx);
+    expect(left.tilt).toBeCloseTo(-kick.tilt);
+    expect(left.lift).toBeCloseTo(kick.lift);
+    expect(ends(left).base.x).toBeCloseTo(-ends(kick).base.x);
+    expect(attackPose(5000, 1)).toEqual({ state: "idle", pivot: 0, dx: 0, lift: 0, tilt: 0, sx: 1, sy: 1 });
     const start = attackPose(0, 1);
     expect(Math.abs(start.dx) + Math.abs(start.lift) + Math.abs(start.tilt)).toBe(0);
+  });
+
+  it("keeps the shape the drawings read: state, dx, lift, tilt, pivot, sx, sy", () => {
+    for (const ms of [0, 60, 130, 200, 300, 400, 900]) expect(Object.keys(attackPose(ms, 1, true)).sort()).toEqual(["dx", "lift", "pivot", "state", "sx", "sy", "tilt"]);
+    for (const ms of [0, 180, 300, 520, 650, 800, 5000]) expect(Object.keys(knockPose(ms, 500, 710))).toEqual(expect.arrayContaining(["lift", "state", "sx", "sy", "tilt", "x"]));
   });
 
   it("never jumps from one frame to the next", () => {
@@ -227,26 +270,31 @@ describe("the knocked piece's states", () => {
     expect(knockState(-1)).toBe("up");
   });
 
-  it("is thrown from where it stood to where it lands, tips right over, and rights itself", () => {
+  it("is kicked low: its base is swept out from under it, it goes feet first, lands on its back and rights itself", () => {
     const [from, to] = [500, 710];
     expect(knockPose(IMPACT_MS - 1, from, to)).toMatchObject({ state: "standing", x: from, tilt: 0, lift: 0 });
     const squashed = knockPose(IMPACT_MS + HIT_PAUSE_MS - 1, from, to);
     expect(squashed.state).toBe("hit");
     expect(squashed.sx).toBeLessThan(0.9);
     expect(squashed.sy).toBeGreaterThan(1.05);
+    // Thrown to the right, it turns anticlockwise about its middle: the base leads, the head trails.
+    expect(squashed.tilt).toBeLessThan(-10);
     const mid = knockPose(IMPACT_MS + HIT_PAUSE_MS + FLIGHT_MS / 2, from, to);
     expect(mid.state).toBe("flying");
     expect(mid.x).toBeGreaterThan(from + 100);
     expect(mid.x).toBeLessThan(to);
     expect(mid.lift).toBeGreaterThan(30);
-    expect(mid.tilt).toBeGreaterThan(30);
+    expect(mid.tilt).toBeLessThan(-30);
+    const a = (mid.tilt * Math.PI) / 180;
+    // Where its base and its head are along the floor: the feet are ahead of the head.
+    expect(mid.x - PIECE_PIVOT * Math.sin(a)).toBeGreaterThan(mid.x + (PIECE_HEAD - PIECE_PIVOT) * Math.sin(a) + 40);
     const flat = knockPose(STUN_MS - GETUP_MS - 1, from, to);
-    expect(flat).toMatchObject({ state: "down", x: to, tilt: 90 });
+    expect(flat).toMatchObject({ state: "down", x: to, tilt: -90 });
     expect(flat.lift).toBeLessThan(0);
     const up = knockPose(STUN_MS, from, to);
     expect(up).toEqual({ state: "safe", x: to, dx: 0, lift: 0, tilt: 0, sx: 1, sy: 1 });
     // Thrown to the left it tips the other way.
-    expect(knockPose(STUN_MS - GETUP_MS - 1, 710, 500).tilt).toBe(-90);
+    expect(knockPose(STUN_MS - GETUP_MS - 1, 710, 500).tilt).toBe(90);
   });
 
   it("moves without a jump from one frame to the next, and ends exactly where the room put it", () => {
@@ -264,9 +312,10 @@ describe("the knocked piece's states", () => {
     expect(last.x).toBe(to);
   });
 
-  it("puts the burst on the side of the piece the blow came from", () => {
-    expect(impactPoint(460, 670)).toEqual({ x: 434, y: ROOM.floorY - 96 });
-    expect(impactPoint(460, 250)).toEqual({ x: 486, y: ROOM.floorY - 96 });
+  it("puts the burst where the kick lands: low, on the side of the piece the blow came from", () => {
+    expect(impactPoint(460, 670)).toEqual({ x: 436, y: ROOM.floorY - KICK_HEIGHT });
+    expect(impactPoint(460, 250)).toEqual({ x: 484, y: ROOM.floorY - KICK_HEIGHT });
+    expect(KICK_HEIGHT).toBeLessThan(PIECE_PIVOT);
   });
 });
 
