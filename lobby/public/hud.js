@@ -1,10 +1,10 @@
 // Everything laid over the room: the bottom line a big screen shows, a player's buttons, the
 // door button and its "Leave the party" sheet, notes ("Tom left"), the card after a game, and
 // what to say when the connection or the room is gone.
+import { Controls } from "./controls.js";
 import { ICONS, h, icon } from "./dom.js";
 import { playerLine, statusLine } from "./shared/status.js";
 import { SETTLE_MS } from "./shared/vote.js";
-import { BUMP_COOLDOWN_MS } from "./shared/world.js";
 
 const PLACES = ["1st", "2nd", "3rd", "4th"];
 
@@ -15,6 +15,7 @@ const CLOSED = {
   seat_lost: ["Your seat was given up", "You were away for a while, so the room let your seat go. Join again with the code."],
   left: ["You left the party", "Come back any time with the code."],
   room_closed: ["The party has ended", "Everyone left, so the room was put away."],
+  screen_lost: ["Another screen is showing the room", "This one was away for a while, and a room has one screen. You can still join the party as a player."],
 };
 
 export class Hud {
@@ -35,7 +36,6 @@ export class Hud {
     this.card = null;
     this.veil = null;
     this.last = "";
-    this.bumpAt = -Infinity;
   }
 
   build(role) {
@@ -65,9 +65,10 @@ export class Hud {
     h("span", "", "Turn your phone sideways to see the whole room", turn);
 
     const bar = (this.bar = h("div", "bar bar-player", "", this.el));
-    const left = h("div", "pad", "", bar);
-    this.hold(this.button(left, "round", "Walk left", ICONS.left), -1);
-    this.hold(this.button(left, "round", "Walk right", ICONS.right), 1);
+    // Walking under the left thumb, jump and bump under the right (controls.js).
+    const left = h("div", "pad pad-left", "", bar);
+    const right = h("div", "pad pad-right", "");
+    this.pad = new Controls(left, right, this.on);
     this.zoomBtn = h("button", "pill-btn zoom-btn", "", left);
     this.zoomBtn.type = "button";
     this.zoomIcon = h("span", "pill-icon", "", this.zoomBtn);
@@ -84,48 +85,7 @@ export class Hud {
     h("span", "status-rule", "", mid);
     this.rest = h("span", "status-sub", "", mid);
 
-    const right = h("div", "pad", "", bar);
-    this.bumpBtn = this.button(right, "round bump-btn", "Bump", ICONS.bump);
-    this.tap(this.bumpBtn, () => this.on.bump());
-    this.jumpBtn = this.button(right, "round jump-btn", "Jump", ICONS.up);
-    this.tap(this.jumpBtn, () => this.on.jump());
-  }
-
-  button(parent, className, name, paths) {
-    const b = h("button", className, "", parent);
-    b.type = "button";
-    b.setAttribute("aria-label", name);
-    b.append(icon(paths, 26));
-    return b;
-  }
-
-  /** A button that acts the moment it is touched, without waiting for the finger to lift. */
-  tap(button, action) {
-    button.addEventListener("pointerdown", (e) => {
-      e.preventDefault();
-      action();
-    });
-    button.addEventListener("keydown", (e) => {
-      if (e.key === "Enter" || e.key === " ") action();
-    });
-  }
-
-  /** A walk button: held down to walk, let go to stop. */
-  hold(button, d) {
-    const stop = (e) => {
-      if (!button.classList.contains("held")) return;
-      button.classList.remove("held");
-      if (e.pointerId !== undefined && button.hasPointerCapture?.(e.pointerId)) button.releasePointerCapture(e.pointerId);
-      this.on.steer(d, false);
-    };
-    button.addEventListener("pointerdown", (e) => {
-      e.preventDefault();
-      button.setPointerCapture?.(e.pointerId);
-      button.classList.add("held");
-      this.on.steer(d, true);
-    });
-    for (const type of ["pointerup", "pointercancel", "lostpointercapture"]) button.addEventListener(type, stop);
-    button.addEventListener("contextmenu", (e) => e.preventDefault());
+    bar.append(right);
   }
 
   /** How tall the strip over the foot of the picture is, in CSS pixels. */
@@ -168,11 +128,6 @@ export class Hud {
         this.zoomText.textContent = zoom === "closer" ? "Whole room" : "Closer";
         this.zoomIcon.replaceChildren(icon(zoom === "closer" ? ICONS.zoomOut : ICONS.zoomIn, 18));
       }
-      const cooling = now - this.bumpAt < BUMP_COOLDOWN_MS;
-      if (cooling !== this.cooling) {
-        this.cooling = cooling;
-        this.bumpBtn.classList.toggle("cooling", cooling);
-      }
     }
     // A room near the end of its four hours says so, and so does one nobody has touched for a while.
     const left = room.closesIn - (now - voteAt);
@@ -186,10 +141,6 @@ export class Hud {
       this.banner.textContent = warn;
       this.banner.hidden = !warn;
     }
-  }
-
-  bumped(now) {
-    this.bumpAt = now;
   }
 
   /** A short note at the top of the room: "Tom left". */
@@ -283,16 +234,22 @@ export class Hud {
   }
 }
 
-/** The room is gone, or this seat is: say why and offer the two ways back in. Returns the element. */
-export function showClosed(root, reason) {
+/**
+ * The room is gone, or this seat is: say why and offer the two ways back in. Returns the element.
+ * `pin` is the room's code when it is still open (a screen that lost its place): the way back
+ * in as a player comes first then.
+ */
+export function showClosed(root, reason, pin = null) {
   const [title, text] = CLOSED[reason] ?? CLOSED.room_closed;
   const back = h("div", "card-back solid", "", root);
   const card = h("div", "card", "", back);
   h("h2", "card-title", title, card);
   h("p", "card-text", text, card);
-  const start = h("a", "button", "Start a party", card);
+  const open = reason === "screen_lost" && pin;
+  const start = h("a", open ? "plain" : "button", "Start a party", card);
   start.href = "/lobby/?start";
-  const join = h("a", "plain", "Join with a code", card);
-  join.href = "/lobby/";
+  const join = h("a", open ? "button" : "plain", open ? "Join as a player" : "Join with a code", card);
+  join.href = open ? `/lobby/?join=${encodeURIComponent(pin)}` : "/lobby/";
+  if (open) card.insertBefore(join, start);
   return back;
 }
