@@ -73,6 +73,24 @@ describe("where a knocked piece lands", () => {
     expect(landingGround(5)[0]).toEqual([ROOM.minX, boxCentre(0, 5) - lightHalf(5) - Math.min(KNOCK_CLEAR, (boxCentre(1, 5) - boxCentre(0, 5)) / 2 - lightHalf(5))]);
   });
 
+  it("treats a light that is off as the dark it is: the throw carries on under it", () => {
+    const from = boxCentre(1, 5);
+    // The lights either side are off: the full distance, both ways.
+    expect(knockLanding(from, 1, 5, [1])).toBe(Math.round(from + KNOCK_DISTANCE));
+    expect(knockLanding(from, -1, 5, [1])).toBe(Math.round(from - KNOCK_DISTANCE));
+    // The one on the left is on: the middle of the dark between the two.
+    expect(knockLanding(from, -1, 5, [0, 1])).toBe(Math.round((boxCentre(0, 5) + from) / 2));
+    // No light on at all: nothing but dark.
+    expect(landingGround(5, [])).toEqual([[ROOM.minX, ROOM.maxX]]);
+    expect(knockLanding(400, 1, 5, [])).toBe(400 + KNOCK_DISTANCE);
+    // Whatever is lit, the landing is never in a light that is on.
+    for (const lit of [[0], [2], [0, 1], [1, 3], [0, 2, 4], [0, 1, 2, 3, 4]]) {
+      for (let x = ROOM.minX; x <= ROOM.maxX; x += 5) {
+        for (const dir of [-1, 1]) expect(lit.includes(lightAt(knockLanding(x, dir, 5, lit), 5)), `lit=${lit} x=${x} dir=${dir}`).toBe(false);
+      }
+    }
+  });
+
   it("always puts a piece out of its light and into the dark, wherever it stood and however many boxes hang", () => {
     let [least, most] = [Infinity, 0];
     for (const n of [1, 2, 3, 4, 5, 6, 8]) {
@@ -246,8 +264,9 @@ describe("the knocked piece's states", () => {
     expect(last.x).toBe(to);
   });
 
-  it("puts the burst between the two pieces", () => {
-    expect(impactPoint(400, 460)).toEqual({ x: 430, y: ROOM.floorY - 70 });
+  it("puts the burst on the side of the piece the blow came from", () => {
+    expect(impactPoint(460, 670)).toEqual({ x: 434, y: ROOM.floorY - 96 });
+    expect(impactPoint(460, 250)).toEqual({ x: 486, y: ROOM.floorY - 96 });
   });
 });
 

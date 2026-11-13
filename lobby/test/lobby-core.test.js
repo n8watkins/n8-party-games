@@ -116,6 +116,25 @@ describe("joining", () => {
     woken.resume(screen.token, null);
     expect(woken.watch(90_000)).toMatchObject({ ok: false, error: "screen_taken" });
   });
+
+  it("lets a dropped screen's grace run on through a sleep, not start over", () => {
+    const core = room();
+    seated(core, "Ann");
+    const screen = core.watch(1000);
+    core.connect(screen.token, 1000);
+    core.disconnect(screen.token, 20_000);
+    core.disconnect(screen.token, 24_000); // told twice: the grace still runs from the first
+    // The room sleeps and is woken by the very request that asks for the screen.
+    const early = LobbyCore.restore(wall(), structuredClone(core.serialize()), 20_000 + SCREEN_GRACE_MS - 1);
+    expect(early.watch(20_000 + SCREEN_GRACE_MS - 1)).toMatchObject({ ok: false, error: "screen_taken" });
+    const late = LobbyCore.restore(wall(), structuredClone(core.serialize()), 20_000 + SCREEN_GRACE_MS);
+    expect(late.watch(20_000 + SCREEN_GRACE_MS).ok).toBe(true);
+    // A room saved before screens had a grace wakes with its screen's place held for one.
+    const old = { ...structuredClone(core.serialize()), screens: [screen.token] };
+    const woken = LobbyCore.restore(wall(), old, 90_000);
+    expect(woken.screenHeld(90_000)).toBe(true);
+    expect(woken.screenHeld(90_000 + SCREEN_GRACE_MS)).toBe(false);
+  });
 });
 
 describe("moving", () => {

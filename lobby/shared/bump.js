@@ -103,16 +103,20 @@ export function bumpTarget(x, face, others) {
 
 /**
  * The stretches of floor a knocked piece may land on, in a room of `n` boxes: the dark, and
- * not teetering on the edge of a light either. Returns [[from, to]], left to right.
+ * not teetering on the edge of a light either. `lit` lists the lights that are on, by their
+ * place on the wall (null: all of them); a light that is off is just more dark. Returns
+ * [[from, to]], left to right.
  */
-export function landingGround(n) {
+export function landingGround(n, lit = null) {
   const half = lightHalf(n);
   // Between two lights there may be less dark than twice the margin: then it is the middle of it.
   const gap = n > 1 ? boxCentre(1, n) - boxCentre(0, n) - 2 * half : Infinity;
   const margin = Math.min(KNOCK_CLEAR, gap / 2);
+  const on = lit ? new Set(lit) : null;
   const ground = [];
   let from = ROOM.minX;
   for (let i = 0; i < n; i++) {
+    if (on && !on.has(i)) continue;
     const centre = boxCentre(i, n);
     ground.push([from, centre - half - margin]);
     from = centre + half + margin;
@@ -123,18 +127,19 @@ export function landingGround(n) {
 }
 
 /**
- * Where a piece knocked from `x` in direction `dir` (-1 or 1) lands, in a room of `n` boxes.
+ * Where a piece knocked from `x` in direction `dir` (-1 or 1) lands, in a room of `n` boxes
+ * of which the `lit` ones are on (null: all of them).
  * It is thrown about KNOCK_DISTANCE and always comes down in the dark: the nearest spot to
  * that distance which is clear of every pool of light and at least KNOCK_MIN away. So a knock
  * always puts a piece out of the light it stood in and never into another one. It stops at the
  * walls: a piece with its back to one is knocked against it.
  */
-export function knockLanding(x, dir, n) {
+export function knockLanding(x, dir, n, lit = null) {
   const side = dir < 0 ? -1 : 1;
   const aim = clampX(x + side * KNOCK_DISTANCE);
   let best = null;
   for (const least of [KNOCK_MIN, 0]) {
-    for (const [a, b] of landingGround(n)) {
+    for (const [a, b] of landingGround(n, lit)) {
       // The part of this stretch that is far enough along in the direction of the blow.
       const lo = side > 0 ? Math.max(a, x + least) : a;
       const hi = side > 0 ? b : Math.min(b, x - least);
@@ -240,7 +245,11 @@ export function knockPose(ms, from, to, safeFor = IMMUNE_MS) {
   return { state, x: to, ...REST };
 }
 
-/** Where the blow lands, for the burst: between the two pieces, at the height of a piece's middle. */
-export function impactPoint(bumperX, victimX) {
-  return { x: (bumperX + victimX) / 2, y: ROOM.floorY - PIECE_PIVOT };
+/**
+ * Where the blow lands, for the burst: on the side of the knocked piece the blow came from,
+ * at the height of its shoulders. `from` and `to` are where the piece stood and where it lands.
+ */
+export function impactPoint(from, to) {
+  const side = to < from ? -1 : 1;
+  return { x: from - side * 26, y: ROOM.floorY - 96 };
 }

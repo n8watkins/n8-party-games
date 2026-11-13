@@ -184,7 +184,9 @@ export class LobbyCore {
     const who = this.identify(token);
     if (!who) return;
     if (who.role === "screen") {
-      Object.assign(this.screens.get(token), { connected: false, droppedAt: now });
+      const screen = this.screens.get(token);
+      // Told twice of the same drop, the grace still runs from the first.
+      if (screen.connected || screen.droppedAt === null) Object.assign(screen, { connected: false, droppedAt: now });
     } else {
       const m = this.members[who.seat];
       if (!m.connected) return;
@@ -292,7 +294,10 @@ export class LobbyCore {
     const to = bumpTarget(posAt(m, now), m.face, others);
     if (to === -1) return { t: "b", s: seat, f: m.face, to: -1 };
     const o = this.members[to];
-    o.x = knockLanding(posAt(o, now), m.face, this.boxes.length);
+    // Thrown into the dark: clear of every light that is on (one that is off is dark already).
+    const lights = this.lights();
+    const lit = this.boxes.map((box, i) => (lights[box.id] === null ? i : -1)).filter((i) => i >= 0);
+    o.x = knockLanding(posAt(o, now), m.face, this.boxes.length, lit);
     o.d = 0;
     o.t = now;
     o.rev += 1;
@@ -561,7 +566,7 @@ export class LobbyCore {
       code: this.code,
       pin: this.pin,
       members: this.members,
-      screens: [...this.screens.keys()],
+      screens: [...this.screens].map(([token, screen]) => ({ token, droppedAt: screen.droppedAt })),
       round: this.round,
       gamesPlayed: this.gamesPlayed,
       history: this.history,
@@ -581,8 +586,13 @@ export class LobbyCore {
     room.pin = data.pin;
     // Nobody is connected until their socket is seen again; a piece left mid-stride stands still.
     room.members = data.members.map((m) => (m ? { ...m, x: m.d ? posAt(m, now) : m.x, d: 0, t: now, connected: false, droppedAt: m.droppedAt ?? now, bumpAt: -Infinity } : null));
-    // One screen at most; its grace starts over, since nobody knows how long the room slept.
-    for (const token of data.screens.slice(-1)) room.screens.set(token, { connected: false, droppedAt: now });
+    // One screen at most. A screen that had dropped before the room slept keeps the moment it
+    // dropped, so its grace runs on through the sleep; one that was connected is seen again by
+    // its socket (resume). A room saved before screens had a grace kept bare tokens.
+    for (const saved of data.screens.slice(-1)) {
+      const screen = typeof saved === "string" ? { token: saved, droppedAt: null } : saved;
+      room.screens.set(screen.token, { connected: false, droppedAt: screen.droppedAt ?? now });
+    }
     room.round = data.round;
     room.gamesPlayed = data.gamesPlayed;
     room.history = data.history ?? [];
