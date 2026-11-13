@@ -3,7 +3,9 @@
 // looked at before it is live, and how frame time is measured without a server in the way.
 //
 //   still.html?room=<skin>           any skin in skins.js, live or concept
-//     &shot=vote|count|toss|off|empty  the moment (default vote: four pieces mid-vote)
+//     &shot=vote|count|toss|off|empty|live  the moment (default vote: four pieces mid-vote; live: the
+//                                    wall as it hangs today, with the games that are not built yet dark)
+//     &look=baked                    the baked look (../baked/room-baked.js) on today's wall of five boxes
 //     &as=screen|player              the big screen's bottom line, or a player's buttons (seat 2)
 //     &zoom=room|closer              a player's view
 //     &bare=1                        no bottom line or buttons at all
@@ -36,6 +38,9 @@ const BOXES = [
   boxFromManifest({ id: "tin-derby", name: "Tin Derby", blurb: "Wind up your tin racer and go", players: { min: 2, max: 4 }, devices: { phone: true, desktop: false, sharedScreen: "required" } }),
   boxFromManifest({ id: "flood", name: "Flood", blurb: "Climb before the water rises", players: { min: 2, max: 4 }, devices: { phone: true, desktop: false } }),
 ];
+const baked = query.get("look") === "baked";
+// The baked look's plate is today's wall: five boxes.
+if (baked) BOXES.push(boxFromManifest({ id: "fox-trouble", name: "Fox Trouble", blurb: "Solve the room together, cause trouble", players: { min: 2, max: 4 }, devices: { phone: true, desktop: false } }));
 const N = BOXES.length;
 const light = (i, off = 0) => Math.round(boxCentre(i, N) + off);
 /** Where the room's feature is (look3d/space.js, boardX), in world units. */
@@ -74,6 +79,11 @@ function fixture() {
     lights["tin-derby"] = "Needs a big screen";
     members[2].x = light(3, -10);
     standing[2] = "flood";
+  } else if (shot === "live") {
+    for (const id of ["tin-derby", "flood", "fox-trouble"]) if (id in lights) lights[id] = "Coming soon";
+    members[2].x = light(1, 10);
+    members[3].x = light(1, lightHalf(N) + 70);
+    standing[2] = "who-am-i";
   } else if (shot === "empty") {
     members.length = 0;
     for (const b of BOXES) lights[b.id] = b.min > 1 ? `Needs ${b.min} players` : "Needs a player";
@@ -87,7 +97,8 @@ function fixture() {
 const app = document.getElementById("app");
 const phone = () => Math.min(innerWidth, innerHeight) < 520;
 const room = fixture();
-const view3d = await Room3D.open(app, {
+const View = baked ? (await import("../baked/room-baked.js")).RoomBaked : Room3D;
+const view3d = await View.open(app, {
   concept: true,
   skin: query.get("room") ?? "bar",
   compact: phone() && role === "player",

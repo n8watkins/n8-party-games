@@ -179,7 +179,8 @@ export class Room3D {
     el.append(canvas);
     root.append(el);
     const skin = opts.concept && SKINS[opts.skin] ? SKINS[opts.skin] : liveSkin(opts.skin);
-    return new Room3D(el, canvas, context, opts, skin, images);
+    // `this`, not Room3D by name: the baked look (../baked/room-baked.js) is this room with its walls swapped for a picture.
+    return new this(el, canvas, context, opts, skin, images);
   }
 
   constructor(el, canvas, context, opts, skin, images) {

@@ -5,6 +5,16 @@
 #     width    picture width in pixels (480 for a test; the default is the shot's own size)
 #     samples  Cycles samples (16 for a test, 128 for the real picture)
 #
+# The same room also renders the live party room's backdrop (lobby/public/baked): the shots named
+# plate-<pass>, taken from the live room's own camera with the frames on the wall left empty.
+#   plate-base    the room with no game lamp on
+#   plate-lamp<i> only what lamp i adds (everything else is switched off), to be added on top
+#   plate-env     the room all round from where the pieces stand, for their reflections
+#   plate-juke    the jukebox alone on a clear picture, with its shadow
+#   plate-all     base and every lamp in one picture, to look at (not shipped)
+# A fourth argument "x0,y0,x1,y1" (fractions of the frame, from the top left) renders only that
+# part, so a large plate can be made in tiles that each stay under ten minutes.
+#
 # The room's measures, the pieces' shapes and the seat colours are the lobby concept scene's
 # (landing/tools/scene/scene.js), so these pictures and that scene show the same room.
 # The lettered things on the wall and the box fronts are pictures made by
@@ -12,7 +22,7 @@
 #
 # Coordinates: the room uses x along the wall, y up, z toward the viewer. Blender is z up, so a
 # room point (x, y, z) is the Blender point (x, -z, y). Helpers below take room coordinates.
-import bpy, bmesh, sys, os, json, math, time, functools, random
+import bpy, bmesh, sys, os, json, math, time, functools, random, re
 print = functools.partial(print, flush=True)
 from mathutils import Vector
 
@@ -20,6 +30,7 @@ args = sys.argv[sys.argv.index("--") + 1:]
 OUT, HERE, SHOT = args[0], args[1], args[2]
 WIDTH = int(args[3]) if len(args) > 3 and args[3] != "-" else 0
 SAMPLES = int(args[4]) if len(args) > 4 else 128
+TILE = [float(v) for v in args[5].split(",")] if len(args) > 5 else None
 TEX = os.path.join(HERE, "tex")
 SIZES = json.load(open(os.path.join(TEX, "sizes.json")))
 T0 = time.time()
@@ -33,6 +44,34 @@ END_X = 6.05
 CH = 0.78
 BOX_W, BOX_H, BOX_D, BOX_Y = 1.75, 2.45, 0.3, 3.83
 GAMES = ["cork", "who", "flood", "wind"]
+WALL_X = POOL_X
+
+# ------------------------------------------------------------------ the live room's plate
+# The live room's numbers (lobby/shared/world.js and lobby/public/look3d/space.js): the picture
+# is 1920 x 1080 world units, one unit is 1 / U metres on the back wall, and the camera stands
+# at CAM looking straight at the wall. The plate is that same picture with a margin all round.
+PLATE = re.match(r"plate(\d?)-(.+)$", SHOT)
+PASS = PLATE.group(2) if PLATE else ""
+U = 125.55
+CAM = (0.0, 4.2, 17.5)
+PLATE_RECT = dict(x0=-320, y0=-180, x1=2240, y1=1260)   # world units: 2560 x 1440
+ONLY_LAMP = int(PASS[4:]) if PASS.startswith("lamp") else None
+wall_x = lambda xw: (xw - 960) / U
+wall_y = lambda yw: 6.25 - yw / U
+JUKE_X = wall_x(1722)
+if PLATE:
+    N = int(PLATE.group(1) or 5)
+    slot = (1580 - 296) / N
+    centres = [296 + slot * (i + 0.5) for i in range(N)]
+    WALK = (CAM[2] - WALK_Z) / (CAM[2] + 2.5)
+    WALL_X = [wall_x(c) for c in centres]
+    POOL_X = [x * WALK for x in WALL_X]
+    POOL_R = (min(118, slot * 0.4) + 12) * WALK / U - 0.04
+    BOX_W = min(1.75, (slot - 36 + 8) / U - 2 * (0.07 + 0.05))
+    BOX_H = BOX_W * 1.4
+    BOX_Y = wall_y(150) - BOX_H / 2
+    END_X = -wall_x(181)
+    GAMES = [f"game {i}" for i in range(N)]
 SEAT = ["#c8382c", "#2f6f8f", "#d9a02a", "#3f7a4a"]
 WARM = (1.0, 0.78, 0.52)
 
@@ -143,6 +182,14 @@ SHOTS = {
 for i, kind in enumerate(["pawn", "robot", "slime", "ghost"]):
     SHOTS[f"piece-{kind}"] = dict(PIECE_CAM, levels=[0, 0, 0, 0], alone=True, focus=(0, 0.5, 0.6),
                                   players=[dict(seat=i, skin=kind, x=0, face=0.3, y=0.16 if kind == "ghost" else 0)])
+if PLATE:
+    wm = (PLATE_RECT["x1"] - PLATE_RECT["x0"]) / U
+    mid_y = wall_y((PLATE_RECT["y0"] + PLATE_RECT["y1"]) / 2)
+    on = 1.0 if PASS == "all" else 0.0
+    SHOTS[SHOT] = dict(
+        levels=[1.0 if (i == ONLY_LAMP or PASS in ("all", "env")) else 0.0 for i in range(N)],
+        size=(1024, 512) if PASS == "env" else (3840, 2160) if PASS in ("base", "juke") else (1920, 1080),
+        cam=CAM, look=(0.0, mid_y, -2.5), lens=36 * (CAM[2] + 2.5) / wm, fstop=64, focus=(0, 0, 0), players=[])
 S = SHOTS[SHOT]
 
 # ------------------------------------------------------------------ set-up
@@ -174,11 +221,23 @@ scene.render.film_transparent = bool(S.get("alone"))
 scene.render.image_settings.file_format = "PNG"
 scene.render.image_settings.color_mode = "RGBA" if S.get("alone") else "RGB"
 scene.render.image_settings.compression = 60
-scene.view_settings.view_transform = "AgX"
-try:
-    scene.view_settings.look = "AgX - Punchy"
-except Exception as e:
-    print("look not set:", e)
+if PLATE and PASS != "all":
+    # The live room adds the passes together itself, so they are saved plain: no film curve, no
+    # look. A lamp's pass is saved darker than it is (LAMP_STOPS) so its brightest floor is not cut off.
+    scene.view_settings.view_transform = "Standard"
+    scene.view_settings.look = "None"
+    LAMP_STOPS = -1.5
+    if ONLY_LAMP is not None:
+        scene.view_settings.exposure = LAMP_STOPS
+else:
+    scene.view_settings.view_transform = "AgX"
+    try:
+        scene.view_settings.look = "AgX - Punchy"
+    except Exception as e:
+        print("look not set:", e)
+if PASS == "juke":
+    scene.render.film_transparent = True
+    scene.render.image_settings.color_mode = "RGBA"
 random.seed(7)
 
 
@@ -501,15 +560,17 @@ if not ALONE:
 
     # The four boxes in their frames, each with its sign under it.
     for i, game in enumerate(GAMES):
-        x = POOL_X[i]
+        x = WALL_X[i]
         on = levels[i] > 0
         gold = S.get("gold") == i
-        bar = 0.09
-        nw, nh, nd = BOX_W + 0.1, BOX_H + 0.1, 0.34
+        bar = 0.07 if PLATE else 0.09
+        nw, nh, nd = BOX_W + 0.1, BOX_H + 0.1, 0.4 if PLATE else 0.34
         fm = emission("gold frame", (1.0, 0.62, 0.2, 1), 9.0) if gold else frame_m
         for (w, h, dx, dy) in [(bar, nh + bar * 2, -nw / 2 - bar / 2, 0), (bar, nh + bar * 2, nw / 2 + bar / 2, 0), (nw, bar, 0, nh / 2 + bar / 2), (nw, bar, 0, -nh / 2 - bar / 2)]:
             box("frame", (x + dx, BOX_Y + dy, zb + nd / 2), (w, h, nd), fm, bevel=0.012)
         plane("niche", (x, BOX_Y, zb + 0.004), nw, nh, dark_m)
+        if PLATE:
+            continue   # the poster and its sign are drawn live, in this empty frame
         art = picture(f"art {game}", f"box-{game}.png", glow=(2.2 if gold else 1.5) if on else 0.5, rough=0.4, dim=1.0 if on else 0.3)
         side = principled(f"side {game}", rgb({"cork": "#4a0e0c", "who": "#cfc4b2", "flood": "#10224f", "wind": "#8a6540"}[game]), rough=0.6)
         b = box(f"box {game}", (x, BOX_Y, zb + 0.05 + BOX_D / 2), (BOX_W, BOX_H, BOX_D), side, bevel=0.008)
@@ -543,21 +604,24 @@ if not ALONE:
         ball("knob", (-END_X + 0.36, 1.05, zb + 0.11), 0.045, brass)
         point("porthole light", (-END_X, 1.6, zb + 0.5), 18, radius=0.15)
     js = SIZES["join"]
-    plane("join sign", (-END_X, 5.12 - js["h"] / 2, zb + 0.03), js["w"], js["h"], picture("join", "join.png", glow=1.2, alpha=True))
+    if not PLATE:
+      plane("join sign", (-END_X, 5.12 - js["h"] / 2, zb + 0.03), js["w"], js["h"], picture("join", "join.png", glow=1.2, alpha=True))
     bs = SIZES["board"]
-    plane("chalkboard", (END_X, 5.12 - bs["h"] / 2, zb + 0.03), bs["w"], bs["h"], picture("board", "board.png", glow=0.9, alpha=True))
+    if not PLATE:
+      plane("chalkboard", (END_X, 5.12 - bs["h"] / 2, zb + 0.03), bs["w"], bs["h"], picture("board", "board.png", glow=0.9, alpha=True))
     area("board light", (END_X, 4.2, zb + 2.4), (END_X, 3.8, zb), 60, 1.8, color=WARM)
     area("join light", (-END_X, 4.2, zb + 2.4), (-END_X, 3.8, zb), 60, 1.8, color=WARM)
-    box("shelf", (END_X, 1.15, zb + 0.25), (1.5, 0.07, 0.5), frame_m, bevel=0.01)
-    for dx in (-0.55, 0.55):
-        box("bracket", (END_X + dx, 0.97, zb + 0.2), (0.05, 0.3, 0.4), frame_m, bevel=0.008)
-    fs = 0.42
-    fox = box("fox box", (END_X - 0.05, 1.185 + BOX_H * fs / 2, zb + 0.25), (BOX_W * fs, BOX_H * fs, BOX_D * fs), principled("side fox", rgb("#143d27"), rough=0.6), bevel=0.004)
-    ff = plane("fox front", (END_X - 0.05, 1.185 + BOX_H * fs / 2, zb + 0.25 + BOX_D * fs / 2 + 0.002), BOX_W * fs - 0.01, BOX_H * fs - 0.01, picture("art fox", "box-fox.png", glow=0.5, rough=0.4))
-    for o in (fox, ff):
-        o.select_set(True)
-    ts = SIZES["shelf-tag"]
-    plane("shelf tag", (END_X, 0.75 - ts["h"] / 2, zb + 0.03), ts["w"], ts["h"], picture("shelf tag", "shelf-tag.png", glow=0.7, alpha=True))
+    if not PLATE:
+        box("shelf", (END_X, 1.15, zb + 0.25), (1.5, 0.07, 0.5), frame_m, bevel=0.01)
+        for dx in (-0.55, 0.55):
+            box("bracket", (END_X + dx, 0.97, zb + 0.2), (0.05, 0.3, 0.4), frame_m, bevel=0.008)
+        fs = 0.42
+        fox = box("fox box", (END_X - 0.05, 1.185 + BOX_H * fs / 2, zb + 0.25), (BOX_W * fs, BOX_H * fs, BOX_D * fs), principled("side fox", rgb("#143d27"), rough=0.6), bevel=0.004)
+        ff = plane("fox front", (END_X - 0.05, 1.185 + BOX_H * fs / 2, zb + 0.25 + BOX_D * fs / 2 + 0.002), BOX_W * fs - 0.01, BOX_H * fs - 0.01, picture("art fox", "box-fox.png", glow=0.5, rough=0.4))
+        for o in (fox, ff):
+            o.select_set(True)
+        ts = SIZES["shelf-tag"]
+        plane("shelf tag", (END_X, 0.75 - ts["h"] / 2, zb + 0.03), ts["w"], ts["h"], picture("shelf tag", "shelf-tag.png", glow=0.7, alpha=True))
 
     # The lamps: an enamel shade on a cord, a bulb, and the light it throws down as a pool.
     shade_m = principled("shade", rgb("#8a2a1e"), rough=0.3, metal=0.2, coat=0.8)
@@ -600,6 +664,8 @@ if not ALONE:
     vol.inputs["Anisotropy"].default_value = 0.25
     hnt.links.new(vol.outputs[0], hnt.nodes["Material Output"].inputs["Volume"])
     haze.data.materials.append(hm)
+    if PLATE and PASS in ("base", "juke"):
+        haze.hide_render = True
 
     # The room's own dim light: a warm wash from the front, so nothing in it is black.
     area("fill", (-2.5, 5.4, 9.0), (0, 2.2, -1.0), 240, 9.0, color=(1.0, 0.84, 0.68), size_y=4.0)
@@ -763,6 +829,51 @@ def make_piece(p):
 for p in S["players"]:
     make_piece(p)
 
+if PASS == "juke":
+    # The jukebox under the Tonight board, alone: the room is kept only to catch its shadow and
+    # to be seen in its chrome. The live room stands this picture in the plate and rocks it.
+    for o in list(bpy.data.objects):
+        if o.type == "MESH" and o.name == "floor":
+            o.is_shadow_catcher = True
+        elif o.type == "MESH":
+            o.visible_camera = False
+    wood = boards("juke wood", rgb("#7a4424"), rgb("#4a2814"), board=4, along="Z", rough=0.35, coat=0.7, grain=0.7)
+    dark = principled("juke dark", rgb("#120a07"), rough=0.5)
+    chrome = principled("juke chrome", rgb("#d8c9a8"), rough=0.18, metal=1.0)
+    glass = principled("juke tube", (0.8, 0.8, 0.8, 1), rough=0.25, coat=1.0, sss=0.3)
+    jz = -2.5 + 0.3
+    jg = empty("jukebox", (JUKE_X, 0, jz))
+    box("juke body", (0, 0.55, 0), (1.05, 1.1, 0.5), wood, bevel=0.03, parent=jg)
+    bpy.ops.mesh.primitive_cylinder_add(radius=0.525, depth=0.5, vertices=64, location=(0, 0, 1.1), rotation=(math.pi / 2, 0, 0))
+    top = finish(bpy.context.object, wood, parent=jg)
+    mod = top.modifiers.new("bevel", "BEVEL"); mod.width = 0.03; mod.segments = 3; mod.limit_method = "ANGLE"
+    box("juke foot", (0, 0.05, 0.01), (1.11, 0.1, 0.54), dark, bevel=0.02, parent=jg)
+    # The window with the record in it, and the grille under it.
+    bpy.ops.mesh.primitive_cylinder_add(radius=0.36, depth=0.04, vertices=64, location=(0, -0.245, 1.12), rotation=(math.pi / 2, 0, 0))
+    finish(bpy.context.object, dark, parent=jg)
+    box("juke window", (0, 0.94, 0.245), (0.72, 0.4, 0.04), dark, bevel=0.02, parent=jg)
+    bpy.ops.mesh.primitive_cylinder_add(radius=0.2, depth=0.02, vertices=64, location=(0, -0.275, 1.12), rotation=(math.pi / 2, 0, 0))
+    finish(bpy.context.object, principled("record", (0.004, 0.004, 0.005, 1), rough=0.22, coat=1.0), parent=jg)
+    bpy.ops.mesh.primitive_cylinder_add(radius=0.065, depth=0.024, vertices=32, location=(0, -0.28, 1.12), rotation=(math.pi / 2, 0, 0))
+    finish(bpy.context.object, principled("label", rgb("#d8402a"), rough=0.4, emit=rgb("#d8402a"), emit_strength=0.6), parent=jg)
+    box("juke grille", (0, 0.4, 0.25), (0.7, 0.56, 0.03), dark, bevel=0.01, parent=jg)
+    for k in range(11):
+        box("juke slat", (-0.3 + k * 0.06, 0.4, 0.27), (0.024, 0.5, 0.02), chrome, bevel=0.006, parent=jg)
+    for (w, h, dx, dy) in [(0.76, 0.03, 0, 0.695), (0.76, 0.03, 0, 0.105), (0.03, 0.62, -0.365, 0.4), (0.03, 0.62, 0.365, 0.4)]:
+        box("juke trim", (dx, dy, 0.265), (w, h, 0.03), chrome, bevel=0.008, parent=jg)
+    # The tubes of light: clear here, and coloured live by the room.
+    for sgn in (-1, 1):
+        rod("juke tube", (sgn * 0.44, 0.13, 0.26), (sgn * 0.44, 1.12, 0.26), 0.045, glass, parent=jg)
+        ball("juke tube foot", (sgn * 0.44, 0.13, 0.26), 0.055, chrome, parent=jg)
+    bpy.ops.mesh.primitive_torus_add(major_radius=0.44, minor_radius=0.045, major_segments=48, minor_segments=12, location=(0, -0.26, 1.12), rotation=(math.pi / 2, 0, 0))
+    arch = finish(bpy.context.object, glass, parent=jg)
+    bpy.ops.object.mode_set(mode="EDIT")
+    bm_ = bmesh.from_edit_mesh(arch.data)
+    bmesh.ops.delete(bm_, geom=[v for v in bm_.verts if v.co.y < -0.002], context="VERTS")
+    bmesh.update_edit_mesh(arch.data)
+    bpy.ops.object.mode_set(mode="OBJECT")
+    point("juke glow", (JUKE_X, 1.15, jz + 0.9), 30, color=(1.0, 0.75, 0.45), radius=0.3)
+
 if S.get("coin"):
     cx, cy, cz = S["coin"]
     gold = principled("coin", rgb("#f2c14e"), rough=0.2, metal=1.0, emit=rgb("#f2b030"), emit_strength=0.5)
@@ -830,13 +941,41 @@ glare.threshold = 1.6
 glare.size = 8
 glare.mix = -0.72
 comp = ct.nodes.new("CompositorNodeComposite")
-if ALONE:
+if ALONE or (PLATE and PASS != "all"):
     ct.links.new(rl.outputs["Image"], comp.inputs["Image"])
 else:
     ct.links.new(rl.outputs["Image"], glare.inputs["Image"])
     ct.links.new(glare.outputs["Image"], comp.inputs["Image"])
 
-scene.render.filepath = os.path.join(OUT, f"{SHOT}.png")
+if ONLY_LAMP is not None:
+    for light in bpy.data.lights:
+        if light.name != f"lamp {ONLY_LAMP}":
+            light.energy = 0
+    for m in bpy.data.materials:
+        e = m.node_tree.nodes.get("Emission") if m.use_nodes else None
+        if e and m.name != f"bulb {ONLY_LAMP}":
+            e.inputs["Strength"].default_value = 0
+    world.node_tree.nodes["Background"].inputs["Strength"].default_value = 0
+
+if PASS == "env":
+    # All round, from where the pieces stand: the picture is turned so its middle looks along the room (+x).
+    cam.location = G(0, 0.9, WALK_Z)
+    cam.rotation_euler = (G(1, 0.9, WALK_Z) - G(0, 0.9, WALK_Z)).to_track_quat("-Z", "Y").to_euler()
+    cam_d.type = "PANO"
+    cam_d.panorama_type = "EQUIRECTANGULAR"
+    cam_d.shift_y = 0
+if PLATE:
+    cam_d.dof.use_dof = False
+if PASS == "juke" and not TILE:
+    # Only the part of the frame the jukebox and its shadow are in.
+    TILE = [(1560 - PLATE_RECT["x0"]) / 2560, (500 - PLATE_RECT["y0"]) / 1440, (1900 - PLATE_RECT["x0"]) / 2560, (860 - PLATE_RECT["y0"]) / 1440]
+if TILE:
+    scene.render.use_border = True
+    scene.render.use_crop_to_border = True
+    scene.render.border_min_x, scene.render.border_max_x = TILE[0], TILE[2]
+    scene.render.border_min_y, scene.render.border_max_y = 1 - TILE[3], 1 - TILE[1]
+
+scene.render.filepath = os.path.join(OUT, f"{SHOT}{'-' + '_'.join(str(round(v * 1000)) for v in TILE) if TILE and PASS != 'juke' else ''}.png")
 print(f"built in {time.time() - T0:.1f} s, rendering {scene.render.resolution_x} x {scene.render.resolution_y} at {SAMPLES} samples")
 bpy.ops.render.render(write_still=True)
 print(f"saved {SHOT}.png after {time.time() - T0:.1f} s")
