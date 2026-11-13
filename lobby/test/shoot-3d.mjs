@@ -287,7 +287,22 @@ try {
   mabel.goto(light(CORK, 0));
   fitch.goto(light(COIN, 0));
   // The count is ten seconds, then the toss.
-  await screen.waitForFunction(() => document.querySelector(".chip")?.textContent === "TIE", null, { timeout: 45000 });
+  // The room's word first (the count is ten seconds, then the toss); then the page, which is
+  // looked at every 100 ms and not on its own frames: a software-drawn big screen under load can
+  // go seconds between frames, longer than the toss is on.
+  const tossing = await mabel.wait((m) => (m.t === "vote" ? m.vote : m.room?.vote)?.toss, 45000, mabel.seen.length).catch(() => null);
+  check(!!tossing, "the room starts a coin toss for the tie");
+  const tie = await screen.waitForFunction(() => document.querySelector(".chip")?.textContent === "TIE", null, { timeout: 5000, polling: 100 }).catch(() => null);
+  if (!tie) {
+    // Say what the room thought, so a failure here can be told apart: a page, a socket or the rules.
+    const inner = await fetch(`${base}/api/lobby/debug/${mabel.room?.code ?? ""}`)
+      .then((r) => r.json())
+      .catch(() => null);
+    const v = inner?.room?.view;
+    console.log("     the room then: " + JSON.stringify(v && { phase: v.phase, vote: v.vote, closing: v.closing, members: v.members.map((m) => m && { name: m.name, connected: m.connected, x: m.x }), alarmIn: inner.room.alarmIn }));
+    console.log("     the screen says: " + (await screen.locator(".bar").innerText()).replace(/\s+/g, " "));
+    throw new Error(tossing ? "the room tossed the coin, but the big screen did not show it" : "no coin toss for a tie within 45 seconds");
+  }
   const tossed = (await words(screen, ".l3-chip")).length === 2 && (await screen.locator(".l3-toss").isVisible());
   await sleep(600);
   await shot(screen, "12-screen-coin-toss");
@@ -297,6 +312,8 @@ try {
   // ---------------------------------------------------------------- nobody else pays for it
   // A device that never asked for the 3D look gets today's flat room and downloads none of the
   // 3D look: not its scripts, not three.js, not its fonts or pictures.
+  // The 3D pages are done: close them, so the software renderer does not starve this one.
+  await screen.context().close();
   const flatContext = await browser.newContext({ viewport: { width: 1280, height: 720 } });
   const flatPage = await flatContext.newPage();
   const fetched = [];
