@@ -4,10 +4,10 @@
 //
 // - The web app manifest and its icons are served with the right types under the site's CSP.
 // - A phone whose browser can go full screen (Android Chrome) goes full screen on the tap that
-//   takes it into the room, has a Full screen button in the corner, and is offered one tap back
-//   when it drops out by itself, once.
+//   takes it into the room, has a full screen choice on the door's sheet (a laptop also in the
+//   corner), and is offered one tap back when it drops out by itself, once.
 // - An iPhone (no page full screen) gets the "Play without the browser bar" card once, and the
-//   corner button opens it again.
+//   door's sheet opens it again.
 // - Opened from the home screen (display-mode standalone), none of it shows.
 // - At the sizes phones really show with their bars on screen (iPhone Safari and Android Chrome,
 //   sideways, small to large), nothing is cut off, nothing scrolls, and every button is at least
@@ -83,7 +83,11 @@ try {
   const android = await open("android", { width: 915, height: 356 });
   await join(android, pin, "Andy");
   check(await android.evaluate(() => !!document.fullscreenElement), "Android: the tap that joins also takes the page full screen");
-  check((await android.locator(".full-btn").count()) === 1, "and the corner has a Full screen button");
+  await android.tap(".door-btn");
+  const sheet = await android.locator(".sheet").innerText();
+  check(/Leave full screen/.test(sheet) && (await android.locator(".corner .full-btn").isHidden()), "on a phone the door's sheet has the full screen choice, and the corner stays clear for the wall");
+  await android.screenshot({ path: `${out}/00-android-door-sheet.png` });
+  await android.tap(".sheet .plain");
   await android.evaluate(() => document.exitFullscreen());
   await android.waitForTimeout(400);
   check((await android.locator(".full-back").count()) === 1, "when the browser drops out of full screen, one tap back is offered");
@@ -91,7 +95,8 @@ try {
   await android.tap(".full-back");
   await android.waitForTimeout(400);
   check(await android.evaluate(() => !!document.fullscreenElement), "and it works");
-  await android.tap(".full-btn");
+  await android.tap(".door-btn");
+  await android.tap(".full-choice");
   await android.waitForTimeout(400);
   check(!(await android.evaluate(() => !!document.fullscreenElement)) && (await android.locator(".full-back").count()) === 0, "leaving full screen on purpose is not followed by an offer to go back");
   await android.close();
@@ -108,14 +113,16 @@ try {
   await iphone.waitForSelector(".bar");
   await iphone.waitForTimeout(800);
   check((await iphone.locator(".home-tip").count()) === 0, "the card shows by itself only once");
-  await iphone.tap(".full-btn");
-  check((await iphone.locator(".home-tip").count()) === 1, "the corner button opens it again");
+  await iphone.tap(".door-btn");
+  await iphone.tap(".full-choice");
+  check((await iphone.locator(".home-tip").count()) === 1, "the door's sheet opens it again");
   await iphone.close();
 
   // ---------------------------------------------------------------- from the home screen
   const home = await open("home screen", { width: 932, height: 430, standalone: true });
   await join(home, pin, "Hal");
-  check((await home.locator(".full-btn, .home-tip").count()) === 0 && !(await home.evaluate(() => !!document.fullscreenElement)), "opened from the home screen: no button, no card, nothing to do");
+  await home.tap(".door-btn");
+  check((await home.locator(".full-btn, .full-choice, .home-tip").count()) === 0 && !(await home.evaluate(() => !!document.fullscreenElement)), "opened from the home screen: no button, no card, nothing to do");
   await home.screenshot({ path: `${out}/03-home-screen-app.png` });
   await home.close();
 

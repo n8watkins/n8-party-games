@@ -135,6 +135,7 @@ async function enter() {
     // Taken as said: the room answers with the same, and nothing in between is newer.
     skin = room.room = pendingRoom = startRoom;
   }
+  await quick3D();
   const made = room ? await openRoomView(app, { ...viewBase, look, skin }) : null;
   entering = false;
   stirAt = performance.now();
@@ -258,6 +259,30 @@ async function showRoom() {
   dim?.classList.add("rising");
   dim?.classList.remove("on");
   swapping = false;
+}
+
+/** How long the way in waits for the 3D look's files before showing the flat room instead. */
+const SLOW_LOAD_MS = 2500;
+
+/**
+ * On a slow connection the 3D look's files (about 780 KB, most of it three.js) can take a while.
+ * Nobody waits at the way in for them: if they are not here in a moment the room opens flat, and
+ * changes to 3D (lights down and up, as for a change of room) when they arrive.
+ */
+async function quick3D() {
+  if (look !== "3d") return;
+  const ready = import("./look3d/room3d.js").then(
+    () => true,
+    () => false,
+  );
+  if (await Promise.race([ready, wait(SLOW_LOAD_MS).then(() => null)])) return;
+  look = "flat";
+  void ready.then((ok) => {
+    // Unless the device has asked for the simpler room meanwhile.
+    if (!ok || chosenLook(new URLSearchParams()).look === "flat") return;
+    look = "3d";
+    void showRoom();
+  });
 }
 
 /** A stand-in for the room view while the next one loads: it hears everything and draws nothing. */
@@ -638,7 +663,7 @@ function frame(t) {
     slow.frame(now, dt);
   }
   hud.update(room, room.vote, now, voteAt, zoom, now - stirAt);
-  count?.update(room, room.vote.count ? Math.max(0, room.vote.count.endsIn - (now - voteAt)) : null, hud.barHeight());
+  count?.update(room, room.vote.count ? Math.max(0, room.vote.count.endsIn - (now - voteAt)) : null);
 }
 
 // ---------------------------------------------------------------- begin

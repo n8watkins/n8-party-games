@@ -46,3 +46,14 @@
 .pill-btn {
   min-height: 44px;
 }
+
+/* A phone keeps its corner to Rooms and the door, so the wall (the Tonight board) stays clear:
+   full screen is on the door's sheet there, and a laptop has both. */
+@media (max-height: 520px), (max-width: 560px) {
+  .corner .full-btn {
+    display: none;
+  }
+}
+.full-choice .choice-icon {
+  background: #3a281c;
+}

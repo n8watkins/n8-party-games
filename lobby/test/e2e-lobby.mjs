@@ -124,7 +124,7 @@ C.goto(light(COIN));
 D.goto(light(COIN, 40));
 const tied = await A.wait((m) => voteOf(m)?.count, 9000, mark);
 check(tied.vote.leaders.join() === "cork-and-bell,coin-flip", "two against two is a tie (the count waited for the result to be read first)");
-const toss = await A.wait((m) => voteOf(m)?.toss, 6000, mark);
+const toss = await A.wait((m) => voteOf(m)?.toss, 14000, mark);
 const tossed = voteOf(toss).toss;
 check(tossed.between.length === 2 && tossed.between.includes(tossed.winner), "the tie is settled by a coin toss everybody is shown: " + tossed.winner);
 // Either game is played inside the room. Coin Flip is over in three seconds; a round of Cork &

@@ -105,6 +105,11 @@ try {
   for (const nickname of ["Mabel", "Fitch", "Tom"]) sessions.push(await call("POST", "/join/" + pin, { nickname }));
   const [mabel, fitch, tom] = sessions.map(connect);
   await Promise.all([mabel, fitch, tom].map((c) => c.opened));
+  // Bare sockets say nothing by themselves. A page sends a keep-alive every twenty seconds, and
+  // a socket silent for ninety is closed by the room as a phone that has gone; with software
+  // drawing this run is slow enough to get there, so they keep alive as a page does.
+  const keepAlive = setInterval(() => [mabel, fitch, tom].forEach((c) => c.send("ping")), 20_000);
+  keepAlive.unref();
   await mabel.wait((m) => m.room?.members.filter((x) => x?.connected).length === 4, 8000, 0);
 
   // ---------------------------------------------------------------- the vote
@@ -278,9 +283,11 @@ try {
   // ---------------------------------------------------------------- a tie
   // Last, because whichever game wins it, the room is done with here: only the test game plays
   // inside the room, and any other winner sends every page off to that game's own site.
+  check([mabel, fitch].every((c) => c.ws.readyState === 1), "the two players who vote last are still connected");
   mabel.goto(light(CORK, 0));
   fitch.goto(light(COIN, 0));
-  await screen.waitForFunction(() => document.querySelector(".chip")?.textContent === "TIE", null, { timeout: 30000 });
+  // The count is ten seconds, then the toss.
+  await screen.waitForFunction(() => document.querySelector(".chip")?.textContent === "TIE", null, { timeout: 45000 });
   const tossed = (await words(screen, ".l3-chip")).length === 2 && (await screen.locator(".l3-toss").isVisible());
   await sleep(600);
   await shot(screen, "12-screen-coin-toss");

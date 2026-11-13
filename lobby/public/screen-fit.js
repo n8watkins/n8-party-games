@@ -2,13 +2,14 @@
 //
 //   - Where the page can go full screen (Android Chrome and the like, desktop browsers), it does
 //     so on the tap that takes someone into a room (the way in calls goFullscreen from that tap),
-//     turns sideways where the browser lets a full-screen page do that, and keeps a small button
-//     in the room's corner to leave and come back. If the browser drops out of full screen by
+//     turns sideways where the browser lets a full-screen page do that, and keeps a choice on the
+//     door button's sheet (and, on a laptop, a button in the corner) to leave and come back. If
+//     the browser drops out of full screen by
 //     itself (the back gesture, an app switch), one tap brings it back; it never asks twice.
 //   - An iPhone has no full screen for a page. There the room is laid out against what is
 //     really visible (visualViewport), so the bar never covers anything, and "Add to Home
-//     Screen" is offered once, with the steps, as the way to lose the bar for good. The corner
-//     button opens the steps again.
+//     Screen" is offered once, with the steps, as the way to lose the bar for good. The door
+//     button's sheet opens the steps again.
 //   - Opened from the home screen the page is already without bars, and none of this shows.
 import { h, icon } from "./dom.js";
 
@@ -32,7 +33,7 @@ const chromeOnIOS = () => /CriOS/.test(navigator.userAgent);
 export function goFullscreen(asked = false) {
   if (standalone() || !canFullscreen() || document.fullscreenElement) return;
   // A browser driven by a test run is not put full screen on the way in (the run resizes its
-  // windows); ?full=on asks for it anyway. The corner button always works.
+  // windows); ?full=on asks for it anyway. The button and the sheet always work.
   if (!asked && navigator.webdriver && new URLSearchParams(location.search).get("full") !== "on") return;
   // Only a touch device is turned sideways; a laptop's screen is wide already.
   root
@@ -53,7 +54,7 @@ export function fitVisible() {
   fit();
 }
 
-/** The corner button, and what it does on this device. Returns null where nothing is needed. */
+/** The full screen button in the corner and on the door's sheet, and what they do on this device. Nothing where nothing is needed. */
 export class ScreenFit {
   /** @param {HTMLElement} corner  the room's corner (room-menu.js), the button goes first in it */
   constructor(corner, app) {
@@ -64,11 +65,40 @@ export class ScreenFit {
     btn.type = "button";
     corner.prepend(btn);
     btn.addEventListener("click", () => this.toggle());
+    // The same, as a choice on the door button's sheet: on a phone the corner keeps only Rooms
+    // and the door (screen-fit.css), so the wall stays clear; the sheet always has it.
+    this.watch = new MutationObserver(() => this.addChoice());
+    this.watch.observe(corner.parentElement, { childList: true });
     this.onChange = () => this.changed();
     document.addEventListener("fullscreenchange", this.onChange);
     this.wanted = !!document.fullscreenElement;
     this.draw();
     if (iPhone()) this.homeTip(false);
+  }
+
+  /** Adds the choice to the door button's sheet when it opens (hud.js draws the sheet). */
+  addChoice() {
+    const sheet = this.app.querySelector(".sheet[aria-label=Leave]");
+    if (!sheet || sheet.querySelector(".full-choice")) return;
+    const stay = sheet.querySelector(".plain");
+    const choice = h("button", "choice full-choice", "");
+    choice.type = "button";
+    const mark = h("span", "choice-icon", "", choice);
+    const on = !!document.fullscreenElement;
+    mark.append(icon(on ? SHRINK : EXPAND, 22));
+    const words = h("span", "choice-words", "", choice);
+    if (iPhone()) {
+      h("strong", "", "Play without the browser bar", words);
+      h("span", "", "Add it to your Home Screen.", words);
+    } else {
+      h("strong", "", on ? "Leave full screen" : "Full screen", words);
+      h("span", "", on ? "Show the browser's bars again." : "Hide the browser's bars.", words);
+    }
+    sheet.insertBefore(choice, stay);
+    choice.addEventListener("click", () => {
+      stay?.click();
+      this.toggle();
+    });
   }
 
   draw() {
@@ -110,7 +140,7 @@ export class ScreenFit {
     setTimeout(() => back.remove(), 8000);
   }
 
-  /** On an iPhone: how to play without the bar. Shown by itself once; the corner button opens it again. */
+  /** On an iPhone: how to play without the bar. Shown by itself once; the door button's sheet opens it again. */
   homeTip(asked) {
     if (!asked) {
       try {
@@ -143,6 +173,7 @@ export class ScreenFit {
   }
 
   destroy() {
+    this.watch?.disconnect();
     if (this.onChange) document.removeEventListener("fullscreenchange", this.onChange);
     this.back?.remove();
     this.tip?.remove();

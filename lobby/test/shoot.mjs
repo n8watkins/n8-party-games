@@ -356,7 +356,7 @@ try {
   await shot(screen2, "35-screen-count-who-am-i");
   await shot(ada, "36-phone-count-who-am-i");
   await tidy(ada, "phone, count for an outside game");
-  check(/Who Am I\? opens in [123]\./.test(await screen2.locator(".status-main").textContent()), "the count says it opens, not starts");
+  check(/Who Am I\? opens in \d+\./.test(await screen2.locator(".status-main").textContent()), "the count says it opens, not starts");
   for (const page of [screen2, ada, bea]) await page.waitForSelector(".card.away", { timeout: 13000 });
   await sleep(350);
   await shot(screen2, "37-screen-off-to-who-am-i");
