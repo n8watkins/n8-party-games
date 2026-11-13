@@ -102,14 +102,8 @@ function teardown() {
   stage?.unmount();
   stage = null;
   app.classList.remove("in-game");
-  menu?.destroy();
-  count?.destroy();
-  touch?.destroy();
-  touch = null;
-  fit?.destroy();
-  fit = null;
-  count = null;
-  menu = null;
+  for (const part of [menu, count, touch, fit]) part?.destroy();
+  menu = count = touch = fit = null;
   hud?.destroy();
   hud = null;
   scene?.destroy();
