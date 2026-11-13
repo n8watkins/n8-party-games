@@ -107,7 +107,8 @@ try {
 
   // The big screen starts the party and holds no seat.
   const screen = await open("screen", { width: 1920, height: 1080 });
-  await screen.goto(base + "/lobby/?start");
+  // (cork-quality: if this run's coin toss picks Cork & Bell, the game draws at its low quality.)
+  await screen.goto(base + "/lobby/?start&cork-quality=low");
   await screen.click("text=Use this as the room's screen");
   await screen.click("text=Show the room here");
   await screen.waitForSelector("svg.scene text");
@@ -119,7 +120,7 @@ try {
 
   // A phone held sideways joins with the code.
   const phone = await open("phone", { width: 844, height: 390 }, { deviceScaleFactor: 2, hasTouch: true });
-  await phone.goto(base + "/lobby/?join=" + pin);
+  await phone.goto(base + "/lobby/?join=" + pin + "&cork-quality=low");
   await phone.waitForSelector(".door-title");
   await phone.fill("input[name=nickname]", "Dolly");
   await shot(phone, "03-phone-join");
@@ -139,6 +140,8 @@ try {
   for (const nickname of ["Mabel", "Fitch", "Tom"]) sessions.push(await call("POST", "/join/" + pin, { nickname }));
   const [mabel, fitch, tom] = sessions.map(connect);
   await Promise.all([mabel, fitch, tom].map((c) => c.opened));
+  // Bare sockets say nothing by themselves: through a ninety-second round they must keep alive as a page does.
+  setInterval(() => [mabel, fitch, tom].forEach((c) => c.send("ping")), 20_000).unref();
   await mabel.wait((m) => m.room?.members.filter((x) => x?.connected).length === 4, 8000, 0);
 
   // ---------------------------------------------------------------- the vote
@@ -226,22 +229,23 @@ try {
   await tidy(phone, "phone, coin toss");
   await sleep(1700);
   await shot(screen, "21-screen-coin-landed");
-  await screen.waitForSelector(".card", { timeout: 9000 });
+  // Either game is played in the room and ends with the room's card. Coin Flip takes three
+  // seconds; a round of Cork & Bell takes ninety, and this run waits it out (lobby/test/e2e-cork.mjs
+  // is the run that plays one properly).
+  await screen.waitForSelector('iframe[title="Cork & Bell"], .card .places', { timeout: 12000 });
+  const corkWon = (await screen.locator('iframe[title="Cork & Bell"]').count()) > 0;
+  if (corkWon) {
+    // No stills of the game from here: this run's browser draws WebGL in software, and a still of
+    // a 1920 x 1080 screen with four stalls on it does not come back in time. lobby/test/e2e-cork.mjs
+    // takes them (with --win=1, on the real graphics card).
+    console.log("     the toss picked Cork & Bell: waiting for its round to end (ninety seconds, and no stills of the game in this run)...");
+    await screen.waitForSelector(".card .places", { timeout: 180000 });
+  }
   await sleep(300);
-  // Coin Flip plays here and shows its result. Cork & Bell does not open in the room yet, so it
-  // hangs as an outside game: its card says everyone is off to its own page, and "stay" keeps
-  // this run in the room.
-  const off = (await screen.locator(".card.away").count()) > 0;
-  await shot(screen, off ? "22-screen-off-to-cork-and-bell" : "22-screen-second-result");
-  await shot(phone, off ? "23-phone-off-to-cork-and-bell" : "23-phone-second-result");
+  await shot(screen, "22-screen-second-result");
+  await shot(phone, "23-phone-second-result");
   await tidy(phone, "phone, after the toss");
   await tidy(screen, "big screen, after the toss");
-  if (off) {
-    await screen.click("text=Keep showing the room");
-    await phone.click("text=Stay in the room");
-    await sleep(6500);
-    check(new URL(screen.url()).pathname === "/lobby/" && new URL(phone.url()).pathname === "/lobby/", "a page that chose to stay is still in the room after the count");
-  }
   await screen.waitForSelector(".card", { state: "detached", timeout: 9000 });
 
   // ---------------------------------------------------------------- leaving
@@ -362,8 +366,12 @@ try {
   const said = await ada.locator(".card.away").innerText();
   check(said.includes("Off to Who Am I?") && said.includes("whoami.n8builds.dev") && said.includes(pin2) && /does not work there/.test(said) && /No Tonight points/.test(said), "the card says where everyone is going, that the code does not carry over, and that nobody scores");
   check(/Go now \([1-6]\)/.test(said), "and counts down before it goes");
-  await Promise.all([screen2, ada, bea].map((page) => page.waitForURL(WHO_SITE + "**", { timeout: 10000 })));
-  check([screen2, ada, bea].every((page) => page.url() === WHO_SITE), "then the big screen and both phones go to " + WHO_SITE);
+  // The upright phone chooses to stay: it is still in the room when the others have gone.
+  await bea.click("text=Stay in the room");
+  await Promise.all([screen2, ada].map((page) => page.waitForURL(WHO_SITE + "**", { timeout: 10000 })));
+  check([screen2, ada].every((page) => page.url() === WHO_SITE), "then the big screen and the phone go to " + WHO_SITE);
+  await sleep(1200);
+  check(new URL(bea.url()).pathname === "/lobby/" && (await bea.locator(".card.away").count()) === 0 && (await bea.locator("svg.scene").count()) === 1, "a phone that chose to stay is still in the room after the count");
   const board2 = watcher.seen.findLast((m) => m.room)?.room;
   check(board2.tonight.games === 0 && board2.members.filter(Boolean).every((m) => m.points === 0) && !watcher.seen.some((m) => m.t === "start"), "no game started in the room and nobody scored");
   clearInterval(watcher.timer);

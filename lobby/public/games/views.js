@@ -1,6 +1,8 @@
-// The games the room page can show, by id. A game that opens inside the room adds its view here
-// (see party-kit/GAME-CONTRACT.md, "The lobby hooks"): mount(container, ctx) returns
-// {events, snapshot, unmount}.
+// The views that live in this repository, by game id: the test game's. A game from its own
+// repository brings its view with it: its manifest names the module (`lobby.view`), its box on
+// the wall carries the address, and the room's page imports it from there (main.js, viewModule).
+// Either way it is mount(container, ctx) returning {events, snapshot, unmount}: see
+// party-kit/GAME-CONTRACT.md, "In the browser".
 import { mount as coinFlip } from "./coin-flip-view.js";
 
 export const GAME_VIEWS = { "coin-flip": coinFlip };

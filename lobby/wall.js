@@ -1,9 +1,10 @@
 // The wall of the party room: which game boxes hang on it, in order, and which of them can start.
 //
 // A box is drawn from a game's manifest (name, blurb, players, devices). There are four kinds:
-//   hosted       a real game the site hosts (games.js). Cork & Bell is the only one today, and it
-//                does not open inside the room yet, so for now it hangs as an outside game whose
-//                address is its own page on this site.
+//   hosted       a real game the site hosts (games.js), played inside the room: started with the
+//                party's seats, shown by the view its manifest names (`lobby.view`), ended with
+//                places. Cork & Bell is the first. A hosted game with no such view yet hangs as
+//                an outside game whose address is its own page on this site.
 //   outside      a game that is not on the kit and plays on a site of its own, with rooms of its
 //                own. It has a `url` instead of a server definition: when it wins the vote every
 //                page goes there. Who Am I? is one.
@@ -15,8 +16,6 @@ import { GAMES } from "../games.js";
 import * as coinFlip from "./games/coin-flip.js";
 import { boxFromManifest } from "./shared/vote.js";
 
-/** What the site says about a hosted game until its own manifest carries a `blurb`. */
-const BLURBS = { "cork-and-bell": "Pop the targets, ring the bell" };
 
 /**
  * Games that play somewhere else. `players` is what the game itself allows: Who Am I? is for
@@ -41,8 +40,16 @@ const COMING_SOON = [
 export function buildWall(hosted, { testGames = false } = {}) {
   const boxes = [];
   const games = new Map();
-  // Until a hosted game has a view the room can mount, it plays on its own page.
-  for (const { manifest } of hosted) boxes.push(boxFromManifest(manifest, { blurb: BLURBS[manifest.id], url: manifest.path }));
+  for (const { manifest, game } of hosted) {
+    if (manifest.lobby?.view) {
+      // It opens inside the room: the room runs `game`, and the page mounts the view from the game's own files.
+      boxes.push(boxFromManifest(manifest, { view: manifest.path + manifest.lobby.view }));
+      games.set(manifest.id, game);
+    } else {
+      // No view the room can mount yet: it plays on its own page.
+      boxes.push(boxFromManifest(manifest, { url: manifest.path }));
+    }
+  }
   if (testGames) {
     boxes.push(boxFromManifest(coinFlip.manifest, { test: true }));
     games.set(coinFlip.manifest.id, coinFlip.game);

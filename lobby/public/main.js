@@ -71,6 +71,7 @@ function teardown() {
   door = null;
   stage?.unmount();
   stage = null;
+  app.classList.remove("in-game");
   hud?.destroy();
   hud = null;
   svg?.remove();
@@ -243,6 +244,7 @@ link.on("message", (msg) => {
       room.vote = msg.vote;
       voteAt = now;
       scene.setVote(msg.vote, now);
+      warmUp(msg.vote);
       tellLit(now);
       break;
     case "note":
@@ -268,20 +270,68 @@ function feelBump(msg) {
 }
 
 // A game: the room page shows the game's own view while it is on, and the result when it ends.
+// A view comes from this repository (GAME_VIEWS: the test game) or from the game's own files, at
+// the address its box carries (`view`, from the manifest's `lobby.view`). A game's module is
+// fetched when it is first needed, so `stage` stands in for the view at once and hands on
+// whatever the room says in the meantime.
+
+/** How much of the top right corner the door button takes: a game's own buttons stand clear of it. */
+const DOOR_INSET = { top: 56, right: 56 };
+
+/** The view module of a game that opens inside the room, by box. Loaded once. */
+const viewModules = new Map();
+function viewModule(box) {
+  if (GAME_VIEWS[box.id]) return Promise.resolve({ mount: GAME_VIEWS[box.id] });
+  if (!box.view) return Promise.resolve(null);
+  if (!viewModules.has(box.id)) {
+    // Only ever a module of this site: the address comes from the room's wall, and is checked anyway.
+    const address = new URL(box.view, location.href);
+    viewModules.set(box.id, address.origin === location.origin ? import(address.href) : Promise.resolve(null));
+  }
+  return viewModules.get(box.id);
+}
+
 function startStage(snapshot) {
-  if (stage || !room?.game) return;
-  const mount = GAME_VIEWS[room.game.id];
-  if (!mount) return;
+  if (stage || !room?.game || !stageBox) return;
+  const box = room.boxes.find((b) => b.id === room.game.id);
+  if (!box) return;
   steerNow(0);
   held.length = 0;
-  stageBox.hidden = false;
-  stage = mount(stageBox, { room, you: link.you, snapshot });
+  const mine = { view: null, waiting: [], gone: false };
+  const pass = (method, args) => (mine.view ? mine.view[method](...args) : mine.waiting.push([method, args]));
+  stage = {
+    events: (...args) => pass("events", args),
+    snapshot: (...args) => pass("snapshot", args),
+    unmount() {
+      mine.gone = true;
+      mine.view?.unmount();
+    },
+  };
+  const ctx = { room, you: link.you, snapshot, send: (data) => link.sendInput(data), now: () => link.now(), inset: DOOR_INSET, params };
+  viewModule(box)
+    .then((module) => {
+      if (mine.gone || !module?.mount) return;
+      stageBox.hidden = false;
+      mine.view = module.mount(stageBox, ctx);
+      // A view that covers everything: the room's bars are put away and the room is not drawn under it.
+      app.classList.toggle("in-game", !!mine.view.full);
+      for (const [method, args] of mine.waiting.splice(0)) mine.view[method](...args);
+    })
+    .catch((err) => hud?.note(`The game could not be shown: ${err.message}`));
 }
 
 function endStage() {
   stage?.unmount();
   stage = null;
+  app.classList.remove("in-game");
   if (stageBox) stageBox.hidden = true;
+}
+
+/** While a count runs for a game with a view of its own, its files are fetched ahead of the start. */
+function warmUp(vote) {
+  if (!vote?.count || vote.leaders.length !== 1) return;
+  const box = room.boxes.find((b) => b.id === vote.leaders[0]);
+  if (box?.view) void viewModule(box).then((module) => module?.preload?.()).catch(() => {});
 }
 
 link.on("start", (msg) => {
@@ -289,7 +339,7 @@ link.on("start", (msg) => {
   startStage(msg.s);
 });
 link.on("events", (events) => stage?.events(events));
-link.on("snapshot", (snapshot) => (stage ? stage.snapshot(snapshot) : startStage(snapshot)));
+link.on("snapshot", (snapshot, now, full) => (stage ? stage.snapshot(snapshot, now, full) : startStage(snapshot)));
 link.on("end", (msg) => {
   stirAt = performance.now();
   endStage();
@@ -428,7 +478,8 @@ function frame(t) {
   // A blow jolts the picture for a moment (scene.jolt); the framing itself does not move.
   const jolt = scene.jolt(now);
   set(svg, { viewBox: `${(view.x + jolt.x).toFixed(2)} ${(view.y + jolt.y).toFixed(2)} ${view.width.toFixed(2)} ${view.height.toFixed(2)}` });
-  scene.frame(now, dt, pilot, view);
+  // Under a game that covers everything the room is not drawn.
+  if (!app.classList.contains("in-game")) scene.frame(now, dt, pilot, view);
   hud.update(room, room.vote, now, voteAt, zoom, now - stirAt);
 }
 
