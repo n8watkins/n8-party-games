@@ -883,5 +883,50 @@
     "preview": "https://cdn.freesound.org/previews/407/407428_7151065-hq.mp3",
     "file": "raw/lighter-407428.mp3",
     "kept": true
+  },
+  {
+    "slot": "hmm",
+    "id": 170768,
+    "title": "Hmm question.wav",
+    "author": "esperar",
+    "page": "https://freesound.org/people/esperar/sounds/170768/",
+    "licence": "Creative Commons 0",
+    "licenceUrl": "http://creativecommons.org/publicdomain/zero/1.0/",
+    "licenceLine": "You can copy, modify, distribute and perform the sound, even for commercial purposes, all without the need of asking permission to the author.",
+    "duration": 0.711179,
+    "fetched": "2026-11-13",
+    "preview": "https://cdn.freesound.org/previews/170/170768_377731-hq.mp3",
+    "file": "raw/hmm-170768.mp3",
+    "kept": true
+  },
+  {
+    "slot": "hmm",
+    "id": 170779,
+    "title": "OneHmm-question.wav",
+    "author": "esperar",
+    "page": "https://freesound.org/people/esperar/sounds/170779/",
+    "licence": "Creative Commons 0",
+    "licenceUrl": "http://creativecommons.org/publicdomain/zero/1.0/",
+    "licenceLine": "You can copy, modify, distribute and perform the sound, even for commercial purposes, all without the need of asking permission to the author.",
+    "duration": 0.752132,
+    "fetched": "2026-11-13",
+    "preview": "https://cdn.freesound.org/previews/170/170779_377731-hq.mp3",
+    "file": "raw/hmm-170779.mp3",
+    "kept": true
+  },
+  {
+    "slot": "hmm",
+    "id": 445871,
+    "title": "06-HmmmCurioso.wav",
+    "author": "lauracarolina09",
+    "page": "https://freesound.org/people/lauracarolina09/sounds/445871/",
+    "licence": "Creative Commons 0",
+    "licenceUrl": "http://creativecommons.org/publicdomain/zero/1.0/",
+    "licenceLine": "You can copy, modify, distribute and perform the sound, even for commercial purposes, all without the need of asking permission to the author.",
+    "duration": 1.81319,
+    "fetched": "2026-11-13",
+    "preview": "https://cdn.freesound.org/previews/445/445871_9244716-hq.mp3",
+    "file": "raw/hmm-445871.mp3",
+    "kept": true
   }
 ]

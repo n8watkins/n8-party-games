@@ -1,4 +1,4 @@
-// The emotes preview, third round: the page around the rig (rig.js: what every emote does, as
+// The emotes preview, fourth round: the page around the rig (rig.js: what every emote does, as
 // data) and its flat drawing (draw.js). Inlined around it by preview/make-emotes-artifact.mjs:
 // the kit's sound player (SoundBoard, defineSound) and the recordings (CLIPS, each a CC0
 // recording as a data: URI, with where it came from).
@@ -32,19 +32,23 @@ const byId = (id) => EMOTES.find((e) => e.id === id);
 
 /** Cut in this round or before: drawn, tried, and left out. Not in the list. */
 const CUT = [
-  "Shame bell (the owner: \"meh\")",
-  "Huh? with a sign (redone as two takes with the hands: a shrug, and scratching the head)",
-  "Love it with a heart sign (replaced by the lighter)",
-  "Shh with a sign (redone as a finger to the lips)",
-  "Earlier: sobbing, a magnifying glass, cry more with tissues, bored with a pillow, rolling on the floor laughing, all failing the across-the-room test",
+  "White flag, Ten out of ten, the Perfect 10 and Harsh 2 paddles, Huh? as a shrug (the owner's cut, fourth round)",
+  "The detailed floating hands, slow clap included (\"kind of creepy\"): every limb is now a stick arm in the piece's colour",
+  "Shame bell; Huh?, Love it and Shh as signs (third round)",
+  "Sobbing, a magnifying glass, cry more with tissues, bored with a pillow, rolling on the floor laughing (failed the across-the-room test)",
 ];
+
+/** What each level of limbs means, for the row's tag and the notes. */
+const LIMBS = { none: "No arms", mitten: "Mitten", hands: "Small hands" };
 
 // ---------------------------------------------------------------- sound: the recordings, A/B/C per emote
 
 /** When in the emote its sound starts, in ms: on the beat it belongs to. */
-const SOUND_AT = { violin: 250, popcorn: 900, slowclap: 700, pointlaugh: 200, redcard: 220, whiteflag: 300, hurry: 200, confetti: 520, thumbsup: 380, boo: 200, trophy: 420, tenfingers: 300, ten: 300, two: 300, shush: 450, lighter: 760, shrug: 380 };
+const SOUND_AT = { violin: 250, popcorn: 900, slowclap: 700, pointlaugh: 200, redcard: 220, hurry: 200, confetti: 520, thumbsup: 380, boo: 200, trophy: 420, shush: 450, lighter: 760, scratch: 300 };
+/** The takes the owner picked (fourth round): chosen to begin with, and marked. */
+const PICKED = { violin: "A", popcorn: "B", slowclap: "C", redcard: "B", lighter: "C" };
 
-const board = new SoundBoard({ room: "preview-v3" });
+const board = new SoundBoard({ room: "preview-v4" });
 /** For the checks in preview/shoot-emotes.mjs (they run muted): what the player is doing. */
 globalThis.__preview = { board, current: () => current.id };
 let soundOn = true;
@@ -62,7 +66,7 @@ addEventListener("keydown", unlock, { capture: true, passive: true });
 for (const c of CLIPS) defineSound(`${c.emote}-${c.label}`, c.uri);
 const takesOf = (id) => CLIPS.filter((c) => c.emote === id);
 /** The take chosen for each emote: "A", "B", "C", or "none". Kept on the device. */
-const takes = recall("pv3:takes", {});
+const takes = recall("pv4:takes", { ...PICKED });
 const takeFor = (id) => {
   const list = takesOf(id);
   if (takes[id] === "none") return "none";
@@ -84,7 +88,7 @@ const stage = makeStage($("stage"));
 let current = byId("violin");
 let startedAt = -1;
 let running = false;
-let treatment = recall("pv3:treatment", "B");
+let treatment = recall("pv4:treatment", "B");
 
 /** Plays an emote on the stage at once: the one before it stops, its sound too. */
 function play(e) {
@@ -140,7 +144,7 @@ function thumbnail(e, size, aimedWide = e.aimed) {
   return svg;
 }
 
-const stars = new Set(recall("pv3:stars", []));
+const stars = new Set(recall("pv4:stars", []));
 let size = "phone";
 function drawRows() {
   const box = $("rows");
@@ -159,8 +163,8 @@ function drawRows() {
     const words = h("span", "words", "", playBtn);
     const nm = h("span", "nm", e.name, words);
     if (e.kept) h("span", "tag kept", "KEPT", nm);
-    if (STARTER.includes(e.id)) h("span", "tag wheel", "WHEEL", nm);
-    if (e.demoted) h("span", "tag", "OUT OF THE WHEEL", nm);
+    if (wheel.includes(e.id)) h("span", "tag wheel", "WHEEL", nm);
+    h("span", "tag", LIMBS[e.limbs].toUpperCase(), nm);
     h("span", "ln", e.line, words);
     playBtn.addEventListener("click", () => play(e));
     // The row's own controls: its sound takes and its star.
@@ -168,14 +172,14 @@ function drawRows() {
     const list = takesOf(e.id);
     const choices = [...list.map((c) => c.label), "none"];
     for (const label of choices) {
-      const b = h("button", "take", label === "none" ? "no sound" : label, tools);
+      const b = h("button", "take" + (PICKED[e.id] === label ? " picked" : ""), label === "none" ? "no sound" : PICKED[e.id] === label ? `${label} · picked` : label, tools);
       b.type = "button";
       const clip = list.find((c) => c.label === label);
       b.setAttribute("aria-label", clip ? `${e.name}, sound ${label}: ${clip.source.title} by ${clip.source.author}` : `${e.name} without a sound`);
       b.setAttribute("aria-pressed", String(takeFor(e.id) === label));
       b.addEventListener("click", () => {
         takes[e.id] = label;
-        remember("pv3:takes", takes);
+        remember("pv4:takes", takes);
         for (const x of tools.querySelectorAll(".take")) x.setAttribute("aria-pressed", String(x === b));
         writePicks();
         play(e);
@@ -188,7 +192,7 @@ function drawRows() {
     st.addEventListener("click", () => {
       if (stars.has(e.id)) stars.delete(e.id);
       else stars.add(e.id);
-      remember("pv3:stars", [...stars]);
+      remember("pv4:stars", [...stars]);
       st.setAttribute("aria-pressed", String(stars.has(e.id)));
       writePicks();
     });
@@ -198,7 +202,7 @@ function drawRows() {
 // ---------------------------------------------------------------- the wheel and its loadout
 
 const STARTER = ["violin", "popcorn", "slowclap", "pointlaugh", "redcard", "thumbsup"];
-let wheel = recall("pv3:wheel", STARTER).filter((id) => byId(id));
+let wheel = recall("pv4:wheel", STARTER).filter((id) => byId(id));
 while (wheel.length < 6) wheel.push(STARTER.find((id) => !wheel.includes(id)));
 let slotPicked = 0;
 function drawLoadout() {
@@ -217,16 +221,18 @@ function drawLoadout() {
 }
 $("put").addEventListener("click", () => {
   wheel[slotPicked] = current.id;
-  remember("pv3:wheel", wheel);
+  remember("pv4:wheel", wheel);
   toast(`${current.name} is on slot ${slotPicked + 1}`);
   slotPicked = (slotPicked + 1) % 6;
   drawLoadout();
+  drawRows();
   writePicks();
 });
 $("reset").addEventListener("click", () => {
   wheel = [...STARTER];
-  remember("pv3:wheel", wheel);
+  remember("pv4:wheel", wheel);
   drawLoadout();
+  drawRows();
   writePicks();
 });
 
@@ -357,7 +363,7 @@ segment(
   "treatment",
   (v) => {
     treatment = v;
-    remember("pv3:treatment", v);
+    remember("pv4:treatment", v);
     drawRows();
     writePicks();
     play(current);
@@ -386,13 +392,13 @@ $("sound-on").addEventListener("click", () => {
 // ---------------------------------------------------------------- notes and sources
 
 const NOTES = [
-  "<strong>Hands.</strong> The pawn now has a pair of floating hands, drawn more finely than the pawn on purpose: fingers, knuckles, a thumb that opposes, a shaded palm. They appear for an emote and tuck away after. Every hand shape (open, flat, fist, grip, pinch, point, thumbs up, cupped, holding a card) is a set of numbers, so the flat room and a 3D room can draw the same emote from the same data.",
-  "<strong>Redone with two hands that each do their job:</strong> the violin (one hand on the neck, the other drawing long bow strokes, the body swaying with the bow), popcorn (one hand holds the bucket, the other picks, lifts, the mouth chews, and now and then a piece falls), the slow clap (two flat hands, palms together, a held beat between claps).",
-  "<strong>Thumbs up</strong> is now the pawn's own hand, popping forward. <strong>Boo</strong>: I propose the same hands turned thumbs down, both of them, shaken.",
-  "<strong>Shh</strong> is a finger to the lips with a lean and a puff. <strong>Lighter up</strong> replaces Love it. <strong>Huh?</strong> has two takes: a shrug with the hands turned up, or scratching the head.",
-  "<strong>Scoring:</strong> the paddles (Perfect 10, Harsh 2) stay in the list but out of the wheel. The new <strong>Ten out of ten</strong> uses the hands instead: both up, all ten fingers wiggling.",
-  "<strong>Starter wheel (already set):</strong> violin, popcorn, slow clap, point and laugh, red card, thumbs up.",
-  "<strong>Sounds:</strong> each row has its takes (A, B, C or no sound) next to the star; tapping one plays the emote with it and keeps it as your choice. Starting any emote stops the one before it, sound and all.",
+  "<strong>Arms again.</strong> Every limb is a stick arm from the shoulder, as in the second round, in the piece's own colour (red here; in the room each piece's own). The detailed hands are gone. There are three levels, chosen by what the action needs, and each row says which:",
+  "<strong>No arms</strong>: the body does it alone. Fuming.",
+  "<strong>Mitten</strong>: a simple rounded mitten for holding, waving or pointing (one finger out). Popcorn, point and laugh, red card, hurry up, confetti, GG, lighter up.",
+  "<strong>Small hands</strong>: a small cartoon hand with stubby fingers, only where the hand's own action is the point. The violin's pinch and bow, the slow clap's flat palms, thumbs up, boo's thumbs down, the finger to the lips, the head scratch.",
+  "<strong>The violin</strong> is now comically tiny, pinched at the chin with a toothpick bow; a glint at the start makes sure it is seen.",
+  "<strong>Your sound picks</strong> are chosen and marked \"picked\" on their rows: violin A, popcorn B, slow clap C, red card B, lighter C. The other takes are still there. Huh? has three short \"hmm\" takes to choose from.",
+  "<strong>Starter wheel (already set):</strong> violin, popcorn, slow clap, point and laugh, red card, thumbs up. The WHEEL tag follows your wheel when you change it.",
 ];
 {
   const box = $("notes");
@@ -425,7 +431,7 @@ function writePicks() {
   const em = EMOTES.filter((e) => stars.has(e.id));
   const takeText = (e) => (takeFor(e.id) === "none" ? "no sound" : `sound ${takeFor(e.id)}`);
   const lines = [
-    "Emotes v3: my picks",
+    "Emotes v4: my picks",
     "",
     "Starred: " + (em.length ? em.map((e) => `${e.name} (${takeText(e)})`).join(", ") : "(none starred)"),
     "My wheel: " + wheel.map((id) => `${byId(id).name} (${takeText(byId(id))})`).join(", "),
@@ -453,7 +459,7 @@ $("copy").addEventListener("click", async () => {
 });
 $("clear").addEventListener("click", () => {
   stars.clear();
-  remember("pv3:stars", []);
+  remember("pv4:stars", []);
   drawRows();
   writePicks();
 });

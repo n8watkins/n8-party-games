@@ -43,7 +43,7 @@ try {
   const first = await open(SIDEWAYS);
   const ids = await first.evaluate(() => [...document.querySelectorAll(".row")].map((r) => r.dataset.id));
   await first.context().close();
-  check(ids.length >= 16, `${ids.length} candidates in the list`);
+  check(ids.length >= 14, `${ids.length} candidates in the list`);
   for (const id of ids) {
     const page = await open(SIDEWAYS, `#still=${id}&look=B`);
     await page.screenshot({ path: `${out}/${id}.png` });

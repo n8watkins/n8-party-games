@@ -1,4 +1,4 @@
-<title>Emotes v3</title>
+<title>Emotes v4</title>
 <style>
   :root {
     color-scheme: dark;
@@ -34,7 +34,7 @@
   .title { font-weight: 800; font-size: 17px; }
   .kicker { font: 700 10px/1 var(--mono); letter-spacing: 0.2em; color: var(--amber); text-transform: uppercase; }
   .seg { display: inline-flex; border: 1.5px solid var(--line); border-radius: 999px; padding: 2px; background: var(--panel); }
-  .seg button { border: 0; background: none; padding: 5px 10px; border-radius: 999px; font-weight: 700; font-size: 12.5px; color: var(--soft); min-height: 32px; }
+  .seg button { white-space: nowrap; border: 0; background: none; padding: 5px 10px; border-radius: 999px; font-weight: 700; font-size: 12.5px; color: var(--soft); min-height: 32px; }
   .seg button[aria-pressed="true"] { background: var(--amber); color: var(--amber-ink); }
   .chip { border: 1.5px solid var(--line); background: var(--panel); border-radius: 999px; padding: 5px 12px; font-weight: 700; font-size: 12.5px; min-height: 34px; }
   .chip.on { border-color: var(--teal); color: #c9f3ea; }
@@ -72,11 +72,12 @@
   .tools { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
   .take { min-width: 44px; min-height: 40px; border-radius: 10px; border: 1.5px solid var(--line); background: #1d130e; font-weight: 800; font-size: 13px; color: var(--soft); padding: 0 10px; }
   .take[aria-pressed="true"] { border-color: var(--teal); color: #c9f3ea; background: #123a33; }
+  .take.picked { box-shadow: inset 0 -3px 0 var(--amber); }
   .tools .star { margin-left: auto; }
   .src { font-size: 11px; color: var(--dim); }
   .tag { font: 700 9.5px/1 var(--mono); letter-spacing: 0.1em; padding: 3px 5px; border-radius: 5px; background: var(--panel-2); color: var(--soft); margin-left: 4px; vertical-align: 2px; }
   .tag.kept { background: var(--amber); color: var(--amber-ink); }
-  .tag.wheel { background: #123a33; color: #c9f3ea; }
+  .tag.wheel { background: var(--teal); color: #062520; }
   .star { display: inline-grid; place-items: center; border: 1.5px solid var(--line); background: none; border-radius: 999px; width: 46px; height: 40px; font-size: 18px; line-height: 1; color: var(--dim); }
   .star[aria-pressed="true"] { color: var(--amber); border-color: var(--amber); }
 
@@ -103,7 +104,7 @@
     .tabs { gap: 2px; padding: 6px; }
     .tabs button { padding: 6px 8px; font-size: 13px; }
   }
-  @media (orientation: landscape) and (max-width: 700px) {
+  @media (orientation: landscape) and (max-width: 700px), (orientation: portrait) and (max-width: 540px) {
     .tabs { gap: 0; padding: 5px 4px; }
     .tabs button { padding: 6px 5px; font-size: 12px; }
   }
@@ -152,13 +153,13 @@
   <div class="left">
     <div class="head">
       <div>
-        <div class="kicker">Party room · emotes, third round</div>
-        <div class="title">Emotes v3</div>
+        <div class="kicker">Party room · emotes, fourth round</div>
+        <div class="title">Emotes v4</div>
       </div>
       <span class="seg" id="treatment" role="group" aria-label="How an emote is shown">
         <button type="button" data-v="A" aria-pressed="false">Body</button>
-        <button type="button" data-v="B" aria-pressed="true">+ sticker</button>
-        <button type="button" data-v="C" aria-pressed="false">+ screen card</button>
+        <button type="button" data-v="B" aria-pressed="true">Sticker</button>
+        <button type="button" data-v="C" aria-pressed="false">Screen card</button>
       </span>
       <button type="button" class="chip on" id="sound-on" aria-pressed="true">Sound on</button>
     </div>

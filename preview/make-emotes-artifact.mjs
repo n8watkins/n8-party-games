@@ -1,8 +1,8 @@
-// Makes the emotes preview (third round) as one self-contained page for the owner to open on his
+// Makes the emotes preview (fourth round) as one self-contained page for the owner to open on his
 // phone, and as a small local site at /preview/emotes/ (built only with --preview, never for
 // production: scripts/build-public.mjs).
 //
-//   node preview/make-emotes-artifact.mjs     writes preview/emotes-artifact-v3.html
+//   node preview/make-emotes-artifact.mjs     writes preview/emotes-artifact-v4.html
 //
 // The page is preview/emotes/page.html (title, styles, markup) and three scripts: rig.js (what
 // every emote does, as data a 3D drawing could also read), draw.js (the flat SVG drawing of it)
@@ -13,8 +13,8 @@
 // The recordings and the page that embeds them are not committed until the owner picks; without
 // them the page still works, silently.
 //
-// The first round is preview/emotes-artifact.html, kept as it was shown; the second round's
-// sources are in the history (commit b972c4d), and it was published from there.
+// The first round is preview/emotes-artifact.html, kept as it was shown; the second and third
+// rounds' sources are in the history (commits b972c4d and bab49df), published from there.
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -72,7 +72,7 @@ export function writeSite(dir) {
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  const out = join(HERE, "emotes-artifact-v3.html");
+  const out = join(HERE, "emotes-artifact-v4.html");
   const html = artifact();
   writeFileSync(out, html);
   console.log(`${out}: ${(Buffer.byteLength(html) / 1024).toFixed(0)} KiB, ${clips().length} recordings`);

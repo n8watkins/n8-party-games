@@ -282,7 +282,7 @@ link.on("message", (msg) => {
  * big screen when the room has one and on every player's device when it has none (the kit's
  * rule), unless this device muted it or the game being played does not allow it.
  *
- * How emotes look is waiting on the owner's picks (preview/emotes-artifact-v3.html): until then
+ * How emotes look is waiting on the owner's picks (preview/emotes-artifact-v4.html): until then
  * the room says it in a note at the top ("Tom: Slow clap"), and no emote has a sound yet.
  */
 function emoted(msg) {

@@ -1,7 +1,7 @@
 // The flat drawing of an emote: turns a pose from rig.js into SVG. The pawn is the room's own
-// (lobby/public/scene.js, piece()); the hands are drawn from the shape numbers every frame, a
-// little more finely than the pawn on purpose (fingers, knuckle creases, nails, a shaded palm);
-// props and effects come from a small library, by kind. A 3D drawing would read the same poses.
+// (lobby/public/scene.js, piece()); its arms are sticks in its own colour ending in a mitten or a
+// small cartoon hand, drawn from the pose's numbers every frame; props and effects come from a
+// small library, by kind. A 3D drawing would read the same poses.
 "use strict";
 
 const NS = "http://www.w3.org/2000/svg";
@@ -128,63 +128,72 @@ function applyBody(p, body, face) {
   else set(p.mouth, { display: "none" });
 }
 
-// ---------------------------------------------------------------- the hands
+// ---------------------------------------------------------------- the limbs
 
-const SKIN = "#f7d9bd";
-const SKIN_DARK = "#e2b089";
-const HAND_LINE = "#4a2a1a";
-/** Index to little finger: where each sits on the palm, how wide and how long it is. */
-const FINGERS = [
-  { x: -9.6, w: 7.4, len: 21 },
-  { x: -3.2, w: 7.8, len: 24 },
-  { x: 3.2, w: 7.4, len: 22 },
-  { x: 9.4, w: 6.4, len: 17 },
-];
-
-/** One hand's elements, made once and reshaped every frame. */
-function makeHand(parent) {
+/**
+ * One limb's elements, made once and reshaped every frame: a stick arm and, at its end, a mitten
+ * or a small cartoon hand, all in the pawn's own colour. Both hands are deliberately simple and
+ * round: a toy's hands, not a person's.
+ */
+function makeLimb(parent, colour) {
   const g = el("g", {}, parent);
-  const back = el("g", {}, g); // a thumb tucked behind the palm
-  const palm = el("path", { d: "M-11,5 C-15,-1 -15.5,-14 -14.5,-25 L14.5,-25 C15.5,-14 15,-1 11,5 C5,9 -5,9 -11,5 Z", fill: SKIN, stroke: HAND_LINE, "stroke-width": 2, "stroke-linejoin": "round" }, g);
-  const palmShade = el("path", { d: "M7,4 C12,-4 13,-14 12.5,-24 L14.5,-24 C15.5,-14 15,-1 11,5 Z", fill: SKIN_DARK, opacity: 0.8 }, g);
-  const crease = el("path", { d: "M-8,-6 Q-2,-2 6,-9", fill: "none", stroke: SKIN_DARK, "stroke-width": 1.6, "stroke-linecap": "round" }, g);
-  const fingers = FINGERS.map(() => {
-    const fg = el("g", {}, g);
-    const body = el("rect", { fill: SKIN, stroke: HAND_LINE, "stroke-width": 2 }, fg);
-    const knuckle = el("path", { fill: "none", stroke: SKIN_DARK, "stroke-width": 1.4, "stroke-linecap": "round" }, fg);
-    const nail = el("rect", { fill: "#fff3e6", opacity: 0.9 }, fg);
-    return { fg, body, knuckle, nail };
-  });
-  const front = el("g", {}, g); // a thumb across the palm, in front of the fingers
-  const thumb = el("g", {}, front);
-  const thumbBody = el("rect", { fill: SKIN, stroke: HAND_LINE, "stroke-width": 2 }, thumb);
-  const thumbNail = el("rect", { fill: "#fff3e6", opacity: 0.9 }, thumb);
-  return { g, back, front, palm, palmShade, crease, fingers, thumb, thumbBody, thumbNail };
+  const arm = el("path", { fill: "none", stroke: shade(colour, -0.05), "stroke-width": 8, "stroke-linecap": "round", "stroke-linejoin": "round" }, g);
+  const handG = el("g", {}, g);
+  const fill = shade(colour, 0.28);
+  const line = shade(colour, -0.42);
+  const look = { fill, stroke: line, "stroke-width": 1.8, "stroke-linejoin": "round" };
+  const back = el("g", {}, handG); // a thumb held out sits behind the palm's edge
+  // The mitten: one rounded body, a thumb lobe, and one finger that stands out to point.
+  const mitten = el("rect", look, handG);
+  const pointer = el("rect", look, handG);
+  // The cartoon hand: a round palm and four stubby fingers.
+  const palm = el("rect", look, handG);
+  const fingers = [0, 1, 2, 3].map(() => el("rect", look, handG));
+  const front = el("g", {}, handG); // a thumb across the palm, in front
+  const thumb = el("rect", look, front);
+  return { g, arm, handG, back, front, mitten, pointer, palm, fingers, thumb };
 }
 
-function shapeHand(h, pose) {
-  if (!pose || pose.s <= 0.01) return set(h.g, { display: "none" });
+/** Index to little finger on the cartoon hand: where each sits and how long it is when straight. */
+const STUBS = [
+  { x: -5.4, len: 9 },
+  { x: -1.8, len: 10 },
+  { x: 1.8, len: 9.4 },
+  { x: 5.3, len: 7.6 },
+];
+
+function shapeLimb(l, pose) {
+  if (!pose || pose.s <= 0.05) return set(l.g, { display: "none" });
+  set(l.g, { display: "inline" });
+  const a = pose.arm;
+  set(l.arm, { d: `M${f1(a.shoulder.x)},${f1(a.shoulder.y)} L${f1(a.elbow.x)},${f1(a.elbow.y)} L${f1(a.wrist.x)},${f1(a.wrist.y)}` });
   const sh = pose.shape;
-  set(h.g, { display: "inline", transform: `translate(${f1(pose.x)},${f1(pose.y)}) rotate(${f1(pose.rot)}) scale(${(pose.side * pose.s * (pose.sx ?? 1)).toFixed(3)},${pose.s.toFixed(3)})` });
-  FINGERS.forEach((fd, i) => {
-    const c = sh.f[i];
-    const f = h.fingers[i];
-    // Seen from in front, a curling finger gets shorter and shows its back: the knuckles.
-    const len = fd.len * (1 - 0.74 * c);
-    const angle = sh.spread * [-9, -3, 3, 9][i];
-    set(f.fg, { transform: `translate(${fd.x},-22) rotate(${angle.toFixed(1)})` });
-    set(f.body, { x: -fd.w / 2, y: -len, width: fd.w, height: len + 5, rx: fd.w / 2, fill: c > 0.55 ? SKIN_DARK : SKIN });
-    set(f.knuckle, { d: c > 0.55 ? `M${-fd.w / 2 + 1.5},${f1(-len + 3)} h${fd.w - 3}` : `M${-fd.w / 2 + 1.6},${f1(-len * 0.48)} h${fd.w - 3.2}` });
-    set(f.nail, { display: c < 0.35 ? "inline" : "none", x: -fd.w / 2 + 1.6, y: f1(-len + 1.4), width: fd.w - 3.2, height: 4.2, rx: 1.6 });
-  });
-  // The thumb: from the side of the palm, out (negative angle) or across it (positive).
-  const tl = 19 * (1 - 0.42 * sh.tc);
-  set(h.thumb, { transform: `translate(-12.5,-5) rotate(${sh.ta.toFixed(1)})` });
-  set(h.thumbBody, { x: -4.4, y: f1(-tl), width: 8.8, height: f1(tl + 5), rx: 4.4 });
-  set(h.thumbNail, { display: sh.tc < 0.4 ? "inline" : "none", x: -2.6, y: f1(-tl + 1.4), width: 5.2, height: 4.4, rx: 1.8 });
-  // Across the palm the thumb is in front of the fingers; held out, behind the palm's edge.
-  const parent = sh.ta > 5 ? h.front : h.back;
-  if (h.thumb.parentNode !== parent) parent.append(h.thumb);
+  set(l.handG, { transform: `translate(${f1(pose.x)},${f1(pose.y)}) rotate(${f1(pose.rot)}) scale(${(pose.side * pose.s * (pose.sx ?? 1)).toFixed(3)},${pose.s.toFixed(3)})` });
+  const mitten = pose.style === "mitten";
+  const curl = (sh.f[0] + sh.f[1] + sh.f[2] + sh.f[3]) / 4;
+  for (const e of [l.mitten, l.pointer]) set(e, { display: mitten ? "inline" : "none" });
+  for (const e of [l.palm, ...l.fingers]) set(e, { display: mitten ? "none" : "inline" });
+  if (mitten) {
+    // The rest of the fingers together: shorter and rounder the more they curl.
+    const rest = (sh.f[1] + sh.f[2] + sh.f[3]) / 3;
+    const hgt = 18 * (1 - 0.38 * rest);
+    set(l.mitten, { x: -7.5, y: f1(-hgt), width: 15, height: f1(hgt + 3), rx: 7 });
+    // The index finger stands out when it is straight and the others are not.
+    const points = sh.f[0] < 0.3 && rest > 0.6;
+    set(l.pointer, { display: points ? "inline" : "none", x: -7, y: -22, width: 5.4, height: 12, rx: 2.7 });
+  } else {
+    set(l.palm, { x: -7.2, y: -11, width: 14.4, height: 13, rx: 5.5 });
+    STUBS.forEach((st, i) => {
+      const len = st.len * (1 - 0.68 * sh.f[i]);
+      const angle = sh.spread * [-10, -3.5, 3.5, 10][i];
+      set(l.fingers[i], { x: f1(st.x - 2), y: f1(-9 - len), width: 4, height: f1(len + 3), rx: 2, transform: `rotate(${angle.toFixed(1)},${st.x},-9)` });
+    });
+  }
+  // The thumb: out from the palm's edge (negative angle) or across it (positive).
+  const tl = (mitten ? 9 : 8.5) * (1 - 0.4 * sh.tc);
+  set(l.thumb, { x: -2.4, y: f1(-tl), width: 4.8, height: f1(tl + 2.5), rx: 2.4, transform: `translate(-6.4,-3) rotate(${sh.ta.toFixed(1)})` });
+  const parent = sh.ta > 5 ? l.front : l.back;
+  if (l.thumb.parentNode !== parent) parent.append(l.thumb);
 }
 
 // ---------------------------------------------------------------- props and effects
@@ -205,7 +214,7 @@ const KINDS = {
     el("path", { d: "M-5,-16 q-2,4 0,8 M5,-16 q2,4 0,8", fill: "none", stroke: INK, "stroke-width": 1.4 }, g);
     el("rect", { x: -5, y: -6, width: 10, height: 2.5, fill: "#f0d9a8" }, g);
     el("path", { d: "M-1.5,-74 V4 M1.5,-74 V4", stroke: "#f0e6cc", "stroke-width": 0.7 }, g);
-    return (p) => set(g, { transform: `translate(${f1(p.x)},${f1(p.y)}) rotate(${f1(p.rot)}) scale(${(0.95 * p.s).toFixed(3)})` });
+    return (p) => set(g, { transform: `translate(${f1(p.x)},${f1(p.y)}) rotate(${f1(p.rot)}) scale(${p.s.toFixed(3)})` });
   },
   bow(parent) {
     const stick = el("path", { stroke: "#5a3420", "stroke-width": 2.6, "stroke-linecap": "round" }, parent);
@@ -216,8 +225,9 @@ const KINDS = {
       const n = Math.hypot(nx, ny) || 1;
       const ox = (nx / n) * 3;
       const oy = (ny / n) * 3;
-      set(stick, { d: `M${f1(p.x1)},${f1(p.y1)} L${f1(p.x2)},${f1(p.y2)}`, opacity: p.s });
-      set(hair, { d: `M${f1(p.x1 + ox)},${f1(p.y1 + oy)} L${f1(p.x2 + ox)},${f1(p.y2 + oy)}`, opacity: p.s });
+      const k2 = p.thin ? 0.35 : 1;
+      set(stick, { d: `M${f1(p.x1)},${f1(p.y1)} L${f1(p.x2)},${f1(p.y2)}`, opacity: p.s, "stroke-width": 2.6 * k2 + 0.6 });
+      set(hair, { d: `M${f1(p.x1 + ox * k2)},${f1(p.y1 + oy * k2)} L${f1(p.x2 + ox * k2)},${f1(p.y2 + oy * k2)}`, opacity: p.s, "stroke-width": 1.4 * k2 + 0.3 });
     };
   },
   bucket(parent) {
@@ -322,6 +332,11 @@ const KINDS = {
 };
 
 const FX = {
+  glint(parent) {
+    const g = el("g", {}, parent);
+    star4(g, 0, 0, 9, "#fff6d8");
+    return (f) => set(g, { transform: `translate(${f1(f.x)},${f1(f.y)}) scale(${Math.max(0.01, f.s).toFixed(3)})` });
+  },
   note(parent) {
     const g = el("g", {}, parent);
     el("path", { d: "M0,0 V-16 L10,-19 V-4", stroke: "#fbf3e2", "stroke-width": 2.4, fill: "none" }, g);
@@ -382,8 +397,8 @@ function drawList(p, parent, list, lib, prefix) {
 /** Puts a pose on a pawn: body, face, hands, props and effects. */
 function poseOn(p, pose) {
   applyBody(p, pose.body, pose.face);
-  p.handEls ??= [makeHand(p.hands), makeHand(p.hands)];
-  for (let i = 0; i < 2; i++) shapeHand(p.handEls[i], pose.hands[i]);
+  p.limbs ??= [makeLimb(p.hands, p.colour), makeLimb(p.hands, p.colour)];
+  for (let i = 0; i < 2; i++) shapeLimb(p.limbs[i], pose.hands[i]);
   drawList(p, p.props, pose.props.filter((x) => x.space !== "stage"), KINDS, "b");
   drawList(p, p.stage, pose.props.filter((x) => x.space === "stage"), KINDS, "s");
   drawList(p, p.fx, pose.fx.filter((x) => !x.onHead), FX, "f");
@@ -464,7 +479,7 @@ function drawEmote(r, e, t, treatment = "B", calm = false) {
     const w = Math.max(60, [...e.word].length * 12.5 + 28);
     set(r.bubble.back, { d: `M${-w / 2},-22 h${w} a10,10 0 0 1 10,10 v24 a10,10 0 0 1 -10,10 h${-w / 2 + 10} l-10,12 l-4,-12 h${-w / 2 + 4} a10,10 0 0 1 -10,-10 v-24 a10,10 0 0 1 10,-10 Z` });
     const s = calm ? 1 : EASE.b(clamp((t - 250) / 160, 0, 1));
-    const x = clamp(head.x - 30, w / 2 + 12, 640 - w / 2 - 12);
+    const x = clamp(head.x, w / 2 + 12, 640 - w / 2 - 12);
     set(r.bubble.g, { display: "inline", transform: `translate(${f1(x)},${f1(Math.max(30, head.y))}) scale(${s.toFixed(3)})` });
   } else set(r.bubble.g, { display: "none" });
   const card = treatment === "C" && t > 500 && t < Math.min(e.dur - 300, 2400);

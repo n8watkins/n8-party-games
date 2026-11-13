@@ -15,7 +15,7 @@
 // There is no soundboard: the owner dropped it on 2026-11-13 ("just emotes"). An emote's sound
 // plays where the room's sounds play (soundPlaysHere) and the device's volume and mutes apply.
 //
-// Which emotes there will be waits on the owner's picks (preview/emotes-artifact-v3.html), so
+// Which emotes there will be waits on the owner's picks (preview/emotes-artifact-v4.html), so
 // EMOTES below is every candidate in that preview: the room accepts any of them until the set
 // is chosen. A player's wheel holds six, and number keys 1 to 6 send them from a keyboard.
 
@@ -26,20 +26,15 @@ export const EMOTES = [
   { id: "slowclap", name: "Slow clap" },
   { id: "pointlaugh", name: "Point and laugh" },
   { id: "redcard", name: "Red card" },
-  { id: "thumbsup", name: "Thumbs up" },
-  { id: "whiteflag", name: "White flag" },
   { id: "hurry", name: "Hurry up" },
+  { id: "thumbsup", name: "Thumbs up" },
   { id: "confetti", name: "Confetti" },
-  { id: "steam", name: "Fuming" },
   { id: "boo", name: "Boo" },
   { id: "trophy", name: "GG" },
-  { id: "tenfingers", name: "Ten out of ten" },
-  { id: "ten", name: "Perfect 10" },
-  { id: "two", name: "Harsh 2" },
   { id: "shush", name: "Shh" },
   { id: "lighter", name: "Lighter up" },
-  { id: "shrug", name: "Huh? (shrug)" },
-  { id: "scratch", name: "Huh? (scratching head)" },
+  { id: "scratch", name: "Huh?" },
+  { id: "steam", name: "Fuming" },
 ];
 
 const IDS = new Set(EMOTES.map((e) => e.id));
