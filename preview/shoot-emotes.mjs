@@ -74,7 +74,7 @@ try {
     const before = await page.locator("#stage").boundingBox();
     // Scroll the list to its end and tap the last row: it plays, and the stage has not moved.
     await page.locator("#pane-list").evaluate((p) => (p.scrollTop = p.scrollHeight));
-    const last = page.locator(".row").last();
+    const last = page.locator(".row .play").last();
     await last.click();
     await page.waitForTimeout(300);
     const after = await page.locator("#stage").boundingBox();
@@ -97,6 +97,54 @@ try {
     await page.locator('[data-pane="picks"]').click();
     await page.locator("#copy").click();
     check((await page.locator("#picks").inputValue()).includes("My wheel:"), `${name}: the picks list is there to copy`);
+    await page.context().close();
+  }
+  // ---------------------------------------------------------------- trying to break it
+  for (const [name, how] of [
+    ["sideways", SIDEWAYS],
+    ["upright", UPRIGHT],
+  ]) {
+    const page = await open(how);
+    const playButtons = page.locator(".row .play");
+    const n = await playButtons.count();
+    // Every emote back to back, each cut off in the middle by the next: never two sounds from the pawn.
+    let most = 0;
+    for (let i = 0; i < n; i++) {
+      await playButtons.nth(i).click();
+      await page.waitForTimeout(i % 3 === 0 ? 900 : 250);
+      most = Math.max(most, await page.evaluate(() => globalThis.__preview.board.voices.length));
+    }
+    check(most <= 1, `${name}: every emote back to back, interrupting each other: at most ${most} sound at a time`);
+    // Switching takes while it plays, and tapping as fast as a thumb can.
+    const takes = page.locator(".row").first().locator(".take");
+    for (let i = 0; i < 6; i++) await takes.nth(i % (await takes.count())).click();
+    for (let i = 0; i < 12; i++) await playButtons.nth(i % 4).click({ delay: 10 });
+    await page.waitForTimeout(400);
+    const voices = await page.evaluate(() => globalThis.__preview.board.voices.length);
+    const playing = await page.locator(".row.playing").count();
+    check(voices <= 1 && playing === 1, `${name}: take switches and fast taps leave one emote playing (${playing}) and at most one sound (${voices})`);
+    // The wheel opened in the middle of an emote, and the phone turned while it is open.
+    await playButtons.nth(0).click();
+    await page.locator('[data-pane="wheel"]').click();
+    const box = await page.locator("#emote-btn").boundingBox();
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    await page.mouse.down();
+    await page.mouse.up();
+    const tapOpen = await page.locator("#wheel.open.tap").count();
+    await page.setViewportSize({ width: how.viewport.height, height: how.viewport.width });
+    await page.waitForTimeout(300);
+    const afterTurn = await page.locator("#wheel.open").count();
+    const scrolls = await page.evaluate(() => document.scrollingElement.scrollHeight > innerHeight + 1 || document.scrollingElement.scrollWidth > innerWidth + 1);
+    check(tapOpen === 1 && afterTurn === 0 && !scrolls, `${name}: a tap opens the wheel mid-emote; turning the phone closes it and the page still fits`);
+    await page.screenshot({ path: `${out}/turned-${name}.png` });
+    await page.context().close();
+  }
+  // A small phone held sideways: the stage must still be a real size.
+  {
+    const page = await open({ viewport: { width: 568, height: 320 }, deviceScaleFactor: 2, hasTouch: true });
+    const box = await page.locator("#stage").boundingBox();
+    check(box.height >= 150, `568 x 320 sideways: the stage is ${Math.round(box.width)} x ${Math.round(box.height)}`);
+    await page.screenshot({ path: `${out}/page-small-sideways.png` });
     await page.context().close();
   }
   check(errors.length === 0, "no page reported an error" + (errors.length ? ": " + errors.slice(0, 5).join(" | ") : ""));

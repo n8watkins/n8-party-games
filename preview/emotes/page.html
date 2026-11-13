@@ -1,4 +1,4 @@
-<title>Emotes v2</title>
+<title>Emotes v3</title>
 <style>
   :root {
     color-scheme: dark;
@@ -24,7 +24,7 @@
   .app { position: fixed; inset: 0; display: grid; grid-template-columns: minmax(0, 1.45fr) minmax(300px, 1fr); gap: 0; padding: env(safe-area-inset-top, 0px) env(safe-area-inset-right, 0px) env(safe-area-inset-bottom, 0px) env(safe-area-inset-left, 0px); }
   .left { display: flex; flex-direction: column; min-height: 0; padding: 12px 8px 12px 16px; gap: 8px; }
   .side { display: flex; flex-direction: column; min-height: 0; border-left: 1.5px solid var(--line); background: #110b08; }
-  @media (orientation: portrait), (max-width: 700px) {
+  @media (orientation: portrait), (max-width: 540px) {
     .app { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); }
     .left { padding: 10px 16px 8px; }
     .side { border-left: 0; border-top: 1.5px solid var(--line); }
@@ -41,7 +41,7 @@
 
   .stage-box { position: relative; flex: 1; min-height: 0; border-radius: 14px; overflow: hidden; border: 1.5px solid var(--line); background: #150c09; }
   .stage { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
-  @media (orientation: portrait), (max-width: 700px) {
+  @media (orientation: portrait), (max-width: 540px) {
     .stage-box { flex: none; height: min(36vh, 300px); }
   }
   .now { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-height: 36px; }
@@ -61,17 +61,23 @@
   .pane p { color: var(--soft); margin: 6px 0; font-size: 13.5px; }
   .sizes { display: flex; align-items: center; gap: 8px; margin: 2px 0 8px; font-size: 12.5px; color: var(--soft); flex-wrap: wrap; }
 
-  .row { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 10px; align-items: center; width: 100%; text-align: left; border: 1.5px solid var(--line); background: var(--panel); border-radius: 12px; padding: 6px 8px 6px 6px; margin-bottom: 6px; min-height: 64px; }
+  .row { display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; border: 1.5px solid var(--line); background: var(--panel); border-radius: 12px; padding: 6px; margin-bottom: 6px; }
   .row.playing { border-color: var(--amber); background: #24170f; }
+  .row .play { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 10px; align-items: center; width: 100%; text-align: left; border: 0; background: none; padding: 0; min-height: 56px; }
   .row .thumb { border-radius: 9px; overflow: hidden; background: #1a100b; display: grid; place-items: end center; }
   .row .thumb svg { display: block; }
-  .row .words { min-width: 0; }
+  .row .words { min-width: 0; display: grid; gap: 2px; }
   .row .nm { font-weight: 800; font-size: 14.5px; }
   .row .ln { font-size: 12px; color: var(--soft); }
-  .row .snd { font-size: 12px; color: var(--teal); }
+  .tools { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+  .take { min-width: 44px; min-height: 40px; border-radius: 10px; border: 1.5px solid var(--line); background: #1d130e; font-weight: 800; font-size: 13px; color: var(--soft); padding: 0 10px; }
+  .take[aria-pressed="true"] { border-color: var(--teal); color: #c9f3ea; background: #123a33; }
+  .tools .star { margin-left: auto; }
+  .src { font-size: 11px; color: var(--dim); }
   .tag { font: 700 9.5px/1 var(--mono); letter-spacing: 0.1em; padding: 3px 5px; border-radius: 5px; background: var(--panel-2); color: var(--soft); margin-left: 4px; vertical-align: 2px; }
   .tag.kept { background: var(--amber); color: var(--amber-ink); }
-  .star { display: inline-grid; place-items: center; border: 1.5px solid var(--line); background: none; border-radius: 999px; width: 44px; height: 40px; font-size: 18px; line-height: 1; color: var(--dim); }
+  .tag.wheel { background: #123a33; color: #c9f3ea; }
+  .star { display: inline-grid; place-items: center; border: 1.5px solid var(--line); background: none; border-radius: 999px; width: 46px; height: 40px; font-size: 18px; line-height: 1; color: var(--dim); }
   .star[aria-pressed="true"] { color: var(--amber); border-color: var(--amber); }
 
   /* The control bar, as in the room, with the wheel's button. */
@@ -88,6 +94,26 @@
   .ctl .ring circle { fill: none; stroke-width: 5; }
   .ctl .ring .sweep { stroke: var(--teal); stroke-linecap: round; }
   .ctl .ring .track { stroke: rgba(79, 195, 176, 0.18); }
+  @media (orientation: landscape) and (max-width: 760px) {
+    .bar { gap: 5px; padding: 6px 8px; }
+    .ctl { width: 46px; height: 46px; }
+  }
+  /* The side panel is narrow on a phone held sideways: the five tabs a size smaller so all fit. */
+  @media (orientation: landscape) and (max-width: 940px) {
+    .tabs { gap: 2px; padding: 6px; }
+    .tabs button { padding: 6px 8px; font-size: 13px; }
+  }
+  @media (orientation: landscape) and (max-width: 700px) {
+    .tabs { gap: 0; padding: 5px 4px; }
+    .tabs button { padding: 6px 5px; font-size: 12px; }
+  }
+  /* A short screen (a small phone held sideways): the heading gives way to the stage. */
+  @media (orientation: landscape) and (max-height: 420px) {
+    .head .kicker, .head .title { display: none; }
+    .head .seg button, .head .chip { min-height: 28px; padding-top: 3px; padding-bottom: 3px; }
+    .left { padding-top: 6px; padding-bottom: 6px; gap: 4px; }
+    .now { min-height: 26px; font-size: 13px; }
+  }
   .wheel { position: fixed; z-index: 30; width: 300px; height: 300px; margin: -150px 0 0 -150px; pointer-events: none; display: none; }
   .wheel.open { display: block; }
   .wheel.tap { pointer-events: auto; }
@@ -126,8 +152,8 @@
   <div class="left">
     <div class="head">
       <div>
-        <div class="kicker">Party room · emotes, second round</div>
-        <div class="title">Emotes v2</div>
+        <div class="kicker">Party room · emotes, third round</div>
+        <div class="title">Emotes v3</div>
       </div>
       <span class="seg" id="treatment" role="group" aria-label="How an emote is shown">
         <button type="button" data-v="A" aria-pressed="false">Body</button>

@@ -24,8 +24,10 @@ import { Scene } from "./scene.js";
  * @property {(msg: object, now: number) => void} onBump     someone bumped (and perhaps hit someone)
  * @property {(msg: object, now: number) => void} onExpress  someone sent an emote ({t: "e", s, e}): shown over
  *   their piece (the kit's rules: party-kit/client/emotes.js). Neither drawing shows it yet: how
- *   emotes look waits on the owner's picks (preview/emotes-artifact-v2.html), and the page says
- *   it in a note meanwhile.
+ *   emotes look waits on the owner's picks (preview/emotes-artifact-v3.html), and the page says
+ *   it in a note meanwhile. A player's new emote replaces their own previous one at once
+ *   (its sound is cut by the page's player); other players' emotes overlap as they come. The
+ *   poses are data (preview/emotes/rig.js) that either drawing can read.
  * @property {(now: number) => void} ownJump                 the viewer's own piece jumped
  * @property {(now: number) => void} ownBump                 the viewer's own piece began a bump (the room has not answered yet)
  * @property {() => number} ownX                             where the viewer's own piece is drawn, for the camera

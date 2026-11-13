@@ -30,6 +30,8 @@ const WANT = [
   ["snore", 432997], ["snore", 20545],
   ["buzzer", 648462], ["buzzer", 331912],
   ["yay", 563845], ["yay", 182571],
+  ["shush", 151224], ["shush", 412673], ["shush", 701175],
+  ["lighter", 398977], ["lighter", 742836], ["lighter", 407428],
 ];
 
 const today = new Date().toISOString().slice(0, 10);

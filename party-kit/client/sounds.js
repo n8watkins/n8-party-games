@@ -15,6 +15,8 @@
 export const MAX_VOICES = 4;
 /** A sound that could not start within this long of being asked for is dropped, not played late. */
 export const LATE_MS = 350;
+/** ...except the first time it is played, when it has to be decoded: a slow phone may take this long. */
+export const FIRST_PLAY_MS = 2000;
 /** Where the device's choices are kept. */
 export const PREFS_KEY = "party-kit:sound";
 
@@ -59,6 +61,8 @@ export class SoundBoard {
     this.mutedPlayers = new Set(saved.players?.room === room ? saved.players.names : []);
     this.ctx = null;
     this.buffers = new Map();
+    /** Sounds decoded on this device already. */
+    this.decoded = new Set();
     this.voices = [];
     this.listeners = new Set();
     /** The last few things this player did with a request, newest last: for the tests and for a "why no sound" hint. */
@@ -107,9 +111,16 @@ export class SoundBoard {
     return this.unlocked;
   }
 
-  /** Fetches and decodes the given sounds ahead of time, one after another, so the first play is instant. */
+  /** Decodes the given sounds ahead of time, one after another, so the first play is instant. Call it once sound is allowed. */
   async warm(names = soundNames()) {
-    for (const name of names) await this.buffer(name).catch(() => null);
+    if (!this.ctx) return;
+    for (const name of names) {
+      const ok = await this.buffer(name).then(
+        () => true,
+        () => false,
+      );
+      if (ok) this.decoded.add(name);
+    }
   }
 
   buffer(name) {
@@ -165,14 +176,17 @@ export class SoundBoard {
     if (this.muted || this.volume <= 0 || (who && this.mutedPlayers.has(who))) return said("muted");
     if (!this.unlocked) return said("locked");
     if (typeof document !== "undefined" && document.hidden) return said("hidden");
+    // A sound decoded before is ready at once; the first time, decoding takes a moment and that is fine.
+    const first = !this.decoded.has(name);
     let buffer;
     try {
       buffer = await this.buffer(name);
     } catch {
       return said("unknown");
     }
-    // Never late: a sound that took too long to make ready, or arrived while the page could not play, is dropped.
-    if (performance.now() - asked > LATE_MS || !this.unlocked || this.muted) return said("late");
+    this.decoded.add(name);
+    // Never late: a sound that waited for no good reason, or arrived while the page could not play, is dropped.
+    if (performance.now() - asked > (first ? FIRST_PLAY_MS : LATE_MS) || !this.unlocked || this.muted) return said("late");
     if (who) this.stopAll(who);
     while (this.voices.length >= MAX_VOICES) this.stop(this.voices[0]);
     const src = this.ctx.createBufferSource();

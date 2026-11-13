@@ -27,8 +27,10 @@ const PLAN = {
   boo: [[353925, 2.5, 0], [403060, 2.5, 0]],
   trophy: [[462362, 3, 0], [484513, 3, 0], [32260, 3, 0]],
   confetti: [[26349, 1, 0], [182571, 2.5, 0]],
-  shamebell: [[352242, 2.5, 0], [200318, 2.5, 0]],
-  question: [[129678, 2.5, 0], [146033, 2.5, 0]],
+  shrug: [[129678, 2.5, 0], [146033, 2.5, 0]],
+  shush: [[151224, 1, 0], [412673, 2, 0], [701175, 1.2, 0]],
+  lighter: [[398977, 1.2, 0], [742836, 2, 0], [407428, 1, 0]],
+  tenfingers: [[563845, 1.8, 0], [182571, 2.5, 0]],
 };
 
 const run = (args) => execFileSync("ffmpeg", ["-hide_banner", "-loglevel", "error", "-y", ...args]);
@@ -54,17 +56,21 @@ for (const [emote, takes] of Object.entries(PLAN)) {
     const label = "ABC"[i];
     const file = `${emote}-${label}.mp3`;
     const fade = Math.min(0.25, longest / 6);
+    // What counts as silence is relative to the recording's own loudest moment: some are quiet.
+    const peak = Number(/Peak level dB: (-?[\d.]+)/.exec(spawnSync("ffmpeg", ["-hide_banner", "-i", `${DIR}/${rec.file}`, "-af", "astats", "-f", "null", "-"], { encoding: "utf8" }).stderr)?.[1] ?? 0);
+    const quiet = Math.max(-70, peak - 35).toFixed(1);
+    const silent = Math.max(-75, peak - 45).toFixed(1);
     // 1. Mono, leading silence removed, cut to length, a short fade in and a gentle fade out.
     run([
       "-i", `${DIR}/${rec.file}`,
       "-af",
       [
         "aformat=channel_layouts=mono",
-        "silenceremove=start_periods=1:start_threshold=-40dB:start_silence=0.02",
+        `silenceremove=start_periods=1:start_threshold=${quiet}dB:start_silence=0.02`,
         `atrim=start=${skip}:duration=${longest}`,
         "asetpts=N/SR/TB",
         "afade=t=in:d=0.01",
-        `areverse,silenceremove=start_periods=1:start_threshold=-50dB,afade=t=in:d=${fade},areverse`,
+        `areverse,silenceremove=start_periods=1:start_threshold=${silent}dB,afade=t=in:d=${fade},areverse`,
       ].join(","),
       "-ar", "44100", `${DIR}/tmp.wav`,
     ]);

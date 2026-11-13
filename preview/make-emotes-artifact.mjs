@@ -1,17 +1,20 @@
-// Makes the emotes preview (second round) as one self-contained page for the owner to open on his
+// Makes the emotes preview (third round) as one self-contained page for the owner to open on his
 // phone, and as a small local site at /preview/emotes/ (built only with --preview, never for
 // production: scripts/build-public.mjs).
 //
-//   node preview/make-emotes-artifact.mjs     writes preview/emotes-artifact-v2.html
+//   node preview/make-emotes-artifact.mjs     writes preview/emotes-artifact-v3.html
 //
-// The page is preview/emotes/page.html (title, styles, markup) and preview/emotes/preview.js.
+// The page is preview/emotes/page.html (title, styles, markup) and three scripts: rig.js (what
+// every emote does, as data a 3D drawing could also read), draw.js (the flat SVG drawing of it)
+// and preview.js (the page around them).
 // Inlined into it: the kit's sound player (party-kit/client/sounds.js), so the preview plays
 // sounds exactly as the room would, and the recordings in preview/sounds/ (made by
 // preview/recordings/process.mjs, each a CC0 recording with where it came from) as data: URIs.
 // The recordings and the page that embeds them are not committed until the owner picks; without
 // them the page still works, silently.
 //
-// The first round is preview/emotes-artifact.html, kept as it was shown.
+// The first round is preview/emotes-artifact.html, kept as it was shown; the second round's
+// sources are in the history (commit b972c4d), and it was published from there.
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -44,8 +47,8 @@ export function parts() {
     `const { SoundBoard, defineSound } = (() => {\n${plain("party-kit/client/sounds.js")}\nreturn { SoundBoard, defineSound };\n})();`,
     "// The recordings: CC0, from the pages named in each entry.",
     `const CLIPS = ${JSON.stringify(clips())};`,
-    "// The preview itself (preview/emotes/preview.js).",
-    `(() => {\n${read("preview/emotes/preview.js")}\n})();`,
+    "// The preview itself: the rig (preview/emotes/rig.js), its drawing (draw.js) and the page (preview.js).",
+    `(() => {\n${read("preview/emotes/rig.js")}\n${read("preview/emotes/draw.js")}\n${read("preview/emotes/preview.js")}\n})();`,
   ].join("\n");
   return { title, style, markup, script };
 }
@@ -69,7 +72,7 @@ export function writeSite(dir) {
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  const out = join(HERE, "emotes-artifact-v2.html");
+  const out = join(HERE, "emotes-artifact-v3.html");
   const html = artifact();
   writeFileSync(out, html);
   console.log(`${out}: ${(Buffer.byteLength(html) / 1024).toFixed(0)} KiB, ${clips().length} recordings`);
