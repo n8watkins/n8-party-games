@@ -1,5 +1,6 @@
 // The rules of the vote, as plain logic: which games the party can play, who is voting for
 // what, who leads, and what a place in a game is worth tonight. Shared by the room and the page.
+import { playRules } from "../../party-kit/client/emotes.js";
 
 /** Everyone stands in a light for this long and the game starts. */
 export const COUNT_MS = 3000;
@@ -55,6 +56,8 @@ export function boxFromManifest(manifest, extra = {}) {
     test: !!extra.test,
     url: extra.url ?? manifest.url ?? null,
     art: extra.art ?? manifest.id,
+    // Whether emotes and sounds may be used while it is played (the kit's defaults when the manifest says nothing).
+    play: playRules(manifest),
   };
 }
 

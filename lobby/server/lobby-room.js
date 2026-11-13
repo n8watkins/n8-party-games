@@ -15,6 +15,7 @@ import { newSeed } from "../../party-kit/src/core/rng.js";
 import { SOCKET_RATE, newBucket, strike, takeMessage } from "../../party-kit/src/worker/limit-logic.js";
 import { PIN_DIRECTORY_NAME } from "../../party-kit/src/worker/pin-logic.js";
 import { AwakeMeter, EVENT_FLOOR_MS, MESSAGES_PER_REQUEST, REPORT_EVERY_MS, roomBudgetState, spendRoomTime } from "../../party-kit/src/worker/room-budget.js";
+import { readRequest, tooEager } from "../../party-kit/client/emotes.js";
 import { LobbyCore } from "./lobby-core.js";
 
 const STORAGE_KEY = "lobby";
@@ -32,6 +33,11 @@ const REAP_EVERY_MS = 15_000;
 const PIN_REFRESH_MS = 5 * 60_000;
 /** An alarm due within this long is a count, a toss, a rest or a grace: worth pushing back when it is no longer wanted. */
 const SHORT_FUSE_MS = 35_000;
+/**
+ * What an emote or a sound sent far too soon counts against its socket's rate limit: a script
+ * sending them as fast as the limit lets through (20 a second) is closed within about two seconds.
+ */
+const EAGER_STRIKE = 2;
 /** Why a room closed, as the socket's close reason. */
 const CLOSE_REASONS = { empty: "room_closed", stale: "room_idle", expired: "room_expired", budget: "allowance_spent" };
 
@@ -247,6 +253,9 @@ export function createLobbyRoom(wallFor) {
           this.settle(now);
           return;
         }
+        case "e":
+        case "sb":
+          return this.express(ws, entry, msg, now);
         case "in":
           if (player) core.gameInput(entry.seat, msg.d, now);
           return;
@@ -258,6 +267,22 @@ export function createLobbyRoom(wallFor) {
         default:
           return;
       }
+    }
+
+    /**
+     * An emote or a sound: the room checks the cooldown, passes it on to everybody else and is
+     * done. Nothing is saved or scheduled, so it costs this one event. A request refused far too
+     * soon counts against the socket's rate limit (a real page waits out its own cooldown), so a
+     * script cannot keep a room busy with refusals either.
+     */
+    express(ws, entry, msg, now) {
+      const asked = entry.role === "player" ? readRequest(msg) : null;
+      if (!asked) return;
+      const out = this.core.express(entry.seat, asked.kind, asked.id, now);
+      if (!out) return;
+      if (out.relay) return this.broadcast(out.relay, entry);
+      this.send(entry, out.refused);
+      if (tooEager(asked.kind, out.wait) && strike(entry.bucket, SOCKET_RATE, EAGER_STRIKE) === "close") this.kick(ws, entry);
     }
 
     /** A socket that floods is closed and its seat given up: dropped messages are still billed. */
