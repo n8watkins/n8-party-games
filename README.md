@@ -63,3 +63,10 @@ The details are in the [party kit README](party-kit/README.md), and the party ro
 
 The code is under the [MIT License](LICENSE).
 Each game carries its own license and the licenses of what it includes.
+
+The party room's sounds (`lobby/public/sounds/*.mp3`) are not under the MIT License.
+Every one of them was made from a recording released under Creative Commons Zero (CC0 1.0, public domain).
+Most of the room's own sounds come from Kenney's Impact Sounds, Interface Sounds, Casino Audio and RPG Audio packs (kenney.nl).
+The emote sounds, and a few room sounds, come from single recordings on Freesound by sammy214, semccab, schots, SpliceSound, DavidJGurney, tonmayster, Streety, dr_skitz, Breviceps, connerdrake98, DeezSoundzTho, esperar, keweldog, kaydinhamby, qubodup, Raventhornn, simkiott, skymary and florianreichelt.
+[`lobby/public/sounds/CREDITS.txt`](lobby/public/sounds/CREDITS.txt) names the recording behind each file, with its page, and [`preview/recordings/sources.json`](preview/recordings/sources.json) keeps the full source record (title, author, page, licence as read on the page, and the date it was read).
+`preview/recordings/ship.mjs` remakes the files from those recordings.

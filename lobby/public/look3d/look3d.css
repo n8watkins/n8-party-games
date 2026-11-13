@@ -58,6 +58,16 @@
   display: block;
 }
 .l3-wall,
+/* An emote's props, effects and word (room3d.js express): drawn in screen pixels, over the whole look. */
+.l3-emotes {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  pointer-events: none;
+}
 .l3-tags,
 .l3-over {
   position: absolute;

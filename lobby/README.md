@@ -113,8 +113,8 @@ None of it sends a message, asks the room anything or changes a rule: it cannot 
 - **Events**: something passes now and then, such as an owl, a plane or a comet. They run off the room's own clock and a sequence seeded by the room's code, so every screen in a room sees the same owl at the same moment. The clock is how long the room has been open, which the room view already carries as `closesIn`; devices agree to within the lag of one message.
 - **Reactions**: set off by pieces, from where they stand, when they jump and who was bumped, all of which every device hears already. Jump under a lamp and it swings. Stand by the campfire and your piece gets sooty. Under the Tonight board every room has one feature of its own (a jukebox, a prize wheel, a claw machine) which is knocked when someone is bumped beside it.
 
-Nothing plays a sound.
-Each event and reaction announces itself by name on `window` as a `party-room:sound` event (`detail: {name, room}`), for the sound system to listen for; every skin lists its names and what each should sound like under `sounds`.
+Each event and reaction announces itself by name on `window` as a `party-room:sound` event (`detail: {name, room}`); every skin lists its names and what each should sound like under `sounds`.
+The page plays a quiet recording for some of them (the room's ambience, under "Sound" below), behind a volume of its own.
 People who ask their device for less motion get the ambient life only: events do not fly, and reactions do not wobble, hop or throw sparks.
 While only ambient life is running the room is drawn every other frame, and every frame as soon as anything else moves.
 Chosen stills of the 3D look, from a live run and from posed rooms, are in [`shots/3d/`](shots/3d/).
@@ -166,7 +166,7 @@ The 3D wall follows the flat one: a game's name is on its box and nowhere else, 
 - A way in that fits the device: a phone leads with playing and keeps "Use this phone as the room's screen" as a small link, a wide screen is offered both as two cards, and either can change its mind.
 - One screen per room. A second device that asks to be the screen is told one is connected and offered a seat, and the way in does not offer it at all once the code is typed.
 - The vote: standing in a light is your vote, a visible count of ten seconds runs when every connected player stands in some light, the light with the most players wins, stepping out of every light stops it, and "Waiting for" names who is in the dark.
-- The count is large on the wall (a ring over the leading box) and just above the bottom bar (`public/count-tick.js`). Every second ticks; the last three tick harder: the number turns gold and pops, a phone gives a short buzz, and the page announces `count.tick` and `count.last` as `party-room:sound` events for the sound system.
+- The count is large on the wall (a ring over the leading box) and just above the bottom bar (`public/count-tick.js`). Every second ticks; the last three tick harder: the number turns gold and pops, a phone gives a short buzz, and the page announces `count.tick` and `count.last` as `party-room:sound` events, and the room's sounds tick with it.
 - A tie is settled by a coin toss everybody watches. A phone in the closer view pulls back to the whole room for the count and the toss.
 - A player alone can start: one piece in a light runs the same ten-second count.
 - A game the party cannot play has its light off and says why in a few words ("Needs 2 players", "For 2 players", "Needs a big screen", "Coming soon").
@@ -236,12 +236,59 @@ Cork & Bell is its own repository and package (`games.js`), and it is the first 
 
 The game's own page at `/cork-and-bell/` is unchanged: solo with the high score board, and battles in rooms of its own.
 
+## Emotes
+
+A player sends an emote from the wheel in the control bar, and their piece performs it on every device, with its word over its head ("this is good", "RED CARD"); most carry a short sound.
+The rules are the party kit's (`party-kit/client/emotes.js`); how each one moves and looks is the room's (`public/emotes/`).
+There is no soundboard: the owner dropped it on 2026-11-13 ("just emotes").
+
+- **The set** is the owner's fourteen: popcorn, slow clap, point and laugh, red card, hurry up, thumbs up, confetti, boo, GG, shh, lighter up, Huh?, fuming and throw a tomato.
+  An aimed one (most of them) turns toward the nearest piece; the tomato is lobbed to the floor just short of it, splats and fades, and the target only flinches.
+- **The poses are data** (`public/emotes/rig.js`): for each moment, where the body leans, what the face does, where each hand is and what shape it makes, and which props and effects are where.
+  Each emote has a limb level: no arms, a stick arm with a mitten, or a stick arm with a small cartoon hand, always in the piece's own colour.
+- **Both looks draw the same numbers.** The flat room draws it all in SVG over its pawn (`public/emotes/svg.js`).
+  The 3D look leans and lifts its pawn, makes the arms two thin cylinders and the hands a few small meshes in the seat's colour (`public/look3d/emote-arms.js`), and draws the props, effects and the word in SVG over the picture, placed as the name tags are.
+  The word is kept as large as a name tag, and never smaller than 13 pixels on a phone.
+- **The wheel** (`public/emotes/wheel.js`) is one round button in the bar: hold it and flick toward an emote, or tap it and tap one.
+  Number keys 1 to 6 send them from a keyboard.
+  A ring round the button shows the 1.5 second cooldown.
+  The six on it are the player's own, chosen from the door button's sheet and kept on the device; a new player starts with popcorn, slow clap, point and laugh, red card, thumbs up and the tomato.
+- A player's new emote replaces their own previous one at once, picture and sound; other players' emotes play side by side.
+- The room judges each emote as it arrives and passes it on to everybody else: one message, no wake-up, no timer.
+  A player may send one every 1.5 seconds; the room refuses one that comes sooner and tells that page how long is left.
+  An emote the room refuses with more than half a second left counts against the socket's rate limit: a real page never sends during its own cooldown, so a script that hammers the button is closed within about two seconds, having had one or two through.
+- While a game is played the game decides (`manifest.lobby.emotes` and `.emoteSounds` in `party-kit/GAME-CONTRACT.md`): by default emotes yes, their sounds no.
+
+## Sound
+
+Every sound is a short CC0 recording in `public/sounds/`, with where each came from in `public/sounds/CREDITS.txt` and the full source records in `preview/recordings/sources.json` (`preview/recordings/ship.mjs` remakes the files).
+One player plays them all on a device (`party-kit/client/sounds.js`), with one volume and one mute.
+
+- **The emotes' sounds**, one each.
+- **The room's own** (`public/room-sounds.js`): footsteps (your own piece at full level, others quieter, never quicker than one every 230 ms), a jump and its landing, the kick (a swoosh on the swing, a thump when it lands, a tumble for the one hit), stepping into and out of a pool of light, the count (a tick each second, harder in the last three, and a chime when it runs out), the coin toss (the flip and the landing), someone coming in and going, the lights going down and up when the room changes, a tap on a poster or the board, a game starting, and the result.
+- **The room's ambience**: a first pass for the 3D rooms' own events, from the `party-room:sound` names (a lamp creaking, the jukebox, the cat, a moth in the bar; a falling star, a comet, a rocket, a satellite and the chart table in the star lounge, and the same sounds in any room that has those things).
+  Sparse on purpose: one at a time in the room, and the same one not again for eight seconds. It has its own volume on the door button's sheet.
+
+Where a sound plays:
+
+- A device's **own feedback** (its piece's steps, jump, landing, kick, light, a blow it gave or took, a tap on the wall) plays on that player's own phone, always.
+- Everything else is **shared**. With a big screen in the room it plays from the screen only, so the phones in the room do not all say it at once. With no screen, every phone plays it, other pieces quieter than its own.
+- An emote's sound is shared: from the screen when there is one, on every player's device when there is not.
+
+The corner has a one-tap mute for everything; the door button's sheet has the same switch, the volume and the ambience volume.
+All of it, and "mute this player", is kept on the device.
+Nothing plays before the browser allows sound (a tap or a key on the page), and nothing queued plays after it does: a sound that cannot start in time is dropped, never played late.
+The files (about 270 KB in all) are fetched only once the room is drawn and sound is allowed, one by one in idle time; the room's first picture never waits for them.
+None of it sends a message or sets a timer in the room: every sound comes from something the page already knows.
+
 ## What is not built
 
+- In 3D an emote has no face of its own (the pawn's eyes stay as they are); the flat room draws its face.
+- Ambience for the rooms other than the bar and the star lounge is only what they share with those two; the always-on beds (a fire, an engine hum) are not built.
 - Coin Flip is a placeholder for local play and the tests, marked "TEST GAME" on its box. Tin Derby, Flood and Fox Trouble are names and pictures only.
 - A party's code, seats and points do not carry over to an outside game's site.
 - No piece skins, no abilities, no chat bubbles, no walking through the door, no "host starts" setting. The flat drawing has one room, whichever the party picks.
-- No sound for the bump, and no buzz on phones whose browser has none (Safari on an iPhone).
+- No buzz on phones whose browser has none (Safari on an iPhone).
 - "Back to the room" in the middle of a game: a round runs its ninety seconds, and a player can still leave the party.
 - In the room Cork & Bell has no high score entry, no rematch button and no end card of its own: the room's card shows the scores, and the vote is the rematch. The high score board stays on the game's own page.
 
@@ -283,6 +330,15 @@ Measured again on 2026-11-12 with the knock-back in, the same four players wande
 That is within the run-to-run spread of the first column (shorter runs the same day gave 2.1 to 2.5 messages a second and 0.24 to 0.28 awake seconds per minute): a bump is still one message, a knocked piece now sends nothing back where it used to send one, and neither the knock, the safe time nor the cooldown sets a wake-up.
 Measure on a server nobody else is using and that has been quiet for two minutes: a room that just closed reports its last requests into the same books.
 
+Emotes add messages and nothing else.
+Measured on 2026-11-13 with `npm run lobby:measure -- --vote-every=0 --express=1`, while the soundboard still existed: the same four players wandering for ten minutes, each also sending an emote about once in ten seconds and a soundboard sound about once in twenty-five (184 emotes and 63 sounds reached each player).
+That used 0.334 awake seconds per minute, 3.01 messages a second, 2.6 GB-seconds and 652 requests per room-hour.
+The same run without them, straight after on the same server, used 0.285 awake seconds per minute, 2.47 messages a second, 2.2 GB-seconds and 557 requests per room-hour.
+So about a sixth more requests and time, all of it the messages themselves: the room relays each one within the event and sets no wake-up and no timer.
+With the board gone there are fewer messages than that (an emote's sound rides on the emote), so these figures are an upper bound.
+The room's own sounds add nothing: they are played from what each page already hears.
+(The scripted players fire without watching their own cooldown, so 27 of theirs were refused; a real page waits it out.)
+
 For scale: a room that is awake all the time, as a game's own room is during a round, uses 461 GB-seconds per room-hour, and the 10% buys 87 hours of that.
 The second column is a keen party that starts a vote every half minute, measured before Cork & Bell opened in the room (a vote for it then sent everyone to its own page).
 An outside game winning the vote costs one wake-up and no duration: nothing is played in the room.
@@ -315,7 +371,7 @@ A lobby nobody touches costs nothing: no timer, no messages, nothing counted, an
 
 - A room closes one minute after the last person goes, and after twenty minutes in which nobody did anything (the kit's two rules). A page warns its player two minutes before the second. The minute is counted from when the room emptied, also when the room was put to sleep in between (it used to start over at every waking, which kept an empty room, waking once a minute, until the second rule closed it).
 - A room closes four hours after it was made, never in the middle of a game. Pages warn five minutes before.
-- One socket may send a burst of 40 messages, then 20 a second. More are dropped, and a socket that keeps flooding is closed and its seat given up. A message over 512 bytes, or one that is not JSON, is dropped and counts five times.
+- One socket may send a burst of 40 messages, then 20 a second. More are dropped, and a socket that keeps flooding is closed and its seat given up. A message over 512 bytes, or one that is not JSON, is dropped and counts five times. An emote refused with more than half a second of its cooldown left counts twice.
 - When the day's or month's allowance is spent: no new party can start (the front page's way in answers that the rooms are full, and that each game still plays on its own page); an open room finishes the game it is playing, starts no other, tells everyone "This room closes in 3:00", and closes three minutes later.
 
 ## Layout
@@ -335,6 +391,10 @@ A lobby nobody touches costs nothing: no timer, no messages, nothing counted, an
 | `public/` | The page at `/lobby/`: the way in (`door.js`), the scene (`scene.js`), the bump as drawn (`bump-draw.js`), the buttons (`controls.js`), the words over the room (`hud.js`), the board opened large (`board.js`), and each game's view. |
 | `games/coin-flip.js` | The test game, hung only where `PARTY_TEST_GAMES` is on. |
 | `wall.js` | Which boxes hang on the wall (hosted, outside, test, coming soon), which can start, and the wall each environment gets. |
+| `../party-kit/client/emotes.js`, `sounds.js` | Emotes, in the kit: the rules and messages, and one device's sound player. |
+| `public/emotes/` | Emotes as drawn: the poses (`rig.js`), who is doing what and at whom (`play.js`), the SVG drawing (`svg.js`) and the wheel (`wheel.js`). |
+| `public/room-sounds.js`, `public/sounds/` | The room's own sounds, where each plays, and the recordings with their credits. |
+| `../preview/` | The tools that fetch, check and prepare the CC0 recordings (`preview/recordings/`), and stills of the emote rounds the owner picked from. |
 | `public/room-view.js` | The seam between the page and a drawing of the room: the interface both drawings keep, and which one a device gets. |
 | `shared/rooms.js` | The rooms a party can be in, and when the room may be changed. |
 | `public/room-menu.js` | The corner (Rooms and the door button) and the room picker. |
@@ -353,6 +413,8 @@ A lobby nobody touches costs nothing: no timer, no messages, nothing counted, an
 ## Tests
 
 - `npm test` runs the unit tests with the kit's: the room's rules (`test/lobby-core.test.js`), the shared logic, the awake meter and the socket rate limit (`test/shared.test.js`), the bump (`test/bump.test.js`), the Tonight board (`test/tonight.test.js`) and the way in (`test/entry.test.js`).
+- `npm run test:emotes` (with `npm run dev` running) puts emotes and sound through real pages and sockets in one room (headless and muted): the room relaying each once and enforcing the cooldown, a hammering script closed, emotes during a game, the wheel (tap, pick, number keys, the ring, the six kept on the device), the piece performing it with its word, an emote's sound on the phones with no big screen and on the screen only with one, nothing fetched before sound is allowed, nothing played before a tap and nothing late after it, a muted player, the one-tap mute, a phone hearing its own steps and jump, and a shared sound (someone joining) coming from the screen and not the phones. `npm test` covers the rules with a fake clock (`test/emotes.test.js`, `party-kit/test/sounds.test.js`), and every pose, the mirror, the aim, the tomato and the sound files with their credits (`test/emote-rig.test.js`).
+- `node lobby/test/shoot-emotes.mjs [--look=3d|flat] [--room=bar]` takes a still of every emote at its best moment on a big screen and on a phone held sideways at the closer view, and checks that each one's word is over the right piece, in view, and large enough to read on the phone.
 - `npm run test:feel` (with `npm run dev` running) goes through how the room feels in real pages and over sockets: the way in on a phone and on a wide screen, one screen per room and its grace, the four buttons, the cooldown ring and the room enforcing it, the bump frame by frame, that nobody can be kept on the floor, the board opening and closing with the vote carrying on, and that a bump sets no timer. It takes stills of each, the bump's with the page's clock held still.
 - `npm run test:lobby` (with `npm run dev` running) puts four socket players through an evening (when the coin toss picks Cork & Bell, a whole round of it over sockets, which makes the run a minute and a half longer), sends a party of two off to an outside game, then checks that a lobby nobody touches goes silent: no messages, no timer, nothing added to the budget.
 - `npm run lobby:shots` drives real pages in a headless, muted browser and takes a still of every state on a big screen, a sideways phone and an upright one, checking that no text spills out of its place and that no card runs off a screen. It follows an outside game all the way to its address (the browser is handed a stand-in page, so no test touches the real site), and with `--plain=<a server with the test games off>` it also takes the wall as production hangs it. Stills land in `lobby/test/shots/`, which is not committed; a chosen few are in `lobby/shots/`.

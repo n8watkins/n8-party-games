@@ -27,6 +27,11 @@ import { Scene } from "./scene.js";
  * @property {(vote: object, now: number) => void} setVote   the vote changed: lights, who stands where, count, toss
  * @property {(msg: object, now: number) => void} onMove     someone moved
  * @property {(msg: object, now: number) => void} onBump     someone bumped (and perhaps hit someone)
+ * @property {(msg: object, now: number) => void} onExpress  someone sent an emote ({t: "e", s, e}): performed by
+ *   their piece, with its word over their head (the kit's rules: party-kit/client/emotes.js; how
+ *   each one moves: emotes/rig.js, the same numbers for both drawings). A player's new emote
+ *   replaces their own previous one at once (its sound is cut by the page's player); other
+ *   players' emotes overlap as they come.
  * @property {(now: number) => void} ownJump                 the viewer's own piece jumped
  * @property {(now: number) => void} ownBump                 the viewer's own piece began a bump (the room has not answered yet)
  * @property {() => number} ownX                             where the viewer's own piece is drawn, for the camera

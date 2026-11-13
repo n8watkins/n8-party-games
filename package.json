@@ -40,6 +40,7 @@
     "test:lobby": "node lobby/test/e2e-lobby.mjs",
     "test:cork": "node lobby/test/e2e-cork.mjs",
     "test:feel": "node lobby/test/e2e-feel.mjs",
+    "test:emotes": "node lobby/test/e2e-emotes.mjs",
     "test:frames": "node lobby/test/e2e-frames.mjs",
     "test:leave-rooms": "node lobby/test/e2e-leave-rooms.mjs",
     "test:screen": "node lobby/test/e2e-screen.mjs",

@@ -22,6 +22,7 @@ import { AWAY_MS, COUNT_MS, SETTLE_MS, TOSS_MS, leaders, pointsForPlace, standin
 import { bumpTarget, cooldownLeft, isDown, isSafe, knockLanding, knocked, mayBump } from "../shared/bump.js";
 import { DEFAULT_ROOM, ROOM_COOLDOWN_MS, isRoom, roomLocked } from "../shared/rooms.js";
 import { record } from "../shared/tonight.js";
+import { DURING_PLAY, cooldownLeft as emoteLeft, mayEmote, relayEmote, waitMessage } from "../../party-kit/client/emotes.js";
 import { POSITION_SLACK, clampX, lightAt, posAt, spawnX } from "../shared/world.js";
 
 export const MAX_PLAYERS = 4;
@@ -118,6 +119,7 @@ export class LobbyCore {
       face: 1,
       rev: 0,
       bumpAt: -Infinity,
+      emoteAt: -Infinity,
       stunUntil: 0,
       immuneUntil: 0,
       points,
@@ -372,6 +374,28 @@ export class LobbyCore {
     const m = this.members[seat];
     if (!m || this.activity.kind !== "lobby") return null;
     return { t: "cd", in: Math.round(mayBump(m, now).wait) };
+  }
+
+  /**
+   * An emote from a player (the kit's rules: party-kit/client/emotes.js). Returns {relay} for
+   * everybody else, or {refused, wait} for the sender: too soon, or not allowed while the game
+   * being played says so. Nothing is scheduled: the cooldown is a time written on the piece.
+   */
+  emote(seat, id, now) {
+    const m = this.members[seat];
+    if (!m) return null;
+    const verdict = mayEmote(m.emoteAt, now, { playing: this.activity.kind === "game", rules: this.playRules() });
+    if (!verdict.ok) return { refused: waitMessage(verdict.wait), wait: verdict.wait };
+    m.emoteAt = now;
+    this.lastActive = now;
+    return { relay: relayEmote(seat, id) };
+  }
+
+  /** What the game being played allows (its box carries the manifest's word), or the defaults. */
+  playRules() {
+    const a = this.activity;
+    if (a.kind !== "game") return DURING_PLAY;
+    return this.boxes.find((box) => box.id === a.id)?.play ?? DURING_PLAY;
   }
 
   /** Connected players and connected big screens: what decides which games can be played. */
@@ -629,7 +653,7 @@ export class LobbyCore {
       game: a.kind === "game" ? { id: a.id, name: this.boxes.find((box) => box.id === a.id)?.name ?? a.id, round: this.round } : null,
       boxes: this.boxes,
       members: this.members.map((m) =>
-        m ? { seat: m.seat, name: m.name, colour: m.colour, connected: m.connected, x: Math.round(posAt(m, now)), d: m.d, rev: m.rev, points: m.points, ...this.bumpView(m, now) } : null,
+        m ? { seat: m.seat, name: m.name, colour: m.colour, connected: m.connected, x: Math.round(posAt(m, now)), d: m.d, rev: m.rev, points: m.points, ...this.bumpView(m, now), emoteCool: Math.round(emoteLeft(m.emoteAt, now)) } : null,
       ),
       screens: this.screensConnected(),
       vote: this.voteView(now),

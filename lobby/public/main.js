@@ -2,6 +2,8 @@
 // room drawn as one picture (a room view: room-view.js), and the words and buttons over it
 // (hud.js). This file joins them to the room over the kit's client and to the player's keys and fingers.
 import { PartyClient } from "/party-kit/client/party-client.js";
+import { DURING_PLAY, EMOTE_COOLDOWN_MS, emoteById, emoteMessage, mayEmote, soundAllowedNow, soundPlaysHere } from "/party-kit/client/emotes.js";
+import { SoundBoard, defineSound, hasSound } from "/party-kit/client/sounds.js";
 import { openBoard } from "./board.js";
 import { buzz } from "./bump-draw.js";
 import { openDoor } from "./door.js";
@@ -12,6 +14,7 @@ import { Hud } from "./hud.js";
 import { TouchSpots } from "./touch.js";
 import { CountTick } from "./count-tick.js";
 import { RoomMenu } from "./room-menu.js";
+import { RoomSounds, defineRoomSounds, emoteSound } from "./room-sounds.js";
 import { chosenLook, hardware3D, openRoomView, preferFlat } from "./room-view.js";
 import { ScreenFit, fitVisible } from "./screen-fit.js";
 import { SlowWatch } from "./slow-room.js";
@@ -77,6 +80,23 @@ const held = [];
 /** When anyone last did anything, as far as this page knows: the room is put away after twenty idle minutes. */
 let stirAt = performance.now();
 
+/**
+ * This device's sound player (the kit's), for the emotes' sounds and the room's own
+ * (room-sounds.js). The browser allows sound only after a tap or a key on the page, so every one
+ * tries to unlock it; until then a sound is simply not played. The files are named here and
+ * fetched only once the room is up and sound is allowed. The tests read what it did through
+ * __partyRoom (they run muted).
+ */
+const sounds = new SoundBoard();
+defineRoomSounds();
+/** The room's own sounds, while the room is on the page. */
+let roomSounds = null;
+globalThis.__partyRoom = { sounds, defineSound };
+for (const type of ["pointerdown", "keydown"]) addEventListener(type, () => sounds.unlock(), { capture: true, passive: true });
+sounds.onChange(() => roomSounds?.warm());
+/** When this player last sent an emote, by this page's clock: the room has the last word (its "wait"). */
+let emoteAt = -Infinity;
+
 const phone = () => Math.min(innerWidth, innerHeight) < 520;
 const isPlayer = () => link.you?.role === "player";
 
@@ -102,8 +122,8 @@ function teardown() {
   stage?.unmount();
   stage = null;
   app.classList.remove("in-game");
-  for (const part of [menu, count, touch, fit]) part?.destroy();
-  menu = count = touch = fit = null;
+  for (const part of [menu, count, touch, fit, roomSounds]) part?.destroy();
+  menu = count = touch = fit = roomSounds = null;
   hud?.destroy();
   hud = null;
   scene?.destroy();
@@ -141,15 +161,19 @@ async function enter() {
   scene = made;
   shownRoom = skin;
   dim = h("div", "room-dim", "", app);
-  touch = new TouchSpots(app, dim, { code: () => ({ pin: room?.pin ?? "", qr: viewBase.qr, host: viewBase.host }), scene: () => scene });
+  touch = new TouchSpots(app, dim, { code: () => ({ pin: room?.pin ?? "", qr: viewBase.qr, host: viewBase.host }), scene: () => scene, tap: () => roomSounds?.play("tap", -2, { gain: 0.6 }) });
   touch.build(room);
   stageBox = h("div", "stage", "", app);
   stageBox.hidden = true;
   scene.build(room);
+  roomSounds = new RoomSounds(sounds, { role: () => link.you?.role, seat: () => link.you?.seat ?? -1, screens: () => room?.screens ?? 0, playing: () => room?.phase === "playing" });
   hud = new Hud(app, {
     role: link.you.role,
     seat: link.you.seat,
+    sound: sounds,
     on: {
+      emote: sendEmote,
+      colour: () => room?.members[link.you.seat]?.colour ?? "#c8382c",
       steer: (d, down) => press(`pad${d}`, d, down),
       jump,
       bump,
@@ -164,6 +188,7 @@ async function enter() {
     },
   });
   menu = new RoomMenu(hud.el, { role: link.you.role, seat: link.you.seat, onPick: (id) => link.send({ t: "pick", v: id }) });
+  hud.muteButton(menu.corner);
   count = new CountTick(hud.el, { buzz: isPlayer() ? buzz : null });
   fit = new ScreenFit(menu.corner, app);
   void keepAwake();
@@ -171,6 +196,8 @@ async function enter() {
   zoom = phone() ? "closer" : "room";
   apply(room);
   if (!lastFrame) requestAnimationFrame(frame);
+  // The room is up: now its sounds may be fetched, once sound is allowed.
+  roomSounds.warm();
 }
 
 /**
@@ -222,6 +249,7 @@ async function showRoom() {
   if (room.room === shownRoom && look === scene.look) return;
   if (look === "flat" && scene.look === "flat") return void (shownRoom = room.room);
   swapping = true;
+  roomSounds?.play("lights-down", -1, { gain: 0.7 });
   dim?.classList.remove("rising");
   dim?.classList.add("on");
   await wait(DIM_MS);
@@ -252,6 +280,7 @@ async function showRoom() {
   await nextFrame();
   dim?.classList.add("rising");
   dim?.classList.remove("on");
+  roomSounds?.play("lights-up", -1, { gain: 0.7 });
   swapping = false;
 }
 
@@ -282,7 +311,7 @@ async function quick3D() {
 /** A stand-in for the room view while the next one loads: it hears everything and draws nothing. */
 function pause(own) {
   const nothing = () => {};
-  return { paused: true, look: "", build: nothing, setRoom: nothing, setVote: nothing, onMove: nothing, onBump: nothing, ownJump: nothing, ownBump: nothing, ownX: () => own, setCompact: nothing, frame: nothing, destroy: nothing };
+  return { paused: true, look: "", build: nothing, setRoom: nothing, setVote: nothing, onMove: nothing, onBump: nothing, onExpress: nothing, ownJump: nothing, ownBump: nothing, ownX: () => own, setCompact: nothing, frame: nothing, destroy: nothing };
 }
 
 /** "Simpler room": this device draws the flat room from now on, and remembers it. */
@@ -304,6 +333,7 @@ function showBoard() {
   touch?.pressBoard();
   touch?.closeCard();
   board = openBoard(app, { room, own: isPlayer() ? link.you.seat : -1, onClose: () => hideBoard() });
+  roomSounds?.play("tap", -2, { gain: 0.6 });
   history.pushState({ board: true }, "");
 }
 
@@ -331,10 +361,18 @@ function boardLine(now) {
 let roomSeenAt = 0;
 
 function apply(next) {
+  // Someone came in, or went: heard once, by the room (not for this device's own arrival).
+  if (room && roomSounds && next.code === room.code) {
+    const was = new Set(room.members.filter(Boolean).map((m) => m.seat));
+    const now = new Set(next.members.filter(Boolean).map((m) => m.seat));
+    if ([...now].some((seat) => !was.has(seat))) roomSounds.play("join", -1, { gain: 0.7 });
+    else if ([...was].some((seat) => !now.has(seat))) roomSounds.play("leave", -1, { gain: 0.6 });
+  }
   room = next;
   // Until the room answers the start link's pick, its older words do not undo it.
   if (pendingRoom) room.room = pendingRoom;
   voteAt = roomSeenAt = performance.now();
+  sounds.setRoom(room.code);
   if (!scene) return;
   scene.setRoom(room, voteAt);
   menu?.update(room);
@@ -384,6 +422,7 @@ link.on("message", (msg) => {
     case "m":
       lastMoves.set(msg.s, { x: msg.x, d: msg.d, t: now });
       scene.onMove(msg, now);
+      if (msg.j) roomSounds?.jumped(msg.s, now);
       stirAt = now;
       break;
     case "b":
@@ -393,6 +432,9 @@ link.on("message", (msg) => {
       // Knocked: the piece lies where the room threw it, and has nothing to say until it is up.
       if (pilot && msg.to === link.you.seat) pilot.knock(msg.x, msg.rev, now);
       feelBump(msg);
+      // The swing (the viewer's own was heard when the button went down), and the blow when it lands.
+      if (msg.s !== link.you.seat || !isPlayer()) roomSounds?.swung(msg.s);
+      if (msg.to >= 0) setTimeout(() => roomSounds?.struck(msg.s, msg.to), IMPACT_MS);
       break;
     case "cd":
       // The room refused a bump: its word on how long is left replaces this page's guess.
@@ -401,7 +443,16 @@ link.on("message", (msg) => {
     case "fix":
       pilot?.place(msg.x, msg.rev, now);
       break;
+    case "e":
+      stirAt = now;
+      emoted(msg);
+      break;
+    case "wait":
+      // The room refused this player's emote: its word on how long is left replaces this page's guess.
+      if (msg.in > 0) emoteAt = now - (EMOTE_COOLDOWN_MS - msg.in);
+      break;
     case "vote":
+      tossSounds(room.vote, msg.vote, now);
       room.vote = msg.vote;
       voteAt = now;
       scene.setVote(msg.vote, now);
@@ -434,6 +485,57 @@ link.on("message", (msg) => {
       break;
   }
 });
+
+/**
+ * Someone sent an emote: their piece performs it, with its word over their head (the room view
+ * draws it). Its own sound plays from the big screen when the room has one and on every
+ * player's device when it has none (the kit's rule), unless this device muted it or the game
+ * being played does not allow it.
+ */
+function emoted(msg) {
+  const who = room?.members[msg.s];
+  const what = emoteById(msg.e);
+  if (!who || !what) return;
+  scene?.onExpress(msg, performance.now());
+  const name = emoteSound(msg.e);
+  if (hasSound(name) && soundAllowedNow(room.phase === "playing", playRules()) && soundPlaysHere(link.you?.role, room.screens)) void sounds.play(name, { from: who.name });
+}
+
+/** What the game being played allows (its manifest's lobby.emotes / lobby.emoteSounds), or the defaults. */
+const playRules = () => room.boxes.find((b) => b.id === room.game?.id)?.play ?? DURING_PLAY;
+
+/** How long until this player may send an emote (0: now), or -1 when the game being played does not allow them. */
+function emoteWait(now) {
+  if (!room || !isPlayer()) return -1;
+  const may = mayEmote(emoteAt, now, { playing: room.phase === "playing", rules: playRules() });
+  return may.ok ? 0 : may.wait;
+}
+
+/**
+ * The player sent an emote (the wheel, or a number key). It shows on this device at once and goes
+ * to the room, which passes it on to everybody else. Its sound plays here only where the room's
+ * sounds play (no big screen in the room).
+ */
+function sendEmote(id) {
+  const now = performance.now();
+  if (!scene || emoteWait(now) !== 0 || !emoteById(id)) return false;
+  emoteAt = now;
+  stirAt = now;
+  link.send(emoteMessage(id));
+  const me = room.members[link.you.seat];
+  scene.onExpress({ t: "e", s: link.you.seat, e: id }, now);
+  const name = emoteSound(id);
+  if (me && hasSound(name) && soundAllowedNow(room.phase === "playing", playRules()) && soundPlaysHere(link.you.role, room.screens)) void sounds.play(name, { from: me.name });
+  return true;
+}
+
+/** The coin toss: the flip when it starts, and the coin landing when it comes down. */
+function tossSounds(before, after, now) {
+  if (!after?.toss || before?.toss) return;
+  roomSounds?.play("toss-flip", -1, { gain: 0.8 });
+  const at = now + after.toss.endsIn;
+  setTimeout(() => roomSounds?.play("toss-land", -1), Math.max(0, at - performance.now()));
+}
 
 /** The blow lands a moment after the bump: both phones buzz then, the one that was hit longer. */
 function feelBump(msg) {
@@ -509,6 +611,8 @@ function warmUp(vote) {
 }
 
 link.on("start", (msg) => {
+  // The count's chime is the start; a game that starts with no count (a reload) gets its own.
+  if (performance.now() - countGoAt > 2000) roomSounds?.play("game-start", -1, { gain: 0.8 });
   apply(msg.room);
   startStage(msg.s);
 });
@@ -519,6 +623,7 @@ link.on("end", (msg) => {
   endStage();
   apply(msg.room);
   hud?.result(msg.last);
+  roomSounds?.play("result", -1, { gain: 0.8 });
 });
 
 link.on("status", (status) => {
@@ -561,13 +666,19 @@ function press(id, d, down) {
 
 function jump() {
   const now = performance.now();
-  if (canMove() && pilot.jump(now)) scene.ownJump(now);
+  if (canMove() && pilot.jump(now)) {
+    scene.ownJump(now);
+    roomSounds?.jumped(link.you.seat, now);
+  }
 }
 
 /** The wind-up starts the moment the button goes down; the room decides whether the blow lands. */
 function bump() {
   const now = performance.now();
-  if (canMove() && pilot.bump(now)) scene.ownBump(now);
+  if (canMove() && pilot.bump(now)) {
+    scene.ownBump(now);
+    roomSounds?.swung(link.you.seat);
+  }
 }
 
 const WALK_KEYS = { ArrowLeft: -1, a: -1, A: -1, ArrowRight: 1, d: 1, D: 1 };
@@ -576,6 +687,8 @@ const BUMP_KEYS = new Set(["b", "B", "x", "X", "Shift"]);
 
 addEventListener("keydown", (e) => {
   if (!scene || e.target instanceof HTMLInputElement) return;
+  if (e.key === "Escape" && hud?.wheel?.isOpen) return hud.wheel.close();
+  if (e.key === "Escape" && hud?.loadoutSheet?.el.isConnected) return hud.loadoutSheet.close();
   if (e.key === "Escape" && board) return hideBoard();
   if (e.key === "Escape" && menu?.isOpen) return menu.close();
   if (e.key === "Escape" && touch?.card) return touch.closeCard();
@@ -586,6 +699,8 @@ addEventListener("keydown", (e) => {
     if (!e.repeat) jump();
   } else if (BUMP_KEYS.has(e.key)) {
     if (!e.repeat) bump();
+  } else if (/^[1-6]$/.test(e.key) && !e.ctrlKey && !e.metaKey && !e.altKey && hud?.wheel && !hud.sheet && !hud.loadoutSheet?.el.isConnected && !board) {
+    if (!e.repeat) hud.wheel.fire(Number(e.key) - 1);
   } else return;
   e.preventDefault();
 });
@@ -639,6 +754,10 @@ function frame(t) {
     pilot.step(now);
     hud.pad?.show({ cooling: pilot.cooling(now), down: pilot.down(now) });
   }
+  if (hud.wheel) {
+    const wait = emoteWait(now);
+    hud.wheel.show(Math.max(0, wait), wait !== -1);
+  }
   board?.update(room, boardLine(now));
   const mine = isPlayer() ? scene.ownX() : 960;
   focus += (mine - focus) * Math.min(1, dt * 7);
@@ -657,7 +776,31 @@ function frame(t) {
     slow.frame(now, dt);
   }
   hud.update(room, room.vote, now, voteAt, zoom, now - stirAt);
-  count?.update(room, room.vote.count ? Math.max(0, room.vote.count.endsIn - (now - voteAt)) : null);
+  const left = room.vote.count ? Math.max(0, room.vote.count.endsIn - (now - voteAt)) : null;
+  count?.update(room, left);
+  // The count's end: a chime, once, as the game starts.
+  if (left !== null && left <= 0 && countLeft > 0 && room.phase === "lobby") {
+    countGoAt = now;
+    roomSounds?.play("count-go", -1, { gain: 0.85 });
+  }
+  countLeft = left ?? Infinity;
+  roomSounds?.frame(piecesNow(now), room.boxes.length, now);
+}
+
+/** When the count last ran out, and how much it had left a frame ago. */
+let countGoAt = -Infinity;
+let countLeft = Infinity;
+
+/** Where every piece is now, as far as this page knows: the player's own from its Pilot, the others from their last move. */
+function piecesNow(now) {
+  const out = [];
+  for (const m of room.members) {
+    if (!m?.connected) continue;
+    const own = isPlayer() && m.seat === link.you.seat && pilot;
+    const move = lastMoves.get(m.seat);
+    out.push({ seat: m.seat, x: own ? scene.ownX() : move && move.t > roomSeenAt ? posAt(move, now) : posAt({ x: m.x, d: m.d, t: roomSeenAt }, now) });
+  }
+  return out;
 }
 
 // ---------------------------------------------------------------- begin
