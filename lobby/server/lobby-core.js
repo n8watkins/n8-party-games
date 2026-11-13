@@ -10,12 +10,15 @@
 //   game    One of the hosted games, started with the party's seats. When it is over its
 //           places become points on the Tonight board and everyone is back in the lobby.
 //
+// An outside game (a box with a `url`) is never an activity: when it wins the vote the room says
+// so, every page goes to the game's own site, and the room is left to empty and close.
+//
 // Nothing here ticks while people merely stand around: the room is told where a piece is and
 // which way it walks, and works out the rest (lobby/shared/world.js). Everything that depends
 // on time (the count, the toss, a dropped phone's grace, closing) is a wake-up: nextWake().
 import { makeRng } from "../../party-kit/src/core/rng.js";
 import { IDLE_SHUTDOWN_MS, MAX_SCREENS, NAME_MAX, RECONNECT_GRACE_MS, SEAT_COLOURS, STALE_ROOM_MS, cleanName, randomToken } from "../../party-kit/src/core/room-core.js";
-import { COUNT_MS, SETTLE_MS, TOSS_MS, leaders, pointsForPlace, standingsFromRows, tally, whyNot } from "../shared/vote.js";
+import { AWAY_MS, COUNT_MS, SETTLE_MS, TOSS_MS, leaders, pointsForPlace, standingsFromRows, tally, whyNot } from "../shared/vote.js";
 import { BUMP_COOLDOWN_MS, BUMP_PUSH, POSITION_SLACK, bumpTarget, clampX, lightAt, posAt, spawnX } from "../shared/world.js";
 
 export const MAX_PLAYERS = 4;
@@ -336,12 +339,13 @@ export class LobbyCore {
   }
 
   /**
-   * A wake-up: lets time-dependent things happen. Returns {start, close, changed}: `start` is
-   * the game the vote chose (the room then calls startGame, or refuseStart when the hosting
-   * allowance is spent), `close` is why the room should shut, `changed` that the view moved on.
+   * A wake-up: lets time-dependent things happen. Returns {start, away, close, changed}: `start`
+   * is the game the vote chose (the room then calls startGame, or refuseStart when the hosting
+   * allowance is spent), `away` is set instead when the vote chose an outside game (sendAway),
+   * `close` is why the room should shut, `changed` that the view moved on.
    */
   tick(now) {
-    const out = { start: null, close: null, changed: false };
+    const out = { start: null, away: null, close: null, changed: false };
     const inLobby = this.activity.kind === "lobby";
     if (inLobby) {
       // A dropped phone's grace runs out: the piece fades and its vote stops counting.
@@ -369,15 +373,38 @@ export class LobbyCore {
       if (out.start) {
         this.count = null;
         this.toss = null;
+        if (this.boxes.find((box) => box.id === out.start)?.url) {
+          out.away = this.sendAway(out.start, now);
+          out.start = null;
+        }
       }
     }
     if (this.emptySince !== null && now - this.emptySince >= IDLE_SHUTDOWN_MS) out.close = "empty";
-    else if (inLobby && !out.start) {
+    else if (inLobby && !out.start && !out.away) {
       if (now - this.lastActive >= STALE_ROOM_MS) out.close = "stale";
       else if (now - this.createdAt >= MAX_ROOM_LIFE_MS) out.close = "expired";
       else if (this.closing && now >= this.closing.at) out.close = this.closing.reason;
     }
     return out;
+  }
+
+  /**
+   * An outside game won the vote. Nothing starts here and nobody scores: every page is told
+   * where it is going and goes. The pieces are put back by the door and the room rests, so
+   * anyone who chooses to stay is not sent off again at once. Once the pages have gone the room
+   * is empty, and closes by the usual rule a minute later.
+   */
+  sendAway(id, now) {
+    const box = this.boxes.find((b) => b.id === id);
+    for (const m of this.present()) {
+      m.x = spawnX(m.seat, this.boxes.length);
+      m.d = 0;
+      m.t = now;
+      m.rev += 1;
+    }
+    this.holdUntil = now + AWAY_MS + SETTLE_MS;
+    this.lastActive = now;
+    return { id, name: box.name, url: box.url, in: AWAY_MS };
   }
 
   /** The hosting allowance is spent: no game starts, and the room will close after a few minutes. */
@@ -401,8 +428,8 @@ export class LobbyCore {
       if (this.closing) at = Math.min(at, this.closing.at);
       if (this.count) at = Math.min(at, this.count.endsAt);
       if (this.toss) at = Math.min(at, this.toss.endsAt);
-      // The rest after a game: a count may be due the moment it is over.
-      if (this.holdUntil > now) at = Math.min(at, this.holdUntil);
+      // The rest after a game: a count may be due the moment it is over, if anyone is here to vote.
+      if (this.holdUntil > now && this.connected().length) at = Math.min(at, this.holdUntil);
       for (const m of this.present()) if (!m.connected && m.droppedAt !== null) at = Math.min(at, m.droppedAt + RECONNECT_GRACE_MS);
     }
     return at === Infinity ? null : Math.max(at, now + 20);
@@ -476,7 +503,7 @@ export class LobbyCore {
     }
     rows.sort((p, q) => p.place - q.place || p.seat - q.seat);
     if (rows.length) this.gamesPlayed += 1;
-    this.last = { round: this.round, game: a.id, name: this.boxes.find((box) => box.id === a.id)?.name ?? a.id, rows, note: game.note ?? null, at: now };
+    this.last = { round: this.round, game: a.id, name: this.boxes.find((box) => box.id === a.id)?.name ?? a.id, rows, at: now };
     this.activity = { kind: "lobby" };
     for (const m of this.present()) {
       m.x = spawnX(m.seat, this.boxes.length);
@@ -534,6 +561,7 @@ export class LobbyCore {
       remembered: [...this.remembered],
       createdAt: this.createdAt,
       lastActive: this.lastActive,
+      emptySince: this.emptySince,
     };
   }
 
@@ -553,7 +581,9 @@ export class LobbyCore {
     room.remembered = new Map(data.remembered ?? []);
     room.createdAt = data.createdAt;
     room.lastActive = data.lastActive ?? now;
-    room.emptySince = now;
+    // When the last person went, if they had: kept through a sleep, so "empty for a minute" is
+    // counted from then and not from every time the room wakes up.
+    room.emptySince = data.emptySince ?? now;
     return room;
   }
 }

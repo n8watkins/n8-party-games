@@ -7,6 +7,11 @@ export const COUNT_MS = 3000;
 export const TOSS_MS = 3200;
 /** After a game the room rests this long before a new count may begin, so the result can be read. */
 export const SETTLE_MS = 6000;
+/**
+ * A game that plays on a site of its own won the vote: every page shows where it is about to go
+ * for this long, then goes there. Leaving the page without a word would be a surprise.
+ */
+export const AWAY_MS = 6000;
 
 /** What a place in a game adds to the Tonight board: 3, 2, 1, and nothing after third. */
 export const PLACE_POINTS = [3, 2, 1];
@@ -34,7 +39,8 @@ export function playersLabel(min, max) {
 
 /**
  * A box on the wall, from a game's manifest. `extra` is what the site adds: `blurb` until the
- * manifest carries one, `soon` for a game that is not built, `test` for a placeholder.
+ * manifest carries one, `soon` for a game that is not built, `test` for a placeholder, and `url`
+ * for an outside game: one that plays at an address of its own instead of inside the room.
  */
 export function boxFromManifest(manifest, extra = {}) {
   return {
@@ -42,10 +48,12 @@ export function boxFromManifest(manifest, extra = {}) {
     name: manifest.name,
     blurb: manifest.blurb ?? extra.blurb ?? "",
     badge: badgeFor(manifest.devices),
-    min: manifest.players?.min ?? 1,
+    // A game that also plays alone (`players.solo`) can be picked by a party of one.
+    min: manifest.players?.solo ? 1 : (manifest.players?.min ?? 1),
     max: manifest.players?.max ?? 4,
     soon: !!extra.soon,
     test: !!extra.test,
+    url: extra.url ?? manifest.url ?? null,
     art: extra.art ?? manifest.id,
   };
 }
@@ -57,9 +65,14 @@ export function boxFromManifest(manifest, extra = {}) {
 export function whyNot(box, party) {
   if (box.soon) return "Coming soon";
   if (party.players < box.min) return box.min === 1 ? "Needs a player" : `Needs ${box.min} players`;
-  if (party.players > box.max) return box.max === 1 ? "For 1 player" : `For up to ${box.max} players`;
+  if (party.players > box.max) return box.max === 1 ? "For 1 player" : box.min === box.max ? `For ${box.max} players` : `For up to ${box.max} players`;
   if (box.badge === "screen" && party.screens < 1) return "Needs a big screen";
   return null;
+}
+
+/** Where an outside game is, as people would say it: "whoami.n8builds.dev", or "its own page" on this site. */
+export function whereabouts(url) {
+  return /^https:\/\/([^/]+)/.exec(url ?? "")?.[1] ?? "its own page";
 }
 
 /** How many stand in each light. `standing` is {seat: boxId or null}. Returns {boxId: count}. */

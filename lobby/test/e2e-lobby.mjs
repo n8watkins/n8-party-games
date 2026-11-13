@@ -4,7 +4,8 @@
 //   node lobby/test/e2e-lobby.mjs [--base=http://localhost:8791] [--quiet=25]
 //
 // Four players join one room and go through an evening: a vote, a count that pauses, a game
-// that starts and comes back with points, a tie and its coin toss, someone leaving, a dropped
+// that starts and comes back with points, a tie and its coin toss, an outside game that sends
+// everyone to its own site, someone leaving, a dropped
 // phone coming back, a bump, a big screen, and a client that misbehaves. Then nobody touches
 // anything for --quiet seconds and the room must go silent (0 skips that part).
 import { BUMP_PUSH, boxCentre, lightHalf, spawnX } from "../shared/world.js";
@@ -21,9 +22,10 @@ const check = (ok, what) => {
   if (!ok) problems.push(what);
 };
 
-const N = 5;
+const N = 6;
 const COIN = 1; // Coin Flip's place on the wall
 const CORK = 0;
+const WHO = 2; // Who Am I?, an outside game
 const light = (i, off = 0) => Math.round(boxCentre(i, N) + off);
 const dark = (i) => Math.round(boxCentre(i, N) + lightHalf(N) + 20);
 const voteOf = (m) => (m.t === "vote" ? m.vote : m.room?.vote);
@@ -48,11 +50,19 @@ check(foreign.status === 403, "a page on another site cannot start a party (the 
 const fat = await fetch(api + "/rooms", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ nickname: "x".repeat(5000) }) });
 check(fat.status === 400, "an oversized body is refused (the kit's body cap)");
 
+// A party of one whose only player leaves at once: by the end of this run it must be gone.
+const left = await call("POST", "/rooms", { nickname: "Zed" });
+const Z = connect(left);
+await Z.opened;
+await Z.wait((m) => m.t === "hello", 8000, 0);
+Z.ws.close();
+const leftAt = Date.now();
+
 const [A, B, C, D] = [a, b, cy, d].map(connect);
 const all = [A, B, C, D];
 await Promise.all(all.map((c) => c.opened));
 const hello = await A.wait((m) => m.t === "hello", 8000, 0);
-check(hello.you.seat === 0 && hello.room.boxes.length === N && hello.room.pin === a.pin, "hello: your seat, the code and the five boxes on the wall");
+check(hello.you.seat === 0 && hello.room.boxes.length === N && hello.room.pin === a.pin, "hello: your seat, the code and the six boxes on the wall");
 await D.wait((m) => m.t === "hello", 8000, 0);
 await A.wait((m) => m.room?.members.filter((x) => x?.connected).length === 4, 8000, 0);
 check(
@@ -60,7 +70,7 @@ check(
   "everyone starts by the door, in the dark, and the room is waiting for all four",
 );
 const lights = A.room.vote.lights;
-check(lights["cork-and-bell"] === null && lights["coin-flip"] === null && lights["who-am-i"] === "Coming soon", "two lights are on (Cork & Bell, Coin Flip); the rest say Coming soon");
+check(lights["cork-and-bell"] === null && lights["coin-flip"] === null && lights["who-am-i"] === "For 2 players" && lights["tin-derby"] === "Coming soon" && lights.flood === "Coming soon" && lights["fox-trouble"] === "Coming soon", "two lights are on (Cork & Bell, Coin Flip); Who Am I? is for two, and the rest say Coming soon");
 A.send("ping");
 await sleep(300);
 check(A.raw.includes("pong"), "the keep-alive is answered");
@@ -112,11 +122,16 @@ check(tied.vote.leaders.join() === "cork-and-bell,coin-flip", "two against two i
 const toss = await A.wait((m) => voteOf(m)?.toss, 6000, mark);
 const tossed = voteOf(toss).toss;
 check(tossed.between.length === 2 && tossed.between.includes(tossed.winner), "the tie is settled by a coin toss everybody is shown: " + tossed.winner);
-const end2 = await A.wait((m) => m.t === "end", 12000, mark);
+// Cork & Bell does not open inside the room yet, so it hangs as an outside game: winning sends
+// every page to its own page. Coin Flip plays here.
+const after = await A.wait((m) => m.t === "end" || m.t === "away", 12000, mark);
+let end2 = after;
 if (tossed.winner === "cork-and-bell") {
-  check(end2.last.note?.kind === "stand-in" && end2.last.rows.length === 0 && end2.room.tonight.games === 1, "Cork & Bell won: the room says it does not open here yet, and nobody scores");
+  check(after.t === "away" && after.url === "/cork-and-bell/" && after.in > 3000, "Cork & Bell won: every page is told it is off to the game's own page");
+  end2 = await A.wait((m) => m.t === "room", 4000, A.seen.indexOf(after));
+  check(end2.room.tonight.games === 1 && end2.room.members.every((m) => m.points === points[m.name]), "and nobody scores");
 } else {
-  check(end2.last.rows.length === 4 && end2.room.tonight.games === 2, "Coin Flip won: a second game is on the board");
+  check(after.t === "end" && end2.last.rows.length === 4 && end2.room.tonight.games === 2, "Coin Flip won: a second game is on the board");
 }
 check(end2.room.phase === "lobby", "and everyone is back in the lobby again");
 
@@ -195,8 +210,47 @@ check(!!freed, "and its seat is freed");
 const relays = A.seen.slice(mark).filter((m) => m.t === "m" && m.s === 3).length;
 check(relays <= 45, "only the first burst of its messages was passed on (" + relays + " of 400)");
 
-// ---------------------------------------------------------------- the books
 const debug = async (code = "") => (await fetch(api + "/debug" + (code ? "/" + code : ""))).json();
+
+// ---------------------------------------------------------------- an outside game (Who Am I?)
+// A room of its own: two players, since Who Am I? is for exactly two.
+{
+  const p = await call("POST", "/rooms", { nickname: "Pat" });
+  const q = await call("POST", "/join/" + p.pin, { nickname: "Quin" });
+  const [P, Q] = [p, q].map(connect);
+  await Promise.all([P.opened, Q.opened]);
+  await P.wait((m) => m.room?.members.filter((x) => x?.connected).length === 2, 8000, 0);
+  const box = P.room.boxes[WHO];
+  check(box.id === "who-am-i" && box.url === "https://whoami.n8builds.dev/" && box.min === 2 && box.max === 2 && P.room.vote.lights["who-am-i"] === null, "Who Am I? hangs as an outside game for exactly two, and its light is on for a party of two");
+  let from = P.seen.length;
+  P.goto(light(WHO, -30));
+  Q.goto(light(WHO, 30));
+  const t1 = Date.now();
+  const away = await P.wait((m) => m.t === "away", 8000, from);
+  const awayQ = await Q.wait((m) => m.t === "away", 2000, 0);
+  check(away.id === "who-am-i" && away.url === box.url && away.in >= 5000 && awayQ.url === box.url, `it wins the count: both pages are told to go to ${away.url} in ${away.in / 1000} seconds (${Date.now() - t1} ms)`);
+  const then = await P.wait((m) => m.t === "room", 4000, P.seen.indexOf(away));
+  check(then.room.phase === "lobby" && then.room.game === null && then.room.tonight.games === 0 && then.room.members.filter(Boolean).every((m) => m.points === 0 && m.x === spawnX(m.seat, N)), "nothing starts in the room, nobody scores, and the pieces are back by the door");
+  check(!P.seen.some((m) => m.t === "start" || m.t === "end"), "no game was started for it");
+  // The pages go: the room is left empty and closes by the usual rule, a minute later.
+  P.ws.close();
+  Q.ws.close();
+  await sleep(600);
+  const left = (await debug(p.code)).room;
+  if (left) check(left.sockets === 0 && left.timer === false && left.alarmIn > 20_000 && left.alarmIn <= 60_000, `once both pages have gone the room holds no socket and no timer; it next wakes in ${Math.round(left.alarmIn / 1000)} seconds to let the two seats go, and closes a minute after it emptied`);
+
+  // A party of three does not fit.
+  const r = await call("POST", "/rooms", { nickname: "Ria" });
+  const more = [await call("POST", "/join/" + r.pin, { nickname: "Sol" }), await call("POST", "/join/" + r.pin, { nickname: "Tam" })];
+  const three = [r, ...more].map(connect);
+  await Promise.all(three.map((c) => c.opened));
+  const full = await three[0].wait((m) => m.room?.members.filter((x) => x?.connected).length === 3, 8000, 0);
+  check(full.room.vote.lights["who-am-i"] === "For 2 players", 'with three in the party its light is off and says "For 2 players"');
+  for (const c of three) c.send({ t: "leave" });
+  await sleep(300);
+}
+
+// ---------------------------------------------------------------- the books
 const books = await debug();
 if (!books.ok) {
   console.log("     (no debug door on this server: skipping the budget and quiet checks)");
@@ -230,6 +284,20 @@ if (!books.ok) {
     check(quiet.alarmIn > 5 * 60_000, `the only wake-up set is the slow "forgotten room" check, ${Math.round(quiet.alarmIn / 60_000)} minutes away`);
     const slept = quiet.wokeAgo < Date.now() - quietFrom - 2000;
     console.log(`     the room object ${slept ? "was put to sleep and woken by this check" : "stayed in memory (idle and able to sleep, which is not billed)"}: in memory for ${quiet.wokeAgo} ms`);
+  }
+}
+
+// ---------------------------------------------------------------- the room everyone left
+{
+  const waited = Date.now() - leftAt;
+  if (waited < 68_000) {
+    console.log(`     waiting ${Math.ceil((68_000 - waited) / 1000)} seconds more for the room that was left at the start...`);
+    await sleep(68_000 - waited);
+  }
+  const gone = await debug(left.code).catch(() => null);
+  if (gone?.ok) {
+    const back = await call("GET", "/join/" + left.pin);
+    check(gone.room === null && !back.ok, "a room everyone left is closed a minute later, though it slept in between, and its code is given back");
   }
 }
 

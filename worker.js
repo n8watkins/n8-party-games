@@ -7,7 +7,7 @@ import { json } from "./party-kit/src/worker/http.js";
 import { partyFullMessage, roomBudgetReport } from "./party-kit/src/worker/room-budget.js";
 import { GAMES } from "./games.js";
 import { createLobbyRoom } from "./lobby/server/lobby-room.js";
-import { WALL } from "./lobby/wall.js";
+import { wallFor } from "./lobby/wall.js";
 
 // A game's own page (/cork-and-bell/) still makes rooms of its own, as it does on the game's own
 // site. One room class runs one game's rounds, so those rooms are the first game's.
@@ -15,7 +15,7 @@ const first = GAMES[0];
 
 export const PartyRoom = createPartyRoom(first.game);
 /** The party room: one room that holds the lobby and whichever game the party voted for. */
-export const LobbyRoom = createLobbyRoom(WALL);
+export const LobbyRoom = createLobbyRoom(wallFor);
 export { PinDirectory, RateLimiter, RoomBudget, ScoreBoard };
 
 /** Where the party room's API lives. The same guards as the kit's own API apply to it. */

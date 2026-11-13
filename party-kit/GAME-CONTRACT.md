@@ -67,8 +67,8 @@ On the party site the party room (the lobby) is a second room class beside it, a
 
 The party room keeps a group in one room while it switches games.
 This is how a game plugs into it.
-It is a proposal that is built and tested for one game: Coin Flip, a placeholder in this repository (`lobby/games/coin-flip.js`).
-Cork & Bell does not go through it yet; what that would take is at the end.
+It is a proposal that is built and tested for one game: Coin Flip, a placeholder in this repository (`lobby/games/coin-flip.js`) that hangs on the wall only where `PARTY_TEST_GAMES` is `"on"` (local play and the tests).
+Cork & Bell does not go through it yet: it hangs as an outside game (below) that points at its own page. What hosting it would take is at the end.
 The room is `lobby/server/lobby-core.js` (the rules) and `lobby/server/lobby-room.js` (the Durable Object).
 
 ### A room holds one current activity
@@ -101,7 +101,7 @@ standings(state) { return [{ seat: 2, place: 1 }, { seat: 0, place: 2 }, { seat:
 
 A game without `standings` is read from `game.result(state)` instead, when that is a list of rows, best first, each with `seat` and `score` (Cork & Bell's is).
 The room turns places into points for the night: 3 for first, 2 for second, 1 for third.
-It sends `end { room, result, last, now }`, where `result` is the game's own result and `last` is the room's card: `{ round, game, name, rows: [{ seat, name, colour, place, points }], note }`.
+It sends `end { room, result, last, now }`, where `result` is the game's own result and `last` is the room's card: `{ round, game, name, rows: [{ seat, name, colour, place, points }] }`.
 
 ### Return: everyone is back in the lobby
 
@@ -138,13 +138,28 @@ That part is proposed, not built: Coin Flip's view lives in this repository.
 | `manifest.devices.sharedScreen` | `true`: the game can use a big screen. `"required"`: it needs one, and its light stays off until a screen has joined the room. |
 
 The device badge on a box comes from `devices`: amber "Phones + big screen" when a screen is required, violet "A phone each" when it plays on phones only, and cyan "Any device" otherwise.
-The box's player count is `players.min` to `players.max`, and its light is off, with the reason in a few words, when the party is too small or too large.
+The box's player count is `players.min` to `players.max`, or from 1 when the game also plays alone (`players.solo`), and its light is off, with the reason in a few words, only when the party is too small or too large.
+The game's name is written once, on its poster; the sign under it carries the blurb and the badges.
+
+### Outside games
+
+A game that is not on the kit and plays on a site of its own can still hang on the wall.
+It keeps none of this contract: the site lists it in `lobby/wall.js` (`OUTSIDE`) with what a box needs and an address.
+
+```js
+{ id: "who-am-i", name: "Who Am I?", blurb: "Ask questions, guess your name", players: { min: 2, max: 2 }, devices: { phone: true, desktop: false }, url: "https://whoami.n8builds.dev/" }
+```
+
+`players` is what the game itself allows, so its light goes off for a party that does not fit, like any other.
+It has no `game`, so the room never calls `create`: when it wins the vote the room sends every socket `away { id, name, url, in }`, each page shows where it is going for `in` milliseconds and then goes to `url`.
+Nothing of the party carries over (not the code, the seats or the points), no points go on the Tonight board, and the party room empties and closes by its usual rules.
+A hosted game whose view cannot be mounted in the room yet is hung the same way, with its own `manifest.path` as the address.
 
 ### What hosting Cork & Bell through this would take
 
 On the server it is small.
 Its `game` already has everything the room calls, its result rows already give places, and a party of two to four needs no stand-ins to start.
-In `lobby/wall.js` the stand-in for a hosted game is replaced by the game itself.
+In `lobby/wall.js` the hosted game stops being hung as an outside game and its own `game` goes into the wall's `games`.
 
 In the browser it is the real work, and it is not small.
 Cork & Bell's page (`game/main.js`) is built around the kit's waiting room and around being the whole page.

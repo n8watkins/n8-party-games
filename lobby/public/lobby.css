@@ -661,7 +661,7 @@ input {
     flex: 0 0 100%;
     min-height: 26px;
   }
-  .hud-player .round {
+  .hud-player .bar-player .round {
     width: 64px;
     height: 64px;
   }

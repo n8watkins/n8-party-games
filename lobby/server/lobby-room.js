@@ -37,12 +37,14 @@ const CLOSE_REASONS = { empty: "room_closed", stale: "room_idle", expired: "room
 
 /**
  * Makes the party room class.
- * @param {{boxes: object[], games: Map<string, object>}} wall  the boxes on the wall and the games that can start (lobby/wall.js)
+ * @param {(env: object) => {boxes: object[], games: Map<string, object>}} wallFor  the boxes on the
+ *   wall and the games that can start, for a Worker's environment (lobby/wall.js)
  */
-export function createLobbyRoom(wall) {
+export function createLobbyRoom(wallFor) {
   return class LobbyRoom extends DurableObject {
     constructor(ctx, env) {
       super(ctx, env);
+      const wall = (this.wall = wallFor(env));
       /** @type {LobbyCore | null} */
       this.core = null;
       /** socket -> {ws, token, role, seat, kept, out, in, bucket} */
@@ -81,7 +83,7 @@ export function createLobbyRoom(wall) {
     async create({ code, nickname, as }) {
       if (this.core) return { ok: false, error: "exists", message: "Room code already in use." };
       const now = Date.now();
-      const core = new LobbyCore({ ...wall, seed: newSeed(), code, now });
+      const core = new LobbyCore({ ...this.wall, seed: newSeed(), code, now });
       const joined = as === "screen" ? core.watch(now) : core.join(nickname, now);
       if (!joined.ok) return joined;
       this.core = core;
@@ -139,7 +141,7 @@ export function createLobbyRoom(wall) {
       const core = this.core;
       this.send(entry, { t: "hello", you: { role: who.role, seat: who.seat }, room: core.view(now) });
       const a = core.activity;
-      if (a.kind === "game") this.send(entry, { t: "snap", s: wall.games.get(a.id).snapshot(a.state, now), now, full: true });
+      if (a.kind === "game") this.send(entry, { t: "snap", s: this.wall.games.get(a.id).snapshot(a.state, now), now, full: true });
       this.changed(now);
       this.bill(now);
       return new Response(null, { status: 101, webSocket: client });
@@ -332,7 +334,7 @@ export function createLobbyRoom(wall) {
      *     dropped phone that came back) is pushed back: an alarm ringing for nothing is a
      *     billed request.
      *   - The slow "forgotten room" check creeps later with every message and is left alone:
-     *     it rings early once in ten minutes, finds nothing to do and is set again.
+     *     it rings early once in twenty minutes, finds nothing to do and is set again.
      */
     arm(now) {
       const wake = this.core?.nextWake(now) ?? null;
@@ -358,6 +360,12 @@ export function createLobbyRoom(wall) {
         if (budget === "open") this.startGame(out.start);
         else core.refuseStart(Date.now());
         this.changed(Date.now());
+      } else if (out.away) {
+        // An outside game won: every page hears where it is going, and goes. Nothing is asked of
+        // the budget and nothing is billed but this wake-up: the game is played somewhere else.
+        this.broadcast({ t: "away", ...out.away });
+        for (const entry of this.sockets.values()) this.keep(entry);
+        this.changed(now);
       } else if (out.close) {
         this.bill(now);
         return this.destroy(out.close);
@@ -371,7 +379,7 @@ export function createLobbyRoom(wall) {
 
     startGame(id) {
       const core = this.core;
-      const game = wall.games.get(id);
+      const game = this.wall.games.get(id);
       const now = Date.now();
       const started = core.startGame(id, now);
       if (!started.ok) return;
