@@ -17,12 +17,15 @@ const PICTURES = {
   bump: { fill: true, d: ["M12 1.6L14.6 7.5L21 6.8L17.2 12L21 17.2L14.6 16.5L12 22.4L9.4 16.5L3 17.2L6.8 12L3 6.8L9.4 7.5Z"] },
 };
 
-/** What each button says, and the key that does the same on a keyboard. */
+/**
+ * What each button says, and a key that does the same on a keyboard: `key` is what the small
+ * badge shows (one sign, so it never covers the picture), `keys` is every key that works.
+ */
 const BUTTONS = {
-  left: { name: "Walk left", word: "Left", key: "A" },
-  right: { name: "Walk right", word: "Right", key: "D" },
-  jump: { name: "Jump", word: "Jump", key: "Space" },
-  bump: { name: "Bump", word: "Bump", key: "B" },
+  left: { name: "Walk left", word: "Left", key: "←", keys: "ArrowLeft A" },
+  right: { name: "Walk right", word: "Right", key: "→", keys: "ArrowRight D" },
+  jump: { name: "Jump", word: "Jump", key: "↑", keys: "ArrowUp Space W" },
+  bump: { name: "Bump", word: "Bump", key: "B", keys: "B X Shift" },
 };
 
 function picture(kind) {
@@ -35,11 +38,11 @@ function picture(kind) {
 
 /** One of the four buttons: the picture, the word, and the key for people at a keyboard. */
 function control(parent, kind) {
-  const { name, word, key } = BUTTONS[kind];
+  const { name, word, key, keys } = BUTTONS[kind];
   const b = h("button", `round ctl ctl-${kind}`, "", parent);
   b.type = "button";
   b.setAttribute("aria-label", name);
-  b.setAttribute("aria-keyshortcuts", key);
+  b.setAttribute("aria-keyshortcuts", keys);
   b.append(picture(kind));
   h("span", "ctl-word", word, b);
   h("span", "ctl-key", key, b).setAttribute("aria-hidden", "true");

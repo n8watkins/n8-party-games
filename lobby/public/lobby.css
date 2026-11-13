@@ -265,7 +265,7 @@ input {
   border-radius: 6px;
   background: var(--cream);
   color: #1e1410;
-  font: 700 10.5px/1.25 var(--mono);
+  font: 700 12px/1.15 var(--mono);
   text-align: center;
   white-space: nowrap;
   box-shadow: 0 1px 0 2px rgba(10, 6, 4, 0.9);
