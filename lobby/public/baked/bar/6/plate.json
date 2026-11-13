@@ -1,0 +1,33 @@
+{
+  "boxes": 6,
+  "rect": {
+    "x0": -320,
+    "y0": -180,
+    "x1": 2240,
+    "y1": 1260
+  },
+  "base": {
+    "large": "base-3840.webp",
+    "small": "base-2560.webp"
+  },
+  "lamps": [
+    "lamp-0.webp",
+    "lamp-1.webp",
+    "lamp-2.webp",
+    "lamp-3.webp",
+    "lamp-4.webp",
+    "lamp-5.webp"
+  ],
+  "lampGain": 3.818,
+  "exposure": 0.88,
+  "env": "env.webp",
+  "juke": {
+    "file": "juke.webp",
+    "rect": {
+      "x0": 1560,
+      "y0": 500,
+      "x1": 1900,
+      "y1": 860
+    }
+  }
+}

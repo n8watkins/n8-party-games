@@ -24,6 +24,8 @@ const opt = (k, d) => (args.find((a) => a.startsWith("--" + k + "=")) ?? "--" + 
 const base = opt("base", "http://localhost:8791");
 const rooms = opt("rooms", "bar,ship,arcade,camp,roof,navy,fair").split(",");
 const soft = opt("soft", "0") === "1";
+// --look=baked measures the baked look (lobby/public/baked): the bar only, on its wall of five boxes.
+const look = opt("look", "3d");
 
 const SIZES = [
   { name: "big screen 1920x1080", viewport: { width: 1920, height: 1080 }, deviceScaleFactor: 1, query: "" },
@@ -39,7 +41,7 @@ try {
       const page = await context.newPage();
       const errors = [];
       page.on("pageerror", (e) => errors.push(e.message));
-      await page.goto(`${base}/lobby/look3d/still.html?walk=1&room=${room}&${size.query}${soft ? "&gl=any" : ""}`);
+      await page.goto(`${base}/lobby/look3d/still.html?walk=1&room=${room}&${size.query}${soft ? "&gl=any" : ""}${look === "baked" ? "&look=baked" : ""}`);
       const ready = await page.waitForSelector("html[data-ready]", { timeout: 60000, state: "attached" }).catch(() => null);
       if (!ready) {
         console.log(`${size.name}  ${room}: did not start (${errors.join(" | ") || "no hardware WebGL?"})`);
@@ -51,7 +53,7 @@ try {
       await page.waitForTimeout(6000);
       const r = await page.evaluate(() => window.__still.report());
       console.log(
-        `${size.name}  ${room}: median ${r.median.toFixed(2)} ms, 95th ${r.p95.toFixed(2)} ms, worst ${r.worst.toFixed(1)} ms over ${r.frames} frames; ` +
+        `${size.name}  ${room}${r.look ? " (" + r.look + ")" : ""}: median ${r.median.toFixed(2)} ms, 95th ${r.p95.toFixed(2)} ms, worst ${r.worst.toFixed(1)} ms over ${r.frames} frames; ` +
           `${r.calls} draw calls, ${r.triangles} triangles, ${r.size.join("x")} pixels (ratio ${r.ratio.toFixed(2)}), script ${r.cpuMsPerFrame.toFixed(2)} ms a frame; ${r.gpu}` +
           (errors.length ? " ERRORS " + errors.join(" | ") : ""),
       );
