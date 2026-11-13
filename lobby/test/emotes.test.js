@@ -33,7 +33,7 @@ describe("the emote list", () => {
   });
 
   it("reads only messages that name an emote that exists", () => {
-    expect(readEmote(emoteMessage("violin"))).toBe("violin");
+    expect(readEmote(emoteMessage("tomato"))).toBe("tomato");
     expect(readEmote({ t: "e", e: "nope" })).toBeNull();
     expect(readEmote({ t: "e", e: "__proto__" })).toBeNull();
     expect(readEmote({ t: "sb", k: "horn" })).toBeNull();
@@ -79,18 +79,18 @@ describe("the rules", () => {
 describe("the room judging them", () => {
   it("relays an emote to the others and refuses the next one until the cooldown is over", () => {
     const core = room();
-    expect(core.emote(0, "violin", 2000)).toEqual({ relay: { t: "e", s: 0, e: "violin" } });
+    expect(core.emote(0, "tomato", 2000)).toEqual({ relay: { t: "e", s: 0, e: "tomato" } });
     const refused = core.emote(0, "popcorn", 2500);
     expect(refused.relay).toBeUndefined();
     expect(refused.refused).toEqual({ t: "wait", in: EMOTE_COOLDOWN_MS - 500 });
     // Another player has a cooldown of their own.
-    expect(core.emote(1, "violin", 2500).relay).toBeTruthy();
+    expect(core.emote(1, "tomato", 2500).relay).toBeTruthy();
     expect(core.emote(0, "popcorn", 2000 + EMOTE_COOLDOWN_MS).relay).toBeTruthy();
   });
 
   it("tells a page that arrives in the middle how long it still waits", () => {
     const core = room();
-    core.emote(0, "violin", 2000);
+    core.emote(0, "tomato", 2000);
     expect(core.view(2500).members[0].emoteCool).toBe(EMOTE_COOLDOWN_MS - 500);
     expect(core.view(2500).members[1].emoteCool).toBe(0);
   });
@@ -98,7 +98,7 @@ describe("the room judging them", () => {
   it("sets no wake-up: a cooldown is a time written on the piece", () => {
     const core = room();
     const before = core.nextWake(2000);
-    core.emote(0, "violin", 2000);
+    core.emote(0, "tomato", 2000);
     // Nothing sooner than before: only the slow "forgotten room" check moves, and later.
     expect(core.nextWake(2000)).toBeGreaterThanOrEqual(before);
     expect(core.count).toBeNull();
@@ -108,13 +108,13 @@ describe("the room judging them", () => {
   it("follows the game being played: emotes by default, none when it says so", () => {
     const core = room();
     expect(core.startGame("coin-flip", 2000).ok).toBe(true);
-    expect(core.emote(0, "violin", 2100).relay).toBeTruthy();
+    expect(core.emote(0, "tomato", 2100).relay).toBeTruthy();
     const quiet = room({ ...coinFlipManifest, lobby: { emotes: false } });
     quiet.startGame("coin-flip", 2000);
-    expect(quiet.emote(0, "violin", 2100).refused).toEqual({ t: "wait", in: -1 });
+    expect(quiet.emote(0, "tomato", 2100).refused).toEqual({ t: "wait", in: -1 });
   });
 
   it("ignores a seat nobody holds", () => {
-    expect(room().emote(3, "violin", 2000)).toBeNull();
+    expect(room().emote(3, "tomato", 2000)).toBeNull();
   });
 });

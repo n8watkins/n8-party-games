@@ -14,7 +14,6 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { KIT_CLIENT_PATH, buildPublic, kitClientEntry, report } from "../party-kit/build/public.mjs";
 import { GAMES } from "../games.js";
-import { writeSite as writeEmotesPreview } from "../preview/make-emotes-artifact.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 export const OUT = join(ROOT, "dist", "public");
@@ -44,13 +43,12 @@ const siteEntries = [
 ];
 
 /**
- * Pages still waiting for the owner's approval. They are built only with --preview, which the
- * local environment's build command passes (wrangler.jsonc, env.local) and the production one
- * does not, so they can be opened locally at /preview/... and never reach the live site.
- * The emotes and sounds preview is made from its sources first (preview/make-emotes-artifact.mjs).
+ * Pages still waiting for the owner's approval, as {from, to}. They are built only with
+ * --preview, which the local environment's build command passes (wrangler.jsonc, env.local) and
+ * the production one does not, so they can be opened locally at /preview/... and never reach the
+ * live site. None at the moment: the emotes preview became the room's emotes on 2026-11-13.
  */
-const EMOTES_PREVIEW = join(ROOT, "dist", "preview-emotes");
-const previewEntries = [{ from: EMOTES_PREVIEW, to: "preview/emotes" }];
+const previewEntries = [];
 const PREVIEW = process.argv.includes("--preview");
 
 const entries = [kitClientEntry(), ...siteEntries, ...GAMES.flatMap(gameEntries), ...(PREVIEW ? previewEntries : [])];
@@ -59,7 +57,6 @@ const entries = [kitClientEntry(), ...siteEntries, ...GAMES.flatMap(gameEntries)
 export const SERVED = entries.map((entry) => entry.to);
 
 export function build() {
-  if (PREVIEW) writeEmotesPreview(EMOTES_PREVIEW);
   // The party room shows a hosted game by putting the game's own page in a frame, so this site's
   // pages may be framed by this site's pages, and by nobody else.
   return buildPublic({ out: OUT, entries, frames: "self" });

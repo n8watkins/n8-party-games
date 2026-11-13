@@ -8,20 +8,19 @@
 // cooldown, passes it on to everybody else and is done: nothing is scheduled, so it costs one
 // event and no wake-up.
 //
-//   page -> room   { t: "e", e: "violin" }
-//   room -> others { t: "e", s: seat, e: "violin" }
+//   page -> room   { t: "e", e: "popcorn" }
+//   room -> others { t: "e", s: seat, e: "popcorn" }
 //   room -> sender { t: "wait", in: ms }    refused: too soon (in > 0), or not allowed now (in: -1)
 //
 // There is no soundboard: the owner dropped it on 2026-11-13 ("just emotes"). An emote's sound
 // plays where the room's sounds play (soundPlaysHere) and the device's volume and mutes apply.
 //
-// Which emotes there will be waits on the owner's picks (preview/emotes-artifact-v4.html), so
-// EMOTES below is every candidate in that preview: the room accepts any of them until the set
-// is chosen. A player's wheel holds six, and number keys 1 to 6 send them from a keyboard.
+// The set is the owner's, chosen from the v4 preview on 2026-11-13. A player's wheel holds six
+// of them, and number keys 1 to 6 send them from a keyboard. How each one moves and looks is the
+// page's (lobby/public/emotes/rig.js); its sound is lobby/public/sounds/emote-<id>.mp3.
 
-/** Every candidate: the id the room checks, and the name people read. The page draws them. */
+/** Every emote: the id the room checks, and the name people read. The page draws them. */
 export const EMOTES = [
-  { id: "violin", name: "World's smallest violin" },
   { id: "popcorn", name: "Popcorn" },
   { id: "slowclap", name: "Slow clap" },
   { id: "pointlaugh", name: "Point and laugh" },
@@ -35,6 +34,7 @@ export const EMOTES = [
   { id: "lighter", name: "Lighter up" },
   { id: "scratch", name: "Huh?" },
   { id: "steam", name: "Fuming" },
+  { id: "tomato", name: "Throw a tomato" },
 ];
 
 const IDS = new Set(EMOTES.map((e) => e.id));

@@ -8,6 +8,8 @@
 import { drawArt } from "./art.js";
 import { BumpDraw, poseTransform } from "./bump-draw.js";
 import { fit, label, s, set, shade } from "./dom.js";
+import { Expressions, poseTop } from "./emotes/play.js";
+import { EmoteFigure, Sticker, bodyTransform } from "./emotes/svg.js";
 import { IMPACT_MS } from "./shared/bump.js";
 import { standings } from "./shared/tonight.js";
 import { BADGES, COUNT_MS, playersLabel } from "./shared/vote.js";
@@ -36,6 +38,9 @@ export class Scene {
     this.vote = null;
     this.voteAt = 0;
     this.tagSize = opts.compact ? 26 : 21;
+    /** Who is doing which emote (emotes/play.js). */
+    this.expressions = new Expressions();
+    this.calmQuery = globalThis.matchMedia?.("(prefers-reduced-motion: reduce)") ?? null;
   }
 
   // ---------------------------------------------------------------- building
@@ -50,7 +55,7 @@ export class Scene {
     this.half = lightHalf(n);
     svg.append(this.defs());
     svg.append(this.backdrop());
-    this.layers = { lamps: s("g"), wall: s("g"), cones: s("g"), pools: s("g"), shadows: s("g"), pieces: s("g"), tags: s("g"), over: s("g") };
+    this.layers = { lamps: s("g"), wall: s("g"), cones: s("g"), pools: s("g"), shadows: s("g"), pieces: s("g"), emotes: s("g"), tags: s("g"), stickers: s("g"), over: s("g") };
     for (const layer of Object.values(this.layers)) svg.append(layer);
     this.layers.cones.setAttribute("pointer-events", "none");
     this.joinSign(room);
@@ -432,7 +437,11 @@ export class Scene {
     p.collar = s("ellipse", { cx: 0, cy: -84, rx: 22, ry: 8 });
     p.head = s("circle", { cx: 0, cy: -113, r: 28 });
     p.eyes = s("g", {}, s("ellipse", { cx: -9, cy: -113, rx: 3.8, ry: 5.6, fill: "#1a1210" }), s("ellipse", { cx: 9, cy: -113, rx: 3.8, ry: 5.6, fill: "#1a1210" }), s("circle", { cx: -8, cy: -115.5, r: 1.3, fill: "#fff" }), s("circle", { cx: 10, cy: -115.5, r: 1.3, fill: "#fff" }));
-    p.g = s("g", { "data-seat": m.seat }, p.base, p.body, p.collar, p.head, s("ellipse", { cx: -10, cy: -125, rx: 9, ry: 6, fill: "#fff", opacity: 0.26 }), p.eyes);
+    // The pawn itself, in a group of its own that an emote can lean and lift (emotes/svg.js draws over it).
+    p.inner = s("g", {}, p.base, p.body, p.collar, p.head, s("ellipse", { cx: -10, cy: -125, rx: 9, ry: 6, fill: "#fff", opacity: 0.26 }), p.eyes);
+    p.g = s("g", { "data-seat": m.seat }, p.inner);
+    p.colour = m.colour;
+    p.emote = null;
     p.tagBack = s("rect", { rx: (this.tagSize + 14) / 2, "stroke-width": 1.5 });
     p.tagDot = s("circle", { r: this.tagSize * 0.3 });
     p.tagText = label("", { "font-size": this.tagSize, class: "t-ui t-semi" });
@@ -478,6 +487,46 @@ export class Scene {
     p.shadow.remove();
     p.g.remove();
     p.tag.remove();
+    p.emote?.remove();
+    p.sticker?.remove();
+    this.expressions.stop(p.seat);
+  }
+
+  // ---------------------------------------------------------------- emotes
+
+  /** Someone sent an emote: it starts over their piece now, in place of any they were doing. */
+  onExpress(msg, now) {
+    const where = [...this.pieces.values()].filter((p) => !p.leaving).map((p) => ({ seat: p.seat, x: p.rx, face: p.face }));
+    this.expressions.start(msg.s, msg.e, now, where);
+  }
+
+  /** Draws a piece's emote for this frame, or puts its last one away. */
+  express(p, now) {
+    const e = this.expressions.pose(p.seat, now, (seat) => this.pieces.get(seat)?.rx, !!this.calmQuery?.matches);
+    if (!e) {
+      if (p.emote) {
+        p.emote.remove();
+        p.emote = null;
+        p.sticker.show(null);
+        set(p.inner, { transform: null });
+        set(p.eyes, { display: null });
+      }
+      return;
+    }
+    if (!p.emote) {
+      p.emote = new EmoteFigure(p.colour);
+      p.inner.append(p.emote.body);
+      this.layers.emotes.append(p.emote.stage);
+      p.sticker ??= new Sticker(this.layers.stickers);
+    }
+    set(p.inner, { transform: bodyTransform(e.pose.body) });
+    set(p.eyes, { display: "none" });
+    set(p.emote.stage, { transform: `translate(${p.rx.toFixed(1)}, ${ROOM.floorY})` });
+    p.emote.draw(e.pose, e.toward);
+    // The word over the head, clear of the name tag and of whatever the emote holds up; as easy to read as the tag.
+    const tagTop = ROOM.floorY - 156 - p.up - p.level * (this.tagSize + 20) - (this.tagSize + 14);
+    const y = Math.min(tagTop - 4, ROOM.floorY - p.up + poseTop(e.pose));
+    p.sticker.show(e.word, p.rx + e.pose.body.dx, y, this.tagSize / 21, e.pop);
   }
 
   /** Someone moved: where they are and which way they walk, as of now. */
@@ -589,6 +638,7 @@ export class Scene {
       p.want = want;
       p.level += (want - p.level) * Math.min(1, dt * 12);
       set(p.tag, { transform: `translate(${p.rx.toFixed(1)}, ${(ROOM.floorY - 156 - p.up - p.level * (this.tagSize + 20)).toFixed(1)})` });
+      this.express(p, now);
       prev = p;
     }
     this.paint(now);

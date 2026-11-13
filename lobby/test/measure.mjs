@@ -35,7 +35,7 @@ const voteEvery = Number(opt("vote-every", "60"));
 /** The one game every vote goes to, or "" for whichever light a player fancies. */
 const onlyGame = opt("game", "");
 const express = opt("express", "0") === "1";
-const EMOTE_IDS = ["violin", "popcorn", "slowclap", "pointlaugh", "redcard", "thumbsup"];
+const EMOTE_IDS = ["popcorn", "slowclap", "pointlaugh", "redcard", "thumbsup", "tomato"];
 const pick = (list) => list[Math.floor(Math.random() * list.length)];
 const { api, call, connect } = partyApi(base);
 const books = async () => (await (await fetch(api + "/debug")).json()).budget?.usage;

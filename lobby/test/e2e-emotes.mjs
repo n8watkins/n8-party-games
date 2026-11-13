@@ -79,9 +79,9 @@ try {
   await mabel.wait((m) => m.room?.members.filter((x) => x?.connected).length === 2, 8000, 0);
   const before = await debug(host.code);
 
-  mabel.send({ t: "e", e: "violin" });
+  mabel.send({ t: "e", e: "tomato" });
   const got = await tom.wait((m) => m.t === "e", 3000);
-  check(got.s === mabel.seat && got.e === "violin", "Tom sees Mabel's violin");
+  check(got.s === mabel.seat && got.e === "tomato", "Tom sees Mabel's tomato");
   mabel.send({ t: "e", e: "popcorn" });
   const wait = await mabel.wait((m) => m.t === "wait", 3000);
   check(wait.in > EMOTE_COOLDOWN_MS - 600 && wait.in <= EMOTE_COOLDOWN_MS, `a second emote straight after is refused, with ${wait.in} ms left`);
@@ -153,7 +153,7 @@ try {
   await phone.waitForFunction(() => globalThis.__partyRoom.sounds.log.length >= 2, null, { timeout: 4000 });
   check((await heard(phone)).at(-1) === "played", "after the tap the next one plays on the phone");
   await sleep(EMOTE_COOLDOWN_MS);
-  ada.send({ t: "e", e: "violin" });
+  ada.send({ t: "e", e: "tomato" });
   await sleep(500);
   check((await heard(phone)).length === 2, "an emote with no sound plays nothing");
 

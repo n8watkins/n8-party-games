@@ -1,14 +1,18 @@
 // The emotes as data: what a pawn and its arms do over time. Nothing here draws.
 //
-// An emote is pose(t): for a moment `t` ms into it, where the pawn's body and face are, where
-// each hand is, what shape it makes and where its arm runs, and which props and effects are
-// where. A drawing turns that into pictures: the flat SVG room (draw.js) today, a 3D room later,
-// from the same numbers.
+// An emote is pose(t, calm, reach): for a moment `t` ms into it, where the pawn's body and face
+// are, where each hand is, what shape it makes and where its arm runs, and which props and
+// effects are where. Both looks draw the same numbers: the flat room in SVG (emotes/svg.js), the
+// 3D room with its arms as meshes (look3d/emote-arms.js) and its props in the same SVG.
 //
 // Coordinates are the pawn's own, in room units: x to the viewer's right, y up is negative, the
 // foot at (0, 0), the head's centre at (0, -113), the shoulders at (+-19, -74). Things in "body"
 // space move with the body's lean; "stage" space is the floor under the pawn, for things that
-// fall or fly.
+// fall or fly. An aimed emote is posed at a piece on the right, `reach` room units away; when the
+// nearest piece is on the left, the drawing mirrors the pose (mirrorPose).
+//
+// The kit holds the rules (party-kit/client/emotes.js: which emotes exist, the cooldown); this
+// file holds how each one moves, and the two lists must name the same emotes (a test checks).
 //
 // Limbs come in one style, always in the pawn's own colour and always on a stick arm from the
 // shoulder, at three levels chosen per emote by what the action needs (`limbs`):
@@ -23,7 +27,6 @@
 // fingers up); s is its size (0: tucked away), sx squashes it sideways (turned edge-on); shape is
 // a set of numbers (HAND below), so shapes blend over time; style is "mitten" or "hands"; arm is
 // {shoulder, elbow, wrist}, worked out from the wrist (two segments of ARM_SEGMENT each).
-"use strict";
 
 // ---------------------------------------------------------------- hand shapes
 
@@ -34,7 +37,7 @@
  * its body curls with the fingers, the index finger stands out when it is straight and the others
  * are not, and the thumb is a lobe at that angle.
  */
-const HAND = {
+export const HAND = {
   open: { f: [0, 0, 0, 0], spread: 1, ta: -55, tc: 0 },
   flat: { f: [0, 0, 0, 0], spread: 0, ta: -12, tc: 0 },
   fist: { f: [1, 1, 1, 1], spread: 0, ta: 40, tc: 0.75 },
@@ -54,9 +57,9 @@ function mixShape(a, b, u) {
 
 // ---------------------------------------------------------------- timing helpers
 
-const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
+export const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
 const smooth = (u) => u * u * (3 - 2 * u);
-const EASE = {
+export const EASE = {
   s: smooth,
   l: (u) => u,
   o: (u) => 1 - (1 - u) ** 3,
@@ -80,8 +83,10 @@ const appear = (t, dur, from = 0, inMs = 180, outMs = 220) => (t < from ? 0 : Ma
 // ---------------------------------------------------------------- arms
 
 /** Each of an arm's two segments, as long as the room's stick arms of the second round. */
-const ARM_SEGMENT = 24;
+export const ARM_SEGMENT = 24;
 const SHOULDER = { x: 19, y: -74 };
+/** How far away an aimed emote's target stands when no piece is near: the preview's stage. */
+export const REACH = 190;
 
 /**
  * The arm to a wrist: a stick from the shoulder with one bend, the elbow out to the side. A wrist
@@ -129,7 +134,28 @@ function rest() {
     hands: [],
     props: [],
     fx: [],
-    other: { look: -3, sweat: null },
+    other: { look: -3, sweat: null, flinch: 0 },
+  };
+}
+
+const flipX = (o) => (o && typeof o.x === "number" ? { ...o, x: -o.x } : o);
+
+/** The same pose for a target on the left: everything across the pawn's middle, turns the other way. */
+export function mirrorPose(p) {
+  const b = p.body;
+  return {
+    body: { ...b, x: -b.x, dx: -b.dx, rot: -b.rot, hx: -b.hx, hr: -b.hr },
+    face: { ...p.face, look: -p.face.look },
+    hands: p.hands.map((h) => ({ ...h, side: -h.side, x: -h.x, rot: -h.rot, arm: { shoulder: flipX(h.arm.shoulder), elbow: flipX(h.arm.elbow), wrist: flipX(h.arm.wrist) } })),
+    props: p.props.map((x) => ({
+      ...x,
+      ...(typeof x.x === "number" ? { x: -x.x } : {}),
+      ...(typeof x.rot === "number" ? { rot: -x.rot } : {}),
+      ...(typeof x.x1 === "number" ? { x1: -x.x1, x2: -x.x2 } : {}),
+      ...(x.bits ? { bits: x.bits.map((b2) => ({ ...b2, x: -b2.x, rot: -b2.rot })) } : {}),
+    })),
+    fx: p.fx.map((f) => ({ ...f, x: -f.x, ...(f.side ? { side: -f.side } : {}) })),
+    other: { ...p.other, look: -p.other.look },
   };
 }
 
@@ -140,42 +166,7 @@ function rest() {
  * is the moment for stills and pictures; `word` the sticker; `aimed`: done at the piece on the
  * right; `limbs`: "none", "mitten" or "hands" (above).
  */
-const EMOTES = [
-  {
-    id: "violin",
-    kept: true,
-    limbs: "hands",
-    name: "World's smallest violin",
-    line: "A comically tiny violin pinched at the chin, a toothpick bow drawn across it in long, sad strokes.",
-    word: "so sad",
-    dur: 3400,
-    hold: 1500,
-    pose(t, calm) {
-      const p = rest();
-      const on = appear(t, this.dur);
-      const stroke = calm ? 0.5 : 0.5 - 0.5 * Math.cos((Math.max(0, t - 300) / 1300) * Math.PI);
-      p.body.rot = 3 * (stroke - 0.5) * on;
-      p.body.hr = 14 * on;
-      p.body.hx = 4 * on;
-      p.face.eyes = on > 0.5 ? "shut" : "open";
-      p.face.brows = on > 0.5 ? "sad" : null;
-      p.face.mouth = on > 0.5 ? "frown" : null;
-      // The violin, between the pinched fingertips of the hand by the chin.
-      const hold = hand(1, 22, -78, -34, "pinch", on, "hands");
-      p.hands.push(hold);
-      const fiddle = held(hold, -4, -21);
-      p.props.push({ kind: "violin", x: fiddle.x, y: fiddle.y, rot: 62, s: on * 0.3 });
-      // The bow hand slides along in long strokes; the toothpick bow crosses the strings.
-      const bowHand = hand(-1, -14 + 18 * stroke, -86 + 4 * stroke, 30, "pinch", on, "hands");
-      p.hands.push(bowHand);
-      const grip = held(bowHand, -4, -20);
-      p.props.push({ kind: "bow", x1: grip.x, y1: grip.y, x2: grip.x + 24, y2: grip.y - 6, s: on, thin: true });
-      // A glint on the violin at the start, so a very small thing is seen.
-      if (t > 250 && t < 900) p.fx.push({ kind: "glint", x: fiddle.x + 4, y: fiddle.y - 6, s: Math.sin(((t - 250) / 650) * Math.PI) });
-      if (on > 0.5) p.fx.push({ kind: "note", x: 40 + ((t / 30) % 30), y: -150 - ((t / 20) % 40), o: 1 - ((t / 20) % 40) / 40 });
-      return p;
-    },
-  },
+export const RIG = [
   {
     id: "popcorn",
     kept: true,
@@ -354,7 +345,7 @@ const EMOTES = [
     dur: 3000,
     hold: 1050,
     aimed: true,
-    pose(t, calm) {
+    pose(t, calm, reach = REACH) {
       const p = rest();
       const on = appear(t, this.dur);
       const popped = t > 520;
@@ -374,7 +365,7 @@ const EMOTES = [
           const u = clamp((t - 520) / 450, 0, 1);
           const fall = clamp((t - 970) / 1600, 0, 1);
           const spread = (i / 26 - 0.5) * 110;
-          const x = 60 + (190 + spread - 60) * u + (calm ? 0 : wave(t + i * 97, 600, 6));
+          const x = 60 + (reach + spread - 60) * u + (calm ? 0 : wave(t + i * 97, 600, 6));
           const y = -170 - Math.sin(u * Math.PI) * 60 + fall * (110 + (i % 5) * 18);
           bits.push({ x, y, rot: (t / 4 + i * 40) % 360, c: colours[i % colours.length] });
         }
@@ -532,4 +523,61 @@ const EMOTES = [
       return p;
     },
   },
+  {
+    id: "tomato",
+    limbs: "mitten",
+    name: "Throw a tomato",
+    line: "A stick arm winds up and lobs a tomato at the nearest piece. It splats on the floor in front of them and fades; they only flinch.",
+    word: "splat!",
+    dur: 2600,
+    hold: 1080,
+    aimed: true,
+    pose(t, calm, reach = REACH) {
+      const p = rest();
+      const on = appear(t, this.dur);
+      const RELEASE = 560;
+      const LAND = 1000;
+      // The arm: back over the shoulder, a beat, then over the top and through.
+      const back = k(t, [[0, 0], [160, 0], [440, 1, "o"], [RELEASE - 40, 1.05], [RELEASE + 80, -0.6, "i"], [900, -0.4], [this.dur - 250, 0]]);
+      p.body.rot = -6 * Math.max(0, back) + 9 * Math.max(0, -back) * 1.4;
+      p.body.hr = -4 * Math.max(0, back);
+      p.face.look = 3;
+      p.face.eye = t > LAND - 80 && t < LAND + 900 ? 1.2 : 1;
+      p.face.mouth = t < RELEASE ? "flat" : t < LAND + 1200 ? "grin" : on > 0.5 ? "smile" : null;
+      p.face.brows = t < RELEASE && on > 0.5 ? "angry" : null;
+      const wx = 30 - 40 * Math.max(0, back) + 38 * Math.max(0, -back);
+      const wy = -96 - 22 * Math.max(0, back) + 8 * Math.max(0, -back);
+      const thrower = hand(1, wx, wy, -50 * back, t < RELEASE ? "grip" : "open", on);
+      p.hands.push(thrower);
+      p.hands.push(hand(-1, -34, -56, 18, "fist", on * 0.95));
+      // The tomato: in the hand, then a lob to the floor just short of the target.
+      const target = Math.max(70, reach - 34);
+      if (t < RELEASE) {
+        const at = held(thrower, 0, -14);
+        p.props.push({ kind: "tomato", x: at.x, y: at.y, rot: 0, s: on });
+      } else if (t < LAND) {
+        const u = (t - RELEASE) / (LAND - RELEASE);
+        const x0 = 62;
+        const y0 = -120;
+        const x = x0 + (target - x0) * u;
+        const y = y0 * (1 - u) - Math.sin(u * Math.PI) * 70 - 6 * u;
+        p.props.push({ kind: "tomato", space: "stage", x, y, rot: calm ? 0 : u * 540, s: 1 });
+      }
+      if (t >= LAND) {
+        // The splat: a flat smear on the floor that slides a little and fades, nowhere near the target's body.
+        const u = clamp((t - LAND) / (this.dur - LAND - 150), 0, 1);
+        const pop = calm ? 1 : EASE.b(clamp((t - LAND) / 140, 0, 1));
+        p.props.push({ kind: "splat", space: "stage", x: target + 6 * u, y: -2, s: pop, o: 1 - u * u });
+      }
+      // The target only flinches: a jolt and a glance, then nothing.
+      p.other.flinch = t >= LAND && t < LAND + 420 ? 1 - (t - LAND) / 420 : 0;
+      p.other.look = -3;
+      return p;
+    },
+  },
 ];
+
+const BY_ID = new Map(RIG.map((e) => [e.id, e]));
+
+/** How an emote moves, by its id; undefined for an id this page does not know. */
+export const rigById = (id) => BY_ID.get(id);
