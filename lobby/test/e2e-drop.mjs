@@ -81,7 +81,7 @@ try {
 
   // ---------------------------------------------------------------- a signal that goes without a word
   const s = await call("POST", "/join/" + w.pin, { nickname: "Sil" });
-  const S = connect(s);
+  const S = connect(s, { keepAlive: false });
   await S.opened;
   await W.wait((m) => m.room?.members[s.seat]?.connected, 5000, 0);
   // From here S sends nothing, not even the keep-alive, and never closes: a phone out of signal.
