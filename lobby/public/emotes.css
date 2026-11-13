@@ -208,7 +208,7 @@
 }
 .sound-row {
   display: grid;
-  grid-template-columns: 9.5em 1fr;
+  grid-template-columns: minmax(0, 9.5em) minmax(0, 1fr);
   align-items: center;
   gap: 10px;
   font-size: 14px;
@@ -232,7 +232,33 @@
   color: #ffb4a6;
 }
 
-/* A phone held sideways is short: the sheets are a size smaller. */
+/* A phone held sideways is short: the door sheet goes two columns wide, its choices on the left
+   and sound on the right, so it fits the height of the screen; the sheets are a size smaller. */
+@media (max-height: 520px) and (min-width: 600px) {
+  .sheet.door-sheet {
+    width: min(100%, 780px);
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    align-items: start;
+  }
+  .door-sheet .sound-set {
+    grid-column: 2;
+    grid-row: 1 / span 3;
+  }
+  .door-sheet .choice {
+    padding: 9px 12px;
+  }
+  .door-sheet .choice-icon {
+    width: 40px;
+    height: 40px;
+  }
+  .door-sheet .choice-words strong {
+    font-size: 16px;
+  }
+  .door-sheet .sound-row {
+    grid-template-columns: 1fr;
+    gap: 2px;
+  }
+}
 @media (max-height: 520px) {
   .loadout-title {
     font-size: 20px;

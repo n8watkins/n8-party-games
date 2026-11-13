@@ -164,7 +164,7 @@ export class Hud {
     if (this.sheet) return;
     const screen = this.opts.role === "screen";
     const sheet = (this.sheet = h("div", "sheet-back", "", this.el));
-    const box = h("div", "sheet", "", sheet);
+    const box = h("div", "sheet door-sheet", "", sheet);
     box.setAttribute("role", "dialog");
     box.setAttribute("aria-label", "Leave");
     const leave = h("button", "choice", "", box);
