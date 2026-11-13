@@ -41,11 +41,27 @@ To see the 3D look, add `?look=3d` to the room's address, for example `http://lo
 The choice is remembered on that device, because the room's own address carries no query and a phone that scans the code on the wall arrives without one; `?look=flat` goes back.
 A device without hardware WebGL 2 gets the flat drawing even when it asks for 3D.
 
-The 3D room has skins: `&room=bar` (the default), `navy`, `roof`, `camp` or `fair`.
-Every skin keeps the layout exactly and changes the wall, the floor, the lamps, the lettering, the sign style and a few small extras.
+The 3D room has skins: `&room=bar` (the default), `ship` (the star lounge), `arcade`, `camp`, `roof`, `navy` (the studio) or `fair` (the pier fair).
+Every skin keeps the layout exactly, and the game boxes and their signs are the same size and in the same place in every room.
+A skin changes the wall, the floor, the lamps, the lettering, the trim, and what the room does.
 A skin is one description in `public/look3d/skins.js`, and nothing else in the 3D look knows a room by name.
-All of them, with a still each and four more rooms that are only concepts, are on the rooms page: `/lobby/look3d/rooms/`.
-A posed room with nobody connected is at `/lobby/look3d/still.html?room=<skin>`; its header comment lists what it can show.
+All of them, with a still each, a short loop for the live ones, and three more rooms that are only concepts, are on the rooms page: `/lobby/look3d/rooms/`.
+A posed room with nobody connected is at `/lobby/look3d/still.html?room=<skin>`; its header comment lists what it can show, and `&show=1&run=1` plays a little show.
+
+### Rooms that are alive
+
+Each skin lists its life (`life: [...]` in `skins.js`), and `public/look3d/life.js` runs it.
+There are three kinds of thing, all drawn on the device from what every device already knows.
+None of it sends a message, asks the room anything or changes a rule: it cannot move a piece, block a vote or decide who was bumped.
+
+- **Ambient**: always on. A fire, bulbs that chase round a frame, a sky going by a window.
+- **Events**: something passes now and then, such as an owl, a plane or a comet. They run off the room's own clock and a sequence seeded by the room's code, so every screen in a room sees the same owl at the same moment. The clock is how long the room has been open, which the room view already carries as `closesIn`; devices agree to within the lag of one message.
+- **Reactions**: set off by pieces, from where they stand, when they jump and who was bumped, all of which every device hears already. Jump under a lamp and it swings. Stand by the campfire and your piece gets sooty. Under the Tonight board every room has one feature of its own (a jukebox, a prize wheel, a claw machine) which is knocked when someone is bumped beside it.
+
+Nothing plays a sound.
+Each event and reaction announces itself by name on `window` as a `party-room:sound` event (`detail: {name, room}`), for the sound system to listen for; every skin lists its names and what each should sound like under `sounds`.
+People who ask their device for less motion get the ambient life only: events do not fly, and reactions do not wobble, hop or throw sparks.
+While only ambient life is running the room is drawn every other frame, and every frame as soon as anything else moves.
 Chosen stills of the 3D look, from a live run and from posed rooms, are in [`shots/3d/`](shots/3d/).
 
 How the 3D look stays cheap for a phone:
@@ -53,6 +69,7 @@ How the 3D look stays cheap for a phone:
 - The camera never moves. A device shows a different part of the room by sliding and scaling the frame (`public/look3d/space.js`), so the picture is the flat drawing's picture, one world unit to one pixel, and nothing needs real light.
 - Walls, floors and box art are painted once on canvases. A lamp's light is a cone of glow and a pool worked out in the floor's own shader. A piece's shadow is a soft blob. There are no shadow maps.
 - The picture is drawn at no more than twice the screen's CSS size and never more than about 2560 x 1440 pixels. It steps down if frames are slow, draws a third as often when nothing moves, and stops while the page is hidden.
+- A room's life is budgeted the same way: its many small lights are one mesh each, its sparks and smoke are two pools of dots, and its feature is not worked out while it is off the screen.
 - It asks nothing of the room: no message is sent or changed for it, and an idle room still sleeps.
 
 three.js is not a second copy: the 3D look imports the build Cork & Bell already ships (`public/look3d/three.js` is the one line that says where).
@@ -165,6 +182,7 @@ Once a real game is hosted in the room, its rounds will cost what they cost in t
 - `npm run lobby:shots` drives real pages in a headless, muted browser and takes a still of every state on a big screen, a sideways phone and an upright one, checking that no text spills out of its place. Stills land in `lobby/test/shots/`, which is not committed; a chosen few are in `lobby/shots/`.
 - `npm run lobby:measure` is the cost measurement above.
 - `npm run lobby:shots:3d` is the same kind of run in the 3D look: a big screen, a sideways phone, an upright phone and a laptop in one live room, with checks that the 3D look drew it, that the words say what the room says, and that a device without hardware WebGL falls back to the flat drawing. Stills land in `lobby/test/shots/3d-live/`.
-- `npm run lobby:stills:3d` takes a still of every skin and of the bar at every moment from posed rooms, into `lobby/test/shots/3d/`. With `-- --publish=1` it also rewrites the pictures the rooms page shows.
+- `npm run lobby:stills:3d` takes a still of every skin and of the bar at every moment from posed rooms, into `lobby/test/shots/3d/`, and checks that every room's signs are the same size and in the same place. With `-- --only=loops` it takes each live room's five second show frame by frame. `python3 lobby/test/make-room-pictures.py` then turns the stills and the frames into the pictures the rooms page shows. `-- --gpu=1` uses the Windows side's graphics card, which is much quicker.
+- `npm run lobby:shots:3d` also checks the rooms' life: that two devices in a room agree what time it is in the room and when each passing thing next comes, that a bump by the room's feature sets it off on both and announces its sound by name, and that none of it sends a message.
 - `npm run lobby:measure:3d` measures the 3D look's frame time on the Windows side's graphics card, in a headless Chrome. It is a desktop card at a phone's screen size, not a phone.
 - `node lobby/test/e2e-budget.mjs` checks what happens when the allowance is spent; its header says which server to start.

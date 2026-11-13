@@ -3,33 +3,35 @@
 // whatever happens.
 //
 //   node lobby/test/shoot-3d-stills.mjs [--base=http://localhost:8791] [--out=lobby/test/shots/3d]
-//        [--rooms=bar,navy] [--only=rooms|views|loops] [--publish=1] [--gpu=1]
+//        [--rooms=bar,navy] [--only=rooms|views|loops] [--gpu=1]
 //
 // "rooms" is one big-screen still per skin, mid-vote, with one of the room's passing things
 //         held in view: the picture the rooms page shows.
 // "views" is the bar on every kind of device and at every moment a posed room can show.
 // "loops" is a five second show per live room, taken frame by frame in stepped time: something
 //         passes, someone is bumped by the room's feature, someone jumps under a lamp. The
-//         frames land in <out>/loops/<room>/ ; lobby/test/make-loops.py turns them into the
-//         looping pictures the rooms page shows.
-// With --publish=1 the room stills are also written as JPEGs to lobby/public/look3d/rooms/.
+//         frames land in <out>/loops/<room>/.
+// lobby/test/make-room-pictures.py then turns the room stills and the loop frames into the
+// pictures the rooms page shows.
 //
 // WSL has no graphics card, so by default this browser draws WebGL in software: right for a
 // still, slow for many. With --gpu=1 it drives a headless Chrome on the Windows side instead
 // (Cork & Bell's tools/browser.mjs: no window, a throwaway profile, closed at the end).
 import { mkdirSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { chromium } from "playwright";
 import { openBrowser } from "../../node_modules/cork-and-bell/tools/browser.mjs";
 import { SKINS } from "../public/look3d/skins.js";
 
+// Its own Chrome profile on the Windows side, so it never meets another tool's browser.
+process.env.CAB_PROFILE ??= resolve(tmpdir(), "party-room-3d-chrome-profile");
 const args = process.argv.slice(2);
 const opt = (k, d) => (args.find((a) => a.startsWith("--" + k + "=")) ?? "--" + k + "=" + d).split("=").slice(1).join("=");
 const base = opt("base", "http://localhost:8791");
 const out = resolve(opt("out", "lobby/test/shots/3d"));
 const only = opt("only", "");
 const rooms = opt("rooms", Object.keys(SKINS).join(",")).split(",");
-const publish = opt("publish", "0") === "1";
 const gpu = opt("gpu", "0") === "1";
 mkdirSync(out, { recursive: true });
 const problems = [];
@@ -102,7 +104,6 @@ try {
     } else {
       await page.waitForTimeout(1200);
       await page.screenshot({ path: `${out}/${picture.file}.png` });
-      if (publish && picture.publish) await page.screenshot({ path: resolve("lobby/public/look3d/rooms", picture.publish), type: "jpeg", quality: 80, clip: { x: 0, y: 0, width: 1920, height: 990 }, scale: "css" });
     }
     // What a still cannot be trusted to show: a line of words wider than its place.
     const spills = await page.evaluate(() => [...document.querySelectorAll(".l3-fit, .l3-fits, .l3-name")].filter((el) => el.scrollWidth > el.clientWidth + 1).map((el) => el.textContent));

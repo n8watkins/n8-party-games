@@ -18,54 +18,27 @@
 //
 // People who ask their device for less motion get the ambient life only, slowed where it
 // scrolls; events do not fly and reactions do not wobble, hop or throw sparks.
+import { chance, nextStart, occurrence, roomAge, seedOf } from "./clock.js";
 import { canvasOf } from "./paint.js";
 import { PX, SPACE, WALK, walkX, worldX } from "./space.js";
 import { SPRITES } from "./sprites.js";
 import * as THREE from "./three.js";
 
-/** How long a room lasts, in seconds: the room view counts down from it (`closesIn`). */
-const ROOM_LIFE = 4 * 3600;
 /** A piece this near the middle of a room's feature (world units) can set it off. */
 const REACH = 170;
 
-/** A repeatable number from 0 to 1 for a seed and two whole numbers. */
-export function chance(seed, a, b = 0) {
-  let h = seed ^ Math.imul(a + 0x9e3779b9, 0x85ebca6b) ^ Math.imul(b + 0x7f4a7c15, 0xc2b2ae35);
-  h ^= h >>> 15;
-  h = Math.imul(h, 0x2c1b3c6d);
-  h ^= h >>> 12;
-  h = Math.imul(h, 0x297a2d39);
-  h ^= h >>> 15;
-  return (h >>> 0) / 4294967296;
-}
-
-function seedOf(text) {
-  let h = 2166136261;
-  for (const ch of String(text)) h = Math.imul(h ^ ch.charCodeAt(0), 16777619);
-  return h | 0;
-}
-
-/**
- * Whether a timed thing is happening at room time T, and how far through it is.
- * It comes once in every `every` seconds, at a moment within that stretch picked by the seed.
- * Returns null, or {u: 0 to 1, n: which time this is, r: a number for this time's choices}.
- */
-export function occurrence(def, index, T, seed) {
-  const n = Math.floor(T / def.every);
-  const start = n * def.every + chance(seed, index, n) * (def.every - def.lasts);
-  const u = (T - start) / def.lasts;
-  return u >= 0 && u < 1 ? { u, n, r: chance(seed, index + 101, n), r2: chance(seed, index + 211, n) } : null;
-}
-
-/** When the thing at `index` next starts at or after T: for stills and captures. */
-export function nextStart(def, index, T, seed) {
-  for (let n = Math.floor(T / def.every); ; n++) {
-    const start = n * def.every + chance(seed, index, n) * (def.every - def.lasts);
-    if (start >= T) return start;
-  }
-}
-
 const additive = (map, color = 0xffffff, opacity = 1) => new THREE.MeshBasicMaterial({ map, color, transparent: true, opacity, blending: THREE.AdditiveBlending, depthWrite: false });
+/**
+ * Tells the graphics card that a mesh of many things will be moved or recoloured all the time.
+ * Without it every change waits for the card to finish with the old numbers, which costs
+ * milliseconds a frame for a handful of fireflies.
+ */
+function lively(mesh) {
+  mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+  mesh.setColorAt(0, new THREE.Color(0));
+  mesh.instanceColor.setUsage(THREE.DynamicDrawUsage);
+  return mesh;
+}
 const wobble = () => ({ a: 0, v: 0 });
 function settle(w, dt, stiffness = 60, damping = 5) {
   w.v += (-w.a * stiffness - w.v * damping) * dt;
@@ -82,7 +55,7 @@ class Dots {
     this.glowing = glowing;
     this.live = [];
     const material = glowing ? additive(radial) : new THREE.MeshBasicMaterial({ map: radial, transparent: true, opacity: 0.55, depthWrite: false });
-    this.mesh = new THREE.InstancedMesh(new THREE.PlaneGeometry(1, 1), material, n);
+    this.mesh = lively(new THREE.InstancedMesh(new THREE.PlaneGeometry(1, 1), material, n));
     this.mesh.count = 0;
     this.mesh.frustumCulled = false;
     this.mesh.renderOrder = 5;
@@ -156,7 +129,7 @@ const AMBIENT = {
    */
   twinkle(kit, def) {
     const n = def.count;
-    const mesh = new THREE.InstancedMesh(new THREE.PlaneGeometry(def.size[0], def.size[1]), additive(def.glow ? kit.radial : null), n);
+    const mesh = lively(new THREE.InstancedMesh(new THREE.PlaneGeometry(def.size[0], def.size[1]), additive(def.glow ? kit.radial : null), n));
     const o = new THREE.Object3D();
     const lights = [];
     const [x0, x1, y0, y1] = def.area;
@@ -204,7 +177,7 @@ const AMBIENT = {
       for (let y = -hh; y <= hh + 0.001; y += (2 * hh) / Math.round((2 * hh) / def.every)) round.push([cx - hw, L.by + y]);
       spots.push(...round.map((p, i) => [...p, i]));
     }
-    const mesh = new THREE.InstancedMesh(new THREE.PlaneGeometry(0.2, 0.2), additive(kit.radial), spots.length);
+    const mesh = lively(new THREE.InstancedMesh(new THREE.PlaneGeometry(0.2, 0.2), additive(kit.radial), spots.length));
     const o = new THREE.Object3D();
     spots.forEach(([x, y], i) => {
       o.position.set(x, y, SPACE.zBack + 0.43);
@@ -322,15 +295,19 @@ const AMBIENT = {
    * {kind: "drift", count, area: [x0, x1, y0, y1], colour, size, z, rise}
    */
   drift(kit, def) {
-    const mesh = new THREE.InstancedMesh(new THREE.PlaneGeometry(def.size, def.size), additive(kit.radial), def.count);
+    const mesh = lively(new THREE.InstancedMesh(new THREE.PlaneGeometry(def.size, def.size), additive(kit.radial), def.count));
     mesh.frustumCulled = false;
     const o = new THREE.Object3D();
     const colour = new THREE.Color(def.colour);
     const tint = new THREE.Color();
     const [x0, x1, y0, y1] = def.area;
     kit.add(mesh);
+    let due = 0;
     return {
       step(ctx) {
+        // They move slowly: thirty times a second is plenty.
+        if (ctx.now < due) return 1;
+        due = ctx.now + 30;
         for (let i = 0; i < def.count; i++) {
           const [a, b, c] = [chance(5, i, 1), chance(5, i, 2), chance(5, i, 3)];
           let y = y0 + b * (y1 - y0) + Math.cos(ctx.T * (0.2 + c * 0.3) + i) * 0.22;
@@ -1048,7 +1025,7 @@ const REACTIONS = {
    */
   trail(kit, def) {
     const N = 40;
-    const mesh = new THREE.InstancedMesh(new THREE.CircleGeometry(def.size, 6), additive(null), N);
+    const mesh = lively(new THREE.InstancedMesh(new THREE.CircleGeometry(def.size, 6), additive(null), N));
     mesh.rotation.x = -Math.PI / 2;
     mesh.position.y = 0.007;
     mesh.frustumCulled = false;
@@ -1118,11 +1095,15 @@ export class Life {
     this.force = null;
   }
 
-  /** The room said how long it has left: that is the clock every device in the room shares. */
+  /**
+   * The room said how long it has left: that is the clock every device in the room shares
+   * (look3d/clock.js). A reading can only be late, never early (it was true when the room sent
+   * it), so the latest one wins; and a device that has run ahead (a sleep, a stalled tab) is put back.
+   */
   clock(room, now) {
-    const age = ROOM_LIFE - (room.closesIn ?? ROOM_LIFE * 1000) / 1000;
-    // Hold the first reading; take a new one only if this device has drifted from it (a sleep, a long stall).
-    if (!this.synced || Math.abs(age - this.T(now)) > 1.5) {
+    const age = roomAge(room);
+    const ahead = this.T(now) - age;
+    if (!this.synced || ahead < 0 || ahead > 2) {
       this.base = age;
       this.since = now;
       this.synced = true;

@@ -13,12 +13,16 @@
 // are the time one frame takes, not the display's 60 a second.
 //
 // This is a desktop graphics card pretending to be a phone's screen size. It is not a phone.
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { openBrowser } from "../../node_modules/cork-and-bell/tools/browser.mjs";
 
+// Its own Chrome profile on the Windows side, so it never meets another tool's browser.
+process.env.CAB_PROFILE ??= join(tmpdir(), "party-room-3d-chrome-profile");
 const args = process.argv.slice(2);
 const opt = (k, d) => (args.find((a) => a.startsWith("--" + k + "=")) ?? "--" + k + "=" + d).split("=").slice(1).join("=");
 const base = opt("base", "http://localhost:8791");
-const rooms = opt("rooms", "bar,navy,roof,camp,fair").split(",");
+const rooms = opt("rooms", "bar,ship,arcade,camp,roof,navy,fair").split(",");
 const soft = opt("soft", "0") === "1";
 
 const SIZES = [

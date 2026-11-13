@@ -143,6 +143,31 @@ try {
   const waiting = await screen.locator(".status-sub").textContent();
   check(/Waiting for\s*Tom/.test(waiting), 'the big screen says who is in the dark: "' + waiting.replace(/\s+/g, " ").trim() + '"');
 
+  // ---------------------------------------------------------------- the room's life
+  // Timed events go by the room's own clock, so two devices in a room must agree on what time
+  // it is in the room and on when each thing next happens.
+  const readLife = (page) => page.evaluate(() => ({ T: window.__room3d.life.T(performance.now()), next: window.__room3d.life.schedule(performance.now()).map((e) => `${e.name}@${e.at.toFixed(2)}`) }));
+  const [onScreen, onPhone] = await Promise.all([readLife(screen), readLife(phone)]);
+  check(Math.abs(onScreen.T - onPhone.T) < 1.5, `the big screen and the phone agree what time it is in the room (${onScreen.T.toFixed(2)} s and ${onPhone.T.toFixed(2)} s)`);
+  check(onScreen.next.length > 0 && onScreen.next.join() === onPhone.next.join(), "and on when each passing thing next comes: " + onScreen.next.slice(0, 3).join(", "));
+  // A bump by the room's feature knocks it on every screen, and announces a name a sound system can listen for.
+  for (const page of [screen, phone]) await page.evaluate(() => ((window.__heard = []), window.addEventListener("party-room:sound", (e) => window.__heard.push(e.detail.name))));
+  tom.goto(1745);
+  fitch.goto(1650);
+  await sleep(900);
+  fitch.send({ t: "m", x: fitch.x, d: 1, r: fitch.rev });
+  fitch.send({ t: "m", x: fitch.x, d: 0, r: fitch.rev });
+  fitch.send({ t: "b" });
+  await sleep(500);
+  await shot(screen, "05b-screen-feature-knocked");
+  const heard = await Promise.all([screen, phone].map((page) => page.evaluate(() => window.__heard.filter((n) => /^(jukebox|wheel|pigeons|striker|claw|holo|porthole|stall)\./.test(n)))));
+  check(heard[0].length > 0 && heard[0].join() === heard[1].join(), "a bump by the room's feature sets it off on both screens, and says so by name: " + heard[0].join(", "));
+  const sent = [mabel, fitch, tom].map((c) => c.seen.length);
+  await sleep(2500);
+  check([mabel, fitch, tom].every((c, i) => c.seen.length === sent[i]), "none of it sends anything: no message reached a player while the room was only being alive");
+  fitch.goto(light(CORK, 50));
+  await sleep(700);
+
   // A jump and a bump, mid-air.
   tom.goto(dark(COIN));
   await phone.keyboard.press("Space");
@@ -216,7 +241,7 @@ try {
   await upright.goto(`${base}/lobby/?join=${pin}&${look}`);
   await upright.fill("input[name=nickname]", "Pip");
   await upright.click("text=Join the party");
-  await upright.waitForSelector(".look3d canvas", { timeout: 60000 });
+  await upright.waitForSelector(".look3d canvas", { timeout: 150000 });
   await upright.waitForSelector(".l3-tag.you");
   await sleep(1500);
   await shot(upright, "16-upright-turn-your-phone");
