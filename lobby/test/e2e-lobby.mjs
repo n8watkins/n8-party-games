@@ -50,6 +50,14 @@ check(foreign.status === 403, "a page on another site cannot start a party (the 
 const fat = await fetch(api + "/rooms", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ nickname: "x".repeat(5000) }) });
 check(fat.status === 400, "an oversized body is refused (the kit's body cap)");
 
+// A party of one whose only player leaves at once: by the end of this run it must be gone.
+const left = await call("POST", "/rooms", { nickname: "Zed" });
+const Z = connect(left);
+await Z.opened;
+await Z.wait((m) => m.t === "hello", 8000, 0);
+Z.ws.close();
+const leftAt = Date.now();
+
 const [A, B, C, D] = [a, b, cy, d].map(connect);
 const all = [A, B, C, D];
 await Promise.all(all.map((c) => c.opened));
@@ -276,6 +284,20 @@ if (!books.ok) {
     check(quiet.alarmIn > 5 * 60_000, `the only wake-up set is the slow "forgotten room" check, ${Math.round(quiet.alarmIn / 60_000)} minutes away`);
     const slept = quiet.wokeAgo < Date.now() - quietFrom - 2000;
     console.log(`     the room object ${slept ? "was put to sleep and woken by this check" : "stayed in memory (idle and able to sleep, which is not billed)"}: in memory for ${quiet.wokeAgo} ms`);
+  }
+}
+
+// ---------------------------------------------------------------- the room everyone left
+{
+  const waited = Date.now() - leftAt;
+  if (waited < 68_000) {
+    console.log(`     waiting ${Math.ceil((68_000 - waited) / 1000)} seconds more for the room that was left at the start...`);
+    await sleep(68_000 - waited);
+  }
+  const gone = await debug(left.code).catch(() => null);
+  if (gone?.ok) {
+    const back = await call("GET", "/join/" + left.pin);
+    check(gone.room === null && !back.ok, "a room everyone left is closed a minute later, though it slept in between, and its code is given back");
   }
 }
 

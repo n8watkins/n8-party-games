@@ -561,6 +561,7 @@ export class LobbyCore {
       remembered: [...this.remembered],
       createdAt: this.createdAt,
       lastActive: this.lastActive,
+      emptySince: this.emptySince,
     };
   }
 
@@ -580,7 +581,9 @@ export class LobbyCore {
     room.remembered = new Map(data.remembered ?? []);
     room.createdAt = data.createdAt;
     room.lastActive = data.lastActive ?? now;
-    room.emptySince = now;
+    // When the last person went, if they had: kept through a sleep, so "empty for a minute" is
+    // counted from then and not from every time the room wakes up.
+    room.emptySince = data.emptySince ?? now;
     return room;
   }
 }

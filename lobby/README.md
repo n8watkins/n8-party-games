@@ -92,31 +92,33 @@ What was not chosen: a server tick that simulates every piece (the room would be
 
 ## What it costs
 
-Measured on 2026-11-12 with `npm run lobby:measure`: four scripted players for ten minutes against the local server, driven by the same code the page uses to decide what to send.
+Measured on 2026-11-12 with `npm run lobby:measure`: four scripted players for ten minutes against a local server with fresh storage and nothing else on it, driven by the same code the page uses to decide what to send.
 The room budget's books were read before and after.
+(Fresh storage matters: the books are shared by every room on a server, so rooms left over from other runs are counted too.)
 These are local measurements of the room's own counting, not a Cloudflare bill: check them against the dashboard after a real evening (`DEPLOY.md`, "The party room").
 
 | | Only wandering | Wandering and voting |
 | --- | --- | --- |
-| What happened | no game was started | 20 votes won: 8 games of Coin Flip, 12 for Cork & Bell (which does not open here yet), 13 coin tosses |
-| Messages to the room | 2.66 a second (0.67 per player) | 3.78 a second (0.94 per player) |
-| Awake time | 0.29 seconds per minute | 2.85 seconds per minute, of which Coin Flip's three-second tick loop is 2.4 and the lobby itself 0.45 |
-| Duration | 2.2 GB-seconds per room-hour | 21.9 GB-seconds per room-hour |
-| Requests | 577 per room-hour | 1,327 per room-hour |
-| Room-hours a month the 10% of time buys (40,000 GB-s) | 18,160 | 1,827 |
+| What happened | no game was started | 24 votes won: 11 games of Coin Flip, 13 for Cork & Bell (an outside game for now: nothing is played in the room for it), 20 coin tosses |
+| Messages to the room | 2.55 a second (0.64 per player) | 3.76 a second (0.94 per player) |
+| Awake time | 0.28 seconds per minute | 3.77 seconds per minute, of which Coin Flip's three-second tick loop is 3.3 and the lobby itself 0.47 |
+| Duration | 2.2 GB-seconds per room-hour | 28.9 GB-seconds per room-hour |
+| Requests | 562 per room-hour | 1,243 per room-hour |
+| Room-hours a month the 10% of time buys (40,000 GB-s) | 18,385 | 1,383 |
 
 For scale: a room that is awake all the time, as a game's own room is during a round, uses 461 GB-seconds per room-hour, and the 10% buys 87 hours of that.
 The second column is a keen party that starts a vote every half minute; most evenings will sit between the two.
+An outside game winning the vote costs one wake-up and no duration: nothing is played in the room.
 
 How the awake time is counted: every event (a message, an alarm, a join) as the time its handler took and never less than 2 ms, and a game's tick loop second for second.
 The floor is a deliberate overcount, since a handler that only does arithmetic takes well under a millisecond.
 Cloudflare bills a Durable Object while it runs code or cannot sleep, and not while it is idle and able to hibernate, even before it has been put to sleep (their pricing page says so in those words).
-If it did bill every second in which any message arrived, these same runs would be 375 GB-seconds per room-hour and the 10% would buy about 105 room-hours: that is the worst case, and even then the lobby costs less than a room that is always awake.
+If it did bill every second in which any message arrived, these same runs would be 350 to 385 GB-seconds per room-hour and the 10% would buy about 105 to 115 room-hours: that is the worst case, and even then the lobby costs less than a room that is always awake.
 
 **Requests are the tighter of the two allowances.**
 The plan includes one million Durable Object requests a month for the whole account, and the owner's 10% rule is about time, not requests.
-At the rates above, a million requests is 750 to 1,730 room-hours, and a tenth of it 75 to 173.
-Past the included million they cost $0.15 a million: 9 to 20 cents per 1,000 room-hours.
+At the rates above, a million requests is 800 to 1,780 room-hours, and a tenth of it 80 to 178.
+Past the included million they cost $0.15 a million: 8 to 19 cents per 1,000 room-hours.
 The budget counts the party rooms' requests (`dayRequests` and `monthRequests` beside the time) so the owner can see them, but only time closes anything.
 
 A lobby nobody touches costs nothing: no timer, no messages, nothing counted, and locally the room object is put to sleep while the test waits (`npm run test:lobby` checks all of it over 25 seconds).
@@ -124,7 +126,7 @@ Once a real game is hosted in the room, its rounds will cost what they cost in t
 
 ## Limits, and what happens when the allowance is spent
 
-- A room closes one minute after the last person goes, and after twenty minutes in which nobody did anything (the kit's two rules). A page warns its player two minutes before the second.
+- A room closes one minute after the last person goes, and after twenty minutes in which nobody did anything (the kit's two rules). A page warns its player two minutes before the second. The minute is counted from when the room emptied, also when the room was put to sleep in between (it used to start over at every waking, which kept an empty room, waking once a minute, until the second rule closed it).
 - A room closes four hours after it was made, never in the middle of a game. Pages warn five minutes before.
 - One socket may send a burst of 40 messages, then 20 a second. More are dropped, and a socket that keeps flooding is closed and its seat given up. A message over 512 bytes, or one that is not JSON, is dropped and counts five times.
 - When the day's or month's allowance is spent: no new party can start (the front page's way in answers that the rooms are full, and that each game still plays on its own page); an open room finishes the game it is playing, starts no other, tells everyone "This room closes in 3:00", and closes three minutes later.

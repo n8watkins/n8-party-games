@@ -415,6 +415,7 @@ export class RoomCore {
       seats: this.seats,
       screens: [...this.screens.keys()],
       hostToken: this.hostToken,
+      emptySince: this.emptySince,
       createdAt: this.createdAt,
     };
   }
@@ -430,7 +431,9 @@ export class RoomCore {
     room.lastActive = data.lastActive ?? now;
     room.seats = data.seats.map((s) => (s ? { ...s, connected: false, droppedAt: s.kind === "human" ? now : s.droppedAt } : null));
     for (const token of data.screens) room.screens.set(token, { connected: false });
-    room.emptySince = now;
+    // When the last person went, if they had: kept through a sleep, so "empty for a minute" is
+    // counted from then and not from every time the room wakes up.
+    room.emptySince = data.emptySince ?? now;
     return room;
   }
 }

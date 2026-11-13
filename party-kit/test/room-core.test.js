@@ -243,6 +243,21 @@ describe("idle shutdown", () => {
     expect(core.tick(1000 + IDLE_SHUTDOWN_MS).close).toBe("empty");
   });
 
+  it("counts the minute from when the room emptied, also when it slept in between", () => {
+    const core = room();
+    const ann = seated(core, "Ann", 1000);
+    core.disconnect(ann.token, 5000);
+    // The empty room is put to sleep and woken by its alarm a minute later.
+    const woken = RoomCore.restore(counterGame(), JSON.parse(JSON.stringify(core.serialize())), 5000 + IDLE_SHUTDOWN_MS);
+    expect(woken.tick(5000 + IDLE_SHUTDOWN_MS).close).toBe("empty");
+    // Saved with someone in it and woken with nobody (a restart): empty from the waking.
+    const busy = room();
+    seated(busy, "Bo", 1000);
+    const restarted = RoomCore.restore(counterGame(), JSON.parse(JSON.stringify(busy.serialize())), 90_000);
+    expect(restarted.tick(90_000 + IDLE_SHUTDOWN_MS - 1).close).toBe(false);
+    expect(restarted.tick(90_000 + IDLE_SHUTDOWN_MS).close).toBe("empty");
+  });
+
   it("does not count bots as people", () => {
     const core = room();
     const ann = seated(core, "Ann");

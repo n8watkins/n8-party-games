@@ -469,6 +469,23 @@ describe("sleeping and closing", () => {
     expect(core.tick(5000 + IDLE_SHUTDOWN_MS).close).toBe("empty");
   });
 
+  it("still closes a minute after the last person went when it was put to sleep in between", () => {
+    const core = room();
+    const ann = seated(core, "Ann");
+    core.disconnect(ann.token, 5000);
+    core.tick(5000 + RECONNECT_GRACE_MS);
+    // An empty room is put to sleep within seconds and woken by its alarm: the minute is counted
+    // from when it emptied, not from each waking (which would keep it for twenty minutes, waking every one).
+    const woken = LobbyCore.restore(wall(), structuredClone(core.serialize()), 5000 + IDLE_SHUTDOWN_MS);
+    expect(woken.tick(5000 + IDLE_SHUTDOWN_MS).close).toBe("empty");
+    // A room saved while people were in it, and woken with nobody (a restart): empty from the waking.
+    const busy = room();
+    seated(busy, "Bo");
+    const restarted = LobbyCore.restore(wall(), structuredClone(busy.serialize()), 90_000);
+    expect(restarted.tick(90_000 + IDLE_SHUTDOWN_MS - 1).close).toBeNull();
+    expect(restarted.tick(90_000 + IDLE_SHUTDOWN_MS).close).toBe("empty");
+  });
+
   it("closes when it reaches its longest life, but not in the middle of a game", () => {
     const core = room();
     seated(core, "Ann");
