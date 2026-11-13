@@ -274,8 +274,8 @@ try {
   const dropper = await open("dropping phone", { width: 844, height: 390 }, { deviceScaleFactor: 2, hasTouch: true });
   await join(dropper, pin, "Fay");
   await dropper.goto("about:blank");
-  console.log("     a phone drops for 32 seconds...");
-  await sleep(32_000);
+  console.log("     a phone drops for longer than its seat is held (12 s and then 120 s)...");
+  await sleep(135_000);
   watcher.goto(light(COIN, 200)); // a move, so the room looks at its clock
   await sleep(1500);
   await dropper.goto(`${base}/lobby/`);
