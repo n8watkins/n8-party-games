@@ -45,14 +45,27 @@ The ones whose names start with `f` are from `npm run test:feel`: the bump momen
 The room is drawn twice, from the same room state, rules and controls.
 Both are a "room view" (`public/room-view.js`), which is all the page knows about a drawing.
 
-- **Flat** (`public/scene.js`): one SVG of plain shapes. It is the default.
-- **3D** (`public/look3d/`): a three.js scene in the look of the approved stills, with every word laid over it as HTML. It is a preview until the owner approves it.
+- **3D** (`public/look3d/`): a three.js scene in the look of the approved stills, with every word laid over it as HTML. It is the room's normal look.
+- **Flat** (`public/scene.js`): one SVG of plain shapes. It is the fallback.
 
-To see the 3D look, add `?look=3d` to the room's address, for example `http://localhost:8791/lobby/?start&look=3d`.
-The choice is remembered on that device, because the room's own address carries no query and a phone that scans the code on the wall arrives without one; `?look=flat` goes back.
-A device without hardware WebGL 2 gets the flat drawing even when it asks for 3D.
+A device with hardware WebGL 2 gets the 3D look.
+One without it, or one whose only WebGL is a software renderer (SwiftShader, llvmpipe), gets the flat drawing, and downloads none of the 3D look: it is checked before anything of it is fetched (`hardware3D` in `public/room-view.js`).
+`?look=flat` asks for the flat drawing on purpose and is remembered on that device, because the room's own address carries no query; `?look=3d` goes back.
+If the 3D room stays slow on a device after it has stepped its own picture down (below), the device is offered "Simpler room" once (`public/slow-room.js`), which switches it to the flat drawing and remembers that.
 
-The 3D room has skins: `&room=bar` (the default), `ship` (the star lounge), `arcade`, `camp`, `roof`, `navy` (the studio) or `fair` (the pier fair).
+### The party's room
+
+The 3D look has seven rooms: the bar (where a party starts), the star lounge (`ship`), the arcade, the campfire (`camp`), the rooftop (`roof`), the studio (`navy`) and the pier fair (`fair`).
+Which room a party is in is one shared choice, kept with the room on the server (`room` in the room view, saved with the room, so it survives the room sleeping) and seen by every device.
+"Rooms", in the top right corner beside the door button, opens the picker: each room as a card with its picture (`public/rooms/<id>.webp`, fetched only when the picker opens) and its name.
+Everyone can open it; only the host's taps apply, and the others see "Ada picks the room".
+The host is the device that made the party, the room's screen included; when it leaves for good the first player still here takes over, and while it is only dropped the first connected player picks for it (`picker` in the room view says who).
+A pick is one small message (`pick`), which the room checks (host only, never during the count, the coin toss or a game, at most once every four seconds) and relays to everyone as one message; the picker says why it is shut when it is.
+Every device then dims the room, swaps it and brings the lights up together, and a note says who moved the party where.
+A device drawing the flat room only shows the note.
+A start link may name the room the party starts in: `/lobby/?start&room=ship`.
+The list of rooms the server accepts is `shared/rooms.js`; a test keeps it the same as the live skins.
+
 Every skin keeps the layout exactly, and the game boxes and their signs are the same size and in the same place in every room.
 A skin changes the wall, the floor, the lamps, the lettering, the trim, and what the room does.
 A skin is one description in `public/look3d/skins.js`, and nothing else in the 3D look knows a room by name.
@@ -82,7 +95,8 @@ How the 3D look stays cheap for a phone:
 - The picture is drawn at no more than twice the screen's CSS size and never more than about 2560 x 1440 pixels. It steps down if frames are slow, draws a third as often when nothing moves, and stops while the page is hidden.
 - A room's life is budgeted the same way: its many small lights are one mesh each, its sparks and smoke are two pools of dots, and its feature is not worked out while it is off the screen.
 - Under a game that covers the room (Cork & Bell in its frame) the 3D room is hidden and draws no frames, so the game has the graphics card to itself; it draws again when the game is taken away.
-- A device that did not ask for the 3D look downloads none of it: the page loads `look3d/` only when `?look=3d` was given.
+- A device that cannot draw it well downloads none of it: the page loads `look3d/` only after it has found hardware WebGL 2, and not at all with `?look=flat`.
+- A room's own files are its description in `skins.js` (all seven rooms are one 17 KB file, compressed); there are no per-room pictures or models to fetch. Changing rooms builds the next one from what is already loaded.
 - It asks nothing of the room: no message is sent or changed for it, and an idle room still sleeps.
 
 three.js is not a second copy: the 3D look imports the build Cork & Bell already ships (`public/look3d/three.js` is the one line that says where).
@@ -96,7 +110,23 @@ The 3D wall follows the flat one: a game's name is on its box and nowhere else, 
 
 ## What is built
 
-- The room in the bar look, drawn with plain shapes as one SVG, the same picture on every device (and, as a preview, in 3D: see above).
+- The room in 3D, in one of seven rooms the party picks, the same picture on every device, and drawn flat where 3D cannot be (see above).
+- Every way out lands on the front page (the main menu), never on an empty screen: `public/farewell.js` leaves it a note and `site/front.js` shows one line about it at the foot of the page (at the top on a phone held sideways). While the party is still open the line carries the way back in, and a rejoin is one tap. A rejoin that cannot work shows nothing and never moves the page.
+
+  | How you left | What the front page says |
+  | --- | --- |
+  | Leave the party | "You left party 1234." Rejoin |
+  | The room's screen: Stop showing | "This screen stopped showing party 1234." Show it again |
+  | Away longer than thirty seconds | "You were away too long, so party 1234 let your seat go." Rejoin |
+  | A screen away too long, and another took its place | "Another screen is showing party 1234 now." Join as a player |
+  | Nobody moved for twenty minutes | "Party 1234 closed: nobody moved for twenty minutes." |
+  | Four hours | "Party 1234 is over: a party lasts four hours." |
+  | The allowance is spent | "Party rooms are closed for today. Each game still plays on its own page." |
+  | Everyone left, or a saved seat whose room is gone | "Party 1234 has ended." |
+
+  A wrong code is said in the way in as soon as all four digits are typed, a full party says so with "Start a party instead" beside it, a second screen is offered a seat, and "Stay in the room" on an outside game's card leaves you in the live room.
+- The door button and Rooms say what they do ("Leave", "Stop showing" on the room's screen, "Rooms") for the first nine seconds a device is in the room, then fold to their pictures.
+- What can be touched on the wall looks it (`public/touch.js`): the Tonight board, each poster, the join sign and, in 3D, the room's own feature carry the same small round mark, give a press when tapped and a hand cursor on a laptop, and the first time a device is in a room the marks pulse and the board's says "tap". A poster opens a small card beside it: its line, players, devices, "Stand under its lamp to vote" and a high score where the game keeps one; it closes by itself after seven seconds or as soon as the piece moves. The join sign opens the code and QR code large, for showing a friend. The room's feature (the jukebox, the globe, the claw...) plays the reaction a bump by it would, on that device only and at most every second and a half. None of it sends anything to the room.
 - Game boxes from each game's manifest. The name is on the poster, once. The sign under it has one line about the game, how many can play ("1-4 players") and the device badge (cyan any device, violet a phone each, amber phones and a big screen). Every sign says how many can play, the coming-soon ones too. On a phone, with five boxes or more, a sign is too narrow for the line of words at a size worth reading, so it keeps the count and the badge and the words are left to bigger screens.
 - The join code and its QR code on the wall, and a Tonight board with 3, 2 and 1 points for first, second and third.
 - The Tonight board opens large when it is tapped or clicked, on a phone, a laptop or the big screen: places, names and points, and every game played so far with who won it. A tap, Escape or the back gesture closes it. The piece stays where it stands meanwhile, so its vote carries on, and the open board says what the room is doing.
@@ -111,6 +141,8 @@ The 3D wall follows the flat one: a game's name is on its box and nowhere else, 
 - A game the party cannot play has its light off and says why in a few words ("Needs 2 players", "For 2 players", "Needs a big screen", "Coming soon").
 - Outside games: a game that plays on a site of its own hangs on the wall with an address instead of a hosted game (below).
 - A big screen that joins with the code and holds no seat, and a player's view with buttons, a "Whole room / Closer" switch and a "turn your phone" hint when upright.
+- A phone held sideways starts in the closer view, following its own piece. On a phone, Closer zooms until a piece is 90 CSS pixels tall (about 14 mm), but never less than the old rule (the room's width times 1.25) and never so close that the signs go under the buttons in the corner (`shared/camera.js`). A small phone (667 x 375) gets pieces 72 pixels tall where it had 61, a large one (932 x 430) 88 where it had 86, and a typical one (844 x 390) keeps 77, where the signs are the limit.
+- The browser's bars out of the way, as far as each browser allows (`public/screen-fit.js`). Where a page can go full screen (Android Chrome, desktop browsers), the tap that joins or starts a party does so and turns a phone sideways where the browser lets it; the corner has a full screen button; if the browser drops out by itself, one tap back is offered, once. An iPhone has no full screen for a page: there a card says once how to add the site to the Home Screen (with the steps for Safari and for Chrome on iPhone), and the corner button opens it again. The site has a web app manifest (`site/manifest.webmanifest`, with icons drawn by `scripts/make-icons.py`), so a site added to the Home Screen opens without browser bars. The room is always as tall as what is visible (`visualViewport`), and a screen wake lock is held while in a room.
 - Joining in the middle of a vote, a dropped phone that turns grey, comes back to its seat or fades with a note, and "Leave the party" behind the door button. Whenever the set of connected players changes, the count starts over.
 - Someone who left or dropped and joins again under the same name gets their points back.
 - A game started with the party's seats, ended with places, and everyone returned to the lobby with points: the seam in `party-kit/GAME-CONTRACT.md`, "The lobby hooks".
@@ -177,7 +209,7 @@ The game's own page at `/cork-and-bell/` is unchanged: solo with the high score 
 
 - Coin Flip is a placeholder for local play and the tests, marked "TEST GAME" on its box. Tin Derby, Flood and Fox Trouble are names and pictures only.
 - A party's code, seats and points do not carry over to an outside game's site.
-- No piece skins, no abilities, no chat bubbles, no walking through the door, no "host starts" setting. Other rooms exist only as skins of the 3D preview.
+- No piece skins, no abilities, no chat bubbles, no walking through the door, no "host starts" setting. The flat drawing has one room, whichever the party picks.
 - No sound for the bump, and no buzz on phones whose browser has none (Safari on an iPhone).
 - "Back to the room" in the middle of a game: a round runs its ninety seconds, and a player can still leave the party.
 - In the room Cork & Bell has no high score entry, no rematch button and no end card of its own: the room's card shows the scores, and the vote is the rematch. The high score board stays on the game's own page.
@@ -273,6 +305,13 @@ A lobby nobody touches costs nothing: no timer, no messages, nothing counted, an
 | `games/coin-flip.js` | The test game, hung only where `PARTY_TEST_GAMES` is on. |
 | `wall.js` | Which boxes hang on the wall (hosted, outside, test, coming soon), which can start, and the wall each environment gets. |
 | `public/room-view.js` | The seam between the page and a drawing of the room: the interface both drawings keep, and which one a device gets. |
+| `shared/rooms.js` | The rooms a party can be in, and when the room may be changed. |
+| `public/room-menu.js` | The corner (Rooms and the door button) and the room picker. |
+| `public/farewell.js`, `../site/front.js` | Every way out of the room to the front page, and the line it says there. |
+| `public/count-tick.js` | The count, large, over the foot of the room. |
+| `public/touch.js` | What can be touched on the wall, and the cards it opens. |
+| `public/screen-fit.js` | Full screen, the Home Screen card on an iPhone, and the room sized to what is visible. |
+| `public/slow-room.js` | The one offer of the simpler room to a device the 3D room is too slow on. |
 | `public/look3d/` | The 3D drawing: the scene (`room3d.js`), the words over it (`words.js`), the pieces (`pieces.js`), the rooms as skins (`skins.js`), a posed room (`still.html`) and the rooms page (`rooms/`). |
 | `test/` | Unit tests, the socket test, the browser run and the cost measurement. |
 
@@ -286,6 +325,8 @@ A lobby nobody touches costs nothing: no timer, no messages, nothing counted, an
 - `npm run lobby:shots` drives real pages in a headless, muted browser and takes a still of every state on a big screen, a sideways phone and an upright one, checking that no text spills out of its place and that no card runs off a screen. It follows an outside game all the way to its address (the browser is handed a stand-in page, so no test touches the real site), and with `--plain=<a server with the test games off>` it also takes the wall as production hangs it. Stills land in `lobby/test/shots/`, which is not committed; a chosen few are in `lobby/shots/`.
 - `npm run test:cork` plays Cork & Bell inside the room in real pages (headless and muted): a party of three and a big screen, clicks that fire, a reload in the middle, the end, that nothing of the game is left on the page, a party of one, and what the two rounds cost. It takes about four minutes. With `-- --win=1` it uses the game's own tool to drive Chrome on the Windows side, on the real graphics card. Without it, Playwright's browser in WSL draws WebGL in software and its pages run seconds behind the room, so the run says so and leaves out the reload, the door sheet and the stills; everything the room decides is checked either way.
 - `npm run test:frames` checks in a real browser who may frame the site: a page on another origin is refused for the room, the game and the front page, and a page of the site itself is not (the party room frames a game's page).
+- `npm run test:leave-rooms` (with `npm run dev` running) goes through every way out of the room in real pages and the room picker on two 3D devices: leaving from a sideways phone, an upright one and the room's screen, Rejoin and Show it again, a seat given up after a drop, a screen whose place was taken, the lines for a room that closed, a rejoin that cannot work, a wrong code, a full party, a second screen, "Stay in the room"; and that the host's pick reaches every device with the lights going down and up, a guest's does not, nothing changes during the count or a game, a latecomer gets the party's room, a start link's `?room=` is the starting room, it survives the room sleeping, and a device without hardware 3D loads none of it. It takes about four minutes.
+- `npm run test:screen` checks the web app manifest and its icons, full screen on the way in and the one tap back on Android, the Home Screen card on an iPhone, nothing at all from the Home Screen, and the room at the sizes phones show with their bars on screen (nothing cut off, nothing scrolls, every button 44 pixels).
 - `npm run lobby:measure` is the cost measurement above. `-- --game=cork-and-bell` makes every vote a round of Cork & Bell.
 - `npm run lobby:shots:3d` is the same kind of run in the 3D look: a big screen, a sideways phone, an upright phone and a laptop in one live room, with checks that the 3D look drew it, that the words say what the room says, and that a device without hardware WebGL falls back to the flat drawing. Stills land in `lobby/test/shots/3d-live/`.
 - `npm run lobby:stills:3d` takes a still of every skin and of the bar at every moment from posed rooms, into `lobby/test/shots/3d/`, and checks that every room's signs are the same size and in the same place. With `-- --only=loops` it takes each live room's five second show frame by frame. `python3 lobby/test/make-room-pictures.py` then turns the stills and the frames into the pictures the rooms page shows. `-- --gpu=1` uses the Windows side's graphics card, which is much quicker.
