@@ -3,9 +3,10 @@
 // The page (main.js) knows the room only as a "room view": something that is told what the room
 // says and draws it. There are two drawings today, and both keep this one interface:
 //
-//   flat   scene.js, one SVG of plain shapes. The default.
-//   3d     look3d/room3d.js, a three.js scene with the words laid over it. A preview, asked for
-//          with ?look=3d (and &room=<skin>), and remembered on that device until ?look=flat.
+//   3d     look3d/room3d.js, a three.js scene with the words laid over it. The default on a
+//          device with hardware WebGL 2. Which room (skin) it draws is the party's choice.
+//   flat   scene.js, one SVG of plain shapes. The fallback, and what ?look=flat asks for
+//          (remembered on that device until ?look=3d).
 //
 // To retire the flat drawing: delete scene.js, art.js and FlatRoomView below, and make "3d" the
 // default in chosenLook. To retire the preview instead: delete look3d/ and this file's 3D half.
@@ -68,9 +69,36 @@ function remember(key, value) {
  * phone that scans the code on the wall arrives without one.
  */
 export function chosenLook(params) {
-  if (params.has("look")) remember(LOOK_KEY, params.get("look") === "3d" ? "3d" : null);
+  if (params.has("look")) remember(LOOK_KEY, params.get("look") === "flat" ? "flat" : null);
   if (params.has("room")) remember(SKIN_KEY, params.get("room"));
-  return { look: recall(LOOK_KEY) === "3d" ? "3d" : "flat", skin: recall(SKIN_KEY) ?? "" };
+  return { look: recall(LOOK_KEY) === "flat" ? "flat" : "3d", skin: recall(SKIN_KEY) ?? "" };
+}
+
+/** Remembers on this device that it wants the flat drawing (the "Simpler room" offer). */
+export function preferFlat() {
+  remember(LOOK_KEY, "flat");
+}
+
+/**
+ * Whether this device can draw the 3D look well: hardware WebGL 2, asked for the same way the 3D
+ * look asks (a software renderer does not count unless ?gl=any). Checked before any of the 3D
+ * look is fetched, so a device that would fall back downloads none of it.
+ */
+export function hardware3D(params) {
+  const any = params.get("gl") === "any";
+  try {
+    const canvas = document.createElement("canvas");
+    const gl = canvas.getContext("webgl2", { failIfMajorPerformanceCaveat: !any });
+    if (!gl) return false;
+    // Some browsers hand out a software renderer without calling it a caveat (SwiftShader in a
+    // headless Chrome, llvmpipe on a Linux box without drivers): that is not hardware either.
+    const info = gl.getExtension("WEBGL_debug_renderer_info");
+    const renderer = String(gl.getParameter(info ? info.UNMASKED_RENDERER_WEBGL : gl.RENDERER));
+    gl.getExtension("WEBGL_lose_context")?.loseContext();
+    return any || !/swiftshader|llvmpipe|softpipe|software|basic render/i.test(renderer);
+  } catch {
+    return false;
+  }
 }
 
 /** The flat drawing as a room view: the Scene, plus the SVG it draws into. */

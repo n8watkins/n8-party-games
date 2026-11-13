@@ -253,10 +253,11 @@ try {
 
   // The screen page whose wifi died, back too late: it says another screen has the room and offers a seat.
   cut = false;
-  await lost.waitForSelector(".card-title", { timeout: 12000 });
-  const lostTitle = await lost.locator(".card-title").textContent();
-  const lostLink = await lost.locator(".card a.button").first();
-  check(lostTitle === "Another screen is showing the room" && (await lostLink.textContent()) === "Join as a player" && (await lostLink.getAttribute("href")) === "/lobby/?join=" + party3.pin, `a screen that was away longer than the grace is told "${lostTitle}" and offered "Join as a player"`);
+  // It lands on the front page, which says so and offers a seat (lobby/test/e2e-leave-rooms.mjs has every way out).
+  await lost.waitForSelector(".note-chip", { timeout: 15000 });
+  const lostTitle = (await lost.locator(".note-chip > span").first().textContent()).trim();
+  const lostLink = lost.locator(".note-chip .note-act");
+  check(lostTitle === `Another screen is showing party ${party3.pin} now.` && (await lostLink.textContent()) === "Join as a player" && (await lostLink.getAttribute("href")) === `/lobby/?join=${party3.pin}&rejoin`, `a screen that was away longer than the grace is told "${lostTitle}" and offered "Join as a player"`);
   await shot(lost, "f09b-screen-lost-its-place");
   await lost.context().close();
   H3.ws.close();
@@ -415,9 +416,10 @@ try {
   const frames = (await recording).map((f) => ({ t: f.t, a: read(f.pieces[0]), v: read(f.pieces[1]) }));
   const still = frames[0];
   const attack = frames.filter((f) => Math.abs(f.a.tilt) > 0.5 || Math.abs(f.a.x - still.a.x) > 0.5);
-  const wound = attack.filter((f) => f.a.tilt < -8 && f.a.y < still.a.y - 12 && f.a.x < still.a.x - 8);
-  const struck = attack.filter((f) => f.a.tilt > 12 && f.a.x > still.a.x + 30);
-  check(wound.length >= 2 && struck.length >= 2 && wound[0].t < struck[0].t, `on the big screen the bumper lifts and leans back, then slams forward (${wound.length} frames wound up, ${struck.length} striking)`);
+  // A kick: picked up by its head, the base swings back (a clockwise tilt about the head, facing right), then whips forward (anticlockwise).
+  const wound = attack.filter((f) => f.a.tilt > 15 && f.a.y < still.a.y - 12);
+  const struck = attack.filter((f) => f.a.tilt < -30 && Math.abs(f.a.x - still.a.x) < 25);
+  check(wound.length >= 2 && struck.length >= 2 && wound[0].t < struck[0].t, `on the big screen the bumper is lifted with its base swung back, then kicks it forward while its head stays put (${wound.length} frames wound up, ${struck.length} striking)`);
   check(frames.at(-1).a.x === still.a.x && frames.at(-1).a.tilt === 0, "and is back on its feet where it stood");
   const flying = frames.filter((f) => f.v.y < still.v.y - 20 && Math.abs(f.v.tilt) > 15);
   const flat = frames.filter((f) => Math.abs(f.v.tilt) > 85);
@@ -566,7 +568,7 @@ try {
   fitch.goto(Math.round(c - lh * 0.75));
   await walkPage(phone, 0, c - lh * 0.4);
   await walkPage(laptop, 3, c + lh * 0.62);
-  const ended = await mabel.wait((m) => m.t === "end", 20000, mark).catch(() => null);
+  const ended = await mabel.wait((m) => m.t === "end", 28000, mark).catch(() => null);
   check(!!ended && ended.last.rows.length === 4, "a game of Coin Flip is played, so the board has a result on it");
   const winner = ended?.last.rows[0].name;
   // What the room itself says the night stands at: the board has to agree with it.
@@ -612,9 +614,9 @@ try {
   check(!!counted, "everyone else steps into the light and the count starts, with the phone's vote in it");
   await sleep(500);
   const foot = await phone.locator(".board-now").textContent();
-  check(/Coin Flip starts in [123]/.test(foot), `the open board says what the room is doing: "${foot}"`);
+  check(/Coin Flip starts in \d+/.test(foot), `the open board says what the room is doing: "${foot}"`);
   await shot(phone, "f41-phone-board-open-count-running");
-  await phone.waitForSelector(".flip", { timeout: 6000 });
+  await phone.waitForSelector(".flip", { timeout: 14000 });
   check((await phone.locator(".board").count()) === 0, "and when the game starts the board makes way for it");
   await phone.waitForSelector(".card", { state: "detached", timeout: 15000 });
   await sleep(400);

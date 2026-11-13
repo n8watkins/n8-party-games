@@ -158,3 +158,69 @@ a:focus-visible {
     gap: 12px;
   }
 }
+
+/* A short line about the party this device has just come from (front.js). It floats over the
+   foot of the page, so it never pushes the page about when it arrives or goes. */
+.note-chip {
+  position: fixed;
+  left: 50%;
+  bottom: max(16px, env(safe-area-inset-bottom));
+  transform: translate(-50%, 12px);
+  width: max-content;
+  max-width: calc(100% - 32px);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 8px 8px 18px;
+  border-radius: 28px;
+  background: #fbf3e2;
+  color: #1e1410;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
+  font-weight: 600;
+  line-height: 1.35;
+  opacity: 0;
+  transition: opacity 0.25s, transform 0.25s;
+}
+.note-chip.shown {
+  opacity: 1;
+  transform: translate(-50%, 0);
+}
+.note-act {
+  flex: none;
+  min-height: 44px;
+  padding: 11px 18px;
+  border-radius: 22px;
+  background: #f4b453;
+  color: #1e1410;
+  font-weight: 800;
+  text-decoration: none;
+  white-space: nowrap;
+}
+.note-close {
+  flex: none;
+  width: 44px;
+  height: 44px;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: #5a4636;
+  font: 400 26px/1 system-ui, sans-serif;
+  cursor: pointer;
+}
+.note-chip > span:first-child {
+  padding: 4px 0;
+}
+@media (prefers-reduced-motion: reduce) {
+  .note-chip {
+    transition: none;
+  }
+}
+/* A phone held sideways scrolls and keeps its buttons low: the line sits at the top instead,
+   over the name of the site, and never over a button. */
+@media (max-height: 519px) {
+  .note-chip {
+    top: max(8px, env(safe-area-inset-top));
+    bottom: auto;
+    transform: translate(-50%, -12px);
+  }
+}

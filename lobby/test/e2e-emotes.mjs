@@ -16,6 +16,7 @@
 // tone made here for one emote, as a data: URI.
 import { chromium } from "playwright";
 import { EMOTE_COOLDOWN_MS } from "../../party-kit/client/emotes.js";
+import { COUNT_MS } from "../shared/vote.js";
 import { boxCentre } from "../shared/world.js";
 import { partyApi, sleep } from "./client.mjs";
 
@@ -115,7 +116,7 @@ try {
   const coin = mabel.room.boxes.findIndex((b) => b.id === "coin-flip");
   const gameFrom = mabel.seen.length;
   for (const c of [mabel, tom]) c.goto(Math.round(boxCentre(coin, N)));
-  await mabel.wait((m) => m.t === "start", 9000, gameFrom);
+  await mabel.wait((m) => m.t === "start", COUNT_MS + 6000, gameFrom);
   await sleep(EMOTE_COOLDOWN_MS);
   mabel.send({ t: "e", e: "lighter" });
   check((await tom.wait((m) => m.t === "e" && m.e === "lighter", 3000)).s === mabel.seat, "an emote during the game goes through");

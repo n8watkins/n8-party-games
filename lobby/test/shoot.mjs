@@ -196,8 +196,8 @@ try {
   await tidy(screen, "big screen, count");
   await shot(phone, "12-phone-count");
   const counting = await screen.locator(".status-main").textContent();
-  check(/Coin Flip starts in [123]\./.test(counting), 'a visible count: "' + counting + '"');
-  await screen.waitForSelector(".flip", { timeout: 6000 });
+  check(/Coin Flip starts in \d+\./.test(counting), 'a visible count: "' + counting + '"');
+  await screen.waitForSelector(".flip", { timeout: 14000 });
   await sleep(500);
   await shot(screen, "13-screen-game-coin-flip");
   await shot(phone, "14-phone-game-coin-flip");
@@ -221,7 +221,7 @@ try {
   await screen.waitForFunction(() => /tie/i.test(document.querySelector(".status-main")?.textContent ?? ""), null, { timeout: 12000 });
   await sleep(300);
   await shot(screen, "18-screen-tie-count");
-  await screen.waitForFunction(() => document.querySelector(".chip")?.textContent === "TIE", null, { timeout: 6000 });
+  await screen.waitForFunction(() => document.querySelector(".chip")?.textContent === "TIE", null, { timeout: 13000 });
   await sleep(900);
   await shot(screen, "19-screen-coin-toss");
   await tidy(screen, "big screen, coin toss");
@@ -301,7 +301,7 @@ try {
   // Leave the party from the phone.
   await phone.click(".door-btn");
   await phone.click("text=Leave the party");
-  await phone.waitForSelector("text=You left the party");
+  await phone.waitForSelector(".note-chip >> text=You left party");
   await shot(phone, "32-phone-left");
   await sleep(300);
   await shot(screen, "33-screen-dolly-left");
@@ -356,8 +356,8 @@ try {
   await shot(screen2, "35-screen-count-who-am-i");
   await shot(ada, "36-phone-count-who-am-i");
   await tidy(ada, "phone, count for an outside game");
-  check(/Who Am I\? opens in [123]\./.test(await screen2.locator(".status-main").textContent()), "the count says it opens, not starts");
-  for (const page of [screen2, ada, bea]) await page.waitForSelector(".card.away", { timeout: 6000 });
+  check(/Who Am I\? opens in \d+\./.test(await screen2.locator(".status-main").textContent()), "the count says it opens, not starts");
+  for (const page of [screen2, ada, bea]) await page.waitForSelector(".card.away", { timeout: 13000 });
   await sleep(350);
   await shot(screen2, "37-screen-off-to-who-am-i");
   await shot(ada, "38-phone-off-to-who-am-i");

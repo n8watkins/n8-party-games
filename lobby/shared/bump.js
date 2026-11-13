@@ -7,8 +7,9 @@
 //
 // Every page then plays the same short story from the moment it hears of it:
 //
-//   the bumper   winding (lifts and leans back) -> striking (slams forward) -> recovering
-//   the victim   standing -> hit (squashed, both hold still) -> flying (thrown back, tipping
+//   the bumper   winding (picked up by its head, base swung back) -> striking (the base kicks
+//                forward and up) -> recovering (follows through, is set back down)
+//   the victim   standing -> hit (kicked low, both hold still) -> flying (thrown back feet first, tipping
 //                over) -> down (lying on the floor) -> rising -> up, and safe for a while
 //
 // The poses are offsets and angles in world units and degrees, so any drawing (the SVG room of
@@ -180,36 +181,69 @@ export function knockState(ms, safeFor = IMMUNE_MS) {
 }
 
 // ---------------------------------------------------------------- the poses
+//
+// The bump is a kick. The bumper is picked up by its head, as if a hand had pinched the top:
+// the head is the pivot, and the base swings back behind it like a leg drawn back, then whips
+// forward and up into the other piece low down. Whoever is hit has its base swept out from
+// under it and goes up and back feet first.
 
 const REST = { dx: 0, lift: 0, tilt: 0, sx: 1, sy: 1 };
 const smooth = (u) => u * u * (3 - 2 * u);
 const mix = (a, b, u) => a + (b - a) * u;
+const blend = (a, b, u) => ({ dx: mix(a.dx, b.dx, u), lift: mix(a.lift, b.lift, u), tilt: mix(a.tilt, b.tilt, u), sx: mix(a.sx, b.sx, u), sy: mix(a.sy, b.sy, u) });
+
+/** How high a piece's head is above its foot: what the bumper swings from, like a pendulum held at the top. */
+export const PIECE_HEAD = 113;
+/** How high on the knocked piece the kick lands: its belly, well below its middle. */
+export const KICK_HEIGHT = 40;
+
+/** The share of the recovery spent following through, and the share at its end spent being set down. */
+const FOLLOW = 0.26;
+const SETTLE = 0.24;
 
 /**
- * How the bumper holds itself `ms` after its bump, facing `dir`: {state, dx, lift, tilt, sx, sy}.
- * dx: sideways from where it stands. lift: off the floor. tilt: degrees, clockwise, about its
- * foot. sx, sy: stretch, about its foot.
+ * How the bumper holds itself `ms` after its bump, facing `dir`:
+ * {state, dx, lift, tilt, pivot, sx, sy}.
+ * dx: its head, sideways from where it stands (it barely moves). lift: off the floor.
+ * tilt: degrees, clockwise, about a point `pivot` above its foot: its head, so a tilt swings
+ * the base (clockwise swings it to the left). sx, sy: stretch, about its foot.
  */
 export function attackPose(ms, dir = 1, landed = false) {
   const state = attackState(ms, landed);
   const side = dir < 0 ? -1 : 1;
-  const back = { dx: -26 * side, lift: 38, tilt: -20 * side, sx: 0.94, sy: 1.08 };
-  const through = { dx: 62 * side, lift: 4, tilt: 28 * side, sx: 1.1, sy: 0.92 };
+  const down = { dx: 0, lift: 0, tilt: 0, sx: 1, sy: 1 };
+  // Picked up, with the base drawn back behind the head.
+  const back = { dx: -8 * side, lift: 36, tilt: 40 * side, sx: 0.97, sy: 1.05 };
+  // The base has whipped forward and up into the other piece's belly; the head has hardly moved.
+  const contact = { dx: 12 * side, lift: 12, tilt: -46 * side, sx: 0.97, sy: 1.07 };
+  // The follow-through: the base carries on up past where the other piece was.
+  const through = { dx: 18 * side, lift: 28, tilt: -62 * side, sx: 0.98, sy: 1.04 };
+  // Hanging upright just off the floor, about to be set down.
+  const held = { dx: 0, lift: 7, tilt: 0, sx: 1, sy: 1 };
   if (state === "winding") {
-    const u = smooth(ms / WINDUP_MS);
-    return { state, dx: back.dx * u, lift: back.lift * u, tilt: back.tilt * u, sx: mix(1, back.sx, u), sy: mix(1, back.sy, u) };
+    const u = ms / WINDUP_MS;
+    // The hand lifts first; the base swings back a moment behind it.
+    const pose = blend(down, back, smooth(u));
+    return { state, pivot: PIECE_HEAD, ...pose, lift: back.lift * (1 - (1 - u) * (1 - u)) };
   }
   if (state === "striking") {
-    // The slam itself, then (if it landed) held for the pause.
+    // The kick itself, gathering speed all the way, then (if it landed) held for the pause.
     const u = Math.min(1, (ms - WINDUP_MS) / STRIKE_MS);
-    const v = u * u;
-    return { state, dx: mix(back.dx, through.dx, v), lift: mix(back.lift, through.lift, v), tilt: mix(back.tilt, through.tilt, v), sx: mix(back.sx, through.sx, v), sy: mix(back.sy, through.sy, v) };
+    return { state, pivot: PIECE_HEAD, ...blend(back, contact, u * u) };
   }
   if (state === "recovering") {
-    const u = smooth((ms - IMPACT_MS - (landed ? HIT_PAUSE_MS : 0)) / RECOVER_MS);
-    return { state, dx: through.dx * (1 - u), lift: through.lift * (1 - u), tilt: through.tilt * (1 - u), sx: mix(through.sx, 1, u), sy: mix(through.sy, 1, u) };
+    const u = (ms - IMPACT_MS - (landed ? HIT_PAUSE_MS : 0)) / RECOVER_MS;
+    if (u < FOLLOW) {
+      const v = u / FOLLOW;
+      return { state, pivot: PIECE_HEAD, ...blend(contact, through, 1 - (1 - v) * (1 - v)) };
+    }
+    if (u < 1 - SETTLE) return { state, pivot: PIECE_HEAD, ...blend(through, held, smooth((u - FOLLOW) / (1 - SETTLE - FOLLOW))) };
+    // Set back down, with a small settle as the base takes the weight.
+    const v = (u - (1 - SETTLE)) / SETTLE;
+    const give = Math.sin(v * Math.PI) * 0.07;
+    return { state, pivot: PIECE_HEAD, dx: 0, lift: held.lift * (1 - smooth(Math.min(1, v * 2))), tilt: 0, sx: 1 + give * 0.7, sy: 1 - give };
   }
-  return { state, ...REST };
+  return { state, pivot: 0, ...REST };
 }
 
 /**
@@ -217,21 +251,27 @@ export function attackPose(ms, dir = 1, landed = false) {
  * {state, x, lift, tilt, sx, sy}. x: where it is along the floor. lift: off the floor (below
  * zero as it lies down, since it turns about its middle). tilt: degrees, clockwise, about
  * PIECE_PIVOT above its foot. sx, sy: stretch.
+ *
+ * It is kicked low, so its base goes first: it tips with its feet leading the way it is
+ * thrown and its head trailing, and comes down on its back with its feet pointing away from
+ * whoever kicked it.
  */
 export function knockPose(ms, from, to, safeFor = IMMUNE_MS) {
   const state = knockState(ms, safeFor);
   const side = to < from ? -1 : 1;
   // Lying down, a piece rests on its side: its middle is nearer the floor than when it stands.
-  const lying = { lift: -36, tilt: 90 * side };
+  const lying = { lift: -36, tilt: -90 * side };
+  // The moment after the blow: the base is already going, the head has not caught up.
+  const swept = { x: from + 6 * side, lift: 8, tilt: -18 * side, sx: 0.84, sy: 1.14 };
   if (state === "standing") return { state, x: from, ...REST };
   if (state === "hit") {
     const u = (ms - IMPACT_MS) / HIT_PAUSE_MS;
-    return { state, x: from + 10 * side * u, lift: 0, tilt: 12 * side * u, sx: mix(1, 0.8, u), sy: mix(1, 1.16, u) };
+    return { state, x: mix(from, swept.x, u), lift: swept.lift * u, tilt: swept.tilt * u, sx: mix(1, swept.sx, u), sy: mix(1, swept.sy, u) };
   }
   if (state === "flying") {
     const u = (ms - IMPACT_MS - HIT_PAUSE_MS) / FLIGHT_MS;
     const out = 1 - (1 - u) * (1 - u);
-    return { state, x: mix(from + 10 * side, to, out), lift: 4 * 64 * u * (1 - u) + lying.lift * u * u, tilt: mix(12 * side, lying.tilt, smooth(u)), sx: mix(0.8, 1, u), sy: mix(1.16, 1, u) };
+    return { state, x: mix(swept.x, to, out), lift: swept.lift * (1 - u) + 4 * 64 * u * (1 - u) + lying.lift * u * u, tilt: mix(swept.tilt, lying.tilt, smooth(u)), sx: mix(swept.sx, 1, u), sy: mix(swept.sy, 1, u) };
   }
   if (state === "down") {
     // A small bounce as it comes to rest.
@@ -246,10 +286,10 @@ export function knockPose(ms, from, to, safeFor = IMMUNE_MS) {
 }
 
 /**
- * Where the blow lands, for the burst: on the side of the knocked piece the blow came from,
- * at the height of its shoulders. `from` and `to` are where the piece stood and where it lands.
+ * Where the blow lands, for the burst: low on the knocked piece, on the side the kick came
+ * from. `from` and `to` are where the piece stood and where it lands.
  */
 export function impactPoint(from, to) {
   const side = to < from ? -1 : 1;
-  return { x: from - side * 26, y: ROOM.floorY - 96 };
+  return { x: from - side * 24, y: ROOM.floorY - KICK_HEIGHT };
 }

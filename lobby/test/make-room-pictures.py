@@ -5,7 +5,8 @@
 For every lobby/test/shots/3d/room-<id>.png it writes lobby/public/look3d/rooms/<id>.jpg (the
 room above its bottom bar, 1280 wide). For every folder of frames in
 lobby/test/shots/3d/loops/<id>/ it writes lobby/public/look3d/rooms/<id>.webp, a looping
-picture 640 wide at eight frames a second. Needs Pillow.
+picture 640 wide at eight frames a second. From each live room's still it also writes
+lobby/public/rooms/<id>.webp, the small picture on the room picker's card (320 wide). Needs Pillow.
 """
 
 import sys
@@ -15,6 +16,9 @@ from PIL import Image
 
 shots = Path(sys.argv[1] if len(sys.argv) > 1 else "lobby/test/shots/3d")
 out = Path("lobby/public/look3d/rooms")
+cards = Path("lobby/public/rooms")
+# The rooms a party can be in (lobby/shared/rooms.js): only those get a card on the picker.
+LIVE = ["bar", "ship", "arcade", "camp", "roof", "navy", "fair"]
 
 for still in sorted(shots.glob("room-*.png")):
     name = still.stem.removeprefix("room-")
@@ -33,3 +37,14 @@ for folder in sorted((shots / "loops").glob("*/")):
     target = out / f"{folder.name}.webp"
     frames[0].save(target, save_all=True, append_images=frames[1:], duration=125, loop=0, quality=50, method=6, minimize_size=True)
     print(f"loop  {target.name} {target.stat().st_size // 1024} KB, {len(frames)} frames")
+
+cards.mkdir(exist_ok=True)
+for name in LIVE:
+    still = out / f"{name}.jpg"
+    if not still.exists():
+        continue
+    picture = Image.open(still).convert("RGB")
+    picture = picture.resize((320, round(320 * picture.height / picture.width)), Image.LANCZOS)
+    target = cards / f"{name}.webp"
+    picture.save(target, quality=72, method=6)
+    print(f"card  {target.name} {target.stat().st_size // 1024} KB")
