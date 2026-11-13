@@ -56,12 +56,15 @@ export function partyApi(base) {
         c.x = x;
         c.send({ t: "m", x, d: 0, r: c.rev });
       },
-      /** Called whenever the room moves this client's piece itself (a spawn, a bump, a correction). */
+      /**
+       * Called whenever the room moves this client's piece itself (a spawn, a bump, a correction).
+       * The third argument is true when it was knocked there by a bump.
+       */
       onPlaced: null,
     };
-    const placed = (x, rev) => {
+    const placed = (x, rev, knocked = false) => {
       [c.x, c.rev] = [x, rev];
-      c.onPlaced?.(x, rev);
+      c.onPlaced?.(x, rev, knocked);
     };
     ws.onmessage = (event) => {
       if (event.data === "pong") return void raw.push(event.data);
@@ -73,7 +76,7 @@ export function partyApi(base) {
         if (me && (me.rev !== c.rev || c.x === 0)) placed(me.x, me.rev);
       }
       if (msg.t === "vote" && c.room) c.room.vote = msg.vote;
-      if ((msg.t === "b" && msg.to === c.seat) || msg.t === "fix") placed(msg.x, msg.rev);
+      if ((msg.t === "b" && msg.to === c.seat) || msg.t === "fix") placed(msg.x, msg.rev, msg.t === "b");
       seen.push(msg);
       for (const w of [...waiters]) {
         if (w.test(msg)) {

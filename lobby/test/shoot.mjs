@@ -328,9 +328,22 @@ try {
     players.push(page);
   }
   const [ada, bea] = players;
-  const watcher = connect(await call("POST", "/join/" + pin2, { as: "screen" }));
-  await watcher.opened;
-  await watcher.wait((m) => m.room?.members.filter((x) => x?.connected).length === 2, 8000, 0);
+  // A room has one screen, and this one's is the page above, so the run watches the room
+  // through the local server's debug door instead of a second screen's socket: the same shape
+  // of thing `walk` reads (where each piece is now, the room's view, and whether a game began).
+  const code2 = (await call("GET", "/join/" + pin2)).preview.code;
+  const watcher = { seen: [], room: null, timer: null };
+  const look = async () => {
+    const view = (await (await fetch(base + "/api/lobby/debug/" + code2)).json()).room?.view;
+    if (!view) return;
+    watcher.room = view;
+    watcher.seen.push({ room: view });
+    if (view.phase === "playing") watcher.seen.push({ t: "start" });
+    for (const m of view.members) if (m) watcher.seen.push({ t: "m", s: m.seat, x: m.x });
+  };
+  await look();
+  watcher.timer = setInterval(() => void look().catch(() => {}), 100);
+  for (let i = 0; i < 80 && watcher.room.members.filter((x) => x?.connected).length !== 2; i++) await sleep(100);
   await sleep(700);
   await shot(screen2, "34-screen-party-of-two");
   await tidy(screen2, "big screen, party of two");
@@ -361,7 +374,7 @@ try {
   check(new URL(bea.url()).pathname === "/lobby/" && (await bea.locator(".card.away").count()) === 0 && (await bea.locator("svg.scene").count()) === 1, "a phone that chose to stay is still in the room after the count");
   const board2 = watcher.seen.findLast((m) => m.room)?.room;
   check(board2.tonight.games === 0 && board2.members.filter(Boolean).every((m) => m.points === 0) && !watcher.seen.some((m) => m.t === "start"), "no game started in the room and nobody scored");
-  watcher.ws.close();
+  clearInterval(watcher.timer);
 
   // ---------------------------------------------------------------- the wall as production hangs it
   const plain = opt("plain", "");

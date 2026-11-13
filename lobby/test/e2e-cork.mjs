@@ -92,7 +92,8 @@ try {
       const f = frame.getBoundingClientRect();
       return {
         door: show(door) && d.width >= 36 && d.right <= innerWidth && d.top >= 0,
-        bars: [...document.querySelectorAll(".bar, .turn-hint, .banner")].filter(show).length,
+        // The bars with the walk, jump and bump buttons, the turn hint, the banner, and the Tonight board opened large.
+        bars: [...document.querySelectorAll(".bar, .pad button, .turn-hint, .banner, .board-back")].filter(show).length,
         fills: Math.round(f.width) === innerWidth && Math.round(f.height) === innerHeight,
         clear: controls.width === 0 || controls.right <= d.left - 4 || controls.top >= d.bottom + 4,
         scroll: document.documentElement.scrollWidth > innerWidth + 1,
@@ -103,7 +104,6 @@ try {
     page.evaluate(() => ({ frames: document.querySelectorAll("iframe").length, canvases: document.querySelectorAll("canvas").length, lost: window.__gl?.isContextLost?.() ?? null, stage: document.querySelector(".stage")?.hidden, bar: !!document.querySelector(".bar")?.offsetHeight }));
   const holdContext = (page) => page.evaluate((sel) => (window.__gl = document.querySelector(sel).contentWindow.__cab.lens.renderer.getContext()), FRAME);
   const before = await books();
-  let loneWatch = null;
 
   // ================================================================ a party of three and a big screen
   const screen = await open("screen", { width: 960, height: 540 });
@@ -127,7 +127,7 @@ try {
   await bea.opened;
   // A page keeps its socket alive by itself; a bare socket has to say something now and then, or
   // the room takes it for a phone that has gone (after ninety silent seconds) and lets it drop.
-  const alive = setInterval(() => [bea, loneWatch].forEach((c) => c?.send("ping")), 20_000);
+  const alive = setInterval(() => bea.send("ping"), 20_000);
   const cy = await join("Cy", { width: 390, height: 844 }, "&cork-auto=1&cork-quality=low");
   const watcher = bea;
   await watcher.wait((m) => m.room?.members.filter((x) => x?.connected).length === 3, 8000, 0);
@@ -138,6 +138,10 @@ try {
   check(corkBox.min === 1 && corkBox.max === 4 && !corkBox.url && corkBox.view === "/cork-and-bell/game/party-view.js", "Cork & Bell's sign reads 1-4, and it is no longer an outside game: its box carries the address of its view");
   await walk(ada, watcher, 0, light(-50));
   bea.goto(light(0));
+  // The big screen has the Tonight board opened large when the vote completes: the vote carries on
+  // under it, and it makes way for the game.
+  await screen.click(".board-hit");
+  await screen.waitForSelector(".board-back");
   await walk(cy, watcher, 2, light(50));
   await screen.waitForFunction(() => /Cork & Bell starts in/.test(document.querySelector(".status-main")?.textContent ?? ""), null, { timeout: 8000 });
   await shot(screen, "50-screen-count-cork-and-bell");
@@ -162,7 +166,7 @@ try {
   check(seats.screen.mine === -1 && seats.screen.stalls === 3, "the big screen shows all three stalls side by side: a spectator view");
   for (const [name, page] of [["phone held sideways", ada], ["upright phone", cy], ["big screen", screen]]) {
     const seen = await onTop(page);
-    check(seen.door && seen.bars === 0 && seen.fills && seen.clear && !seen.scroll, `${name}: the game fills the screen, the room's bars are put away, and its door button stays, clear of the game's sound switch`);
+    check(seen.door && seen.bars === 0 && seen.fills && seen.clear && !seen.scroll, `${name}: the game fills the screen, the room's bars, buttons and opened board are put away, and its door button stays, clear of the game's sound switch`);
   }
   // Ada fires with real clicks: a click on the picture aims there and fires.
   const fired = async () => (await summary(frames.Ada)).stalls[0].shots;
@@ -263,32 +267,48 @@ try {
   await lone.click("text=Start the party");
   await lone.waitForSelector("svg.scene text");
   const pinLone = await lone.evaluate(() => [...document.querySelectorAll("svg.scene text")].map((t) => t.textContent).find((t) => /^\d{4}$/.test(t)));
-  // A socket that watches the room, to hear where the piece is and when the round starts and ends.
-  loneWatch = connect(await call("POST", "/join/" + pinLone, { as: "screen" }));
-  await loneWatch.opened;
-  await loneWatch.wait((m) => m.room?.members[0]?.connected, 8000, 0);
+  // A room has one screen, and this room's will be the page that joins in the middle of the
+  // round, so the run watches the room through the local server's debug door (as the stills run
+  // does): where the piece is, and when the round starts and ends.
+  const codeLone = (await call("GET", "/join/" + pinLone)).preview.code;
+  const loneWatch = { seen: [], room: null, timer: null };
+  const look = async () => {
+    const view = (await inner(codeLone))?.view;
+    if (!view) return;
+    loneWatch.room = view;
+    for (const m of view.members) if (m) loneWatch.seen.push({ t: "m", s: m.seat, x: m.x });
+  };
+  /** Waits until the watched room's view passes `test`, looking ten times a second. */
+  const loneUntil = async (test, ms) => {
+    for (const from = Date.now(); Date.now() - from < ms; await sleep(100)) if (loneWatch.room && test(loneWatch.room)) return loneWatch.room;
+    throw new Error("timed out watching the party of one");
+  };
+  await look();
+  loneWatch.timer = setInterval(() => void look().catch(() => {}), 100);
+  await loneUntil((v) => v.members[0]?.connected, 8000);
   check(loneWatch.room.vote.lights["cork-and-bell"] === null, "Cork & Bell's light is on for a party of one");
   await walk(lone, loneWatch, 0, light());
-  const loneStart = await loneWatch.wait((m) => m.t === "start", 9000, 0);
-  check(loneStart.room.game.id === "cork-and-bell" && loneStart.s.seats.length === 1, "alone in its light, the count runs and a round starts for the one seat");
+  const loneStart = await loneUntil((v) => v.phase === "playing", 9000);
   const loneFrame = await gameFrame(lone);
-  const loneSees = await loneFrame.evaluate(() => ({ mine: window.__cab.session.mySeat, stalls: window.__cab.views.length, rivals: document.getElementById("rivals").hidden }));
+  const loneSees = await loneFrame.evaluate(() => ({ mine: window.__cab.session.mySeat, stalls: window.__cab.views.length, seats: window.__cab.session.seats.length, rivals: document.getElementById("rivals").hidden }));
+  check(loneStart.game.id === "cork-and-bell" && loneSees.seats === 1, "alone in its light, the count runs and a round starts for the one seat");
   check(loneSees.mine === 0 && loneSees.stalls === 1 && loneSees.rivals, "the party of one has a stall to itself, with no rivals to pick");
   if (!slow) await shot(lone, "54-phone-cork-and-bell-alone");
-  // A big screen that joins in the middle of that round watches its one stall.
+  // A big screen that joins once that round has begun watches its one stall.
   const late = await open("late screen", { width: 960, height: 540 });
   await late.goto(base + "/lobby/?join=" + pinLone + "&cork-quality=low");
   await late.click("text=Use this as the room's screen");
   await late.click("text=Show the room here");
   const lateFrame = await gameFrame(late);
   const lateSees = await lateFrame.evaluate(() => ({ mine: window.__cab.session.mySeat, stalls: window.__cab.views.length, t: window.__cab.session.time(), tally: !document.getElementById("tally").hidden }));
-  check(lateSees.mine === -1 && lateSees.stalls === 1 && lateSees.t > 0.5 && lateSees.tally, `a big screen that joins in the middle of the round is shown that stall and its score, ${Math.round(lateSees.t)} seconds in`);
+  check(lateSees.mine === -1 && lateSees.stalls === 1 && lateSees.t > -3.5 && lateSees.tally, `a big screen that joins once the round has begun is shown that stall and its score (${lateSees.t < 0 ? "in the count-in" : Math.round(lateSees.t) + " seconds in"})`);
   if (!slow) await shot(late, "59-screen-cork-and-bell-alone");
   await holdContext(lone);
   console.log("     waiting for the round played alone to end...");
-  const loneEnd = await loneWatch.wait((m) => m.t === "end", 150000, 0);
+  const loneEnd = await loneUntil((v) => v.phase === "lobby" && v.last?.game === "cork-and-bell", 150000);
+  clearInterval(loneWatch.timer);
   const sol = loneEnd.last.rows[0];
-  check(loneEnd.last.rows.length === 1 && sol.place === 1 && sol.points === 3 && sol.score > 0 && loneEnd.room.phase === "lobby", `the round played alone ends too: ${sol.name} ${sol.score} (+${sol.points})`);
+  check(loneEnd.last.rows.length === 1 && sol.place === 1 && sol.points === 3 && sol.score > 0, `the round played alone ends too: ${sol.name} ${sol.score} (+${sol.points})`);
   await lone.waitForSelector(FRAME, { state: "detached", timeout: 90000 });
   const loneLeft = await leftBehind(lone);
   check(loneLeft.frames === 0 && loneLeft.canvases === 0 && loneLeft.lost === true, "and its game was taken away");
@@ -305,7 +325,6 @@ try {
 
   check(errors.length === 0, "no page reported an error" + (errors.length ? ": " + errors.slice(0, 4).join(" | ") : ""));
   clearInterval(alive);
-  loneWatch.ws.close();
 } catch (err) {
   console.log("FAIL the run stopped: " + (err?.stack ?? err));
   problems.push("the run stopped");

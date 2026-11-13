@@ -75,7 +75,8 @@ function bot(c) {
       c.send(m);
     },
   });
-  c.onPlaced = (x, rev) => pilot.place(x, rev, Date.now());
+  // Like the page: a knock lays the piece down where the room threw it; anything else just places it.
+  c.onPlaced = (x, rev, knocked) => (knocked ? pilot.knock(x, rev, Date.now()) : pilot.place(x, rev, Date.now()));
   let lights = "";
   let goal = c.x;
   let voteGoal = null;
@@ -169,6 +170,8 @@ for (const end of ends) {
   if (begun) heldSeconds += (end.at - begun.at) / 1000;
 }
 const playedLine = Object.entries(played).map(([name, n]) => `${n} of ${name}`).join(", ") || "none";
+const bumps = clients[0].seen.filter((m) => m.t === "b");
+const knocks = bumps.filter((m) => m.to >= 0).length;
 
 // Closing the sockets makes the room report everything it still owes.
 for (const c of clients) c.ws.close();
@@ -195,6 +198,7 @@ What ${players} players wandering and voting for ${f(seconds / 60, 1)} minutes c
 
   Messages to the room      ${f(messages, 0)} in all, ${f(messages / seconds, 2)} a second (${f(messages / seconds / players, 2)} per player)
   Keep-alives               ${f(pings, 0)} (one per player every 20 seconds, answered without waking the room)
+  Bumps                     ${f(bumps.length, 0)}, of which ${f(knocks, 0)} knocked somebody over (each is one of the messages above)
   Awake time                ${f(awake, 2)} seconds in all, ${f((awake / seconds) * 60, 3)} seconds per minute
                             (each event counted as its real time, and never less than ${EVENT_FLOOR_MS} ms; a game's tick loop second for second)
                             of which games being played: ${f(heldSeconds, 1)} seconds (${ends.length ? f(heldSeconds / ends.length, 1) : "0"} a game); the lobby itself: ${f((Math.max(0, awake - heldSeconds) / seconds) * 60, 3)} seconds per minute
