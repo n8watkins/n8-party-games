@@ -20,12 +20,13 @@
   -webkit-tap-highlight-color: transparent;
   transform-origin: 0 0;
 }
+/* The mark sits on the corner of its frame, half off it, so it never covers a title or a word. */
 .spot-mark {
   position: absolute;
-  top: 6px;
-  right: 6px;
-  width: 24px;
-  height: 24px;
+  top: -10px;
+  right: -10px;
+  width: 22px;
+  height: 22px;
   border-radius: 50%;
   display: grid;
   place-items: center;
