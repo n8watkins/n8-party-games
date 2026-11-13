@@ -237,6 +237,13 @@ Measured again on 2026-11-12 with the knock-back in, the same four players wande
 That is within the run-to-run spread of the first column (shorter runs the same day gave 2.1 to 2.5 messages a second and 0.24 to 0.28 awake seconds per minute): a bump is still one message, a knocked piece now sends nothing back where it used to send one, and neither the knock, the safe time nor the cooldown sets a wake-up.
 Measure on a server nobody else is using and that has been quiet for two minutes: a room that just closed reports its last requests into the same books.
 
+Emotes and sounds add messages and nothing else.
+Measured on 2026-11-13 with `npm run lobby:measure -- --vote-every=0 --express=1`: the same four players wandering for ten minutes, each also sending an emote about once in ten seconds and a sound about once in twenty-five (a lively party: 184 emotes and 63 sounds reached each player).
+That used 0.334 awake seconds per minute, 3.01 messages a second, 2.6 GB-seconds and 652 requests per room-hour.
+The same run without them, straight after on the same server, used 0.285 awake seconds per minute, 2.47 messages a second, 2.2 GB-seconds and 557 requests per room-hour.
+So about a sixth more requests and time, all of it the messages themselves: the room relays each one within the event and sets no wake-up and no timer.
+(The scripted players fire without watching their own cooldown, so 27 of theirs were refused; a real page waits it out.)
+
 For scale: a room that is awake all the time, as a game's own room is during a round, uses 461 GB-seconds per room-hour, and the 10% buys 87 hours of that.
 The second column is a keen party that starts a vote every half minute, measured before Cork & Bell opened in the room (a vote for it then sent everyone to its own page).
 An outside game winning the vote costs one wake-up and no duration: nothing is played in the room.
