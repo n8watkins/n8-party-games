@@ -315,7 +315,8 @@ const EMOTES = [
       p.face.look = 3;
       p.face.mouth = on > 0.5 ? "flat" : null;
       p.face.brows = on > 0.5 ? "up" : null;
-      const watch = hand(-1, -42, -86, -12, "grip", on);
+      // Low enough that the tapping arm crosses the chest, not the face.
+      const watch = hand(-1, -44, -62, -12, "grip", on);
       p.hands.push(watch);
       const face = held(watch, 0, -36);
       p.props.push({ kind: "stopwatch", x: face.x, y: face.y, rot: 0, s: on * 0.9, hand: calm ? 60 : (t / 3) % 360 });
@@ -365,7 +366,7 @@ const EMOTES = [
       const cone = held(grip, 0, -16);
       p.props.push({ kind: "popper", x: cone.x, y: cone.y, rot: 34, s: on * 0.85, popped });
       const pull = k(t, [[0, 0], [300, 0], [520, 1, "i"], [700, 1]]);
-      p.hands.push(hand(-1, 12 - 22 * pull, -88 + 12 * pull, -10, "pinch", on));
+      p.hands.push(hand(-1, 24 - 34 * pull, -78 + 2 * pull, -10, "pinch", on));
       if (popped && t < this.dur - 200) {
         const colours = ["#ffe58a", "#4fc3b0", "#f05a7e", "#8fd3ff", "#f4b453", "#b79cf7"];
         const bits = [];
