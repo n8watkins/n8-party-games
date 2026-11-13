@@ -131,7 +131,10 @@ export class SoundBoard {
 
   buffer(name) {
     if (!this.buffers.has(name)) {
-      const job = bytesOf(BOOK.get(name)).then((bytes) => new Promise((resolve, reject) => this.ctx.decodeAudioData(bytes, resolve, reject)));
+      const job = bytesOf(BOOK.get(name)).then((bytes) => new Promise((resolve, reject) => {
+        // The callback form also returns a promise in current browsers; a failure is already reported through `reject`.
+        this.ctx.decodeAudioData(bytes, resolve, reject)?.catch?.(() => {});
+      }));
       job.catch(() => this.buffers.delete(name));
       this.buffers.set(name, job);
     }
@@ -206,6 +209,7 @@ export class SoundBoard {
     this.decoded.add(name);
     // Never late: a sound that waited for no good reason, or arrived while the page could not play, is dropped.
     if (performance.now() - asked > (late ?? (first ? FIRST_PLAY_MS : LATE_MS)) || !this.unlocked || this.muted) return said("late");
+    if (who && this.mutedPlayers.has(who)) return said("muted");
     if (who) this.stopAll(who);
     if (minor && this.voices.length >= MAX_VOICES) return said("busy");
     // Room for it: the oldest minor sound goes first, then the oldest of all.

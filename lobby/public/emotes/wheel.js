@@ -7,7 +7,7 @@
 // door button's sheet).
 //
 // The room enforces the cooldown (party-kit/client/emotes.js). This only shows it.
-import { EMOTES, WHEEL_SLOTS, emoteById } from "/party-kit/client/emotes.js";
+import { EMOTES, EMOTE_COOLDOWN_MS, WHEEL_SLOTS, emoteById } from "/party-kit/client/emotes.js";
 import { h, s } from "../dom.js";
 import { rigById } from "./rig.js";
 import { emoteThumb } from "./svg.js";
@@ -225,7 +225,7 @@ export class EmoteWheel {
       this.button.setAttribute("aria-disabled", String(state !== "ready"));
       this.button.setAttribute("aria-label", state === "ready" ? "Emotes" : state === "off" ? "Emotes, not during this game" : "Emotes, recharging");
     }
-    const filled = state === "cooling" ? Math.round((1 - cooling / 1500) * 200) / 2 : 100;
+    const filled = state === "cooling" ? Math.round((1 - cooling / EMOTE_COOLDOWN_MS) * 200) / 2 : 100;
     if (filled !== this.filled) {
       this.filled = filled;
       this.sweep.setAttribute("stroke-dasharray", `${Math.max(0, filled)} 100`);

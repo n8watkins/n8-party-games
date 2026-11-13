@@ -37,7 +37,7 @@ Not done: live voice (layer 4). The sections below are the plan as it was writte
 
 ## Layer 1: emotes
 
-What it is: a tap shows a bubble or a small animation over your piece, as in TFT or League of Legends.
+What it is: a tap shows a bubble or a small animation over your piece, as in many online games.
 
 - The first set, picked by the owner earlier: wave, laugh, taunt, hurry up.
 - The phone gets an emote button that opens a small wheel; a laptop uses number keys.

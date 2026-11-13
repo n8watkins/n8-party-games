@@ -699,7 +699,7 @@ addEventListener("keydown", (e) => {
     if (!e.repeat) jump();
   } else if (BUMP_KEYS.has(e.key)) {
     if (!e.repeat) bump();
-  } else if (/^[1-6]$/.test(e.key) && hud?.wheel && !hud.sheet && !board) {
+  } else if (/^[1-6]$/.test(e.key) && !e.ctrlKey && !e.metaKey && !e.altKey && hud?.wheel && !hud.sheet && !hud.loadoutSheet?.el.isConnected && !board) {
     if (!e.repeat) hud.wheel.fire(Number(e.key) - 1);
   } else return;
   e.preventDefault();
