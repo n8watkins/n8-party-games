@@ -64,6 +64,12 @@
       // partygames.n8builds.dev as its own address, and this site's local join links (and QR
       // codes) would be refused.
       "routes": [],
+      // The local build also holds the pages that are not approved yet (/preview/...): see
+      // scripts/build-public.mjs. The production build above never passes --preview.
+      "build": {
+        "command": "node scripts/build-public.mjs --preview",
+        "watch_dir": ["party-kit/client", "party-kit/src", "lobby/public", "lobby/shared", "lobby/server", "lobby/games", "lobby/wall.js", "site", "preview", "scripts", "games.js", "worker.js"]
+      },
       "durable_objects": {
         "bindings": [
           { "name": "PARTY_ROOMS", "class_name": "PartyRoom" },

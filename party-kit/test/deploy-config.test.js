@@ -69,6 +69,12 @@ describe("the public folder", () => {
     }
   });
 
+  it("leaves out the pages that are not approved yet, which only the local build holds", () => {
+    expect(files.some(({ path }) => path.startsWith("preview/"))).toBe(false);
+    expect(read(undefined).build.command).not.toContain("--preview");
+    expect(read("local").build.command).toContain("--preview");
+  });
+
   it("has every file under the 25 MiB limit", () => {
     for (const { path, bytes } of files) expect(bytes, path).toBeLessThanOrEqual(25 * 1024 * 1024);
   });

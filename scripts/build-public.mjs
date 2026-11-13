@@ -6,13 +6,15 @@
 // Wrangler runs this before `wrangler dev` and `wrangler deploy` (the "build" key in
 // wrangler.jsonc) and again whenever a watched folder changes.
 //
-//   node scripts/build-public.mjs          build, print a one-line summary
-//   node scripts/build-public.mjs --list   build and list every file that will be served
+//   node scripts/build-public.mjs            build, print a one-line summary
+//   node scripts/build-public.mjs --list     build and list every file that will be served
+//   node scripts/build-public.mjs --preview  also build the pages that are not approved yet (below)
 import { createRequire } from "node:module";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { KIT_CLIENT_PATH, buildPublic, kitClientEntry, report } from "../party-kit/build/public.mjs";
 import { GAMES } from "../games.js";
+import { writeSite as writeEmotesPreview } from "../preview/make-emotes-artifact.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 export const OUT = join(ROOT, "dist", "public");
@@ -37,12 +39,23 @@ const siteEntries = [
   { from: join(ROOT, "lobby", "shared"), to: "lobby/shared" },
 ];
 
-const entries = [kitClientEntry(), ...siteEntries, ...GAMES.flatMap(gameEntries)];
+/**
+ * Pages still waiting for the owner's approval. They are built only with --preview, which the
+ * local environment's build command passes (wrangler.jsonc, env.local) and the production one
+ * does not, so they can be opened locally at /preview/... and never reach the live site.
+ * The emotes and sounds preview is made from its sources first (preview/make-emotes-artifact.mjs).
+ */
+const EMOTES_PREVIEW = join(ROOT, "dist", "preview-emotes");
+const previewEntries = [{ from: EMOTES_PREVIEW, to: "preview/emotes" }];
+const PREVIEW = process.argv.includes("--preview");
+
+const entries = [kitClientEntry(), ...siteEntries, ...GAMES.flatMap(gameEntries), ...(PREVIEW ? previewEntries : [])];
 
 /** Every site path that is served: the kit's browser files, the site's pages and each game's public files. */
 export const SERVED = entries.map((entry) => entry.to);
 
 export function build() {
+  if (PREVIEW) writeEmotesPreview(EMOTES_PREVIEW);
   return buildPublic({ out: OUT, entries });
 }
 
