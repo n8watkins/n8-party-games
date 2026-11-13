@@ -6,25 +6,24 @@ Everything here belongs to the party kit, not to any one game, so it is built on
 
 ## Status (2026-11-13)
 
-Layers 1 and 2 are being built (branch `feat/emotes-sounds`).
-What does not depend on taste is built and tested; the look is waiting on the owner's picks.
+The owner's decisions on 2026-11-13, after the first preview:
 
-Built:
+- **Just emotes.** The soundboard (layer 2) is dropped: "I think we just kill the idea of a soundboard. Just emotes." Own voice lines (layer 3) are parked with it, since they were pads on that board.
+- **An emote may carry its own short sound**, a recording from a public-domain library rather than one made in the browser (he judged the made-up ones bad by ear). Only CC0 or an equally free licence, each file's source recorded, nothing committed until he picks.
+- **The wheel** (hold the button and flick) is the way to send one on a phone; a laptop uses the number keys 1 to 6 for the same six.
+- Of the first round of emotes, four made sense to him: the world's smallest violin, popcorn, the slow clap, and point and laugh (without the other piece looking knocked out). A second round, built to that standard, is in `preview/emotes-artifact-v2.html`.
 
-- The rules, in the kit (`party-kit/client/emotes.js`): the message shapes, a per-player cooldown the room enforces (1.5 s for an emote, 4 s for a sound), and a game's say over them during play (`manifest.lobby.emotes` and `.sounds`; by default emotes yes, sounds no).
-- The room passes each one on and is done: one event, no wake-up, no timer. It tells a page that sent one too soon how long is left, and a script that keeps sending them is closed within about two seconds.
-- The sounds, made in the browser with Web Audio (`party-kit/client/sound-recipes.js`): no audio file is shipped or fetched, so the licence question is settled for every built-in sound. There are 30: 18 for the board and 12 short stings an emote can carry.
-- The player on each device (`party-kit/client/sounds.js`): volume, "mute all sounds" and "mute this player", kept on the device. It plays nothing before the browser allows sound and never plays a backlog when it does. It plays from the big screen only when the room has one, and on every player's device when it has none.
-- Until the look is chosen, the room says who did what in a note at the top ("Tom: Air horn"), so a sound is never the only signal.
+Built (branch `feat/emotes-sounds`):
 
-Waiting on the owner's picks:
+- The rules, in the kit (`party-kit/client/emotes.js`): the message shapes, a per-player cooldown the room enforces (1.5 s), and a game's say during play (`manifest.lobby.emotes` and `.emoteSounds`; by default emotes yes, their sounds no).
+- The room passes each emote on and is done: one event, no wake-up, no timer. It tells a page that sent one too soon how long is left, and a script that keeps sending them is closed within about two seconds.
+- The player on each device (`party-kit/client/sounds.js`) for an emote's recording: volume, "mute all sounds" and "mute this player", kept on the device. It plays nothing before the browser allows sound and never plays a backlog when it does. It plays from the big screen only when the room has one, and on every player's device when it has none.
+- Until the look is chosen, the room says who did what in a note at the top ("Tom: Slow clap"), so a sound is never the only signal.
+- The tools that find, check and prepare the recordings: `preview/recordings/` (each file's title, author, page, licence line and the date it was read are in `records.json`).
 
-- Which emotes, how they look, and the button and its wheel.
-- Which sounds go on the board and which ride on emotes.
-- The preview to pick from is `preview/emotes-artifact.html` (one page, also at `/preview/emotes/` in the local build only).
-- So far the owner chose the hold-and-flick wheel as the trigger, and both kinds of sound: each emote carries its own, and a separate board is there to play with.
+Waiting on the owner's picks: which emotes, how they look over a piece, and which recording each carries. When he picks, the chosen files go in with a credits file.
 
-Not done: own voice lines (layer 3) and live voice (layer 4).
+Not done: live voice (layer 4). The sections below are the plan as it was written on 2026-11-12; layers 2 and 3 are kept for the record.
 
 ## The short version
 
@@ -45,13 +44,12 @@ What it is: a tap shows a bubble or a small animation over your piece, as in TFT
 - Each player has a short cooldown so nobody can flood the room.
 - Emotes work in the waiting room first; a game may allow them during play.
 
-## Layer 2: soundboard
+## Layer 2: soundboard (dropped by the owner on 2026-11-13)
 
 What it is: a tap plays a short sound that everyone hears, such as an air horn, a sad trombone, applause, a drum sting, or a spoken "Hurry up!".
 
-- The sounds are made in the browser from oscillators, noise and filters (decided 2026-11-13), so sending one is still just a tiny message naming the sound and there is no audio file to licence.
-  Each is rendered once per device into a buffer and then played with a single node.
-  Crowds and voices (applause, a crowd's "ooooh", canned laughter) are where made-up sounds fall short; found public-domain recordings could replace those few if the owner approves specific ones.
+- The sounds ship with the kit as small audio files, so sending one is still just a tiny message naming the sound.
+  (A first build made them in the browser instead; the owner judged them bad by ear on 2026-11-13.)
 - No microphone, no permission prompt, and no privacy question.
 - Where the sound plays matters:
   - If the room has a big screen, the sound plays from the big screen only, like a speaker in the room.
@@ -63,7 +61,7 @@ What it is: a tap plays a short sound that everyone hears, such as an air horn, 
 - The sounds need a source with a clear licence: recorded by us, generated, or from a library whose licence allows open source redistribution.
   This must be settled before any file is committed, because the repository is public and MIT.
 
-## Layer 3: your own voice lines
+## Layer 3: your own voice lines (parked with the soundboard on 2026-11-13)
 
 What it is: you record a few short clips of your own voice (or any sound) and they appear on your soundboard next to the built-in ones.
 
@@ -87,7 +85,7 @@ Limits that keep it cheap and safe:
 
 Cost: a handful of slightly larger messages when a player joins, then the same as the soundboard.
 
-How it will slot in beside the built-in sounds (designed, not built):
+How it would have slotted in beside the board's sounds (designed, not built, and parked with the board):
 
 - A clip is named by who owns it and which of their slots it is, so there are no global ids to manage: a page sends `{ t: "sb", k: "own:2" }` and the room relays `{ t: "sb", s: <seat>, k: "own:2" }`.
 - The room checks the clip exists for that seat, with the same 4-second cooldown and flood rule as any sound.
@@ -210,7 +208,7 @@ Each step is a well-specified build, so none of them needs the most capable mode
 
 1. The first emotes and sounds: is the starting list right (wave, laugh, taunt, hurry up; air horn, sad trombone, applause, drum sting, "Hurry up!")?
 2. Where the built-in sounds come from: recorded by us, generated, or a licensed library.
-   Decided: generated in the browser; found public-domain recordings are allowed too, each one approved by name first.
+   Decided: recordings from public-domain (CC0) libraries, each one with its source recorded and approved by the owner before it is committed.
 3. Own voice lines: are 4 clips of 3 seconds each the right size?
 4. Whether to run the live voice test after layer 3, or leave live voice alone for now.
 

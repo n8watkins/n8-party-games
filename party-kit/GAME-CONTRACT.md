@@ -160,23 +160,23 @@ Coin Flip's view lives in this repository (`lobby/public/games/`), mapped by id 
 | `manifest.lobby.view` | The module, under the game's public path, whose `mount` shows the game inside the room ("In the browser"). A hosted game without it hangs as an outside game that points at its own page. |
 | `manifest.players.solo` | The game also plays with one: its sign reads from 1, and a party of one can start it. |
 | `manifest.devices.sharedScreen` | `true`: the game can use a big screen. `"required"`: it needs one, and its light stays off until a screen has joined the room. |
-| `manifest.lobby.emotes` | Optional. Whether players may send emotes while the game is played ("Emotes and sounds"). Default `true`. |
-| `manifest.lobby.sounds` | Optional. Whether players may play soundboard sounds while the game is played. Default `false`. |
+| `manifest.lobby.emotes` | Optional. Whether players may send emotes while the game is played ("Emotes"). Default `true`. |
+| `manifest.lobby.emoteSounds` | Optional. Whether an emote's own short sound plays while the game is played. Default `false`. |
 
-### Emotes and sounds
+### Emotes
 
-The party room has emotes (a tap shows something over your piece on every device) and a soundboard (a tap plays a short sound for the room).
+The party room has emotes: a tap shows something over your piece on every device, and an emote may carry a short sound of its own.
 They belong to the kit (`party-kit/client/emotes.js`), and the room turns them on.
 In the room's lobby both are always allowed.
 While a game is played, the game decides, and a game that says nothing needs to do nothing:
 
 ```js
-lobby: { view: "game/party-view.js", emotes: true, sounds: false },   // these are the defaults
+lobby: { view: "game/party-view.js", emotes: true, emoteSounds: false },   // these are the defaults
 ```
 
 - Emotes default to on: they cost the game nothing and disturb nobody.
-- Sounds default to off: a game has sounds of its own, and an air horn in the middle of a round is the game's call to allow.
-- The room enforces it: a request the game does not allow is refused with `{ t: "wait", k, in: -1 }`, and nothing is relayed.
+- Their sounds default to off: a game has sounds of its own, and a sound in the middle of a round is the game's call to allow.
+- The room enforces `emotes`: an emote the game does not allow is refused with `{ t: "wait", in: -1 }`, and nothing is relayed. The pages keep `emoteSounds` (the emote arrives either way; only its sound stays quiet).
 - A game's view does not need to show them; the room's page shows who did what over the game.
 
 Cork & Bell says nothing, so it gets the defaults.
