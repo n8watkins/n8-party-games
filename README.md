@@ -22,7 +22,7 @@ Each game is its own repository, and plays on its own from there:
 
 - [Cork & Bell](https://github.com/n8watkins/cork-and-bell) - a 1930s fairground shooting gallery at dusk. One stall on your own, or a battle of two to four stalls side by side. Built with three.js and light baked in Blender.
 
-Cork & Bell hangs on the party room's wall, but does not open inside the room yet: when it wins the vote everyone is sent to its own page.
+Cork & Bell hangs on the party room's wall and is played inside the room: when it wins the vote a battle starts for the party's seats, and the places go on the Tonight board.
 Who Am I? hangs there too as an outside game: it plays on its own site, and winning the vote sends everyone there.
 Coin Flip, a placeholder marked as a test, hangs only in local play and the test runs.
 
