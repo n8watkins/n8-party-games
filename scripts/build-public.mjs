@@ -6,8 +6,9 @@
 // Wrangler runs this before `wrangler dev` and `wrangler deploy` (the "build" key in
 // wrangler.jsonc) and again whenever a watched folder changes.
 //
-//   node scripts/build-public.mjs          build, print a one-line summary
-//   node scripts/build-public.mjs --list   build and list every file that will be served
+//   node scripts/build-public.mjs            build, print a one-line summary
+//   node scripts/build-public.mjs --list     build and list every file that will be served
+//   node scripts/build-public.mjs --preview  also build the pages that are not approved yet (below)
 import { createRequire } from "node:module";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -37,7 +38,15 @@ const siteEntries = [
   { from: join(ROOT, "lobby", "shared"), to: "lobby/shared" },
 ];
 
-const entries = [kitClientEntry(), ...siteEntries, ...GAMES.flatMap(gameEntries)];
+/**
+ * Pages still waiting for the owner's approval. They are built only with --preview, which the
+ * local environment's build command passes (wrangler.jsonc, env.local) and the production one
+ * does not, so they can be opened locally at /preview/... and never reach the live site.
+ */
+const previewEntries = [{ from: join(ROOT, "landing", "public"), to: "preview/landing" }];
+const PREVIEW = process.argv.includes("--preview");
+
+const entries = [kitClientEntry(), ...siteEntries, ...GAMES.flatMap(gameEntries), ...(PREVIEW ? previewEntries : [])];
 
 /** Every site path that is served: the kit's browser files, the site's pages and each game's public files. */
 export const SERVED = entries.map((entry) => entry.to);
