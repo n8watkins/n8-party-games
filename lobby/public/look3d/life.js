@@ -348,14 +348,18 @@ function sheet(kit, name, px) {
   return { tex, frames: sprite.frames };
 }
 
-/** Where things that pass are, front to back: outside the windows, on the wall's own sky, or along a rail in the room. */
-const DEPTH = { outside: SPACE.zBack - 0.05, sky: SPACE.zBack + 0.012, rail: SPACE.zBack + 0.08 };
+/**
+ * Where things that pass are, front to back: outside the windows, on the wall's own sky, along a
+ * rail in the room, or in the air in front of the wall's boxes and frames ("front"), where nothing
+ * on the wall hides them.
+ */
+const DEPTH = { outside: SPACE.zBack - 0.05, sky: SPACE.zBack + 0.012, rail: SPACE.zBack + 0.08, front: SPACE.zBack + 0.6 };
 
 const EVENTS = {
   /**
    * Something flies, swims, walks or rolls from one side to the other.
    * {kind: "flyby", name, sprite, size: [w, h] (metres), px: [w, h], every, lasts, y: [lo, hi],
-   *  depth: "outside" | "sky" | "rail", dir: 1 | -1 | 0 (either), bob, arc, tilt, fps, glow, stay, calm, sound}
+   *  depth: "outside" | "sky" | "rail" | "front", dir: 1 | -1 | 0 (either), bob, arc, tilt, fps, glow, stay, calm, sound}
    */
   flyby(kit, def) {
     const { tex, frames } = sheet(kit, def.sprite, def.px ?? [256, Math.round((256 * def.size[1]) / def.size[0])]);
@@ -363,7 +367,7 @@ const EVENTS = {
     material.side = THREE.DoubleSide;
     const mesh = new THREE.Mesh(new THREE.PlaneGeometry(def.size[0], def.size[1]), material);
     mesh.visible = false;
-    mesh.renderOrder = def.depth === "outside" ? -5 : 1;
+    mesh.renderOrder = def.depth === "outside" ? -5 : def.depth === "front" ? 3 : 1;
     kit.add(mesh);
     const half = SPACE.w / 2 + def.size[0];
     return {

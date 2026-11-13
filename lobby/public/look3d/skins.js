@@ -43,7 +43,12 @@ function cut(g, x, y, w, h, r = 0) {
 }
 
 /** Events most night skies share. */
-const SHOOTING_STAR = { kind: "flyby", name: "star.fall", sprite: "star", size: [1.7, 0.1], px: [256, 16], every: 27, lasts: 0.9, y: [5.6, 6.6], fall: -1.1, tilt: -0.3, glow: true };
+/**
+ * Things that pass go through the clear band over the boxes, 5.25 to 5.95 m up the wall: under
+ * the top of a phone's view and over the posters, in front of the wall's furniture ("front"), so
+ * no poster, sign or board hides them and they cover no poster's name or the join code.
+ */
+const SHOOTING_STAR = { kind: "flyby", name: "star.fall", sprite: "star", size: [1.7, 0.1], px: [256, 16], every: 27, lasts: 0.9, y: [5.55, 5.95], fall: -0.3, tilt: -0.1, glow: true, depth: "front" };
 /** What every room announces, whatever its skin. */
 const COMMON_SOUNDS = { "lamp.swing": "a lamp creaking on its cord", "piece.land": "a soft wooden thud" };
 
@@ -67,7 +72,7 @@ const bar = {
     { kind: "feature", is: "jukebox" },
     { kind: "drift", count: 16, area: [-5.4, 4.6, 1.6, 4.9], colour: 0xffd9a6, size: 0.06 },
     { kind: "flyby", name: "cat.walk", sprite: "cat", size: [0.78, 0.44], px: [192, 108], every: 58, lasts: 15, y: [0.24, 0.24], depth: "rail", fps: 5 },
-    { kind: "flyby", name: "moth.visit", sprite: "moth", size: [0.24, 0.2], px: [64, 54], every: 37, lasts: 9, y: [4.7, 5.2], bob: 0.16, arc: 0.3, fps: 14 },
+    { kind: "flyby", name: "moth.visit", sprite: "moth", size: [0.36, 0.3], px: [64, 54], every: 37, lasts: 9, y: [5.35, 5.6], bob: 0.16, arc: 0.25, fps: 14, depth: "front" },
   ],
   happens: [
     "The jukebox under the Tonight board runs its lights round its arch. Bump someone next to it, or land a jump beside it, and it rocks, flashes and throws a few notes.",
@@ -108,7 +113,7 @@ const navy = {
     { kind: "feature", is: "wheel" },
     { kind: "chase", colours: [0xfff2c8, 0x38bdf8], speed: 6, every: 0.26 },
     { kind: "sweep", beams: [{ x: -4.6, colour: 0x38bdf8, swing: 0.5, speed: 0.5, phase: 0 }, { x: 0, colour: 0xb39dfc, swing: 0.62, speed: 0.37, phase: 2 }, { x: 4.6, colour: 0x38bdf8, swing: 0.5, speed: 0.44, phase: 4 }] },
-    { kind: "applause", name: "applause.on", words: "APPLAUSE", every: 50, lasts: 5, x: 0, y: 6.05, colours: [0xffd45c, 0x38bdf8, 0xff7a6b, 0xb39dfc] },
+    { kind: "applause", name: "applause.on", words: "APPLAUSE", every: 50, lasts: 5, x: 0, y: 5.8, colours: [0xffd45c, 0x38bdf8, 0xff7a6b, 0xb39dfc] },
   ],
   happens: [
     "Bulbs chase round every game box, and three beams sweep the wall the whole time.",
@@ -168,12 +173,12 @@ const fair = {
   live: true,
   life: [
     { kind: "feature", is: "striker" },
-    { kind: "flyby", name: "balloons.loose", sprite: "balloons", size: [0.8, 1.0], px: [160, 200], every: 39, lasts: 13, y: [2.2, 3.4], fall: 3.6, bob: 0.05 },
-    { kind: "burst", name: "fireworks.burst", every: 46, lasts: 4.5, area: [-6, 6, 5.75, 6.5], size: 1.5, colours: [0xff7a6b, 0x5fd6c4, 0xffd45c, 0xffffff] },
+    { kind: "flyby", name: "balloons.loose", sprite: "balloons", size: [0.8, 1.0], px: [160, 200], every: 39, lasts: 13, y: [5.3, 5.4], fall: 0.2, bob: 0.05, depth: "front" },
+    { kind: "burst", name: "fireworks.burst", every: 46, lasts: 4.5, area: [-6, 6, 5.4, 5.85], size: 1.3, colours: [0xff7a6b, 0x5fd6c4, 0xffd45c, 0xffffff] },
   ],
   happens: [
     "The high striker under the Tonight board: bump someone next to it, or land a jump beside it, and the puck runs up the tower. Hit it well and the lamp on top lights.",
-    "A bunch of balloons gets away and drifts up across the room, a little more than once a minute.",
+    "A bunch of balloons gets away and drifts across the room over the boxes, a little more than once a minute.",
     "Fireworks go off in the sky over the top of the canvas, three at a time.",
     "Jump under a lamp and it swings.",
   ],
@@ -254,9 +259,9 @@ const roof = {
   life: [
     { kind: "feature", is: "pigeons" },
     { kind: "twinkle", count: 80, area: [-7, 7, 1.5, 4.7], size: [0.06, 0.08], colours: [0xffce78, 0xffce78, 0x78e1ff], period: [5, 18], lit: 0.5 },
-    { kind: "flyby", name: "plane.pass", sprite: "plane", size: [1.5, 0.42], px: [384, 108], every: 49, lasts: 12, y: [5.5, 6.4], fps: 1.4, calm: true },
-    { kind: "flyby", name: "signal.on", sprite: "signal", size: [2.2, 3.6], px: [300, 490], every: 83, lasts: 16, y: [4.45, 4.45], stay: true, glow: true, opacity: 0.85, calm: true },
-    { kind: "flyby", name: "birds.pass", sprite: "birds", size: [1.3, 0.7], px: [208, 112], every: 61, lasts: 11, y: [5.4, 6.4], fps: 4, bob: 0.05 },
+    { kind: "flyby", name: "plane.pass", sprite: "plane", size: [1.5, 0.42], px: [384, 108], every: 49, lasts: 12, y: [5.5, 5.85], fps: 1.4, calm: true, depth: "front" },
+    { kind: "flyby", name: "signal.on", sprite: "signal", size: [0.7, 1.15], px: [300, 490], every: 83, lasts: 16, y: [5.5, 5.5], stay: true, glow: true, opacity: 0.85, calm: true, depth: "front" },
+    { kind: "flyby", name: "birds.pass", sprite: "birds", size: [1.3, 0.7], px: [208, 112], every: 61, lasts: 11, y: [5.45, 5.75], fps: 4, bob: 0.05, depth: "front" },
     SHOOTING_STAR,
   ],
   happens: [
@@ -348,7 +353,7 @@ const camp = {
   life: [
     { kind: "feature", is: "campfire" },
     { kind: "drift", count: 26, area: [-6.8, 6.8, 0.5, 4.2], colour: 0xd8ff78, size: 0.13 },
-    { kind: "flyby", name: "owl.pass", sprite: "owl", size: [1.0, 0.62], px: [224, 140], every: 43, lasts: 7, y: [5.2, 6.3], bob: 0.1, arc: -0.4, fps: 4 },
+    { kind: "flyby", name: "owl.pass", sprite: "owl", size: [1.0, 0.62], px: [224, 140], every: 43, lasts: 7, y: [5.55, 5.7], bob: 0.1, arc: -0.2, fps: 4, depth: "front" },
     SHOOTING_STAR,
   ],
   happens: [
@@ -1017,13 +1022,13 @@ const ship = {
     { kind: "pulse", flat: true, colour: 0x6ee7ff, speed: 1.3, strips: [{ x: 0, y: 0.006, z: -0.65, w: 14.2, d: 0.5 }, { x: 0, y: 0.006, z: 1.9, w: 14.2, d: 0.5 }] },
     { kind: "trail", colours: [0x6ee7ff, 0x9d8bff, 0x7dffb8], size: 0.19, fade: 1.5 },
     { kind: "flyby", name: "planet.rise", sprite: "planet", size: [9, 5.4], px: [1000, 600], every: 150, lasts: 130, y: [3.1, 3.9], depth: "outside", dir: -1, calm: true },
-    { kind: "flyby", name: "moon.pass", sprite: "moon", size: [1.2, 1.2], px: [200, 200], every: 86, lasts: 58, y: [4.6, 6.0], depth: "outside", dir: -1, calm: true },
-    { kind: "flyby", name: "comet.pass", sprite: "comet", size: [3.4, 0.5], px: [512, 76], every: 47, lasts: 6.5, y: [4.9, 6.3], depth: "outside", fall: -1.6, tilt: -0.12, glow: true },
-    { ...SHOOTING_STAR, depth: "outside", every: 21, y: [3.2, 6.5] },
-    { kind: "flyby", name: "rocket.pass", sprite: "rocket", size: [1.3, 0.56], px: [256, 110], every: 71, lasts: 10, y: [2.9, 6.2], depth: "outside", bob: 0.03, fps: 12 },
-    { kind: "flyby", name: "saucer.pass", sprite: "saucer", size: [1.2, 0.6], px: [256, 128], every: 113, lasts: 9, y: [3.0, 6.2], depth: "outside", bob: 0.16, arc: 0.7, fps: 5 },
-    { kind: "flyby", name: "rocks.drift", sprite: "rocks", size: [3.6, 1.1], px: [512, 156], every: 131, lasts: 26, y: [2.8, 6.0], depth: "outside", dir: -1, calm: true },
-    { kind: "flyby", name: "satellite.pass", sprite: "satellite", size: [0.9, 0.34], px: [192, 72], every: 59, lasts: 17, y: [5.6, 6.4], depth: "outside", dir: -1, tilt: 0.2, fps: 1.5 },
+    { kind: "flyby", name: "moon.pass", sprite: "moon", size: [0.9, 0.9], px: [200, 200], every: 86, lasts: 58, y: [5.5, 5.65], depth: "outside", dir: -1, calm: true },
+    { kind: "flyby", name: "comet.pass", sprite: "comet", size: [3.4, 0.5], px: [512, 76], every: 47, lasts: 6.5, y: [5.65, 5.95], depth: "outside", fall: -0.35, tilt: -0.05, glow: true },
+    { ...SHOOTING_STAR, depth: "outside", every: 21 },
+    { kind: "flyby", name: "rocket.pass", sprite: "rocket", size: [1.3, 0.56], px: [256, 110], every: 71, lasts: 10, y: [5.4, 5.75], depth: "outside", bob: 0.03, fps: 12 },
+    { kind: "flyby", name: "saucer.pass", sprite: "saucer", size: [1.2, 0.6], px: [256, 128], every: 113, lasts: 9, y: [5.45, 5.6], depth: "outside", bob: 0.12, arc: 0.15, fps: 5 },
+    { kind: "flyby", name: "rocks.drift", sprite: "rocks", size: [2.8, 0.85], px: [512, 156], every: 131, lasts: 26, y: [5.5, 5.65], depth: "outside", dir: -1, calm: true },
+    { kind: "flyby", name: "satellite.pass", sprite: "satellite", size: [0.9, 0.34], px: [192, 72], every: 59, lasts: 17, y: [5.5, 5.85], depth: "outside", dir: -1, tilt: 0.1, fps: 1.5 },
   ],
   happens: [
     "The whole wall is a window and the stars slide past it, the near ones faster than the far ones.",
