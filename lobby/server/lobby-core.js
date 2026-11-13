@@ -20,6 +20,7 @@ import { makeRng } from "../../party-kit/src/core/rng.js";
 import { IDLE_SHUTDOWN_MS, NAME_MAX, RECONNECT_GRACE_MS, SEAT_COLOURS, STALE_ROOM_MS, cleanName, randomToken } from "../../party-kit/src/core/room-core.js";
 import { AWAY_MS, COUNT_MS, SETTLE_MS, TOSS_MS, leaders, pointsForPlace, standingsFromRows, tally, whyNot } from "../shared/vote.js";
 import { bumpTarget, cooldownLeft, isDown, isSafe, knockLanding, knocked, mayBump } from "../shared/bump.js";
+import { DEFAULT_ROOM, ROOM_COOLDOWN_MS, isRoom, roomLocked } from "../shared/rooms.js";
 import { record } from "../shared/tonight.js";
 import { POSITION_SLACK, clampX, lightAt, posAt, spawnX } from "../shared/world.js";
 
@@ -75,6 +76,16 @@ export class LobbyCore {
     this.emptySince = now;
     this.lastActive = now;
     this.rng = makeRng(`${this.seed}/lobby/${now}`);
+    /** Which room the party is in (lobby/shared/rooms.js): one choice everyone sees. */
+    this.room = DEFAULT_ROOM;
+    /** When the room was last changed: the next change waits ROOM_COOLDOWN_MS. */
+    this.roomAt = -Infinity;
+    /**
+     * Who picks the room: the device that made the party (a player or the room's screen). When
+     * it leaves for good the first player still here takes over; while it is only dropped, the
+     * first connected player picks for it (pickerToken).
+     */
+    this.hostToken = null;
   }
 
   // ---------------------------------------------------------------- coming and going
@@ -113,6 +124,7 @@ export class LobbyCore {
     };
     this.emptySince = null;
     this.lastActive = now;
+    this.hostToken ??= token;
     return { ok: true, seat, token };
   }
 
@@ -123,9 +135,11 @@ export class LobbyCore {
   watch(now, token = randomToken()) {
     if (this.screenHeld(now)) return fail("screen_taken", "This party already has its screen. You can join as a player instead.");
     // A screen that has been gone longer than the grace makes way; its token is no longer good.
+    if (this.screens.has(this.hostToken)) this.hostToken = this.nextHost();
     this.screens.clear();
     this.screens.set(token, { connected: false, droppedAt: now }); // not connected yet: the socket follows
     this.lastActive = now;
+    this.hostToken ??= token;
     return { ok: true, token };
   }
 
@@ -214,7 +228,47 @@ export class LobbyCore {
     if (!who) return;
     if (who.role === "screen") this.screens.delete(token);
     else this.remove(this.members[who.seat], "left");
+    if (this.hostToken === token) this.hostToken = this.nextHost();
     this.noteEmpty(now);
+  }
+
+  /** Who becomes host when the host is gone for good: the first player here, else the screen. */
+  nextHost() {
+    const m = this.present().find((p) => p.token !== this.hostToken);
+    if (m) return m.token;
+    for (const token of this.screens.keys()) if (token !== this.hostToken) return token;
+    return null;
+  }
+
+  /** Whose taps change the room right now: the host, or while the host is away the first connected player. */
+  pickerToken() {
+    const host = this.identify(this.hostToken);
+    const here = host && (host.role === "screen" ? this.screens.get(this.hostToken).connected : this.members[host.seat].connected);
+    if (here) return this.hostToken;
+    return this.connected()[0]?.token ?? (host ? this.hostToken : null);
+  }
+
+  /** Who picks the room, for the view: {seat} for a player, {seat: -1} for the room's screen, or null. */
+  pickerView() {
+    const who = this.identify(this.pickerToken());
+    return who ? { seat: who.seat } : null;
+  }
+
+  /**
+   * The party moves to another room. Only the host's taps apply, never during a count, a coin
+   * toss or a game, and not again within a few seconds. Returns {ok, room, by} or {ok: false, why}.
+   */
+  setRoom(token, id, now) {
+    if (!isRoom(id)) return { ok: false, why: "That is not a room." };
+    if (token !== this.pickerToken()) return { ok: false, why: "Only the host picks the room." };
+    const locked = roomLocked({ phase: this.activity.kind === "game" ? "playing" : "lobby", vote: { count: this.count, toss: this.toss } });
+    if (locked) return { ok: false, why: locked };
+    if (id === this.room) return { ok: false, why: "The party is in that room already." };
+    if (now - this.roomAt < ROOM_COOLDOWN_MS) return { ok: false, why: "Wait a moment before changing it again." };
+    this.room = id;
+    this.roomAt = now;
+    this.lastActive = now;
+    return { ok: true, room: id, by: this.identify(token).seat };
   }
 
   remove(m, why) {
@@ -223,6 +277,7 @@ export class LobbyCore {
       while (this.remembered.size > MAX_REMEMBERED) this.remembered.delete(this.remembered.keys().next().value);
     }
     this.members[m.seat] = null;
+    if (this.hostToken === m.token) this.hostToken = this.nextHost();
     this.count = null;
     this.notes.push({ k: "left", why, name: m.name, colour: m.colour });
   }
@@ -584,6 +639,9 @@ export class LobbyCore {
       // How long a room may go with nobody doing anything before it is put away.
       idleLimit: STALE_ROOM_MS,
       closing: this.closing ? { in: Math.max(0, this.closing.at - now), reason: this.closing.reason } : null,
+      // The room the party is in, and who picks it (lobby/shared/rooms.js).
+      room: this.room,
+      picker: this.pickerView(),
     };
   }
 
@@ -615,6 +673,8 @@ export class LobbyCore {
       createdAt: this.createdAt,
       lastActive: this.lastActive,
       emptySince: this.emptySince,
+      room: this.room,
+      hostToken: this.hostToken,
     };
   }
 
@@ -644,6 +704,8 @@ export class LobbyCore {
     // When the last person went, if they had: kept through a sleep, so "empty for a minute" is
     // counted from then and not from every time the room wakes up.
     room.emptySince = data.emptySince ?? now;
+    room.room = isRoom(data.room) ? data.room : DEFAULT_ROOM;
+    room.hostToken = data.hostToken ?? null;
     return room;
   }
 }

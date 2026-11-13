@@ -7,6 +7,7 @@
 // that already has its screen offers only playing.
 import { botCheck } from "/party-kit/client/bot-check.js";
 import { h } from "./dom.js";
+import { goFullscreen } from "./screen-fit.js";
 import { ROLE_CARDS, doorPlan } from "./shared/entry.js";
 import { nameList } from "./shared/tonight.js";
 
@@ -32,8 +33,10 @@ function keepName(name) {
 /**
  * @param {HTMLElement} root
  * @param {import("/party-kit/client/party-client.js").PartyClient} link
- * @param {{mode: "start" | "join", code?: string, message?: string, as?: "player" | "screen", small?: boolean}} opts
- *   as: what the device leans to (a link may ask for the screen). small: a phone.
+ * @param {{mode: "start" | "join", code?: string, message?: string, as?: "player" | "screen", small?: boolean, rejoin?: boolean}} opts
+ *   as: what the device leans to (a link may ask for the screen). small: a phone. rejoin: the
+ *   front page's "Rejoin": join at once with the code and the name this device remembers. Tried
+ *   once; if it fails the form stays, with the reason, and nothing is tried again.
  * @returns {{close: () => void}}
  */
 export function openDoor(root, link, opts) {
@@ -46,6 +49,8 @@ export function openDoor(root, link, opts) {
   let as = opts.as === "screen" ? "screen" : "player";
   /** What is known about the party whose code is typed: {code, players, screen} or null. */
   let party = null;
+  /** A whole code the room API said matches no open party, or null. */
+  let missing = null;
   /** What has been typed, kept when the form is drawn again. */
   const typed = { code: opts.code ?? "", name: savedName() };
   let closed = false;
@@ -149,8 +154,11 @@ export function openDoor(root, link, opts) {
     function showParty() {
       if (!who) return;
       const known = party && party.code === typed.code;
-      who.hidden = !known;
+      // A whole code that matches no open party is said at once, before a name is typed for nothing.
+      const unknown = missing === typed.code;
+      who.hidden = !known && !unknown;
       if (known) who.textContent = party.players.length ? `In the room: ${nameList(party.players)}.` : "Nobody has joined this party yet.";
+      else if (unknown) who.textContent = "No party has that code right now. Check the four digits on the sign.";
     }
     showParty();
 
@@ -158,9 +166,11 @@ export function openDoor(root, link, opts) {
     async function look() {
       const asked = typed.code;
       if (starting || !CODE.test(asked) || party?.code === asked) return;
-      const preview = await link.preview(asked).catch(() => null);
+      let gone = false;
+      const preview = await link.preview(asked).catch((err) => ((gone = err?.code === "not_found"), null));
       if (closed || typed.code !== asked || mode !== "join") return;
       party = preview ? { code: asked, players: preview.players ?? [], screen: !!preview.screen } : null;
+      missing = gone ? asked : null;
       const next = doorPlan({ small: !!opts.small, starting, as, screenTaken: !!party?.screen });
       // The device had chosen to be the screen and cannot be: the form changes, so draw it again.
       if (next.as !== as) return draw();
@@ -175,6 +185,8 @@ export function openDoor(root, link, opts) {
 
     form.addEventListener("submit", async (e) => {
       e.preventDefault();
+      // The tap that takes someone into the room takes the browser's bars away too, where it can.
+      if (e.isTrusted) goFullscreen();
       error.hidden = true;
       const nickname = name ? name.value.trim() : "";
       if (as === "player" && !nickname) return fail("Type a name first.");
@@ -207,6 +219,10 @@ export function openDoor(root, link, opts) {
     }
 
     if (focus) (code && !code.value ? code : name && !name.value ? name : go).focus();
+    if (opts.rejoin && !starting && CODE.test(typed.code) && (as === "screen" || typed.name.trim())) {
+      opts.rejoin = false;
+      form.requestSubmit();
+    }
   }
 
   draw();

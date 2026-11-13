@@ -77,7 +77,7 @@ try {
   await screen.waitForSelector(".l3-sign");
   const pin = (await screen.locator(".code-digits").textContent()).trim();
   check(/^\d{4}$/.test(pin), "the big screen shows the room in 3D and its code (" + pin + ")");
-  check((await screen.evaluate(() => window.__room3d?.look)) === lookName && (await screen.locator("svg.scene").count()) === 0, "the 3D look drew it, and the flat drawing is not in the page");
+  check((await screen.evaluate(() => window.__room3d?.look)) === "3d" && (await screen.locator("svg.scene").count()) === 0, "the 3D look drew it, and the flat drawing is not in the page");
   if (lookName === "baked") {
     // The baked look has a plate for this wall, and drew the room from it (not its fallback, the 3D look's own walls).
     const drawn = await screen.evaluate(() => ({ ...window.__room3d.stats(), boxes: window.__room3d.room.boxes.length, fetched: performance.getEntriesByType("resource").filter((r) => r.name.includes("/lobby/baked/bar/")).length }));
@@ -113,6 +113,11 @@ try {
   for (const nickname of ["Mabel", "Fitch", "Tom"]) sessions.push(await call("POST", "/join/" + pin, { nickname }));
   const [mabel, fitch, tom] = sessions.map(connect);
   await Promise.all([mabel, fitch, tom].map((c) => c.opened));
+  // Bare sockets say nothing by themselves. A page sends a keep-alive every twenty seconds, and
+  // a socket silent for ninety is closed by the room as a phone that has gone; with software
+  // drawing this run is slow enough to get there, so they keep alive as a page does.
+  const keepAlive = setInterval(() => [mabel, fitch, tom].forEach((c) => c.send("ping")), 20_000);
+  keepAlive.unref();
   await mabel.wait((m) => m.room?.members.filter((x) => x?.connected).length === 4, 8000, 0);
 
   // ---------------------------------------------------------------- the vote
@@ -195,14 +200,28 @@ try {
         if (p.knock) window.__states.add("knocked");
         if (p.pawn.dizzy) window.__states.add("dizzy");
       }
-      if ((window.__looks = (window.__looks ?? 0) + 1) < 400) requestAnimationFrame(look);
+      if ((window.__looks = (window.__looks ?? 0) + 1) < 2000) requestAnimationFrame(look);
     };
     requestAnimationFrame(look);
   });
+  // The room is the judge of whether the bump lands: wait for its word, and on a slow machine
+  // (software drawing, a loaded box) try once more after the cooldown if it did not.
+  let mark = fitch.seen.length;
   fitch.send({ t: "b" });
   await sleep(160);
   await shot(screen, "07-screen-bump");
-  await sleep(2200);
+  let blow = await fitch.wait((m) => m.t === "b" && m.s === fitch.seat, 4000, mark).catch(() => null);
+  if (!(blow?.to >= 0)) {
+    await sleep(2600);
+    fitch.send({ t: "m", x: fitch.x, d: -1, r: fitch.rev });
+    fitch.send({ t: "m", x: fitch.x, d: 0, r: fitch.rev });
+    mark = fitch.seen.length;
+    fitch.send({ t: "b" });
+    blow = await fitch.wait((m) => m.t === "b" && m.s === fitch.seat, 4000, mark).catch(() => null);
+  }
+  check(blow?.to >= 0, "the bump lands on someone (the room says so)");
+  // Software-drawn frames can be a third of a second apart: keep looking until all three were drawn, or six seconds.
+  await screen.waitForFunction(() => ["attacking", "knocked", "dizzy"].every((s) => window.__states.has(s)), null, { timeout: 6000, polling: 100 }).catch(() => {});
   const states = await screen.evaluate(() => [...window.__states]);
   check(["attacking", "knocked", "dizzy"].every((s) => states.includes(s)), "a bump plays the shared story in 3D: " + states.join(", "));
   await sleep(1200);
@@ -215,7 +234,7 @@ try {
   await screen.waitForSelector(".l3-sign.lead", { timeout: 2000 });
   const lead = boxes[blurbs.indexOf(await screen.locator(".l3-sign.lead .l3-about").textContent())];
   // Software drawing makes a still slow, and the game is three seconds long: start waiting for its card now.
-  const result = screen.waitForSelector(".card .places", { timeout: 30000 });
+  const result = screen.waitForSelector(".card .places", { timeout: 45000 });
   await shot(screen, "08-screen-count");
   await tidy(screen, "big screen, count");
   await shot(phone, "09-phone-count");
@@ -245,7 +264,7 @@ try {
   // The phone's player leaves for good, which frees a seat for the next device.
   await phone.click(".door-btn");
   await phone.click("text=Leave the party");
-  await phone.waitForSelector("text=You left the party");
+  await phone.waitForSelector(".note-chip >> text=You left party");
 
   // ---------------------------------------------------------------- an upright phone, then a laptop
   const upright = await open("upright", { width: 390, height: 844 }, { deviceScaleFactor: 2, hasTouch: true });
@@ -266,15 +285,32 @@ try {
   // ---------------------------------------------------------------- leaving, and no WebGL
   await upright.click(".door-btn");
   await upright.click("text=Leave the party");
-  await upright.waitForSelector("text=You left the party");
+  await upright.waitForSelector(".note-chip >> text=You left party");
   check((await upright.locator(".look3d").count()) === 0, "leaving takes the 3D room out of the page");
 
   // ---------------------------------------------------------------- a tie
   // Last, because whichever game wins it, the room is done with here: only the test game plays
   // inside the room, and any other winner sends every page off to that game's own site.
+  check([mabel, fitch].every((c) => c.ws.readyState === 1), "the two players who vote last are still connected");
   mabel.goto(light(CORK, 0));
   fitch.goto(light(COIN, 0));
-  await screen.waitForFunction(() => document.querySelector(".chip")?.textContent === "TIE", null, { timeout: 30000 });
+  // The count is ten seconds, then the toss.
+  // The room's word first (the count is ten seconds, then the toss); then the page, which is
+  // looked at every 100 ms and not on its own frames: a software-drawn big screen under load can
+  // go seconds between frames, longer than the toss is on.
+  const tossing = await mabel.wait((m) => (m.t === "vote" ? m.vote : m.room?.vote)?.toss, 45000, mabel.seen.length).catch(() => null);
+  check(!!tossing, "the room starts a coin toss for the tie");
+  const tie = await screen.waitForFunction(() => document.querySelector(".chip")?.textContent === "TIE", null, { timeout: 5000, polling: 100 }).catch(() => null);
+  if (!tie) {
+    // Say what the room thought, so a failure here can be told apart: a page, a socket or the rules.
+    const inner = await fetch(`${base}/api/lobby/debug/${mabel.room?.code ?? ""}`)
+      .then((r) => r.json())
+      .catch(() => null);
+    const v = inner?.room?.view;
+    console.log("     the room then: " + JSON.stringify(v && { phase: v.phase, vote: v.vote, closing: v.closing, members: v.members.map((m) => m && { name: m.name, connected: m.connected, x: m.x }), alarmIn: inner.room.alarmIn }));
+    console.log("     the screen says: " + (await screen.locator(".bar").innerText()).replace(/\s+/g, " "));
+    throw new Error(tossing ? "the room tossed the coin, but the big screen did not show it" : "no coin toss for a tie within 45 seconds");
+  }
   const tossed = (await words(screen, ".l3-chip")).length === 2 && (await screen.locator(".l3-toss").isVisible());
   await sleep(600);
   await shot(screen, "12-screen-coin-toss");
@@ -284,6 +320,8 @@ try {
   // ---------------------------------------------------------------- nobody else pays for it
   // A device that never asked for the 3D look gets today's flat room and downloads none of the
   // 3D look: not its scripts, not three.js, not its fonts or pictures.
+  // The 3D pages are done: close them, so the software renderer does not starve this one.
+  await screen.context().close();
   const flatContext = await browser.newContext({ viewport: { width: 1280, height: 720 } });
   const flatPage = await flatContext.newPage();
   const fetched = [];

@@ -10,7 +10,7 @@ import { BumpDraw, poseTransform } from "./bump-draw.js";
 import { fit, label, s, set, shade } from "./dom.js";
 import { IMPACT_MS } from "./shared/bump.js";
 import { standings } from "./shared/tonight.js";
-import { BADGES, playersLabel } from "./shared/vote.js";
+import { BADGES, COUNT_MS, playersLabel } from "./shared/vote.js";
 import { ROOM, boxCentre, boxWidth, jumpHeight, lightHalf, posAt } from "./shared/world.js";
 
 const GREY = "#9b948b";
@@ -608,7 +608,7 @@ export class Scene {
     const y = Math.max(view.y + 84 * k, 122);
     set(o.count, { display: null, transform: `translate(${x.toFixed(1)}, ${y.toFixed(1)}) scale(${k})` });
     const round = 2 * Math.PI * 60;
-    set(o.arc, { "stroke-dasharray": `${((left / 3000) * round).toFixed(1)} ${round.toFixed(1)}` });
+    set(o.arc, { "stroke-dasharray": `${((left / COUNT_MS) * round).toFixed(1)} ${round.toFixed(1)}` });
     o.digit.textContent = String(Math.max(1, Math.ceil(left / 1000)));
     // An outside game does not start here: it opens on a site of its own.
     const lead = vote.leaders.length === 1 && this.room.boxes.find((b) => b.id === vote.leaders[0]);

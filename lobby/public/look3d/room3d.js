@@ -13,6 +13,7 @@
 //     fixed number of pixels; it steps down if frames are slow, draws a third as often when
 //     nothing moves, and not at all while the page is hidden (the page's frame loop stops).
 import { IMPACT_MS, cooldownFraction } from "../shared/bump.js";
+import { COUNT_MS } from "../shared/vote.js";
 import { ROOM, boxCentre, lightHalf, posAt } from "../shared/world.js";
 import { Life } from "./life.js";
 import { ART_IMAGES, boxArt, boxSide, canvasOf } from "./paint.js";
@@ -945,7 +946,7 @@ export class Room3D {
     // The count and the toss.
     if (vote.count && lobby) {
       const b = vote.leaders.length === 1 ? this.boxes.find((x) => x.box.id === vote.leaders[0]) : null;
-      this.words.drawCount(view, Math.max(0, vote.count.endsIn - (now - this.voteAt)), 3000, b ? b.cx + (this.L.bw * U) / 2 + 22 : 960);
+      this.words.drawCount(view, Math.max(0, vote.count.endsIn - (now - this.voteAt)), COUNT_MS, b ? b.cx + (this.L.bw * U) / 2 + 22 : 960);
       busy = true;
     } else this.words.drawCount(view, null);
     busy = this.toss(now, view) || busy;

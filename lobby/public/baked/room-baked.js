@@ -142,7 +142,8 @@ export class RoomBaked extends Room3D {
 
   constructor(...args) {
     super(...args);
-    this.look = "baked";
+    // To the page this is the 3D look (it swaps views by that name); `baked` says which drawing of it this is.
+    this.baked = true;
     this.el.classList.add("baked");
     this.plain = false;
     this.mirror = new THREE.Group();
