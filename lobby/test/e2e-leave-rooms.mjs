@@ -155,7 +155,7 @@ try {
   // Not by a guest's message either: the room is the judge.
   watcher.send({ t: "pick", v: "roof" });
   const refusedGuest = await watcher.wait((m) => m.t === "pick-no", 4000).catch(() => null);
-  check(refusedGuest?.why === "Only the host picks the room.", "a guest's pick message is refused by the room: " + refusedGuest?.why);
+  check(refusedGuest?.why === "Only the one who started the party can change the room.", "a guest's pick message is refused by the room: " + refusedGuest?.why);
 
   // A latecomer gets the party's room.
   const late = await open("late phone", { width: 390, height: 844 }, { deviceScaleFactor: 2, hasTouch: true }, true);
@@ -355,7 +355,8 @@ try {
   // Ada and Wes stand in Who Am I?'s light; Ada stays.
   watcher.goto(light(WHO, 40));
   await walkAda(light(WHO, -40));
-  await host.waitForSelector(".card.away", { timeout: 15000 }).catch(() => {});
+  // The walk, then the ten-second count, then the card.
+  await host.waitForSelector(".card.away", { timeout: 30000 }).catch(() => {});
   check((await host.locator(".card.away").count()) === 1, "an outside game's send-off card comes up");
   await host.click("text=Stay in the room");
   await sleep(7000);
