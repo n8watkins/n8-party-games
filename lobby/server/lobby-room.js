@@ -16,13 +16,13 @@
 import { DurableObject } from "cloudflare:workers";
 import { LagLine, eventsFor, fanOut } from "../../party-kit/src/core/room-core.js";
 import { answerMessage, inputId } from "../../party-kit/src/core/answers.js";
-import { allAway, presenceSignal } from "../../party-kit/src/core/presence.js";
+import { allAway, graceOf, presenceSignal } from "../../party-kit/src/core/presence.js";
 import { newSeed } from "../../party-kit/src/core/rng.js";
 import { SOCKET_RATE, newBucket, strike, takeMessage } from "../../party-kit/src/worker/limit-logic.js";
 import { PIN_DIRECTORY_NAME } from "../../party-kit/src/worker/pin-logic.js";
 import { AwakeMeter, EVENT_FLOOR_MS, MESSAGES_PER_REQUEST, REPORT_EVERY_MS, roomBudgetState, spendRoomTime } from "../../party-kit/src/worker/room-budget.js";
 import { readEmote, tooEager } from "../../party-kit/client/emotes.js";
-import { LobbyCore } from "./lobby-core.js";
+import { LobbyCore, TURN_GRACE_MS } from "./lobby-core.js";
 
 const STORAGE_KEY = "lobby";
 const CLOSE_ROOM_CLOSED = 4000;
@@ -36,6 +36,7 @@ export const KEEP_ALIVE = { text: "ping", reply: "pong", everyMs: 10_000 };
  * A socket that has said nothing at all for this long (not even a keep-alive, which a page sends
  * every ten seconds) belongs to a phone that is gone: it lost its signal without closing. Looked
  * at whenever anything happens in the room, at most every five seconds; nothing is timed for it.
+ * A page hidden during a turn-based game is given longer (silentLimit).
  */
 const SILENT_MS = 25_000;
 const REAP_EVERY_MS = 5_000;
@@ -468,7 +469,7 @@ export function createLobbyRoom(wallFor) {
       let reaped = false;
       for (const [ws, entry] of [...this.sockets]) {
         const auto = this.ctx.getWebSocketAutoResponseTimestamp(ws)?.getTime() ?? 0;
-        if (now - Math.max(auto, entry.kept.seen ?? 0, entry.kept.at) < SILENT_MS) continue;
+        if (now - Math.max(auto, entry.kept.seen ?? 0, entry.kept.at) < this.silentLimit(entry)) continue;
         this.drop(ws, entry, 1001, "silent");
         if (!this.isConnected(entry.token)) this.core.disconnect(entry.token, now);
         else this.syncAway(entry.token);
@@ -476,6 +477,18 @@ export function createLobbyRoom(wallFor) {
         reaped = true;
       }
       if (reaped) void this.upkeep(now);
+    }
+
+    /**
+     * How long a socket may say nothing before it is taken for gone (reap). A hidden page's
+     * keep-alive is slowed or stopped by its browser, so a socket that said it is away, of a seat
+     * in the turn-based game being played, is given the game's grace (at least SILENT_MS) before
+     * it is reaped; reaped, it is a drop, held for the grace again. Away never runs the grace down.
+     */
+    silentLimit(entry) {
+      const game = this.core?.turnGame();
+      if (!game || !entry.kept.away || entry.role !== "player" || !this.core.activity.seats.includes(entry.seat)) return SILENT_MS;
+      return Math.max(SILENT_MS, graceOf(game, TURN_GRACE_MS));
     }
 
     // ------------------------------------------------------------ the vote, the alarm and the game

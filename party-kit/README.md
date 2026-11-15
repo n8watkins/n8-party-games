@@ -299,6 +299,7 @@ It needs no signing secret, so local development needs no `.dev.vars`.
 
 Client to room: `ping {c}`, `in {d, id?}` (an input; `id` asks the party room for an answer in a turn-based game), `ready {v}`, `name {v}`, `character {v}`, `addBot`, `removeBot {seat}`, `start`, `leave`.
 The party room also takes `away` and `back` from a player's page whose socket stays open while it is hidden and shown again; the seat is away when every open socket of it is, and its room view member says `away: true`.
+`party.setAway(hidden)` sends them, once per change, and sends `away` again first on every new connection while the page is hidden; shown again with its connection lost, it reconnects at once.
 This kit's own room does not read them yet.
 
 Room to client: `hello {you, room}`, `room {room}`, `pong {c, s}`, `start {room, s, now}`, `ev {ev, now}`, `snap {s, now, full?}`, `end {room, result, now}`, `error {error, message}`.

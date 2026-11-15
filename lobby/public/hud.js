@@ -1,6 +1,7 @@
 // Everything laid over the room: the bottom line a big screen shows, a player's buttons and
 // emote wheel, the door button and its sheet (leave, the emote wheel's six, sound), the one-tap
 // mute, notes ("Tom left"), the card after a game, and what to say when the connection is gone. When the room is gone the page goes to the front page (farewell.js).
+import { awayLine } from "./connection.js";
 import { Controls } from "./controls.js";
 import { ICONS, h, icon } from "./dom.js";
 import { EmoteWheel, openLoadout } from "./emotes/wheel.js";
@@ -128,6 +129,7 @@ export class Hud {
         this.zoomIcon.replaceChildren(icon(zoom === "closer" ? ICONS.zoomOut : ICONS.zoomIn, 18));
       }
     }
+    this.showAway(room);
     // A room near the end of its four hours says so, and so does one nobody has touched for a while.
     const left = room.closesIn - (now - voteAt);
     const quiet = room.idleLimit - idle;
@@ -156,6 +158,24 @@ export class Hud {
     this.linkEl ??= h("div", "link-state", "", this.el);
     this.linkEl.textContent = text;
     this.linkEl.hidden = !text;
+    // The word about who is away moves down out of its way.
+    this.el.classList.toggle("linking", !!text);
+  }
+
+  /**
+   * Who else has their page hidden with the socket open, during a turn-based game ("Bo is away"):
+   * still in the match, just not looking. The room view says so (`away` on a member).
+   */
+  showAway(room) {
+    const away = room.members.filter((m) => m?.away && !(this.opts.role === "player" && m.seat === this.opts.seat));
+    const text = awayLine(away.map((m) => m.name));
+    if (text === (this.awayEl?.dataset.text ?? "")) return;
+    this.awayEl ??= h("div", "link-state away-mark", "", this.el);
+    this.awayEl.dataset.text = text;
+    this.awayEl.replaceChildren();
+    for (const m of away) h("span", "dot", "", this.awayEl).style.background = m.colour;
+    h("span", "", text, this.awayEl);
+    this.awayEl.hidden = !text;
   }
 
   // ---------------------------------------------------------------- the door button
