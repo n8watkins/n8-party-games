@@ -84,12 +84,14 @@ Where to find Nick:
 - [Maker School](https://www.skool.com/makerschool/about), his paid community on Skool.
 
 Nick's prompt packs are not copied into these repositories; get them from him.
+The MIT License here covers this project's own code and assets, apart from the exceptions under License; Nick's prompts and any wording taken from them remain his and are not licensed by this repository.
 This project is not affiliated with Nick Saraev or endorsed by him.
 
 ## License
 
 The code is under the [MIT License](LICENSE).
 Each game carries its own license and the licenses of what it includes.
+Nick Saraev's prompts, and any wording taken from them, are his and not under the MIT License (see [Credit](#credit)).
 
 The party room's sounds (`lobby/public/sounds/*.mp3`) are not under the MIT License.
 Every one of them was made from a recording released under Creative Commons Zero (CC0 1.0, public domain).
