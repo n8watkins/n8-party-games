@@ -176,6 +176,70 @@ describe("the spot step's sums", () => {
   });
 });
 
+describe("what the pages say during a spot step", () => {
+  const members = [
+    { seat: 0, name: "Ann", colour: "#a00" },
+    { seat: 1, name: "Bo", colour: "#0a0" },
+    { seat: 2, name: "Cy", colour: "#00a" },
+    { seat: 3, name: "Di", colour: "#aa0" },
+  ];
+  const boxes = [
+    { id: "turns", name: "Who Am I?" },
+    { id: "soon-0", name: "Soon 0" },
+  ];
+  const stepRoom = (spots, fields = []) => ({ phase: "settings", members, boxes, screens: 1, choosing: { id: "turns", name: "Who Am I?", by: 0, fields, picks: {}, seats: spots.filter((s) => s.seat !== null).map((s) => s.seat), spots, endsIn: 60_000, of: 90_000 } });
+  const stepVote = (standing) => ({ standing, waiting: [], leaders: [], count: null, toss: null, lights: {} });
+
+  it("tells a player on a spot which player they are, not the name of the box under it, and the big screen who plays", async () => {
+    const { playerLine, statusLine } = await import("../shared/status.js");
+    const room = stepRoom([
+      { place: "turns", seat: 0 },
+      { place: "soon-0", seat: 1 },
+    ]);
+    const vote = stepVote({ 0: "turns", 1: "soon-0", 2: null, 3: null });
+    expect(playerLine(room, vote, 1)).toEqual({ vote: "Player 2", voted: true, rest: "Ann starts the game" });
+    expect(playerLine(room, vote, 0)).toEqual({ vote: "Player 1", voted: true, rest: "You start the game" });
+    expect(playerLine(room, vote, 2)).toMatchObject({ vote: "Not yet", voted: false });
+    // Standing in a spot someone else holds is not playing.
+    expect(playerLine(room, stepVote({ 0: "turns", 1: "soon-0", 2: "soon-0" }), 2)).toMatchObject({ vote: "Not yet", voted: false });
+    expect(statusLine(room, vote)).toEqual({ chip: "WHO PLAYS", main: "Stand in a lit spot to play Who Am I?", sub: "Ann starts it once every spot is taken.", waiting: [] });
+    // With settings as well, the big screen still says settings are being chosen.
+    expect(statusLine(stepRoom(room.choosing.spots, [{ key: "pace", label: "Pace", options: [] }]), vote).main).toBe("Choosing settings for Who Am I?");
+  });
+
+  it("says on the card that an open spot sends everyone back when time runs out, and leaves an open select alone when only the spots change", async () => {
+    const { cardKey, timeLine } = await import("../public/settings-step.js");
+    const open = stepRoom([
+      { place: "turns", seat: 0 },
+      { place: "soon-0", seat: null },
+    ]).choosing;
+    const full = { ...open, spots: [{ place: "turns", seat: 0 }, { place: "soon-0", seat: 3 }] };
+    expect(timeLine("Ann is choosing.", open.spots, 90_000)).toBe("Ann is choosing. Back to the room in 1:30 unless every spot is taken.");
+    expect(timeLine("Ann is choosing.", full.spots, 90_000)).toBe("Ann is choosing. Starts by itself in 1:30.");
+    expect(timeLine("Ann is choosing.", null, 5_000)).toBe("Ann is choosing. Starts by itself in 0:05.");
+    // Who stands on the spots is not part of what rebuilds the card.
+    expect(cardKey(open, true)).toBe(cardKey(full, true));
+    expect(cardKey(open, true)).not.toBe(cardKey({ ...open, picks: { pace: 60 } }, true));
+  });
+
+  it("lights no spot gold: the room sends no leaders while players are chosen on spots", async () => {
+    const r = await spots(turnGame());
+    await standOn(r, r.ws.cy, 2, 0);
+    expect(r.ctx.room.core.voteView(Date.now()).leaders).toEqual([]);
+    expect(roomOf(r.ws.screen).vote.leaders).toEqual([]);
+  });
+
+  it("tells players only of the game's seats being away, never of its audience", async () => {
+    const { awayOthers } = await import("../public/connection.js");
+    const room = { game: { id: "turns", round: 1, seats: [0, 1], audience: true }, members: [{ seat: 0, name: "Ann", away: true }, { seat: 1, name: "Bo" }, { seat: 2, name: "Cy", away: true }, null] };
+    expect(awayOthers(room, { role: "player", seat: 1 }).map((m) => m.name)).toEqual(["Ann"]);
+    expect(awayOthers(room, { role: "player", seat: 0 })).toEqual([]);
+    expect(awayOthers(room, { role: "screen", seat: -1 }).map((m) => m.name)).toEqual(["Ann"]);
+    // A game with no audience: everyone away is said, as before.
+    expect(awayOthers({ ...room, game: { id: "turns", round: 1, turns: true } }, { role: "player", seat: 1 }).map((m) => m.name)).toEqual(["Ann", "Cy"]);
+  });
+});
+
 describe("a page back from a drop across a match boundary", () => {
   it("puts away the view of the match it was showing and mounts the one being played, as who it is in that one", async () => {
     const { stageKey, stageStale } = await import("../shared/stage.js");

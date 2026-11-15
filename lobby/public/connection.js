@@ -36,6 +36,16 @@ export function whenHidden({ touch, player, room }) {
   return touch ? "park" : "stay";
 }
 
+/**
+ * The other members whose page is hidden, as this device (`you`, {role, seat}) should hear of
+ * them: never itself, and during a game with an audience only the game's seats (an audience page
+ * that is hidden holds nothing up).
+ */
+export function awayOthers(room, you) {
+  const seats = room.game?.audience && Array.isArray(room.game.seats) ? room.game.seats : null;
+  return room.members.filter((m) => m?.away && !(you?.role === "player" && m.seat === you.seat) && (!seats || seats.includes(m.seat)));
+}
+
 /** What the page says of other players whose page is hidden: "Bo is away", "Ann, Bo and Cy are away", or "" for nobody. */
 export function awayLine(names) {
   if (!names.length) return "";

@@ -22,6 +22,18 @@ function minutes(ms) {
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
 }
 
+/** Whether the settings step only chooses the game's players on spots: it has no settings of its own. */
+function onlySpots(room) {
+  const c = room.phase === "settings" ? room.choosing : null;
+  return !!c && Array.isArray(c.spots) && !c.fields?.length;
+}
+
+/** Which spot a seat holds while players are chosen on spots (0 for the first), or -1. */
+function spotOf(room, seat) {
+  const spots = room.phase === "settings" ? room.choosing?.spots : null;
+  return Array.isArray(spots) ? spots.findIndex((spot) => spot.seat === seat) : -1;
+}
+
 /**
  * The bottom line for the big screen: {chip, main, sub, waiting}.
  * `room` is the room view, `vote` its vote (with `countLeft` and `tossLeft` in ms filled in by
@@ -35,6 +47,8 @@ export function statusLine(room, vote, closingLeft = null) {
     return { chip: "CLOSING", main: "Today's hosting allowance is used up.", sub: `This room closes in ${minutes(closingLeft ?? room.closing.in)}.`, waiting: [] };
   }
   if (room.phase === "playing") return { chip: "PLAYING", main: `${room.game?.name ?? "A game"} is on.`, sub: "", waiting: [] };
+  // A step that only chooses who plays, on spots, has no settings to speak of.
+  if (onlySpots(room)) return { chip: "WHO PLAYS", main: `Stand in a lit spot to play ${room.choosing.name}`, sub: `${chooser(room)} starts it once every spot is taken.`, waiting: [] };
   if (room.phase === "settings" && room.choosing) return { chip: "SETTINGS", main: `Choosing settings for ${room.choosing.name}`, sub: `${chooser(room)} is choosing.`, waiting: [] };
   if (vote.toss) {
     return { chip: "TIE", main: "A coin toss picks.", sub: `${names(vote.toss.between.map(box))}.`, waiting: [] };
@@ -62,11 +76,18 @@ export function playerLine(room, vote, seat, closingLeft = null) {
   // There is little room between a phone's buttons: one name, or a number.
   let rest = waiting.length > 1 ? `Waiting for ${waiting.length} players` : waiting.length ? `Waiting for ${waiting[0]}` : `${here} here${room.screens ? "" : ", phones only"}`;
   if (room.closing) rest = `Room closes in ${minutes(closingLeft ?? room.closing.in)}`;
+  else if (onlySpots(room)) rest = room.choosing.by === seat ? "You start the game" : `${chooser(room)} starts the game`;
   else if (room.phase === "settings" && room.choosing) rest = room.choosing.by === seat ? "You choose the settings" : `${chooser(room)} is choosing settings`;
   else if (vote.toss) rest = "Tie: a coin toss picks";
   else if (vote.count) {
     const n = Math.max(1, Math.ceil((vote.countLeft ?? vote.count.endsIn) / 1000));
     rest = vote.leaders.length === 1 ? `${box(vote.leaders[0])} ${verb(room, vote.leaders[0])} in ${n}` : `Tie: coin toss in ${n}`;
   } else if (!mine && vote.waiting.includes(seat) && !waiting.length && here > 1) rest = "Everyone is waiting for you";
+  // While players are chosen on spots, a piece in a light is not a vote: it is the spot it holds,
+  // named as the card names it ("Player 2"), and a light somebody else holds is nothing yet.
+  if (room.phase === "settings" && Array.isArray(room.choosing?.spots)) {
+    const k = spotOf(room, seat);
+    return { vote: k >= 0 ? `Player ${k + 1}` : "Not yet", voted: k >= 0, rest };
+  }
   return { vote: mine ? box(mine) : "Not yet", voted: !!mine, rest };
 }

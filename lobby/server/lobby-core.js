@@ -609,7 +609,8 @@ export class LobbyCore {
       lights: this.lights(),
       standing,
       waiting: this.activity.kind === "lobby" ? this.connected().filter((m) => !standing[m.seat]).map((m) => m.seat) : [],
-      leaders: leaders(tally(standing), order),
+      // Only the lobby's vote has leaders: a spot somebody stands on is not a game winning.
+      leaders: this.activity.kind === "lobby" ? leaders(tally(standing), order) : [],
       count: this.count ? { endsIn: Math.max(0, this.count.endsAt - now) } : null,
       toss: this.toss ? { between: this.toss.between, winner: this.toss.winner, endsIn: Math.max(0, this.toss.endsAt - now), of: TOSS_MS } : null,
     };

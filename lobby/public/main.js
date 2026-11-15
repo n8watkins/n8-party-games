@@ -363,6 +363,8 @@ function boardLine(now) {
   const closingLeft = room.closing ? room.closing.in - (now - voteAt) : null;
   if (!isPlayer()) return statusLine(room, live, closingLeft).main;
   const line = playerLine(room, live, link.you.seat, closingLeft);
+  // While players are chosen on spots a light is not a vote: the line says which player this is.
+  if (room.phase === "settings" && room.choosing?.spots) return `${line.voted ? `You play as ${line.vote}` : "You are not on a spot"}. ${line.rest}.`;
   return `Your vote: ${line.vote}. ${line.rest}.`;
 }
 

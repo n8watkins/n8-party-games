@@ -15,6 +15,24 @@ function pickLabel(field, picks) {
   return field.options.find((o) => o.value === picks[field.key])?.label ?? String(picks[field.key] ?? "");
 }
 
+/**
+ * What redraws the card: the game, the picks, who chooses and whether this device does. Who stands
+ * on the spots is not part of it: those rows are filled in place, so a list the host has open
+ * stays open while the pieces walk.
+ */
+export function cardKey(choosing, mine) {
+  return JSON.stringify([choosing.id, choosing.picks, choosing.by, mine, choosing.spots ? choosing.spots.length : null]);
+}
+
+/**
+ * The card's foot: who chooses, and what the time limit will do. With a spot still open it sends
+ * everyone back to the room, so it says so; otherwise the game starts by itself.
+ */
+export function timeLine(who, spots, ms) {
+  const open = Array.isArray(spots) && spots.some((spot) => spot.seat === null);
+  return open ? `${who} Back to the room in ${minutes(ms)} unless every spot is taken.` : `${who} Starts by itself in ${minutes(ms)}.`;
+}
+
 export class SettingsStep {
   /**
    * @param {HTMLElement} parent  the hud, which the card is laid over
@@ -35,10 +53,21 @@ export class SettingsStep {
     if (!choosing) return this.close();
     this.endsAt = at + choosing.endsIn;
     const mine = this.opts.mine(choosing);
-    const key = JSON.stringify([choosing.id, choosing.picks, choosing.by, mine, choosing.spots ?? null]);
-    if (key === this.key && this.back) return;
+    const key = cardKey(choosing, mine);
+    this.spots = choosing.spots ?? null;
+    if (key === this.key && this.back) return this.fillSpots(room);
     this.key = key;
     this.draw(room, choosing, mine);
+  }
+
+  /** Who stands on each spot, written into the rows that are already there. */
+  fillSpots(room) {
+    (this.spots ?? []).forEach((spot, i) => {
+      const cell = this.spotCells?.[i];
+      if (!cell) return;
+      const name = (spot.seat === null ? null : room.members[spot.seat]?.name) ?? "Open";
+      if (cell.textContent !== name) cell.textContent = name;
+    });
   }
 
   draw(room, choosing, mine) {
@@ -55,15 +84,17 @@ export class SettingsStep {
     if (spots) {
       h("p", "card-foot spots-line", `Stand in a lit spot to play. The first ${spots.length} play; everyone else watches.`, card);
       const taken = h("div", "settings-list spots-list", "", card);
-      spots.forEach((spot, i) => {
+      this.spotCells = spots.map((spot, i) => {
         const row = h("div", "settings-row", "", taken);
         h("span", "settings-label", `Player ${i + 1}`, row);
-        const who = spot.seat === null ? null : room.members[spot.seat];
-        h("strong", "settings-pick", who ? who.name : "Open", row);
+        return h("strong", "settings-pick", "", row);
       });
-    }
+      this.fillSpots(room);
+    } else this.spotCells = null;
     const who = choosing.by === -1 ? "The room's screen" : room.members[choosing.by]?.name;
-    this.who = mine ? "You choose, everyone sees your picks." : `${who ?? "The host"} is choosing.`;
+    // A step with only spots has nothing to choose: its host starts the game.
+    if (spots && !choosing.fields.length) this.who = mine ? "You start the game." : `${who ?? "The host"} starts the game.`;
+    else this.who = mine ? "You choose, everyone sees your picks." : `${who ?? "The host"} is choosing.`;
     const list = h("div", "settings-list", "", card);
     for (const field of choosing.fields) {
       const row = h("label", "settings-row", "", list);
@@ -108,7 +139,7 @@ export class SettingsStep {
   /** Call every frame: the time left. */
   frame(now) {
     if (!this.left) return;
-    const text = `${this.who} Starts by itself in ${minutes(this.endsAt - now)}.`;
+    const text = timeLine(this.who, this.spots, this.endsAt - now);
     if (this.left.textContent !== text) this.left.textContent = text;
   }
 
@@ -118,7 +149,7 @@ export class SettingsStep {
 
   close() {
     this.back?.remove();
-    this.back = this.left = this.said = null;
+    this.back = this.left = this.said = this.spotCells = this.spots = null;
     this.key = "";
   }
 

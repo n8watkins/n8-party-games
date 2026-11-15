@@ -1,7 +1,7 @@
 // Everything laid over the room: the bottom line a big screen shows, a player's buttons and
 // emote wheel, the door button and its sheet (leave, the emote wheel's six, sound), the one-tap
 // mute, notes ("Tom left"), the card after a game, and what to say when the connection is gone. When the room is gone the page goes to the front page (farewell.js).
-import { awayLine } from "./connection.js";
+import { awayLine, awayOthers } from "./connection.js";
 import { Controls } from "./controls.js";
 import { ICONS, h, icon } from "./dom.js";
 import { EmoteWheel, openLoadout } from "./emotes/wheel.js";
@@ -167,7 +167,7 @@ export class Hud {
    * still in the match, just not looking. The room view says so (`away` on a member).
    */
   showAway(room) {
-    const away = room.members.filter((m) => m?.away && !(this.opts.role === "player" && m.seat === this.opts.seat));
+    const away = awayOthers(room, this.opts);
     const text = awayLine(away.map((m) => m.name));
     if (text === (this.awayEl?.dataset.text ?? "")) return;
     this.awayEl ??= h("div", "link-state away-mark", "", this.el);
