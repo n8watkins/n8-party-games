@@ -96,6 +96,25 @@ export function loadState(game, saved) {
   throw new Error("Not a saved game.");
 }
 
+/**
+ * A copy of a game's state to apply an input to, so an input that throws halfway leaves the real
+ * state as it was: through the game's own save when it has one (serialize, then restore), a
+ * structured clone otherwise. Throws when the state cannot be copied.
+ */
+export function copyState(game, state) {
+  if (typeof game.serialize === "function") return game.restore(structuredClone(game.serialize(state)));
+  return structuredClone(state);
+}
+
+/** The state as it would be saved, as one string to compare two states by; null when it cannot be saved. */
+export function stateKey(game, state) {
+  try {
+    return JSON.stringify(saveState(game, state).data);
+  } catch {
+    return null;
+  }
+}
+
 /** A copy of `value` that is plain JSON, or a TypeError naming the first part that is not. */
 export function plainJson(value, path = "value", seen = new Set()) {
   if (value === null || typeof value === "string" || typeof value === "boolean") return value;

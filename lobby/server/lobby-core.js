@@ -27,10 +27,10 @@
 //               held for the game's grace, the game is told of every change in who is here
 //               (turnUpkeep, game.presence), and a seat gone for good ends the game early
 //               (game.abandon). While it is played the room's lifetimes are the game's own.
-import { answerOf, recall, remember } from "../../party-kit/src/core/answers.js";
+import { ID_REUSED, answerOf, inputDigest, lookup, remember } from "../../party-kit/src/core/answers.js";
 import { makeRng } from "../../party-kit/src/core/rng.js";
 import { abandonOutcome, goneWhy, graceEndsAt, graceOf, lifetimesOf, presenceOutcome, reportOf, sameReport } from "../../party-kit/src/core/presence.js";
-import { deadlineOf, gameProblems, inputOutcome, isTurnBased, loadState, saveState } from "../../party-kit/src/core/turns.js";
+import { copyState, deadlineOf, gameProblems, inputOutcome, isTurnBased, loadState, saveState, stateKey } from "../../party-kit/src/core/turns.js";
 import { viewerFor } from "../../party-kit/src/core/views.js";
 import { IDLE_SHUTDOWN_MS, NAME_MAX, SEAT_COLOURS, STALE_ROOM_MS, cleanName, randomToken } from "../../party-kit/src/core/room-core.js";
 import { AWAY_MS, COUNT_MS, SETTLE_MS, TOSS_MS, leaders, pointsForPlace, standingsFromRows, tally, whyNot } from "../shared/vote.js";
@@ -639,8 +639,32 @@ export class LobbyCore {
    */
   emptyLimit(now) {
     const held = this.heldSeats(now) ? SEAT_HOLD_MS : 0;
-    if (this.activity.kind !== "game") return held || IDLE_SHUTDOWN_MS;
-    return Math.max(held, this.lifetimes().idleShutdownMs);
+    const a = this.activity;
+    if (a.kind !== "game") return held || IDLE_SHUTDOWN_MS;
+    const { idleShutdownMs, staleRoomMs } = this.lifetimes();
+    let limit = Math.max(held, idleShutdownMs);
+    const game = this.turnGame();
+    if (!game) return limit;
+    // A turn-based game holds its dropped seats for its grace, and an empty room waits for them:
+    // until the longest grace still running ends, or with a grace that never ends for the game's
+    // idleShutdownMs when it chose one, and for its stale limit when it did not.
+    const grace = graceOf(game, TURN_GRACE_MS);
+    const chose = typeof game.idleShutdownMs === "number" && Number.isFinite(game.idleShutdownMs) && game.idleShutdownMs > 0;
+    const since = this.emptySince ?? now;
+    for (const seat of a.seats) {
+      const m = this.members[seat];
+      if (!m || m.connected || m.droppedAt === null || m.droppedAt === undefined) continue;
+      if (grace === Infinity) limit = Math.max(limit, chose ? idleShutdownMs : staleRoomMs);
+      else limit = Math.max(limit, m.droppedAt + grace - since);
+    }
+    return limit;
+  }
+
+  /** Why the room must end the turn-based game being played now, whatever it is doing: its four hours are up, or it is closing (the budget). */
+  roomEnding(now) {
+    if (now - this.createdAt >= MAX_ROOM_LIFE_MS) return "expired";
+    if (this.closing && now >= this.closing.at) return this.closing.reason;
+    return null;
   }
 
   /** When the room should next be woken if nothing else happens (for the alarm), or null. */
@@ -657,10 +681,12 @@ export class LobbyCore {
       for (const m of this.present()) if (!m.connected && m.droppedAt !== null) at = Math.min(at, m.droppedAt + DROP_FADE_MS);
     } else if (this.turnGame()) {
       // A turn-based game's deadline (a turn timer running out) is a wake-up like any other, and
-      // so are the game's stale limit and the moment a dropped seat's grace runs out.
+      // so are the game's stale limit, the moment a dropped seat's grace runs out, the room's four
+      // hours and a budget close (which end the game: turnUpkeep).
       const deadline = this.turnDeadline();
       if (deadline !== null) at = Math.min(at, deadline);
-      at = Math.min(at, this.lastActive + this.lifetimes().staleRoomMs);
+      at = Math.min(at, this.lastActive + this.lifetimes().staleRoomMs, this.createdAt + MAX_ROOM_LIFE_MS);
+      if (this.closing) at = Math.min(at, this.closing.at);
       const grace = graceOf(this.turnGame(), TURN_GRACE_MS);
       for (const seat of this.activity.seats) at = Math.min(at, graceEndsAt(this.members[seat], grace) ?? Infinity);
     }
@@ -699,7 +725,13 @@ export class LobbyCore {
       this.activity.names = Object.fromEntries(seats.map((s) => [s.seat, s.name]));
       // The answers given to inputs with ids, per seat (answers.js), saved with the game.
       this.activity.answers = {};
-      if (!game.isOver(state)) this.tellPresence(game, now);
+      if (!game.isOver(state)) {
+        const told = this.tellPresence(game, now);
+        this.lastActive = now;
+        if (told.error) return { ok: true, events: [], ended: this.stopGame(game, "error", now).ended };
+        // What the game says of it goes out with the start, after the first snapshots.
+        return { ok: true, events: told.events, ended: game.isOver(state) ? this.finishGame(now) : null };
+      }
     }
     this.lastActive = now;
     return { ok: true, ended: game.isOver(state) ? this.finishGame(now) : null };
@@ -743,19 +775,34 @@ export class LobbyCore {
     return isTurnBased(game) ? game : null;
   }
 
-  /** When the turn-based game being played next needs the room awake, or null. */
+  /**
+   * When the turn-based game being played next needs the room awake, or null. A deadline its own
+   * tick did not move on (`stuck`, gameDeadline) is not a wake-up until the next input or change
+   * in who is here, so a game with that mistake cannot keep the room ringing. A `nextDeadline`
+   * that throws is no deadline.
+   */
   turnDeadline() {
     const game = this.turnGame();
-    return game ? deadlineOf(game, this.activity.state) : null;
+    if (!game) return null;
+    let at;
+    try {
+      at = deadlineOf(game, this.activity.state);
+    } catch (err) {
+      console.error(`party room: ${this.activity.id} nextDeadline() failed; no deadline is set`, err);
+      return null;
+    }
+    return at !== null && this.activity.stuck === at ? null : at;
   }
 
   /**
    * An input from a player in a turn-based game, applied at once. Returns {ok: false, error,
    * message} when the room did not take it (no such game, a seat not in it, a phone not
-   * connected), or {ok: true, answer, events, snapshot, viewerOf, ended}, as gameTick returns,
-   * with `snapshot` always set (every viewer gets a fresh one after every input) and `answer` the
+   * connected; `game_error` when `game.input` threw, and nothing it changed is kept; `id_reused`
+   * when the id came with another input than the first time), or {ok: true, answer, events,
+   * snapshot, viewerOf, ended}, as gameTick returns, with `snapshot` always set and `answer` the
    * game's word to the sender, `{ok: true}` or `{ok: false, error, message}`
-   * (party-kit/src/core/answers.js, answerOf).
+   * (party-kit/src/core/answers.js, answerOf). `quiet` is set on a refusal that changed nothing:
+   * not saved, and only the sender hears of it.
    *
    * With an `id` (answers.js, inputId), the answer is kept for that seat: the same id again is
    * not applied, and comes back as {ok: true, repeat: true, answer, snapshot, viewerOf} with the
@@ -765,20 +812,49 @@ export class LobbyCore {
   playTurn(seat, data, now, id = null) {
     const a = this.activity;
     const game = this.turnGame();
+    const digest = id !== null ? inputDigest(data) : null;
     if (!game) {
-      const known = id !== null ? recall(this.lastAnswers?.answers, seat, id) : null;
-      if (known) return { ok: true, repeat: true, answer: known, events: [], snapshot: null, viewerOf: (who) => this.viewerOf(who), ended: null };
+      const known = id !== null ? lookup(this.lastAnswers?.answers, seat, id, digest) : null;
+      if (known?.reused) return fail("id_reused", ID_REUSED);
+      if (known) return { ok: true, repeat: true, answer: known.answer, events: [], snapshot: null, viewerOf: (who) => this.viewerOf(who), ended: null };
       return fail("not_playing", "No turn-based game is being played.");
     }
     if (!a.seats.includes(seat) || !this.members[seat]?.connected) return fail("not_in_game", "That seat is not playing this game.");
     if (id !== null) {
-      const known = recall(a.answers, seat, id);
-      if (known) return { ok: true, repeat: true, answer: known, events: [], snapshot: (viewer) => game.snapshot(a.state, now, viewer), viewerOf: (who) => this.viewerOf(who, a), ended: null };
+      // The same id for another input (a page that reloaded and counts from 1 again) is never
+      // taken for the first one: it is refused, and the first answer stays.
+      const known = lookup(a.answers, seat, id, digest);
+      if (known?.reused) return fail("id_reused", ID_REUSED);
+      if (known) return { ok: true, repeat: true, answer: known.answer, events: [], snapshot: (viewer) => game.snapshot(a.state, now, viewer), viewerOf: (who) => this.viewerOf(who, a), ended: null };
     }
-    const outcome = inputOutcome(game.input(a.state, seat, data, now));
+    // The input is applied to a copy, kept only once the game returned: an input that throws
+    // halfway leaves nothing behind, in memory or in storage, and may be sent again.
+    const before = stateKey(game, a.state);
+    let draft;
+    try {
+      draft = copyState(game, a.state);
+    } catch {
+      draft = a.state; // a state that cannot be copied is not protected
+    }
+    let returned;
+    try {
+      returned = game.input(draft, seat, data, now);
+    } catch (err) {
+      console.error(`party room: ${a.id} input() failed; nothing it changed is kept`, err);
+      return fail("game_error", "The game could not take that. Try again.");
+    }
+    const outcome = inputOutcome(returned);
     const answer = answerOf(outcome.answer);
-    if (id !== null) remember((a.answers ??= {}), seat, id, answer);
+    if (id !== null) remember((a.answers ??= {}), seat, id, answer, digest);
     this.lastActive = now;
+    // A refusal that changed nothing is not saved, and only its sender hears of it: its snapshot
+    // and its share of the events. One that changed the state (a timed-out turn ended first) goes
+    // to everyone like any input. The state is compared as it would be saved.
+    if (!answer.ok && draft !== a.state && before !== null && stateKey(game, draft) === before) {
+      return { ok: true, quiet: true, answer, events: outcome.events, snapshot: (viewer) => game.snapshot(a.state, now, viewer), viewerOf: (who) => this.viewerOf(who, a), ended: null };
+    }
+    a.state = draft;
+    delete a.stuck;
     return { ok: true, answer, ...this.turnOut(game, outcome.events, now) };
   }
 
@@ -791,8 +867,24 @@ export class LobbyCore {
     const game = this.turnGame();
     const deadline = this.turnDeadline();
     if (!game || deadline === null || now < deadline) return null;
-    const events = game.tick(this.activity.state, now) ?? [];
-    return { ok: true, ...this.turnOut(game, events, now) };
+    const a = this.activity;
+    let events;
+    try {
+      events = game.tick(a.state, now) ?? [];
+    } catch (err) {
+      console.error(`party room: ${a.id} tick() failed; the game ends with no points`, err);
+      return this.stopGame(game, "error", now);
+    }
+    const out = { ok: true, ...this.turnOut(game, events, now) };
+    // A tick must move the deadline on; one that did not is ignored until something changes.
+    if (!out.ended) {
+      const after = this.turnDeadline();
+      if (after !== null && after <= now) {
+        console.error(`party room: ${a.id} tick() did not move its deadline on; it is ignored until the next input`);
+        a.stuck = after;
+      }
+    }
+    return out;
   }
 
   turnOut(game, events, now) {
@@ -816,29 +908,65 @@ export class LobbyCore {
   turnUpkeep(now) {
     const game = this.turnGame();
     if (!game) return null;
+    // The room's four hours, or a budget close, end the game whatever it is doing.
+    const ending = this.roomEnding(now);
+    if (ending) return this.stopGame(game, ending, now);
     const grace = graceOf(game, TURN_GRACE_MS);
     for (const seat of this.activity.seats) {
       const why = goneWhy(this.members[seat], now, grace);
       if (why) return this.abandonGame(game, seat, why, now);
     }
-    const { changed, events } = this.tellPresence(game, now);
-    return changed ? { ok: true, ...this.turnOut(game, events, now) } : null;
+    const told = this.tellPresence(game, now);
+    if (told.error) return this.stopGame(game, "error", now);
+    if (told.changed) return { ok: true, ...this.turnOut(game, told.events, now) };
+    // Only what the game was told changed: saved, so a wake does not tell it again; nothing is sent.
+    return told.told ? { ok: true, quiet: true } : null;
   }
 
-  /** Tells the game of every seat whose presence changed since it last heard. Returns {changed, events}. */
+  /**
+   * Tells the game of every seat whose presence changed since it last heard. Returns {changed,
+   * events, told, error}: `told` when what it was told changed, `error` when `game.presence` threw.
+   */
   tellPresence(game, now) {
     const a = this.activity;
-    const out = { changed: false, events: [] };
+    const out = { changed: false, events: [], told: false, error: null };
     for (const seat of a.seats) {
       const report = reportOf(this.members[seat]);
       if (sameReport(a.told[seat], report)) continue;
       a.told[seat] = report;
+      out.told = true;
       if (typeof game.presence !== "function") continue;
-      const { changed, events } = presenceOutcome(game.presence(a.state, seat, { ...report }, now));
+      let returned;
+      try {
+        returned = game.presence(a.state, seat, { ...report }, now);
+      } catch (err) {
+        console.error(`party room: ${a.id} presence() failed; the game ends with no points`, err);
+        out.error = err;
+        return out;
+      }
+      const { changed, events } = presenceOutcome(returned);
       if (!changed) continue;
       out.changed = true;
       out.events.push(...events);
     }
+    if (out.changed) delete a.stuck;
+    return out;
+  }
+
+  /**
+   * Ends the turn-based game being played early, with no points, for a reason that is nobody's
+   * doing: a callback of the game threw (`error`), the room's four hours are up (`expired`), or
+   * the room is closing (the budget). Everyone gets a note saying why. No last snapshot is sent
+   * after an error: the state may be half changed.
+   */
+  stopGame(game, why, now) {
+    const a = this.activity;
+    const gameName = this.boxes.find((box) => box.id === a.id)?.name ?? a.id;
+    const text =
+      why === "error" ? `${gameName} ran into a problem, so it ended.` : why === "expired" ? `This party has reached its four hours, so ${gameName} ended.` : `This party is closing, so ${gameName} ended.`;
+    this.notes.push({ k: "ended", why, seat: -1, name: null, colour: null, text });
+    const out = { ok: true, events: [], snapshot: why === "error" ? null : (viewer) => game.snapshot(a.state, now, viewer), viewerOf: (who) => this.viewerOf(who, a), ended: null };
+    out.ended = this.finishGame(now, { standings: [], result: null, early: { seat: -1, name: null, why, text } });
     return out;
   }
 
@@ -1014,8 +1142,8 @@ export class LobbyCore {
   savedGame() {
     const game = this.turnGame();
     if (!game) return null;
-    const { id, state, startedAt, ticks, seats, told, names, answers } = this.activity;
-    return { id, startedAt, ticks, seats, told, names, answers, state: saveState(game, state) };
+    const { id, state, startedAt, ticks, seats, told, names, answers, stuck } = this.activity;
+    return { id, startedAt, ticks, seats, told, names, answers, stuck, state: saveState(game, state) };
   }
 
   /**
@@ -1034,6 +1162,7 @@ export class LobbyCore {
       // changed while the room slept (turnUpkeep).
       const told = Object.fromEntries(saved.seats.map((seat) => [seat, saved.told?.[seat] ?? { connected: true, away: false }]));
       this.activity = { kind: "game", id: saved.id, state, startedAt: saved.startedAt, ticks: saved.ticks ?? 0, seats: [...saved.seats], told, names: { ...saved.names }, answers: saved.answers ?? {} };
+      if (typeof saved.stuck === "number") this.activity.stuck = saved.stuck;
     } catch (err) {
       console.error("party room: a saved game could not be restored", err);
       this.activity = { kind: "lobby" };

@@ -200,6 +200,10 @@ export function createLobbyRoom(wallFor) {
       const entry = this.sockets.get(ws);
       if (!entry || !this.core) return;
       const started = Date.now();
+      // When this socket last said anything, set before the message is handled: what it says may
+      // make the room look for silent sockets (reap), and it must not count as one itself. Kept on
+      // the socket, so a sleep does not make a silent phone look fresh.
+      entry.kept.seen = started;
       const readable = typeof data === "string" && data.length <= MAX_MESSAGE_BYTES;
       const verdict = readable ? takeMessage(entry.bucket, started) : strike(entry.bucket);
       if (verdict === "ok") entry.in.push(data);
@@ -209,8 +213,6 @@ export function createLobbyRoom(wallFor) {
       const owed = entry.kept.owed;
       if (this.meter.heldFrom === null) owed.ms += Math.max(EVENT_FLOOR_MS, Date.now() - started);
       owed.n += 1;
-      // When this socket last said anything: kept on the socket, so a sleep does not make a silent phone look fresh.
-      entry.kept.seen = started;
       if (this.sockets.has(ws)) ws.serializeAttachment(entry.kept);
       else this.meter.add(owed.ms, owed.n / MESSAGES_PER_REQUEST + owed.r);
       if (started - this.flushedAt >= REPORT_EVERY_MS || !this.sockets.has(ws)) this.flush(started);
@@ -282,7 +284,9 @@ export function createLobbyRoom(wallFor) {
           // A turn-based game's input is answered when it carries an id, and so is the same id
           // sent again just after that game ended. A ticking game's input is fire and forget.
           const id = inputId(msg.id);
-          if (core.turnGame() || (id !== null && core.lastAnswers)) void this.playTurn(entry, msg.d, now, id);
+          if (core.turnGame() || (id !== null && core.lastAnswers)) {
+            this.playTurn(entry, msg.d, now, id).catch((err) => console.error("party room: an input to a turn-based game failed", err));
+          }
           else if (player) core.gameInput(entry.seat, msg.d, now);
           return;
         }
@@ -352,12 +356,18 @@ export function createLobbyRoom(wallFor) {
      */
     async upkeep(now) {
       const core = this.core;
-      const out = core?.turnUpkeep(now);
-      if (!out) return null;
-      await this.save();
-      if (this.core !== core) return out;
-      this.deliverTurn(out, now);
-      return out;
+      try {
+        const out = core?.turnUpkeep(now);
+        if (!out) return null;
+        await this.save();
+        // Only what the game was told changed: saved, and nothing to send.
+        if (this.core !== core || out.quiet) return out;
+        this.deliverTurn(out, now);
+        return out;
+      } catch (err) {
+        console.error("party room: looking at who is here in a turn-based game failed", err);
+        return null;
+      }
     }
 
     /** A socket that floods is closed and its seat given up: dropped messages are still billed. */
@@ -434,11 +444,16 @@ export function createLobbyRoom(wallFor) {
       this.arm(now);
     }
 
+    /** Passes on what the room has said since the last time ("Tom left", "Who Am I? ended"). */
+    tellNotes() {
+      for (const note of this.core?.drainNotes() ?? []) this.broadcast({ t: "note", ...note });
+    }
+
     /** After anything that changed who is here or what the room is doing: everyone gets the whole room. */
     changed(now) {
       const core = this.core;
       if (!core) return;
-      for (const note of core.drainNotes()) this.broadcast({ t: "note", ...note });
+      this.tellNotes();
       core.evaluate(now);
       this.broadcastRoom(now);
       this.arm(now);
@@ -519,7 +534,10 @@ export function createLobbyRoom(wallFor) {
         if (started.error === "bad_game") console.error(`party room: ${id} cannot start: ${started.message}`);
         return;
       }
-      if (started.ended) return this.finish(started.ended, now);
+      if (started.ended) {
+        this.tellNotes();
+        return this.finish(started.ended, now);
+      }
       const turns = core.turnGame() !== null;
       // A turn-based game is on record before anyone hears it began.
       if (turns) {
@@ -531,6 +549,17 @@ export function createLobbyRoom(wallFor) {
         (e) => core.viewerOf(e),
         (viewer) => ({ t: "start", room, s: core.snapshotFor(viewer, now), now }),
       );
+      // What a turn-based game said when it heard who was here at the start (a page already hidden).
+      if (started.events?.length) {
+        const events = started.events;
+        this.broadcastViews(
+          (e) => core.viewerOf(e),
+          (viewer) => {
+            const ev = eventsFor(events, viewer);
+            return ev.length ? { t: "ev", ev, now } : null;
+          },
+        );
+      }
       // A turn-based game runs no timer: the room sleeps between inputs and wakes at its deadline
       // (the alarm), so only the time it is really awake is counted. A seat whose phone had
       // already dropped when the vote ended is held from then (upkeep, and the grace's wake-up).
@@ -558,8 +587,13 @@ export function createLobbyRoom(wallFor) {
         answer(out);
         return out;
       }
-      if (out.repeat) {
-        if (out.snapshot) this.send(entry, { t: "snap", s: out.snapshot(out.viewerOf(entry)), now });
+      if (out.repeat || out.quiet) {
+        // Nothing changed (the same id again, or a refusal that moved nothing): nothing is saved,
+        // and only the sender hears, its own snapshot and its share of the events, then the answer.
+        const viewer = out.viewerOf(entry);
+        const events = eventsFor(out.events, viewer);
+        if (events.length) this.send(entry, { t: "ev", ev: events, now });
+        if (out.snapshot) this.send(entry, { t: "snap", s: out.snapshot(viewer), now });
         answer(out.answer);
         return out;
       }
@@ -575,6 +609,9 @@ export function createLobbyRoom(wallFor) {
 
     /** Sends what a turn-based game did (an input or a deadline), and ends it or sets the next wake-up. */
     deliverTurn(out, now) {
+      // A game that ended early says why before its last snapshot and its end, so a page has the
+      // reason when it puts the game away.
+      if (out.ended) this.tellNotes();
       this.sendGame(out, now);
       if (out.ended) {
         this.finish(out.ended, now);

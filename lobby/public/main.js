@@ -592,7 +592,8 @@ function startStage(snapshot) {
       mine.view?.unmount();
     },
   };
-  const ctx = { room, you: link.you, snapshot, send: (data) => link.sendInput(data), now: () => link.now(), inset: DOOR_INSET, params };
+  // send(data, {id}) asks a turn-based game for an answer (a promise); inputId() makes an id no other input of this page has used.
+  const ctx = { room, you: link.you, snapshot, send: (data, opts) => link.sendInput(data, opts), inputId: () => link.nextInputId(), now: () => link.now(), inset: DOOR_INSET, params };
   viewModule(box)
     .then((module) => {
       if (mine.gone || !module?.mount) return;

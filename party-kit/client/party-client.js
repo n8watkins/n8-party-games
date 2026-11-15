@@ -57,6 +57,21 @@ export class PartyClient {
     this.clockFor = null;
     /** Inputs sent with an id and not yet answered: key -> {promise, resolve, reject, timer} (sendInput). */
     this.answers = new Map();
+    /** What makes this page's input ids its own (nextInputId): fresh on every page load. */
+    this.idNonce = randomNonce();
+    this.idCount = 0;
+    /** The follow-up clock pings of a turn-based game (syncClock), cancelled when the connection goes. */
+    this.clockTimers = [];
+  }
+
+  /**
+   * An id for `sendInput(data, {id})` that no other input of this seat has used in this game,
+   * also after a reload: a random part made when the page loaded, and a count. Send the same id
+   * again only to retry the same input.
+   */
+  nextInputId() {
+    this.idCount += 1;
+    return `${this.idNonce}.${this.idCount}`;
   }
 
   on(type, handler) {
@@ -166,6 +181,7 @@ export class PartyClient {
     ws.onclose = (event) => {
       if (this.ws !== ws) return;
       clearInterval(this.pingTimer);
+      this.stopClockPings();
       this.ws = null;
       // An answer cannot come on a closed socket: whoever waits may send the same id again once it is back.
       this.dropAnswers();
@@ -228,9 +244,12 @@ export class PartyClient {
         this.settleAnswer(answerKey(msg.id), { ok: true, id: msg.id });
         break;
       case "error":
-        // An error with an id answers that input (sendInput) and nobody else; a late one is dropped.
-        if (msg.id !== undefined && msg.id !== null) this.settleAnswer(answerKey(msg.id), new PartyError(msg.error, msg.message, msg.id));
-        else this.emit("error", new PartyError(msg.error, msg.message));
+        // An error with an id answers that input (sendInput); one nobody waits for any more (it
+        // timed out, or the page reloaded) is the page's to hear, on the error event.
+        if (msg.id !== undefined && msg.id !== null) {
+          const err = new PartyError(msg.error, msg.message, msg.id);
+          if (!this.settleAnswer(answerKey(msg.id), err)) this.emit("error", err);
+        } else this.emit("error", new PartyError(msg.error, msg.message));
         break;
       default:
         // Anything else belongs to whoever built on the kit (the party site's lobby).
@@ -254,8 +273,15 @@ export class PartyClient {
     const key = `${room.game.id}/${room.game.round}`;
     if (this.clockFor === key) return;
     this.clockFor = key;
+    this.stopClockPings();
     this.send({ t: "ping", c: Date.now() });
-    for (const after of [300, 1000]) setTimeout(() => this.clockFor === key && this.send({ t: "ping", c: Date.now() }), after);
+    for (const after of [300, 1000]) this.clockTimers.push(setTimeout(() => this.clockFor === key && this.send({ t: "ping", c: Date.now() }), after));
+  }
+
+  /** The follow-up clock pings belong to one connection: a new one sends its own. */
+  stopClockPings() {
+    for (const timer of this.clockTimers) clearTimeout(timer);
+    this.clockTimers = [];
   }
 
   setPingPace(ms) {
@@ -382,6 +408,7 @@ export class PartyClient {
     const ws = this.ws;
     this.ws = null;
     clearInterval(this.pingTimer);
+    this.stopClockPings();
     this.dropAnswers();
     ws?.close();
     this.setStatus("reconnecting");
@@ -421,6 +448,14 @@ export class PartyError extends Error {
 /** A game on the room's timer is being played: the clock pings keep their quick pace. A turn-based game is not ticked. */
 function ticking(room) {
   return room?.phase === "playing" && !room.game?.turns;
+}
+
+/** Eight random letters and digits, from the secure source when there is one. */
+function randomNonce() {
+  const bytes = new Uint8Array(8);
+  if (globalThis.crypto?.getRandomValues) globalThis.crypto.getRandomValues(bytes);
+  else for (let i = 0; i < bytes.length; i++) bytes[i] = Math.floor(Math.random() * 256);
+  return Array.from(bytes, (b) => (b % 36).toString(36)).join("");
 }
 
 function safeStorage() {

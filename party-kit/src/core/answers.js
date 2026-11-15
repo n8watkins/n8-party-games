@@ -30,9 +30,45 @@ export function answerOf(answer) {
   if (answer?.ok !== false) return { ok: true };
   return {
     ok: false,
-    error: typeof answer.error === "string" && answer.error ? answer.error : "refused",
-    message: typeof answer.message === "string" && answer.message ? answer.message : "The game did not take that.",
+    error: typeof answer.error === "string" && answer.error ? answer.error.slice(0, ERROR_MAX) : "refused",
+    message: typeof answer.message === "string" && answer.message ? answer.message.slice(0, MESSAGE_MAX) : "The game did not take that.",
   };
+}
+
+/** The longest error code and sentence an answer carries: they are kept for every id, and saved. */
+export const ERROR_MAX = 64;
+export const MESSAGE_MAX = 200;
+
+/** What the room says when an id comes back with another input than the one it first answered. */
+export const ID_REUSED = "That id was already used for another input. Send this one with a new id.";
+
+/**
+ * A short fingerprint of an input's data, kept with its answer, so the same id with other data
+ * (a page that reloaded and counts its ids from the start again) is told apart from a retry.
+ */
+export function inputDigest(data) {
+  let text;
+  try {
+    text = JSON.stringify(data ?? null) ?? "null";
+  } catch {
+    text = String(data);
+  }
+  let h = 0x811c9dc5;
+  for (let i = 0; i < text.length; i++) h = Math.imul(h ^ text.charCodeAt(i), 0x01000193);
+  return (h >>> 0).toString(16).padStart(8, "0");
+}
+
+/**
+ * What the room knows of this id from this seat: null (a new id), `{answer}` (the same input
+ * again: answer it the same way), or `{reused: true}` (the id was used for other data).
+ */
+export function lookup(book, seat, id, digest) {
+  const key = keyOf(id);
+  for (const [k, answer, kept] of book?.[seat] ?? []) {
+    if (k !== key) continue;
+    return kept === undefined || digest === undefined || kept === digest ? { answer } : { reused: true };
+  }
+  return null;
 }
 
 /** The message that answers an input: `{t: "ack", id}` or `{t: "error", id, error, message}`. */
@@ -47,10 +83,13 @@ export function recall(book, seat, id) {
   return null;
 }
 
-/** Keeps the answer to this id from this seat, dropping the oldest past `max`. Returns the book. */
-export function remember(book, seat, id, answer, max = ANSWERS_KEPT) {
+/**
+ * Keeps the answer to this id from this seat, with the input's fingerprint (inputDigest) when
+ * given, dropping the oldest past `max`. Returns the book.
+ */
+export function remember(book, seat, id, answer, digest = undefined, max = ANSWERS_KEPT) {
   const list = (book[seat] ??= []);
-  list.push([keyOf(id), answer]);
+  list.push(digest === undefined ? [keyOf(id), answer] : [keyOf(id), answer, digest]);
   while (list.length > max) list.shift();
   return book;
 }
