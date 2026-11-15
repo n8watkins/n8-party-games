@@ -2,10 +2,10 @@
 // real Durable Object class before it was fixed: pieces that jumped back after a sleep, a second
 // socket of someone who left, a moving piece taking a spot, and the spot step's sums.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { dropFakeRuntime, settle, useFakeRuntime } from "./fake-room.js";
+import { dropFakeRuntime, settle, useFakeRuntime, walkTo } from "./fake-room.js";
 import { spotsFor4, standOn, turnGame } from "./turn-game.js";
 import { SETTINGS_MS } from "../server/lobby-core.js";
-import { spawnX } from "../shared/world.js";
+import { boxCentre, posAt, spawnX } from "../shared/world.js";
 
 vi.mock("cloudflare:workers", () => ({
   DurableObject: class {
@@ -89,6 +89,32 @@ describe("someone with two sockets who leaves", () => {
     expect(ws.cy.closed).toMatchObject({ code: 4008 });
     expect(cy2.closed).toMatchObject({ code: 4003 });
     expect(ctx.room.core.members[2]).toBeNull();
+  });
+});
+
+describe("a piece walking across a spot", () => {
+  it("does not take it; one that stops in its light does, and keeps it while it moves inside the light", async () => {
+    const r = await spots(turnGame());
+    const { ctx, say, ws } = r;
+    const core = ctx.room.core;
+    const n = core.boxes.length;
+    const centre = boxCentre(0, n);
+    // Cy walks up to the first spot's light, still out of it.
+    await walkTo(say, ctx, ws.cy, 2, centre + 160);
+    expect(core.activity.spots.map((s) => s.seat)).toEqual([null, null]);
+    // She walks on through it: the room hears her inside the light, walking.
+    say(ws.cy, { t: "m", x: centre, d: -1, r: core.members[2].rev });
+    await settle();
+    expect(core.standing(Date.now())[2]).toBe("turns");
+    expect(core.activity.spots.map((s) => s.seat)).toEqual([null, null]);
+    // She stops there: the spot is hers.
+    say(ws.cy, { t: "m", x: Math.round(posAt(core.members[2], Date.now())), d: 0, r: core.members[2].rev });
+    await settle();
+    expect(core.activity.spots.map((s) => s.seat)).toEqual([2, null]);
+    // She moves a step inside the light: she keeps it.
+    say(ws.cy, { t: "m", x: Math.round(core.members[2].x), d: 1, r: core.members[2].rev });
+    await settle();
+    expect(core.activity.spots.map((s) => s.seat)).toEqual([2, null]);
   });
 });
 

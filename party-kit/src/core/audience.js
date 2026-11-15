@@ -45,15 +45,17 @@ export function openSpots(places) {
 /**
  * The spots after the pieces moved. `at` is {seat: the place that piece stands on, or null}, for
  * every piece that may hold a spot (a member who is here); a seat missing from it holds nothing.
- * A spot is kept by the piece on it, freed when that piece is elsewhere or gone, and a free spot
- * is taken by a piece standing on it that holds no other spot, the lowest seat first when two
- * arrive together. Call it after every move, so "first" is the first to arrive.
- * Returns {spots, changed}; the spots given are not changed.
+ * A spot is kept by the piece on it (walking or not, while it stays on that place), freed when that
+ * piece is elsewhere or gone, and a free spot is taken by a piece standing still on it that holds
+ * no other spot, the lowest seat first when two arrive together. `moving` lists the seats that are
+ * walking: one passing over a spot does not take it. Call it after every move, so "first" is the
+ * first to stop there. Returns {spots, changed}; the spots given are not changed.
  */
-export function takeSpots(spots, at) {
+export function takeSpots(spots, at, { moving = [] } = {}) {
   const next = spots.map((spot) => ({ ...spot }));
   for (const spot of next) if (spot.seat !== null && at[spot.seat] !== spot.place) spot.seat = null;
-  const holding = new Set(next.map((spot) => spot.seat).filter((seat) => seat !== null));
+  // A piece holding a spot, or walking, takes no free one.
+  const holding = new Set([...next.map((spot) => spot.seat).filter((seat) => seat !== null), ...moving]);
   const seats = Object.keys(at)
     .map(Number)
     .sort((a, b) => a - b);

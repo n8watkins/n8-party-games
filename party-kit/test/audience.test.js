@@ -68,6 +68,18 @@ describe("spots", () => {
     expect(spotsFull(openSpots([]))).toBe(false);
   });
 
+  it("are taken only by a piece standing still on one, and kept by a holder that moves inside its light", () => {
+    // Cy walks through a: she does not take it.
+    let next = takeSpots(openSpots(["a", "b"]), { 2: "a" }, { moving: [2] });
+    expect(next).toMatchObject({ changed: false, spots: [{ seat: null }, { seat: null }] });
+    // She stops there: it is hers.
+    next = takeSpots(next.spots, { 2: "a" }, { moving: [] });
+    expect(next.spots.map((s) => s.seat)).toEqual([2, null]);
+    // She shuffles inside the light: she keeps it, and Ann, walking in, does not take b in passing.
+    next = takeSpots(next.spots, { 0: "b", 2: "a" }, { moving: [0, 2] });
+    expect(next).toMatchObject({ changed: false, spots: [{ seat: 2 }, { seat: null }] });
+  });
+
   it("read back from a save only in their own shape", () => {
     expect(validSpots([{ place: "a", seat: null }, { place: "b", seat: 3 }])).toBe(true);
     expect(validSpots([])).toBe(false);

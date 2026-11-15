@@ -589,7 +589,9 @@ export class LobbyCore {
     const a = this.activity;
     const standing = this.standing(now);
     const at = Object.fromEntries(this.connected().map((m) => [m.seat, standing[m.seat] ?? null]));
-    const { spots, changed } = takeSpots(a.spots, at);
+    // A piece walking across a spot's light does not take it: only one that stops there does.
+    const moving = this.connected().filter((m) => m.d !== 0).map((m) => m.seat);
+    const { spots, changed } = takeSpots(a.spots, at, { moving });
     if (!changed) return false;
     a.spots = spots;
     a.seats = spotSeats(spots);
