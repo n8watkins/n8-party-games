@@ -9,6 +9,7 @@ import { dropFakeRuntime, fakeEnv, openRoom, settle, useFakeRuntime, voteIn, vot
 import { SETTINGS_FIELDS, choosing as choosingIn, from, started as startedIn, turnGame } from "./turn-game.js";
 import { SETTINGS_MS } from "../server/lobby-core.js";
 import { SETTLE_MS } from "../shared/vote.js";
+import { buildWall } from "../wall.js";
 
 vi.mock("cloudflare:workers", () => ({
   DurableObject: class {
@@ -77,6 +78,10 @@ describe("the settings step after the vote", () => {
       { value: 60, label: "60 seconds" },
     ]);
     expect(view.endsIn).toBeGreaterThan(SETTINGS_MS - 1000);
+    // The fields travel only in `choosing`, during the step: a box says no more than that its game has settings.
+    for (const w of Object.values(ws)) for (const m of w.messages()) for (const box of m.room?.boxes ?? []) expect(box.settings === undefined || box.settings === true).toBe(true);
+    expect(roomOf(ws.ann).boxes[0].settings).toBe(true);
+    expect(ws.ann.messages().find((m) => m.t === "hello").room).not.toHaveProperty("choosing");
     // On record, with its time limit as the room's alarm; no timer of any kind runs.
     expect(ctx.store.get("lobby").choosing).toMatchObject({ id: "turns", picks: { pace: 30 }, seats: [0, 1] });
     expect(ctx.alarm.at).toBe(ctx.room.core.activity.endsAt);
@@ -240,6 +245,39 @@ describe("the settings step after the vote", () => {
     expect(game.calls.created).toEqual([]);
   });
 
+  it("never gives a seat of the step to someone who joins during it: a latecomer watches the game", async () => {
+    const game = turnGame({ settings: true, fields: { minSeats: 1 } });
+    const r = await choosing(game, { players: { min: 1, max: 2 } });
+    const { ctx, connect, say, ws } = r;
+    // Bo leaves; one player is enough for this game, so the step goes on.
+    say(ws.bo, { t: "leave" });
+    await settle();
+    expect(ctx.room.core.activity.kind).toBe("settings");
+    // Cy joins: not into Bo's seat, which is the step's.
+    const cy = await ctx.room.join({ nickname: "Cy", as: "player" });
+    expect(cy.ok).toBe(true);
+    expect(cy.seat).toBe(2);
+    ws.cy = await connect(cy.token);
+    say(ws.ann, { t: "settings-start" });
+    await settle();
+    expect(ctx.room.core.activity).toMatchObject({ kind: "game", seats: [0] });
+    expect(game.calls.created[0].seats.map((s) => s.seat)).toEqual([0]);
+  });
+
+  it("keeps only the step's own players at Start, even in a seat someone else has since taken", async () => {
+    const game = turnGame({ settings: true, fields: { minSeats: 1 } });
+    const r = await choosing(game, { players: { min: 1, max: 2 } });
+    const { ctx, say, ws } = r;
+    say(ws.bo, { t: "leave" });
+    await settle();
+    // However someone came to sit in seat 1, they are not Bo: the step kept who it was opened for.
+    const core = ctx.room.core;
+    core.members[1] = { ...core.members[0], seat: 1, token: "someone-else", name: "Cy" };
+    say(ws.ann, { t: "settings-start" });
+    await settle();
+    expect(game.calls.created[0].seats.map((s) => s.seat)).toEqual([0]);
+  });
+
   it("carries on through a sleep: the same picks, the same host, and the same time limit", async () => {
     const game = turnGame({ settings: true });
     const r = await choosing(game);
@@ -266,6 +304,8 @@ describe("the settings step after the vote", () => {
     await vi.advanceTimersByTimeAsync(1000);
     expect(ctx.room.core.activity.kind).toBe("game");
     expect(game.calls.created[0].settings).toEqual({ pace: 60, rounds: 9, first: "host" });
+    // Both players came through the sleep as the step's own.
+    expect(game.calls.created[0].seats.map((s) => s.seat)).toEqual([0, 1]);
   });
 
   it("starts nothing when the hosting allowance is spent at Start", async () => {
@@ -294,6 +334,18 @@ describe("the settings step after the vote", () => {
     expect(ctx.room.core.activity.kind).toBe("lobby");
     expect(errors.mock.calls.some(([text]) => /turns cannot start: A game with settings describes them in manifest\.settings/.test(text))).toBe(true);
     errors.mockRestore();
+  });
+});
+
+describe("the wall", () => {
+  it("keeps a hosted game's settings for the room, and puts only a flag on its box", () => {
+    const manifest = { id: "turns", name: "Turns", path: "/turns/", players: { min: 2, max: 2 }, devices: { phone: true }, lobby: { view: "view.js" }, settings: SETTINGS_FIELDS };
+    const wall = buildWall([{ manifest, game: turnGame({ settings: true }) }]);
+    expect(wall.fields.get("turns")).toBe(SETTINGS_FIELDS);
+    expect(wall.boxes.find((b) => b.id === "turns").settings).toBe(true);
+    // A game with no settings has neither.
+    expect(wall.boxes.filter((b) => b.id !== "turns").every((b) => !("settings" in b))).toBe(true);
+    expect([...wall.fields.keys()]).toEqual(["turns"]);
   });
 });
 

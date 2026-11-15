@@ -87,13 +87,17 @@ const MAX_REMEMBERED = 12;
 
 export class LobbyCore {
   /**
-   * @param {{boxes: object[], games: Map<string, object>, seed: number, code: string, now: number}} opts
+   * @param {{boxes: object[], games: Map<string, object>, fields?: Map<string, object[]>, seed: number, code: string, now: number}} opts
    *   boxes: the wall, in order (lobby/shared/vote.js, boxFromManifest).
    *   games: the server definition of every box that can actually start, by id.
+   *   fields: each game's settings as its manifest describes them (`manifest.settings`), by id.
+   *     They reach the pages only in the settings step's `choosing`; a box says only `settings: true`.
    */
-  constructor({ boxes, games, seed, code, now }) {
+  constructor({ boxes, games, fields = new Map(), seed, code, now }) {
     this.boxes = boxes;
     this.games = games;
+    this.fields = fields;
+    this.fieldCache = new Map();
     this.seed = seed >>> 0;
     this.code = code;
     this.pin = null;
@@ -102,8 +106,8 @@ export class LobbyCore {
     /** The room's screen: it shows the room and holds no seat. There is one at most. token -> {connected, droppedAt} */
     this.screens = new Map();
     /**
-     * {kind: "lobby"}, {kind: "settings", id, picks, seats, endsAt, startedAt} (the host is
-     * choosing a game's settings) or {kind: "game", id, state, startedAt, ticks, seats}
+     * {kind: "lobby"}, {kind: "settings", id, picks, seats, players, endsAt, startedAt} (the host
+     * is choosing a game's settings; `players` is each seat's token, so only they play) or {kind: "game", id, state, startedAt, ticks, seats}
      */
     this.activity = { kind: "lobby" };
     /** {gameId: {seats, carry}}: what the last game of each left for a rematch, and for whom (settings.js, seatsKey). */
@@ -159,8 +163,9 @@ export class LobbyCore {
     const name = cleanName(nickname);
     if (!name) return fail("bad_name", "Pick a nickname first.");
     // While a game is on, a seat somebody left in the middle of it is still the game's (a
-    // ticking game's stand-in is playing it): a newcomer is never given that seat.
-    const inPlay = this.activity.kind === "game" ? this.activity.seats : [];
+    // ticking game's stand-in is playing it): a newcomer is never given that seat. The same holds
+    // for the seats a settings step was opened for: whoever joins during it watches the game.
+    const inPlay = this.activity.kind === "game" || this.activity.kind === "settings" ? this.activity.seats : [];
     const free = (i) => this.members[i] === null && !inPlay.includes(i);
     const seat = wantSeat >= 0 && free(wantSeat) ? wantSeat : this.members.findIndex((m, i) => free(i));
     if (seat === -1 && this.members.includes(null)) return fail("room_full", "A game is on and its seats are taken. Join when it ends.");
@@ -588,6 +593,9 @@ export class LobbyCore {
     if (!changed) return false;
     a.spots = spots;
     a.seats = spotSeats(spots);
+    // Who stepped on, by token, as everyone saw it (stepPlayers): a seat on a spot plays only while
+    // it is still the same person's. Kept in storage, never in a view.
+    a.players = Object.fromEntries(a.seats.map((seat) => [seat, this.members[seat].token]));
     return true;
   }
 
@@ -795,7 +803,7 @@ export class LobbyCore {
   startGame(id, now, seed = this.roundSeed(this.round + 1)) {
     const game = this.games.get(id);
     if (!game || this.activity.kind !== "lobby") return fail("not_found", "That game cannot start here.");
-    const problems = [...gameProblems(game), ...settingsProblems(game, this.boxOf(id)?.settings)];
+    const problems = [...gameProblems(game), ...settingsProblems(game, this.fields.get(id))];
     if (problems.length) return fail("bad_game", problems.join(" "));
     // A party larger than the game's seats chooses its players on spots first (a game with an
     // audience); a game with settings has them chosen first. Either way the room waits for its
@@ -825,6 +833,12 @@ export class LobbyCore {
     return box?.audience && seats.length > box.max ? seats.slice(0, box.max) : seats;
   }
 
+  /** A game's settings fields, checked and in one shape (settings.js, settingFields); worked out once per game. */
+  fieldsOf(id) {
+    if (!this.fieldCache.has(id)) this.fieldCache.set(id, settingFields(this.fields.get(id)).fields);
+    return this.fieldCache.get(id);
+  }
+
   /** The box on the wall for a game id. */
   boxOf(id) {
     return this.boxes.find((box) => box.id === id) ?? null;
@@ -839,7 +853,7 @@ export class LobbyCore {
   beginSettings(game, id, now, spots = null) {
     let first = { ok: true, settings: {} };
     if (hasSettings(game)) {
-      const { fields } = settingFields(this.boxOf(id)?.settings);
+      const fields = this.fieldsOf(id);
       first = this.lastSettings[id] ? checkSettings(game, this.lastSettings[id]) : null;
       if (!first?.ok) first = checkSettings(game, fieldDefaults(fields));
       if (!first.ok) {
@@ -851,9 +865,13 @@ export class LobbyCore {
     if (!seats.length) return fail("not_ready", "Nobody is here to play.");
     this.count = null;
     this.toss = null;
-    // With spots (a party larger than the game's seats), nobody plays until they stand on one:
-    // the pieces start again by the door, out of every light, and walk to the spots.
-    this.activity = { kind: "settings", id, picks: first.settings, seats: spots ? [] : seats, endsAt: now + SETTINGS_MS, startedAt: now };
+    // Who sits in each seat, by token (kept in storage only, never in a view): at Start only these
+    // people play, whoever may sit in their seats by then. With spots (a party larger than the
+    // game's seats) nobody plays until they stand on one, and a piece is written down here as it
+    // steps on (fillSpots): the pieces start again by the door, out of every light, and walk there.
+    const chosen = spots ? [] : seats;
+    const players = Object.fromEntries(chosen.map((seat) => [seat, this.members[seat].token]));
+    this.activity = { kind: "settings", id, picks: first.settings, seats: chosen, players, endsAt: now + SETTINGS_MS, startedAt: now };
     if (spots) {
       this.activity.spots = spots;
       this.respawn(now);
@@ -900,7 +918,7 @@ export class LobbyCore {
     if (!may.ok) return may;
     const a = this.activity;
     const game = this.games.get(a.id);
-    const { fields } = settingFields(this.boxOf(a.id)?.settings);
+    const fields = this.fieldsOf(a.id);
     const changed = applyChange(fields, a.picks, change);
     if (!changed.ok) return changed;
     const checked = checkSettings(game, changed.picks);
@@ -929,7 +947,7 @@ export class LobbyCore {
     const a = this.activity;
     const box = this.boxOf(a.id);
     // With spots, the players are not chosen yet: anyone still in the party may take a spot.
-    const here = Array.isArray(a.spots) ? this.present().length : a.seats.filter((seat) => this.members[seat]).length;
+    const here = Array.isArray(a.spots) ? this.present().length : this.stepPlayers().length;
     if (here >= Math.max(1, box?.min ?? 1)) return false;
     const name = box?.name ?? a.id;
     this.notes.push({ k: "cancelled", text: `Not enough players are left for ${name}, so it did not start.` });
@@ -958,9 +976,19 @@ export class LobbyCore {
       this.toLobby(now);
       return fail("not_found", "That game cannot start here.");
     }
-    // With spots, only a full set starts the game: its players are the pieces on them.
-    if (Array.isArray(a.spots) && !spotsFull(a.spots)) return fail("spots_open", "Every spot must be taken first.");
-    return this.createGame(game, id, now, seed, a.seats.filter((seat) => this.members[seat]), hasSettings(game) ? a.picks : null);
+    // With spots, only a full set starts the game: its players are the pieces on them, each still
+    // the person who stepped on (stepPlayers), so exactly the people everyone saw on the spots.
+    if (Array.isArray(a.spots) && (!spotsFull(a.spots) || this.stepPlayers().length !== a.spots.length)) return fail("spots_open", "Every spot must be taken first.");
+    return this.createGame(game, id, now, seed, this.stepPlayers(), hasSettings(game) ? a.picks : null);
+  }
+
+  /**
+   * The seats of the settings step still held by the people it was opened for, or, while players
+   * are chosen on spots, by the people who stepped on them.
+   */
+  stepPlayers() {
+    const a = this.activity;
+    return a.seats.filter((seat) => this.members[seat] && this.members[seat].token === a.players?.[seat]);
   }
 
   /**
@@ -1438,7 +1466,7 @@ export class LobbyCore {
     return {
       id: a.id,
       name: box?.name ?? a.id,
-      fields: settingFields(box?.settings).fields,
+      fields: this.fieldsOf(a.id),
       picks: a.picks,
       seats: a.seats,
       ...(Array.isArray(a.spots) ? { spots: a.spots.map((spot) => ({ ...spot })) } : {}),
@@ -1532,9 +1560,11 @@ export class LobbyCore {
     const game = this.games.get(saved.id);
     // A step that chooses players on spots is kept for a game that still takes an audience.
     const spots = saved.spots === undefined ? null : validSpots(saved.spots) && this.boxOf(saved.id)?.audience ? saved.spots : false;
-    const readable = Array.isArray(saved.seats) && saved.seats.every(Number.isInteger) && typeof saved.endsAt === "number" && saved.picks && typeof saved.picks === "object";
+    const players = saved.players && typeof saved.players === "object" ? saved.players : null;
+    const readable =
+      players && Array.isArray(saved.seats) && saved.seats.every((seat) => Number.isInteger(seat) && typeof players[seat] === "string") && typeof saved.endsAt === "number" && saved.picks && typeof saved.picks === "object";
     if (game && (hasSettings(game) || spots) && spots !== false && readable) {
-      this.activity = { kind: "settings", id: saved.id, picks: saved.picks, seats: [...saved.seats], endsAt: saved.endsAt, startedAt: saved.startedAt ?? saved.endsAt - SETTINGS_MS };
+      this.activity = { kind: "settings", id: saved.id, picks: saved.picks, seats: [...saved.seats], players: { ...players }, endsAt: saved.endsAt, startedAt: saved.startedAt ?? saved.endsAt - SETTINGS_MS };
       if (spots) this.activity.spots = spots.map((spot) => ({ place: spot.place, seat: spot.seat }));
       return;
     }

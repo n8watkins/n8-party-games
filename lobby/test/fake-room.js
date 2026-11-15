@@ -151,7 +151,11 @@ export async function openRoom(createLobbyRoom, game, { players = { min: 2, max:
   // `more`: that many coming-soon boxes hang after the game's, so the wall has lights to spare
   // (the spots on which a game's players are chosen are lights on the wall).
   const soon = Array.from({ length: more }, (_, i) => boxFromManifest({ id: `soon-${i}`, name: `Soon ${i}`, players: { min: 1, max: 4 }, devices: { phone: true } }, { soon: true }));
-  const wall = { boxes: [boxFromManifest({ ...manifestOf(game, players), ...manifest }, { view: "/x/view.js" }), ...soon], games: new Map([[game.id, game]]) };
+  const wall = {
+    boxes: [boxFromManifest({ ...manifestOf(game, players), ...manifest }, { view: "/x/view.js" }), ...soon],
+    games: new Map([[game.id, game]]),
+    fields: new Map(manifest.settings ? [[game.id, manifest.settings]] : []),
+  };
   const Room = createLobbyRoom(() => wall);
   const ctx = fakeCtx();
   ctx.room = new Room(ctx, env);

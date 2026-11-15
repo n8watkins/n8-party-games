@@ -4,7 +4,7 @@
 import { describe, expect, it } from "vitest";
 import * as cork from "cork-and-bell";
 import { game as coinFlip } from "../../lobby/games/coin-flip.js";
-import { CARRY_MAX_BYTES, SETTINGS_MAX_BYTES, applyChange, carryFor, carryOf, checkSettings, fieldDefaults, hasCarry, hasSettings, seatsKey, settingFields, settingsProblems } from "../src/core/settings.js";
+import { CARRY_MAX_BYTES, FIELDS_MAX_BYTES, SETTINGS_MAX_BYTES, applyChange, carryFor, carryOf, checkSettings, fieldDefaults, hasCarry, hasSettings, seatsKey, settingFields, settingsProblems } from "../src/core/settings.js";
 
 const FIELDS = [
   { key: "mode", label: "Mode", options: [{ value: "twenty_questions", label: "20 questions" }, { value: "describe_it", label: "Describe it" }] },
@@ -44,11 +44,24 @@ describe("how a manifest describes a game's settings", () => {
       'manifest.settings[1].key "ok" is used twice.',
       "manifest.settings[2].key is a name of letters, digits and _, of up to 32 characters.",
       "manifest.settings[3].options is a list of 1 to 24 choices.",
-      "manifest.settings[4].options are strings, numbers or true and false.",
+      "manifest.settings[4].options are strings of up to 64 characters, numbers or true and false.",
       "manifest.settings[5].options has the same value twice.",
       "manifest.settings[6].default is one of its options.",
       "manifest.settings[7] is an object.",
     ]);
+  });
+});
+
+describe("how much a description may weigh", () => {
+  it("refuses a value too long to show, and fields that weigh more than the room sends", () => {
+    expect(settingFields([{ key: "k", options: ["x".repeat(65)] }]).problems).toEqual(["manifest.settings[0].options are strings of up to 64 characters, numbers or true and false."]);
+    const big = Array.from({ length: 16 }, (_, i) => ({ key: `k${i}`, label: "L".repeat(40), options: Array.from({ length: 24 }, (_, j) => ({ value: `v${j}`.padEnd(40, "x"), label: "o".repeat(40) })) }));
+    const { fields, problems } = settingFields(big);
+    expect(fields).toEqual([]);
+    expect(problems).toHaveLength(1);
+    expect(problems[0]).toMatch(new RegExp(`^manifest\\.settings weighs \\d+ bytes as the room sends it; at most ${FIELDS_MAX_BYTES} are allowed\\.$`));
+    // Who Am I?'s nine fields are well inside it.
+    expect(new TextEncoder().encode(JSON.stringify(settingFields(FIELDS).fields)).length).toBeLessThan(FIELDS_MAX_BYTES / 8);
   });
 });
 

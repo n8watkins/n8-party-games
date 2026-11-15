@@ -32,19 +32,23 @@ const COMING_SOON = [
 ];
 
 /**
- * The wall for a list of hosted games: {boxes, games}. `games` holds the server definition of
- * every box that starts inside the room; a box with a `url` needs none.
+ * The wall for a list of hosted games: {boxes, games, fields}. `games` holds the server definition
+ * of every box that starts inside the room; a box with a `url` needs none. `fields` holds the
+ * settings of each such game whose manifest has them (`manifest.settings`).
  * @param {object[]} hosted  the site's games (games.js)
  * @param {{testGames?: boolean}} [opts]  testGames: also hang Coin Flip, the placeholder
  */
 export function buildWall(hosted, { testGames = false } = {}) {
   const boxes = [];
   const games = new Map();
+  // Each game's settings as its manifest describes them, for the step after the vote.
+  const fields = new Map();
   for (const { manifest, game } of hosted) {
     if (manifest.lobby?.view) {
       // It opens inside the room: the room runs `game`, and the page mounts the view from the game's own files.
       boxes.push(boxFromManifest(manifest, { view: manifest.path + manifest.lobby.view }));
       games.set(manifest.id, game);
+      if (manifest.settings) fields.set(manifest.id, manifest.settings);
     } else {
       // No view the room can mount yet: it plays on its own page.
       boxes.push(boxFromManifest(manifest, { url: manifest.path }));
@@ -56,7 +60,7 @@ export function buildWall(hosted, { testGames = false } = {}) {
   }
   for (const manifest of OUTSIDE) boxes.push(boxFromManifest(manifest));
   for (const manifest of COMING_SOON) boxes.push(boxFromManifest(manifest, { soon: true }));
-  return { boxes, games };
+  return { boxes, games, fields };
 }
 
 /** Production: the hosted games, the outside games and the coming-soon boxes. */
