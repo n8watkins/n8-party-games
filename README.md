@@ -59,6 +59,30 @@ The party room is awake for the instant each move takes to pass on, and for the 
 The room budget in the party kit closes rooms for the day or month once a set share of the plan's allowance is used.
 The details are in the [party kit README](party-kit/README.md), and the party room's measured numbers are in the [lobby README](lobby/README.md).
 
+## Credit
+
+<a href="https://www.youtube.com/@nicksaraev"><img src="https://yt3.googleusercontent.com/molHXVKVHeiHHsYtXrxCZNrwfKitFmAoXZ03CNngHmQSRiW9DAjiOYBxQTYiGuXbnLSQnoRa=s176-c-k-c0x00ffffff-no-rj" width="88" height="88" alt="Nick Saraev"></a>
+
+The party games started from build prompts by Nick Saraev, published with two of his Claude Fable 5.2 videos.
+Each of his prompts is a single-player build; each game here takes one and remakes it for friends playing together on their phones.
+
+| Game | Nick's prompt | From his video | State |
+| --- | --- | --- | --- |
+| [Cork & Bell](https://github.com/n8watkins/cork-and-bell) | The cork gallery | [I Threw $1000 at Fable 5.2 to Build The Coolest Demos Possible](https://www.youtube.com/watch?v=wpFw66kKixU) | Built |
+| Flood | The tile river | [I Threw $1000 at Fable 5.2 to Build The Coolest Demos Possible](https://www.youtube.com/watch?v=wpFw66kKixU) | Planned |
+| Bathtub Regatta (Tin Derby on the party room's wall) | Wind-up derby | [13 INSANE Things You Can Build w/ Claude Fable 5.2](https://www.youtube.com/watch?v=5mA9Hab09Do) | Planned |
+| Fox Trouble | The fox knight, loosely | [13 INSANE Things You Can Build w/ Claude Fable 5.2](https://www.youtube.com/watch?v=5mA9Hab09Do) | Planned |
+
+Where to find Nick:
+
+- YouTube: [@nicksaraev](https://www.youtube.com/@nicksaraev)
+- [Maker Zero](https://www.skool.com/maker-zero/about), his free community on Skool.
+  Both videos' descriptions say the prompt for every build in them is free there.
+- [Maker School](https://www.skool.com/makerschool/about), his paid community on Skool.
+
+His prompts are not copied into these repositories; get them from him.
+This project is not affiliated with Nick Saraev or endorsed by him.
+
 ## License
 
 The code is under the [MIT License](LICENSE).
