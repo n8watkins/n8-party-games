@@ -39,7 +39,7 @@ const state = {
   look: "real", // "real" | "today"
   mode: Q.get("view") === "room" ? "room" : "closer",
   depth: Q.get("depth") !== "off",
-  drag: 0, // metres the eye was pushed by a finger
+  drag: Number(Q.get("eye") ?? 0), // metres the eye was pushed by a finger
   paused: false,
 };
 const still = Q.has("still"); // for screenshots: a fixed moment, nothing random
@@ -104,11 +104,15 @@ const outside = new THREE.Group(); // everything so far away that it follows the
 scene.add(outside);
 
 function buildSky(sky) {
+  // The window only ever shows a low band of the sky, so the gas clouds are wrapped on a band all
+  // round the ship (twice round, the middle of the picture's height) instead of a whole ball.
   sky.wrapS = THREE.RepeatWrapping;
+  sky.repeat.set(2, 0.6);
+  sky.offset.set(0, 0.2);
   const dome = new THREE.Mesh(
-    new THREE.SphereGeometry(700, 48, 24),
+    new THREE.CylinderGeometry(650, 650, 400, 64, 1, true),
     // Everything in this scene is drawn in one list, back to front by its order (three.js draws see-through things after solid ones otherwise).
-    new THREE.MeshBasicMaterial({ map: sky, side: THREE.BackSide, transparent: true, depthTest: false, depthWrite: false, color: new THREE.Color(1.5, 1.5, 1.7), toneMapped: false }),
+    new THREE.MeshBasicMaterial({ map: sky, side: THREE.BackSide, transparent: true, depthTest: false, depthWrite: false, color: new THREE.Color(1.9, 1.9, 2.2), toneMapped: false }),
   );
   dome.renderOrder = -100;
   dome.frustumCulled = false;
@@ -130,7 +134,7 @@ function buildStars(count, seed, size, bright) {
   ];
   for (let i = 0; i < count; i++) {
     const a = rnd() * Math.PI * 2;
-    const e = (rnd() - 0.5) * 0.95;
+    const e = -0.3 + rnd() * 0.5; // only as high and as low as the window can show
     pos.set([Math.cos(e) * Math.sin(a) * 600, Math.sin(e) * 600, -Math.cos(e) * Math.cos(a) * 600], i * 3);
     const t = tints[Math.floor(rnd() * tints.length)];
     const b = bright * (0.35 + 0.65 * Math.pow(rnd(), 2.2));
@@ -280,18 +284,18 @@ function buildRing(o) {
 // ---- things that pass the window: each is a rendered picture at its own depth
 const PASSERS = [
   // name, picture, length in metres, depth z, height y (room metres at that depth), seconds to cross, every (s), first at (s), direction, bob
-  { name: "rocket", w: 2.6, z: -7.5, y: 1.55, lasts: 8, every: 23, first: 2.5, dir: 1, bob: 0.06, flame: [-0.52, 0.0, 0.5, 0xffb060] },
-  { name: "liner", w: 13, z: -26, y: 2.6, lasts: 34, every: 52, first: 9, dir: -1, bob: 0.0, flame: [0.43, -0.03, 0.9, 0x7fd8ff] },
-  { name: "saucer", w: 2.2, z: -9, y: 6.0, lasts: 11, every: 41, first: 21, dir: -1, bob: 0.22, wobble: true },
+  { name: "rocket", w: 2.0, z: -7.5, y: 1.5, lasts: 8, every: 23, first: 2.5, dir: 1, bob: 0.06, flame: [-0.5, 0.0, 0.3, 0xffb060] },
+  { name: "liner", w: 7.5, z: -30, y: 1.75, lasts: 34, every: 52, first: 9, dir: -1, bob: 0.0, flame: [0.44, -0.03, 0.13, 0x7fd8ff] },
+  { name: "saucer", w: 1.8, z: -9, y: 1.75, lasts: 11, every: 41, first: 30, dir: -1, bob: 0.2, wobble: true },
   { name: "rock0", w: 1.5, z: -4.6, y: 1.1, lasts: 30, every: 37, first: 14, dir: -1, spin: 0.25 },
   { name: "rock1", w: 0.8, z: -4.0, y: 1.9, lasts: 24, every: 37, first: 17, dir: -1, spin: -0.4 },
-  { name: "rock2", w: 1.1, z: -5.4, y: 6.3, lasts: 36, every: 37, first: 12, dir: -1, spin: 0.18 },
+  { name: "rock2", w: 0.9, z: -5.4, y: 5.55, lasts: 36, every: 37, first: 12, dir: -1, spin: 0.18 },
 ];
 function buildPassers(tex) {
   for (const p of PASSERS) {
     const t = tex[p.name];
     const h = (p.w * t.image.height) / t.image.width;
-    p.mesh = new THREE.Mesh(new THREE.PlaneGeometry(p.w, h), new THREE.MeshBasicMaterial({ map: t, transparent: true, depthWrite: false, toneMapped: true }));
+    p.mesh = new THREE.Mesh(new THREE.PlaneGeometry(p.w, h), new THREE.MeshBasicMaterial({ map: t, color: 0xd8d8d8, transparent: true, depthWrite: false, toneMapped: true }));
     p.mesh.renderOrder = -95 + (p.z + 30) * 0.01;
     p.mesh.visible = false;
     scene.add(p.mesh);
@@ -614,7 +618,8 @@ const wallQuad = (xw, yw, ww, hw, tex, z = ZB + 0.42, order = -40) => {
 };
 const rr = (g, x, y, w, h, r) => {
   g.beginPath();
-  g.roundRect(x, y, w, h, r);
+  if (g.roundRect) g.roundRect(x, y, w, h, r);
+  else g.rect(x, y, w, h); // an older phone: square corners
 };
 function buildWall(images) {
   for (const [i, box] of BOXES.entries()) {
@@ -950,7 +955,7 @@ function runLamps(t, dt) {
       b.flick -= dt;
       flick *= Math.sin(t * 61) * Math.sin(t * 23) > -0.15 ? 1 : 0.3;
     }
-    const idle = 0.035; // a lamp nobody stands under still glows a little
+    const idle = 0; // a lamp nobody stands under gives the room nothing, so its layer is not looked up at all
     const level = Math.max(b.flick > 0 ? 0.7 : 0, b.level) * flick;
     const glowing = Math.min(1, level * 8);
     const k = 0.3 * glowing + 0.7 * level;
@@ -993,7 +998,8 @@ function runHolo(t, dt) {
   const power = (0.75 + 1.4 * h.heat) * jitter * breathe;
   const i = LIGHTS.indexOf("holo");
   shell.u.uGain.value[i] = gainOf("holo") * power;
-  shell.u.uTint.value[i].copy(h.colour).multiplyScalar(1 / Math.max(0.2, ACCENT.g));
+  // The chart's layer was rendered in its resting colour; this turns that colour into the one it has now.
+  shell.u.uTint.value[i].setRGB(h.colour.r / ACCENT.r, h.colour.g / ACCENT.g, h.colour.b / ACCENT.b);
   h.card.mat.uniforms.uOwn.value = h.card.c.ownGain * power;
   h.card.mat.uniforms.uTint.value.copy(shell.u.uTint.value[i]);
   // Sparks fly out and fall.
@@ -1109,11 +1115,14 @@ function frameView() {
 function resize() {
   const w = stage.clientWidth;
   const h = stage.clientHeight;
-  const ratio = Math.min(window.devicePixelRatio || 1, 2);
+  const ratio = sharp;
   renderer.setPixelRatio(ratio);
   renderer.setSize(w, h, false);
   for (const o of [farStars, nearStars, blinks]) if (o) o.material.uniforms.uPx.value = ratio * Math.max(0.75, h / 520);
 }
+/** Drawn pixels per screen pixel: at most two, and fewer on a device that cannot keep up (see the meter in tick). */
+let sharp = Math.min(window.devicePixelRatio || 1, 2);
+let slowSince = 0;
 let farStars = null;
 let nearStars = null;
 let sky = null;
@@ -1190,10 +1199,20 @@ function tick(nowMs) {
     const worst = Math.max(...f);
     const s = meter.script.slice(-90);
     const sc = s.reduce((a, b) => a + b, 0) / s.length;
-    $("meter").textContent = `${avg.toFixed(1)} ms a frame (${Math.round(1000 / avg)} a second) · worst ${worst.toFixed(0)} · page's own work ${sc.toFixed(1)} ms`;
+    $("meter").textContent = `frame ${avg.toFixed(1)} ms (${Math.round(1000 / avg)} a second) · worst ${worst.toFixed(0)} ms · script ${sc.toFixed(1)} ms · ${sharp.toFixed(2).replace(/\.?0+$/, "")}x`;
     meter.frames = f;
     meter.script = s;
     meter.shown = nowMs;
+    // A device that cannot hold sixty a second draws fewer pixels instead: slower than 20 ms for two seconds, and the picture is drawn a step smaller.
+    if (avg > 20 && sharp > 1 && !still && !Q.has("fixed")) {
+      slowSince ||= nowMs;
+      if (nowMs - slowSince > 2000) {
+        sharp = Math.max(1, sharp - 0.25);
+        slowSince = 0;
+        meter.frames = [];
+        resize();
+      }
+    } else slowSince = 0;
     window.__meter = { avg, worst, script: sc, calls: renderer.info.render.calls, triangles: renderer.info.render.triangles };
   }
 }
@@ -1212,8 +1231,8 @@ function setMode(mode) {
   $("before").src = A[mode === "closer" ? "beforeCloser" : "beforeRoom"];
 }
 function setDepth(on) {
+  if (on !== state.depth) state.drag = 0;
   state.depth = on;
-  state.drag = 0;
   $("depth").setAttribute("aria-pressed", String(on));
   $("depth").textContent = on ? "Depth: on" : "Depth: off";
 }
@@ -1227,7 +1246,11 @@ function wire() {
   let down = null;
   canvas.addEventListener("pointerdown", (e) => {
     down = { x: e.clientX, y: e.clientY, drag: state.drag, moved: false };
-    canvas.setPointerCapture(e.pointerId);
+    try {
+      canvas.setPointerCapture(e.pointerId);
+    } catch {
+      // a touch that has already ended: nothing to hold on to
+    }
   });
   canvas.addEventListener("pointermove", (e) => {
     if (!down) return;
@@ -1266,8 +1289,8 @@ async function start() {
     document.fonts?.load('800 40px "Nunito"').catch(() => null),
   ]);
   sky = buildSky(skyMap);
-  farStars = buildStars(2600, 61, 2.3, 0.95);
-  nearStars = buildStars(260, 19, 4.6, 1.5);
+  farStars = buildStars(3000, 61, 2.4, 1.2);
+  nearStars = buildStars(240, 19, 5.0, 1.9);
   planet = ball(planetMap, CFG.planet, { ringed: true, air: 1 });
   halo(CFG.planet);
   const ring = buildRing(CFG.planet);

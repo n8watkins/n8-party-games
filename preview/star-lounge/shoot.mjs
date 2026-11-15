@@ -47,6 +47,9 @@ if (measure) {
       { name: "phone 844x390 @2x, whole room", viewport: { width: 844, height: 390 }, deviceScaleFactor: 2, query: "view=room" },
       { name: "phone 844x390 @3x, closer", viewport: { width: 844, height: 390 }, deviceScaleFactor: 3, query: "view=closer" },
       { name: "screen 1920x1080", viewport: { width: 1920, height: 1080 }, deviceScaleFactor: 1, query: "view=room" },
+      // Far more pixels than any device has, so that the graphics card is what sets the pace and not the script:
+      // the only way a desktop card says anything about the cost of each pixel. Read the count of frames, not the times.
+      { name: "stress 3840x2160 @2x (33 million pixels), closer", viewport: { width: 3840, height: 2160 }, deviceScaleFactor: 2, query: "view=closer&fixed" },
     ]) {
       const context = await b.newContext({ viewport: size.viewport, deviceScaleFactor: size.deviceScaleFactor, hasTouch: true });
       const page = await context.newPage();
@@ -62,26 +65,27 @@ if (measure) {
             let last = performance.now();
             const t0 = last;
             let poked = false;
+            const el = document.getElementById("gl") ?? document.querySelector("canvas");
             const step = (now) => {
               times.push(now - last);
               last = now;
-              if (!poked && now - t0 > 2500) {
+              if (!poked && now - t0 > 2500 && el.id === "gl") {
                 poked = true;
-                const c = document.getElementById("gl").getBoundingClientRect();
-                for (const [x, y] of [[0.5, 0.3], [0.9, 0.55]]) document.getElementById("gl").dispatchEvent(new PointerEvent("pointerup", { clientX: c.left + c.width * x, clientY: c.top + c.height * y, bubbles: true }));
+                const c = el.getBoundingClientRect();
+                for (const [x, y] of [[0.5, 0.3], [0.9, 0.55]]) for (const type of ["pointerdown", "pointerup"]) el.dispatchEvent(new PointerEvent(type, { clientX: c.left + c.width * x, clientY: c.top + c.height * y, bubbles: true }));
               }
               if (now - t0 < 5000) requestAnimationFrame(step);
               else {
                 times.sort((a, b) => a - b);
-                const gl = document.getElementById("gl").getContext("webgl2");
-                const dbg = gl.getExtension("WEBGL_debug_renderer_info");
-                done({ frames: times.length, mean: times.reduce((a, b) => a + b, 0) / times.length, p50: times[Math.floor(times.length * 0.5)], p95: times[Math.floor(times.length * 0.95)], worst: times[times.length - 1], meter: window.__meter, gpu: dbg ? gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL) : "unknown" });
+                const gl = el.getContext("webgl2");
+                const dbg = gl?.getExtension("WEBGL_debug_renderer_info");
+                done({ frames: times.length, mean: times.reduce((a, b) => a + b, 0) / times.length, p50: times[Math.floor(times.length * 0.5)], p95: times[Math.floor(times.length * 0.95)], worst: times[times.length - 1], meter: window.__meter, pixels: `${el.width}x${el.height}`, gpu: dbg ? gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL) : "unknown" });
               }
             };
             requestAnimationFrame(step);
           }),
       );
-      console.log(`${size.name}: mean ${got.mean.toFixed(2)} ms, median ${got.p50.toFixed(2)}, 95th ${got.p95.toFixed(2)}, worst ${got.worst.toFixed(1)}; the page's own work ${got.meter?.script.toFixed(2)} ms; ${got.meter?.calls} draw calls, ${got.meter?.triangles} triangles; ${got.gpu}`);
+      console.log(`${size.name}: mean ${got.mean.toFixed(2)} ms, median ${got.p50.toFixed(2)}, 95th ${got.p95.toFixed(2)}, worst ${got.worst.toFixed(1)}, ${got.frames} frames in five seconds; ${got.pixels} pixels drawn` + (got.meter ? `; the page's own work ${got.meter.script.toFixed(2)} ms; ${got.meter.calls} draw calls, ${got.meter.triangles} triangles` : "") + `; ${got.gpu}`);
       await context.close();
     }
   } finally {
@@ -103,7 +107,10 @@ if (measure) {
       { name: "phone-568x320", w: 568, h: 320, dpr: 2, q: "still&view=room" },
       { name: "phone-upright-390x844", w: 390, h: 844, dpr: 2, q: "still&view=closer" },
       { name: "phone-844x390-notes", w: 844, h: 390, dpr: 2, q: "still&view=closer", notes: true },
-      { name: "phone-844x390-live-after-taps", w: 844, h: 390, dpr: 2, q: "view=room", live: true },
+      { name: "phone-844x390-live-after-taps", w: 844, h: 390, dpr: 2, q: "view=room&fixed", live: true },
+      // The same moment with the eye pushed a metre and a half each way: near things must move against far ones.
+      { name: "depth-eye-left", w: 844, h: 390, dpr: 2, q: "still&view=closer&eye=-1.5" },
+      { name: "depth-eye-right", w: 844, h: 390, dpr: 2, q: "still&view=closer&eye=1.5" },
     ].filter((s) => !only || s.name.includes(only));
     for (const s of SHOTS) {
       const context = await browser.newContext({ viewport: { width: s.w, height: s.h }, deviceScaleFactor: s.dpr, hasTouch: true });
