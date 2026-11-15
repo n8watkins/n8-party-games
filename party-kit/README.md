@@ -253,9 +253,11 @@ A seat whose phone drops keeps its place for the game's grace (`reconnectGraceMs
 The game hears who is here through an optional `presence(state, seat, { connected, away }, now)`, called whenever that changes for one of its seats: a socket closing or coming back, a page hidden with its socket open (`away`), a wake from sleep that finds a socket gone.
 What it changes is saved and sent like an input's, and `nextDeadline` is asked again, so a game can pause its turn timer and allow its own overrides.
 A seat gone for good (its player left the party, or the grace ran out) ends the game early through an optional `abandon(state, seat, now)`, whose `{ standings, result, events }` decide the result; without it the game ends with no points.
-While the game is played the room waits its `idleShutdownMs` before closing an empty room and its `staleRoomMs` before closing one nobody has touched, the room's own values when it says nothing.
+While the game is played the room closes one nobody has touched after its `staleRoomMs`, and an empty one after its `idleShutdownMs` or the end of the longest grace still running, whichever is later (the room's own values when it says nothing); the party's four hours and a budget close end the game with a note.
+An input is applied to a copy of the state, kept only when `input` returned; a callback that throws (`input`: the sender is answered `game_error`; `tick` or `presence`: the game ends with no points and a note) never leaves a half-changed game.
+A refusal that changed nothing is not saved and only its sender hears of it.
 The rules are in `GAME-CONTRACT.md`, "Who is here during a turn-based game".
-An input may carry an id, and the party room then answers its sender `ack {id}` or `error {id, error, message}`, once, however often the same id is sent (`GAME-CONTRACT.md`, "Answered inputs"; the logic is `src/core/answers.js`: `inputId`, `answerOf`, `answerMessage`, `recall`, `remember`).
+An input may carry an id, and the party room then answers its sender `ack {id}` or `error {id, error, message}`, once, however often the same id is sent with the same data, and `id_reused` when it comes with other data (`GAME-CONTRACT.md`, "Answered inputs"; the logic is `src/core/answers.js`: `inputId`, `answerOf`, `answerMessage`, `inputDigest`, `lookup`, `recall`, `remember`; and `copyState` and `stateKey` in `src/core/turns.js`).
 The plain logic for presence is `src/core/presence.js`: `presenceSignal`, `allAway`, `reportOf`, `graceOf`, `goneWhy`, `graceEndsAt`, `presenceOutcome`, `abandonOutcome`, `lifetimesOf` and `presenceProblems` (which `gameProblems` includes).
 
 ### HTTP API
@@ -310,20 +312,22 @@ party.sendInput({ fire: 1, at: party.now() });   // inputs only, with the room's
 
 // A turn-based game in the party room: wait for the room's answer.
 try {
-  await party.sendInput({ type: "guess", text: "owl" }, { id: "guess-3" });
+  await party.sendInput({ type: "guess", text: "owl" }, { id: party.nextInputId() });
 } catch (err) {
-  // err.code: the game's error ("not_your_turn"), or "timeout", "disconnected", "not_connected"
+  // err.code: the game's error ("not_your_turn"), or "game_error", "id_reused", "timeout", "disconnected", "not_connected"
 }
 ```
 
 `sendInput(data)` without an id is fire and forget and returns whether it was sent, as every ticking game uses it.
-With `{ id }` (a string of up to 64 characters or a whole number, unique on the page) it returns a promise: it resolves with `{ ok: true, id }` on `ack` and rejects with a `PartyError` on `error` (its `code` the game's error, its `id` the input's), after `timeoutMs` (default `ANSWER_TIMEOUT_MS`, ten seconds) with `"timeout"`, and when the connection drops first with `"disconnected"`.
+With `{ id }` (a string of up to 64 characters or a whole number, unique for the seat for the whole game, also across reloads: `nextInputId()` makes one, from a random part chosen when the page loaded and a count) it returns a promise: it resolves with `{ ok: true, id }` on `ack` and rejects with a `PartyError` on `error` (its `code` the game's error, its `id` the input's), after `timeoutMs` (default `ANSWER_TIMEOUT_MS`, ten seconds) with `"timeout"`, and when the connection drops first with `"disconnected"`.
 The fresh snapshot arrives before the answer.
-Sending the same id again while it waits returns the same promise, and the room never applies it twice, so a page may send again after a reconnect.
+Sending the same id again while it waits returns the same promise, and the room never applies it twice, so a page may send the same input again after a reconnect.
+The same id with other data is refused with `"id_reused"`.
 In a ticking game nothing is answered: the input goes without its id and the promise resolves at once with `{ ok: true, id, answered: false }`.
-An `error` with an id goes to its promise and never to the `error` event.
+An `error` with an id goes to its promise; one that no promise waits for any more (it timed out) goes to the `error` event.
+The follow-up clock pings a turn-based game sends when it begins belong to one connection, and are dropped when it closes.
 
-`PartyClient` methods: `create`, `preview`, `join`, `resume`, `sendInput`, `setReady`, `rename`, `setCharacter`, `addBot`, `removeBot`, `start`, `leave`, `now`, `joinUrl`, `qrUrl`, and `dropConnection({reconnectAfterMs})` for tests.
+`PartyClient` methods: `create`, `preview`, `join`, `resume`, `sendInput`, `nextInputId`, `setReady`, `rename`, `setCharacter`, `addBot`, `removeBot`, `start`, `leave`, `now`, `joinUrl`, `qrUrl`, and `dropConnection({reconnectAfterMs})` for tests.
 Events: `room`, `start`, `events`, `snapshot`, `end`, `status`, `error`, `closed` (with the room's own reason for closing the socket as a second argument, when it gave one), and `message` for anything the kit does not know.
 Options: `base`, `lag`, `storage`, `api` and `quietPing` (see "A second kind of room on one site").
 
