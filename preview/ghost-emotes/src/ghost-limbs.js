@@ -80,8 +80,10 @@ export class GhostLimbs {
         mat.transparent = clear;
         mat.needsUpdate = true;
       }
-      mat.opacity = Math.min(1, g.opacity + 0.15);
     }
+    // A faded ghost's hands stay a little more solid than its body, so the gesture still reads; a wisp is the body, and fades with it.
+    hand.opacity = Math.min(1, g.opacity + 0.15);
+    this.wispMat.opacity = g.opacity;
     this.wispMat.color.setScalar(k);
     this.wispMat.emissive.copy(g.glow);
     this.wispMat.emissiveIntensity = 0.07 + 0.16 * g.lit + 1.1 * g.fadeK;
@@ -117,7 +119,8 @@ export class GhostLimbs {
       // It wavers a little along its length, most in the middle: a wisp, not a rod.
       const waver = Math.sin(now / 210 + i * 0.8 + seed * 2) * 1.3 * Math.sin(u * Math.PI);
       const r = (ROOT_R + (WRIST_R - ROOT_R) * Math.pow(u, 0.7)) * (0.35 + 0.65 * grow);
-      const z = ROOT_Z + (WRIST_Z - ROOT_Z) * u;
+      // It swings out in front of the body on its way, so an arm that crosses the chest is not lost inside the sheet.
+      const z = ROOT_Z + (WRIST_Z - ROOT_Z) * u + Math.sin(u * Math.PI) * 0.07;
       tmp.copy(WHITE).lerp(g.pal.hem, Math.pow(u, 1.4)).lerp(g.pal.base, Math.pow(u, 4) * 0.7);
       for (let j = 0; j < SIDES; j++) {
         const ang = (j / SIDES) * Math.PI * 2;

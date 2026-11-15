@@ -148,7 +148,10 @@ function paintRow(rig) {
     const id = b.dataset.take;
     const mark = state.marks[`${rig.id}:${id}`];
     b.setAttribute("aria-pressed", String(id === take));
-    b.textContent = TAKE.get(id).name + (mark === "yes" ? " ★" : mark === "no" ? " ✕" : "");
+    b.textContent = TAKE.get(id).name;
+    if (mark) b.dataset.mark = mark;
+    else delete b.dataset.mark;
+    b.setAttribute("aria-label", TAKE.get(id).name + (mark === "yes" ? ", starred" : mark === "no" ? ", crossed" : ""));
   }
   const [kind, words] = RECS[rig.id][take];
   row.rec.dataset.k = kind;
@@ -252,7 +255,9 @@ function buildControls() {
     else hush();
   });
   if (!SOUNDS) $("sound").hidden = true;
-  const sizeWords = { large: "", tv: `TV size: a pawn ${REAL.tv} px tall`, phone: `Phone size: a pawn ${REAL.phone} px tall` };
+  // The numbers behind the two real sizes are in the notes; on the stage a long label would sit on the pieces.
+  const sizeWords = { large: "", tv: "TV size", phone: "Phone size" };
+  $("size-now").title = `A pawn is ${REAL.tv} px tall at TV size and ${REAL.phone} px at phone size`;
   const paintSize = () => {
     for (const b of $("sizes").children) b.setAttribute("aria-pressed", String(b.dataset.v === state.size));
     $("size-now").textContent = sizeWords[state.size];
