@@ -24,6 +24,7 @@ import { IMPACT_MS } from "./shared/bump.js";
 import { camera } from "./shared/camera.js";
 import { Pilot } from "./shared/pilot.js";
 import { isRoom, roomName } from "./shared/rooms.js";
+import { stageKey, stageStale } from "./shared/stage.js";
 import { playerLine, statusLine } from "./shared/status.js";
 import { posAt } from "./shared/world.js";
 
@@ -400,7 +401,9 @@ function apply(next) {
     } else if (pilot.rev !== me.rev) pilot.place(me.x, me.rev, voteAt);
     tellLit(voteAt);
   }
-  if (room.phase !== "playing" && stage) endStage();
+  // The game is over, or this page missed its end and the next match is on (a drop across a
+  // rematch): the view goes, and the next snapshot mounts the one being played (startStage).
+  if (stage && stageStale(stage.key, room)) endStage();
   // A game takes the whole screen: the board makes way for it.
   if (room.phase === "playing") hideBoard();
 }
@@ -599,6 +602,8 @@ function startStage(snapshot) {
   const mine = { view: null, waiting: [], gone: false };
   const pass = (method, args) => (mine.view ? mine.view[method](...args) : mine.waiting.push([method, args]));
   stage = {
+    // The match this view is for, and so who this device is in it (ctx.you): shared/stage.js.
+    key: stageKey(room.game),
     events: (...args) => pass("events", args),
     snapshot: (...args) => pass("snapshot", args),
     unmount() {

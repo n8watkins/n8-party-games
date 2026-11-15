@@ -91,3 +91,25 @@ describe("someone with two sockets who leaves", () => {
     expect(ctx.room.core.members[2]).toBeNull();
   });
 });
+
+describe("a page back from a drop across a match boundary", () => {
+  it("puts away the view of the match it was showing and mounts the one being played, as who it is in that one", async () => {
+    const { stageKey, stageStale } = await import("../shared/stage.js");
+    const match = (round, seats) => ({ phase: "playing", game: { id: "turns", name: "turns", round, turns: true, seats, audience: true } });
+    // Mounted for round 1, in which seat 2 watched.
+    const key = stageKey(match(1, [0, 1]).game);
+    expect(stageStale(key, match(1, [0, 1]))).toBe(false);
+    // Back after the rematch began, in which seat 2 plays: the old view goes.
+    expect(stageStale(key, match(2, [1, 2]))).toBe(true);
+    // Another game, or no game any more.
+    expect(stageStale(key, { phase: "playing", game: { id: "cork-and-bell", round: 1 } })).toBe(true);
+    expect(stageStale(key, { phase: "lobby", game: null })).toBe(true);
+    expect(stageStale(null, match(2, [1, 2]))).toBe(false);
+
+    // The page wires it: a stale stage is put away before the next snapshot mounts a fresh one.
+    const { readFileSync } = await import("node:fs");
+    const main = readFileSync(new URL("../public/main.js", import.meta.url), "utf8");
+    expect(main).toMatch(/if \(stage && stageStale\(stage\.key, room\)\) endStage\(\);/);
+    expect(main).toMatch(/key: stageKey\(room\.game\)/);
+  });
+});
