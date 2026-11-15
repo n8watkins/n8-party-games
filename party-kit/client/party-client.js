@@ -9,6 +9,7 @@
 //   party.on("snapshot", (s, now) => ...)
 //   party.on("end", ({ room, result }) => ...)
 //   party.sendInput({ ... })                         // inputs only, never results
+//   await party.sendInput({ ... }, { id: "q-7" })    // a turn-based game's answer: ok, or a PartyError
 //   party.now()                                      // the room's clock, in ms
 //
 // The session is kept in sessionStorage, so a reload or a dropped connection comes back to the
@@ -20,6 +21,10 @@ const STORE_KEY = "party-kit:session";
 // enough, and it lets the room sleep.
 const PING_EVERY_MS = 2000;
 const IDLE_PING_EVERY_MS = 10_000;
+/** How long sendInput waits for the room to answer an input with an id. */
+export const ANSWER_TIMEOUT_MS = 10_000;
+/** An input id as a key: 7 and "7" are different ids, as they are to the room. */
+const answerKey = (id) => `${typeof id === "number" ? "n" : "s"}:${id}`;
 
 export class PartyClient {
   /**
@@ -50,6 +55,8 @@ export class PartyClient {
     this.pingTimer = null;
     /** The turn-based game the clock was last set for, by a few round trips ("id/round"). */
     this.clockFor = null;
+    /** Inputs sent with an id and not yet answered: key -> {promise, resolve, reject, timer} (sendInput). */
+    this.answers = new Map();
   }
 
   on(type, handler) {
@@ -160,6 +167,8 @@ export class PartyClient {
       if (this.ws !== ws) return;
       clearInterval(this.pingTimer);
       this.ws = null;
+      // An answer cannot come on a closed socket: whoever waits may send the same id again once it is back.
+      this.dropAnswers();
       // 4000: the room closed. 4003: the seat is no longer ours (the grace ran out).
       if (event.code === 4000 || event.code === 4003 || !this.wantOpen) {
         this.forget();
@@ -215,8 +224,13 @@ export class PartyClient {
         this.setRoom(msg.room);
         this.emit("end", msg);
         break;
+      case "ack":
+        this.settleAnswer(answerKey(msg.id), { ok: true, id: msg.id });
+        break;
       case "error":
-        this.emit("error", new PartyError(msg.error, msg.message));
+        // An error with an id answers that input (sendInput) and nobody else; a late one is dropped.
+        if (msg.id !== undefined && msg.id !== null) this.settleAnswer(answerKey(msg.id), new PartyError(msg.error, msg.message, msg.id));
+        else this.emit("error", new PartyError(msg.error, msg.message));
         break;
       default:
         // Anything else belongs to whoever built on the kit (the party site's lobby).
@@ -286,9 +300,53 @@ export class PartyClient {
     this.send({ t: "ping", c: Date.now() });
   }
 
-  /** Inputs only. The room decides what they did. */
-  sendInput(data) {
-    return this.send({ t: "in", d: data });
+  /**
+   * Inputs only. The room decides what they did.
+   *
+   * With no id it is fire and forget, as every ticking game uses it: true when it was sent.
+   * With `{id}` (a string of up to 64 characters or an integer, unique on this page) it returns a
+   * promise for the room's answer from a turn-based game: it resolves with `{ok: true, id}` when
+   * the input was applied, and rejects with a PartyError (`code` the game's error, or "timeout",
+   * "disconnected", "not_connected") when it was not. The fresh snapshot comes before the answer.
+   * The same id sent again (after a reconnect, or a second tap) is never applied twice: the room
+   * answers it the way it did the first time. In a ticking game nothing is answered, so the input
+   * goes without its id and the promise resolves at once with `{ok: true, id, answered: false}`.
+   */
+  sendInput(data, { id = null, timeoutMs = ANSWER_TIMEOUT_MS } = {}) {
+    if (id === null || id === undefined) return this.send({ t: "in", d: data });
+    if (!(typeof id === "string" ? id.length >= 1 && id.length <= 64 : Number.isSafeInteger(id))) {
+      return Promise.reject(new PartyError("bad_id", "An input id is a string of up to 64 characters, or a whole number."));
+    }
+    if (ticking(this.room)) {
+      return this.send({ t: "in", d: data }) ? Promise.resolve({ ok: true, id, answered: false }) : Promise.reject(new PartyError("not_connected", "Not connected to the room."));
+    }
+    const key = answerKey(id);
+    let waiting = this.answers.get(key);
+    if (!waiting) {
+      waiting = {};
+      waiting.promise = new Promise((resolve, reject) => Object.assign(waiting, { resolve, reject }));
+      this.answers.set(key, waiting);
+    }
+    clearTimeout(waiting.timer);
+    waiting.timer = setTimeout(() => this.settleAnswer(key, new PartyError("timeout", "The room did not answer in time.")), timeoutMs);
+    if (!this.send({ t: "in", d: data, id })) this.settleAnswer(key, new PartyError("not_connected", "Not connected to the room."));
+    return waiting.promise;
+  }
+
+  /** Every input still waiting for an answer is rejected: the connection it went on is gone. */
+  dropAnswers() {
+    for (const key of [...this.answers.keys()]) this.settleAnswer(key, new PartyError("disconnected", "The connection to the room dropped before it answered."));
+  }
+
+  /** Resolves (with a result) or rejects (with a PartyError) the promise waiting on an input's answer. */
+  settleAnswer(key, outcome) {
+    const waiting = this.answers.get(key);
+    if (!waiting) return false;
+    this.answers.delete(key);
+    clearTimeout(waiting.timer);
+    if (outcome instanceof Error) waiting.reject(outcome);
+    else waiting.resolve(outcome);
+    return true;
   }
   setReady(ready) {
     return this.send({ t: "ready", v: !!ready });
@@ -313,6 +371,7 @@ export class PartyClient {
   leave() {
     this.wantOpen = false;
     this.send({ t: "leave" });
+    this.dropAnswers();
     this.forget();
     this.ws?.close();
   }
@@ -323,6 +382,7 @@ export class PartyClient {
     const ws = this.ws;
     this.ws = null;
     clearInterval(this.pingTimer);
+    this.dropAnswers();
     ws?.close();
     this.setStatus("reconnecting");
     if (reconnectAfterMs !== null) setTimeout(() => this.connect(), reconnectAfterMs);
@@ -350,9 +410,11 @@ export class PartyClient {
 }
 
 export class PartyError extends Error {
-  constructor(code, message) {
+  /** `id`: the input this answers, for an error the room sent back for one (sendInput). */
+  constructor(code, message, id = undefined) {
     super(message);
     this.code = code;
+    if (id !== undefined) this.id = id;
   }
 }
 

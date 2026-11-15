@@ -27,6 +27,7 @@
 //               held for the game's grace, the game is told of every change in who is here
 //               (turnUpkeep, game.presence), and a seat gone for good ends the game early
 //               (game.abandon). While it is played the room's lifetimes are the game's own.
+import { answerOf, recall, remember } from "../../party-kit/src/core/answers.js";
 import { makeRng } from "../../party-kit/src/core/rng.js";
 import { abandonOutcome, goneWhy, graceEndsAt, graceOf, lifetimesOf, presenceOutcome, reportOf, sameReport } from "../../party-kit/src/core/presence.js";
 import { deadlineOf, gameProblems, inputOutcome, isTurnBased, loadState, saveState } from "../../party-kit/src/core/turns.js";
@@ -89,6 +90,11 @@ export class LobbyCore {
     this.activity = { kind: "lobby" };
     /** Set by restore when a turn-based game was saved and could not be brought back. */
     this.lost = false;
+    /**
+     * null, or {round, answers}: the answers to inputs with ids in the turn-based game that just
+     * ended, so the winning tap sent twice is answered again, not refused. Kept until the next game.
+     */
+    this.lastAnswers = null;
     this.round = 0;
     this.gamesPlayed = 0;
     /** The games played tonight and who won each, oldest first (lobby/shared/tonight.js). */
@@ -680,6 +686,7 @@ export class LobbyCore {
     const seats = this.present().map((m) => ({ seat: m.seat, name: m.name, kind: "human", colour: m.colour }));
     if (!seats.length) return fail("not_ready", "Nobody is here to play.");
     this.round += 1;
+    this.lastAnswers = null;
     this.count = null;
     this.toss = null;
     const state = game.create({ seed: seed >>> 0, seats, now, round: this.round });
@@ -690,6 +697,8 @@ export class LobbyCore {
       this.activity.told = Object.fromEntries(seats.map((s) => [s.seat, { connected: true, away: false }]));
       // The names, so a game a player has left can still say who left.
       this.activity.names = Object.fromEntries(seats.map((s) => [s.seat, s.name]));
+      // The answers given to inputs with ids, per seat (answers.js), saved with the game.
+      this.activity.answers = {};
       if (!game.isOver(state)) this.tellPresence(game, now);
     }
     this.lastActive = now;
@@ -741,20 +750,36 @@ export class LobbyCore {
   }
 
   /**
-   * An input from a player in a turn-based game, applied at once. Returns {ok: false, error} when
-   * it was not taken (no such game, a seat not in it, a phone not connected), or
-   * {ok: true, answer, events, snapshot, viewerOf, ended}, as gameTick returns, with `snapshot`
-   * always set (every viewer gets a fresh one after every input) and `answer` the game's own word
-   * to the sender (party-kit/src/core/turns.js, inputOutcome).
+   * An input from a player in a turn-based game, applied at once. Returns {ok: false, error,
+   * message} when the room did not take it (no such game, a seat not in it, a phone not
+   * connected), or {ok: true, answer, events, snapshot, viewerOf, ended}, as gameTick returns,
+   * with `snapshot` always set (every viewer gets a fresh one after every input) and `answer` the
+   * game's word to the sender, `{ok: true}` or `{ok: false, error, message}`
+   * (party-kit/src/core/answers.js, answerOf).
+   *
+   * With an `id` (answers.js, inputId), the answer is kept for that seat: the same id again is
+   * not applied, and comes back as {ok: true, repeat: true, answer, snapshot, viewerOf} with the
+   * first answer and the game as it is now, for the sender only. That holds for a short while
+   * after the game is over too (the winning tap sent twice), until the next game starts.
    */
-  playTurn(seat, data, now) {
+  playTurn(seat, data, now, id = null) {
     const a = this.activity;
     const game = this.turnGame();
-    if (!game) return fail("not_playing", "No turn-based game is being played.");
+    if (!game) {
+      const known = id !== null ? recall(this.lastAnswers?.answers, seat, id) : null;
+      if (known) return { ok: true, repeat: true, answer: known, events: [], snapshot: null, viewerOf: (who) => this.viewerOf(who), ended: null };
+      return fail("not_playing", "No turn-based game is being played.");
+    }
     if (!a.seats.includes(seat) || !this.members[seat]?.connected) return fail("not_in_game", "That seat is not playing this game.");
-    const { events, answer } = inputOutcome(game.input(a.state, seat, data, now));
+    if (id !== null) {
+      const known = recall(a.answers, seat, id);
+      if (known) return { ok: true, repeat: true, answer: known, events: [], snapshot: (viewer) => game.snapshot(a.state, now, viewer), viewerOf: (who) => this.viewerOf(who, a), ended: null };
+    }
+    const outcome = inputOutcome(game.input(a.state, seat, data, now));
+    const answer = answerOf(outcome.answer);
+    if (id !== null) remember((a.answers ??= {}), seat, id, answer);
     this.lastActive = now;
-    return { ok: true, answer, ...this.turnOut(game, events, now) };
+    return { ok: true, answer, ...this.turnOut(game, outcome.events, now) };
   }
 
   /**
@@ -900,6 +925,7 @@ export class LobbyCore {
     if (rows.length) this.gamesPlayed += 1;
     this.last = { round: this.round, game: a.id, name: this.boxes.find((box) => box.id === a.id)?.name ?? a.id, rows, at: now };
     if (ending) this.last.early = ending.early;
+    this.lastAnswers = a.answers ? { round: this.round, answers: a.answers } : null;
     this.activity = { kind: "lobby" };
     for (const m of this.present()) {
       m.x = spawnX(m.seat, this.boxes.length);
@@ -980,6 +1006,7 @@ export class LobbyCore {
       emptySince: this.emptySince,
       room: this.room,
       hostToken: this.hostToken,
+      lastAnswers: this.lastAnswers,
     };
   }
 
@@ -987,8 +1014,8 @@ export class LobbyCore {
   savedGame() {
     const game = this.turnGame();
     if (!game) return null;
-    const { id, state, startedAt, ticks, seats, told, names } = this.activity;
-    return { id, startedAt, ticks, seats, told, names, state: saveState(game, state) };
+    const { id, state, startedAt, ticks, seats, told, names, answers } = this.activity;
+    return { id, startedAt, ticks, seats, told, names, answers, state: saveState(game, state) };
   }
 
   /**
@@ -1006,7 +1033,7 @@ export class LobbyCore {
       // What the game was last told of each seat comes back too, so a wake tells it only what
       // changed while the room slept (turnUpkeep).
       const told = Object.fromEntries(saved.seats.map((seat) => [seat, saved.told?.[seat] ?? { connected: true, away: false }]));
-      this.activity = { kind: "game", id: saved.id, state, startedAt: saved.startedAt, ticks: saved.ticks ?? 0, seats: [...saved.seats], told, names: { ...saved.names } };
+      this.activity = { kind: "game", id: saved.id, state, startedAt: saved.startedAt, ticks: saved.ticks ?? 0, seats: [...saved.seats], told, names: { ...saved.names }, answers: saved.answers ?? {} };
     } catch (err) {
       console.error("party room: a saved game could not be restored", err);
       this.activity = { kind: "lobby" };
@@ -1043,6 +1070,7 @@ export class LobbyCore {
     room.emptySince = data.emptySince ?? now;
     room.room = isRoom(data.room) ? data.room : DEFAULT_ROOM;
     room.hostToken = data.hostToken ?? null;
+    room.lastAnswers = data.lastAnswers ?? null;
     if (data.game) room.restoreGame(data.game);
     return room;
   }

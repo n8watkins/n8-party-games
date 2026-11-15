@@ -15,6 +15,7 @@
 // API and costs nothing, and all the time the room is awake is counted against the room budget.
 import { DurableObject } from "cloudflare:workers";
 import { LagLine, eventsFor, fanOut } from "../../party-kit/src/core/room-core.js";
+import { answerMessage, inputId } from "../../party-kit/src/core/answers.js";
 import { allAway, presenceSignal } from "../../party-kit/src/core/presence.js";
 import { newSeed } from "../../party-kit/src/core/rng.js";
 import { SOCKET_RATE, newBucket, strike, takeMessage } from "../../party-kit/src/worker/limit-logic.js";
@@ -277,11 +278,14 @@ export function createLobbyRoom(wallFor) {
         case "away":
         case "back":
           return this.presence(entry, msg, now);
-        case "in":
-          if (!player) return;
-          if (core.turnGame()) void this.playTurn(entry, msg.d, now);
-          else core.gameInput(entry.seat, msg.d, now);
+        case "in": {
+          // A turn-based game's input is answered when it carries an id, and so is the same id
+          // sent again just after that game ended. A ticking game's input is fire and forget.
+          const id = inputId(msg.id);
+          if (core.turnGame() || (id !== null && core.lastAnswers)) void this.playTurn(entry, msg.d, now, id);
+          else if (player) core.gameInput(entry.seat, msg.d, now);
           return;
+        }
         case "pick": {
           // The party moves to another room: one stored value and one relayed message. Refused
           // (to that page only) when it is not the host's tap or not the moment.
@@ -539,21 +543,33 @@ export function createLobbyRoom(wallFor) {
     /**
      * An input to a turn-based game: applied at once, the game saved, and only then does anyone
      * hear of it (every viewer gets a fresh snapshot, and the events it produced). The one place
-     * where such an input is applied and saved; it returns what playTurn returned, so the sender
-     * can be answered from here when inputs are answered.
+     * where such an input is applied and saved. With an `id`, the sender alone is then answered,
+     * after its snapshot: `ack {id}`, or `error {id, error, message}` when the game or the room
+     * turned it down. An id answered before is answered again the same way and not applied; the
+     * sender gets the game as it is now, and nobody else hears anything.
      */
-    async playTurn(entry, data, now) {
+    async playTurn(entry, data, now, id = null) {
       const core = this.core;
       // The other phone may have gone quiet without closing its socket: the game hears of it first.
       this.reap(now);
-      const out = core.playTurn(entry.seat, data, now);
-      if (!out.ok) return out;
+      const out = core.playTurn(entry.role === "player" ? entry.seat : -1, data, now, id);
+      const answer = (said) => id !== null && this.send(entry, answerMessage(id, said));
+      if (!out.ok) {
+        answer(out);
+        return out;
+      }
+      if (out.repeat) {
+        if (out.snapshot) this.send(entry, { t: "snap", s: out.snapshot(out.viewerOf(entry)), now });
+        answer(out.answer);
+        return out;
+      }
       const saving = Date.now();
       await this.save();
       // The wait for storage is time awake too.
       this.meter.add(Date.now() - saving, 0);
       if (this.core !== core) return out;
       this.deliverTurn(out, now);
+      answer(out.answer);
       return out;
     }
 
