@@ -61,7 +61,10 @@ The details are in the [party kit README](party-kit/README.md), and the party ro
 
 ## Credit
 
-<a href="https://www.youtube.com/@nicksaraev"><img src="https://yt3.googleusercontent.com/molHXVKVHeiHHsYtXrxCZNrwfKitFmAoXZ03CNngHmQSRiW9DAjiOYBxQTYiGuXbnLSQnoRa=s176-c-k-c0x00ffffff-no-rj" width="88" height="88" alt="Nick Saraev"></a>
+[![YouTube: @nicksaraev](https://img.shields.io/badge/YouTube-%40nicksaraev-FF0000?logo=youtube&logoColor=white)](https://www.youtube.com/@nicksaraev)
+[![YouTube: the Fable 5.2 demos video](https://img.shields.io/badge/YouTube-Demos%20video-FF0000?logo=youtube&logoColor=white)](https://www.youtube.com/watch?v=wpFw66kKixU)
+[![YouTube: the Fable 5.2 builds video](https://img.shields.io/badge/YouTube-Builds%20video-FF0000?logo=youtube&logoColor=white)](https://www.youtube.com/watch?v=5mA9Hab09Do)
+[![Skool: Maker Zero, where Nick's prompt packs are](https://img.shields.io/badge/Skool-Maker%20Zero-1d1d1f)](https://www.skool.com/maker-zero/about)
 
 The party games started from build prompts by Nick Saraev, published with two of his Claude Fable 5.2 videos.
 Each of his prompts is a single-player build; each game here takes one and remakes it for friends playing together on their phones.
@@ -77,10 +80,10 @@ Where to find Nick:
 
 - YouTube: [@nicksaraev](https://www.youtube.com/@nicksaraev)
 - [Maker Zero](https://www.skool.com/maker-zero/about), his free community on Skool.
-  Both videos' descriptions say the prompt for every build in them is free there.
+  Nick's prompt pack for each of the two videos is free there; both videos' descriptions send you there for it.
 - [Maker School](https://www.skool.com/makerschool/about), his paid community on Skool.
 
-His prompts are not copied into these repositories; get them from him.
+Nick's prompt packs are not copied into these repositories; get them from him.
 This project is not affiliated with Nick Saraev or endorsed by him.
 
 ## License
