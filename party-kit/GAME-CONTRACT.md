@@ -87,9 +87,11 @@ When the vote's count ends, the room calls `game.create({ seed, seats, now, roun
 `seats` is one entry for each player in the party, `{ seat, name, kind: "human", colour }`, with the seat numbers and colours they have in the lobby.
 Seat numbers are the room's and may have gaps (seats 0 and 2 when seat 1 left earlier), and there may be only one: the room does not look at `game.minSeats`, since the wall already kept the light off for a party the game does not take.
 There is no waiting room and no ready step: the vote was the ready step.
-The room sends everyone `start { room, s, now }`, the same message the kit's own rooms send, where `s` is `game.snapshot(state, now)`.
-The party room does not shape per-seat views yet: it calls `snapshot` with no viewer and sends every socket the same snapshot and every event, so a game with secrets cannot be hosted in it until it does (it is to use the kit's `viewerFor`, `eventsFor` and `fanOut`, the way the kit's own room does, with members outside the round as `{ role: "screen", seat }`).
+`seed` is the game's own, drawn fresh from the platform's secure source for each game, so nothing a game shows its players leads to the room's seed or to another game's draw.
+The room sends everyone `start { room, s, now }`, the same message the kit's own rooms send, where `s` is `game.snapshot(state, now, viewer)`.
 From then on it is the kit's round protocol unchanged: `in { d }` from a player goes to `game.input`, and `ev { ev, now }` and `snap { s, now }` come from `game.tick` and `game.snapshot`.
+Every message that carries the game's state (the start, each snapshot, the last one, the full one a socket gets when it connects mid-game, and the events) is built per viewer, as in the kit's own room (the kit's README, "Per-seat views"): a phone whose seat is in `activity.seats` is `{ role: "player", seat }`, the big screen is `{ role: "screen" }`, and a member whose seat is not in the game is `{ role: "screen", seat }`.
+Messages about the room itself (pieces, the vote, emotes, the Tonight board, the result at the end) are the same for everyone.
 The room answers the kit client's clock ping while a game is on, so `party.now()` works as it does in a game's own room.
 A seat whose player dropped is played by `game.bot`, if the game has one, so the round can finish.
 Someone who joins while a game is on gets a seat in the room and a full snapshot, watches, and plays in the next one.

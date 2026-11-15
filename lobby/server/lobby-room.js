@@ -10,7 +10,7 @@
 // So a lobby where nobody touches anything holds its sockets through the WebSocket Hibernation
 // API and costs nothing, and all the time the room is awake is counted against the room budget.
 import { DurableObject } from "cloudflare:workers";
-import { LagLine } from "../../party-kit/src/core/room-core.js";
+import { LagLine, eventsFor, fanOut } from "../../party-kit/src/core/room-core.js";
 import { newSeed } from "../../party-kit/src/core/rng.js";
 import { SOCKET_RATE, newBucket, strike, takeMessage } from "../../party-kit/src/worker/limit-logic.js";
 import { PIN_DIRECTORY_NAME } from "../../party-kit/src/worker/pin-logic.js";
@@ -151,8 +151,8 @@ export function createLobbyRoom(wallFor) {
 
       const core = this.core;
       this.send(entry, { t: "hello", you: { role: who.role, seat: who.seat }, room: core.view(now) });
-      const a = core.activity;
-      if (a.kind === "game") this.send(entry, { t: "snap", s: this.wall.games.get(a.id).snapshot(a.state, now), now, full: true });
+      // Mid-game (a reload, a phone back from a drop, a late joiner): the game as this socket may see it.
+      if (core.activity.kind === "game") this.send(entry, { t: "snap", s: core.snapshotFor(core.viewerOf(entry), now), now, full: true });
       this.changed(now);
       this.bill(now);
       return new Response(null, { status: 101, webSocket: client });
@@ -424,10 +424,15 @@ export function createLobbyRoom(wallFor) {
       const core = this.core;
       const game = this.wall.games.get(id);
       const now = Date.now();
-      const started = core.startGame(id, now);
+      // Each game its own seed from the secure source: nothing a page is shown leads to the room's or the next game's.
+      const started = core.startGame(id, now, newSeed());
       if (!started.ok) return;
       if (started.ended) return this.finish(started.ended, now);
-      this.broadcast({ t: "start", room: core.view(now), s: game.snapshot(core.activity.state, now), now });
+      const room = core.view(now);
+      this.broadcastViews(
+        (e) => core.viewerOf(e),
+        (viewer) => ({ t: "start", room, s: core.snapshotFor(viewer, now), now }),
+      );
       // The one place a timer runs: while a game with a tick rate is being played.
       this.meter.hold(now);
       this.timer = setInterval(() => this.gameTick(), Math.round(1000 / (game.tickHz ?? 30)));
@@ -438,8 +443,15 @@ export function createLobbyRoom(wallFor) {
       if (!core || core.activity.kind !== "game") return this.stopTimer();
       const now = Date.now();
       const out = core.gameTick(now);
-      if (out.events.length) this.broadcast({ t: "ev", ev: out.events, now });
-      if (out.snapshot) this.broadcast({ t: "snap", s: out.snapshot, now });
+      // Built per viewer: an event addressed to some seats (`only`) reaches only them, and each
+      // snapshot is the one its viewer may see. The game's seats decide, even on the last tick.
+      if (out.events.length) {
+        this.broadcastViews(out.viewerOf, (viewer) => {
+          const ev = eventsFor(out.events, viewer);
+          return ev.length ? { t: "ev", ev, now } : null;
+        });
+      }
+      if (out.snapshot) this.broadcastViews(out.viewerOf, (viewer) => ({ t: "snap", s: out.snapshot(viewer), now }));
       if (out.ended) {
         this.stopTimer();
         this.finish(out.ended, now);
@@ -544,6 +556,15 @@ export function createLobbyRoom(wallFor) {
     broadcast(message, except = null) {
       const text = JSON.stringify(message);
       for (const entry of this.sockets.values()) if (entry !== except) entry.out.push(text);
+    }
+
+    /**
+     * Sends a message that carries a game's state: `make(viewer)` builds it once for each kind of
+     * viewer (`viewerOf` says which a socket is), and each socket gets its own. Messages about the
+     * room itself (pieces, votes, emotes, the Tonight board) go out with broadcast().
+     */
+    broadcastViews(viewerOf, make) {
+      for (const [entry, text] of fanOut(this.sockets.values(), viewerOf, make)) entry.out.push(text);
     }
 
     broadcastRoom(now) {

@@ -17,6 +17,7 @@
 // which way it walks, and works out the rest (lobby/shared/world.js). Everything that depends
 // on time (the count, the toss, a dropped phone's grace, closing) is a wake-up: nextWake().
 import { makeRng } from "../../party-kit/src/core/rng.js";
+import { viewerFor } from "../../party-kit/src/core/views.js";
 import { IDLE_SHUTDOWN_MS, NAME_MAX, SEAT_COLOURS, STALE_ROOM_MS, cleanName, randomToken } from "../../party-kit/src/core/room-core.js";
 import { AWAY_MS, COUNT_MS, SETTLE_MS, TOSS_MS, leaders, pointsForPlace, standingsFromRows, tally, whyNot } from "../shared/vote.js";
 import { bumpTarget, cooldownLeft, isDown, isSafe, knockLanding, knocked, mayBump } from "../shared/bump.js";
@@ -603,8 +604,13 @@ export class LobbyCore {
   /**
    * Starts a game with the party's seats. Returns {ok, ended}: `ended` is set when the game was
    * over the moment it began (a stand-in), otherwise null and the room ticks it.
+   *
+   * `seed` is the game's own seed. The Durable Object passes a fresh one from the platform's
+   * secure source, so a game that shows its seed to the players (Cork & Bell's pages simulate
+   * their stalls from it) gives away nothing of the room's seed or of any other game's draw.
+   * Left out (the tests), it is derived from the room's seed and the round, so a run repeats.
    */
-  startGame(id, now) {
+  startGame(id, now, seed = this.roundSeed(this.round + 1)) {
     const game = this.games.get(id);
     if (!game || this.activity.kind !== "lobby") return fail("not_found", "That game cannot start here.");
     const seats = this.present().map((m) => ({ seat: m.seat, name: m.name, kind: "human", colour: m.colour }));
@@ -612,11 +618,32 @@ export class LobbyCore {
     this.round += 1;
     this.count = null;
     this.toss = null;
-    const seed = (Math.imul(this.seed ^ 0x9e3779b9, this.round + 1) ^ (this.round * 40503)) >>> 0;
-    const state = game.create({ seed, seats, now, round: this.round });
+    const state = game.create({ seed: seed >>> 0, seats, now, round: this.round });
     this.activity = { kind: "game", id, state, startedAt: now, ticks: 0, seats: seats.map((s) => s.seat) };
     this.lastActive = now;
     return { ok: true, ended: game.isOver(state) ? this.finishGame(now) : null };
+  }
+
+  /** The seed a round draws from when none is given: repeatable, for the tests. */
+  roundSeed(round) {
+    return (Math.imul(this.seed ^ 0x9e3779b9, round + 1) ^ (round * 40503)) >>> 0;
+  }
+
+  /**
+   * The viewer a socket of this identity ({role, seat}) gets for a game's state, by the kit's
+   * rules (party-kit/src/core/views.js): a phone whose seat is in the game is that player, the
+   * big screen is the screen, and a member whose seat is not in the game (they joined after it
+   * began) watches it with a screen's view. The one place the party room decides who sees what.
+   * `activity` is the game being shown; it defaults to the current one.
+   */
+  viewerOf(who, activity = this.activity) {
+    return viewerFor(who, activity.kind === "game" ? new Set(activity.seats) : null);
+  }
+
+  /** The current game's state as this viewer may see it (game.snapshot with the viewer). */
+  snapshotFor(viewer, now) {
+    const a = this.activity;
+    return a.kind === "game" ? this.games.get(a.id).snapshot(a.state, now, viewer) : null;
   }
 
   /** An input from a player in the game. Seats that joined after it started just watch. */
@@ -627,10 +654,17 @@ export class LobbyCore {
     return true;
   }
 
-  /** Advances the game. Returns {events, snapshot, ended}; call it at the game's tick rate. */
+  /**
+   * Advances the game; call it at the game's tick rate. Returns {events, snapshot, viewerOf, ended}:
+   *   events    all of them; the room sends each viewer its own with `eventsFor`
+   *   snapshot  null, or `(viewer) => game.snapshot(...)` when one is due (the last one included)
+   *   viewerOf  the viewer of a socket ({role, seat}) for this game, which still holds once
+   *             `ended` has put the room back in the lobby, so the last snapshot and events go
+   *             out by the game's seats
+   */
   gameTick(now) {
     const a = this.activity;
-    const out = { events: [], snapshot: null, ended: null };
+    const out = { events: [], snapshot: null, viewerOf: (who) => this.viewerOf(who, a), ended: null };
     if (a.kind !== "game") return out;
     const game = this.games.get(a.id);
     a.ticks += 1;
@@ -642,9 +676,10 @@ export class LobbyCore {
       }
     }
     out.events = game.tick(a.state, now) ?? [];
-    if (a.ticks % (game.snapshotEvery ?? 15) === 0) out.snapshot = game.snapshot(a.state, now);
+    const snapshot = (viewer) => game.snapshot(a.state, now, viewer);
+    if (a.ticks % (game.snapshotEvery ?? 15) === 0) out.snapshot = snapshot;
     if (game.isOver(a.state)) {
-      out.snapshot = game.snapshot(a.state, now);
+      out.snapshot = snapshot;
       out.ended = this.finishGame(now);
     }
     return out;
