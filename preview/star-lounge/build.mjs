@@ -88,7 +88,7 @@ const page = readFileSync(join(here, "src/page.html"), "utf8")
   .replace("/*FONTS*/", () => fonts)
   .replace("/*DATA*/", () => data)
   .replace("/*BUNDLE*/", () => code);
-if (page.includes("—")) throw new Error("the page has an em dash in it");
+if (page.includes(String.fromCharCode(8212))) throw new Error("the page has an em dash in it");
 const file = join(here, "star-lounge.html");
 writeFileSync(file, page);
 console.log(`wrote ${file}: ${(page.length / 1024 / 1024).toFixed(2)} MB (script ${(code.length / 1024).toFixed(0)} KB)`);
