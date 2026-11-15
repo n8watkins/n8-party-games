@@ -34,7 +34,7 @@ const result = await build({
   format: "iife",
   target: "es2020",
   write: false,
-  legalComments: "none",
+  legalComments: "eof",
   plugins: [
     {
       name: "preview",

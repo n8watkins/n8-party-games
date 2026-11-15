@@ -19,7 +19,7 @@ export const REAL = { phone: 72, tv: 141 };
 /** A pause between two runs of the same emote. */
 const GAP_MS = 900;
 /** What a picture must show, in metres from the ghost (left, top) and from the pawn (right), and under the floor line. */
-const BOX = { left: 0.5, right: 0.36, top: 1.75, under: 0.1 };
+const BOX = { left: 0.62, right: 0.36, top: 1.75, under: 0.1 };
 /** How high the pawn's head reaches, in metres, with a little air over it. */
 const PAWN_TOP = PAWN_METRES + 0.05;
 /** The strip along the bottom of the stage where its buttons sit. */
@@ -191,12 +191,16 @@ export function createStage({ box, canvas, overlay, inset, onNoGl }) {
       // The word: over whatever the emote holds up, sized as the room sizes it (never too small to read).
       // At TV and phone size that is the room's own formula; the large picture is no real size, so its word is held to a sensible one.
       const real = Math.max(0.62, (kx / RIG_TO_ROOM) * 1.25);
-      const scale = v === main && mode === "large" ? Math.min(real, 1.1) : real;
+      let scale = v === main && mode === "large" ? Math.min(real, 1.1) : real;
       // Kept inside its picture, and clear of the phone-size picture beside it.
-      const half = (Math.max(60, [...rig.word].length * 12.5 + 28) / 2 + 12) * scale;
+      let half =(Math.max(60, [...rig.word].length * 12.5 + 28) / 2 + 12) * scale;
       const y = Math.max(y0 + ghostPoseTop(pose) * ky, 60 * scale + 4);
       const right = v === main && side.rect && y - 60 * scale < side.rect.y + side.rect.h ? side.rect.x - 4 : v.rect.w;
-      const x = Math.max(half + 2, Math.min(right - half - 2, x0));
+      // When the room beside the phone-size picture is too narrow for the word, the word shrinks to fit.
+      const fitK = Math.min(1, (right - 4) / (2 * half));
+      scale *= fitK;
+      half *= fitK;
+      const x =Math.max(half + 2, Math.min(right - half - 2, x0));
       v.sticker.show(sticker ? rig.word : null, x, y, scale, pop);
     }
   }

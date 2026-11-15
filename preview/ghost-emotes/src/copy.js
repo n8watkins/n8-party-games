@@ -95,16 +95,16 @@ export const NOTES = [
   [
     "Sizes",
     [
-      ["Phone size", "is a pawn 72 pixels tall and TV size 141, the numbers from the character previews. The word bubble is sized by the room's own rule at both."],
+      ["Phone size", "is a pawn 72 pixels tall and TV size 141. These are the numbers from the character previews, not measured in the live room. The word bubble is sized by the room's own rule at both."],
       ["Large", "is whatever fits your screen, so on a small phone it is close to TV size."],
-      ["On a small phone held upright", "there is no room for the phone-size picture beside the large one. Use the Phone button there."],
+      ["On a small phone, upright or sideways,", "there is no room for the phone-size picture beside the large one. Use the Phone button there."],
     ],
   ],
   [
     "Sound",
     [
       ["These are the room's own recordings,", "one per emote, the same files a pawn's emotes play. All are public domain (CC0); the credits are in the room's sound folder."],
-      ["The ghost keeps the pawn's timing,", "so the three claps, the pop and the flick of the lighter land where the recordings expect them."],
+      ["The ghost keeps the pawn's timing,", "so the three claps, the pop and the flick of the lighter happen at the same moments as on the pawn."],
       ["I cannot hear.", "Nothing here was judged by ear. If a sound does not suit the ghost, say which."],
     ],
   ],

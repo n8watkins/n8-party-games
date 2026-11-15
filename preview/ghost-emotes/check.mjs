@@ -69,7 +69,7 @@ if (all || want.has("sheets")) {
   await context.close();
 }
 
-const SIZES = [[390, 844], [844, 390], [667, 375], [360, 640]];
+const SIZES = [[390, 844], [844, 390], [667, 375], [360, 640], [640, 360], [412, 915]];
 
 /** Measures the page: scrolling, things outside the screen, things on top of each other. */
 function measure() {
@@ -90,6 +90,13 @@ function measure() {
     if (r.left < stage.left || r.right > stage.right + 0.5 || r.top < stage.top || r.bottom > stage.bottom + 0.5) out.push(`${el.id || el.textContent} leaves the stage`);
   }
   for (let i = 0; i < ctl.length; i++) for (let j = i + 1; j < ctl.length; j++) if (hit(box(ctl[i]), box(ctl[j]))) out.push(`${ctl[i].id || ctl[i].textContent} is on ${ctl[j].id || ctl[j].textContent}`);
+  // In Large mode the word bubble never runs under the phone-size corner picture.
+  const inset = document.getElementById("inset");
+  if (document.getElementById("stage").dataset.size === "large" && inset && shown(inset)) {
+    const ir = box(inset);
+    for (const s of document.querySelectorAll('#overlay svg:not([style*="display: none"]) .emote-sticker:not([display="none"])'))
+      if (hit(box(s), ir)) out.push("the word bubble overlaps the phone-size picture");
+  }
   // Every row: its controls inside it and beside each other; no text cut off.
   for (const row of document.querySelectorAll(".row")) {
     if (!shown(row)) continue;

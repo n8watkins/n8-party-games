@@ -92,6 +92,7 @@
   .row .seg { flex: 1 1 auto; min-width: 0; }
   .row .seg button { flex: 1 1 auto; padding: 0 3px; min-height: 38px; position: relative; font-size: 11.5px; }
   @container (min-width: 300px) { .row .seg button { font-size: 12.5px; padding: 0 6px; } }
+  .row .seg > .hint { display: flex; align-items: center; min-height: 38px; padding: 0 10px; }
   /* A take that has a star or a cross shows it in its corner, so marks on the takes not showing are not lost. */
   .row .seg button[data-mark]::after { position: absolute; top: 1px; right: 3px; font-size: 10px; line-height: 1; }
   .row .seg button[data-mark="yes"]::after { content: "\2605"; color: var(--brass); }
