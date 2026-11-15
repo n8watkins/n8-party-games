@@ -818,21 +818,31 @@ export class LobbyCore {
   /**
    * The spots on which a game's players are chosen, when the party has more members than the game
    * has seats and the game takes an audience (its box says `audience`): one light on the wall for
-   * each seat (vote.js, spotLights). Null when no spots are needed. A wall with fewer lights than
-   * the game has seats has no spots to offer: the first members by seat play.
+   * each seat (vote.js, spotLights). Null when no spots are needed. The phones that are here count,
+   * as they do for the game's light (a dropped piece cannot take a spot). A wall with fewer lights
+   * than the game has seats has no spots to offer: partySeats decides who plays.
    */
   spotsFor(id) {
     const box = this.boxOf(id);
-    if (!needsSpots({ audience: box?.audience, seats: box?.max }, this.present().length)) return null;
+    if (!needsSpots({ audience: box?.audience, seats: box?.max }, this.connected().length)) return null;
     const places = spotLights(this.boxes, id, box.max);
     return places ? openSpots(places) : null;
   }
 
-  /** The seats that play a game with no spot step: the party, or its first members when the game takes fewer (a wall too small for spots). */
+  /**
+   * The seats that play a game with no spot step: the party. When the game takes an audience and
+   * fewer seats than the party (a wall too small for spots, or a dropped piece beside as many
+   * phones as seats), the members whose phones are here come first, then the rest, each by seat.
+   */
   partySeats(id) {
     const seats = this.present().map((m) => m.seat);
     const box = this.boxOf(id);
-    return box?.audience && seats.length > box.max ? seats.slice(0, box.max) : seats;
+    if (!box?.audience || seats.length <= box.max) return seats;
+    const here = (seat) => (this.members[seat].connected ? 0 : 1);
+    return [...seats]
+      .sort((p, q) => here(p) - here(q) || p - q)
+      .slice(0, box.max)
+      .sort((p, q) => p - q);
   }
 
   /** A game's settings fields, checked and in one shape (settings.js, settingFields); worked out once per game. */
@@ -951,9 +961,11 @@ export class LobbyCore {
   choosingFails(now) {
     const a = this.activity;
     const box = this.boxOf(a.id);
-    // With spots, the players are not chosen yet: anyone still in the party may take a spot.
-    const here = Array.isArray(a.spots) ? this.present().length : this.stepPlayers().length;
-    if (here >= Math.max(1, box?.min ?? 1)) return false;
+    // With spots, the players are not chosen yet: anyone still in the party may take a spot (a
+    // dropped phone may come back), and every spot must be taken, so fewer members than spots end it.
+    const spots = Array.isArray(a.spots);
+    const here = spots ? this.present().length : this.stepPlayers().length;
+    if (here >= (spots ? a.spots.length : Math.max(1, box?.min ?? 1))) return false;
     const name = box?.name ?? a.id;
     this.notes.push({ k: "cancelled", text: `Not enough players are left for ${name}, so it did not start.` });
     this.toLobby(now);

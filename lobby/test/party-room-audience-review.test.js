@@ -141,6 +141,41 @@ describe("a wall too small for spots", () => {
   });
 });
 
+describe("the spot step's sums", () => {
+  it("counts the phones that are here: a party of three with one dropped plays a two-seat game at once, with the two who are here", async () => {
+    const game = turnGame();
+    const r = await openRoom(createLobbyRoom, game, { more: 2, manifest: { audience: true } });
+    const { ctx } = r;
+    ctx.keepAlive = true;
+    const ann = await ctx.room.create({ code: "BCDFGH", nickname: "Ann", as: "player" });
+    const bo = await ctx.room.join({ nickname: "Bo", as: "player" });
+    const cy = await ctx.room.join({ nickname: "Cy", as: "player" });
+    const ws = { ann: await r.connect(ann.token), bo: await r.connect(bo.token), cy: await r.connect(cy.token) };
+    await settle();
+    // Ann's phone drops; her grey piece is still in the party.
+    ctx.room.webSocketClose(ws.ann, 1006, "");
+    await settle();
+    expect(ctx.room.core.present()).toHaveLength(3);
+    await voteTo(r, "game", [ws.bo, 1], [ws.cy, 2]);
+    expect(ctx.room.core.activity).not.toHaveProperty("spots");
+    expect(ctx.room.core.activity.seats).toEqual([1, 2]);
+  });
+
+  it("ends the step at once when fewer members are left than there are spots", async () => {
+    const r = await spots(turnGame({ fields: { maxSeats: 3 } }), { players: { min: 2, max: 3 } });
+    const { ctx, say, ws } = r;
+    expect(ctx.room.core.activity.spots).toHaveLength(3);
+    say(ws.cy, { t: "leave" });
+    await settle();
+    expect(ctx.room.core.activity.kind).toBe("settings");
+    // Two are left for three spots: the step can never fill, so it ends now and says why.
+    say(ws.di, { t: "leave" });
+    await settle();
+    expect(ctx.room.core.activity.kind).toBe("lobby");
+    expect(ws.ann.messages().filter((m) => m.t === "note" && m.k === "cancelled")).toMatchObject([{ text: "Not enough players are left for turns, so it did not start." }]);
+  });
+});
+
 describe("a page back from a drop across a match boundary", () => {
   it("puts away the view of the match it was showing and mounts the one being played, as who it is in that one", async () => {
     const { stageKey, stageStale } = await import("../shared/stage.js");
