@@ -181,7 +181,7 @@ export const game = {
   id: "my-game",
   minSeats: 2,
   maxSeats: 4,
-  tickHz: 30,          // room ticks per second while a round is on
+  tickHz: 30,          // room ticks per second while a round is on (0: turn-based, below)
   snapshotEvery: 15,   // a full snapshot every N ticks
 
   // A round begins (first start and every rematch). seed is this round's seed.
@@ -230,6 +230,15 @@ A game that wants its clients to have a seed puts one in its own snapshot, as Co
 
 A game that ignores `viewer` and puts no `only` on its events gets the same frames on every socket as before this existed.
 The helpers are plain logic in `src/core/views.js`, also exported from `n8-party-games/kit/core` (`viewerFor`, `viewerKey`, `eventsFor`, `fanOut`), so another kind of room can shape its messages the same way.
+
+### Turn-based games
+
+A game that says `tickHz: 0` is turn-based: no timer ticks it, each input is applied the moment it arrives, the game's `nextDeadline(state)` (a turn timer) is the room's alarm and calls `tick` once, and the game is saved after every input (with `serialize` and `restore` when it has them, as plain JSON otherwise) and restored when the room wakes.
+The rules are in `GAME-CONTRACT.md`, "Turn-based games".
+The party room runs such games today.
+This kit's own room (`createPartyRoom`) does not yet: it ticks every game on a timer and keeps a round in memory only, so do not give it a game with `tickHz: 0`.
+The logic either room needs is plain, in `src/core/turns.js`: `isTurnBased`, `gameProblems` (what is wrong with a game definition), `deadlineOf`, `inputOutcome` (an input's events, and the game's answer to its sender), and `saveState` and `loadState` (which refuse a state that is not plain JSON instead of letting it come back changed).
+The client keeps quiet during such a game: when the room view's `game` says `turns: true`, `PartyClient` sends its keep-alive instead of a clock ping every two seconds, after three clock pings when the game begins and after a reconnect.
 
 ### HTTP API
 
@@ -331,7 +340,7 @@ With no `character` hook each seat shows a plain disc in its colour.
 - A player who leaves on purpose gets no grace.
 - A newcomer may take over a bot seat that nobody is coming back to, even during a round.
 - One minute with nobody connected (`IDLE_SHUTDOWN_MS`) and the room closes its sockets (code 4000), releases its PIN and deletes its storage.
-- The lobby (seats, tokens, PIN) is saved and survives the object sleeping. A round in progress lives in memory only.
+- The lobby (seats, tokens, PIN) is saved and survives the object sleeping. A round in progress lives in memory only (in this room; the party room saves a turn-based game, "Turn-based games").
 
 ## Simulated latency
 
@@ -342,6 +351,8 @@ The delay runs inside the room (`LagLine`), so the room's view of time is the re
 
 `npm test` at the repository root runs `party-kit/test/room-core.test.js`: seats and colours, nickname cleaning, ready and start, round seeds, the authoritative round, drop, rejoin inside and outside the grace, leaving, late joiners, stand-ins, idle shutdown, saving and restoring, the latency line, the seeded generator, PIN picking and the rate-limit window.
 `party-kit/test/views.test.js` drives the room's Durable Object class itself, with fake sockets that keep every frame as sent: with a game that holds a secret per seat, no frame to a seat carries its own secret, the other seat's frames carry it, the screen and a later arrival get neither, the room's seed is in no frame, and a game that ignores the viewer sends every socket the same frames.
+`party-kit/test/turns.test.js` covers the turn-based logic in `src/core/turns.js`, and `party-kit/test/party-client-ping.test.js` how often the client pings in the lobby, in a turn-based game and in a ticking one.
+The party room's turn-based games are proved on its real Durable Object class in `lobby/test/party-room-turns.test.js`.
 `npm run test:room` (with `npm run dev` running) checks the Durable Object wiring end to end over real sockets, with no browser: create, PIN lookup, QR code, join, a wrong PIN, simulated latency, start, an input relayed to the other seat, a drop with a stand-in, the same seat back with a full snapshot, and with `-- --full=1` the length of a whole round and the instant rematch.
 The games' multiplayer playtests (for example `npm run playtest:battle`) drive the same path through real browsers.
 `npm test` also checks the deploy settings (`test/deploy-config.test.js`), the API guards (`test/http.test.js`) and the score board's rules (`test/score.test.js`).

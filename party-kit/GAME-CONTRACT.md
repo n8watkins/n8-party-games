@@ -32,7 +32,7 @@ export const manifest = {
 
 | Name | What it is |
 | --- | --- |
-| `game` | The server game definition for `createPartyRoom(game)`: `id`, `minSeats`, `maxSeats`, `tickHz`, `snapshotEvery`, `create`, `input`, `bot`, `tick`, `snapshot`, `isOver`, `result` (see the kit's README, "The game object" and "Per-seat views"). |
+| `game` | The server game definition for `createPartyRoom(game)`: `id`, `minSeats`, `maxSeats`, `tickHz`, `snapshotEvery`, `create`, `input`, `bot`, `tick`, `snapshot`, `isOver`, `result` (see the kit's README, "The game object" and "Per-seat views"). A turn-based game (`tickHz: 0`) may add `nextDeadline`, `serialize` and `restore` ("Turn-based games" below). |
 | `manifest.id` | A short name in lower case with dashes. It matches `game.id`. |
 | `manifest.name` | The name people read. |
 | `manifest.path` | Where the game lives on a site, with a slash at both ends. The same on the party site and on the game's own site, so a join link works on either. |
@@ -79,7 +79,8 @@ The room's `activity` is `{ kind: "lobby" }` or `{ kind: "game", id, state, star
 Every client sees it in the room view as `phase` (`"lobby"` or `"playing"`) and `game` (`{ id, name, round }` or `null`).
 The seats, the join code, the big screen (a room has one) and the Tonight board belong to the room, not to the activity, so they carry across.
 In the lobby nothing ticks: the room is asleep unless somebody moves.
-In a game the room ticks at the game's `tickHz`, and all of that time counts against the room budget.
+In a ticking game the room ticks at the game's `tickHz`, and all of that time counts against the room budget.
+In a turn-based game (`tickHz: 0`) nothing ticks either: the room wakes for an input or the game's next deadline, and only that time counts ("Turn-based games").
 
 ### Start: with the party's seats
 
@@ -96,6 +97,37 @@ The room answers the kit client's clock ping while a game is on, so `party.now()
 A seat whose player dropped is played by `game.bot`, if the game has one, so the round can finish.
 Someone who joins while a game is on gets a seat in the room and a full snapshot, watches, and plays in the next one.
 They are never given a seat that is in the game, even one whose player left the party in the middle of it: that seat's stall is still being played by the stand-in.
+
+### Turn-based games
+
+A game of people talking, with a tap now and then and a turn timer (Who Am I?), says `tickHz: 0`.
+The room then runs no timer for it, sleeps between taps and saves the game after every one.
+
+```js
+export const game = {
+  tickHz: 0,                          // turn-based: never ticked on a timer
+  input(state, seat, data, now) {     // applied the moment it arrives
+    return { ok: true, events: [] };  // optional: events for the viewers; the rest is the game's answer
+  },
+  nextDeadline(state) { return state.turnEndsAt; },  // optional: when the room must wake, or null
+  tick(state, now) { return events; },               // called once when that deadline comes
+  serialize(state) { return JSON.stringify(state); }, // optional, with restore: the game's own save
+  restore(text) { return JSON.parse(text); },
+  // create, snapshot, isOver, result, standings: as for any game
+};
+```
+
+- **An input** from a seat in the game is applied at once with `game.input`. The game is saved, and only then does each viewer get a fresh `snap { s, now }` (its own, as above) and the events the input produced (`ev { ev, now }`, filtered by `only`). Every input gets fresh snapshots, also one the game turned down, since an input may end a timed-out turn before it is refused.
+- **What `input` returns** may carry events: a list, or `events` on an object. Anything else on the object (`{ ok: false, error, message }`) is the game's answer to the sender; the room keeps it and does not send it yet.
+- **Time is the alarm.** `nextDeadline(state)` is the next moment the game needs the room awake: a turn timer running out. It is a time in the room's clock, or `null` when the game is waiting on nobody's clock (a paused timer). When it comes, the room calls `game.tick(state, now)` once, saves, and sends the events and fresh snapshots. A deadline that moved before the alarm rang ticks nothing. `nextDeadline` must move on once `tick` has handled it.
+- **Saved after every input.** The room's save holds the game: its id, its seats, when it started, and its state, written by `game.serialize` (which returns plain JSON, a string being the usual) or, without it, the state itself copied as plain JSON. A state that is not plain JSON (a `Map`, a `Set`, a `Date`, a class instance, `undefined` in a list, a number that is not finite) is refused by its path instead of coming back changed; give such a game `serialize` and `restore`. `serialize` and `restore` come together or not at all.
+- **Restored when the room wakes**, after an eviction or a deploy: the same game, the same seats (so every phone, the screen and anyone who arrived mid-game see what they saw before), and the same pending deadline. Phones whose sockets stayed open through the sleep play on as if nothing happened, and nobody is sent anything for the wake itself. A save that cannot be read (the game left the wall, or its `restore` refused it) sends everyone back to the lobby, as a ticking game does.
+- **It ends** when `isOver` is true after an input or a deadline, through the same finish as a ticking game: the last snapshots, then `end`, then places and points on the Tonight board ("End", below).
+- **Pages stay quiet.** The room view's `game` says `turns: true`, and the kit's client then keeps to the keep-alive the runtime answers without waking the room, after a few clock pings when the game begins and after a reconnect.
+- **What it costs** is only the time the room is really awake: each input, each deadline, each socket opening or closing. A quiet turn costs nothing.
+- **Not yet**: `bot` is not called for a turn-based game (a dropped phone's seat simply waits), and the room's lifetimes, the game's settings and a rematch carry are the room's own (KR-4 to KR-8 in Who Am I?'s plan).
+
+A room refuses to start a game whose definition does not fit these rules (`gameProblems` in `party-kit/src/core/turns.js`), and logs why.
 
 ### End: with places
 
@@ -116,7 +148,8 @@ A row carries `score` when the game's result rows do; the card then shows it bes
 The moment a game ends the activity is the lobby again.
 Every piece is put back in the dark by the door, the points are on the Tonight board, and the room rests for six seconds before a new count may start, so the result can be read.
 The board is saved with the room and survives the room sleeping.
-A game in progress is not saved: if the room is restarted mid-game, everyone is back in the lobby with the points they had.
+A ticking game in progress is not saved: if the room is restarted mid-game, everyone is back in the lobby with the points they had.
+A turn-based game in progress is saved and carries on ("Turn-based games").
 Asking to go back to the room before a game is over (the door sheet in the design) is not built: a game runs to its end, and a player can still leave the party.
 
 ### In the browser
@@ -211,4 +244,5 @@ On the server, nothing new: a `game` the kit's own rooms can run already has eve
 In the browser, a view in the shape of `mount` above: begin from a snapshot for seats the room already has, with no waiting room of the game's own, and give the screen back at the end.
 A game built to be the whole page can keep being one and be shown in a frame, as Cork & Bell is.
 
-What it costs is the round: the room is awake for all of it, as a game's own room is, and that time is counted against the shared room budget second for second (`lobby/README.md`, "What it costs").
+What a ticking game costs is the round: the room is awake for all of it, as a game's own room is, and that time is counted against the shared room budget second for second (`lobby/README.md`, "What it costs").
+A turn-based game costs only the moments the room is awake for an input or a deadline.

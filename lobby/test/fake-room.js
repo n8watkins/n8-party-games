@@ -82,8 +82,13 @@ export function fakeCtx() {
     /** The instance the alarm wakes: the newest one. */
     room: null,
     alarm: { at: null, timer: null, rang: 0 },
+    /**
+     * Whether every page keeps sending the keep-alive the runtime answers by itself ("ping"): it
+     * never reaches the room, which only sees when each socket last got the automatic reply.
+     */
+    keepAlive: false,
     setWebSocketAutoResponse: () => {},
-    getWebSocketAutoResponseTimestamp: () => null,
+    getWebSocketAutoResponseTimestamp: () => (ctx.keepAlive ? new Date(Date.now()) : null),
     blockConcurrencyWhile: (fn) => fn(),
     acceptWebSocket: (ws) => sockets.push(ws),
     getWebSockets: () => sockets.filter((ws) => !ws.closed),
