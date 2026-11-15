@@ -526,8 +526,9 @@ export class LobbyCore {
 
   /**
    * Looks at where everyone stands and starts or stops the count. Call it after anything that
-   * could change the vote. Returns {view, state}: `view` when what the players see has changed,
-   * `state` when the count itself started or stopped (which is worth saving).
+   * could change the vote. Returns {view, state, gaveUp}: `view` when what the players see has
+   * changed, `state` when the count itself started or stopped (which is worth saving), `gaveUp`
+   * when the settings step ended because its players are no longer here (the whole room changed).
    */
   evaluate(now) {
     const before = this.count?.endsAt ?? 0;
@@ -545,7 +546,8 @@ export class LobbyCore {
     const key = JSON.stringify([view.standing, view.lights, this.count?.endsAt ?? 0, this.toss?.endsAt ?? 0]);
     const changed = key !== this.voteKey;
     this.voteKey = key;
-    return { view: changed || gaveUp, state: (this.count?.endsAt ?? 0) !== before || gaveUp };
+    if (gaveUp) return { view: true, state: true, gaveUp };
+    return { view: changed, state: (this.count?.endsAt ?? 0) !== before };
   }
 
   /** The vote as the players see it. Times are given as "in so many milliseconds", so no clocks need to agree. */

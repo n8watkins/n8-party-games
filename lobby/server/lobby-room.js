@@ -486,6 +486,7 @@ export function createLobbyRoom(wallFor) {
       if (!core) return;
       this.reap(now);
       const change = core.evaluate(now);
+      if (change.gaveUp) return this.changed(now);
       if (change.view) this.broadcast({ t: "vote", vote: core.voteView(now) });
       if (change.state) void this.save();
       this.arm(now);
@@ -500,8 +501,9 @@ export function createLobbyRoom(wallFor) {
     changed(now) {
       const core = this.core;
       if (!core) return;
-      this.tellNotes();
+      // Looked at first: a settings step whose players left ends here, and says so in a note.
       core.evaluate(now);
+      this.tellNotes();
       this.broadcastRoom(now);
       this.arm(now);
       void this.save();
