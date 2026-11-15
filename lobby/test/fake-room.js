@@ -146,8 +146,9 @@ const manifestOf = (game, players) => ({ id: game.id, name: game.id, players, de
  * socket and say something on it, and `sleepAndWake`: a new instance over the same storage and
  * sockets, as after an eviction or a deploy.
  */
-export async function openRoom(createLobbyRoom, game, { players = { min: 2, max: 2 }, env = fakeEnv() } = {}) {
-  const wall = { boxes: [boxFromManifest(manifestOf(game, players), { view: "/x/view.js" })], games: new Map([[game.id, game]]) };
+export async function openRoom(createLobbyRoom, game, { players = { min: 2, max: 2 }, env = fakeEnv(), manifest = {} } = {}) {
+  // `manifest`: more of the game's manifest, as its box is drawn from it (its `settings`, say).
+  const wall = { boxes: [boxFromManifest({ ...manifestOf(game, players), ...manifest }, { view: "/x/view.js" })], games: new Map([[game.id, game]]) };
   const Room = createLobbyRoom(() => wall);
   const ctx = fakeCtx();
   ctx.room = new Room(ctx, env);
@@ -183,13 +184,21 @@ export async function walkIn(say, ctx, ws, seat) {
 }
 
 /** Both players walk into the light; the count runs out on the alarm and the game starts. */
-export async function voteIn({ ctx, say }, ...players) {
+export async function voteIn(r, ...players) {
+  return voteTo(r, "game", ...players);
+}
+
+/**
+ * The players walk into the light and the count runs out on the alarm, up to the moment the room
+ * leaves the lobby and no further: `kind` is what it must be then ("game", or "settings" for a
+ * game whose settings are chosen first).
+ */
+export async function voteTo({ ctx, say }, kind, ...players) {
   for (const [ws, seat] of players) await walkIn(say, ctx, ws, seat);
   expect(ctx.room.core.count).not.toBeNull();
-  // Up to the moment the game starts, and no further.
   const until = Date.now() + COUNT_MS + 1000;
-  while (ctx.room.core.activity.kind !== "game" && Date.now() < until) await vi.advanceTimersByTimeAsync(10);
-  expect(ctx.room.core.activity.kind).toBe("game");
+  while (ctx.room.core.activity.kind === "lobby" && Date.now() < until) await vi.advanceTimersByTimeAsync(10);
+  expect(ctx.room.core.activity.kind).toBe(kind);
 }
 
 export const GAME_FRAME = /^\{"t":"(start|ev|snap)"/;

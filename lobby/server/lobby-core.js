@@ -27,9 +27,18 @@
 //               held for the game's grace, the game is told of every change in who is here
 //               (turnUpkeep, game.presence), and a seat gone for good ends the game early
 //               (game.abandon). While it is played the room's lifetimes are the game's own.
+//
+// A game with settings (`game.settings`, party-kit/src/core/settings.js) does not start the moment
+// it wins the vote: the room's activity is first `settings`, a short step in which the party's
+// host picks them (chooseSettings) and starts the game (startChosen), or goes back to the room
+// (cancelSettings). Its time limit is one more wake-up; when it comes the game starts with the
+// picks as they stand. A game that leaves something for a rematch (`game.carry`) has it kept for
+// the same people in the same seats (carries), and the last settings chosen for a game are the
+// first picks the next time it wins (lastSettings).
 import { ID_REUSED, answerOf, inputDigest, lookup, remember } from "../../party-kit/src/core/answers.js";
 import { makeRng } from "../../party-kit/src/core/rng.js";
 import { abandonOutcome, goneWhy, graceEndsAt, graceOf, lifetimesOf, presenceOutcome, reportOf, sameReport } from "../../party-kit/src/core/presence.js";
+import { applyChange, carryFor, carryOf, checkSettings, fieldDefaults, hasCarry, hasSettings, seatsKey, settingFields, settingsProblems } from "../../party-kit/src/core/settings.js";
 import { copyState, deadlineOf, gameProblems, inputOutcome, isTurnBased, loadState, saveState, stateKey } from "../../party-kit/src/core/turns.js";
 import { viewerFor } from "../../party-kit/src/core/views.js";
 import { IDLE_SHUTDOWN_MS, NAME_MAX, SEAT_COLOURS, STALE_ROOM_MS, cleanName, randomToken } from "../../party-kit/src/core/room-core.js";
@@ -67,6 +76,11 @@ export const SEAT_HOLD_MS = 120_000;
  * seat this long before the game ends without it: the same as a seat held in the lobby.
  */
 export const TURN_GRACE_MS = SEAT_HOLD_MS;
+/**
+ * How long the host has to choose a game's settings once it has won the vote. Then the game
+ * starts with the picks as they stand: the defaults, or the last match's, unless the host changed them.
+ */
+export const SETTINGS_MS = 90_000;
 /** How many people who left are remembered by name, so coming back restores their points. */
 const MAX_REMEMBERED = 12;
 
@@ -86,8 +100,15 @@ export class LobbyCore {
     this.members = new Array(MAX_PLAYERS).fill(null);
     /** The room's screen: it shows the room and holds no seat. There is one at most. token -> {connected, droppedAt} */
     this.screens = new Map();
-    /** {kind: "lobby"} or {kind: "game", id, state, startedAt, ticks, seats} */
+    /**
+     * {kind: "lobby"}, {kind: "settings", id, picks, seats, endsAt, startedAt} (the host is
+     * choosing a game's settings) or {kind: "game", id, state, startedAt, ticks, seats}
+     */
     this.activity = { kind: "lobby" };
+    /** {gameId: {seats, carry}}: what the last game of each left for a rematch, and for whom (settings.js, seatsKey). */
+    this.carries = {};
+    /** {gameId: settings}: the last settings each game was started with, the first picks next time. */
+    this.lastSettings = {};
     /** Set by restore when a turn-based game was saved and could not be brought back. */
     this.lost = false;
     /**
@@ -345,6 +366,7 @@ export class LobbyCore {
   setRoom(token, id, now) {
     if (!isRoom(id)) return { ok: false, why: "That is not a room." };
     if (token !== this.pickerToken() && token !== this.hostToken) return { ok: false, why: "Only the one who started the party can change the room." };
+    if (this.activity.kind === "settings") return { ok: false, why: "A game's settings are being chosen. You can change the room after it." };
     const locked = roomLocked({ phase: this.activity.kind === "game" ? "playing" : "lobby", vote: { count: this.count, toss: this.toss } });
     if (locked) return { ok: false, why: locked };
     if (id === this.room) return { ok: false, why: "The party is in that room already." };
@@ -509,6 +531,9 @@ export class LobbyCore {
    */
   evaluate(now) {
     const before = this.count?.endsAt ?? 0;
+    // While settings are chosen, a party that no longer has the players for the game (one left
+    // the party) is back in the room at once.
+    const gaveUp = this.activity.kind === "settings" && this.choosingFails(now);
     if (this.activity.kind === "lobby" && !this.toss) {
       const standing = this.standing(now);
       const voters = this.connected();
@@ -520,7 +545,7 @@ export class LobbyCore {
     const key = JSON.stringify([view.standing, view.lights, this.count?.endsAt ?? 0, this.toss?.endsAt ?? 0]);
     const changed = key !== this.voteKey;
     this.voteKey = key;
-    return { view: changed, state: (this.count?.endsAt ?? 0) !== before };
+    return { view: changed || gaveUp, state: (this.count?.endsAt ?? 0) !== before || gaveUp };
   }
 
   /** The vote as the players see it. Times are given as "in so many milliseconds", so no clocks need to agree. */
@@ -544,8 +569,16 @@ export class LobbyCore {
    * `close` is why the room should shut, `changed` that the view moved on.
    */
   tick(now) {
-    const out = { start: null, away: null, close: null, changed: false };
+    const out = { start: null, chosen: false, away: null, close: null, changed: false };
     const inLobby = this.activity.kind === "lobby";
+    const choosing = this.activity.kind === "settings";
+    if (choosing && this.choosingFails(now)) out.changed = true;
+    else if (choosing && now >= this.activity.endsAt) {
+      // The host's time is up: the game starts with the picks as they stand (startChosen).
+      out.start = this.activity.id;
+      out.chosen = true;
+      out.changed = true;
+    }
     if (inLobby) {
       // A dropped phone's grace runs out: the piece fades and its vote stops counting.
       for (const m of this.present()) {
@@ -580,7 +613,7 @@ export class LobbyCore {
       }
     }
     if (this.emptySince !== null && now - this.emptySince >= this.emptyLimit(now)) out.close = "empty";
-    else if (inLobby && !out.start && !out.away) {
+    else if ((inLobby || this.activity.kind === "settings") && !out.start && !out.away) {
       if (now - this.lastActive >= STALE_ROOM_MS) out.close = "stale";
       else if (now - this.createdAt >= MAX_ROOM_LIFE_MS) out.close = "expired";
       else if (this.closing && now >= this.closing.at) out.close = this.closing.reason;
@@ -623,6 +656,7 @@ export class LobbyCore {
 
   /** The hosting allowance is spent: no game starts, and the room will close after a few minutes. */
   refuseStart(now, reason = "budget") {
+    if (this.activity.kind === "settings") this.toLobby(now);
     this.count = null;
     this.toss = null;
     this.setClosing(now, reason);
@@ -679,6 +713,11 @@ export class LobbyCore {
       // The rest after a game: a count may be due the moment it is over, if anyone is here to vote.
       if (this.holdUntil > now && this.connected().length) at = Math.min(at, this.holdUntil);
       for (const m of this.present()) if (!m.connected && m.droppedAt !== null) at = Math.min(at, m.droppedAt + DROP_FADE_MS);
+    } else if (this.activity.kind === "settings") {
+      // The settings step's time limit, and the room's own limits. A dropped phone's piece does
+      // not fade while settings are chosen: its seat is one of the game's.
+      at = Math.min(at, this.activity.endsAt, this.lastActive + STALE_ROOM_MS, this.createdAt + MAX_ROOM_LIFE_MS);
+      if (this.closing) at = Math.min(at, this.closing.at);
     } else if (this.turnGame()) {
       // A turn-based game's deadline (a turn timer running out) is a wake-up like any other, and
       // so are the game's stale limit, the moment a dropped seat's grace runs out, the room's four
@@ -707,15 +746,156 @@ export class LobbyCore {
   startGame(id, now, seed = this.roundSeed(this.round + 1)) {
     const game = this.games.get(id);
     if (!game || this.activity.kind !== "lobby") return fail("not_found", "That game cannot start here.");
-    const problems = gameProblems(game);
+    const problems = [...gameProblems(game), ...settingsProblems(game, this.boxOf(id)?.settings)];
     if (problems.length) return fail("bad_game", problems.join(" "));
-    const seats = this.present().map((m) => ({ seat: m.seat, name: m.name, kind: "human", colour: m.colour }));
+    // A game with settings has them chosen first: the room waits for its host (startChosen).
+    if (hasSettings(game)) return this.beginSettings(game, id, now);
+    return this.createGame(game, id, now, seed, this.present().map((m) => m.seat), null);
+  }
+
+  /** The box on the wall for a game id. */
+  boxOf(id) {
+    return this.boxes.find((box) => box.id === id) ?? null;
+  }
+
+  /**
+   * The vote chose a game with settings: the room's activity is the settings step. Its first picks
+   * are the settings this game was last started with, when the game still takes them, and
+   * otherwise its defaults (the fields' defaults, cleaned by `game.settings`). The players are the
+   * party as it is now; anyone who joins during the step watches the game. Returns {ok, choosing}.
+   */
+  beginSettings(game, id, now) {
+    const { fields } = settingFields(this.boxOf(id)?.settings);
+    let first = this.lastSettings[id] ? checkSettings(game, this.lastSettings[id]) : null;
+    if (!first?.ok) first = checkSettings(game, fieldDefaults(fields));
+    if (!first.ok) {
+      if (first.thrown) console.error(`party room: ${id} settings() failed on its defaults`, first.thrown);
+      return fail("bad_game", `settings() refused its own defaults: ${first.message}`);
+    }
+    const seats = this.present().map((m) => m.seat);
     if (!seats.length) return fail("not_ready", "Nobody is here to play.");
+    this.count = null;
+    this.toss = null;
+    this.activity = { kind: "settings", id, picks: first.settings, seats, endsAt: now + SETTINGS_MS, startedAt: now };
+    this.lastActive = now;
+    return { ok: true, choosing: true, ended: null };
+  }
+
+  /** Whether this device may choose the settings: the party's host (the one who picks the room, pickerToken). */
+  mayChoose(token) {
+    if (this.activity.kind !== "settings") return fail("not_choosing", "No settings are being chosen.");
+    if (!token || (token !== this.pickerToken() && token !== this.hostToken)) return fail("not_host", "Only the one who started the party chooses the settings.");
+    return { ok: true, id: this.activity.id };
+  }
+
+  /**
+   * The host changes some settings (`change` is {key: value}). Each value must be one of its
+   * field's options, and the whole is checked by `game.settings`; what it gives back is the new
+   * picks. Returns {ok, picks} or {ok: false, error, message} with the game's own words.
+   */
+  chooseSettings(token, change, now) {
+    const may = this.mayChoose(token);
+    if (!may.ok) return may;
+    const a = this.activity;
+    const game = this.games.get(a.id);
+    const { fields } = settingFields(this.boxOf(a.id)?.settings);
+    const changed = applyChange(fields, a.picks, change);
+    if (!changed.ok) return changed;
+    const checked = checkSettings(game, changed.picks);
+    if (checked.thrown) console.error(`party room: ${a.id} settings() failed`, checked.thrown);
+    if (!checked.ok) return { ok: false, error: checked.error, message: checked.message };
+    a.picks = checked.settings;
+    this.lastActive = now;
+    return { ok: true, picks: a.picks };
+  }
+
+  /** The host goes back to the room instead: nobody plays, and the pieces are back by the door. */
+  cancelSettings(token, now) {
+    const may = this.mayChoose(token);
+    if (!may.ok) return may;
+    const name = this.boxOf(this.activity.id)?.name ?? this.activity.id;
+    this.notes.push({ k: "cancelled", text: `Back to the room. ${name} did not start.` });
+    this.toLobby(now);
+    return { ok: true };
+  }
+
+  /**
+   * Ends the settings step when the game can no longer be played by the players chosen for it
+   * (one left the party, so fewer than the game needs are here). Returns whether it did.
+   */
+  choosingFails(now) {
+    const a = this.activity;
+    const box = this.boxOf(a.id);
+    const here = a.seats.filter((seat) => this.members[seat]).length;
+    if (here >= Math.max(1, box?.min ?? 1)) return false;
+    const name = box?.name ?? a.id;
+    this.notes.push({ k: "cancelled", text: `Not enough players are left for ${name}, so it did not start.` });
+    this.toLobby(now);
+    return true;
+  }
+
+  /** Back in the room from the settings step: everyone by the door, and a rest before the next count. */
+  toLobby(now) {
+    this.activity = { kind: "lobby" };
+    for (const m of this.present()) {
+      m.x = spawnX(m.seat, this.boxes.length);
+      m.d = 0;
+      m.t = now;
+      m.rev += 1;
+    }
+    this.holdUntil = now + SETTLE_MS;
+    this.lastActive = now;
+  }
+
+  /**
+   * The settings step is over (the host tapped Start, or its time ran out): the game starts with
+   * the picks, and with the seats chosen for it that are still in the party. Returns what
+   * startGame returns.
+   */
+  startChosen(id, now, seed = this.roundSeed(this.round + 1)) {
+    const a = this.activity;
+    if (a.kind !== "settings" || a.id !== id) return fail("not_choosing", "No settings are being chosen for that game.");
+    const game = this.games.get(id);
+    if (!game) {
+      this.toLobby(now);
+      return fail("not_found", "That game cannot start here.");
+    }
+    return this.createGame(game, id, now, seed, a.seats.filter((seat) => this.members[seat]), a.picks);
+  }
+
+  /**
+   * Who a carry is kept for: each of the game's seats and whoever sits in it, by the token the
+   * room knows them by (only ever compared, never sent). A seat whose player has left has nobody.
+   */
+  carrySeats(seats) {
+    return seats.map((seat) => ({ seat, who: this.members[seat]?.token ?? "-" }));
+  }
+
+  /**
+   * Creates the game with these seats. A game with settings gets them in its context (`settings`),
+   * and a game with a carry gets what its last game with the same people in the same seats left
+   * (`carry`, or null). A game with neither is created exactly as before.
+   */
+  createGame(game, id, now, seed, seatNumbers, settings) {
+    const seats = seatNumbers.map((seat) => this.members[seat]).filter(Boolean).map((m) => ({ seat: m.seat, name: m.name, kind: "human", colour: m.colour }));
+    if (!seats.length) {
+      if (this.activity.kind === "settings") this.toLobby(now);
+      return fail("not_ready", "Nobody is here to play.");
+    }
     this.round += 1;
     this.lastAnswers = null;
     this.count = null;
     this.toss = null;
-    const state = game.create({ seed: seed >>> 0, seats, now, round: this.round });
+    const context = { seed: seed >>> 0, seats, now, round: this.round };
+    if (hasSettings(game)) {
+      context.settings = structuredClone(settings);
+      this.lastSettings[id] = structuredClone(settings);
+    }
+    if (hasCarry(game)) {
+      const carry = carryFor(this.carries, id, this.carrySeats(seats.map((s) => s.seat)));
+      context.carry = carry === null ? null : structuredClone(carry);
+    }
+    const state = game.create(context);
     this.activity = { kind: "game", id, state, startedAt: now, ticks: 0, seats: seats.map((s) => s.seat) };
     if (isTurnBased(game)) {
       // What the game has been told of each seat: it starts with every seat here, as the vote
@@ -1061,6 +1241,7 @@ export class LobbyCore {
     this.last = { round: this.round, game: a.id, name: this.boxes.find((box) => box.id === a.id)?.name ?? a.id, rows, at: now };
     if (ending) this.last.early = ending.early;
     this.lastAnswers = a.answers ? { round: this.round, answers: a.answers } : null;
+    this.keepCarry(game, a, ending);
     this.activity = { kind: "lobby" };
     for (const m of this.present()) {
       m.x = spawnX(m.seat, this.boxes.length);
@@ -1071,6 +1252,24 @@ export class LobbyCore {
     this.holdUntil = now + SETTLE_MS;
     this.lastActive = now;
     return { result, last: this.last };
+  }
+
+  /**
+   * What the game that just ended leaves for a rematch (`game.carry`), kept for its seats and
+   * the people in them, in place of the last one. Nothing is kept after a game that ended because
+   * one of its callbacks threw (its state may be half changed), or when carry throws or gives back
+   * something that is not a small plain-JSON object (logged).
+   */
+  keepCarry(game, a, ending) {
+    if (!hasCarry(game)) return;
+    delete this.carries[a.id];
+    if (ending?.early?.why === "error") return;
+    try {
+      const carry = carryOf(game, a.state);
+      if (carry) this.carries[a.id] = { seats: seatsKey(this.carrySeats(a.seats)), carry };
+    } catch (err) {
+      console.error(`party room: ${a.id} carry() failed; nothing is kept for a rematch`, err);
+    }
   }
 
   // ---------------------------------------------------------------- views
@@ -1084,7 +1283,9 @@ export class LobbyCore {
       pin: this.pin,
       // The kit's client paces its pings by this: "playing" while a game is on, and `game.turns`
       // when that game is turn-based, so the pages keep to the keep-alive the room never wakes for.
-      phase: a.kind === "game" ? "playing" : "lobby",
+      phase: a.kind === "game" ? "playing" : a.kind === "settings" ? "settings" : "lobby",
+      // While a game's settings are chosen: what they are, who chooses them, and how long is left.
+      ...(a.kind === "settings" ? { choosing: this.choosingView(now) } : {}),
       game: a.kind === "game" ? { id: a.id, name: this.boxes.find((box) => box.id === a.id)?.name ?? a.id, round: this.round, ...(this.turnGame() ? { turns: true } : {}) } : null,
       boxes: this.boxes,
       members: this.members.map((m) =>
@@ -1102,6 +1303,26 @@ export class LobbyCore {
       // The room the party is in, and who picks it (lobby/shared/rooms.js).
       room: this.room,
       picker: this.pickerView(),
+    };
+  }
+
+  /**
+   * The settings step as every page sees it: the game, its fields (settings.js, settingFields),
+   * the picks, which seats will play, who chooses (`by`, as the room picker: a seat, or -1 for
+   * the room's screen) and the time left (`endsIn` of `of`, in ms).
+   */
+  choosingView(now) {
+    const a = this.activity;
+    const box = this.boxOf(a.id);
+    return {
+      id: a.id,
+      name: box?.name ?? a.id,
+      fields: settingFields(box?.settings).fields,
+      picks: a.picks,
+      seats: a.seats,
+      by: this.pickerView()?.seat ?? null,
+      endsIn: Math.max(0, a.endsAt - now),
+      of: SETTINGS_MS,
     };
   }
 
@@ -1142,6 +1363,9 @@ export class LobbyCore {
       room: this.room,
       hostToken: this.hostToken,
       lastAnswers: this.lastAnswers,
+      choosing: this.activity.kind === "settings" ? { ...this.activity } : null,
+      carries: this.carries,
+      lastSettings: this.lastSettings,
     };
   }
 
@@ -1177,6 +1401,22 @@ export class LobbyCore {
     }
   }
 
+  /**
+   * The settings step as it was saved, with its picks and its time limit (which ran on through the
+   * sleep). A step for a game that is no longer on the wall, or no longer has settings, is lost:
+   * everyone is back in the lobby and hears so.
+   */
+  restoreChoosing(saved) {
+    const game = this.games.get(saved.id);
+    if (hasSettings(game) && Array.isArray(saved.seats) && saved.seats.every(Number.isInteger) && typeof saved.endsAt === "number" && saved.picks && typeof saved.picks === "object") {
+      this.activity = { kind: "settings", id: saved.id, picks: saved.picks, seats: [...saved.seats], endsAt: saved.endsAt, startedAt: saved.startedAt ?? saved.endsAt - SETTINGS_MS };
+      return;
+    }
+    console.error(`party room: the settings step for ${saved.id} could not be restored`);
+    this.activity = { kind: "lobby" };
+    this.lost = true;
+  }
+
   static restore(config, data, now) {
     const room = new LobbyCore({ ...config, seed: data.seed, code: data.code, now });
     room.pin = data.pin;
@@ -1207,7 +1447,10 @@ export class LobbyCore {
     room.room = isRoom(data.room) ? data.room : DEFAULT_ROOM;
     room.hostToken = data.hostToken ?? null;
     room.lastAnswers = data.lastAnswers ?? null;
+    room.carries = data.carries ?? {};
+    room.lastSettings = data.lastSettings ?? {};
     if (data.game) room.restoreGame(data.game);
+    else if (data.choosing) room.restoreChoosing(data.choosing);
     return room;
   }
 }

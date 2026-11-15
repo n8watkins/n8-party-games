@@ -290,6 +290,12 @@ export function createLobbyRoom(wallFor) {
           else if (player) core.gameInput(entry.seat, msg.d, now);
           return;
         }
+        case "settings":
+        case "settings-start":
+        case "settings-cancel":
+          // The settings step after the vote: only the party's host may change them, start the
+          // game or go back to the room; anyone else is refused, to that page only.
+          return void this.settings(entry, msg, now).catch((err) => console.error("party room: the settings step failed", err));
         case "pick": {
           // The party moves to another room: one stored value and one relayed message. Refused
           // (to that page only) when it is not the host's tap or not the moment.
@@ -309,6 +315,47 @@ export function createLobbyRoom(wallFor) {
         default:
           return;
       }
+    }
+
+    /**
+     * The host's taps in the settings step. A change is checked by the game, saved, and then
+     * everyone gets the room with the new picks. Start goes through the same budget check as the
+     * vote's end, and Cancel puts everyone back in the room. A refusal goes to the sender alone:
+     * `settings-no {error, message}`, with the game's own message for settings it turned down.
+     */
+    async settings(entry, msg, now) {
+      const core = this.core;
+      const no = (said) => this.send(entry, { t: "settings-no", error: said.error, message: said.message });
+      if (msg.t === "settings") {
+        const done = core.chooseSettings(entry.token, msg.v, now);
+        if (!done.ok) return no(done);
+        await this.save();
+        if (this.core === core) this.broadcastRoom(now);
+        return;
+      }
+      if (msg.t === "settings-cancel") {
+        const done = core.cancelSettings(entry.token, now);
+        if (!done.ok) return no(done);
+        for (const other of this.sockets.values()) this.keep(other);
+        return this.changed(now);
+      }
+      const may = core.mayChoose(entry.token);
+      if (!may.ok) return no(may);
+      await this.launch(may.id, true);
+      this.bill(now, 2); // this message's work, and the budget check
+    }
+
+    /**
+     * Starts the game the vote (or the settings step, `chosen`) ended on, unless the hosting
+     * allowance is spent: then no game starts and the room is told it will close.
+     */
+    async launch(id, chosen = false) {
+      const core = this.core;
+      const budget = await roomBudgetState(this.env).catch(() => "open");
+      if (this.core !== core) return;
+      if (budget === "open") await this.startGame(id, chosen);
+      else core.refuseStart(Date.now());
+      this.changed(Date.now());
     }
 
     /**
@@ -501,12 +548,10 @@ export function createLobbyRoom(wallFor) {
       }
       const out = core.tick(now);
       if (out.start) {
-        // The allowance for the day or month is spent: no game starts, and the room is told it will close.
-        const budget = await roomBudgetState(this.env).catch(() => "open");
+        // The allowance for the day or month is spent: no game starts, and the room is told it
+        // will close. `chosen`: the settings step's time ran out, and the game starts with its picks.
+        await this.launch(out.start, out.chosen);
         if (this.core !== core) return;
-        if (budget === "open") await this.startGame(out.start);
-        else core.refuseStart(Date.now());
-        this.changed(Date.now());
       } else if (out.away) {
         // An outside game won: every page hears where it is going, and goes. Nothing is asked of
         // the budget and nothing is billed but this wake-up: the game is played somewhere else.
@@ -524,16 +569,22 @@ export function createLobbyRoom(wallFor) {
       this.bill(now, out.start ? 2 : 1);
     }
 
-    async startGame(id) {
+    /**
+     * Starts a game: the vote's winner, or (`chosen`) the game whose settings were just chosen. A
+     * game with settings that won the vote does not start yet: the room is in the settings step,
+     * saved before anyone hears of it, and the caller sends everyone the room.
+     */
+    async startGame(id, chosen = false) {
       const core = this.core;
       const game = this.wall.games.get(id);
       const now = Date.now();
       // Each game its own seed from the secure source: nothing a page is shown leads to the room's or the next game's.
-      const started = core.startGame(id, now, newSeed());
+      const started = chosen ? core.startChosen(id, now, newSeed()) : core.startGame(id, now, newSeed());
       if (!started.ok) {
         if (started.error === "bad_game") console.error(`party room: ${id} cannot start: ${started.message}`);
         return;
       }
+      if (started.choosing) return void (await this.save());
       if (started.ended) {
         this.tellNotes();
         return this.finish(started.ended, now);
