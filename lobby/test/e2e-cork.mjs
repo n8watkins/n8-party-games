@@ -92,7 +92,7 @@ async function quietBooks() {
     await sleep(REPORT_EVERY_MS + 5_000);
     const now = await books();
     if (now.dayUsed === seen.dayUsed) return;
-    console.log(`     the books moved by ${(now.dayUsed - seen.dayUsed).toFixed(1)} GB-seconds meanwhile: another room is awake on this server`);
+    console.log(`     the books moved by ${(now.dayUsed - seen.dayUsed).toFixed(2)} GB-seconds meanwhile: another room is awake on this server`);
     seen = now;
   }
   throw new Error("other rooms keep this server's room budget moving, so what this run's rooms cost cannot be told apart: use a server of its own with an empty persist folder (wrangler dev --persist-to <empty folder>)");
