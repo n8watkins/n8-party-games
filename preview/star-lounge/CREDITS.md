@@ -9,8 +9,10 @@ No outside model, texture, picture or recording is used.
   All are built by script from plain shapes and Blender's own noise patterns, and rendered with Blender 4.2 (Cycles).
   Source: `lobby/tools/blender/star-lounge.py` and `lobby/tools/blender/star-lounge.json`.
   The pictures in `preview/star-lounge/assets/` are those renders, made smaller (`preview/star-lounge/build.mjs assets`).
+  In round two the planet's surface and the six passing things are the same scene rendered at twice the size (`preview/star-lounge/render.sh`).
 - The stars, the ring, the shooting stars, the chart's globe of light, the join sign, the Tonight board, the signs and the name tags.
   All are drawn by the page's own code (`preview/star-lounge/src/main.js`).
+  So are round two's additions: the planet's storms, its fine streaks and their grain (noise made in the page), the engines' flames, the rods the two boards hang from and the shine on the screens.
 - The pieces: the room's own pawn (`lobby/public/look3d/pieces.js`), called and not copied.
 - The posters: the room's own poster painting (`lobby/public/look3d/paint.js`), with Cork & Bell's own picture (`lobby/public/look3d/art/cork-and-bell.jpg`), which is this project's art.
 - "Today": two stills of the room as it runs on the main branch, taken with `lobby/test/shoot-3d.mjs --room=ship`.

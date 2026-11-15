@@ -271,16 +271,15 @@ function ball(map, o, { gas = false, air = 0 } = {}) {
         // Fine weather the picture is too coarse to hold: its edges are torn by two sizes of noise that drift slowly against each other.
         vec4 g1 = texture2D(uGrain, uv * vec2(10.0, 7.0) + vec2(uTime * 0.0007, 0.0));
         vec4 g2 = texture2D(uGrain, uv * vec2(46.0, 30.0) - vec2(uTime * 0.0016, 0.0));
-        vec4 g3 = texture2D(uGrain, uv * vec2(150.0, 110.0));
         // It is wind, so it tears along the belts far more than across them.
         vec2 tear = ((g1.gb - 0.5) * vec2(0.0075, 0.0022) + (g2.gb - 0.5) * vec2(0.0024, 0.0008)) * uDetail;
         vec2 at = uv + tear;
         albedo = texture2D(uMap, at).rgb;
         // Cloud tops are soft: they only show their height where the sun is low, and then only a little.
-        relief = (dot(g2.gb - 0.5, sun2) * -0.22 + dot(g3.gb - 0.5, sun2) * -0.12) * uDetail;
+        relief = dot(g2.gb - 0.5, sun2) * -0.26 * uDetail;
         // Grain in the colour itself: thin streaks along the belts, and the faintest mottle across them.
         float streak = texture2D(uGrain, at * vec2(14.0, 230.0)).a;
-        albedo *= 1.0 + ((g2.r - 0.5) * 0.07 + (g3.r - 0.5) * 0.06 + (streak - 0.5) * 0.16) * uDetail;
+        albedo *= 1.0 + ((g2.r - 0.5) * 0.1 + (streak - 0.5) * 0.16) * uDetail;
         albedo = mix(albedo, albedo * mix(vec3(1.05, 0.98, 0.93), vec3(0.96, 1.0, 1.05), g1.a), 0.5 * uDetail);
         // The storms' own colour: the great one's red eye inside a pale collar, the small ones white.
         albedo = mix(albedo, albedo * vec3(1.04, 0.47, 0.3), smoothstep(0.1, 0.7, great) * 0.85);
@@ -320,8 +319,15 @@ function ball(map, o, { gas = false, air = 0 } = {}) {
         // A thin bright edge where the ball turns away, strongest on the lit side.
         float rim = pow(1.0 - face, 7.0);
         col += vec3(0.55, 0.75, 1.0) * rim * uAir * (0.1 + lit) * 0.7;
-        // The very edge is faded over a pixel or so, so the ball has a clean outline on a phone that does not smooth edges itself.
-        float edge = clamp(face / max(fwidth(face) * 1.5, 1e-5), 0.0, 1.0);        gl_FragColor = vec4(col, edge);
+        // The very edge is faded over a pixel or so, so the ball has a clean outline on a phone that does not smooth edges itself:
+        // the moon fades into the sky behind it, the planet into the colour of the glow of air that is drawn round it.
+        float edge = clamp(face / max(fwidth(face) * 1.5, 1e-5), 0.0, 1.0);
+        ${
+          gas
+            ? `vec3 glow = pow(vec3(0.45, 0.68, 1.0) * (0.06 + smoothstep(-0.25, 0.5, d)) * 0.8, vec3(2.2)) * 1.7;
+        gl_FragColor = vec4(mix(glow, col, edge), 1.0);`
+            : `gl_FragColor = vec4(col, edge);`
+        }
         #include <tonemapping_fragment>
         #include <colorspace_fragment>
       }`,
@@ -351,7 +357,7 @@ function halo(o) {
   });
   const mesh = new THREE.Mesh(new THREE.SphereGeometry(o.radius * 1.035, 96, 48), mat);
   mesh.position.set(...o.centre);
-  mesh.renderOrder = -97.5; // before the planet, which is drawn over it: the planet's soft edge then fades into this glow and not into black
+  mesh.renderOrder = -96.5; // after the planet, which hides the part of this shell that is behind it (so that part costs nothing)
   sceneOut.add(mesh);
   return mesh;
 }
@@ -806,22 +812,34 @@ const sheenTex = canvasTexture(256, 256, (g, w, h) => {
   g.fillRect(0, 0, w, h);
 });
 sheenTex.wrapS = sheenTex.wrapT = THREE.ClampToEdgeWrapping;
-const sheens = [];
-function sheen(over, w, h) {
-  const tex = sheenTex.clone();
-  tex.needsUpdate = true;
-  tex.repeat.set(0.5, 0.5);
-  tex.offset.set(0.25, 0.25);
-  const m = new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshBasicMaterial({ map: tex, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, depthTest: false, toneMapped: false }));
-  m.position.copy(over.position);
-  m.position.z += 0.005;
-  m.scale.copy(over.scale);
-  m.renderOrder = -38;
-  scene.add(m);
-  sheens.push({ tex, x: over.position.x });
+/** Many flat rectangles facing the room, drawn as one thing (one call to the graphics card, however many there are).
+ *  Each is { x, y, z, w, h }: its middle and its size, in the room's metres. */
+function quads(rects) {
+  const [pos, uv, mid, idx] = [[], [], [], []];
+  for (const [i, r] of rects.entries()) {
+    const [l, rt, b, t] = [r.x - r.w / 2, r.x + r.w / 2, r.y - r.h / 2, r.y + r.h / 2];
+    pos.push(l, b, r.z, rt, b, r.z, rt, t, r.z, l, t, r.z);
+    uv.push(0, 0, 1, 0, 1, 1, 0, 1);
+    mid.push(r.x, r.x, r.x, r.x);
+    idx.push(i * 4, i * 4 + 1, i * 4 + 2, i * 4, i * 4 + 2, i * 4 + 3);
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute("uv", new THREE.Float32BufferAttribute(uv, 2));
+  g.setAttribute("mid", new THREE.Float32BufferAttribute(mid, 1));
+  g.setIndex(idx);
+  return g;
 }
+/** A rectangle laid out on the back wall (in the wall's own units), as it is at depth z: nearer, so drawn smaller to cover the same place. */
+const onWall = (xw, yw, ww, hw, z) => {
+  const k = (CAM.z - z) / D_WALL;
+  return { x: (wallX(xw) + ww / U / 2) * k, y: CAM.y + (wallY(yw) - hw / U / 2 - CAM.y) * k, z, w: (ww / U) * k, h: (hw / U) * k };
+};
+const sheenRects = [];
+const rodRects = [];
+let sheenMesh = null;
 function runSheens() {
-  for (const s of sheens) s.tex.offset.x = 0.25 + clamp((s.x - eye) * 0.07, -0.25, 0.25);
+  sheenMesh.material.uniforms.uEye.value = eye;
 }
 /** Two rods from the beam over the window down to a hung screen, like the ones the game screens hang from in the rendered room. */
 const rodTex = canvasTexture(8, 4, (g, w, h) => {
@@ -834,7 +852,34 @@ const rodTex = canvasTexture(8, 4, (g, w, h) => {
 });
 function rods(xw, ww, topYw) {
   const beam = (6.25 - P.layout.head) * U - 2;
-  for (const x of [xw + ww * 0.2, xw + ww * 0.8]) wallQuad(x - 2, beam, 4, topYw - beam + 4, rodTex, ZB + 0.42, -41);
+  for (const x of [xw + ww * 0.2, xw + ww * 0.8]) rodRects.push(onWall(x - 2, beam, 4, topYw - beam + 4, ZB + 0.42));
+}
+/** The rods and the shines, once every screen has said where it is: two drawings in all. */
+function buildRodsAndSheens() {
+  const rodMesh = new THREE.Mesh(quads(rodRects), new THREE.MeshBasicMaterial({ map: rodTex, transparent: true, depthWrite: false, depthTest: false }));
+  rodMesh.renderOrder = -41;
+  sheenMesh = new THREE.Mesh(
+    quads(sheenRects),
+    new THREE.ShaderMaterial({
+      transparent: true,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+      depthTest: false,
+      uniforms: { uMap: { value: sheenTex }, uEye: { value: 0 } },
+      // Each screen shows the part of the band of light that its place, and the eye's, give it.
+      vertexShader: `attribute float mid; uniform float uEye; varying vec2 vUv;
+        void main(){ vUv = uv * 0.5 + vec2(0.25 + clamp((mid - uEye) * 0.07, -0.25, 0.25), 0.25); gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
+      fragmentShader: `uniform sampler2D uMap; varying vec2 vUv;
+        void main(){ gl_FragColor = texture2D(uMap, vUv);
+        #include <colorspace_fragment>
+        }`,
+    }),
+  );
+  sheenMesh.renderOrder = -38;
+  for (const m of [rodMesh, sheenMesh]) {
+    m.frustumCulled = false;
+    scene.add(m);
+  }
 }
 function buildWall(images) {
   for (const [i, box] of BOXES.entries()) {
@@ -846,7 +891,7 @@ function buildWall(images) {
     m.position.set(L.xs[i], L.by, ZB + 0.36);
     m.renderOrder = -40;
     scene.add(m);
-    sheen(m, L.bw, L.bh);
+    sheenRects.push({ x: L.xs[i], y: L.by, z: ZB + 0.365, w: L.bw, h: L.bh });
     posters.push({ mat, glitch: -1 });
     // Its sign: the same size and place as in every room.
     const sw = Math.round(L.signW * 0.84);
@@ -887,7 +932,8 @@ function buildWall(images) {
   }
   // The join sign: its code must stay readable (the QR picture is a stand-in pattern, not a working code).
   rods(181 - 106, 212, 133);
-  const join = wallQuad(181 - 106, 133, 212, 276, canvasTexture(212 * 3, 276 * 3, (g, w, h) => {
+  sheenRects.push(onWall(181 - 106, 133, 212, 276, ZB + 0.425));
+  wallQuad(181 - 106, 133, 212, 276, canvasTexture(212 * 3, 276 * 3, (g, w, h) => {
     panel(g, w, h, 24);
     g.fillStyle = "#6ee7ff";
     g.font = "700 30px ui-monospace, Menlo, Consolas, monospace";
@@ -924,10 +970,10 @@ function buildWall(images) {
     g.font = "500 30px ui-monospace, Menlo, Consolas, monospace";
     g.fillText("partygames.n8builds.dev", w / 2, 730);
   }));
-  sheen(join, 212 / U, 276 / U);
   // The Tonight board.
   rods(1722 - 118, 236, 136);
-  const board = wallQuad(1722 - 118, 136, 236, 240, canvasTexture(236 * 3, 240 * 3, (g, w, h) => {
+  sheenRects.push(onWall(1722 - 118, 136, 236, 240, ZB + 0.425));
+  wallQuad(1722 - 118, 136, 236, 240, canvasTexture(236 * 3, 240 * 3, (g, w, h) => {
     panel(g, w, h, 18);
     g.fillStyle = "#6ee7ff";
     g.font = "700 44px ui-monospace, Menlo, Consolas, monospace";
@@ -959,7 +1005,7 @@ function buildWall(images) {
     g.textAlign = "center";
     g.fillText("1st 3 pts, 2nd 2, 3rd 1", w / 2, h - 60);
   }));
-  sheen(board, 236 / U, 240 / U);
+  buildRodsAndSheens();
 }
 
 // ---- the lights on the bench that blink, and the ring a touch leaves on the glass
@@ -1342,17 +1388,33 @@ let planet = null;
 let moon = null;
 
 /** One frame: the outside first, then the room over it. */
+const corner = new THREE.Vector3();
 function drawFrame() {
   renderer.info.reset();
+  renderer.setScissorTest(false);
   renderer.clear();
-  renderer.render(sceneOut, cam);
+  // The outside is only drawn inside the box of screen that the window wall takes up (from the sill
+  // to the ceiling, from side wall to side wall, where the eye is now). The planet is a very large
+  // ball and most of it lies behind the bench and the deck: none of that is worked out any more.
+  const [w, h] = [stage.clientWidth, stage.clientHeight];
+  corner.set(-SPACE.w / 2, P.layout.sill - 0.06, ZB).project(cam);
+  const [x0, y0] = [clamp(Math.floor(((corner.x + 1) / 2) * w) - 1, 0, w), clamp(Math.floor(((corner.y + 1) / 2) * h) - 1, 0, h)];
+  corner.set(SPACE.w / 2, SPACE.h, ZB).project(cam);
+  const [x1, y1] = [clamp(Math.ceil(((corner.x + 1) / 2) * w) + 1, 0, w), clamp(Math.ceil(((corner.y + 1) / 2) * h) + 1, 0, h)];
+  if (x1 > x0 && y1 > y0) {
+    renderer.setScissor(x0, y0, x1 - x0, y1 - y0);
+    renderer.setScissorTest(true);
+    renderer.render(sceneOut, cam);
+    renderer.setScissorTest(false);
+  }
   renderer.clearDepth();
   renderer.render(scene, cam);
 }
-/** For the checks (shoot.mjs --leak): does what is passing change any pixel that is not glass?
- *  Draws this same moment three times (nothing passing; the thing passing; only the glass, in white)
- *  and counts the pixels the thing changed, and how many of those are not glass. */
-function leakCheck() {
+/** For the checks (shoot.mjs --paths): does a passing thing change any pixel that is not glass, anywhere along its way?
+ *  This one moment of the room is drawn with an empty sky, then with only the glass (in white), then
+ *  with the named thing at each of `steps` + 1 points of its way. For each point it counts the pixels
+ *  the thing changed, and how many of those are not glass. Nothing else moves between the drawings. */
+function leakSweep(name, steps, x) {
   const gl = renderer.getContext();
   const [w, h] = [gl.drawingBufferWidth, gl.drawingBufferHeight];
   const grab = () => {
@@ -1360,14 +1422,12 @@ function leakCheck() {
     gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, px);
     return px;
   };
-  const movers = [...PASSERS.map((p) => p.mesh), streak.m];
-  const was = movers.map((m) => m.visible);
-  movers.forEach((m) => (m.visible = false));
+  const before = heldEv;
+  window.__hold(null);
+  runSky(clock.t);
+  const quiet = passing === null; // (false on a live page while the timetable has something out: then this check says nothing)
   drawFrame();
   const empty = grab();
-  movers.forEach((m, i) => (m.visible = was[i]));
-  drawFrame();
-  const full = grab();
   const others = scene.children.filter((o) => o !== shell.group && o.visible);
   others.forEach((o) => (o.visible = false));
   shell.u.uProbe.value = 1;
@@ -1376,22 +1436,37 @@ function leakCheck() {
   const glass = grab();
   shell.u.uProbe.value = 0;
   others.forEach((o) => (o.visible = true));
-  drawFrame();
-  let changed = 0;
-  let leaked = 0;
-  let worst = 0;
   let panes = 0;
-  for (let i = 0; i < empty.length; i += 4) {
-    const d = Math.max(Math.abs(empty[i] - full[i]), Math.abs(empty[i + 1] - full[i + 1]), Math.abs(empty[i + 2] - full[i + 2]));
-    if (glass[i] > 0) panes++;
-    if (!d) continue;
-    changed++;
-    if (glass[i] === 0) {
-      leaked++;
-      worst = Math.max(worst, d);
+  for (let i = 0; i < glass.length; i += 4) if (glass[i] > 0) panes++;
+  const changed = [];
+  const leaked = [];
+  let worst = 0;
+  let drew = true;
+  for (let s = 0; s <= steps; s++) {
+    window.__hold(name, s / steps, x);
+    runSky(clock.t);
+    drew &&= passing === name;
+    drawFrame();
+    const full = grab();
+    let c = 0;
+    let l = 0;
+    for (let i = 0; i < empty.length; i += 4) {
+      const d = Math.max(Math.abs(empty[i] - full[i]), Math.abs(empty[i + 1] - full[i + 1]), Math.abs(empty[i + 2] - full[i + 2]));
+      if (!d) continue;
+      c++;
+      if (glass[i] === 0) {
+        l++;
+        worst = Math.max(worst, d);
+      }
     }
+    changed.push(c);
+    leaked.push(l);
   }
-  return { passing, changed, leaked, worst, glass: panes, pixels: w * h };
+  heldEv = before;
+  streak.ev = null;
+  runSky(clock.t);
+  drawFrame();
+  return { quiet, drew, changed, leaked, worst, glass: panes, pixels: w * h };
 }
 
 function tick(nowMs) {
@@ -1595,14 +1670,7 @@ async function start() {
   }
   document.body.classList.add("ready");
   // For the checks (shoot.mjs): what the lamps and the pieces are doing.
-  // With a name, it first holds that thing at the point u of its way (see __hold), then checks that very moment.
-  window.__leak = (name, u, x) => {
-    if (name) {
-      window.__hold(name, u, x);
-      runSky(clock.t);
-    }
-    return leakCheck();
-  };
+  window.__leak = leakSweep;
   // What is in the sky this frame: the timetable's word, and (counted separately, from the drawing itself) every passing thing that is switched on.
   window.__sky = () => ({ t: clock.t, passing, drawn: [...PASSERS.filter((p) => p.mesh.visible).map((p) => p.name), ...(streak.m.visible ? ["star"] : [])] });
   window.__ask = (name) => timetable.ask(name, clock.t);

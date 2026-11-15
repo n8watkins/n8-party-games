@@ -73,7 +73,7 @@ if (measure) {
       // Far more pixels than any device has, so that the graphics card is what sets the pace and not the script:
       // the only way a desktop card says anything about the cost of each pixel. Read the count of frames, not the times.
       { name: "stress 3840x2160 @2x (33 million pixels), closer", viewport: { width: 3840, height: 2160 }, deviceScaleFactor: 2, query: "view=closer&fixed" },
-    ]) {
+    ].filter((s) => !only || s.name.includes(only))) {
       const context = await b.newContext({ viewport: size.viewport, deviceScaleFactor: size.deviceScaleFactor, hasTouch: true });
       const page = await context.newPage();
       watch(page, size.name);
@@ -135,6 +135,7 @@ if (measure) {
           let most = 0;
           let n = 0;
           let taps = 0;
+          const tapAt = [];
           const step = (now) => {
             const s = window.__sky();
             n++;
@@ -148,11 +149,12 @@ if (measure) {
             // Now and then, a tap on the glass (which may call a shooting star, but only into an empty sky).
             if (n % 1500 === 700) {
               taps++;
+              tapAt.push(s.t);
               const c = el.getBoundingClientRect();
               for (const type of ["pointerdown", "pointerup"]) el.dispatchEvent(new PointerEvent(type, { clientX: c.left + c.width * 0.5, clientY: c.top + c.height * 0.62, bubbles: true }));
             }
             if (now - t0 < ms) requestAnimationFrame(step);
-            else done({ seen, most, frames: n, taps, clock: s.t });
+            else done({ seen, most, frames: n, taps, tapAt, clock: s.t });
           };
           requestAnimationFrame(step);
         }),
@@ -167,10 +169,11 @@ if (measure) {
       if (!next || e.end === null) continue;
       const gap = next.start - e.end;
       // A shooting star called by a tap may come into any empty sky; everything the timetable sends keeps its distance.
-      const tapped = family[next.name] === "star" && gap < TIMES.quiet[0] - 0.2;
+      // (The page is watched a frame at a time, and a frame is up to a tenth of a second of the room's clock.)
+      const tapped = family[next.name] === "star" && got.tapAt.some((t) => Math.abs(next.start - t) < 0.25);
       if (tapped) tapStars++;
       else least = Math.min(least, gap);
-      if (!tapped && gap < TIMES.quiet[0] - 0.2 && gap > TIMES.askedQuiet + 0.2) errors.push(`sky: ${next.name} came ${gap.toFixed(1)} s after ${e.name} had gone`);
+      if (!tapped && gap < TIMES.quiet[0] - 0.11) errors.push(`sky: ${next.name} came ${gap.toFixed(2)} s after ${e.name} had gone`);
     }
     if (got.most > 1) errors.push(`sky: ${got.most} passing things were drawn in one frame`);
     if (got.seen.length < 5) errors.push(`sky: only ${got.seen.length} things passed: the clock did not run`);
@@ -199,6 +202,7 @@ if (measure) {
   const things = THINGS.map((t) => t.name).filter((n) => !only || n.includes(only));
   const STEPS = 240;
   let total = 0;
+  let leakStills = 0;
   const open = async (s, dpr) => {
     const context = await browser.newContext({ viewport: { width: s.w, height: s.h }, deviceScaleFactor: dpr, hasTouch: true });
     const page = await context.newPage();
@@ -232,20 +236,25 @@ if (measure) {
         let worst = 0;
         let changedMost = 0;
         for (const [c, counter] of counters.entries())
-          for (const aim of aims)
-            for (let i = 0; i <= STEPS; i++) {
-              const u = i / STEPS;
-              const r = await counter.page.evaluate(([n, at, x]) => window.__leak(n, at, x), [name, u, aim]);
-              total++;
-              if (r.passing !== name) errors.push(`${s.name}: asked for ${name}, the page drew ${r.passing}`);
-              if (r.changed > 0 && aim === aims[0] && c === 0) seenAt.push(u);
-              changedMost = Math.max(changedMost, r.changed);
-              if (r.leaked > 0) {
-                leaked += r.leaked;
+          for (const aim of aims) {
+            const r = await counter.page.evaluate(([n, steps, x]) => window.__leak(n, steps, x), [name, STEPS, aim]);
+            total += r.changed.length;
+            if (!r.quiet || !r.drew) errors.push(`${s.name}: asked for the ${name} alone, and the page drew something else`);
+            if (r.glass === 0 && !s.name.includes("upright")) errors.push(`${s.name}: the check found no glass at all`);
+            for (const [i, n] of r.changed.entries()) {
+              if (n > 0 && aim === aims[0] && c === 0) seenAt.push(i / STEPS);
+              changedMost = Math.max(changedMost, n);
+              if (r.leaked[i] > 0) {
+                leaked += r.leaked[i];
                 worst = Math.max(worst, r.worst);
-                await counter.page.screenshot({ path: join(out, `LEAK-${s.name}-${name}-${i}.png`) });
+                if (leakStills++ < 12) {
+                  await page.evaluate(([n2, at, x]) => window.__hold(n2, at, x), [name, i / STEPS, aim]);
+                  await frames(page);
+                  await page.screenshot({ path: join(out, `LEAK-${s.name}-${name}-${i}.png`), clip });
+                }
               }
             }
+          }
         if (leaked) errors.push(`${s.name}: the ${name} changed ${leaked} pixel(s) that are not glass (by up to ${worst} of 255) along its way`);
         if (!seenAt.length) {
           if (!s.name.includes("upright") && !s.name.includes("eye")) errors.push(`${s.name}: the ${name} is never seen`);
