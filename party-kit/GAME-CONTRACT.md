@@ -37,7 +37,8 @@ export const manifest = {
 | `manifest.name` | The name people read. |
 | `manifest.path` | Where the game lives on a site, with a slash at both ends. The same on the party site and on the game's own site, so a join link works on either. |
 | `manifest.players` | Seats in a room (`min`, `max`) and whether it also plays alone in the browser (`solo`). |
-| `manifest.devices` | What it is played on, for the lobby to show: `phone`, `desktop`, `sharedScreen` (a screen that holds no seat), and `sideways` (`"preferred"`, `"required"` or `false`). |
+| `manifest.devices` | What it is played on, for the lobby to show: `phone`, `desktop`, `sharedScreen` (a screen that holds no seat), and `sideways` (`"preferred"`, `"required"` or `false`). Optional `upright: true`: the game is laid out for a phone held upright, and the party room stops asking for sideways while it is played ("An upright game"). |
+| `manifest.audience` | Optional. `true`: a party larger than `players.max` may vote for the game; its players are chosen on spots and everyone else watches as its audience ("Fewer seats than the party"). |
 | `manifest.scores` | Optional. `{ max }`: the game has a high score board, and no round can score more than `max`. The host binds the kit's `ScoreBoard` and answers `/api/party/scores/<id>`. |
 | `manifest.public` | Files and folders the browser loads, relative to the package root. Nothing else in the package is served. |
 | `manifest.settings` | Optional, and required with `game.settings`: the choices the host is offered after the vote ("Settings after the vote"). |
@@ -86,18 +87,19 @@ In a turn-based game (`tickHz: 0`) nothing ticks either: the room wakes for an i
 ### Start: with the party's seats
 
 When the vote's count ends, the room calls `game.create({ seed, seats, now, round })`; a game with settings is first given a settings step ("Settings after the vote"), and its `create` also gets `settings`; a game with `carry` also gets `carry` ("What a rematch carries").
-`seats` is one entry for each player in the party, `{ seat, name, kind: "human", colour }`, with the seat numbers and colours they have in the lobby.
+`seats` is one entry for each player in the party, `{ seat, name, kind: "human", colour }`, with the seat numbers and colours they have in the lobby; for a game with an audience voted for by a larger party, one for each player chosen on its spots ("Fewer seats than the party").
 Seat numbers are the room's and may have gaps (seats 0 and 2 when seat 1 left earlier), and there may be only one: the room does not look at `game.minSeats`, since the wall already kept the light off for a party the game does not take.
-There is no waiting room and no ready step: the vote was the ready step (a game with settings has the settings step, and its players are the party as it was when the vote ended).
+There is no waiting room and no ready step: the vote was the ready step (a game with settings has the settings step, and its players are the party as it was when the vote ended; a game whose players are chosen on spots has that step, and its players are the pieces on the spots at Start).
 `seed` is the game's own, drawn fresh from the platform's secure source for each game, so nothing a game shows its players leads to the room's seed or to another game's draw.
 The room sends everyone `start { room, s, now }`, the same message the kit's own rooms send, where `s` is `game.snapshot(state, now, viewer)`.
 From then on it is the kit's round protocol unchanged: `in { d }` from a player goes to `game.input`, and `ev { ev, now }` and `snap { s, now }` come from `game.tick` and `game.snapshot`.
-Every message that carries the game's state (the start, each snapshot, the last one, the full one a socket gets when it connects mid-game, and the events) is built per viewer, as in the kit's own room (the kit's README, "Per-seat views"): a phone whose seat is in `activity.seats` is `{ role: "player", seat }`, the big screen is `{ role: "screen" }`, and a member whose seat is not in the game is `{ role: "screen", seat }`.
+Every message that carries the game's state (the start, each snapshot, the last one, the full one a socket gets when it connects mid-game, and the events) is built per viewer, as in the kit's own room (the kit's README, "Per-seat views"): a phone whose seat is in `activity.seats` is `{ role: "player", seat }`, the big screen is `{ role: "screen" }`, and a member whose seat is not in the game is `{ role: "screen", seat }`, or `{ role: "audience", seat }` when the game opts in to an audience (`game.audience: true` or `manifest.audience: true`).
+The one place that decides is `LobbyCore.viewerOf`, by the kit's `viewerFor` (`party-kit/src/core/views.js`).
 Messages about the room itself (pieces, the vote, emotes, the Tonight board, the result at the end) are the same for everyone.
 The room answers the kit client's clock ping while a game is on, so `party.now()` works as it does in a game's own room.
 In a ticking game, a seat whose player dropped is played by `game.bot`, if the game has one, so the round can finish.
 A turn-based game has no stand-in ("Who is here during a turn-based game").
-Someone who joins while a game is on gets a seat in the room and a full snapshot, watches, and plays in the next one.
+Someone who joins while a game is on gets a seat in the room and a full snapshot, watches (as the audience when the game opted in, as a screen otherwise), and plays in the next one.
 They are never given a seat that is in the game, even one whose player left the party in the middle of it: in a ticking game that seat's stall is still being played by the stand-in.
 
 ### Turn-based games
@@ -135,7 +137,7 @@ export const game = {
 - **It ends** when `isOver` is true after an input or a deadline, through the same finish as a ticking game: the last snapshots, then `end`, then places and points on the Tonight board ("End", below).
 - **Pages stay quiet.** The room view's `game` says `turns: true`, and the kit's client then keeps to the keep-alive the runtime answers without waking the room, after a few clock pings when the game begins and after a reconnect.
 - **What it costs** is only the time the room is really awake: each input, each deadline, each socket opening or closing. A quiet turn costs nothing.
-- **Not yet**: a game for fewer seats than the party (KR-12): the game is still started with every member present. Its settings and a rematch carry (KR-8) are below.
+- **Fewer seats than the party** (KR-12), its settings and a rematch carry (KR-8) are below.
 
 A room refuses to start a game whose definition does not fit these rules (`gameProblems` in `party-kit/src/core/turns.js`, which includes `presenceProblems` from `presence.js`, and `settingsProblems` from `settings.js`), and logs why.
 
@@ -163,13 +165,40 @@ export const manifest = {
 - **The fields** (`manifest.settings`) are a list of choices, up to 16: `key` (letters, digits and `_`), `label`, `options` (1 to 24, each `{ value, label }` or a bare value; a value is a string of up to 64 characters, a number, `true` or `false`) and `default` (one of the options; the first when left out). Checked, they weigh at most 8 KB as JSON. A game with `settings` whose fields are missing, wrong or too heavy is refused, and the room logs why (`settingFields` and `settingsProblems` in `party-kit/src/core/settings.js`). The site keeps them beside the wall (`lobby/wall.js`, `fields`); they reach the pages only in the step's `choosing`, and the game's box on the wall says no more than `settings: true`.
 - **The check** is `game.settings(value)`. It returns the clean object (plain JSON, at most 2 KB), or `{ ok: false, error, message }` to refuse, with a sentence for people (cut to 64 and 200 characters, as an input's answer). One that throws, or returns something else, is refused as `bad_settings`. It is given a copy, so it may change it.
 - **The step.** When such a game wins the vote, the room does not start it. Its activity is the settings step, with a time limit of 90 seconds (`SETTINGS_MS`), and the room view carries `choosing: { id, name, fields, picks, seats, by, endsIn, of }`: the fields in one shape, the picks as they stand, the seats that will play (the party when the vote ended; anyone who joins meanwhile is never given one of these seats, even one whose player left, and watches the game; at Start only the people the step was opened for play), who chooses (`by`: a seat, or -1 for the room's screen) and the time left. The first picks are the settings the game was last started with in this room, when it still takes them, and otherwise the fields' defaults, cleaned by `game.settings`. A game that refuses its own defaults is not started, and the room logs why.
-- **Who chooses** is the party's host, the same device that picks the room (`pickerToken`): the device that made the party, or while it is away the first connected player. Everyone else's page shows "Choosing settings" with the picks. For now that may be a player who is not in the game's seats (someone who joined later, in a lower seat, while the host is away); the step that chooses the players out of a larger party (KR-12) will settle who decides.
+- **Who chooses** is the party's host, the same device that picks the room (`pickerToken`): the device that made the party, or while it is away the first connected player. Everyone else's page shows "Choosing settings" with the picks. That may be a member who does not play (someone who joined later, in a lower seat, while the host is away, or a host who did not take a spot): choosing the settings and starting the game is the host's part whether or not they play.
 - **A change** from the host is `{ t: "settings", v: { key: value } }`. Every key must be a field and every value one of its options (otherwise `bad_setting`), then the whole is checked by `game.settings`. What it gives back is saved and sent to everyone in the room view. A refusal goes to the sender alone, `settings-no { error, message }`, with the game's own words, and nothing is saved.
 - **Start** (`{ t: "settings-start" }`) creates the game with `settings` set to the picks, after the same budget check as the vote's end. When the time limit comes first, the game starts the same way, with the picks as they stand: the first picks, unless the host changed them.
 - **Back to the room** (`{ t: "settings-cancel" }`) ends the step with nobody playing: everyone gets `note { k: "cancelled", text }`, the pieces are put back by the door and the room rests for six seconds before a new count may start. The step also ends this way when a player it was chosen for leaves the party and fewer than the game needs are left.
 - **Refused.** A change, Start or Cancel from anyone but the host (another player, the big screen) is refused with `settings-no { error: "not_host" }`, and outside the step with `not_choosing`.
 - **What it costs.** Nothing ticks: the room is asleep between the host's taps, and its only wake-up of its own is the time limit (the alarm). The step is saved with the room and restored after a sleep or a deploy with its picks and its time limit; nobody is sent anything for the wake. A saved step for a game that is no longer on the wall, or no longer has settings, sends everyone back to the lobby. The room cannot be changed during it, the pieces do not move and no count runs. A dropped phone's piece does not fade while settings are chosen.
 - A game without `settings` starts the moment the vote ends, and `create` is called exactly as before, with no `settings` in its context.
+
+### Fewer seats than the party: spots and an audience
+
+A game for two (Who Am I?) can be played in a party of up to four, with the others watching:
+
+```js
+export const game = { audience: true, /* ... */ };    // optional here: the manifest's flag opts in too
+export const manifest = {
+  players: { min: 2, max: 2 },                         // the game's seats
+  audience: true,                                      // a larger party may vote for it; the rest watch
+  devices: { phone: true, desktop: false, upright: true },
+};
+```
+
+- **The wall.** The game's light stays on for a party larger than `players.max` (it still goes off below `players.min`). Without `audience: true` nothing changes: the light is off for a party the game does not fit.
+- **The spots.** When such a game wins the vote with more members than seats, the room does not start it: it enters the settings step ("Settings after the vote") even when the game has no settings. The pieces start again by the door, and `players.max` lights on the wall are lit as spots: the game's own light and the ones beside it (`spotLights` in `lobby/shared/vote.js`), drawn as any light is; every other light is out. Each spot is taken by the first connected piece to stand in its light, a piece holds one spot at most, and a spot is free again the moment its piece steps off, drops or leaves (`takeSpots` in `party-kit/src/core/audience.js`). The room view's `choosing` carries `spots: [{ place, seat }]` (the light's box id and who stands there, or null) and `seats` (the seats on the spots); the pieces walk during this step and nobody bumps.
+- **Who plays.** The pieces on the spots at Start, and nobody else: the room writes down who stepped on, by the token it knows them by (never sent to a page), and at Start only a seat still held by that same person plays. Someone who joins during the step may walk onto a free spot like anyone else, in plain sight; nobody plays who was not seen standing on a spot.
+- **Start.** The host starts (`{ t: "settings-start" }`) once every spot is taken; with a spot empty it is refused, `settings-no { error: "spots_open" }`, and from anyone else `not_host` as before. When the time limit comes with every spot taken the game starts with those players; with a spot empty nobody plays, everyone gets `note { k: "cancelled", text }` and is back in the room. A game with settings has its choices and its spots on the same card. A party with exactly as many members as seats (or fewer) needs no spots: everyone plays, as before.
+- **The audience** is every member of the party not in the game's seats, the ones who joined after it began included: each gets `{ role: "audience", seat }` (with the opt-in) and the big screen stays `{ role: "screen" }`. Events addressed with `only` never reach the audience; what the audience may see is the game's snapshot for that viewer (Who Am I? shows its audience both identities and the big screen neither). An input from the audience is refused (`not_in_game`), the audience never places and gets no points, and coming, going, dropping or hiding a page is nothing to the game (presence and ending early are about the game's seats). A hidden audience page is closed like any silent socket; only a player's gets the game's grace. A player who leaves for good ends the game as before.
+- **The wall too small.** A wall with fewer lights than the game's seats has no spots to offer: the first members by seat play.
+
+### An upright game
+
+`manifest.devices.upright: true` says the game is laid out for a phone held upright.
+While it is played, the room's page stops asking for sideways on the phones of its players and its audience: the turn hint is hidden and a sideways lock the page took on the way in is let go (`allowUpright` in `lobby/public/screen-fit.js`).
+A phone that stays sideways still plays: the game's container is letterboxed to an upright shape in the middle of the screen.
+When the game ends the page asks for sideways again as before. The big screen is not changed. The room view's `game` says `upright: true`, and the mounted view is told `upright` ("In the browser").
 
 ### What a rematch carries
 
@@ -179,7 +208,7 @@ create({ seed, seats, now, round, carry }) { /* carry: the last one for these se
 ```
 
 - When a game ends, `game.carry(state)` is asked for a small plain-JSON object (at most 4 KB), and the room keeps it for that game and its seats, in place of the one before. Who Am I? lists the last match's identities, so the next draw avoids them, and who lost, so they guess first.
-- **The same seats** means the same people in the same seats of the game: each seat's player is known by the token the room holds for them, so a seat number given to someone new after its player left is not the same seat. The next `create` for that game with exactly those seats gets the carry as `carry`; with any other seats it gets `carry: null`, and the kept one is dropped. Seats are the game's own (`activity.seats`), so when a game is later played by two seats chosen out of a larger party (KR-12), the carry follows those two.
+- **The same seats** means the same people in the same seats of the game: each seat's player is known by the token the room holds for them, so a seat number given to someone new after its player left is not the same seat. The next `create` for that game with exactly those seats gets the carry as `carry`; with any other seats it gets `carry: null`, and the kept one is dropped. Seats are the game's own (`activity.seats`), so when a game is played by two seats chosen on spots out of a larger party, the carry follows those two: the same two people on the spots next time get it, any other pair does not.
 - It is kept with the room and survives a sleep. Nothing is kept after a game that ended because one of its callbacks threw, or when `carry` throws or gives back something that is not a small plain-JSON object (the room logs it); the game still ends as usual.
 - A game with `carry` gets the `carry` key in `create`'s context, null for a first game; a game without it gets no such key. A game may have `carry` without settings.
 - It is never sent to any page: it is only for `create`, so it may name what the players must not see.
@@ -228,7 +257,7 @@ The room's page shows a game by mounting its view over the room when `start` arr
 
 ```js
 // The module a game's manifest names: lobby: { view: "game/party-view.js" }, under its public path.
-export function mount(container, { room, you, snapshot, send, now, inset, params }) {
+export function mount(container, { room, you, upright, snapshot, send, inputId, now, inset, params }) {
   return {
     full: true,                  // optional: the view covers the whole container
     events(list) {},             // what game.tick returned
@@ -242,7 +271,8 @@ export function preload() {}     // optional: fetch the big files while the vote
 | Given | What it is |
 | --- | --- |
 | `container` | An empty box laid over the room. The view puts itself inside it and nowhere else. |
-| `room`, `you` | The room view (`room.members[seat]` has each seat's name and colour) and `{ role, seat }`: a player, or a screen with seat -1. A player whose seat is not in the round arrived in the middle of it and watches. |
+| `room`, `you` | The room view (`room.members[seat]` has each seat's name and colour; `room.game.seats` the game's seats for a game with an audience) and who this device is: `{ role: "player", seat }`, `{ role: "screen", seat: -1 }` for the big screen, or, in a game that opts in to an audience, `{ role: "audience", seat }` for a member who is not in it (worked out the same way as the room's viewer). In a game without the opt-in, a player whose seat is not in the round arrived in the middle of it and watches. |
+| `upright` | `true` when the game's manifest says `devices.upright` and this device is a phone of a player or the audience: the page has stopped asking for sideways, so the view may lay itself out upright, and is letterboxed to an upright shape on a phone held sideways. `false` otherwise (the big screen, any other game). |
 | `snapshot` | `game.snapshot` at the start, or a later one for a page that came in or came back mid-round. |
 | `send(data, opts)` | One input for `game.input`, as this device's seat. With `opts = { id }` in a turn-based game it returns a promise for the room's answer (`PartyClient.sendInput`, "Answered inputs"); without, it is fire and forget. |
 | `inputId()` | A new id for `send`, unique for this seat for the whole game, also across reloads (`PartyClient.nextInputId`). |

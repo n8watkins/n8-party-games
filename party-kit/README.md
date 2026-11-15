@@ -52,6 +52,7 @@ What a game must export so the party site can host it is in [GAME-CONTRACT.md](G
 | --- | --- |
 | `src/core/room-core.js` | The room as plain logic with an injected clock: seats, ready, start, drop and rejoin, bots, idle. No network. |
 | `src/core/views.js` | Per-seat views: the viewer a socket gets, events filtered by `only`, and one message built per kind of viewer. |
+| `src/core/audience.js` | A game for fewer seats than the party: whether it takes an audience, whether spots are needed, who stands on which spot, and the upright flag. |
 | `src/core/rng.js` | `makeRng(seed)`, `hashSeed`, `newSeed`. |
 | `src/worker/index.js` | `handlePartyApi(request, env)`, `createPartyRoom(game)`, `PinDirectory`, `RateLimiter`. |
 | `src/worker/room.js` | The Durable Object around `RoomCore`: WebSockets, the tick loop, saving, shutdown. |
@@ -229,6 +230,7 @@ A game with a secret per seat (Who Am I?: each phone shows the other player's id
 | `{ role: "player", seat }` | A player's phone, and the seat is in the round. |
 | `{ role: "screen" }` | The shared big screen, which holds no seat. |
 | `{ role: "screen", seat }` | A member of the room whose seat is not in the round, who watches (in the kit's own room: someone who took a seat after the round ended, since a mid-round joiner takes over a bot's seat in the round). They get a screen's view; `seat` is there so a later version can tell a watching phone from the big screen. |
+| `{ role: "audience", seat }` | The same member, for a game that opts in to an audience (`game.audience: true`, or `manifest.audience: true`): the party room gives it to everyone in the party who is not in the game. A game may show its audience more than the big screen. Events with `only` never reach it, and its inputs are refused. The kit's own room does not use it yet. |
 
 A game should treat any viewer it does not recognise as a screen, so new roles stay safe.
 The room calls `snapshot` once for each kind of viewer and sends each socket its own: the `start` message, every `snap` (on schedule, at the end of the round, and the full one a socket gets when it connects mid-round) are all shaped this way.
@@ -274,6 +276,16 @@ A game may also declare `carry(state)`, which returns a small plain-JSON object 
 The rules are in `GAME-CONTRACT.md`, "Settings after the vote" and "What a rematch carries".
 The party room runs both; this kit's own room (`createPartyRoom`) does not read them yet.
 The plain logic is `src/core/settings.js`: `hasSettings`, `hasCarry`, `settingFields` (the manifest's fields in one shape, with what is wrong), `fieldDefaults`, `settingsProblems`, `checkSettings` (the game's own check), `applyChange` (one change from the host, checked against the fields), `carryOf`, `seatsKey` and `carryFor`.
+
+### Fewer seats than the party, an audience, and an upright phone
+
+A game for fewer seats than the party says `audience: true` in its manifest, with `players.max` its seats.
+A larger party may then vote for it; its players are chosen in the settings step on spots (lights on the wall), the first pieces to stand on them, and the host starts it when every spot is taken.
+Everyone else in the party is its audience: the viewer `{ role: "audience", seat }`, which a game may show more than the big screen; the audience cannot play, never places, and its coming and going is nothing to the game.
+A game may also opt in to the audience viewer alone with `game.audience: true`; without either flag, a member who is not in the game is a screen, as before.
+`devices.upright: true` in the manifest says the game is laid out for an upright phone: the party room's page stops asking for sideways while it is played, and tells the mounted view `upright`.
+The rules are in `GAME-CONTRACT.md`, "Fewer seats than the party: spots and an audience" and "An upright game"; the party room runs them, and this kit's own room does not read them yet.
+The plain logic is `src/core/audience.js`: `hasAudience`, `isUpright`, `needsSpots`, `openSpots`, `takeSpots`, `spotsFull`, `spotSeats` and `validSpots`, with the audience viewer in `src/core/views.js` (`viewerFor(who, inRound, { audience })`).
 
 ### HTTP API
 
