@@ -8,7 +8,7 @@ import { game as coinFlip, FLIP_MS } from "../games/coin-flip.js";
 import { camera, CLOSER, CORNER_CLEAR, CORNER_WIDTH, PHONE_FRAME, PIECE_CSS, PIECE_HEIGHT, SIGN_TOP, signTop } from "../shared/camera.js";
 import { Pilot, SEND_GAP_MS } from "../shared/pilot.js";
 import { playerLine, statusLine } from "../shared/status.js";
-import { badgeFor, boxFromManifest, leaders, playersLabel, pointsForPlace, standingsFromRows, tally, whereabouts, whyNot } from "../shared/vote.js";
+import { badgeFor, boxFromManifest, leaders, playersLabel, pointsForPlace, spotLights, standingsFromRows, tally, whereabouts, whyNot } from "../shared/vote.js";
 import { JUMP_HEIGHT, JUMP_MS, ROOM, WALK_SPEED, boxCentre, boxWidth, jumpHeight, lightAt, lightHalf, posAt, spawnX } from "../shared/world.js";
 import { TEST_WALL, WALL, wallFor } from "../wall.js";
 
@@ -64,6 +64,22 @@ describe("which games the party can play", () => {
     expect(whyNot(box({ min: 1, max: 4 }, { sharedScreen: "required" }), { players: 2, screens: 0 })).toBe("Needs a big screen");
     expect(whyNot(box({ min: 1, max: 4 }, { sharedScreen: "required" }), { players: 2, screens: 1 })).toBeNull();
     expect(whyNot(box({ min: 1, max: 4 }, {}, { soon: true }), { players: 2, screens: 1 })).toBe("Coming soon");
+  });
+
+  it("keeps a game with an audience lit for a party larger than its seats, and finds its spots on the wall", () => {
+    const watched = boxFromManifest({ id: "w", name: "W", players: { min: 2, max: 2 }, audience: true, devices: { phone: true, upright: true } });
+    expect(watched).toMatchObject({ audience: true, upright: true, min: 2, max: 2 });
+    expect(box({ min: 2, max: 2 }, {})).not.toHaveProperty("audience");
+    expect(box({ min: 2, max: 2 }, {})).not.toHaveProperty("upright");
+    expect(whyNot(watched, { players: 4, screens: 0 })).toBeNull();
+    expect(whyNot(watched, { players: 1, screens: 0 })).toBe("Needs 2 players");
+    // The spots: lights side by side around the game's own, kept on the wall.
+    const wall = ["a", "b", "c", "d", "e"].map((id) => ({ id }));
+    expect(spotLights(wall, "a", 2)).toEqual(["a", "b"]);
+    expect(spotLights(wall, "c", 2)).toEqual(["c", "d"]);
+    expect(spotLights(wall, "c", 3)).toEqual(["b", "c", "d"]);
+    expect(spotLights(wall, "e", 2)).toEqual(["d", "e"]);
+    expect(spotLights(wall.slice(0, 1), "a", 2)).toBeNull();
   });
 
   it("counts the lights, finds a tie, and pays 3, 2, 1", () => {
