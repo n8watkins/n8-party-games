@@ -36,13 +36,14 @@
 // the same people in the same seats (carries), and the last settings chosen for a game are the
 // first picks the next time it wins (lastSettings).
 import { ID_REUSED, answerOf, inputDigest, lookup, remember } from "../../party-kit/src/core/answers.js";
+import { hasAudience, needsSpots, openSpots, spotSeats, spotsFull, takeSpots, validSpots } from "../../party-kit/src/core/audience.js";
 import { makeRng } from "../../party-kit/src/core/rng.js";
 import { abandonOutcome, goneWhy, graceEndsAt, graceOf, lifetimesOf, presenceOutcome, reportOf, sameReport } from "../../party-kit/src/core/presence.js";
 import { applyChange, carryFor, carryOf, checkSettings, fieldDefaults, hasCarry, hasSettings, seatsKey, settingFields, settingsProblems } from "../../party-kit/src/core/settings.js";
 import { copyState, deadlineOf, gameProblems, inputOutcome, isTurnBased, loadState, saveState, stateKey } from "../../party-kit/src/core/turns.js";
 import { viewerFor } from "../../party-kit/src/core/views.js";
 import { IDLE_SHUTDOWN_MS, NAME_MAX, SEAT_COLOURS, STALE_ROOM_MS, cleanName, randomToken } from "../../party-kit/src/core/room-core.js";
-import { AWAY_MS, COUNT_MS, SETTLE_MS, TOSS_MS, leaders, pointsForPlace, standingsFromRows, tally, whyNot } from "../shared/vote.js";
+import { AWAY_MS, COUNT_MS, SETTLE_MS, TOSS_MS, leaders, pointsForPlace, spotLights, standingsFromRows, tally, whyNot } from "../shared/vote.js";
 import { bumpTarget, cooldownLeft, isDown, isSafe, knockLanding, knocked, mayBump } from "../shared/bump.js";
 import { DEFAULT_ROOM, ROOM_COOLDOWN_MS, isRoom, roomLocked } from "../shared/rooms.js";
 import { record } from "../shared/tonight.js";
@@ -420,7 +421,7 @@ export class LobbyCore {
    */
   move(seat, data, now) {
     const m = this.members[seat];
-    if (!m || this.activity.kind !== "lobby" || !data) return null;
+    if (!m || !this.piecesWalk() || !data) return null;
     if (typeof data.x !== "number" || !Number.isFinite(data.x)) return null;
     // Sent before the player's page heard that the room had moved the piece: out of date.
     if ((data.r ?? 0) !== m.rev) return null;
@@ -507,8 +508,28 @@ export class LobbyCore {
     return { players: this.connected().length, screens: this.screensConnected() };
   }
 
-  /** {boxId: null (its light is on) or the reason it is off}. */
+  /**
+   * Whether the pieces walk: in the lobby, and while a game's players are chosen on its spots
+   * (the spots are lights, and standing in one is the choice). Bumping stays the lobby's.
+   */
+  piecesWalk() {
+    return this.activity.kind === "lobby" || this.choosingSpots();
+  }
+
+  /** Whether the settings step is choosing the game's players on spots (a party larger than its seats). */
+  choosingSpots() {
+    return this.activity.kind === "settings" && Array.isArray(this.activity.spots);
+  }
+
+  /**
+   * {boxId: null (its light is on) or the reason it is off}. While players are chosen on spots,
+   * the spots' lights are the only ones on, and the others are off with nothing to say ("").
+   */
   lights() {
+    if (this.choosingSpots()) {
+      const spots = new Set(this.activity.spots.map((spot) => spot.place));
+      return Object.fromEntries(this.boxes.map((box) => [box.id, spots.has(box.id) ? null : ""]));
+    }
     const party = this.party();
     return Object.fromEntries(this.boxes.map((box) => [box.id, whyNot(box, party)]));
   }
@@ -535,6 +556,9 @@ export class LobbyCore {
     // While settings are chosen, a party that no longer has the players for the game (one left
     // the party) is back in the room at once.
     const gaveUp = this.activity.kind === "settings" && this.choosingFails(now);
+    // While players are chosen on spots: who stands on which spot (a piece that stepped off frees
+    // its spot). What changes there is in the room view, so the whole room is sent (`room`).
+    const spotsMoved = !gaveUp && this.choosingSpots() && this.fillSpots(now);
     if (this.activity.kind === "lobby" && !this.toss) {
       const standing = this.standing(now);
       const voters = this.connected();
@@ -547,7 +571,24 @@ export class LobbyCore {
     const changed = key !== this.voteKey;
     this.voteKey = key;
     if (gaveUp) return { view: true, state: true, gaveUp };
+    if (spotsMoved) return { view: changed, state: true, room: true };
     return { view: changed, state: (this.count?.endsAt ?? 0) !== before };
+  }
+
+  /**
+   * The spots after the pieces moved (party-kit/src/core/audience.js, takeSpots): a spot is held
+   * by the first connected piece to stand in its light, and freed when it steps off, drops or
+   * leaves. The game's seats are the pieces on the spots. Returns whether anything changed.
+   */
+  fillSpots(now) {
+    const a = this.activity;
+    const standing = this.standing(now);
+    const at = Object.fromEntries(this.connected().map((m) => [m.seat, standing[m.seat] ?? null]));
+    const { spots, changed } = takeSpots(a.spots, at);
+    if (!changed) return false;
+    a.spots = spots;
+    a.seats = spotSeats(spots);
+    return true;
   }
 
   /** The vote as the players see it. Times are given as "in so many milliseconds", so no clocks need to agree. */
@@ -575,7 +616,13 @@ export class LobbyCore {
     const inLobby = this.activity.kind === "lobby";
     const choosing = this.activity.kind === "settings";
     if (choosing && this.choosingFails(now)) out.changed = true;
-    else if (choosing && now >= this.activity.endsAt) {
+    else if (choosing && now >= this.activity.endsAt && this.choosingSpots() && !spotsFull(this.activity.spots)) {
+      // The time is up with a spot nobody stands on: nobody plays, and everyone is back in the room.
+      const name = this.boxOf(this.activity.id)?.name ?? this.activity.id;
+      this.notes.push({ k: "cancelled", text: `Nobody took every spot, so ${name} did not start.` });
+      this.toLobby(now);
+      out.changed = true;
+    } else if (choosing && now >= this.activity.endsAt) {
       // The host's time is up: the game starts with the picks as they stand (startChosen).
       out.start = this.activity.id;
       out.chosen = true;
@@ -750,9 +797,32 @@ export class LobbyCore {
     if (!game || this.activity.kind !== "lobby") return fail("not_found", "That game cannot start here.");
     const problems = [...gameProblems(game), ...settingsProblems(game, this.boxOf(id)?.settings)];
     if (problems.length) return fail("bad_game", problems.join(" "));
-    // A game with settings has them chosen first: the room waits for its host (startChosen).
-    if (hasSettings(game)) return this.beginSettings(game, id, now);
-    return this.createGame(game, id, now, seed, this.present().map((m) => m.seat), null);
+    // A party larger than the game's seats chooses its players on spots first (a game with an
+    // audience); a game with settings has them chosen first. Either way the room waits for its
+    // host (startChosen).
+    const spots = this.spotsFor(id);
+    if (hasSettings(game) || spots) return this.beginSettings(game, id, now, spots);
+    return this.createGame(game, id, now, seed, this.partySeats(id), null);
+  }
+
+  /**
+   * The spots on which a game's players are chosen, when the party has more members than the game
+   * has seats and the game takes an audience (its box says `audience`): one light on the wall for
+   * each seat (vote.js, spotLights). Null when no spots are needed. A wall with fewer lights than
+   * the game has seats has no spots to offer: the first members by seat play.
+   */
+  spotsFor(id) {
+    const box = this.boxOf(id);
+    if (!needsSpots({ audience: box?.audience, seats: box?.max }, this.present().length)) return null;
+    const places = spotLights(this.boxes, id, box.max);
+    return places ? openSpots(places) : null;
+  }
+
+  /** The seats that play a game with no spot step: the party, or its first members when the game takes fewer (a wall too small for spots). */
+  partySeats(id) {
+    const seats = this.present().map((m) => m.seat);
+    const box = this.boxOf(id);
+    return box?.audience && seats.length > box.max ? seats.slice(0, box.max) : seats;
   }
 
   /** The box on the wall for a game id. */
@@ -766,21 +836,51 @@ export class LobbyCore {
    * otherwise its defaults (the fields' defaults, cleaned by `game.settings`). The players are the
    * party as it is now; anyone who joins during the step watches the game. Returns {ok, choosing}.
    */
-  beginSettings(game, id, now) {
-    const { fields } = settingFields(this.boxOf(id)?.settings);
-    let first = this.lastSettings[id] ? checkSettings(game, this.lastSettings[id]) : null;
-    if (!first?.ok) first = checkSettings(game, fieldDefaults(fields));
-    if (!first.ok) {
-      if (first.thrown) console.error(`party room: ${id} settings() failed on its defaults`, first.thrown);
-      return fail("bad_game", `settings() refused its own defaults: ${first.message}`);
+  beginSettings(game, id, now, spots = null) {
+    let first = { ok: true, settings: {} };
+    if (hasSettings(game)) {
+      const { fields } = settingFields(this.boxOf(id)?.settings);
+      first = this.lastSettings[id] ? checkSettings(game, this.lastSettings[id]) : null;
+      if (!first?.ok) first = checkSettings(game, fieldDefaults(fields));
+      if (!first.ok) {
+        if (first.thrown) console.error(`party room: ${id} settings() failed on its defaults`, first.thrown);
+        return fail("bad_game", `settings() refused its own defaults: ${first.message}`);
+      }
     }
     const seats = this.present().map((m) => m.seat);
     if (!seats.length) return fail("not_ready", "Nobody is here to play.");
     this.count = null;
     this.toss = null;
-    this.activity = { kind: "settings", id, picks: first.settings, seats, endsAt: now + SETTINGS_MS, startedAt: now };
+    // With spots (a party larger than the game's seats), nobody plays until they stand on one:
+    // the pieces start again by the door, out of every light, and walk to the spots.
+    this.activity = { kind: "settings", id, picks: first.settings, seats: spots ? [] : seats, endsAt: now + SETTINGS_MS, startedAt: now };
+    if (spots) {
+      this.activity.spots = spots;
+      this.respawn(now);
+    }
     this.lastActive = now;
     return { ok: true, choosing: true, ended: null };
+  }
+
+  /** Every piece back by the door, standing still, moved by the room (so each page takes its place). */
+  respawn(now) {
+    for (const m of this.present()) {
+      m.x = spawnX(m.seat, this.boxes.length);
+      m.d = 0;
+      m.t = now;
+      m.rev += 1;
+    }
+  }
+
+  /** Whether this device may start the game now: the host, and with every spot taken when players are chosen on spots. */
+  mayStart(token) {
+    const may = this.mayChoose(token);
+    if (!may.ok) return may;
+    if (this.choosingSpots() && !spotsFull(this.activity.spots)) {
+      const n = this.activity.spots.length;
+      return fail("spots_open", `${n === 2 ? "Two" : n} players must stand on the spots first.`);
+    }
+    return may;
   }
 
   /** Whether this device may choose the settings: the party's host (the one who picks the room, pickerToken). */
@@ -828,7 +928,8 @@ export class LobbyCore {
   choosingFails(now) {
     const a = this.activity;
     const box = this.boxOf(a.id);
-    const here = a.seats.filter((seat) => this.members[seat]).length;
+    // With spots, the players are not chosen yet: anyone still in the party may take a spot.
+    const here = Array.isArray(a.spots) ? this.present().length : a.seats.filter((seat) => this.members[seat]).length;
     if (here >= Math.max(1, box?.min ?? 1)) return false;
     const name = box?.name ?? a.id;
     this.notes.push({ k: "cancelled", text: `Not enough players are left for ${name}, so it did not start.` });
@@ -839,12 +940,7 @@ export class LobbyCore {
   /** Back in the room from the settings step: everyone by the door, and a rest before the next count. */
   toLobby(now) {
     this.activity = { kind: "lobby" };
-    for (const m of this.present()) {
-      m.x = spawnX(m.seat, this.boxes.length);
-      m.d = 0;
-      m.t = now;
-      m.rev += 1;
-    }
+    this.respawn(now);
     this.holdUntil = now + SETTLE_MS;
     this.lastActive = now;
   }
@@ -862,7 +958,9 @@ export class LobbyCore {
       this.toLobby(now);
       return fail("not_found", "That game cannot start here.");
     }
-    return this.createGame(game, id, now, seed, a.seats.filter((seat) => this.members[seat]), a.picks);
+    // With spots, only a full set starts the game: its players are the pieces on them.
+    if (Array.isArray(a.spots) && !spotsFull(a.spots)) return fail("spots_open", "Every spot must be taken first.");
+    return this.createGame(game, id, now, seed, a.seats.filter((seat) => this.members[seat]), hasSettings(game) ? a.picks : null);
   }
 
   /**
@@ -932,7 +1030,11 @@ export class LobbyCore {
    * `activity` is the game being shown; it defaults to the current one.
    */
   viewerOf(who, activity = this.activity) {
-    return viewerFor(who, activity.kind === "game" ? new Set(activity.seats) : null);
+    if (activity.kind !== "game") return viewerFor(who, null);
+    // A game that opts in to an audience (party-kit/src/core/audience.js) gives the members who
+    // are not in it `{role: "audience", seat}`; any other keeps them on a screen's view.
+    const audience = hasAudience(this.games.get(activity.id), this.boxOf(activity.id));
+    return viewerFor(who, new Set(activity.seats), { audience });
   }
 
   /** The current game's state as this viewer may see it (game.snapshot with the viewer). */
@@ -1288,7 +1390,7 @@ export class LobbyCore {
       phase: a.kind === "game" ? "playing" : a.kind === "settings" ? "settings" : "lobby",
       // While a game's settings are chosen: what they are, who chooses them, and how long is left.
       ...(a.kind === "settings" ? { choosing: this.choosingView(now) } : {}),
-      game: a.kind === "game" ? { id: a.id, name: this.boxes.find((box) => box.id === a.id)?.name ?? a.id, round: this.round, ...(this.turnGame() ? { turns: true } : {}) } : null,
+      game: a.kind === "game" ? this.gameView() : null,
       boxes: this.boxes,
       members: this.members.map((m) =>
         m ? { seat: m.seat, name: m.name, colour: m.colour, connected: m.connected, ...(m.connected && m.away ? { away: true } : {}), x: Math.round(posAt(m, now)), d: m.d, rev: m.rev, points: m.points, ...this.bumpView(m, now), emoteCool: Math.round(emoteLeft(m.emoteAt, now)) } : null,
@@ -1309,9 +1411,26 @@ export class LobbyCore {
   }
 
   /**
+   * The game being played as every page sees it: its id, name and round, `turns` when it is
+   * turn-based, and for a game that opts in to an audience its seats and `audience: true`, so a
+   * page can tell its view whether it plays or watches. `upright` when the game is laid out for an
+   * upright phone (its manifest's `devices.upright`).
+   */
+  gameView() {
+    const a = this.activity;
+    const box = this.boxOf(a.id);
+    const out = { id: a.id, name: box?.name ?? a.id, round: this.round };
+    if (this.turnGame()) out.turns = true;
+    if (hasAudience(this.games.get(a.id), box)) Object.assign(out, { seats: [...a.seats], audience: true });
+    if (box?.upright) out.upright = true;
+    return out;
+  }
+
+  /**
    * The settings step as every page sees it: the game, its fields (settings.js, settingFields),
    * the picks, which seats will play, who chooses (`by`, as the room picker: a seat, or -1 for
-   * the room's screen) and the time left (`endsIn` of `of`, in ms).
+   * the room's screen) and the time left (`endsIn` of `of`, in ms). While the players are chosen
+   * on spots, `spots` too: [{place, seat}], each spot's light (a box id) and who stands on it.
    */
   choosingView(now) {
     const a = this.activity;
@@ -1322,6 +1441,7 @@ export class LobbyCore {
       fields: settingFields(box?.settings).fields,
       picks: a.picks,
       seats: a.seats,
+      ...(Array.isArray(a.spots) ? { spots: a.spots.map((spot) => ({ ...spot })) } : {}),
       by: this.pickerView()?.seat ?? null,
       endsIn: Math.max(0, a.endsAt - now),
       of: SETTINGS_MS,
@@ -1410,8 +1530,12 @@ export class LobbyCore {
    */
   restoreChoosing(saved) {
     const game = this.games.get(saved.id);
-    if (hasSettings(game) && Array.isArray(saved.seats) && saved.seats.every(Number.isInteger) && typeof saved.endsAt === "number" && saved.picks && typeof saved.picks === "object") {
+    // A step that chooses players on spots is kept for a game that still takes an audience.
+    const spots = saved.spots === undefined ? null : validSpots(saved.spots) && this.boxOf(saved.id)?.audience ? saved.spots : false;
+    const readable = Array.isArray(saved.seats) && saved.seats.every(Number.isInteger) && typeof saved.endsAt === "number" && saved.picks && typeof saved.picks === "object";
+    if (game && (hasSettings(game) || spots) && spots !== false && readable) {
       this.activity = { kind: "settings", id: saved.id, picks: saved.picks, seats: [...saved.seats], endsAt: saved.endsAt, startedAt: saved.startedAt ?? saved.endsAt - SETTINGS_MS };
+      if (spots) this.activity.spots = spots.map((spot) => ({ place: spot.place, seat: spot.seat }));
       return;
     }
     console.error(`party room: the settings step for ${saved.id} could not be restored`);

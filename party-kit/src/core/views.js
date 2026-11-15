@@ -8,14 +8,21 @@
 //   { role: "screen", seat }   a member of the room whose seat is not in the round (they arrived
 //                              after it began, or the round was started for fewer seats); they
 //                              watch, and get what a screen gets
+//   { role: "audience", seat } the same member, for a game that opts in to an audience
+//                              (`game.audience` or `manifest.audience`, audience.js): a game may
+//                              show its audience more than the big screen (Who Am I? shows them
+//                              both identities, and the big screen neither)
 // A game that ignores the viewer sends everyone the same thing, exactly as before.
 //
 // Plain logic: no network, no clock. Both room classes (the kit's room and the party room) can use it.
 
-/** The viewer a room member gets. `inRound` is the set of seats in the round, or null when none has begun. */
-export function viewerFor({ role, seat }, inRound = null) {
+/**
+ * The viewer a room member gets. `inRound` is the set of seats in the round, or null when none has
+ * begun. `audience`: the game opted in, so a member who is not in the round is its audience.
+ */
+export function viewerFor({ role, seat }, inRound = null, { audience = false } = {}) {
   if (role !== "player") return { role: "screen" };
-  if (inRound && !inRound.has(seat)) return { role: "screen", seat };
+  if (inRound && !inRound.has(seat)) return { role: audience ? "audience" : "screen", seat };
   return { role: "player", seat };
 }
 

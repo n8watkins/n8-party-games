@@ -340,7 +340,8 @@ export function createLobbyRoom(wallFor) {
         for (const other of this.sockets.values()) this.keep(other);
         return this.changed(now);
       }
-      const may = core.mayChoose(entry.token);
+      // Start: the host's, and with every spot taken when the players are chosen on spots.
+      const may = core.mayStart(entry.token);
       if (!may.ok) return no(may);
       await this.launch(may.id, true);
       this.bill(now, 2); // this message's work, and the budget check
@@ -501,6 +502,8 @@ export function createLobbyRoom(wallFor) {
       const change = core.evaluate(now);
       if (change.gaveUp) return this.changed(now);
       if (change.view) this.broadcast({ t: "vote", vote: core.voteView(now) });
+      // Who stands on a game's spots changed (choosing its players): it is in the room view.
+      if (change.room) this.broadcastRoom(now);
       if (change.state) void this.save();
       this.arm(now);
     }
@@ -599,7 +602,11 @@ export function createLobbyRoom(wallFor) {
         if (started.error === "bad_game") console.error(`party room: ${id} cannot start: ${started.message}`);
         return;
       }
-      if (started.choosing) return void (await this.save());
+      if (started.choosing) {
+        // Players chosen on spots start again by the door: each socket carries its piece through a sleep.
+        for (const entry of this.sockets.values()) this.keep(entry);
+        return void (await this.save());
+      }
       if (started.ended) {
         this.tellNotes();
         return this.finish(started.ended, now);
