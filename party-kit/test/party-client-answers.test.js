@@ -72,12 +72,15 @@ describe("sendInput with an id", () => {
     const err = await guessed.catch((e) => e);
     expect(err).toBeInstanceOf(PartyError);
     expect(err).toMatchObject({ code: "not_your_turn", message: "It is not your turn.", id: 2 });
-    // An answer for nobody (late, or "2" for the id 2) is dropped, and no error event goes out for one with an id.
-    ws.hear({ t: "error", id: "2", error: "x", message: "y" });
+    // An error that answered a promise is not also an error event.
     expect(errors).toEqual([]);
-    // An error with no id is the room's, as before.
+    // One nobody waits for ("2" is not the id 2) goes to the error event, and so does one with no id.
+    ws.hear({ t: "error", id: "2", error: "x", message: "y" });
     ws.hear({ t: "error", error: "room_full", message: "Full." });
-    expect(errors.map((e) => e.code)).toEqual(["room_full"]);
+    expect(errors.map((e) => [e.code, e.id])).toEqual([
+      ["x", "2"],
+      ["room_full", undefined],
+    ]);
   });
 
   it("gives the same promise for the same id sent again, and sends it again", async () => {

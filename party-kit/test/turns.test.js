@@ -4,7 +4,7 @@
 import { describe, expect, it } from "vitest";
 import * as cork from "cork-and-bell";
 import { game as coinFlip } from "../../lobby/games/coin-flip.js";
-import { SAVE_VERSION, deadlineOf, gameProblems, inputOutcome, isTurnBased, loadState, plainJson, saveState } from "../src/core/turns.js";
+import { SAVE_VERSION, copyState, deadlineOf, gameProblems, inputOutcome, isTurnBased, loadState, plainJson, saveState, stateKey } from "../src/core/turns.js";
 
 const base = () => ({ create: () => ({}), input: () => {}, tick: () => [], snapshot: () => ({}), isOver: () => false });
 const turns = (extra = {}) => ({ ...base(), tickHz: 0, ...extra });
@@ -72,6 +72,22 @@ describe("what an input gives back", () => {
     expect(inputOutcome({ ok: true, duplicate: false })).toEqual({ events: [], answer: { ok: true, duplicate: false } });
     expect(inputOutcome({ ok: false, error: "not_your_turn", events: [{ k: "nudge", only: 1 }] })).toEqual({ events: [{ k: "nudge", only: 1 }], answer: { ok: false, error: "not_your_turn" } });
     expect(inputOutcome({ ok: true, events: "not a list" })).toEqual({ events: [], answer: { ok: true } });
+  });
+});
+
+describe("a copy to apply an input to, and comparing states", () => {
+  it("copies through the game's own save when it has one, and compares states as they would be saved", () => {
+    const plain = turns();
+    const state = { moves: [{ say: "a" }], when: 1 };
+    const copy = copyState(plain, state);
+    copy.moves.push({ say: "b" });
+    expect(state.moves).toHaveLength(1);
+    const own = turns({ serialize: (s) => JSON.stringify(s), restore: (t) => ({ ...JSON.parse(t), restored: true }) });
+    expect(copyState(own, state)).toMatchObject({ moves: [{ say: "a" }], restored: true });
+    expect(stateKey(plain, state)).toBe(stateKey(plain, structuredClone(state)));
+    expect(stateKey(plain, state)).not.toBe(stateKey(plain, copy));
+    // A state that cannot be saved has no key: it is never taken as unchanged.
+    expect(stateKey(plain, { when: new Date(0) })).toBeNull();
   });
 });
 

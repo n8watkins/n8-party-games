@@ -1,7 +1,7 @@
 // Answered inputs, the plain logic (party-kit/src/core/answers.js): what an id is, what an answer
 // looks like, the message that carries it, and the answers kept per seat for a repeated id.
 import { describe, expect, it } from "vitest";
-import { ANSWERS_KEPT, ID_MAX, answerMessage, answerOf, inputId, recall, remember } from "../src/core/answers.js";
+import { ANSWERS_KEPT, ERROR_MAX, ID_MAX, MESSAGE_MAX, answerMessage, answerOf, inputDigest, inputId, lookup, recall, remember } from "../src/core/answers.js";
 
 describe("an input's id", () => {
   it("is a short string or a whole number, and anything else is no id", () => {
@@ -26,6 +26,25 @@ describe("an answer", () => {
   it("goes out as ack or error, with the id", () => {
     expect(answerMessage("q-7", { ok: true })).toEqual({ t: "ack", id: "q-7" });
     expect(answerMessage(3, { ok: false, error: "too_soon", message: "Wait." })).toEqual({ t: "error", id: 3, error: "too_soon", message: "Wait." });
+  });
+});
+
+describe("an answer's length and an input's fingerprint", () => {
+  it("cuts a game's long words, and tells the same input from another one", () => {
+    const long = answerOf({ ok: false, error: "e".repeat(500), message: "m".repeat(5000) });
+    expect(long.error).toHaveLength(ERROR_MAX);
+    expect(long.message).toHaveLength(MESSAGE_MAX);
+    expect(inputDigest({ say: "one" })).toBe(inputDigest({ say: "one" }));
+    expect(inputDigest({ say: "one" })).not.toBe(inputDigest({ say: "three" }));
+    expect(inputDigest(undefined)).toMatch(/^[0-9a-f]{8}$/);
+    const book = {};
+    remember(book, 0, 1, { ok: true }, inputDigest({ say: "one" }));
+    expect(lookup(book, 0, 1, inputDigest({ say: "one" }))).toEqual({ answer: { ok: true } });
+    expect(lookup(book, 0, 1, inputDigest({ say: "three" }))).toEqual({ reused: true });
+    expect(lookup(book, 0, 2, inputDigest({ say: "one" }))).toBeNull();
+    // An answer kept before fingerprints were (an older save) is taken as the same input.
+    remember(book, 1, 1, { ok: true });
+    expect(lookup(book, 1, 1, inputDigest({ say: "x" }))).toEqual({ answer: { ok: true } });
   });
 });
 

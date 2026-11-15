@@ -46,14 +46,15 @@ describe("an input with an id", () => {
     }
   });
 
-  it("is answered with the game's error when it is turned down, and everyone still gets a fresh snapshot", async () => {
+  it("is answered with the game's error when it is turned down, after the sender's fresh snapshot", async () => {
     const { ctx, say, ws } = await started(turnGame());
     const since = from(ws.ann, ws.bo, ws.screen);
     say(ws.bo, { t: "in", d: { say: "Me first?" }, id: 9 });
     await settle();
     expect(answersOf(since(ws.bo))).toEqual([{ t: "error", id: 9, error: "not_your_turn", message: "It is not your turn." }]);
-    for (const w of [ws.ann, ws.screen]) expect(answersOf(since(w))).toEqual([]);
-    for (const w of [ws.ann, ws.bo, ws.screen]) expect(since(w).filter((m) => m.t === "snap")).toHaveLength(1);
+    expect(since(ws.bo).map((m) => m.t)).toEqual(["snap", "error"]);
+    // Nothing moved, so nobody else hears of it (party-room-review.test.js, N4, for one that moved something).
+    for (const w of [ws.ann, ws.screen]) expect(since(w)).toEqual([]);
     expect(ctx.room.core.activity.state.moves).toEqual([]);
   });
 
@@ -109,7 +110,7 @@ describe("an input with an id", () => {
     const { ctx, connect, say, sleepAndWake, ws, tokens } = await started(game);
     say(ws.ann, { t: "in", d: { say: "Am I a bird?" }, id: "q-1" });
     await settle();
-    expect(ctx.store.get("lobby").game.answers).toEqual({ 0: [["s:q-1", { ok: true }]] });
+    expect(ctx.store.get("lobby").game.answers).toEqual({ 0: [["s:q-1", { ok: true }, expect.stringMatching(/^[0-9a-f]{8}$/)]] });
     await sleepAndWake();
     // Ann's phone came back on a new socket and sends what it never heard answered.
     const wsAnn2 = await connect(tokens.ann);

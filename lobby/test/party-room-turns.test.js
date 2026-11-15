@@ -82,12 +82,13 @@ describe("a turn-based game in the party room", () => {
     expect(evs(ws.screen)).toEqual([{ k: "said", seat: 0, say: "Am I alive?" }]);
     expect(evs(ws.cy)).toEqual([{ k: "said", seat: 0, say: "Am I alive?" }]);
 
-    // Out of turn: the game says no, and every viewer still gets a fresh snapshot (nothing moved).
+    // Out of turn: the game says no and nothing moved, so only the sender gets a fresh snapshot.
     const again = from(...Object.values(ws));
     say(ws.ann, { t: "in", d: { say: "Again?" } });
     await settle();
     expect(ctx.room.core.activity.state.moves).toHaveLength(1);
-    for (const w of Object.values(ws)) expect(again(w).filter((m) => m.t === "snap").map((m) => m.s.moves)).toEqual([1]);
+    expect(again(ws.ann).filter((m) => m.t === "snap").map((m) => m.s.moves)).toEqual([1]);
+    for (const w of [ws.bo, ws.screen, ws.cy]) expect(again(w)).toEqual([]);
     // The screen and a member outside the game cannot play: nothing is applied and nothing is sent.
     const calls = ctx.room.wall.games.get("turns").calls.input;
     const none = from(...Object.values(ws));
