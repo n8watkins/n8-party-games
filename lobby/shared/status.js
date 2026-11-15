@@ -47,8 +47,9 @@ export function statusLine(room, vote, closingLeft = null) {
     return { chip: "CLOSING", main: "Today's hosting allowance is used up.", sub: `This room closes in ${minutes(closingLeft ?? room.closing.in)}.`, waiting: [] };
   }
   if (room.phase === "playing") return { chip: "PLAYING", main: `${room.game?.name ?? "A game"} is on.`, sub: "", waiting: [] };
-  // A step that only chooses who plays, on spots, has no settings to speak of.
+  // A step that chooses who plays on spots says how to play first: that is what the room has to do.
   if (onlySpots(room)) return { chip: "WHO PLAYS", main: `Stand in a lit spot to play ${room.choosing.name}`, sub: `${chooser(room)} starts it once every spot is taken.`, waiting: [] };
+  if (room.phase === "settings" && Array.isArray(room.choosing?.spots)) return { chip: "WHO PLAYS", main: `Stand in a lit spot to play ${room.choosing.name}`, sub: `${chooser(room)} is choosing the settings.`, waiting: [] };
   if (room.phase === "settings" && room.choosing) return { chip: "SETTINGS", main: `Choosing settings for ${room.choosing.name}`, sub: `${chooser(room)} is choosing.`, waiting: [] };
   if (vote.toss) {
     return { chip: "TIE", main: "A coin toss picks.", sub: `${names(vote.toss.between.map(box))}.`, waiting: [] };
@@ -67,7 +68,12 @@ export function statusLine(room, vote, closingLeft = null) {
   };
 }
 
-/** The shorter line a player's own device shows between its buttons: {vote, rest}. */
+/**
+ * The shorter line a player's own device shows between its buttons: {label, vote, voted, rest}.
+ * `label` names what `vote` is: the player's vote while the room votes, the spot they hold while
+ * players are chosen on spots, the game being set up or played after that. `voted` is false when
+ * `vote` is a "not yet" (drawn dimmer).
+ */
 export function playerLine(room, vote, seat, closingLeft = null) {
   const box = (id) => room.boxes.find((b) => b.id === id)?.name ?? "";
   const mine = vote.standing[seat] ?? null;
@@ -87,7 +93,14 @@ export function playerLine(room, vote, seat, closingLeft = null) {
   // named as the card names it ("Player 2"), and a light somebody else holds is nothing yet.
   if (room.phase === "settings" && Array.isArray(room.choosing?.spots)) {
     const k = spotOf(room, seat);
-    return { vote: k >= 0 ? `Player ${k + 1}` : "Not yet", voted: k >= 0, rest };
+    return { label: "You are", vote: k >= 0 ? `Player ${k + 1}` : "watching", voted: k >= 0, rest };
   }
-  return { vote: mine ? box(mine) : "Not yet", voted: !!mine, rest };
+  // The vote is over: the line names the game being set up, then the one being played.
+  if (room.phase === "settings" && room.choosing) return { label: "Up next", vote: room.choosing.name, voted: true, rest };
+  if (room.phase === "playing") {
+    const game = room.game;
+    const watching = !!game?.audience && Array.isArray(game.seats) && !game.seats.includes(seat);
+    return { label: "Now", vote: game?.name ?? "A game", voted: true, rest: !room.closing && watching ? "You are watching" : rest };
+  }
+  return { label: "Your vote", vote: mine ? box(mine) : "Not yet", voted: !!mine, rest };
 }

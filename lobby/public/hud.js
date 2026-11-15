@@ -62,6 +62,11 @@ export class Hud {
     const turn = h("div", "turn-hint", "", this.el);
     turn.append(icon(ICONS.turn, 20));
     h("span", "", "Turn your phone sideways to see the whole room", turn);
+    // Its mirror: a game laid out for an upright phone, on a phone still held sideways. It sits in
+    // the dark band beside the game's box and shows only then (lobby.css, :root.upright).
+    const upright = h("div", "upright-hint", "", this.el);
+    upright.append(icon(ICONS.turn, 22));
+    h("span", "", "Turn your phone upright for this game", upright);
 
     const bar = (this.bar = h("div", "bar bar-player", "", this.el));
     // Walking under the left thumb, jump and bump under the right (controls.js).
@@ -79,7 +84,7 @@ export class Hud {
     });
 
     const mid = h("div", "status", "", bar);
-    h("span", "status-label", "Your vote", mid);
+    this.label = h("span", "status-label", "Your vote", mid);
     this.dot = h("span", "dot", "", mid);
     this.mine = h("span", "status-main", "Not yet", mid);
     h("span", "status-rule", "", mid);
@@ -121,11 +126,14 @@ export class Hud {
       const key = JSON.stringify([line, zoom]);
       if (key !== this.last) {
         this.last = key;
+        this.label.textContent = line.label;
         this.mine.textContent = line.vote;
         this.mine.classList.toggle("muted", !line.voted);
         this.dot.style.background = room.members[this.opts.seat]?.colour ?? "#888";
         this.rest.textContent = line.rest;
         this.zoomText.textContent = zoom === "closer" ? "Whole room" : "Closer";
+        // A small phone shows only the picture (lobby.css): the button keeps its words for a screen reader.
+        this.zoomBtn.setAttribute("aria-label", this.zoomText.textContent);
         this.zoomIcon.replaceChildren(icon(zoom === "closer" ? ICONS.zoomOut : ICONS.zoomIn, 18));
       }
     }

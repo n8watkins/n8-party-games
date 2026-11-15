@@ -128,7 +128,7 @@ function teardown() {
   door = null;
   stage?.unmount();
   stage = null;
-  app.classList.remove("in-game");
+  app.classList.remove("in-game", "staged");
   document.documentElement.classList.remove("upright");
   for (const part of [menu, count, step, touch, fit, roomSounds]) part?.destroy();
   menu = count = step = touch = fit = roomSounds = null;
@@ -365,7 +365,7 @@ function boardLine(now) {
   const line = playerLine(room, live, link.you.seat, closingLeft);
   // While players are chosen on spots a light is not a vote: the line says which player this is.
   if (room.phase === "settings" && room.choosing?.spots) return `${line.voted ? `You play as ${line.vote}` : "You are not on a spot"}. ${line.rest}.`;
-  return `Your vote: ${line.vote}. ${line.rest}.`;
+  return `${line.label}: ${line.vote}. ${line.rest}.`;
 }
 
 // ---------------------------------------------------------------- what the room says
@@ -624,7 +624,9 @@ function startStage(snapshot) {
       if (mine.gone || !module?.mount) return;
       stageBox.hidden = false;
       mine.view = module.mount(stageBox, ctx);
-      // A view that covers everything: the room's bars are put away and the room is not drawn under it.
+      // Any view of a game: the room's bar and its buttons do nothing for the game, so they make
+      // way for it. A view that covers everything: the room is not drawn under it either.
+      app.classList.add("staged");
       app.classList.toggle("in-game", !!mine.view.full);
       for (const [method, args] of mine.waiting.splice(0)) mine.view[method](...args);
     })
@@ -634,7 +636,7 @@ function startStage(snapshot) {
 function endStage() {
   stage?.unmount();
   stage = null;
-  app.classList.remove("in-game");
+  app.classList.remove("in-game", "staged");
   if (stageBox) stageBox.hidden = true;
   if (document.documentElement.classList.contains("upright")) allowUpright(false);
 }

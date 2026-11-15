@@ -797,11 +797,42 @@ input {
   overflow: hidden;
   background: #0b1020;
 }
-#app.in-game svg.scene,
-#app.in-game .bar,
-#app.in-game .turn-hint,
-#app.in-game .banner {
+#app.in-game svg.scene {
   display: none;
+}
+/* Any game's view (main.js, startStage): the room's bar, its walk and emote buttons and its hints
+   do nothing for the game, so none of them lies over the view. */
+#app.staged .bar,
+#app.staged .turn-hint,
+#app.staged .banner {
+  display: none;
+}
+/* A game laid out for an upright phone, on a phone still held sideways: the mirror of the room's
+   hint, in the dark band left of the game's box (the box is 3:4 in the middle, below), never over
+   it, and gone the moment the phone is upright. */
+.upright-hint {
+  display: none;
+}
+@media (orientation: landscape) and (max-height: 520px) {
+  :root.upright #app.staged .upright-hint {
+    position: absolute;
+    top: 50%;
+    left: max(12px, env(safe-area-inset-left));
+    width: calc((100vw - min(100vw, var(--seen-h, 100dvh) * 0.75)) / 2 - 24px);
+    transform: translateY(-50%);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+    padding: 14px 10px;
+    border-radius: 14px;
+    border: 1.5px solid rgba(244, 180, 83, 0.55);
+    color: var(--amber);
+    font-weight: 700;
+    font-size: 14px;
+    line-height: 1.3;
+    text-align: center;
+  }
 }
 .flip {
   display: grid;
@@ -1028,13 +1059,67 @@ input {
   }
 }
 
-/* The settings step after the vote (settings-step.js): one row a setting, the door button and the notes stay on top. */
+/* A small phone held sideways: the line between the buttons has little width. "Closer" keeps only
+   its picture, and the line goes on two: what it is with the rest beside it, then the pick. */
+@media (orientation: landscape) and (max-height: 520px) and (max-width: 760px) {
+  .hud-player .zoom-btn {
+    width: 44px;
+    padding: 0;
+    justify-content: center;
+  }
+  .hud-player .zoom-btn > span:not(.pill-icon) {
+    display: none;
+  }
+  .hud-player .bar-player .status {
+    display: grid;
+    grid-template-columns: auto minmax(0, max-content);
+    grid-template-areas:
+      "label rest"
+      "dot main";
+    justify-content: center;
+    align-items: center;
+    column-gap: 6px;
+    row-gap: 1px;
+  }
+  .hud-player .status-label {
+    grid-area: label;
+    justify-self: end;
+    font-size: 12px;
+  }
+  .hud-player .bar-player .status-sub {
+    grid-area: rest;
+    font-size: 12px;
+  }
+  .hud-player .bar-player .dot {
+    grid-area: dot;
+    justify-self: end;
+  }
+  .hud-player .bar-player .status-main {
+    grid-area: main;
+    min-width: 0;
+    font-size: 15px;
+  }
+  .hud-player .status-rule {
+    display: none;
+  }
+}
+
+/* The settings step after the vote (settings-step.js): one row a setting; the corner's buttons and
+   the notes stay on top of it, and the sheets they open (the door button's above all) over both. */
+.hud:has(.settings-back) .corner,
 .hud:has(.settings-back) .door-btn,
 .hud:has(.settings-back) .notes {
   z-index: 2;
 }
 .settings-back {
   z-index: 1;
+}
+.sheet-back {
+  z-index: 3;
+}
+/* In the full card the kicker and the title are the card's own rows. */
+.settings-head {
+  display: contents;
 }
 .settings-list {
   display: grid;
@@ -1053,7 +1138,7 @@ input {
   color: #5a4636;
 }
 .settings-select {
-  min-height: 36px;
+  min-height: 44px;
   max-width: 60%;
   padding: 4px 8px;
   border: 0;
@@ -1076,21 +1161,247 @@ input {
   grid-template-columns: 1fr 1fr;
   gap: 10px;
 }
-/* Choosing who plays on spots: the room stays in sight and in reach, so the card sits at the top,
-   the pieces walk in the lights under it, and only the card itself takes taps. */
+/*
+ * Choosing who plays on spots: the room stays in sight and in reach. The card is a compact one
+ * that keeps clear of the floor, the pieces and their name tags (laid out per screen below), and
+ * only the card itself takes taps. Each setting is a pill, its name over its pick; on the host's
+ * card the native list lies invisibly over the pill, so a tap anywhere on it opens the list.
+ */
 .settings-back.spots {
   place-items: start center;
   background: none;
   pointer-events: none;
+  overflow: visible;
 }
-.settings-back.spots .settings-card {
+.spots-card {
   pointer-events: auto;
-  max-height: 58%;
-  max-height: 58dvh;
-  overflow: auto;
+  gap: 8px;
+}
+.spots-card .settings-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  column-gap: 12px;
+  row-gap: 6px;
+}
+.spots-card .card-title {
+  font-size: 26px;
 }
 .spots-line {
   margin: 0;
+  font-weight: 600;
+  line-height: 1.35;
+  color: #3a2a1c;
+}
+.spots-list,
+.settings-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.spot-chip {
+  flex: 1 1 0;
+  min-width: max-content;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 38px;
+  padding: 4px 14px;
+  border-radius: 19px;
+  background: #ecd9b9;
+}
+.spot-chip.open {
+  background: transparent;
+  box-shadow: inset 0 0 0 2px #d5bd98;
+}
+.spot-label {
+  color: #5a4636;
+  font-size: 14px;
+}
+.spot-name {
+  font-weight: 800;
+}
+.spot-chip.open .spot-name {
+  color: #8a7259;
+  font-weight: 600;
+}
+.pick {
+  position: relative;
+  flex: 1 1 auto;
+  display: grid;
+  align-content: center;
+  min-height: 38px;
+  padding: 3px 14px;
+  border-radius: 12px;
+  background: #ecd9b9;
+  line-height: 1.15;
+}
+.pick.mine {
+  min-height: 44px;
+  padding-right: 34px;
+  background: #fff6e2;
+  box-shadow: inset 0 0 0 2px #dcc29b;
+  cursor: pointer;
+}
+/* The pill's arrow: it opens a list. */
+.pick.mine::after {
+  content: "";
+  position: absolute;
+  right: 14px;
+  top: 50%;
+  width: 7px;
+  height: 7px;
+  border-right: 2.5px solid #1e1410;
+  border-bottom: 2.5px solid #1e1410;
+  transform: translateY(-70%) rotate(45deg);
+  pointer-events: none;
+}
+.pick.mine:focus-within {
+  outline: 3px solid #1e1410;
+  outline-offset: 2px;
+}
+.pick-label {
+  font-size: 12px;
+  color: #5a4636;
+  white-space: nowrap;
+}
+.pick-value {
+  font-size: 15px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+.pick .settings-select {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  max-width: none;
+  height: 100%;
+  min-height: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+.spots-card .settings-left {
+  font-size: 13.5px;
+  line-height: 1.35;
+}
+
+/* An upright phone: the card goes under the corner's buttons, full width, and the hint to turn
+   the phone makes way for it (the card says what to do). */
+@media (orientation: portrait) and (max-width: 560px) {
+  .hud:has(.settings-back.spots) .turn-hint {
+    display: none;
+  }
+  .settings-back.spots {
+    padding: calc(max(10px, env(safe-area-inset-top)) + 54px) 10px 0;
+  }
+  .spots-card {
+    width: 100%;
+    padding: 14px 16px;
+    gap: 10px;
+  }
+  .spots-card .settings-actions .button,
+  .spots-card .settings-actions .plain {
+    min-height: 48px;
+    padding: 8px 12px;
+  }
+}
+
+/*
+ * A phone held sideways has little height above the pieces' name tags. The corner's buttons stand
+ * in a column at the right edge, and the card fills the width to their left in four short rows:
+ * the game and how to take a spot; who chooses and the time; the spots with the host's two
+ * buttons; the settings. A refusal takes the place of the time line until the next change.
+ */
+@media (orientation: landscape) and (max-height: 520px) {
+  .hud:has(.settings-back.spots) .corner {
+    flex-direction: column;
+  }
+  .hud:has(.settings-back.spots) .corner .door-word {
+    max-width: 0;
+  }
+  .hud:has(.settings-back.spots) .corner .door-btn,
+  .hud:has(.settings-back.spots) .corner-btn {
+    gap: 0;
+    padding: 0;
+    width: 44px;
+  }
+  .settings-back.spots {
+    place-items: start stretch;
+    padding: 8px calc(max(10px, env(safe-area-inset-right)) + 52px) 0 max(8px, env(safe-area-inset-left));
+  }
+  .settings-card.spots-card {
+    width: auto;
+    padding: 8px 12px 10px;
+    gap: 6px 12px;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    grid-template-areas:
+      "head line line"
+      "time time time"
+      "spots spots actions"
+      "picks picks picks";
+    align-items: center;
+  }
+  .spots-card .settings-head {
+    grid-area: head;
+  }
+  .spots-card .card-kicker {
+    display: none;
+  }
+  .spots-card .card-title {
+    font-size: 22px;
+  }
+  .spots-card .spots-line {
+    grid-area: line;
+    font-size: 14px;
+  }
+  .spots-card .settings-left,
+  .spots-card .settings-said {
+    grid-area: time;
+    font-size: 13px;
+  }
+  .settings-back.said .spots-card .settings-left {
+    display: none;
+  }
+  .spots-card .spots-list {
+    grid-area: spots;
+  }
+  .spots-card .spot-chip {
+    flex: 0 1 auto;
+    min-height: 44px;
+  }
+  .spots-card .settings-pills {
+    grid-area: picks;
+  }
+  .spots-card .settings-actions {
+    grid-area: actions;
+    display: flex;
+    gap: 8px;
+  }
+  .spots-card .settings-actions .button,
+  .spots-card .settings-actions .plain {
+    width: auto;
+    min-height: 44px;
+    padding: 6px 18px;
+    white-space: nowrap;
+  }
+}
+
+/* A wide screen (the big screen, a laptop): the card stands at the side, away from the lit spots,
+   under the corner's buttons, so the posters of the games whose lights they are stay in sight. */
+@media (min-height: 521px) and (min-width: 561px) {
+  .settings-back.spots {
+    padding: 72px 16px 16px;
+  }
+  .settings-back.spots.side-right {
+    place-items: start end;
+  }
+  .settings-back.spots.side-left {
+    place-items: start start;
+  }
+  .spots-card {
+    width: min(100%, 360px);
+  }
 }
 
 /* A game laid out for an upright phone (screen-fit.js, allowUpright): no hint to turn the phone,
@@ -1109,8 +1420,9 @@ input {
 }
 /* A phone held sideways: the rows two by two and tighter, so the whole card fits the short screen. */
 @media (max-height: 520px) and (min-width: 600px) {
+  /* Under the corner's buttons, so the card never lies across them. */
   .settings-back {
-    padding: 8px;
+    padding: calc(max(10px, env(safe-area-inset-top)) + 52px) 8px 8px;
   }
   .settings-card {
     width: min(100%, 680px);
@@ -1121,10 +1433,7 @@ input {
     gap: 4px 8px;
   }
   .settings-row {
-    padding: 2px 8px;
-  }
-  .settings-select {
-    min-height: 30px;
+    padding: 0 0 0 10px;
   }
 }
 
