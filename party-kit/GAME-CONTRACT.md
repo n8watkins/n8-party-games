@@ -32,7 +32,7 @@ export const manifest = {
 
 | Name | What it is |
 | --- | --- |
-| `game` | The server game definition for `createPartyRoom(game)`: `id`, `minSeats`, `maxSeats`, `tickHz`, `snapshotEvery`, `create`, `input`, `bot`, `tick`, `snapshot`, `isOver`, `result` (see the kit's README, "The game object" and "Per-seat views"). A turn-based game (`tickHz: 0`) may add `nextDeadline`, `serialize` and `restore` ("Turn-based games" below). |
+| `game` | The server game definition for `createPartyRoom(game)`: `id`, `minSeats`, `maxSeats`, `tickHz`, `snapshotEvery`, `create`, `input`, `bot`, `tick`, `snapshot`, `isOver`, `result` (see the kit's README, "The game object" and "Per-seat views"). A turn-based game (`tickHz: 0`) may add `nextDeadline`, `serialize`, `restore`, `reconnectGraceMs`, `presence`, `abandon`, `idleShutdownMs` and `staleRoomMs` ("Turn-based games" and "Who is here during a turn-based game" below). |
 | `manifest.id` | A short name in lower case with dashes. It matches `game.id`. |
 | `manifest.name` | The name people read. |
 | `manifest.path` | Where the game lives on a site, with a slash at both ends. The same on the party site and on the game's own site, so a join link works on either. |
@@ -94,9 +94,10 @@ From then on it is the kit's round protocol unchanged: `in { d }` from a player 
 Every message that carries the game's state (the start, each snapshot, the last one, the full one a socket gets when it connects mid-game, and the events) is built per viewer, as in the kit's own room (the kit's README, "Per-seat views"): a phone whose seat is in `activity.seats` is `{ role: "player", seat }`, the big screen is `{ role: "screen" }`, and a member whose seat is not in the game is `{ role: "screen", seat }`.
 Messages about the room itself (pieces, the vote, emotes, the Tonight board, the result at the end) are the same for everyone.
 The room answers the kit client's clock ping while a game is on, so `party.now()` works as it does in a game's own room.
-A seat whose player dropped is played by `game.bot`, if the game has one, so the round can finish.
+In a ticking game, a seat whose player dropped is played by `game.bot`, if the game has one, so the round can finish.
+A turn-based game has no stand-in ("Who is here during a turn-based game").
 Someone who joins while a game is on gets a seat in the room and a full snapshot, watches, and plays in the next one.
-They are never given a seat that is in the game, even one whose player left the party in the middle of it: that seat's stall is still being played by the stand-in.
+They are never given a seat that is in the game, even one whose player left the party in the middle of it: in a ticking game that seat's stall is still being played by the stand-in.
 
 ### Turn-based games
 
@@ -113,6 +114,11 @@ export const game = {
   tick(state, now) { return events; },               // called once when that deadline comes
   serialize(state) { return JSON.stringify(state); }, // optional, with restore: the game's own save
   restore(text) { return JSON.parse(text); },
+  reconnectGraceMs: Infinity,         // optional: how long a dropped seat is held (below)
+  presence(state, seat, { connected, away }, now) { return true; },   // optional: who is here changed
+  abandon(state, seat, now) { return { standings, result, events }; },  // optional: a seat is gone for good
+  idleShutdownMs: 60 * 60_000,        // optional: the room's lifetimes while this game is played
+  staleRoomMs: 60 * 60_000,
   // create, snapshot, isOver, result, standings: as for any game
 };
 ```
@@ -125,9 +131,23 @@ export const game = {
 - **It ends** when `isOver` is true after an input or a deadline, through the same finish as a ticking game: the last snapshots, then `end`, then places and points on the Tonight board ("End", below).
 - **Pages stay quiet.** The room view's `game` says `turns: true`, and the kit's client then keeps to the keep-alive the runtime answers without waking the room, after a few clock pings when the game begins and after a reconnect.
 - **What it costs** is only the time the room is really awake: each input, each deadline, each socket opening or closing. A quiet turn costs nothing.
-- **Not yet**: `bot` is not called for a turn-based game (a dropped phone's seat simply waits), and the room's lifetimes, the game's settings and a rematch carry are the room's own (KR-4 to KR-8 in Who Am I?'s plan).
+- **Not yet**: the game's settings and a rematch carry (KR-8 in Who Am I?'s plan), and a game for fewer seats than the party (KR-12): the game is still started with every member present.
 
-A room refuses to start a game whose definition does not fit these rules (`gameProblems` in `party-kit/src/core/turns.js`), and logs why.
+A room refuses to start a game whose definition does not fit these rules (`gameProblems` in `party-kit/src/core/turns.js`, which includes `presenceProblems` from `presence.js`), and logs why.
+
+### Who is here during a turn-based game
+
+A turn-based game is humans only: nobody stands in for a player, and `bot` is never called for it.
+Everything here is about the game's own seats (`activity.seats`), never about the rest of the party: a member who is not playing, or the big screen, can come, go or hide their page without the game hearing of it.
+
+- **A dropped phone keeps its seat.** Its socket closed (signal lost, the page closed, or the room's page parking it while a phone is locked), and the seat stays the player's, in the room and in the game, for the game's grace: `reconnectGraceMs`, `Infinity` for "while the room lives", and two minutes (`TURN_GRACE_MS`, the same as a seat held in the lobby) when the game says nothing. The phone comes back to the same seat with its token, gets `hello` and a full snapshot, and plays on.
+- **Away.** A player's page whose socket stays open while it is hidden says `away` and, shown again, `back` (`{ t: "away" }`, `{ t: "back" }`). The seat is away when every open socket of it is. The room view's member says `away: true`. Being away never runs the grace down: that phone can still be reached. The room's own page closes a phone's socket when it is locked (`lobby/public/connection.js`), so a locked phone in the party room is a dropped one; `away` is for a page that keeps its socket, such as a desktop tab put behind another.
+- **The game hears it.** Whenever a seat's `{ connected, away }` changes, the room calls `game.presence(state, seat, { connected, away }, now)` (a player who is not connected is never away). It returns nothing or `false` when nothing changed, `true` when the state did, or a list of events (or `{ events }`) for the viewers. When it changed, the game is saved, every viewer gets a fresh snapshot and the events, and `nextDeadline` is asked again: a game pauses its turn timer by returning `null` from it, and its own overrides (Who Am I?'s "confirm your own guess when the other phone has been gone 30 seconds") are ordinary inputs it checks against what it was told. What the game was last told is saved with it, so a wake tells it only what changed while the room slept (a socket that did not come through the sleep is reported then). At the start, everyone is taken to be here, and a seat that is not is reported before the first snapshot.
+- **Ending early.** A seat is gone for good when its player leaves the party on purpose (or is put out for flooding) or its phone's grace runs out. The room then ends the game at once through `game.abandon(state, seat, now)`: what it returns decides the result, `{ standings, result, events }` (standings as `game.standings` gives them, so places become points; `result` is sent with `end`; events go to the viewers first). Without `abandon`, or when it returns nothing or throws, the game ends with no points. Everyone gets a note, `note { k: "ended", why: "left" or "gone", seat, name, colour, text }` (`text` is "Bo left the party, so Who Am I? ended."), then the last snapshots and `end`, whose card says why: `last.early = { seat, name, why, text }`. Everyone is back in the lobby, where a dropped player's piece fades by the lobby's own rule.
+- **Lifetimes.** While the game is played the room closes when it has been empty for the game's `idleShutdownMs`, and when nobody has done anything (an input, a socket opening) for its `staleRoomMs`; a turn timer running out is not somebody doing something. Both default to the room's own values (a minute and twenty minutes). The room view's `idleLimit` is the stale limit in force. Who Am I? asks for an hour of each, so two locked phones do not lose the match. The room's four-hour life is still checked in the lobby only.
+- **A ghost.** A phone that loses its signal without closing its socket is noticed when it has said nothing (not even the keep-alive) for 25 seconds, the next time the room is awake for an input or a deadline. Nothing wakes the room only to look.
+
+A ticking game keeps its behaviour as before: its stand-in plays a dropped or departed seat, none of these hooks is called, and no stale limit is checked during its round. Only `idleShutdownMs` is read for it, when it names one (Cork & Bell does not).
 
 ### End: with places
 
@@ -151,6 +171,7 @@ The board is saved with the room and survives the room sleeping.
 A ticking game in progress is not saved: if the room is restarted mid-game, everyone is back in the lobby with the points they had.
 A turn-based game in progress is saved and carries on ("Turn-based games").
 Asking to go back to the room before a game is over (the door sheet in the design) is not built: a game runs to its end, and a player can still leave the party.
+A turn-based game a player leaves ends there ("Who is here during a turn-based game").
 
 ### In the browser
 

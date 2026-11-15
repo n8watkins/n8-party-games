@@ -201,6 +201,14 @@ export const game = {
   snapshot(state, now, viewer) { return json; },
   isOver(state) { return false; },
   result(state) { return json; },   // optional, shown in the room view after the round: sent to everyone
+
+  // Turn-based games only (tickHz: 0, below), all optional.
+  nextDeadline(state) { return ms; },                        // when the room must wake, or null
+  serialize(state) { return text; }, restore(text) { return state; },
+  reconnectGraceMs: 120_000,                                 // how long a dropped seat is held (Infinity: while the room lives)
+  presence(state, seat, { connected, away }, now) { return true; },  // who is here changed; true or events when the state did
+  abandon(state, seat, now) { return { standings, result, events }; }, // a seat is gone for good: the game ends
+  idleShutdownMs: 60_000, staleRoomMs: 1_200_000,            // the room's lifetimes while this game is played
 };
 ```
 
@@ -240,6 +248,15 @@ This kit's own room (`createPartyRoom`) does not yet: it ticks every game on a t
 The logic either room needs is plain, in `src/core/turns.js`: `isTurnBased`, `gameProblems` (what is wrong with a game definition), `deadlineOf`, `inputOutcome` (an input's events, and the game's answer to its sender), and `saveState` and `loadState` (which refuse a state that is not plain JSON instead of letting it come back changed).
 The client keeps quiet during such a game: when the room view's `game` says `turns: true`, `PartyClient` sends its keep-alive instead of a clock ping every two seconds, after three clock pings when the game begins and after a reconnect.
 
+A turn-based game is humans only: nobody stands in for a player, and `bot` is never called for it.
+A seat whose phone drops keeps its place for the game's grace (`reconnectGraceMs`, `Infinity` for "while the room lives"; two minutes when the game says nothing).
+The game hears who is here through an optional `presence(state, seat, { connected, away }, now)`, called whenever that changes for one of its seats: a socket closing or coming back, a page hidden with its socket open (`away`), a wake from sleep that finds a socket gone.
+What it changes is saved and sent like an input's, and `nextDeadline` is asked again, so a game can pause its turn timer and allow its own overrides.
+A seat gone for good (its player left the party, or the grace ran out) ends the game early through an optional `abandon(state, seat, now)`, whose `{ standings, result, events }` decide the result; without it the game ends with no points.
+While the game is played the room waits its `idleShutdownMs` before closing an empty room and its `staleRoomMs` before closing one nobody has touched, the room's own values when it says nothing.
+The rules are in `GAME-CONTRACT.md`, "Who is here during a turn-based game".
+The plain logic is `src/core/presence.js`: `presenceSignal`, `allAway`, `reportOf`, `graceOf`, `goneWhy`, `graceEndsAt`, `presenceOutcome`, `abandonOutcome`, `lifetimesOf` and `presenceProblems` (which `gameProblems` includes).
+
 ### HTTP API
 
 | Request | Answer |
@@ -263,6 +280,8 @@ It needs no signing secret, so local development needs no `.dev.vars`.
 ### WebSocket messages
 
 Client to room: `ping {c}`, `in {d}` (an input), `ready {v}`, `name {v}`, `character {v}`, `addBot`, `removeBot {seat}`, `start`, `leave`.
+The party room also takes `away` and `back` from a player's page whose socket stays open while it is hidden and shown again; the seat is away when every open socket of it is, and its room view member says `away: true`.
+This kit's own room does not read them yet.
 
 Room to client: `hello {you, room}`, `room {room}`, `pong {c, s}`, `start {room, s, now}`, `ev {ev, now}`, `snap {s, now, full?}`, `end {room, result, now}`, `error {error, message}`.
 `s` in `start` and `snap`, and the list in `ev`, are shaped for the socket's viewer ("Per-seat views"); a socket left with no events after filtering gets no `ev` message for that tick.
