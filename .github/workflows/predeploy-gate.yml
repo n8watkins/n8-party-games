@@ -7,8 +7,6 @@ name: predeploy-gate
 on:
   workflow_dispatch:
   workflow_call:
-  push:
-    branches: [ci/checks]  # TEMPORARY
 
 permissions:
   contents: read
