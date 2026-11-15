@@ -386,12 +386,31 @@ export class LobbyCore {
   remove(m, why) {
     if (m.points > 0) {
       this.remembered.set(m.name.toLowerCase(), m.points);
-      while (this.remembered.size > MAX_REMEMBERED) this.remembered.delete(this.remembered.keys().next().value);
+      this.forgetOldest();
     }
     this.members[m.seat] = null;
     if (this.hostToken === m.token) this.hostToken = this.nextHost();
     this.count = null;
     this.notes.push({ k: "left", why, name: m.name, colour: m.colour });
+  }
+
+  /**
+   * Adds `points` to what the room keeps by name for someone who has left (remove), so coming
+   * back with that name restores them (join): a decided match placed them after they left.
+   */
+  rememberPoints(name, points) {
+    if (!(points > 0)) return;
+    const key = name.toLowerCase();
+    const total = (this.remembered.get(key) ?? 0) + points;
+    // Set afresh, so the name counts as the latest one remembered.
+    this.remembered.delete(key);
+    this.remembered.set(key, total);
+    this.forgetOldest();
+  }
+
+  /** The room remembers MAX_REMEMBERED people who left at most: the oldest go first. */
+  forgetOldest() {
+    while (this.remembered.size > MAX_REMEMBERED) this.remembered.delete(this.remembered.keys().next().value);
   }
 
   present() {
@@ -1351,6 +1370,11 @@ export class LobbyCore {
    * A seat in the turn-based game is gone for good: the game ends now. `game.abandon`, when the
    * game has it, decides the result (presence.js, abandonOutcome); without it the game ends with
    * no points. Everyone hears why in a note, and the room's card says so too (`last.early`).
+   *
+   * A match the game had already decided before the seat went (Who Am I?'s match summary, up
+   * before the tap to its final results) is not ended by it: `abandon` then places the seat that
+   * is gone too, and the room takes that place as the game's word that this is the match's real
+   * result. It ends as a finished match, with no "ended" note and no `last.early`.
    */
   abandonGame(game, seat, why, now) {
     const a = this.activity;
@@ -1362,12 +1386,17 @@ export class LobbyCore {
         console.error(`party room: ${a.id} could not be abandoned; it ends with no points`, err);
       }
     }
-    const name = this.members[seat]?.name ?? a.names?.[seat] ?? "A player";
-    const gameName = this.boxes.find((box) => box.id === a.id)?.name ?? a.id;
-    const text = why === "left" ? `${name} left the party, so ${gameName} ended.` : `${name} did not come back, so ${gameName} ended.`;
-    this.notes.push({ k: "ended", why, seat, name, colour: SEAT_COLOURS[seat], text });
     const out = { ok: true, events: outcome.events, snapshot: (viewer) => game.snapshot(a.state, now, viewer), viewerOf: (who) => this.viewerOf(who, a), ended: null };
-    out.ended = this.finishGame(now, { standings: outcome.standings, result: outcome.result, early: { seat, name, why, text } });
+    const decided = outcome.standings.some((p) => p?.seat === seat && p.place >= 1);
+    let early = null;
+    if (!decided) {
+      const name = this.members[seat]?.name ?? a.names?.[seat] ?? "A player";
+      const gameName = this.boxes.find((box) => box.id === a.id)?.name ?? a.id;
+      const text = why === "left" ? `${name} left the party, so ${gameName} ended.` : `${name} did not come back, so ${gameName} ended.`;
+      this.notes.push({ k: "ended", why, seat, name, colour: SEAT_COLOURS[seat], text });
+      early = { seat, name, why, text };
+    }
+    out.ended = this.finishGame(now, { standings: outcome.standings, result: outcome.result, early });
     return out;
   }
 
@@ -1405,7 +1434,13 @@ export class LobbyCore {
   /**
    * The game is over: its places become points, and everyone is back by the door. `ending` is
    * set when the game was ended before it was over (abandonGame): its standings and result are
-   * what `game.abandon` decided, and the card says why it ended (`last.early`).
+   * what `game.abandon` decided, and the card says why it ended (`last.early`) unless the game
+   * had decided the match already (`early` is null then).
+   *
+   * A seat the game places whose member has left the party (a decided match, abandonGame) keeps
+   * its row on the card, under the name it played with. The Tonight board is the party's own, so
+   * its points are kept for that name, as for anyone who leaves (`remembered`): they are back on
+   * the board if that player joins again tonight.
    */
   finishGame(now, ending = null) {
     const a = this.activity;
@@ -1415,10 +1450,12 @@ export class LobbyCore {
     const rows = [];
     for (const { seat, place } of places ?? []) {
       const m = this.members[seat];
-      if (!m || !a.seats.includes(seat) || !(place >= 1) || rows.some((r) => r.seat === seat)) continue;
+      const name = m?.name ?? a.names?.[seat];
+      if (!name || !a.seats.includes(seat) || !(place >= 1) || rows.some((r) => r.seat === seat)) continue;
       const points = pointsForPlace(place);
-      m.points += points;
-      const row = { seat, name: m.name, colour: m.colour, place, points };
+      if (m) m.points += points;
+      else this.rememberPoints(name, points);
+      const row = { seat, name, colour: m?.colour ?? SEAT_COLOURS[seat], place, points };
       // A game that keeps score says so in its result rows: the card shows it beside the place.
       const score = Array.isArray(result) ? result.find((r) => r?.seat === seat)?.score : undefined;
       if (typeof score === "number") row.score = score;
@@ -1429,7 +1466,7 @@ export class LobbyCore {
     record(this.history, { round: this.round, name: this.boxes.find((box) => box.id === a.id)?.name ?? a.id, rows });
     if (rows.length) this.gamesPlayed += 1;
     this.last = { round: this.round, game: a.id, name: this.boxes.find((box) => box.id === a.id)?.name ?? a.id, rows, at: now };
-    if (ending) this.last.early = ending.early;
+    if (ending?.early) this.last.early = ending.early;
     this.lastAnswers = a.answers ? { round: this.round, answers: a.answers } : null;
     this.keepCarry(game, a, ending);
     this.activity = { kind: "lobby" };
