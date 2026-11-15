@@ -11,7 +11,10 @@
 //   { role: "audience", seat } the same member, for a game that opts in to an audience
 //                              (`game.audience` or `manifest.audience`, audience.js): a game may
 //                              show its audience more than the big screen (Who Am I? shows them
-//                              both identities, and the big screen neither)
+//                              both identities, and the big screen neither). A member who joined
+//                              the party in the middle of the match is not its audience: the room
+//                              passes `audience: false` for them, so they get a screen's view
+//                              until it ends (lobby/server/lobby-core.js, lateJoiner)
 // A game that ignores the viewer sends everyone the same thing, exactly as before.
 //
 // Plain logic: no network, no clock. Both room classes (the kit's room and the party room) can use it.

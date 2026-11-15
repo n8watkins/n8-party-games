@@ -619,6 +619,7 @@ function startStage(snapshot) {
   allowUpright(upright);
   // send(data, {id}) asks a turn-based game for an answer (a promise); inputId() makes an id no other input of this page has used.
   const ctx = { room, you: viewerOfGame(link.you, room.game), upright, snapshot, send: (data, opts) => link.sendInput(data, opts), inputId: () => link.nextInputId(), now: () => link.now(), inset: DOOR_INSET, params };
+  if (ctx.you?.role === "screen" && ctx.you.seat >= 0 && room.game.late?.includes(ctx.you.seat)) hud?.note("You joined mid-game: you will see everything next match");
   viewModule(box)
     .then((module) => {
       if (mine.gone || !module?.mount) return;
@@ -642,11 +643,13 @@ function endStage() {
 /**
  * Who this device is to the game's view: as the room decides it (LobbyCore.viewerOf, by the kit's
  * viewerFor), from the room view's game. A member who is not in a game that takes an audience
- * watches as `{role: "audience", seat}`; any other game is told the device's own identity, as before.
+ * watches as `{role: "audience", seat}`, unless it joined in the middle of the match (`game.late`):
+ * then it watches as the big screen does, `{role: "screen", seat}`. Any other game is told the
+ * device's own identity, as before.
  */
 function viewerOfGame(you, game) {
   if (you?.role !== "player" || !game?.audience || !Array.isArray(game.seats) || game.seats.includes(you.seat)) return you;
-  return { role: "audience", seat: you.seat };
+  return { role: game.late?.includes(you.seat) ? "screen" : "audience", seat: you.seat };
 }
 
 /** While a count runs for a game with a view of its own, its files are fetched ahead of the start. */
