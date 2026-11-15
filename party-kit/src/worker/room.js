@@ -5,7 +5,7 @@
 // In the lobby and on the results screen it holds its sockets through the WebSocket
 // Hibernation API and runs no timer: a message or the alarm wakes it, and it goes back to sleep.
 import { DurableObject } from "cloudflare:workers";
-import { RoomCore, LagLine } from "../core/room-core.js";
+import { RoomCore, LagLine, eventsFor, fanOut } from "../core/room-core.js";
 import { newSeed } from "../core/rng.js";
 import { PIN_DIRECTORY_NAME } from "./pin-logic.js";
 import { REPORT_EVERY_MS, fullMessage, roomBudgetState, spendRoomTime } from "./room-budget.js";
@@ -103,7 +103,8 @@ export function createPartyRoom(game) {
 
       this.send(entry, { t: "hello", you: { role: who.role, seat: who.seat }, room: this.core.view(Date.now()) });
       if (this.core.phase !== "lobby" && this.core.state) {
-        this.send(entry, { t: "snap", s: game.snapshot(this.core.state, Date.now()), now: Date.now(), full: true });
+        const now = Date.now();
+        this.send(entry, { t: "snap", s: this.core.snapshotFor(this.core.viewerOf(entry), now), now, full: true });
       }
       this.broadcastRoom();
       this.schedule();
@@ -216,7 +217,8 @@ export function createPartyRoom(game) {
       const now = Math.max(at, Date.now());
       const started = core.start(now);
       if (!started.ok) return this.send(entry, { t: "error", error: started.error, message: started.message });
-      this.broadcast({ t: "start", room: core.view(now), s: game.snapshot(core.state, now), now });
+      const room = core.view(now);
+      this.broadcastViews((viewer) => ({ t: "start", room, s: core.snapshotFor(viewer, now), now }));
       this.schedule();
       void this.save();
     }
@@ -265,8 +267,13 @@ export function createPartyRoom(game) {
       const now = Date.now();
       this.meter(now);
       const out = core.tick(now);
-      if (out.events.length) this.broadcast({ t: "ev", ev: out.events, now });
-      if (out.snapshot) this.broadcast({ t: "snap", s: out.snapshot, now });
+      if (out.events.length) {
+        this.broadcastViews((viewer) => {
+          const ev = eventsFor(out.events, viewer);
+          return ev.length ? { t: "ev", ev, now } : null;
+        });
+      }
+      if (out.snap) this.broadcastViews((viewer) => ({ t: "snap", s: core.snapshotFor(viewer, now), now }));
       if (out.ended) this.broadcast({ t: "end", room: core.view(now), result: core.result, now });
       else if (out.roomChanged) this.broadcastRoom();
       if (out.ended || out.roomChanged) {
@@ -311,6 +318,14 @@ export function createPartyRoom(game) {
     broadcast(message) {
       const text = JSON.stringify(message);
       for (const entry of this.sockets.values()) entry.out.push(text);
+    }
+
+    /**
+     * Sends a message that carries game state: `make(viewer)` builds it once for each kind of
+     * viewer (a seat in the round, or the screen view), and each socket gets its own.
+     */
+    broadcastViews(make) {
+      for (const [entry, text] of fanOut(this.sockets.values(), (e) => this.core.viewerOf(e), make)) entry.out.push(text);
     }
 
     broadcastRoom() {

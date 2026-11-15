@@ -67,7 +67,7 @@ const A = connect(a);
 const B = connect(b, 150);
 await Promise.all([A.opened, B.opened]);
 const helloA = await A.wait((m) => m.t === "hello");
-check(helloA.you.seat === 0 && helloA.room.seed > 0, "hello: your seat and the room's seed");
+check(helloA.you.seat === 0 && !("seed" in helloA.room), "hello: your seat, and the room's seed stays in the room");
 const t1 = Date.now();
 B.send({ t: "ping", c: t1 });
 const pong = await B.wait((m) => m.t === "pong");
