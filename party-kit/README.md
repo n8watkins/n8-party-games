@@ -255,7 +255,8 @@ What it changes is saved and sent like an input's, and `nextDeadline` is asked a
 A seat gone for good (its player left the party, or the grace ran out) ends the game early through an optional `abandon(state, seat, now)`, whose `{ standings, result, events }` decide the result; without it the game ends with no points.
 While the game is played the room waits its `idleShutdownMs` before closing an empty room and its `staleRoomMs` before closing one nobody has touched, the room's own values when it says nothing.
 The rules are in `GAME-CONTRACT.md`, "Who is here during a turn-based game".
-The plain logic is `src/core/presence.js`: `presenceSignal`, `allAway`, `reportOf`, `graceOf`, `goneWhy`, `graceEndsAt`, `presenceOutcome`, `abandonOutcome`, `lifetimesOf` and `presenceProblems` (which `gameProblems` includes).
+An input may carry an id, and the party room then answers its sender `ack {id}` or `error {id, error, message}`, once, however often the same id is sent (`GAME-CONTRACT.md`, "Answered inputs"; the logic is `src/core/answers.js`: `inputId`, `answerOf`, `answerMessage`, `recall`, `remember`).
+The plain logic for presence is `src/core/presence.js`: `presenceSignal`, `allAway`, `reportOf`, `graceOf`, `goneWhy`, `graceEndsAt`, `presenceOutcome`, `abandonOutcome`, `lifetimesOf` and `presenceProblems` (which `gameProblems` includes).
 
 ### HTTP API
 
@@ -279,11 +280,12 @@ It needs no signing secret, so local development needs no `.dev.vars`.
 
 ### WebSocket messages
 
-Client to room: `ping {c}`, `in {d}` (an input), `ready {v}`, `name {v}`, `character {v}`, `addBot`, `removeBot {seat}`, `start`, `leave`.
+Client to room: `ping {c}`, `in {d, id?}` (an input; `id` asks the party room for an answer in a turn-based game), `ready {v}`, `name {v}`, `character {v}`, `addBot`, `removeBot {seat}`, `start`, `leave`.
 The party room also takes `away` and `back` from a player's page whose socket stays open while it is hidden and shown again; the seat is away when every open socket of it is, and its room view member says `away: true`.
 This kit's own room does not read them yet.
 
 Room to client: `hello {you, room}`, `room {room}`, `pong {c, s}`, `start {room, s, now}`, `ev {ev, now}`, `snap {s, now, full?}`, `end {room, result, now}`, `error {error, message}`.
+The party room answers an input with an id in a turn-based game with `ack {id}` or `error {id, error, message}`, to its sender only ("Turn-based games").
 `s` in `start` and `snap`, and the list in `ev`, are shaped for the socket's viewer ("Per-seat views"); a socket left with no events after filtering gets no `ev` message for that tick.
 
 The room view (`room`) holds `pin`, `code`, `phase` (`lobby`, `playing`, `ended`), `round`, `startAt`, `canStart`, `hostSeat`, `screens`, and `seats`: for each seat `{seat, name, kind: "human" or "bot", colour, connected, ready, away, character}`.
@@ -305,7 +307,21 @@ party.on("snapshot", (s, now) => { /* correct any drift */ });
 party.on("end", ({ result }) => { lobby.open(); });
 
 party.sendInput({ fire: 1, at: party.now() });   // inputs only, with the room's clock
+
+// A turn-based game in the party room: wait for the room's answer.
+try {
+  await party.sendInput({ type: "guess", text: "owl" }, { id: "guess-3" });
+} catch (err) {
+  // err.code: the game's error ("not_your_turn"), or "timeout", "disconnected", "not_connected"
+}
 ```
+
+`sendInput(data)` without an id is fire and forget and returns whether it was sent, as every ticking game uses it.
+With `{ id }` (a string of up to 64 characters or a whole number, unique on the page) it returns a promise: it resolves with `{ ok: true, id }` on `ack` and rejects with a `PartyError` on `error` (its `code` the game's error, its `id` the input's), after `timeoutMs` (default `ANSWER_TIMEOUT_MS`, ten seconds) with `"timeout"`, and when the connection drops first with `"disconnected"`.
+The fresh snapshot arrives before the answer.
+Sending the same id again while it waits returns the same promise, and the room never applies it twice, so a page may send again after a reconnect.
+In a ticking game nothing is answered: the input goes without its id and the promise resolves at once with `{ ok: true, id, answered: false }`.
+An `error` with an id goes to its promise and never to the `error` event.
 
 `PartyClient` methods: `create`, `preview`, `join`, `resume`, `sendInput`, `setReady`, `rename`, `setCharacter`, `addBot`, `removeBot`, `start`, `leave`, `now`, `joinUrl`, `qrUrl`, and `dropConnection({reconnectAfterMs})` for tests.
 Events: `room`, `start`, `events`, `snapshot`, `end`, `status`, `error`, `closed` (with the room's own reason for closing the socket as a second argument, when it gave one), and `message` for anything the kit does not know.
