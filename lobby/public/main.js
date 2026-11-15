@@ -673,7 +673,8 @@ link.on("status", (status) => {
 });
 
 link.on("closed", (why, reason) => {
-  const said = bye ?? (why === "seat_lost" ? "seat_lost" : reason || "room_closed");
+  // A seat let go because its person left from another device of theirs says so ("left").
+  const said = bye ?? (why === "seat_lost" ? (reason === "left" ? "left" : "seat_lost") : reason || "room_closed");
   bye = null;
   // Also a saved session whose room is gone (a reload after it closed): the front page says so.
   closed(said);

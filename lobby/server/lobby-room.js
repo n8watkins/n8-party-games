@@ -309,6 +309,7 @@ export function createLobbyRoom(wallFor) {
         case "leave":
           core.leave(entry.token, now);
           this.drop(ws, entry, 1000, "left");
+          this.dropToken(entry.token, "left");
           this.changed(now);
           // A seat that leaves a turn-based game on purpose is gone for good: the game ends.
           void this.upkeep(now);
@@ -428,8 +429,19 @@ export function createLobbyRoom(wallFor) {
       const now = Date.now();
       this.core?.leave(entry.token, now);
       this.drop(ws, entry, CLOSE_TOO_FAST, "too_fast");
+      this.dropToken(entry.token, "too_fast");
       this.changed(now);
       void this.upkeep(now);
+    }
+
+    /**
+     * After a seat is given up (left, or kicked): every other open socket of that token is closed
+     * too. Left open, it would still be taken for that seat, and see and play as whoever sits in
+     * it next. Closed as a seat that is no longer ours (4003), with why, so its page does not
+     * come back.
+     */
+    dropToken(token, reason) {
+      for (const [ws, entry] of [...this.sockets]) if (entry.token === token) this.drop(ws, entry, CLOSE_BAD_TOKEN, reason);
     }
 
     drop(ws, entry, code, reason) {

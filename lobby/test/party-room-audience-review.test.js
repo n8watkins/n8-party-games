@@ -52,3 +52,42 @@ describe("a spot step that ends by itself, then a sleep", () => {
     expect(Object.values(core.voteView(Date.now()).standing)).toEqual([null, null, null, null]);
   });
 });
+
+describe("someone with two sockets who leaves", () => {
+  it("has every socket of theirs closed, so none of them sees or plays as a newcomer in that seat", async () => {
+    const r = await spots(turnGame());
+    const { ctx, say, ws } = r;
+    // Cy has the room open twice (a second tab); she leaves from the first.
+    const cy2 = await r.connect(r.tokens.cy);
+    await settle();
+    say(ws.cy, { t: "leave" });
+    await settle();
+    expect(ws.cy.closed).toMatchObject({ code: 1000, reason: "left" });
+    expect(cy2.closed).toMatchObject({ code: 4003, reason: "left" });
+    expect((await ctx.room.debug()).sockets).toBe(4);
+
+    // Ed joins in her seat: her other socket hears nothing of him and cannot walk his piece.
+    const ed = await ctx.room.join({ nickname: "Ed", as: "player" });
+    expect(ed.seat).toBe(2);
+    await r.connect(ed.token);
+    await settle();
+    const heard = cy2.frames.length;
+    const x = ctx.room.core.members[2].x;
+    say(cy2, { t: "m", x: x + 20, d: 0, r: ctx.room.core.members[2].rev });
+    await settle();
+    expect(ctx.room.core.members[2].x).toBe(x);
+    expect(cy2.frames.length).toBe(heard);
+  });
+
+  it("is closed on every socket when one of them floods", async () => {
+    const r = await spots(turnGame());
+    const { ctx, ws } = r;
+    const cy2 = await r.connect(r.tokens.cy);
+    await settle();
+    for (let i = 0; i < 200 && !ws.cy.closed; i++) ctx.room.webSocketMessage(ws.cy, "not json");
+    await settle();
+    expect(ws.cy.closed).toMatchObject({ code: 4008 });
+    expect(cy2.closed).toMatchObject({ code: 4003 });
+    expect(ctx.room.core.members[2]).toBeNull();
+  });
+});
