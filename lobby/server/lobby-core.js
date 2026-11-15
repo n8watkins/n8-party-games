@@ -829,7 +829,6 @@ export class LobbyCore {
     }
     // The input is applied to a copy, kept only once the game returned: an input that throws
     // halfway leaves nothing behind, in memory or in storage, and may be sent again.
-    const before = stateKey(game, a.state);
     let draft;
     try {
       draft = copyState(game, a.state);
@@ -849,8 +848,13 @@ export class LobbyCore {
     this.lastActive = now;
     // A refusal that changed nothing is not saved, and only its sender hears of it: its snapshot
     // and its share of the events. One that changed the state (a timed-out turn ended first) goes
-    // to everyone like any input. The state is compared as it would be saved.
-    if (!answer.ok && draft !== a.state && before !== null && stateKey(game, draft) === before) {
+    // to everyone like any input. The state is compared as it would be saved, and only on a
+    // refusal: the real state was left untouched while the input worked on its copy.
+    const unchanged = () => {
+      const before = stateKey(game, a.state);
+      return before !== null && stateKey(game, draft) === before;
+    };
+    if (!answer.ok && draft !== a.state && unchanged()) {
       return { ok: true, quiet: true, answer, events: outcome.events, snapshot: (viewer) => game.snapshot(a.state, now, viewer), viewerOf: (who) => this.viewerOf(who, a), ended: null };
     }
     a.state = draft;
@@ -876,11 +880,14 @@ export class LobbyCore {
       return this.stopGame(game, "error", now);
     }
     const out = { ok: true, ...this.turnOut(game, events, now) };
-    // A tick must move the deadline on; one that did not is ignored until something changes.
+    // A tick must move the deadline on. One that moved it forward but still into the past (a
+    // fixed step, woken late after a deploy) ticks again on the next alarm, so the game catches
+    // up; each of those ticks moves the deadline forward, so they end. One that did not move it at
+    // all is ignored until something changes, so it cannot keep the room ringing.
     if (!out.ended) {
       const after = this.turnDeadline();
-      if (after !== null && after <= now) {
-        console.error(`party room: ${a.id} tick() did not move its deadline on; it is ignored until the next input`);
+      if (after !== null && after <= deadline) {
+        console.error(`party room: ${a.id} tick() did not move its deadline on; it is ignored until the next input or change in who is here`);
         a.stuck = after;
       }
     }

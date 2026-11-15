@@ -54,7 +54,10 @@ beforeEach(() => {
   useFakeRuntime();
   errors = vi.spyOn(console, "error").mockImplementation(() => {});
 });
-afterEach(dropFakeRuntime);
+afterEach(() => {
+  dropFakeRuntime();
+  errors.mockRestore();
+});
 
 describe("F1: an id used again for a different input", () => {
   it("is refused as id_reused and not applied, never acked; the same input again is still answered as before", async () => {
@@ -136,6 +139,55 @@ describe("F4: a tick that leaves the deadline where it was", () => {
     expect(ctx.alarm.at).toBe(Date.now() + TURN_MS);
     await vi.advanceTimersByTimeAsync(TURN_MS);
     expect(game.calls.tick).toBe(2);
+  });
+});
+
+describe("second review N1: a deadline that moved forward but is still behind", () => {
+  it("ticks again on the next alarms until it has caught up, and is never taken as stuck", async () => {
+    const game = turnGame();
+    game.tick = (state) => {
+      game.calls.tick += 1;
+      state.timeouts += 1;
+      state.turn = 1 - state.turn;
+      state.deadline += TURN_MS; // a fixed step, from the deadline and not from now
+      return [{ k: "timed_out" }];
+    };
+    const { ctx } = await started(game);
+    // The room is woken late, nearly three turns after the deadline (a deploy in between): the
+    // deadlines at 30, 60 and 90 seconds are all due, the one at 120 is not.
+    clearTimeout(ctx.alarm.timer);
+    ctx.alarm.at = null;
+    await vi.advanceTimersByTimeAsync(4 * TURN_MS - 1000);
+    await ctx.room.alarm();
+    await vi.advanceTimersByTimeAsync(500);
+    expect(game.calls.tick).toBe(3);
+    expect(ctx.room.core.activity.state.deadline).toBeGreaterThan(Date.now());
+    expect(ctx.alarm.at).toBe(ctx.room.core.activity.state.deadline);
+    expect(errors.mock.calls.filter(([m]) => String(m).includes("did not move its deadline"))).toEqual([]);
+  });
+});
+
+describe("second review N3: an accepted input", () => {
+  it("writes the state down no more than twice: the copy and the save", async () => {
+    const game = turnGame({ own: true });
+    const serialize = game.serialize;
+    let writes = 0;
+    game.serialize = (state) => {
+      writes += 1;
+      return serialize(state);
+    };
+    const { say, ws } = await started(game);
+    writes = 0;
+    say(ws.ann, { t: "in", d: { say: "Hi" } });
+    await settle();
+    expect(writes).toBeLessThanOrEqual(2);
+  });
+});
+
+describe("second review N5: the room's page", () => {
+  it("does not show as a note an error that answers an input", () => {
+    const main = readFileSync(new URL("../public/main.js", import.meta.url), "utf8");
+    expect(main).toMatch(/link\.on\("error", \(err\) => \{?\s*\/\/[^\n]*\n?\s*if \(err\.id === undefined\) hud\?\.note\(err\.message\)|link\.on\("error", \(err\) => err\.id === undefined && hud\?\.note\(err\.message\)\)/);
   });
 });
 

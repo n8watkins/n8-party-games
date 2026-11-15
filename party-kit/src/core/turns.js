@@ -99,7 +99,8 @@ export function loadState(game, saved) {
 /**
  * A copy of a game's state to apply an input to, so an input that throws halfway leaves the real
  * state as it was: through the game's own save when it has one (serialize, then restore), a
- * structured clone otherwise. Throws when the state cannot be copied.
+ * structured clone otherwise. Throws when the state cannot be copied. A game's `serialize` must
+ * therefore be complete: what it leaves out is gone after the next input, not only after a sleep.
  */
 export function copyState(game, state) {
   if (typeof game.serialize === "function") return game.restore(structuredClone(game.serialize(state)));

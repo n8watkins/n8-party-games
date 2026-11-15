@@ -650,7 +650,8 @@ link.on("closed", (why, reason) => {
   closed(said);
 });
 
-link.on("error", (err) => hud?.note(err.message));
+// An error with an id is the late answer to a game's input that no longer waits for it: not for the room's notes.
+link.on("error", (err) => err.id === undefined && hud?.note(err.message));
 
 // ---------------------------------------------------------------- keys and fingers
 
