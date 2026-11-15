@@ -146,9 +146,12 @@ const manifestOf = (game, players) => ({ id: game.id, name: game.id, players, de
  * socket and say something on it, and `sleepAndWake`: a new instance over the same storage and
  * sockets, as after an eviction or a deploy.
  */
-export async function openRoom(createLobbyRoom, game, { players = { min: 2, max: 2 }, env = fakeEnv(), manifest = {} } = {}) {
+export async function openRoom(createLobbyRoom, game, { players = { min: 2, max: 2 }, env = fakeEnv(), manifest = {}, more = 0 } = {}) {
   // `manifest`: more of the game's manifest, as its box is drawn from it (its `settings`, say).
-  const wall = { boxes: [boxFromManifest({ ...manifestOf(game, players), ...manifest }, { view: "/x/view.js" })], games: new Map([[game.id, game]]) };
+  // `more`: that many coming-soon boxes hang after the game's, so the wall has lights to spare
+  // (the spots on which a game's players are chosen are lights on the wall).
+  const soon = Array.from({ length: more }, (_, i) => boxFromManifest({ id: `soon-${i}`, name: `Soon ${i}`, players: { min: 1, max: 4 }, devices: { phone: true } }, { soon: true }));
+  const wall = { boxes: [boxFromManifest({ ...manifestOf(game, players), ...manifest }, { view: "/x/view.js" }), ...soon], games: new Map([[game.id, game]]) };
   const Room = createLobbyRoom(() => wall);
   const ctx = fakeCtx();
   ctx.room = new Room(ctx, env);
@@ -171,12 +174,18 @@ export async function openRoom(createLobbyRoom, game, { players = { min: 2, max:
 /** Lets the room's promises (storage, the budget check before a game) settle. */
 export const settle = () => vi.advanceTimersByTimeAsync(0);
 
-/** Walks a seat's piece into the light of the only box, in steps the room believes. */
-export async function walkIn(say, ctx, ws, seat) {
-  const target = boxCentre(0, 1);
-  for (;;) {
+/** Walks a seat's piece into the light of box `i` on the wall (the game's own, first), in steps the room believes. */
+export async function walkIn(say, ctx, ws, seat, i = 0) {
+  return walkTo(say, ctx, ws, seat, boxCentre(i, ctx.room.core.boxes.length));
+}
+
+/** Walks a seat's piece to `target` (a place on the floor), in steps the room believes. */
+export async function walkTo(say, ctx, ws, seat, target) {
+  // A room that does not let the piece walk (a game on, say) fails the test instead of hanging it.
+  for (let step = 0; ; step++) {
     const m = ctx.room.core.members[seat];
     if (Math.abs(target - m.x) < 1) return;
+    if (step > 40) throw new Error(`seat ${seat} could not walk to ${target}`);
     const x = Math.abs(target - m.x) > POSITION_SLACK ? m.x + Math.sign(target - m.x) * POSITION_SLACK : target;
     say(ws, { t: "m", x, d: 0, r: m.rev });
     await vi.advanceTimersByTimeAsync(50);

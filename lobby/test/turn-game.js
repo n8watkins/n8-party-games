@@ -3,7 +3,8 @@
 // party-room-answers). Two seats, a secret per seat that only the other seat may see, a turn
 // timer, and (with `presence`) a timer that pauses while a seat is missing, as Who Am I? does.
 import { expect } from "vitest";
-import { openRoom, settle, voteIn, voteTo } from "./fake-room.js";
+import { openRoom, settle, voteIn, voteTo, walkIn, walkTo } from "./fake-room.js";
+import { ROOM, boxCentre } from "../shared/world.js";
 
 export const TURN_MS = 30_000;
 /** With `presence`: how long the other seat must be missing before a player may end the game on their own (Who Am I?'s host override). */
@@ -92,6 +93,8 @@ export function turnGame({ own = false, maxTimeouts = Infinity, presence = false
       if (viewer?.role === "player" && state.seats.includes(viewer.seat)) {
         return { ...base, you: viewer.seat, others: Object.fromEntries(state.seats.filter((s) => s !== viewer.seat).map((s) => [s, state.secrets[s]])) };
       }
+      // Who Am I?'s audience: a member watching the game sees both secrets (the big screen none).
+      if (viewer?.role === "audience") return { ...base, audience: viewer.seat, all: { ...state.secrets } };
       return { ...base, screen: true };
     },
     isOver: (state) => state.winner !== null,
@@ -205,6 +208,44 @@ export async function choosing(createLobbyRoom, game, opts = {}) {
   await voteTo(r, "settings", [ws.ann, 0], [ws.bo, 1]);
   await settle();
   return { ...r, tokens: { ann: ann.token, bo: bo.token, screen: screen.token }, ws };
+}
+
+/**
+ * A party of four (Ann, Bo, Cy, Di) and a big screen, for a two-seat game that takes an audience
+ * (`manifest.audience`), with two more lights on the wall: everyone voted the game in, and the room
+ * is choosing its players on two spots (the game's own light and the next). `opts.manifest` adds
+ * to the game's manifest.
+ */
+export async function spotsFor4(createLobbyRoom, game, opts = {}) {
+  const r = await openRoom(createLobbyRoom, game, { more: 2, ...opts, manifest: { audience: true, ...opts.manifest } });
+  const { ctx, connect } = r;
+  ctx.keepAlive = true;
+  const ann = await ctx.room.create({ code: "BCDFGH", nickname: "Ann", as: "player" });
+  const others = [];
+  for (const nickname of ["Bo", "Cy", "Di"]) others.push(await ctx.room.join({ nickname, as: "player" }));
+  const screen = await ctx.room.join({ as: "screen" });
+  const tokens = { ann: ann.token, bo: others[0].token, cy: others[1].token, di: others[2].token, screen: screen.token };
+  const ws = {};
+  for (const [who, token] of Object.entries(tokens)) ws[who] = await connect(token);
+  await voteTo(r, "settings", [ws.ann, 0], [ws.bo, 1], [ws.cy, 2], [ws.di, 3]);
+  await settle();
+  return { ...r, tokens, ws };
+}
+
+/** Walks a piece onto spot `k` (the k-th light from the game's own), and lets the room settle. */
+export async function standOn(r, ws, seat, k) {
+  const place = r.ctx.room.core.activity.spots[k].place;
+  await walkIn(r.say, r.ctx, ws, seat, r.ctx.room.core.boxes.findIndex((box) => box.id === place));
+  await settle();
+}
+
+/** Walks a piece off spot `k`, into the dark just to the left of its light, through no other light. */
+export async function stepOff(r, ws, seat, k) {
+  const core = r.ctx.room.core;
+  const n = core.boxes.length;
+  const i = core.boxes.findIndex((box) => box.id === core.activity.spots[k].place);
+  await walkTo(r.say, r.ctx, ws, seat, boxCentre(i, n) - (ROOM.boxesRight - ROOM.boxesLeft) / n / 2);
+  await settle();
 }
 
 /** What each socket was sent from now on: call the result for the frames since. */
