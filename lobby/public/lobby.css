@@ -447,6 +447,14 @@ input {
   font-size: 14px;
   color: var(--amber);
 }
+/* Someone else's page is hidden during a turn-based game: plain, under the connection's own word when that shows. */
+.link-state.away-mark {
+  color: inherit;
+  font-weight: 600;
+}
+.hud.linking .away-mark {
+  top: calc(max(12px, env(safe-area-inset-top)) + 44px);
+}
 .turn-hint {
   display: none;
 }

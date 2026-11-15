@@ -11,6 +11,7 @@
 //   party.sendInput({ ... })                         // inputs only, never results
 //   await party.sendInput({ ... }, { id: "q-7" })    // a turn-based game's answer: ok, or a PartyError
 //   party.now()                                      // the room's clock, in ms
+//   party.setAway(document.hidden)                   // hidden with the socket kept open: away, not dropped
 //
 // The session is kept in sessionStorage, so a reload or a dropped connection comes back to the
 // same seat (the room holds it for 30 seconds).
@@ -62,6 +63,10 @@ export class PartyClient {
     this.idCount = 0;
     /** The follow-up clock pings of a turn-based game (syncClock), cancelled when the connection goes. */
     this.clockTimers = [];
+    /** Whether this page told the room it is hidden (setAway): said again on every new connection. */
+    this.away = false;
+    /** The reconnect waiting out its back-off after a drop, if any. */
+    this.retryTimer = null;
   }
 
   /**
@@ -155,6 +160,9 @@ export class PartyClient {
 
   connect() {
     if (!this.session) return;
+    // One socket at a time: a reconnect still waiting out its back-off is this one.
+    clearTimeout(this.retryTimer);
+    this.retryTimer = null;
     this.wantOpen = true;
     this.setStatus(this.retry ? "reconnecting" : "connecting");
     const origin = this.base || location.origin;
@@ -167,6 +175,8 @@ export class PartyClient {
     ws.onopen = () => {
       this.retry = 0;
       this.heardAt = Date.now();
+      // A new socket is a page that is showing, to the room: one that is hidden says so first.
+      if (this.away) this.send({ t: "away" });
       this.setStatus("open");
       this.pingPace = 0;
       this.clockFor = null;
@@ -195,8 +205,36 @@ export class PartyClient {
       }
       this.retry += 1;
       this.setStatus("reconnecting");
-      setTimeout(() => this.wantOpen && this.connect(), Math.min(4000, 250 * 2 ** Math.min(this.retry, 4)));
+      this.retryTimer = setTimeout(
+        () => {
+          this.retryTimer = null;
+          if (this.wantOpen) this.connect();
+        },
+        Math.min(4000, 250 * 2 ** Math.min(this.retry, 4)),
+      );
     };
+  }
+
+  /**
+   * Tells the room this page is hidden (`true`: a locked phone, another app) or showing again
+   * (`false`) while its socket stays open: the seat is away, not dropped, and a turn-based game
+   * hears it through `game.presence`. Remembered, and said again on a new connection. Shown again
+   * with the connection lost (it died while the page was hidden), it reconnects at once instead
+   * of waiting out the back-off. Returns whether it was said to the room now.
+   */
+  setAway(away) {
+    const was = this.away;
+    this.away = !!away;
+    if (this.ws?.readyState === WebSocket.OPEN) {
+      if (was !== this.away) this.send({ t: this.away ? "away" : "back" });
+      return was !== this.away;
+    }
+    if (!this.away && this.wantOpen && !this.ws && this.session) {
+      clearTimeout(this.retryTimer);
+      this.retryTimer = null;
+      this.connect();
+    }
+    return false;
   }
 
   onMessage(text) {
