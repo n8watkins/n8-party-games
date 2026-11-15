@@ -5,6 +5,7 @@
 // storage (an eviction, a deploy) carries on with the same game, the same seats and the same views.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { GAME_FRAME, dropFakeRuntime, eventsOf, expectNoRoomSeed, fakeEnv, openRoom, settle, useFakeRuntime, voteIn } from "./fake-room.js";
+import { TURN_MS, from, savedGame, started as startedIn, turnGame } from "./turn-game.js";
 
 vi.mock("cloudflare:workers", () => ({
   DurableObject: class {
@@ -17,102 +18,7 @@ vi.mock("cloudflare:workers", () => ({
 
 const { createLobbyRoom } = await import("../server/lobby-room.js");
 
-const TURN_MS = 30_000;
-
-/**
- * Two seats take turns to say something. Each seat's secret is seen by the other seat and never
- * by its own, nor by a screen. Saying something passes the turn and tells the other seat (and
- * only it) the speaker's secret; a turn not taken in TURN_MS times out (tick) and passes too.
- * Saying `win` wins; with `maxTimeouts`, the seat that did not time out wins at the last one.
- * With `own`, it writes and reads its own saves as a string, as Who Am I? does.
- */
-function turnGame({ own = false, maxTimeouts = Infinity } = {}) {
-  const calls = { tick: 0, input: 0 };
-  const game = {
-    id: "turns",
-    minSeats: 2,
-    maxSeats: 2,
-    tickHz: 0,
-    calls,
-    create: ({ seats, now }) => ({
-      seats: seats.map((s) => s.seat),
-      secrets: Object.fromEntries(seats.map((s) => [s.seat, `SECRET-${s.seat}-${crypto.randomUUID()}`])),
-      turn: 0,
-      deadline: now + TURN_MS,
-      moves: [],
-      timeouts: 0,
-      winner: null,
-    }),
-    input(state, seat, data, now) {
-      calls.input += 1;
-      if (seat !== state.seats[state.turn]) return { ok: false, error: "not_your_turn" };
-      const say = String(data?.say ?? "");
-      state.moves.push({ seat, say });
-      if (data?.win) state.winner = seat;
-      const other = state.seats[1 - state.turn];
-      state.turn = 1 - state.turn;
-      state.deadline = now + TURN_MS;
-      return { ok: true, events: [{ k: "said", seat, say }, { k: "psst", only: other, about: seat, secret: state.secrets[seat] }] };
-    },
-    nextDeadline: (state) => state.deadline,
-    tick(state, now) {
-      calls.tick += 1;
-      const seat = state.seats[state.turn];
-      state.timeouts += 1;
-      state.turn = 1 - state.turn;
-      state.deadline = now + TURN_MS;
-      if (state.timeouts >= maxTimeouts) state.winner = state.seats[state.turn];
-      return [{ k: "timed_out", seat }];
-    },
-    snapshot(state, now, viewer) {
-      const base = { turn: state.seats[state.turn], deadline: state.deadline, moves: state.moves.length, timeouts: state.timeouts };
-      if (viewer?.role === "player" && state.seats.includes(viewer.seat)) {
-        return { ...base, you: viewer.seat, others: Object.fromEntries(state.seats.filter((s) => s !== viewer.seat).map((s) => [s, state.secrets[s]])) };
-      }
-      return { ...base, screen: true };
-    },
-    isOver: (state) => state.winner !== null,
-    standings: (state) => state.seats.map((seat) => ({ seat, place: seat === state.winner ? 1 : 2 })),
-    result: (state) => ({ winnerSeat: state.winner }),
-  };
-  if (own) {
-    game.serialize = (state) => JSON.stringify({ shape: "turns/1", state });
-    game.restore = (text) => {
-      const saved = JSON.parse(text);
-      if (saved.shape !== "turns/1") throw new Error("Not a saved turns game");
-      return saved.state;
-    };
-  }
-  return game;
-}
-
-/** The game as it is saved in the room's storage right now, or null. */
-function savedGame(ctx) {
-  const saved = ctx.store.get("lobby")?.game;
-  if (!saved) return null;
-  return saved.state.by === "game" ? JSON.parse(saved.state.data).state : saved.state.data;
-}
-
-/** A party of Ann, Bo and a big screen, voted into the game. */
-async function started(game, opts) {
-  const r = await openRoom(createLobbyRoom, game, opts);
-  const { ctx, connect } = r;
-  ctx.keepAlive = true;
-  const ann = await ctx.room.create({ code: "BCDFGH", nickname: "Ann", as: "player" });
-  const bo = await ctx.room.join({ nickname: "Bo", as: "player" });
-  const screen = await ctx.room.join({ as: "screen" });
-  const ws = { ann: await connect(ann.token), bo: await connect(bo.token), screen: await connect(screen.token) };
-  await voteIn(r, [ws.ann, 0], [ws.bo, 1]);
-  await settle();
-  const state = ctx.room.core.activity.state;
-  return { ...r, tokens: { ann: ann.token, bo: bo.token, screen: screen.token }, ws, secrets: { ann: state.secrets[0], bo: state.secrets[1] } };
-}
-
-/** What each socket was sent from now on: call the result for the frames since. */
-function from(...sockets) {
-  const at = new Map(sockets.map((ws) => [ws, ws.frames.length]));
-  return (ws) => ws.frames.slice(at.get(ws)).map((f) => JSON.parse(f));
-}
+const started = (game, opts) => startedIn(createLobbyRoom, game, opts);
 
 /** A seat never gets its own secret; it gets the other seat's; a screen gets none. */
 function expectSecretsKept({ ann, bo, screens = [] }, secrets) {
@@ -165,7 +71,7 @@ describe("a turn-based game in the party room", () => {
     for (const w of Object.values(ws)) expect(snap(w)).toHaveLength(1);
     expect(snap(ws.ann)[0].s).toMatchObject({ moves: 1, turn: 1, you: 0, others: { 1: secrets.bo } });
     expect(snap(ws.bo)[0].s).toMatchObject({ moves: 1, turn: 1, you: 1, others: { 0: secrets.ann } });
-    expect(snap(ws.screen)[0].s).toEqual({ moves: 1, turn: 1, deadline: at + TURN_MS, timeouts: 0, screen: true });
+    expect(snap(ws.screen)[0].s).toEqual({ moves: 1, turn: 1, deadline: at + TURN_MS, paused: false, missing: [], timeouts: 0, screen: true });
     expect(snap(ws.cy)[0].s).toMatchObject({ screen: true });
     // The event for one seat reaches that seat only.
     expect(evs(ws.ann)).toEqual([{ k: "said", seat: 0, say: "Am I alive?" }]);
