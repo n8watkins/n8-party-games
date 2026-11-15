@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { dropFakeRuntime, openRoom, settle, useFakeRuntime, voteTo, walkTo } from "./fake-room.js";
 import { SETTINGS_FIELDS, spotsFor4, standOn, turnGame } from "./turn-game.js";
 import { SETTINGS_MS } from "../server/lobby-core.js";
+import { SETTLE_MS } from "../shared/vote.js";
 import { boxCentre, posAt, spawnX } from "../shared/world.js";
 
 vi.mock("cloudflare:workers", () => ({
@@ -237,6 +238,79 @@ describe("what the pages say during a spot step", () => {
     expect(awayOthers(room, { role: "screen", seat: -1 }).map((m) => m.name)).toEqual(["Ann"]);
     // A game with no audience: everyone away is said, as before.
     expect(awayOthers({ ...room, game: { id: "turns", round: 1, turns: true } }, { role: "player", seat: 1 }).map((m) => m.name)).toEqual(["Ann", "Cy"]);
+  });
+});
+
+/** The two on spots `a` and `b` (by name in r.ws, with their seats) take them and Ann starts; returns each seat's secret. */
+async function playOn(r, [a, seatA], [b, seatB]) {
+  await standOn(r, r.ws[a], seatA, 0);
+  await standOn(r, r.ws[b], seatB, 1);
+  r.say(r.ws.ann, { t: "settings-start" });
+  await settle();
+  expect(r.ctx.room.core.activity).toMatchObject({ kind: "game", seats: [seatA, seatB].sort() });
+  return r.ctx.room.core.activity.state.secrets;
+}
+
+/** Each viewer's game frames hold exactly what its role may see: `text(who)` is what that socket got. */
+function expectSecrets(text, secrets, { players, audience }) {
+  for (const [who, seat] of players) {
+    const other = players.find(([, s]) => s !== seat)[1];
+    expect(text(who)).not.toContain(secrets[seat]);
+    expect(text(who)).toContain(secrets[other]);
+  }
+  for (const who of audience) for (const [, seat] of players) expect(text(who)).toContain(secrets[seat]);
+  for (const [, seat] of players) expect(text("screen")).not.toContain(secrets[seat]);
+}
+
+describe("roles across a rematch and a reconnect", () => {
+  it("a former audience member who now plays never gets their own secret, and a former player who now watches gets both", async () => {
+    const r = await spots(turnGame({ presence: true }));
+    const { ctx, say, ws } = r;
+    const first = await playOn(r, ["ann", 0], ["bo", 1]);
+    expectSecrets((w) => ws[w].text(), first, { players: [["ann", 0], ["bo", 1]], audience: ["cy", "di"] });
+    say(ws.ann, { t: "in", d: { say: "got it", win: true } });
+    await settle();
+    expect(ctx.room.core.activity.kind).toBe("lobby");
+
+    // The rematch: Cy and Di take the spots, Ann and Bo watch.
+    await vi.advanceTimersByTimeAsync(SETTLE_MS);
+    await voteTo(r, "settings", [ws.ann, 0], [ws.bo, 1], [ws.cy, 2], [ws.di, 3]);
+    await settle();
+    const at = new Map(Object.values(ws).map((w) => [w, w.frames.length]));
+    const second = await playOn(r, ["cy", 2], ["di", 3]);
+    say(ws.cy, { t: "in", d: { say: "is it a cat?" } });
+    await settle();
+    const since = (who) => ws[who].frames.slice(at.get(ws[who])).join("\n");
+    expectSecrets(since, second, { players: [["cy", 2], ["di", 3]], audience: ["ann", "bo"] });
+    // Over the whole night, Cy and Di never got their own.
+    expect(ws.cy.text()).not.toContain(second[2]);
+    expect(ws.di.text()).not.toContain(second[3]);
+    for (const w of ["cy", "di"]) expect(since(w)).toMatch(/"you":\d/);
+  });
+
+  it("a player's own socket and an audience member's own socket, reconnecting mid-match, each get their own role's frames", async () => {
+    const r = await spots(turnGame({ presence: true }));
+    const { ctx, say, ws } = r;
+    const secrets = await playOn(r, ["ann", 0], ["bo", 1]);
+    // Ann (a player) and Cy (the audience) drop, and come back on new sockets.
+    ctx.room.webSocketClose(ws.ann, 1006, "");
+    ctx.room.webSocketClose(ws.cy, 1006, "");
+    await settle();
+    const back = { ...ws, ann: await r.connect(r.tokens.ann), cy: await r.connect(r.tokens.cy) };
+    await settle();
+    expect(back.ann.messages()[0]).toMatchObject({ t: "hello", you: { role: "player", seat: 0 } });
+    expect(back.ann.messages().find((m) => m.t === "snap")).toMatchObject({ full: true, s: { you: 0 } });
+    expect(back.cy.messages().find((m) => m.t === "snap")).toMatchObject({ full: true, s: { audience: 2 } });
+    say(back.ann, { t: "in", d: { say: "is it a dog?" } });
+    await settle();
+    const text = (who) => back[who].text();
+    expect(text("ann")).not.toContain(secrets[0]);
+    expect(text("ann")).toContain(secrets[1]);
+    expect(text("cy")).toContain(secrets[0]);
+    expect(text("cy")).toContain(secrets[1]);
+    expect(text("screen")).not.toContain(secrets[0]);
+    expect(text("screen")).not.toContain(secrets[1]);
+    expect(ctx.room.core.activity).toMatchObject({ kind: "game", seats: [0, 1] });
   });
 });
 
