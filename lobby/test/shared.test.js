@@ -311,6 +311,14 @@ describe("the words under the room", () => {
     expect(playerLine(base, vote(), 0).rest).toBe("2 here, phones only");
     expect(playerLine({ ...base, screens: 1 }, vote({ leaders: ["coin-flip"], count: { endsIn: 2500 } }), 0).rest).toBe("Coin Flip starts in 3");
   });
+
+  it("says who is choosing a game's settings after the vote", () => {
+    const choosing = (by) => ({ ...base, phase: "settings", choosing: { id: "who-am-i", name: "Who Am I?", by, fields: [], picks: {}, seats: [0, 1], endsIn: 60_000, of: 90_000 } });
+    expect(statusLine(choosing(0), vote())).toEqual({ chip: "SETTINGS", main: "Choosing settings for Who Am I?", sub: "Mabel is choosing.", waiting: [] });
+    expect(statusLine(choosing(-1), vote()).sub).toBe("The room's screen is choosing.");
+    expect(playerLine(choosing(0), vote(), 0).rest).toBe("You choose the settings");
+    expect(playerLine(choosing(0), vote(), 1).rest).toBe("Mabel is choosing settings");
+  });
 });
 
 describe("counting awake time", () => {

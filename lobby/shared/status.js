@@ -11,6 +11,12 @@ function verb(room, id) {
   return room.boxes.find((b) => b.id === id)?.url ? "opens" : "starts";
 }
 
+/** Who chooses a game's settings (the room view's `choosing.by`), as people would say it. */
+function chooser(room) {
+  const by = room.choosing?.by;
+  return by === -1 ? "The room's screen" : (room.members[by]?.name ?? "The host");
+}
+
 function minutes(ms) {
   const s = Math.max(0, Math.ceil(ms / 1000));
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
@@ -29,6 +35,7 @@ export function statusLine(room, vote, closingLeft = null) {
     return { chip: "CLOSING", main: "Today's hosting allowance is used up.", sub: `This room closes in ${minutes(closingLeft ?? room.closing.in)}.`, waiting: [] };
   }
   if (room.phase === "playing") return { chip: "PLAYING", main: `${room.game?.name ?? "A game"} is on.`, sub: "", waiting: [] };
+  if (room.phase === "settings" && room.choosing) return { chip: "SETTINGS", main: `Choosing settings for ${room.choosing.name}`, sub: `${chooser(room)} is choosing.`, waiting: [] };
   if (vote.toss) {
     return { chip: "TIE", main: "A coin toss picks.", sub: `${names(vote.toss.between.map(box))}.`, waiting: [] };
   }
@@ -55,6 +62,7 @@ export function playerLine(room, vote, seat, closingLeft = null) {
   // There is little room between a phone's buttons: one name, or a number.
   let rest = waiting.length > 1 ? `Waiting for ${waiting.length} players` : waiting.length ? `Waiting for ${waiting[0]}` : `${here} here${room.screens ? "" : ", phones only"}`;
   if (room.closing) rest = `Room closes in ${minutes(closingLeft ?? room.closing.in)}`;
+  else if (room.phase === "settings" && room.choosing) rest = room.choosing.by === seat ? "You choose the settings" : `${chooser(room)} is choosing settings`;
   else if (vote.toss) rest = "Tie: a coin toss picks";
   else if (vote.count) {
     const n = Math.max(1, Math.ceil((vote.countLeft ?? vote.count.endsIn) / 1000));

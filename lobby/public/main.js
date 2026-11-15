@@ -15,6 +15,7 @@ import { TouchSpots } from "./touch.js";
 import { KEEP_ALIVE_MS, watchConnection } from "./connection.js";
 import { CountTick } from "./count-tick.js";
 import { RoomMenu } from "./room-menu.js";
+import { SettingsStep } from "./settings-step.js";
 import { RoomSounds, defineRoomSounds, emoteSound } from "./room-sounds.js";
 import { chosenLook, hardware3D, openRoomView, preferFlat } from "./room-view.js";
 import { ScreenFit, fitVisible } from "./screen-fit.js";
@@ -59,6 +60,8 @@ let board = null;
 let menu = null;
 /** The count, large, over the foot of the room (count-tick.js). */
 let count = null;
+/** The settings step after the vote, for a game that has settings (settings-step.js). */
+let step = null;
 /** What can be touched on the wall: the board, the posters, the join sign, the 3D room's feature (touch.js). */
 let touch = null;
 /** Full screen, and the way to it on an iPhone (screen-fit.js). */
@@ -125,8 +128,8 @@ function teardown() {
   stage?.unmount();
   stage = null;
   app.classList.remove("in-game");
-  for (const part of [menu, count, touch, fit, roomSounds]) part?.destroy();
-  menu = count = touch = fit = roomSounds = null;
+  for (const part of [menu, count, step, touch, fit, roomSounds]) part?.destroy();
+  menu = count = step = touch = fit = roomSounds = null;
   hud?.destroy();
   hud = null;
   scene?.destroy();
@@ -194,6 +197,8 @@ async function enter() {
   hud.muteButton(menu.corner);
   if (menu.mine(room)) menu.hint();
   count = new CountTick(hud.el, { buzz: isPlayer() ? buzz : null });
+  // The one who chooses is the room's picker: a player's seat, or -1 for the room's screen.
+  step = new SettingsStep(hud.el, { send: (message) => link.send(message), mine: (choosing) => (isPlayer() ? choosing.by === link.you.seat : choosing.by === -1) });
   fit = new ScreenFit(menu.corner, app);
   void keepAwake();
   slow.start(scene.look, performance.now(), simpler);
@@ -380,6 +385,7 @@ function apply(next) {
   if (!scene) return;
   scene.setRoom(room, voteAt);
   menu?.update(room);
+  step?.update(room, voteAt);
   // A page that missed a change (a drop, a sleep) catches up from the room itself.
   if (room.room !== shownRoom || look !== scene.look) void showRoom();
   const me = isPlayer() ? room.members[link.you.seat] : null;
@@ -483,6 +489,13 @@ link.on("message", (msg) => {
       if (msg.k === "left") hud?.note(`${msg.name} left`, msg.colour);
       // A game that ended early because a player in it left or did not come back says why.
       else if (msg.k === "ended") hud?.note(msg.text, msg.colour);
+      // The settings step ended with nobody playing: the host went back, or a player left.
+      else if (msg.k === "cancelled") hud?.note(msg.text);
+      break;
+    case "settings-no":
+      // The room turned down this device's change of settings: said on the card, or as a note.
+      if (step?.isOpen) step.refused(msg.message);
+      else hud?.note(msg.message);
       break;
     case "away":
       // An outside game won the vote: the card says where everyone is going, then goAway runs.
@@ -790,6 +803,7 @@ function frame(t) {
   hud.update(room, room.vote, now, voteAt, zoom, now - stirAt);
   const left = room.vote.count ? Math.max(0, room.vote.count.endsIn - (now - voteAt)) : null;
   count?.update(room, left);
+  step?.frame(now);
   // The count's end: a chime, once, as the game starts.
   if (left !== null && left <= 0 && countLeft > 0 && room.phase === "lobby") {
     countGoAt = now;

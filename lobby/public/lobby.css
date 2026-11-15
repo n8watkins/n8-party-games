@@ -1020,6 +1020,75 @@ input {
   }
 }
 
+/* The settings step after the vote (settings-step.js): one row a setting, the door button and the notes stay on top. */
+.hud:has(.settings-back) .door-btn,
+.hud:has(.settings-back) .notes {
+  z-index: 2;
+}
+.settings-back {
+  z-index: 1;
+}
+.settings-list {
+  display: grid;
+  gap: 6px;
+}
+.settings-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 6px 10px;
+  border-radius: 10px;
+  background: #ecd9b9;
+}
+.settings-label {
+  color: #5a4636;
+}
+.settings-select {
+  min-height: 36px;
+  max-width: 60%;
+  padding: 4px 8px;
+  border: 0;
+  border-radius: 8px;
+  background: #fff6e2;
+  color: inherit;
+  font: inherit;
+  font-weight: 700;
+}
+.settings-said {
+  margin: 0;
+  font-weight: 700;
+  color: #9c2b20;
+}
+.settings-card .settings-left {
+  display: block;
+}
+.settings-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+/* A phone held sideways: the rows two by two and tighter, so the whole card fits the short screen. */
+@media (max-height: 520px) and (min-width: 600px) {
+  .settings-back {
+    padding: 8px;
+  }
+  .settings-card {
+    width: min(100%, 680px);
+    gap: 6px;
+  }
+  .settings-list {
+    grid-template-columns: 1fr 1fr;
+    gap: 4px 8px;
+  }
+  .settings-row {
+    padding: 2px 8px;
+  }
+  .settings-select {
+    min-height: 30px;
+  }
+}
+
 /* A big screen is read from across the room: its cards and the game laid over it are larger. */
 @media (min-width: 1500px) and (min-height: 800px) {
   .sheet,
