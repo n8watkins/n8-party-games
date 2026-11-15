@@ -306,6 +306,20 @@ describe("a room that sleeps during the handshake", () => {
     expect((await r.ctx.room.debug()).unknown).toBe(0);
   });
 
+  it("right after the hello: the room's screen wakes as the screen (nothing else ever writes it on its socket)", async () => {
+    const r = await party();
+    const screen = await r.ctx.room.join({ as: "screen" });
+    const ws = await r.connect(screen.token);
+    expect(ws.attachment).toMatchObject({ token: screen.token, role: "screen", seat: -1 });
+    await r.sleepAndWake();
+    expect(r.ctx.room.sockets.get(ws)).toMatchObject({ role: "screen", seat: -1, token: screen.token });
+    expect(r.ctx.room.core.screensConnected()).toBe(1);
+    const before = ws.frames.length;
+    await r.ctx.room.join({ nickname: "Cy", as: "player" });
+    await settle();
+    expect(ws.frames.length).toBeGreaterThan(before);
+  });
+
   it("a waiting socket that closed while the room slept is nobody's drop", async () => {
     const r = await party();
     const ws = await r.open();

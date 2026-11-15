@@ -32,6 +32,25 @@ Everything else is already in the repository.
 7. Run `npm run deploy`, which deploys the top level (`wrangler deploy --env=''`) and never the local environment. It runs any new Durable Object migrations by itself (the first deploy ran `v1` to `v3`; the first deploy with the party room runs `v4`, the `LobbyRoom` class); nothing is created by hand.
 8. A deploy while a round is on lets that room finish on the old code for up to five minutes, so deploy when nobody is mid-round if you can.
 
+## The seat's token and the logs
+
+Workers Logs are on at full sampling, and they keep every request's address.
+A seat's token is therefore never part of an address or a header: it is the first message on the socket (`party-kit/README.md`, "The socket handshake").
+Nothing in the Worker prints a token either.
+
+The deploy that brought this in (the handshake changed in November 2026) is the one deploy where pages already open matter.
+What a device that is in a room sees across it:
+
+- **Its socket stays open** when the room takes the new code (a sleeping room does so at once, and its sockets stay connected), and the room still knows whose it is. Nothing changes on that device until its page opens a new socket.
+- **A reload** loads the new page, which says hello with the saved session and has its seat back.
+- **A new socket from the old page** (a phone unlocked again in the lobby, a signal that came back) still carries `?token=` in its address. The room refuses it and gives that seat up, because the address has been written down. The party room's page goes to the front page, which says "You were away too long, so party 1234 let your seat go." with **Rejoin**; one tap, and the player is back under the same name with the same points. Cork & Bell's own page says "Your seat was given away while you were gone." and stays on its old script until it is reloaded by hand.
+- **Making or joining a room from a page that was open before the deploy** is refused with "This page is out of date. Reload it to play." until the page is reloaded.
+- **A room that is in the middle of a ticking round** keeps the old code for up to five minutes. A page loaded during that time (a reload, or someone joining) speaks the new way to a room that does not know it yet, is refused, and lands on the front page; it works once the round is over. Deploying when nobody is mid-round (step 8) avoids it, and so does `npm run deploy -- --durable-objects-code-update-mode immediate`, which ends rounds in play.
+
+What cannot be undone: the logs from before that deploy hold the tokens of the sockets opened until then, in each request's address, for as long as Workers Logs keep them (seven days on the paid plan).
+A token is only good while its room is open (a party lasts four hours at most, and closes sooner when it is empty or untouched), so every token in those logs is dead within hours of the deploy.
+Nothing needs deleting.
+
 ## Check it after a deploy
 
 The live address is shared by everyone, and Cloudflare sees your real address there, so the room limits (5 new rooms in ten minutes, 20 a day) count against you.

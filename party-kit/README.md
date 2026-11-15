@@ -304,6 +304,11 @@ The plain logic is `src/core/audience.js`: `hasAudience`, `isUpright`, `needsSpo
 | `GET /api/party/scores/:game` | `{top: [{name, score, at}]}`: the game's ten best, best first |
 | `POST /api/party/scores/:game` `{name: "ABC", score}` | `{top, place}` (`place` is -1 when the score did not make the ten) |
 
+The two requests that hand out a seat (`POST .../rooms` and `POST .../join/:pinOrCode`) must carry the client's mark, the header `X-Party-Protocol: 2`; `PartyClient` sends it.
+Without it the answer is 426 `page_outdated`, "This page is out of date. Reload it to play.", and no seat is made.
+A page loaded before the seat's token left the socket's address keeps its old script until it is loaded afresh; this is what stops it from being given seat after seat that it would then name in an address.
+A script that talks to the API itself sends the header too, and then says hello on its socket.
+
 Requests whose `Origin` names another site are refused (403 `forbidden_origin`), so no other page can open rooms or sockets through a visitor's browser.
 Bodies are JSON objects of at most 4 KiB.
 Every answer carries `X-Content-Type-Options: nosniff`, `Cache-Control: no-store` and a deny-all CSP.
@@ -331,6 +336,9 @@ Anything else closes the socket, and nothing about the room is ever sent on it.
 | 4003 | `bad_token` | The hello's token names no seat: wrong, given up, or its grace ran out. Also a room that does not exist. | Forgets the session; `closed` with `"seat_lost"`. |
 | 4003 | `reload` | The old form, `?token=` in the address. The room also gives up the seat that token names, on every socket it has: the address was written down the moment it arrived. | Forgets the session; `closed` with `"seat_lost"`. |
 | 4009 | `hello_late`, `crowded` | The socket said nothing for ten seconds (`HELLO_MS`), or a ninth socket arrived while eight were waiting (`MAX_UNKNOWN`: the one that waited longest goes). | Opens another socket, backing off. |
+
+A code that is no room takes a socket exactly as a room does (nothing until the hello, then 4003), so opening a socket does not tell anyone which codes are rooms.
+4000 and 4003 are final for the client: it opens no socket for that session again, also when the page is shown again.
 
 A socket that says nothing costs the room nothing: it saves nothing, sets no alarm, and a room with only such sockets is as empty as it was and closes on time.
 The ten seconds are looked at when something else happens in the room; nothing is timed for them.
