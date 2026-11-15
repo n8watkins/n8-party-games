@@ -209,6 +209,10 @@ export const game = {
   presence(state, seat, { connected, away }, now) { return true; },  // who is here changed; true or events when the state did
   abandon(state, seat, now) { return { standings, result, events }; }, // a seat is gone for good: the game ends
   idleShutdownMs: 60_000, staleRoomMs: 1_200_000,            // the room's lifetimes while this game is played
+
+  // Optional, in the party room (below): settings chosen after the vote, and a rematch carry.
+  settings(value) { return clean; },  // or { ok: false, error, message }; `create` then gets `settings`
+  carry(state) { return json; },      // when a game ends; the next `create` for the same seats gets `carry`
 };
 ```
 
@@ -259,6 +263,17 @@ A refusal that changed nothing is not saved and only its sender hears of it; its
 The rules are in `GAME-CONTRACT.md`, "Who is here during a turn-based game".
 An input may carry an id, and the party room then answers its sender `ack {id}` or `error {id, error, message}`, once, however often the same id is sent with the same data, and `id_reused` when it comes with other data (`GAME-CONTRACT.md`, "Answered inputs"; the logic is `src/core/answers.js`: `inputId`, `answerOf`, `answerMessage`, `inputDigest`, `lookup`, `recall`, `remember`; and `copyState` and `stateKey` in `src/core/turns.js`).
 The plain logic for presence is `src/core/presence.js`: `presenceSignal`, `allAway`, `reportOf`, `graceOf`, `goneWhy`, `graceEndsAt`, `presenceOutcome`, `abandonOutcome`, `lifetimesOf` and `presenceProblems` (which `gameProblems` includes).
+
+### Settings and a rematch carry
+
+A game may have settings that the party's host chooses after the vote, before the game starts.
+It declares `settings(value)`, which checks a settings object and returns it clean with its defaults filled in, or refuses it with `{ ok: false, error, message }`.
+Its manifest describes the choices for the page as `manifest.settings`, a list of fields, each with `key`, `label`, `options` (each `{ value, label }` or a bare value: a string, a number, `true` or `false`) and `default`.
+When the game wins the vote the party room is in a short settings step; the host's picks are checked by the game, shown to everyone, and passed to `create` as `settings`.
+A game may also declare `carry(state)`, which returns a small plain-JSON object when a game ends; the room keeps it for that game and the same people in the same seats, and passes it to the next `create` of that game for them as `carry` (null when there is none).
+The rules are in `GAME-CONTRACT.md`, "Settings after the vote" and "What a rematch carries".
+The party room runs both; this kit's own room (`createPartyRoom`) does not read them yet.
+The plain logic is `src/core/settings.js`: `hasSettings`, `hasCarry`, `settingFields` (the manifest's fields in one shape, with what is wrong), `fieldDefaults`, `settingsProblems`, `checkSettings` (the game's own check), `applyChange` (one change from the host, checked against the fields), `carryOf`, `seatsKey` and `carryFor`.
 
 ### HTTP API
 
