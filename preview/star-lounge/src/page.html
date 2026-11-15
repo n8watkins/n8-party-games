@@ -1,0 +1,375 @@
+<title>Star Lounge Preview</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<style>
+  /*FONTS*/
+  :root {
+    --bg: #02030a;
+    --panel: #0a1022;
+    --line: rgba(110, 231, 255, 0.35);
+    --ink: #eaf4ff;
+    --soft: #9fb4d0;
+    --accent: #6ee7ff;
+    --bar: 64px;
+    color-scheme: dark;
+  }
+  :root[data-theme="light"],
+  :root[data-theme="dark"] {
+    --bg: #02030a;
+  }
+  html,
+  body {
+    height: 100%;
+    margin: 0;
+    overflow: hidden;
+    background: var(--bg);
+    color: var(--ink);
+    font: 400 14px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    -webkit-text-size-adjust: 100%;
+    overscroll-behavior: none;
+  }
+  button {
+    font: 800 13px/1.2 Nunito, system-ui, sans-serif;
+    color: inherit;
+  }
+  body[data-look="today"] #hint .real,
+  body[data-look="real"] #hint .today {
+    display: none;
+  }
+  #app {
+    position: fixed;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    background: var(--bg);
+  }
+  #stage {
+    position: relative;
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow: hidden;
+    touch-action: none;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+  #gl,
+  #before {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    display: block;
+  }
+  #before {
+    display: none;
+    bottom: var(--bar);
+    height: calc(100% - var(--bar));
+    object-fit: cover;
+    object-position: 50% 0;
+    background: #000;
+  }
+  body[data-look="today"] #before {
+    display: block;
+  }
+  body[data-look="today"] #gl,
+  body[data-look="today"] #tags,
+  body[data-look="today"] #said {
+    visibility: hidden;
+  }
+  #tags {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    overflow: hidden;
+  }
+  .tag {
+    position: absolute;
+    left: 0;
+    top: 0;
+    padding: 2px 9px 2px 6px;
+    border-radius: 999px;
+    background: rgba(8, 12, 24, 0.82);
+    border: 1px solid rgba(255, 255, 255, 0.16);
+    font: 800 12px/1.3 Nunito, system-ui, sans-serif;
+    white-space: nowrap;
+    will-change: transform;
+  }
+  .tag i {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    margin-right: 5px;
+    border-radius: 50%;
+  }
+  .tag.you {
+    background: #fff;
+    color: #111827;
+  }
+  #meter {
+    position: absolute;
+    left: max(8px, env(safe-area-inset-left));
+    top: 6px;
+    padding: 3px 8px;
+    border-radius: 6px;
+    background: rgba(2, 4, 12, 0.72);
+    color: #b8f4c8;
+    font: 600 10.5px/1.3 ui-monospace, Menlo, Consolas, monospace;
+    pointer-events: none;
+    max-width: calc(100% - 16px);
+  }
+  #said {
+    position: absolute;
+    left: 50%;
+    top: 30px;
+    transform: translate(-50%, -8px);
+    max-width: min(560px, calc(100% - 24px));
+    padding: 7px 14px;
+    border-radius: 12px;
+    background: rgba(4, 8, 20, 0.9);
+    border: 1px solid var(--line);
+    font-weight: 700;
+    font-size: 13px;
+    text-align: center;
+    opacity: 0;
+    transition:
+      opacity 0.2s,
+      transform 0.2s;
+    pointer-events: none;
+  }
+  #said.on {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
+  #bar {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    height: var(--bar);
+    box-sizing: border-box;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 0 max(10px, env(safe-area-inset-right)) 0 max(10px, env(safe-area-inset-left));
+    background: #05070f;
+    border-top: 2px solid var(--accent);
+  }
+  .seg {
+    display: flex;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    overflow: hidden;
+    flex: 0 0 auto;
+  }
+  .seg button,
+  .chip {
+    min-height: 42px;
+    padding: 0 13px;
+    border: 0;
+    background: transparent;
+    font-weight: 800;
+    font-size: 13px;
+    white-space: nowrap;
+    cursor: pointer;
+  }
+  .seg button[aria-pressed="true"] {
+    background: var(--accent);
+    color: #04121c;
+  }
+  .chip {
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    flex: 0 0 auto;
+  }
+  .chip[aria-pressed="true"] {
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+  #hint {
+    flex: 1 1 auto;
+    min-width: 0;
+    color: var(--soft);
+    font-size: 12.5px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    text-align: center;
+  }
+  body[data-look="today"] #depth {
+    visibility: hidden;
+  }
+  #notes {
+    position: absolute;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    width: min(340px, 86%);
+    box-sizing: border-box;
+    padding: 12px 14px 20px;
+    background: rgba(6, 10, 22, 0.97);
+    border-left: 1px solid var(--line);
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    transform: translateX(102%);
+    transition: transform 0.22s;
+    z-index: 5;
+  }
+  body.notes-on #notes {
+    transform: none;
+  }
+  #notes h2 {
+    margin: 14px 0 6px;
+    font-size: 13px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--accent);
+  }
+  #notes h2:first-of-type {
+    margin-top: 2px;
+  }
+  #notes ul {
+    margin: 0;
+    padding-left: 18px;
+  }
+  #notes li {
+    margin: 4px 0;
+  }
+  #notes p {
+    margin: 6px 0;
+    color: var(--soft);
+  }
+  #notes-shut {
+    float: right;
+    min-width: 42px;
+    min-height: 42px;
+    margin: -6px -8px 0 8px;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    background: transparent;
+    font-weight: 800;
+    cursor: pointer;
+  }
+  #turn {
+    display: none;
+  }
+  #loading {
+    position: absolute;
+    inset: 0;
+    display: grid;
+    place-items: center;
+    color: var(--soft);
+    font-weight: 700;
+    pointer-events: none;
+  }
+  body.ready #loading {
+    display: none;
+  }
+  /* Narrow screens held sideways: the hint goes, the buttons stay. */
+  @media (max-width: 760px) {
+    #hint {
+      display: none;
+    }
+    #bar {
+      justify-content: space-between;
+      gap: 5px;
+    }
+    .seg button,
+    .chip {
+      padding: 0 9px;
+      font-size: 12px;
+    }
+  }
+  /* A phone held upright: the room keeps its sideways shape at the top, the notes sit under it. */
+  @media (orientation: portrait) {
+    #stage {
+      flex: 0 0 auto;
+      height: calc(100vw * 390 / 844 + var(--bar));
+    }
+    #bar {
+      flex-wrap: nowrap;
+    }
+    #notes {
+      position: static;
+      flex: 1 1 auto;
+      width: auto;
+      transform: none;
+      border-left: 0;
+      border-top: 1px solid var(--line);
+    }
+    #notes-shut,
+    #notes-open {
+      display: none;
+    }
+    #turn {
+      display: block;
+      padding: 8px 10px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      color: var(--ink);
+      font-weight: 700;
+    }
+    .seg button,
+    .chip {
+      padding: 0 8px;
+      font-size: 11.5px;
+    }
+  }
+</style>
+<div id="app">
+  <div id="stage">
+    <canvas id="gl"></canvas>
+    <img id="before" alt="The Star Lounge as it is in the room today" />
+    <div id="tags"></div>
+    <div id="meter">measuring</div>
+    <div id="said"></div>
+    <div id="loading">Opening the Star Lounge</div>
+    <div id="bar">
+      <div class="seg" role="group" aria-label="Which look">
+        <button type="button" data-look-set="today" aria-pressed="false">Today</button>
+        <button type="button" data-look-set="real" aria-pressed="true">Made real</button>
+      </div>
+      <div class="seg" role="group" aria-label="How close">
+        <button type="button" data-mode-set="room" aria-pressed="false">Whole room</button>
+        <button type="button" data-mode-set="closer" aria-pressed="true">Closer</button>
+      </div>
+      <div id="hint"><span class="real">Tap a lamp, the globe, the glass, a screen or the deck. Drag sideways to look.</span><span class="today">A still picture of the room as it runs today.</span></div>
+      <button type="button" class="chip" id="depth" aria-pressed="true">Depth: on</button>
+      <button type="button" class="chip" id="notes-open">Notes</button>
+    </div>
+  </div>
+  <aside id="notes">
+    <button type="button" id="notes-shut" aria-label="Close the notes">X</button>
+    <p id="turn">Turn your phone sideways: that is how the room is played, and how this page is meant to be seen.</p>
+    <h2>Look at these first</h2>
+    <ul>
+      <li>The window. The planet turns, its ring throws a shadow on it, the stars drift at two speeds, and a rocket, a liner, a saucer and rocks pass at different distances.</li>
+      <li>Drag sideways with a finger. The rocks slide past the glass fastest, the planet slower, the stars slowest. That is real depth, not one picture.</li>
+      <li>The pieces. Watch one walk from the dark into a lamp's pool: the lamp comes on with a stutter, the piece is lit from above, and the deck holds its reflection.</li>
+      <li>Switch to Today and back to compare with the room as it is now.</li>
+    </ul>
+    <h2>Things that react</h2>
+    <ul>
+      <li>Tap a lamp (Whole room shows them): it swings and flickers, and its pool of light swings with it.</li>
+      <li>Tap the chart globe on the right: it spins up, turns pink and throws sparks, and the light it gives the wall turns pink too.</li>
+      <li>Tap the glass: a ring on the glass and a shooting star behind it.</li>
+      <li>Tap a game screen: it stutters.</li>
+      <li>Tap the deck: your piece walks there.</li>
+    </ul>
+    <h2>What is rendered and what is live</h2>
+    <ul>
+      <li>Rendered in Blender: the room, with each light on its own layer; the lamps; the chart table; the planet's and the moon's surface; the gas clouds; the rocket, liner, saucer and rocks.</li>
+      <li>Live: the pieces (the room's real pawn, not a picture), the posters, the planet turning, the stars, everything that moves.</li>
+      <li>Stand-ins for now: the join sign, the Tonight board, the signs under the screens and the name tags. The room's own will be used.</li>
+      <li>Today is a still picture of the room as it runs now.</li>
+    </ul>
+    <h2>One thing to decide</h2>
+    <p>In the room today the eye never moves, so nothing can pass in front of anything. Depth: on lets the eye slide a little as your piece walks (and sway slightly when it stands). Depth: off shows the same room with the eye held still, as it is today.</p>
+    <h2>Not in this preview</h2>
+    <p>Sound, bumps, emotes and votes. The number in the top corner is the time one frame takes on the device you are holding.</p>
+  </aside>
+</div>
+<script>
+  /*DATA*/
+</script>
+<script>
+  /*BUNDLE*/
+</script>
