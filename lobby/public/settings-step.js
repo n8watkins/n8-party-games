@@ -35,7 +35,7 @@ export class SettingsStep {
     if (!choosing) return this.close();
     this.endsAt = at + choosing.endsIn;
     const mine = this.opts.mine(choosing);
-    const key = JSON.stringify([choosing.id, choosing.picks, choosing.by, mine]);
+    const key = JSON.stringify([choosing.id, choosing.picks, choosing.by, mine, choosing.spots ?? null]);
     if (key === this.key && this.back) return;
     this.key = key;
     this.draw(room, choosing, mine);
@@ -43,12 +43,25 @@ export class SettingsStep {
 
   draw(room, choosing, mine) {
     this.back?.remove();
-    const back = (this.back = h("div", "card-back settings-back", "", this.parent));
+    // While the players are chosen on spots the room stays in reach: the card sits at the top and
+    // the pieces walk under it (lobby.css, .settings-back.spots).
+    const spots = choosing.spots ?? null;
+    const back = (this.back = h("div", `card-back settings-back${spots ? " spots" : ""}`, "", this.parent));
     const card = h("div", "card settings-card", "", back);
     card.setAttribute("role", "dialog");
     card.setAttribute("aria-label", `Settings for ${choosing.name}`);
-    h("div", "card-kicker", mine ? "SETTINGS" : "CHOOSING SETTINGS", card);
+    h("div", "card-kicker", spots ? "WHO PLAYS" : mine ? "SETTINGS" : "CHOOSING SETTINGS", card);
     h("h2", "card-title", choosing.name, card);
+    if (spots) {
+      h("p", "card-foot spots-line", `Stand in a lit spot to play. The first ${spots.length} play; everyone else watches.`, card);
+      const taken = h("div", "settings-list spots-list", "", card);
+      spots.forEach((spot, i) => {
+        const row = h("div", "settings-row", "", taken);
+        h("span", "settings-label", `Player ${i + 1}`, row);
+        const who = spot.seat === null ? null : room.members[spot.seat];
+        h("strong", "settings-pick", who ? who.name : "Open", row);
+      });
+    }
     const who = choosing.by === -1 ? "The room's screen" : room.members[choosing.by]?.name;
     this.who = mine ? "You choose, everyone sees your picks." : `${who ?? "The host"} is choosing.`;
     const list = h("div", "settings-list", "", card);

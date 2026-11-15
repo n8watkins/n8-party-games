@@ -18,7 +18,7 @@ import { RoomMenu } from "./room-menu.js";
 import { SettingsStep } from "./settings-step.js";
 import { RoomSounds, defineRoomSounds, emoteSound } from "./room-sounds.js";
 import { chosenLook, hardware3D, openRoomView, preferFlat } from "./room-view.js";
-import { ScreenFit, fitVisible } from "./screen-fit.js";
+import { ScreenFit, allowUpright, fitVisible } from "./screen-fit.js";
 import { SlowWatch } from "./slow-room.js";
 import { IMPACT_MS } from "./shared/bump.js";
 import { camera } from "./shared/camera.js";
@@ -128,6 +128,7 @@ function teardown() {
   stage?.unmount();
   stage = null;
   app.classList.remove("in-game");
+  document.documentElement.classList.remove("upright");
   for (const part of [menu, count, step, touch, fit, roomSounds]) part?.destroy();
   menu = count = step = touch = fit = roomSounds = null;
   hud?.destroy();
@@ -605,8 +606,12 @@ function startStage(snapshot) {
       mine.view?.unmount();
     },
   };
+  // A game laid out for an upright phone: the page lets go of sideways for the players and its
+  // audience while it is on (the big screen keeps its shape), and the view is told so.
+  const upright = !!room.game.upright && link.you?.role === "player";
+  allowUpright(upright);
   // send(data, {id}) asks a turn-based game for an answer (a promise); inputId() makes an id no other input of this page has used.
-  const ctx = { room, you: link.you, snapshot, send: (data, opts) => link.sendInput(data, opts), inputId: () => link.nextInputId(), now: () => link.now(), inset: DOOR_INSET, params };
+  const ctx = { room, you: viewerOfGame(link.you, room.game), upright, snapshot, send: (data, opts) => link.sendInput(data, opts), inputId: () => link.nextInputId(), now: () => link.now(), inset: DOOR_INSET, params };
   viewModule(box)
     .then((module) => {
       if (mine.gone || !module?.mount) return;
@@ -624,6 +629,17 @@ function endStage() {
   stage = null;
   app.classList.remove("in-game");
   if (stageBox) stageBox.hidden = true;
+  if (document.documentElement.classList.contains("upright")) allowUpright(false);
+}
+
+/**
+ * Who this device is to the game's view: as the room decides it (LobbyCore.viewerOf, by the kit's
+ * viewerFor), from the room view's game. A member who is not in a game that takes an audience
+ * watches as `{role: "audience", seat}`; any other game is told the device's own identity, as before.
+ */
+function viewerOfGame(you, game) {
+  if (you?.role !== "player" || !game?.audience || !Array.isArray(game.seats) || game.seats.includes(you.seat)) return you;
+  return { role: "audience", seat: you.seat };
 }
 
 /** While a count runs for a game with a view of its own, its files are fetched ahead of the start. */
@@ -668,7 +684,8 @@ link.on("error", (err) => err.id === undefined && hud?.note(err.message));
 
 // ---------------------------------------------------------------- keys and fingers
 
-const canMove = () => !!pilot && room?.phase === "lobby" && !hud?.sheet && !hud?.card && !board && !menu?.isOpen;
+// The pieces walk in the lobby, and while a game's players are chosen on its spots (bumping stays the lobby's).
+const canMove = () => !!pilot && (room?.phase === "lobby" || !!room?.choosing?.spots) && !hud?.sheet && !hud?.card && !board && !menu?.isOpen;
 
 function steerNow(d) {
   pilot?.steer(d, performance.now());
@@ -700,7 +717,7 @@ function jump() {
 /** The wind-up starts the moment the button goes down; the room decides whether the blow lands. */
 function bump() {
   const now = performance.now();
-  if (canMove() && pilot.bump(now)) {
+  if (canMove() && room.phase === "lobby" && pilot.bump(now)) {
     scene.ownBump(now);
     roomSounds?.swung(link.you.seat);
   }

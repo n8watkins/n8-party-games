@@ -348,7 +348,8 @@ export class Scene {
     this.voteAt = now;
     for (const b of this.boxes) {
       const why = vote.lights[b.box.id];
-      const on = why === null && this.room.phase === "lobby";
+      // Lit in the lobby, and as a spot while a game's players are chosen on spots.
+      const on = why === null && (this.room.phase === "lobby" || !!this.room.choosing?.spots);
       if (b.on !== on || b.why !== why) {
         b.on = on;
         b.why = why;
