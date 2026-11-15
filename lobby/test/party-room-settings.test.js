@@ -240,6 +240,39 @@ describe("the settings step after the vote", () => {
     expect(game.calls.created).toEqual([]);
   });
 
+  it("never gives a seat of the step to someone who joins during it: a latecomer watches the game", async () => {
+    const game = turnGame({ settings: true, fields: { minSeats: 1 } });
+    const r = await choosing(game, { players: { min: 1, max: 2 } });
+    const { ctx, connect, say, ws } = r;
+    // Bo leaves; one player is enough for this game, so the step goes on.
+    say(ws.bo, { t: "leave" });
+    await settle();
+    expect(ctx.room.core.activity.kind).toBe("settings");
+    // Cy joins: not into Bo's seat, which is the step's.
+    const cy = await ctx.room.join({ nickname: "Cy", as: "player" });
+    expect(cy.ok).toBe(true);
+    expect(cy.seat).toBe(2);
+    ws.cy = await connect(cy.token);
+    say(ws.ann, { t: "settings-start" });
+    await settle();
+    expect(ctx.room.core.activity).toMatchObject({ kind: "game", seats: [0] });
+    expect(game.calls.created[0].seats.map((s) => s.seat)).toEqual([0]);
+  });
+
+  it("keeps only the step's own players at Start, even in a seat someone else has since taken", async () => {
+    const game = turnGame({ settings: true, fields: { minSeats: 1 } });
+    const r = await choosing(game, { players: { min: 1, max: 2 } });
+    const { ctx, say, ws } = r;
+    say(ws.bo, { t: "leave" });
+    await settle();
+    // However someone came to sit in seat 1, they are not Bo: the step kept who it was opened for.
+    const core = ctx.room.core;
+    core.members[1] = { ...core.members[0], seat: 1, token: "someone-else", name: "Cy" };
+    say(ws.ann, { t: "settings-start" });
+    await settle();
+    expect(game.calls.created[0].seats.map((s) => s.seat)).toEqual([0]);
+  });
+
   it("carries on through a sleep: the same picks, the same host, and the same time limit", async () => {
     const game = turnGame({ settings: true });
     const r = await choosing(game);
@@ -266,6 +299,8 @@ describe("the settings step after the vote", () => {
     await vi.advanceTimersByTimeAsync(1000);
     expect(ctx.room.core.activity.kind).toBe("game");
     expect(game.calls.created[0].settings).toEqual({ pace: 60, rounds: 9, first: "host" });
+    // Both players came through the sleep as the step's own.
+    expect(game.calls.created[0].seats.map((s) => s.seat)).toEqual([0, 1]);
   });
 
   it("starts nothing when the hosting allowance is spent at Start", async () => {

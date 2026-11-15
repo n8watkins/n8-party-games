@@ -101,8 +101,8 @@ export class LobbyCore {
     /** The room's screen: it shows the room and holds no seat. There is one at most. token -> {connected, droppedAt} */
     this.screens = new Map();
     /**
-     * {kind: "lobby"}, {kind: "settings", id, picks, seats, endsAt, startedAt} (the host is
-     * choosing a game's settings) or {kind: "game", id, state, startedAt, ticks, seats}
+     * {kind: "lobby"}, {kind: "settings", id, picks, seats, players, endsAt, startedAt} (the host
+     * is choosing a game's settings; `players` is each seat's token, so only they play) or {kind: "game", id, state, startedAt, ticks, seats}
      */
     this.activity = { kind: "lobby" };
     /** {gameId: {seats, carry}}: what the last game of each left for a rematch, and for whom (settings.js, seatsKey). */
@@ -158,8 +158,9 @@ export class LobbyCore {
     const name = cleanName(nickname);
     if (!name) return fail("bad_name", "Pick a nickname first.");
     // While a game is on, a seat somebody left in the middle of it is still the game's (a
-    // ticking game's stand-in is playing it): a newcomer is never given that seat.
-    const inPlay = this.activity.kind === "game" ? this.activity.seats : [];
+    // ticking game's stand-in is playing it): a newcomer is never given that seat. The same holds
+    // for the seats a settings step was opened for: whoever joins during it watches the game.
+    const inPlay = this.activity.kind === "game" || this.activity.kind === "settings" ? this.activity.seats : [];
     const free = (i) => this.members[i] === null && !inPlay.includes(i);
     const seat = wantSeat >= 0 && free(wantSeat) ? wantSeat : this.members.findIndex((m, i) => free(i));
     if (seat === -1 && this.members.includes(null)) return fail("room_full", "A game is on and its seats are taken. Join when it ends.");
@@ -778,7 +779,10 @@ export class LobbyCore {
     if (!seats.length) return fail("not_ready", "Nobody is here to play.");
     this.count = null;
     this.toss = null;
-    this.activity = { kind: "settings", id, picks: first.settings, seats, endsAt: now + SETTINGS_MS, startedAt: now };
+    // Who sits in each seat, by token (kept in storage only, never in a view): at Start only these
+    // people play, whoever may sit in their seats by then.
+    const players = Object.fromEntries(seats.map((seat) => [seat, this.members[seat].token]));
+    this.activity = { kind: "settings", id, picks: first.settings, seats, players, endsAt: now + SETTINGS_MS, startedAt: now };
     this.lastActive = now;
     return { ok: true, choosing: true, ended: null };
   }
@@ -828,7 +832,7 @@ export class LobbyCore {
   choosingFails(now) {
     const a = this.activity;
     const box = this.boxOf(a.id);
-    const here = a.seats.filter((seat) => this.members[seat]).length;
+    const here = this.stepPlayers().length;
     if (here >= Math.max(1, box?.min ?? 1)) return false;
     const name = box?.name ?? a.id;
     this.notes.push({ k: "cancelled", text: `Not enough players are left for ${name}, so it did not start.` });
@@ -862,7 +866,13 @@ export class LobbyCore {
       this.toLobby(now);
       return fail("not_found", "That game cannot start here.");
     }
-    return this.createGame(game, id, now, seed, a.seats.filter((seat) => this.members[seat]), a.picks);
+    return this.createGame(game, id, now, seed, this.stepPlayers(), a.picks);
+  }
+
+  /** The seats of the settings step still held by the people it was opened for. */
+  stepPlayers() {
+    const a = this.activity;
+    return a.seats.filter((seat) => this.members[seat] && this.members[seat].token === a.players?.[seat]);
   }
 
   /**
@@ -1410,8 +1420,9 @@ export class LobbyCore {
    */
   restoreChoosing(saved) {
     const game = this.games.get(saved.id);
-    if (hasSettings(game) && Array.isArray(saved.seats) && saved.seats.every(Number.isInteger) && typeof saved.endsAt === "number" && saved.picks && typeof saved.picks === "object") {
-      this.activity = { kind: "settings", id: saved.id, picks: saved.picks, seats: [...saved.seats], endsAt: saved.endsAt, startedAt: saved.startedAt ?? saved.endsAt - SETTINGS_MS };
+    const players = saved.players && typeof saved.players === "object" ? saved.players : null;
+    if (hasSettings(game) && players && Array.isArray(saved.seats) && saved.seats.every((seat) => Number.isInteger(seat) && typeof players[seat] === "string") && typeof saved.endsAt === "number" && saved.picks && typeof saved.picks === "object") {
+      this.activity = { kind: "settings", id: saved.id, picks: saved.picks, seats: [...saved.seats], players: { ...players }, endsAt: saved.endsAt, startedAt: saved.startedAt ?? saved.endsAt - SETTINGS_MS };
       return;
     }
     console.error(`party room: the settings step for ${saved.id} could not be restored`);
