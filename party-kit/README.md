@@ -321,9 +321,9 @@ It is never part of an address or a header, because those are written down: Work
 ### The socket handshake
 
 1. The page opens `GET <api>/rooms/:code/ws` with no token anywhere in the address or the headers.
-   The Worker checks the page's origin, the room code and the per-address limit, and hands the socket to the room.
+   The Worker checks the page's origin, the room code and the per-address limit (IPv6 counted by the /48), and hands the socket to the room.
 2. The room accepts it as nobody's socket: it has no seat, is sent nothing, and counts as nobody being connected.
-   Its attachment says `{unknown: true, at, lag}`, so a room that sleeps here wakes knowing the socket is still nobody's.
+   Its attachment says `{unknown: true, at, lag, client}`, so a room that sleeps here wakes knowing the socket is still nobody's, and which address it came from (`client`, keyed as the door keys it).
 3. The page's first message is `{"t": "hello", "token": "<the seat's token>"}`; `PartyClient` sends it the moment the socket opens, before anything else.
 4. The room looks the token up, and the socket takes its seat (or is the screen).
    Its attachment becomes the seat, and only now is anything sent: `hello {you, room}`, then the round as that seat may see it.
@@ -334,11 +334,22 @@ Anything else closes the socket, and nothing about the room is ever sent on it.
 | --- | --- | --- | --- |
 | 4001 | `hello_expected` | The first message was not a hello (another message, not JSON, binary, too long). | Opens another socket; a page never causes this. |
 | 4003 | `bad_token` | The hello's token names no seat: wrong, given up, or its grace ran out. Also a room that does not exist. | Forgets the session; `closed` with `"seat_lost"`. |
-| 4003 | `reload` | The old form, `?token=` in the address. The room also gives up the seat that token names, on every socket it has: the address was written down the moment it arrived. | Forgets the session; `closed` with `"seat_lost"`. |
-| 4009 | `hello_late`, `crowded` | The socket said nothing for ten seconds (`HELLO_MS`), or a ninth socket arrived while eight were waiting (`MAX_UNKNOWN`: the one that waited longest goes). | Opens another socket, backing off. |
+| 4003 | `left` (and in the party room `too_fast`) | The seat was given up on another socket of it (left, or in the party room kicked for flooding): every socket of a seat closes with it. | Forgets the session; `closed` with `"seat_lost"`. |
+| 4009 | `hello_late`, `crowded` | The socket said nothing for ten seconds (`HELLO_MS`), or it was pushed out to make room for another that had not said hello yet (below). | Opens another socket, backing off. |
 
 A code that is no room takes a socket exactly as a room does (nothing until the hello, then 4003), so opening a socket does not tell anyone which codes are rooms.
 4000 and 4003 are final for the client: it opens no socket for that session again, also when the page is shown again.
+
+**Who waits.** Anyone who knows a room's code can open sockets that never say hello, and a real page's socket waits one round trip for its hello to land.
+So the waiting sockets are shared out by the address they came from (`hello-logic.js`):
+
+- One address has at most six waiting (`MAX_UNKNOWN_PER_CLIENT`: a whole party on one home's wifi coming back at once is five); a seventh from it pushes out that address's own oldest.
+- A room has at most 128 waiting (`MAX_UNKNOWN`). One more pushes out a socket from an address the room has never let in before one from an address it has (made or joined the room from, or seated a socket from: `KnownClients`, at most 64, saved with the room); among those, from the address holding the most; and of those, the one that has waited longest.
+- So a phone on the network it played on is never pushed out by anyone else's sockets, and one on a new network only by someone with more than 128 addresses opening a socket each inside its round trip.
+
+**The old form, for now.** A page loaded before the token left the address opens its socket with `?token=` and never says hello.
+Until a later release removes it (`HONOUR_TOKEN_IN_ADDRESS`), the room takes such a socket exactly as one that opened and said hello with that token at once: seated with `hello {you, room}` if the token names a seat, closed as a wrong hello (4003 `bad_token`, nothing sent) if not.
+It never waits among the sockets that have not said whose they are.
 
 A socket that says nothing costs the room nothing: it saves nothing, sets no alarm, and a room with only such sockets is as empty as it was and closes on time.
 The ten seconds are looked at when something else happens in the room; nothing is timed for them.
@@ -458,8 +469,8 @@ The delay runs inside the room (`LagLine`), so the room's view of time is the re
 `party-kit/test/views.test.js` drives the room's Durable Object class itself, with fake sockets that keep every frame as sent: with a game that holds a secret per seat, no frame to a seat carries its own secret, the other seat's frames carry it, the screen and a later arrival get neither, the room's seed is in no frame, and a game that ignores the viewer sends every socket the same frames.
 `party-kit/test/turns.test.js` covers the turn-based logic in `src/core/turns.js`, and `party-kit/test/party-client-ping.test.js` how often the client pings in the lobby, in a turn-based game and in a ticking one.
 The party room's turn-based games are proved on its real Durable Object class in `lobby/test/party-room-turns.test.js`.
-The socket handshake is tested in `party-kit/test/hello-logic.test.js` (the pure part), `room-hello.test.js` (this room's Durable Object class: the old form, a socket that has not said hello, a sleep between the open and the hello, a wrong token, a seat given up, a flood), `party-client-hello.test.js` (no address the client builds names the token) and `door.test.js` (the Worker's limit on socket opens); the party room's own is `lobby/test/party-room-hello.test.js`.
-`npm run test:room` (with `npm run dev` running) checks the Durable Object wiring end to end over real sockets, with no browser: create, PIN lookup, QR code, join, a wrong PIN, the handshake (no token in the address, a silent socket, a wrong token, the old form), simulated latency, start, an input relayed to the other seat, a drop with a stand-in, the same seat back with a full snapshot, and with `-- --full=1` the length of a whole round and the instant rematch.
+The socket handshake is tested in `party-kit/test/hello-logic.test.js` (the pure part), `room-hello.test.js` (this room's Durable Object class: the old form, a socket that has not said hello, a sleep between the open and the hello, a wrong token, a seat given up, floods from one address and from a thousand while a phone's hello is on its way, leaving with two sockets open), `party-client-hello.test.js` (no address the client builds names the token) and `door.test.js` (the Worker's limit on socket opens); the party room's own is `lobby/test/party-room-hello.test.js`.
+`npm run test:room` (with `npm run dev` running) checks the Durable Object wiring end to end over real sockets, with no browser: create, PIN lookup, QR code, join, a wrong PIN, the handshake (no token in the address, a silent socket, a wrong token, the old form, a flood from 150 addresses while a phone's hello is on its way, leaving with two sockets open), simulated latency, start, an input relayed to the other seat, a drop with a stand-in, the same seat back with a full snapshot, and with `-- --full=1` the length of a whole round and the instant rematch.
 The games' multiplayer playtests (for example `npm run playtest:battle`) drive the same path through real browsers.
 `npm test` also checks the deploy settings (`test/deploy-config.test.js`), the API guards (`test/http.test.js`) and the score board's rules (`test/score.test.js`).
 `npm run test:production -- <base>` checks the production settings end to end and `npm run test:turnstile` the bot check with Cloudflare's test keys; each file's header says which server to start.
