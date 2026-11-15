@@ -23,14 +23,16 @@ export function partyApi(base) {
    * The seat's token is never in the address: it is the socket's first message, sent the moment
    * the socket opens, as the page's client does. `hello: false` opens the socket and says nothing
    * (the room does not know whose it is), and `oldForm: true` puts the token in the address the
-   * way pages did before, which the room refuses.
+   * way pages did before (taken as that hello, for now). `from` is the address the socket comes
+   * from, as Cloudflare would put it on the request (the local runtime passes it through).
    */
-  function connect(session, { keepAlive = true, hello = true, oldForm = false } = {}) {
+  function connect(session, { keepAlive = true, hello = true, oldForm = false, from = null } = {}) {
     const url = new URL(api + "/rooms/" + session.code + "/ws", base);
     url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
     if (oldForm) url.searchParams.set("token", session.token);
-    const ws = new WebSocket(url);
-    const alive = keepAlive && hello && !oldForm ? setInterval(() => ws.readyState === 1 && ws.send("ping"), 10_000) : null;
+    const ws = from ? new WebSocket(url, { headers: { "CF-Connecting-IP": from } }) : new WebSocket(url);
+    // An old page sends the keep-alive too; a socket that says nothing does not.
+    const alive = keepAlive && (hello || oldForm) ? setInterval(() => ws.readyState === 1 && ws.send("ping"), 10_000) : null;
     alive?.unref?.();
     const seen = [];
     const raw = [];

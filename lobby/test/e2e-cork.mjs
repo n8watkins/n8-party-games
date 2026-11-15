@@ -375,29 +375,31 @@ try {
   check(tokens.length >= 3 && named.length === 0, `and none of the ${pageSockets.length + pageAddresses.length} addresses the pages asked for names a token (${tokens.length} seats)` + (named.length ? ": " + named[0].replace(/token=[^&]+/, "token=...") : ""));
 
   // A page loaded before the token left the address still opens its socket the old way. From a
-  // real page: the room refuses it as a seat that is gone (4003, which sends an old party page to
-  // the front page), says nothing on it, and gives the seat up.
+  // real page: the room takes it, for now, as that socket's hello (hello-logic.js,
+  // HONOUR_TOKEN_IN_ADDRESS), so the old page keeps its seat; with a token that names nobody it is
+  // closed as a seat that is gone (4003), having heard nothing of the room.
   {
     const made = await call("POST", "/rooms", { nickname: "Old" });
     const stale = await open("a page from before", { width: 480, height: 320 });
     await stale.goto(base + "/");
-    const seenByOld = await stale.evaluate(
-      ([code, token]) =>
-        new Promise((done) => {
-          const ws = new WebSocket(`${location.origin.replace(/^http/, "ws")}/api/lobby/rooms/${code}/ws?token=${token}`);
-          let heard = 0;
-          const from = Date.now();
-          ws.onmessage = () => (heard += 1);
-          // What an old page said first: its keep-alive.
-          ws.onopen = () => ws.send("ping");
-          ws.onclose = (e) => done({ code: e.code, reason: e.reason, heard, after: Date.now() - from });
-          setTimeout(() => done({ code: null, reason: "still open", heard, after: Date.now() - from }), 8000);
-        }),
-      [made.code, made.token],
-    );
-    check(seenByOld.code === 4003 && seenByOld.reason === "reload" && seenByOld.heard <= 1, `a page that still puts the token in the address is refused as a seat that is gone: ${JSON.stringify(seenByOld)}`);
-    const after = await inner(made.code);
-    check(after === null || after.view.members[0] === null, "and the seat that token named is given up");
+    const oldSocket = ([code, token]) =>
+      new Promise((done) => {
+        const ws = new WebSocket(`${location.origin.replace(/^http/, "ws")}/api/lobby/rooms/${code}/ws?token=${token}`);
+        const heard = [];
+        const from = Date.now();
+        ws.onmessage = (e) => heard.push(String(e.data).slice(0, 40));
+        // What an old page said first: its keep-alive.
+        ws.onopen = () => ws.send("ping");
+        ws.onclose = (e) => done({ code: e.code, reason: e.reason, heard, after: Date.now() - from });
+        setTimeout(() => {
+          done({ code: null, reason: "still open", heard, after: Date.now() - from });
+          ws.close();
+        }, 3000);
+      });
+    const kept = await stale.evaluate(oldSocket, [made.code, made.token]);
+    check(kept.code === null && kept.heard[0]?.startsWith('{"t":"hello"'), `a page that still puts the token in the address keeps its seat: its first frame is the hello (${kept.heard.length} frames, ${kept.reason})`);
+    const wrong = await stale.evaluate(oldSocket, [made.code, "not-a-token"]);
+    check(wrong.code === 4003 && wrong.reason === "bad_token" && !wrong.heard.some((f) => f.startsWith("{")), `and with a token that names nobody it is refused as a seat that is gone, having heard nothing of the room: ${JSON.stringify(wrong)}`);
     await shut("a page from before");
   }
   check(errors.length === 0, "no page reported an error" + (errors.length ? ": " + errors.slice(0, 4).join(" | ") : ""));

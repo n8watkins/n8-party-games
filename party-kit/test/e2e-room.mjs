@@ -21,14 +21,15 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
  * Opens a socket for a session. The seat's token is never in the address: it is the socket's
  * first message, sent the moment the socket opens, as the page's client does. `hello: false`
  * opens the socket and says nothing, and `oldForm: true` puts the token in the address the way
- * pages did before, which the room refuses.
+ * pages did before (taken as that hello, for now). `from` is the address the socket comes from, as
+ * Cloudflare would put it on the request (the local runtime passes it through).
  */
-function connect(session, lag = 0, { hello = true, oldForm = false } = {}) {
+function connect(session, lag = 0, { hello = true, oldForm = false, from = null } = {}) {
   const url = new URL(api + "/rooms/" + session.code + "/ws", base);
   url.protocol = "ws:";
   if (oldForm) url.searchParams.set("token", session.token);
   if (lag) url.searchParams.set("lag", String(lag));
-  const ws = new WebSocket(url);
+  const ws = from ? new WebSocket(url, { headers: { "CF-Connecting-IP": from } }) : new WebSocket(url);
   const seen = [];
   const waiters = [];
   ws.onmessage = (event) => {
@@ -105,26 +106,59 @@ check(shut?.code === 4001 && quiet.seen.length === 0, "anything but a hello as i
 const wrong = connect({ code: a.code, token: "not-a-token" });
 const wrongShut = await within(wrong.closedWith, 3000);
 check(wrongShut?.code === 4003 && wrongShut.reason === "bad_token" && wrong.seen.length === 0, "a hello with a wrong token is refused (4003), having heard nothing");
-// The old form: the token in the address. Refused, and the seat it named is given up.
-// (The room closes that socket before it has said anything, and the local runtime does not finish
-// closing such a socket: a browser gives up waiting after two seconds and reports the close, Node
-// does not. So the close itself is read here from the socket's state; its code, 4003 "reload", is
-// checked in the unit tests and from a real page in lobby/test/e2e-cork.mjs.)
+// The old form: the token in the address, as a page loaded before the deploy still opens its
+// socket. Taken, for now, as a socket that said hello with that token at once.
 const old = connect(c, 0, { oldForm: true });
-const freed = await A.wait((m) => m.t === "room" && m.room.seats[2] === null, 3000).catch(() => null);
-await sleep(500);
-check(old.ws.readyState >= 2 && old.seen.length === 0, "the old form, ?token= in the address, is refused: the room closes the socket and tells it nothing");
-check(!!freed, "and the seat that token named is given up: the address was written down");
-const burned = connect(c);
-const burnedShut = await within(burned.closedWith, 3000);
-check(burnedShut?.code === 4003 && burned.seen.length === 0, "that token opens nothing any more, even said the new way");
-// More sockets that say nothing than the room keeps: the oldest are let go, and a seat still connects.
-const idle = Array.from({ length: 12 }, () => connect(a, 0, { hello: false }));
+const oldHello = await old.wait((m) => m.t === "hello", 3000).catch(() => null);
+check(oldHello?.you?.seat === 2, "the old form, ?token= in the address, is taken as its hello: Cy's old page is seated in her seat");
+const cyBack = await A.wait((m) => m.t === "room" && m.room.seats[2]?.connected === true, 3000).catch(() => null);
+check(!!cyBack, "and the others see her connected");
+// It plays as her seat: her leave, said on it, gives the seat up.
+old.send({ t: "leave" });
+const cyGone = await A.wait((m) => m.t === "room" && m.room.seats[2] === null, 3000).catch(() => null);
+check(!!cyGone, "and a leave said on it gives her seat up");
+// With a token that names nobody: closed, and told nothing, as a wrong hello is. (The room closes
+// that socket before it has said anything, and the local runtime does not finish closing such a
+// socket: a browser gives up waiting after two seconds and reports the close, Node does not. So
+// the close is read here from the socket's state; its code is checked in the unit tests.)
+const oldWrong = connect({ code: a.code, token: "not-a-token" }, 0, { oldForm: true });
+await sleep(800);
+check(oldWrong.ws.readyState >= 2 && oldWrong.seen.length === 0, "the old form with a token that names nobody is closed, having heard nothing");
+// More sockets that say nothing than one address may keep waiting: its oldest are let go.
+const idle = Array.from({ length: 12 }, () => connect(a, 0, { hello: false, from: "198.51.100.9" }));
 await Promise.all(idle.map((s) => s.opened));
 await sleep(500);
 const stillOpen = idle.filter((s) => s.ws.readyState === 1).length;
-check(stillOpen === 8 && idle.every((s) => s.seen.length === 0), `twelve sockets that say nothing: the room keeps ${stillOpen} (eight at most), and tells none of them anything`);
+check(stillOpen === 6 && idle.every((s) => s.seen.length === 0), `twelve sockets from one address that say nothing: the room keeps ${stillOpen} (six at most), and tells none of them anything`);
 for (const s of idle) s.ws.close();
+// Someone who knows the code opens silent sockets from 150 addresses of their own while a phone's
+// hello is on its way, more than the room lets wait at once: the phone on the network it played
+// on is still seated.
+{
+  const cy = await post("/join/" + a.pin, { nickname: "Di" });
+  const home = "203.0.113.70";
+  const first = connect(cy, 0, { from: home });
+  await first.wait((m) => m.t === "hello");
+  first.ws.close();
+  await sleep(300);
+  const phone = connect(cy, 0, { hello: false, from: home });
+  await phone.opened;
+  const flood = Array.from({ length: 150 }, (_, i) => connect(a, 0, { hello: false, from: `2001:db8:${(100 + i).toString(16)}::1` }));
+  await Promise.all(flood.map((s) => s.opened));
+  await sleep(250);
+  phone.send({ t: "hello", token: cy.token });
+  const seated = await phone.wait((m) => m.t === "hello", 3000).catch(() => null);
+  check(!!seated && flood.every((s) => s.seen.length === 0), "a phone whose hello lands after 150 silent sockets from 150 other addresses is still seated, and none of them heard anything");
+  // Leaving with a second socket of the same seat open: both are closed, not only the one that said so.
+  const tab = connect(cy, 0, { from: home });
+  await tab.wait((m) => m.t === "hello");
+  phone.send({ t: "leave" });
+  const tabShut = await within(tab.closedWith, 3000);
+  check(tabShut?.code === 4003 && tabShut.reason === "left", "leaving closes the seat's other socket too (4003 left): " + JSON.stringify(tabShut));
+  for (const s of flood) s.ws.close();
+  await A.wait((m) => m.t === "room" && m.room.seats.filter(Boolean).length === 2, 3000);
+  await sleep(300);
+}
 A.send({ t: "name", v: "Ann" });
 await A.wait((m) => m.t === "room" && m.room.seats[0].name === "Ann");
 const t1 = Date.now();

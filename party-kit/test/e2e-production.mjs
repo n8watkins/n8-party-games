@@ -76,17 +76,24 @@ say(lagStatus === 400, `and the refusal is a 400 with no room touched (${lagStat
 const plain = await socket(`/api/party/rooms/${a.code}/ws`, a.token);
 say(plain.outcome === "message" && plain.msg.t === "hello", "the same socket without ?lag, with the token as its first message, connects");
 
-// The old form, with the token in the address: refused, and the seat it named is given up.
+// The old form, with the token in the address, as a page loaded before the deploy sends it: taken,
+// for now, as that socket's hello (hello-logic.js, HONOUR_TOKEN_IN_ADDRESS).
 const b = await post(`/join/${a.pin}`, { nickname: "Bo" });
-// (Node does not hear the room close a socket that never spoke, so the refusal is read from what
-// it did; the close code is checked in the unit tests and from a real page in lobby/test/e2e-cork.mjs.)
 const old = new WebSocket(base.replace(/^http/, "ws") + `/api/party/rooms/${a.code}/ws?token=${b.token}`);
+const oldFirst = await new Promise((r) => {
+  old.onmessage = (e) => r(JSON.parse(e.data));
+  setTimeout(() => r(null), 3000);
+});
+say(oldFirst?.t === "hello" && oldFirst.you?.seat === b.seat, `the old form, ?token= in the address, is taken as its hello: seated (${oldFirst?.t ?? "nothing heard"})`);
+old.close();
+// With a token that names nobody: closed and told nothing. (Node does not hear the room close a
+// socket that never spoke, so the refusal is read from what it did; the close code is checked in
+// the unit tests and from a real page in lobby/test/e2e-cork.mjs.)
+const oldWrong = new WebSocket(base.replace(/^http/, "ws") + `/api/party/rooms/${a.code}/ws?token=not-a-token`);
 let oldHeard = 0;
-old.onmessage = () => (oldHeard += 1);
+oldWrong.onmessage = () => (oldHeard += 1);
 await new Promise((r) => setTimeout(r, 800));
-say(old.readyState >= 2 && oldHeard === 0, `the old form, ?token= in the address, is refused: the socket is closed and told nothing (state ${old.readyState})`);
-const burned = await socket(`/api/party/rooms/${a.code}/ws`, b.token);
-say(burned.outcome === "closed" && burned.code === 4003, `and the token that came in an address opens nothing any more (${JSON.stringify(burned)})`);
+say(oldWrong.readyState >= 2 && oldHeard === 0, `and with a token that names nobody it is closed and told nothing (state ${oldWrong.readyState})`);
 
 // One address may open only so many sockets a minute, good token or none: each one wakes the room.
 {

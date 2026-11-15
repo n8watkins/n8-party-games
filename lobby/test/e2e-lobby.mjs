@@ -241,31 +241,57 @@ check(!S.seen.slice(mark).some((m) => m.t === "m" || m.t === "b"), "a screen can
   await F.opened;
   const helloF = await F.wait((m) => m.t === "hello", 4000, 0);
   check(helloF.you.seat === 3 && helloF.you.role === "player", "with its hello a socket takes its seat");
-  // The old form, as a page loaded before this still sends it: refused, and the seat is given up
-  // on every socket it has, because the address was written down the moment it arrived.
-  // (The room closes that socket before it has said anything, and the local runtime does not
-  // finish closing such a socket: a browser gives up waiting after two seconds and reports the
-  // close, Node does not. So that close is read here from the socket's state; its code, 4003
-  // "reload", is checked in the unit tests and from a real page in e2e-cork.mjs.)
+  // The old form, as a page loaded before the deploy still sends it: taken, for now, as a socket
+  // that said hello with that token at once. Fay's old tab is seated beside her new one.
   const old = connect(f, { oldForm: true });
-  const other = await within(F.closed, 3000);
-  await sleep(500);
-  check(old.ws.readyState >= 2 && old.seen.length === 0, "the old form, ?token= in the address, is refused: the room closes the socket and tells it nothing");
-  check(other?.code === 4003 && other.reason === "reload", "the seat that token named is given up on its other socket too (4003 reload)");
+  const oldHello = await old.wait((m) => m.t === "hello", 4000, 0).catch(() => null);
+  check(oldHello?.you?.seat === 3 && F.ws.readyState === 1, "the old form, ?token= in the address, is taken as its hello: the old page is seated in Fay's seat, and her other socket stays");
+  // What an old page said first: its keep-alive. (The local runtime does not finish closing a
+  // socket that never spoke, so without it Node would not hear the close below.)
+  old.ws.send("ping");
+  await sleep(200);
+  // With a token that names nobody: closed, and told nothing, as a wrong hello is. (The room closes
+  // that socket before it has said anything, and the local runtime does not finish closing such a
+  // socket: a browser gives up waiting after two seconds and reports the close, Node does not. So
+  // that close is read here from the socket's state; its code is checked in the unit tests.)
+  const oldWrong = connect({ code: a.code, token: "not-a-token", seat: 3 }, { oldForm: true });
+  await sleep(800);
+  check(oldWrong.ws.readyState >= 2 && oldWrong.seen.length === 0, "the old form with a token that names nobody is closed, having heard nothing");
+  // Fay leaves on her new socket: the old one is closed too (#34: every socket of a person).
+  F.send({ t: "leave" });
+  const oldShut = await within(old.closed, 3000);
+  check(oldShut?.code === 4003 && oldShut.reason === "left", "leaving closes the old page's socket of that seat too (4003 left): " + JSON.stringify(oldShut));
   const gone = await A.wait((m) => m.t === "room" && m.room.members[3] === null, 4000, mark).catch(() => null);
   check(!!gone, "and everyone sees the seat free again");
-  const burned = connect(f);
-  const burnedShut = await within(burned.closed, 3000);
-  check(burnedShut?.code === 4003 && burned.seen.length === 0, "that token opens nothing any more, even said the new way");
-  // More sockets that say nothing than the room keeps: the oldest are let go.
-  const idle = Array.from({ length: 12 }, () => connect(a, { hello: false }));
+  // More sockets from one address that say nothing than it may keep waiting: its oldest are let go.
+  const idle = Array.from({ length: 12 }, () => connect(a, { hello: false, from: "198.51.100.9" }));
   await Promise.all(idle.map((c) => c.opened));
   await sleep(500);
   const kept = (await inner()).unknown;
-  check(kept === 8 && idle.filter((c) => c.ws.readyState === 1).length === 8 && idle.every((c) => c.seen.length === 0), `twelve sockets that say nothing: the room keeps ${kept} (eight at most) and tells none of them anything`);
+  check(kept === 6 && idle.filter((c) => c.ws.readyState === 1).length === 6 && idle.every((c) => c.seen.length === 0), `twelve sockets from one address that say nothing: the room keeps ${kept} (six at most) and tells none of them anything`);
   for (const c of idle) c.ws.close();
   await sleep(300);
   check((await inner()).unknown === 0 && A.ws.readyState === 1, "closed, they are forgotten, and nobody in the room was disturbed");
+  // Someone who knows the code opens silent sockets from 150 addresses of their own while Bo's
+  // hello is on its way, more than the room lets wait at once: Bo's phone, on the network it
+  // played on, is still seated, and none of them hears anything.
+  const home = "203.0.113.70";
+  const first = connect(b, { from: home });
+  await first.wait((m) => m.t === "hello", 4000, 0);
+  first.ws.close();
+  const phone = connect(b, { hello: false, from: home });
+  await phone.opened;
+  const flood = Array.from({ length: 150 }, (_, i) => connect(a, { hello: false, from: `2001:db8:${(100 + i).toString(16)}::1` }));
+  await Promise.all(flood.map((c) => c.opened));
+  await sleep(250);
+  const full = (await inner()).unknown;
+  phone.ws.send(JSON.stringify({ t: "hello", token: b.token }));
+  const seated = await phone.wait((m) => m.t === "hello", 4000, 0).catch(() => null);
+  check(full === 128 && seated?.you?.seat === b.seat && flood.every((c) => c.seen.length === 0), `a phone whose hello lands after 150 silent sockets from 150 other addresses (${full} waiting, the most there may be) is still seated, and none of them heard anything`);
+  phone.ws.close();
+  for (const c of flood) c.ws.close();
+  await sleep(300);
+  check((await inner()).unknown === 0 && A.ws.readyState === 1 && B.ws.readyState === 1, "closed, they are forgotten, and Ann's and Bo's own sockets were not disturbed");
 }
 
 // ---------------------------------------------------------------- a client that misbehaves
