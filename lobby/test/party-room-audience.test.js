@@ -147,6 +147,37 @@ describe("a two-seat game voted for by a party of four", () => {
     expect(core.activity).toMatchObject({ kind: "game", seats: [1, 3] });
   });
 
+  it("plays exactly the people everyone saw on the spots: one who leaves frees hers, and a newcomer in her seat plays only by standing on one", async () => {
+    const r = await spots(turnGame());
+    const { ctx, say, ws } = r;
+    const core = ctx.room.core;
+    await standOn(r, ws.ann, 0, 0);
+    await standOn(r, ws.di, 3, 1);
+    const since = from(ws.ann);
+    // Di leaves the party: her spot is free at once, and Start is refused.
+    say(ws.di, { t: "leave" });
+    await settle();
+    expect(core.activity.spots.map((s) => s.seat)).toEqual([0, null]);
+    expect(core.serialize().choosing.players).toEqual({ 0: r.tokens.ann });
+    // Ed joins in her seat: he is not on a spot, so he does not play.
+    const ed = await ctx.room.join({ nickname: "Ed", as: "player" });
+    expect(ed.seat).toBe(3);
+    const edWs = await r.connect(ed.token);
+    await settle();
+    say(ws.ann, { t: "settings-start" });
+    await settle();
+    expect(refusals(since(ws.ann)).at(-1)).toMatchObject({ error: "spots_open" });
+    // Once he stands on the free spot, everyone sees him there, and he plays.
+    await standOn(r, edWs, 3, 1);
+    expect(roomOf(ws.screen).choosing.spots.map((s) => s.seat)).toEqual([0, 3]);
+    // Tokens never reach a page.
+    expect(ws.screen.text()).not.toContain(ed.token);
+    say(ws.ann, { t: "settings-start" });
+    await settle();
+    expect(core.activity).toMatchObject({ kind: "game", seats: [0, 3] });
+    expect(core.activity.names).toEqual({ 0: "Ann", 3: "Ed" });
+  });
+
   it("keeps the spots and who stands on them through a sleep", async () => {
     const r = await spots(turnGame());
     await standOn(r, r.ws.cy, 2, 1);
@@ -299,6 +330,25 @@ describe("the audience", () => {
     await settle();
     expect(ctx.room.core.activity.kind).toBe("lobby");
     expect(ws.ann.messages().filter((m) => m.t === "note").at(-1)).toMatchObject({ k: "ended", why: "left", seat: 1, name: "Bo" });
+  });
+
+  it("never gets a player's away treatment: a hidden audience page that goes silent is closed as any silent socket is", async () => {
+    const r = await spots(turnGame());
+    const { ctx, say, ws } = r;
+    await annAndBo(r);
+    // Bo (a player) and Cy (the audience) hide their pages; their keep-alives stop.
+    say(ws.bo, { t: "away" });
+    say(ws.cy, { t: "away" });
+    await settle();
+    ctx.keepAlive = false;
+    await vi.advanceTimersByTimeAsync(26_000);
+    // Something wakes the room: Ann takes her turn, and the room looks for silent sockets.
+    say(ws.ann, { t: "in", d: { say: "is it a dog?" } });
+    await settle();
+    // The player is given the game's grace; the audience member is not.
+    expect(ws.bo.closed).toBeNull();
+    expect(ws.cy.closed).toMatchObject({ reason: "silent" });
+    expect(ctx.room.core.activity).toMatchObject({ kind: "game", seats: [0, 1] });
   });
 
   it("does not take a rematch's carry: it follows the two seats on the spots", async () => {
