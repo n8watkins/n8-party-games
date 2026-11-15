@@ -1,0 +1,26 @@
+# The small check on every pull request: install and the unit tests. Merging runs nothing more.
+# The full suite is the pre-deploy gate (predeploy-gate.yml), run by hand before a deploy.
+name: pr-checks
+
+on:
+  pull_request:
+
+concurrency:
+  group: pr-checks-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  unit-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm test
