@@ -321,7 +321,7 @@
     <div id="tags"></div>
     <div id="meter">measuring</div>
     <div id="said"></div>
-    <div id="loading">Opening the Star Lounge</div>
+    <div id="loading" style="background:#02030a;padding:0 24px;text-align:center">Opening the Star Lounge preview</div>
     <div id="bar">
       <div class="seg" role="group" aria-label="Which look">
         <button type="button" data-look-set="today" aria-pressed="false">Today</button>
@@ -331,7 +331,7 @@
         <button type="button" data-mode-set="room" aria-pressed="false">Whole room</button>
         <button type="button" data-mode-set="closer" aria-pressed="true">Closer</button>
       </div>
-      <div id="hint"><span class="real">Tap a lamp, the globe, the glass, a screen or the deck. Drag sideways to look.</span><span class="today">A still picture of the room as it runs today.</span></div>
+      <div id="hint"><span class="real">Tap lamps, globe, glass, screens, deck.</span><span class="today">A still picture of the room as it runs today.</span></div>
       <button type="button" class="chip" id="depth" aria-pressed="true">Depth: on</button>
       <button type="button" class="chip" id="notes-open">Notes</button>
     </div>
@@ -339,10 +339,12 @@
   <aside id="notes">
     <button type="button" id="notes-shut" aria-label="Close the notes">X</button>
     <p id="turn">Turn your phone sideways: that is how the room is played, and how this page is meant to be seen.</p>
+    <h2>This is a preview</h2>
+    <p>It is a trial of how the Star Lounge could look, not the game. Nothing here is played, saved or sent anywhere. The number in the top corner is the real time one frame takes on the device you are holding, measured live.</p>
     <h2>Look at these first</h2>
     <ul>
       <li>The window. The planet turns, its ring throws a shadow on it, the stars drift at two speeds, and a rocket, a liner, a saucer and rocks pass at different distances.</li>
-      <li>Drag sideways with a finger. The rocks slide past the glass fastest, the planet slower, the stars slowest. That is real depth, not one picture.</li>
+      <li>With Depth on, drag sideways with a finger. The rocks slide past the glass fastest, the planet slower, the stars slowest. That is real depth, not one picture.</li>
       <li>The pieces. Watch one walk from the dark into a lamp's pool: the lamp comes on with a stutter, the piece is lit from above, and the deck holds its reflection.</li>
       <li>Switch to Today and back to compare with the room as it is now.</li>
     </ul>
@@ -364,9 +366,27 @@
     <h2>One thing to decide</h2>
     <p>In the room today the eye never moves, so nothing can pass in front of anything. Depth: on lets the eye slide a little as your piece walks (and sway slightly when it stands). Depth: off shows the same room with the eye held still, as it is today.</p>
     <h2>Not in this preview</h2>
-    <p>Sound, bumps, emotes and votes. The number in the top corner is the time one frame takes on the device you are holding.</p>
+    <p>Sound, bumps, emotes and votes. The number in the top corner is the real time one frame takes on the device you are holding.</p>
   </aside>
 </div>
+<script>
+  (function () {
+    function say(t) {
+      var l = document.getElementById("loading");
+      if (document.body) document.body.classList.remove("ready");
+      if (l) l.textContent = t;
+    }
+    var ce = console.error;
+    console.error = function () {
+      if (!document.body.classList.contains("ready")) say("The preview could not start: " + ((arguments[0] && arguments[0].message) || "this browser could not draw the room") + ". Try another browser or device.");
+      return ce.apply(console, arguments);
+    };
+    window.addEventListener("error", function () {
+      if (!document.body.classList.contains("ready")) say("This preview needs WebGL, and this browser could not start it. Try another browser or device.");
+    });
+    document.addEventListener("webglcontextlost", function (e) { e.preventDefault(); say("The graphics were interrupted. Reload the page to see the room again."); }, true);
+  })();
+</script>
 <script>
   /*DATA*/
 </script>
