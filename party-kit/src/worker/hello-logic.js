@@ -30,6 +30,14 @@ export const CLOSE_HELLO_LATE = 4009;
 /** The close reason for a socket opened the old way, with the token in its address: the page is out of date. */
 export const OLD_FORM_REASON = "reload";
 
+export function closeQuietly(ws, code, reason) {
+  try {
+    ws.close(code, reason);
+  } catch {
+    // Already closed.
+  }
+}
+
 /**
  * The token a socket's first message names: a string when the message is a hello (an empty one
  * when its token cannot be a seat's, which no seat matches), or null when it is not a hello at
@@ -97,11 +105,7 @@ export class UnknownSockets {
 
   close(ws, reason) {
     this.waiting.delete(ws);
-    try {
-      ws.close(CLOSE_HELLO_LATE, reason);
-    } catch {
-      // Already closed.
-    }
+    closeQuietly(ws, CLOSE_HELLO_LATE, reason);
   }
 
   /** The room closed every socket itself (destroy). */

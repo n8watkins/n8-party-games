@@ -14,13 +14,15 @@ const say = (ok, what) => {
 const a = await post("/api/party/rooms", { nickname: "Ann" });
 say(a.status === 201, "first room is made (" + a.status + ")");
 
-const ws = new WebSocket(base.replace("http", "ws") + `/api/party/rooms/${a.code}/ws?token=${a.token}`);
+const ws = new WebSocket(base.replace("http", "ws") + `/api/party/rooms/${a.code}/ws`);
 const errors = [];
 ws.addEventListener("message", (e) => {
   const m = JSON.parse(e.data);
   if (m.t === "error") errors.push(m);
 });
 await new Promise((r) => ws.addEventListener("open", r));
+// The seat's token is the socket's first message, never in its address.
+ws.send(JSON.stringify({ t: "hello", token: a.token }));
 
 // Waiting in the lobby is free: the room sleeps, so nothing is spent however long people wait.
 await new Promise((r) => setTimeout(r, 5000));

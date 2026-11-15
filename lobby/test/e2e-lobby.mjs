@@ -206,6 +206,62 @@ S.send({ t: "b" });
 await sleep(300);
 check(!S.seen.slice(mark).some((m) => m.t === "m" || m.t === "b"), "a screen cannot move a piece or bump");
 
+// ---------------------------------------------------------------- the handshake
+// The seat's token is the socket's first message and never in its address (addresses are
+// written down by the server's logs). Until it is said, a socket is nobody's.
+{
+  const within = (promise, ms) => Promise.race([promise, sleep(ms).then(() => null)]);
+  const inner = async () => (await (await fetch(api + "/debug/" + a.code)).json()).room;
+  check([A, B, C2, S].every((c) => !c.ws.url.includes("token")) && !A.ws.url.includes(a.token), "no socket's address names a token: " + new URL(A.ws.url).pathname + new URL(A.ws.url).search);
+  const f = await call("POST", "/join/" + a.pin, { nickname: "Fay" });
+  mark = A.seen.length;
+  const quiet = connect(f, { hello: false });
+  await quiet.opened;
+  // The room goes on in front of it: Ann walks, and everyone else hears of it.
+  A.goto(A.x + 30);
+  await B.wait((m) => m.t === "m" && m.s === 0, 4000, 0);
+  await sleep(400);
+  const during = await inner();
+  check(quiet.seen.length === 0 && quiet.raw.length === 0 && quiet.ws.readyState === 1, "a socket that has not said hello hears nothing of the room");
+  check(during.unknown === 1 && during.view.members[3]?.name === "Fay" && during.view.members[3].connected === false, "it is nobody: Fay's seat is still not connected, and the room counts one socket it does not know");
+  quiet.ws.send(JSON.stringify({ t: "m", x: 500, d: 0, r: 0 }));
+  const shut = await within(quiet.closed, 3000);
+  check(shut?.code === 4001 && quiet.seen.length === 0, "anything but a hello as its first message closes it (4001), having heard nothing: " + JSON.stringify(shut));
+  const wrong = connect({ code: a.code, token: "not-a-token", seat: 3 });
+  const wrongShut = await within(wrong.closed, 3000);
+  check(wrongShut?.code === 4003 && wrongShut.reason === "bad_token" && wrong.seen.length === 0, "a hello with a wrong token is refused (4003), having heard nothing");
+  // Fay's page, as it should be: a hello, and she is in.
+  const F = connect(f);
+  await F.opened;
+  const helloF = await F.wait((m) => m.t === "hello", 4000, 0);
+  check(helloF.you.seat === 3 && helloF.you.role === "player", "with its hello a socket takes its seat");
+  // The old form, as a page loaded before this still sends it: refused, and the seat is given up
+  // on every socket it has, because the address was written down the moment it arrived.
+  // (The room closes that socket before it has said anything, and the local runtime does not
+  // finish closing such a socket: a browser gives up waiting after two seconds and reports the
+  // close, Node does not. So that close is read here from the socket's state; its code, 4003
+  // "reload", is checked in the unit tests and from a real page in e2e-cork.mjs.)
+  const old = connect(f, { oldForm: true });
+  const other = await within(F.closed, 3000);
+  await sleep(500);
+  check(old.ws.readyState >= 2 && old.seen.length === 0, "the old form, ?token= in the address, is refused: the room closes the socket and tells it nothing");
+  check(other?.code === 4003 && other.reason === "reload", "the seat that token named is given up on its other socket too (4003 reload)");
+  const gone = await A.wait((m) => m.t === "room" && m.room.members[3] === null, 4000, mark).catch(() => null);
+  check(!!gone, "and everyone sees the seat free again");
+  const burned = connect(f);
+  const burnedShut = await within(burned.closed, 3000);
+  check(burnedShut?.code === 4003 && burned.seen.length === 0, "that token opens nothing any more, even said the new way");
+  // More sockets that say nothing than the room keeps: the oldest are let go.
+  const idle = Array.from({ length: 12 }, () => connect(a, { hello: false }));
+  await Promise.all(idle.map((c) => c.opened));
+  await sleep(500);
+  const kept = (await inner()).unknown;
+  check(kept === 8 && idle.filter((c) => c.ws.readyState === 1).length === 8 && idle.every((c) => c.seen.length === 0), `twelve sockets that say nothing: the room keeps ${kept} (eight at most) and tells none of them anything`);
+  for (const c of idle) c.ws.close();
+  await sleep(300);
+  check((await inner()).unknown === 0 && A.ws.readyState === 1, "closed, they are forgotten, and nobody in the room was disturbed");
+}
+
 // ---------------------------------------------------------------- a client that misbehaves
 mark = B.seen.length;
 A.send("{broken");

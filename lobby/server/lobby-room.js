@@ -18,7 +18,7 @@ import { LagLine, eventsFor, fanOut } from "../../party-kit/src/core/room-core.j
 import { answerMessage, inputId } from "../../party-kit/src/core/answers.js";
 import { allAway, graceOf, presenceSignal } from "../../party-kit/src/core/presence.js";
 import { newSeed } from "../../party-kit/src/core/rng.js";
-import { CLOSE_BAD_TOKEN, CLOSE_HELLO_EXPECTED, OLD_FORM_REASON, UnknownSockets, readHello } from "../../party-kit/src/worker/hello-logic.js";
+import { CLOSE_BAD_TOKEN, CLOSE_HELLO_EXPECTED, OLD_FORM_REASON, UnknownSockets, closeQuietly, readHello } from "../../party-kit/src/worker/hello-logic.js";
 import { SOCKET_RATE, newBucket, strike, takeMessage } from "../../party-kit/src/worker/limit-logic.js";
 import { PIN_DIRECTORY_NAME } from "../../party-kit/src/worker/pin-logic.js";
 import { AwakeMeter, EVENT_FLOOR_MS, MESSAGES_PER_REQUEST, REPORT_EVERY_MS, roomBudgetState, spendRoomTime } from "../../party-kit/src/worker/room-budget.js";
@@ -28,14 +28,6 @@ import { LobbyCore, TURN_GRACE_MS } from "./lobby-core.js";
 const STORAGE_KEY = "lobby";
 const CLOSE_ROOM_CLOSED = 4000;
 const CLOSE_TOO_FAST = 4008;
-
-function closeQuietly(ws, code, reason) {
-  try {
-    ws.close(code, reason);
-  } catch {
-    // Already closed.
-  }
-}
 /** Lobby messages are a few dozen bytes; a game's inputs are not much more. Anything longer is dropped. */
 export const MAX_MESSAGE_BYTES = 512;
 /** The keep-alive the page sends, and the reply the runtime gives without waking the room. */

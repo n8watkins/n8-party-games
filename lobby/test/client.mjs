@@ -17,13 +17,18 @@ export function partyApi(base) {
    * Opens a socket for a session ({code, token, seat}) and returns a small client around it. It
    * sends the keep-alive every ten seconds, as a page does (the room lets a socket silent for 25
    * seconds go), unless `keepAlive: false` (a phone that loses its signal without a word).
+   *
+   * The seat's token is never in the address: it is the socket's first message, sent the moment
+   * the socket opens, as the page's client does. `hello: false` opens the socket and says nothing
+   * (the room does not know whose it is), and `oldForm: true` puts the token in the address the
+   * way pages did before, which the room refuses.
    */
-  function connect(session, { keepAlive = true } = {}) {
+  function connect(session, { keepAlive = true, hello = true, oldForm = false } = {}) {
     const url = new URL(api + "/rooms/" + session.code + "/ws", base);
     url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
-    url.searchParams.set("token", session.token);
+    if (oldForm) url.searchParams.set("token", session.token);
     const ws = new WebSocket(url);
-    const alive = keepAlive ? setInterval(() => ws.readyState === 1 && ws.send("ping"), 10_000) : null;
+    const alive = keepAlive && hello && !oldForm ? setInterval(() => ws.readyState === 1 && ws.send("ping"), 10_000) : null;
     alive?.unref?.();
     const seen = [];
     const raw = [];
@@ -51,7 +56,12 @@ export function partyApi(base) {
           waiters.push(w);
           setTimeout(() => reject(new Error("timed out waiting")), ms);
         }),
-      opened: new Promise((r) => (ws.onopen = r)),
+      opened: new Promise((resolve) => {
+        ws.onopen = () => {
+          if (hello && !oldForm) ws.send(JSON.stringify({ t: "hello", token: session.token }));
+          resolve();
+        };
+      }),
       closed: new Promise((r) => (ws.onclose = (e) => (clearInterval(alive), r({ code: e.code, reason: e.reason })))),
       /** Says where the piece is, standing still, in steps the room believes. */
       goto(x) {

@@ -7,21 +7,13 @@
 import { DurableObject } from "cloudflare:workers";
 import { RoomCore, LagLine, eventsFor, fanOut } from "../core/room-core.js";
 import { newSeed } from "../core/rng.js";
-import { CLOSE_BAD_TOKEN, CLOSE_HELLO_EXPECTED, OLD_FORM_REASON, UnknownSockets, readHello } from "./hello-logic.js";
+import { CLOSE_BAD_TOKEN, CLOSE_HELLO_EXPECTED, OLD_FORM_REASON, UnknownSockets, closeQuietly, readHello } from "./hello-logic.js";
 import { PIN_DIRECTORY_NAME } from "./pin-logic.js";
 import { REPORT_EVERY_MS, fullMessage, roomBudgetState, spendRoomTime } from "./room-budget.js";
 
 const STORAGE_KEY = "room";
 const CLOSE_ROOM_CLOSED = 4000;
 const MAX_MESSAGE_BYTES = 2048;
-
-function closeQuietly(ws, code, reason) {
-  try {
-    ws.close(code, reason);
-  } catch {
-    // Already closed.
-  }
-}
 
 /**
  * Makes the room class for one game.
@@ -104,9 +96,9 @@ export function createPartyRoom(game) {
         // been written down by now, so the token in it must open nothing any more: the seat it
         // names is given up, and the page is told its seat is gone (it must be loaded afresh).
         this.revoke(inAddress, now);
-        server.close(CLOSE_BAD_TOKEN, OLD_FORM_REASON);
+        closeQuietly(server, CLOSE_BAD_TOKEN, OLD_FORM_REASON);
       } else if (!this.core) {
-        server.close(CLOSE_BAD_TOKEN, "bad_token");
+        closeQuietly(server, CLOSE_BAD_TOKEN, "bad_token");
       } else {
         // Nobody's socket yet: it has no seat and is sent nothing until its first message says
         // whose it is (greet). What the room knows of it rides along on the socket, since the

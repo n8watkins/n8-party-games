@@ -16,10 +16,16 @@ const check = (ok, what) => {
 const post = async (path, body) => (await fetch(api + path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) })).json();
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-function connect(session, lag = 0) {
+/**
+ * Opens a socket for a session. The seat's token is never in the address: it is the socket's
+ * first message, sent the moment the socket opens, as the page's client does. `hello: false`
+ * opens the socket and says nothing, and `oldForm: true` puts the token in the address the way
+ * pages did before, which the room refuses.
+ */
+function connect(session, lag = 0, { hello = true, oldForm = false } = {}) {
   const url = new URL(api + "/rooms/" + session.code + "/ws", base);
   url.protocol = "ws:";
-  url.searchParams.set("token", session.token);
+  if (oldForm) url.searchParams.set("token", session.token);
   if (lag) url.searchParams.set("lag", String(lag));
   const ws = new WebSocket(url);
   const seen = [];
@@ -47,10 +53,17 @@ function connect(session, lag = 0) {
         waiters.push(w);
         setTimeout(() => reject(new Error("timed out waiting")), ms);
       }),
-    opened: new Promise((r) => (ws.onopen = r)),
+    opened: new Promise((resolve) => {
+      ws.onopen = () => {
+        if (hello && !oldForm) ws.send(JSON.stringify({ t: "hello", token: session.token }));
+        resolve();
+      };
+    }),
     closed: new Promise((r) => (ws.onclose = (e) => r(e.code))),
+    closedWith: new Promise((r) => ws.addEventListener("close", (e) => r({ code: e.code, reason: e.reason }))),
   };
 }
+const within = (promise, ms) => Promise.race([promise, sleep(ms).then(() => null)]);
 
 const a = await post("/rooms", { nickname: "Ann" });
 check(a.ok && /^\d{4}$/.test(a.pin) && a.seat === 0, "create a room: a 4-digit PIN and seat 1 (" + a.pin + ")");
@@ -68,6 +81,46 @@ const B = connect(b, 150);
 await Promise.all([A.opened, B.opened]);
 const helloA = await A.wait((m) => m.t === "hello");
 check(helloA.you.seat === 0 && !("seed" in helloA.room), "hello: your seat, and the room's seed stays in the room");
+check(!A.ws.url.includes("token") && !A.ws.url.includes(a.token) && !B.ws.url.includes(b.token), "the socket's address names no token: " + new URL(A.ws.url).pathname + new URL(A.ws.url).search);
+
+// The handshake. A socket that has not said whose it is has no seat and hears nothing.
+const c = await post("/join/" + a.pin, { nickname: "Cy" });
+const quiet = connect(c, 0, { hello: false });
+await quiet.opened;
+await A.wait((m) => m.t === "room" && m.room.seats[2]?.name === "Cy");
+A.send({ t: "name", v: "Anna" });
+await A.wait((m) => m.t === "room" && m.room.seats[0].name === "Anna");
+await sleep(400);
+check(quiet.seen.length === 0 && quiet.ws.readyState === 1, "a socket that has not said hello hears nothing of the room, and Cy is not connected by it");
+check(A.seen.findLast((m) => m.room).room.seats[2].connected === false, "the seat it might have named is still not connected");
+quiet.ws.send(JSON.stringify({ t: "ready", v: true }));
+const shut = await within(quiet.closedWith, 3000);
+check(shut?.code === 4001 && quiet.seen.length === 0, "anything but a hello as its first message closes it (4001), having heard nothing: " + JSON.stringify(shut));
+const wrong = connect({ code: a.code, token: "not-a-token" });
+const wrongShut = await within(wrong.closedWith, 3000);
+check(wrongShut?.code === 4003 && wrongShut.reason === "bad_token" && wrong.seen.length === 0, "a hello with a wrong token is refused (4003), having heard nothing");
+// The old form: the token in the address. Refused, and the seat it named is given up.
+// (The room closes that socket before it has said anything, and the local runtime does not finish
+// closing such a socket: a browser gives up waiting after two seconds and reports the close, Node
+// does not. So the close itself is read here from the socket's state; its code, 4003 "reload", is
+// checked in the unit tests and from a real page in lobby/test/e2e-cork.mjs.)
+const old = connect(c, 0, { oldForm: true });
+const freed = await A.wait((m) => m.t === "room" && m.room.seats[2] === null, 3000).catch(() => null);
+await sleep(500);
+check(old.ws.readyState >= 2 && old.seen.length === 0, "the old form, ?token= in the address, is refused: the room closes the socket and tells it nothing");
+check(!!freed, "and the seat that token named is given up: the address was written down");
+const burned = connect(c);
+const burnedShut = await within(burned.closedWith, 3000);
+check(burnedShut?.code === 4003 && burned.seen.length === 0, "that token opens nothing any more, even said the new way");
+// More sockets that say nothing than the room keeps: the oldest are let go, and a seat still connects.
+const idle = Array.from({ length: 12 }, () => connect(a, 0, { hello: false }));
+await Promise.all(idle.map((s) => s.opened));
+await sleep(500);
+const stillOpen = idle.filter((s) => s.ws.readyState === 1).length;
+check(stillOpen === 8 && idle.every((s) => s.seen.length === 0), `twelve sockets that say nothing: the room keeps ${stillOpen} (eight at most), and tells none of them anything`);
+for (const s of idle) s.ws.close();
+A.send({ t: "name", v: "Ann" });
+await A.wait((m) => m.t === "room" && m.room.seats[0].name === "Ann");
 const t1 = Date.now();
 B.send({ t: "ping", c: t1 });
 const pong = await B.wait((m) => m.t === "pong");
