@@ -887,7 +887,7 @@ export class LobbyCore {
     // steps on (fillSpots): the pieces start again by the door, out of every light, and walk there.
     const chosen = spots ? [] : seats;
     const players = Object.fromEntries(chosen.map((seat) => [seat, this.members[seat].token]));
-    this.activity = { kind: "settings", id, picks: first.settings, seats: chosen, players, endsAt: now + SETTINGS_MS, startedAt: now };
+    this.activity = { kind: "settings", id, picks: first.settings, seats: chosen, players, party: this.partyTokens(), endsAt: now + SETTINGS_MS, startedAt: now };
     if (spots) {
       this.activity.spots = spots;
       this.respawn(now);
@@ -1041,8 +1041,11 @@ export class LobbyCore {
       const carry = carryFor(this.carries, id, this.carrySeats(seats.map((s) => s.seat)));
       context.carry = carry === null ? null : structuredClone(carry);
     }
+    // Who was in the party when the match began: the party the settings step was opened for, or
+    // the party now when the game starts straight from the vote (lateJoiner).
+    const party = this.activity.kind === "settings" ? (this.activity.party ?? null) : this.partyTokens();
     const state = game.create(context);
-    this.activity = { kind: "game", id, state, startedAt: now, ticks: 0, seats: seats.map((s) => s.seat) };
+    this.activity = { kind: "game", id, state, startedAt: now, ticks: 0, seats: seats.map((s) => s.seat), party };
     if (isTurnBased(game)) {
       // What the game has been told of each seat: it starts with every seat here, as the vote
       // had them, and hears at once of one that is not (before anyone sees the first snapshot).
@@ -1071,16 +1074,53 @@ export class LobbyCore {
   /**
    * The viewer a socket of this identity ({role, seat}) gets for a game's state, by the kit's
    * rules (party-kit/src/core/views.js): a phone whose seat is in the game is that player, the
-   * big screen is the screen, and a member whose seat is not in the game (they joined after it
-   * began) watches it with a screen's view. The one place the party room decides who sees what.
-   * `activity` is the game being shown; it defaults to the current one.
+   * big screen is the screen, and a member whose seat is not in the game watches it with a
+   * screen's view. The one place the party room decides who sees what. `activity` is the game
+   * being shown; it defaults to the current one.
    */
   viewerOf(who, activity = this.activity) {
     if (activity.kind !== "game") return viewerFor(who, null);
     // A game that opts in to an audience (party-kit/src/core/audience.js) gives the members who
-    // are not in it `{role: "audience", seat}`; any other keeps them on a screen's view.
-    const audience = hasAudience(this.games.get(activity.id), this.boxOf(activity.id));
+    // are not in it `{role: "audience", seat}`; any other keeps them on a screen's view. A member
+    // who joined the party in the middle of this match is not its audience: they get the screen's
+    // view, with no secrets, until it ends (lateJoiner).
+    const audience = hasAudience(this.games.get(activity.id), this.boxOf(activity.id)) && !this.lateJoiner(who, activity);
     return viewerFor(who, new Set(activity.seats), { audience });
+  }
+
+  /**
+   * The tokens of everyone in the party right now: its members, and the players whose seats are
+   * held after their pieces faded (they come back as themselves). Taken when the room leaves the
+   * lobby for a match (beginSettings, or createGame straight from the vote) and kept with the
+   * activity, in storage only.
+   */
+  partyTokens() {
+    return [...this.present().map((m) => m.token), ...this.held.keys()];
+  }
+
+  /**
+   * Whether a member ({role, seat}) who does not play this match is new to the party since the
+   * room left the lobby for it (the activity's `party`, taken when the vote's game was taken up):
+   * a phone or tab opened mid-match, a player's second device included. Such a member watches the
+   * match as the big screen does, so a player cannot read their own secret on a second phone.
+   * (Someone who joins during a spot step and takes a spot plays: a player's view is the same for
+   * whoever holds the seat, and everyone sees who stands on the spots.) Someone who was in the
+   * party then keeps their role through a drop, a locked phone, a second socket or a sleep: the
+   * token is the same. The mark goes with the activity: every way a match ends puts the room back
+   * in the lobby, and the next match takes the party afresh. A step or match saved before the
+   * party was kept has no `party`, and marks nobody.
+   */
+  lateJoiner(who, activity = this.activity) {
+    if (who?.role !== "player" || !Array.isArray(activity.party) || activity.seats?.includes(who.seat)) return false;
+    const m = this.members[who.seat];
+    return !m || !activity.party.includes(m.token);
+  }
+
+  /** The seats of the members who joined in the middle of this match (lateJoiner), for the room view. */
+  lateSeats(activity = this.activity) {
+    return this.present()
+      .map((m) => m.seat)
+      .filter((seat) => this.lateJoiner({ role: "player", seat }, activity));
   }
 
   /** The current game's state as this viewer may see it (game.snapshot with the viewer). */
@@ -1467,7 +1507,12 @@ export class LobbyCore {
     const box = this.boxOf(a.id);
     const out = { id: a.id, name: box?.name ?? a.id, round: this.round };
     if (this.turnGame()) out.turns = true;
-    if (hasAudience(this.games.get(a.id), box)) Object.assign(out, { seats: [...a.seats], audience: true });
+    if (hasAudience(this.games.get(a.id), box)) {
+      Object.assign(out, { seats: [...a.seats], audience: true });
+      // Who joined mid-match and so watches it as the big screen does (lateJoiner).
+      const late = this.lateSeats();
+      if (late.length) out.late = late;
+    }
     if (box?.upright) out.upright = true;
     return out;
   }
@@ -1541,8 +1586,8 @@ export class LobbyCore {
   savedGame() {
     const game = this.turnGame();
     if (!game) return null;
-    const { id, state, startedAt, ticks, seats, told, names, answers, stuck } = this.activity;
-    return { id, startedAt, ticks, seats, told, names, answers, stuck, state: saveState(game, state) };
+    const { id, state, startedAt, ticks, seats, told, names, answers, stuck, party } = this.activity;
+    return { id, startedAt, ticks, seats, told, names, answers, stuck, party, state: saveState(game, state) };
   }
 
   /**
@@ -1562,6 +1607,7 @@ export class LobbyCore {
       const told = Object.fromEntries(saved.seats.map((seat) => [seat, saved.told?.[seat] ?? { connected: true, away: false }]));
       this.activity = { kind: "game", id: saved.id, state, startedAt: saved.startedAt, ticks: saved.ticks ?? 0, seats: [...saved.seats], told, names: { ...saved.names }, answers: saved.answers ?? {} };
       if (typeof saved.stuck === "number") this.activity.stuck = saved.stuck;
+      this.activity.party = partyOf(saved.party);
     } catch (err) {
       console.error("party room: a saved game could not be restored", err);
       this.activity = { kind: "lobby" };
@@ -1582,7 +1628,7 @@ export class LobbyCore {
     const readable =
       players && Array.isArray(saved.seats) && saved.seats.every((seat) => Number.isInteger(seat) && typeof players[seat] === "string") && typeof saved.endsAt === "number" && saved.picks && typeof saved.picks === "object";
     if (game && (hasSettings(game) || spots) && spots !== false && readable) {
-      this.activity = { kind: "settings", id: saved.id, picks: saved.picks, seats: [...saved.seats], players: { ...players }, endsAt: saved.endsAt, startedAt: saved.startedAt ?? saved.endsAt - SETTINGS_MS };
+      this.activity = { kind: "settings", id: saved.id, picks: saved.picks, seats: [...saved.seats], players: { ...players }, party: partyOf(saved.party), endsAt: saved.endsAt, startedAt: saved.startedAt ?? saved.endsAt - SETTINGS_MS };
       if (spots) this.activity.spots = spots.map((spot) => ({ place: spot.place, seat: spot.seat }));
       return;
     }
@@ -1627,6 +1673,11 @@ export class LobbyCore {
     else if (data.choosing) room.restoreChoosing(data.choosing);
     return room;
   }
+}
+
+/** Who was in the party when a saved match began (LobbyCore.partyTokens), or null for a save from before it was kept. */
+function partyOf(saved) {
+  return Array.isArray(saved) && saved.every((token) => typeof token === "string") ? [...saved] : null;
 }
 
 function fail(error, message) {

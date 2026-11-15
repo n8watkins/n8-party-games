@@ -226,7 +226,7 @@ describe("a two-seat game voted for by a party of four", () => {
 });
 
 describe("the audience", () => {
-  it("gets both secrets, the players each the other's, the big screen neither, in raw frames, also after a rebuild of the room and for a member who joins after the start", async () => {
+  it("gets both secrets, the players each the other's, the big screen neither, in raw frames, also after a rebuild of the room; a member who joins after the start gets neither", async () => {
     const game = turnGame({ own: true, presence: true });
     const r = await spots(game);
     const { ctx, say, ws } = r;
@@ -254,7 +254,8 @@ describe("the audience", () => {
     expectRoles(r, secrets, (w) => gameText(since(w)));
     for (const w of Object.values(ws)) expect(since(w).some((m) => m.t === "snap")).toBe(true);
 
-    // Di leaves the party; Ed joins in her seat while the match is on: he is audience, sees both.
+    // Di leaves the party; Ed joins in her seat while the match is on: he joined mid-match, so he
+    // watches it as the big screen does, with neither secret (party-room-late-joiners.test.js).
     const told = game.calls.presence.length;
     say(ws.di, { t: "leave" });
     await settle();
@@ -263,9 +264,9 @@ describe("the audience", () => {
     expect(ed.seat).toBe(3);
     const edWs = await r.connect(ed.token);
     await settle();
-    expect(ctx.room.core.viewerOf({ role: "player", seat: 3 })).toEqual({ role: "audience", seat: 3 });
-    expect(edWs.text()).toContain(secrets.s0);
-    expect(edWs.text()).toContain(secrets.s1);
+    expect(ctx.room.core.viewerOf({ role: "player", seat: 3 })).toEqual({ role: "screen", seat: 3 });
+    expect(edWs.text()).not.toContain(secrets.s0);
+    expect(edWs.text()).not.toContain(secrets.s1);
     // Neither her leaving nor his coming was the game's business.
     expect(game.calls.presence.slice(told).filter((c) => c.seat >= 2)).toEqual([]);
   });
