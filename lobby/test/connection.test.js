@@ -84,8 +84,9 @@ describe("a page hidden in the lobby or a ticking game", () => {
     show();
     expect(FakeWebSocket.made).toHaveLength(2);
     const again = FakeWebSocket.last;
-    expect(again.url).toContain("token=tok");
+    expect(again.url).not.toContain("tok");
     again.open();
+    expect(again.helloToken()).toBe("tok");
     expect(presence(again)).toEqual([]);
   });
 
@@ -145,8 +146,9 @@ describe("a page hidden in a turn-based game", () => {
     show();
     expect(FakeWebSocket.made).toHaveLength(2);
     const again = FakeWebSocket.last;
-    expect(again.url).toContain("token=tok");
+    expect(again.url).not.toContain("tok");
     again.open();
+    expect(again.helloToken()).toBe("tok");
     again.hear({ t: "hello", you: { role: "player", seat: 0 }, room: turns });
     expect(link.status).toBe("open");
     expect(link.you).toEqual({ role: "player", seat: 0 });
@@ -169,7 +171,9 @@ describe("a page hidden in a turn-based game", () => {
     expect(ws.closedByPage).toBe(true);
     vi.advanceTimersByTime(0);
     expect(FakeWebSocket.made).toHaveLength(2);
-    expect(FakeWebSocket.last.url).toContain("token=tok");
+    expect(FakeWebSocket.last.url).not.toContain("tok");
+    FakeWebSocket.last.open();
+    expect(FakeWebSocket.last.helloToken()).toBe("tok");
   });
 
   it("a connection that comes back while the page is still hidden says away at once", () => {

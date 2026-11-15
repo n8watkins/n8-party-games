@@ -160,19 +160,26 @@ export async function openRoom(createLobbyRoom, game, { players = { min: 2, max:
   const ctx = fakeCtx();
   ctx.room = new Room(ctx, env);
   await settle();
-  const connect = async (token) => {
-    const res = await ctx.room.fetch(new Request(`https://room/ws?token=${token}`, { headers: { Upgrade: "websocket" } }));
+  /** Opens a socket and says nothing on it yet: the room does not know whose it is. `query` is added to the address ("?lag=0"). */
+  const open = async (query = "") => {
+    const res = await ctx.room.fetch(new Request(`https://room/ws${query}`, { headers: { Upgrade: "websocket" } }));
     expect(res.status).toBe(101);
     return ctx.sockets.at(-1);
   };
   const say = (ws, msg) => ctx.room.webSocketMessage(ws, JSON.stringify(msg));
+  /** Opens a socket and takes a seat on it as a page does: the token is its first message, never in the address. */
+  const connect = async (token) => {
+    const ws = await open();
+    say(ws, { t: "hello", token });
+    return ws;
+  };
   /** Puts the room to sleep and wakes a new instance over the same storage and sockets (a restart). */
   const sleepAndWake = async () => {
     ctx.room.stopTimer(); // the old instance is gone, and its timer with it
     ctx.room = new Room(ctx, env);
     await settle();
   };
-  return { ctx, connect, say, sleepAndWake, room: () => ctx.room, wall };
+  return { ctx, open, connect, say, sleepAndWake, room: () => ctx.room, wall };
 }
 
 /** Lets the room's promises (storage, the budget check before a game) settle. */

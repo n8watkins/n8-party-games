@@ -53,9 +53,11 @@ describe("setAway", () => {
     vi.advanceTimersByTime(4000);
     const again = FakeWebSocket.last;
     expect(again).not.toBe(ws);
-    expect(again.url).toContain("token=tok");
+    expect(again.url).not.toContain("tok");
     again.open();
-    expect(again.kinds()[0]).toBe("away");
+    // The hello that names the seat comes first; away is the first thing said after it.
+    expect(again.helloToken()).toBe("tok");
+    expect(again.kinds()[1]).toBe("away");
 
     client.setAway(false);
     again.die();

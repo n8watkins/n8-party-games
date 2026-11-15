@@ -139,9 +139,12 @@ async function openRoom(game) {
   const ctx = fakeCtx();
   const room = new Room(ctx, env);
   const connect = async (token) => {
-    const res = await room.fetch(new Request(`https://room/ws?token=${token}`, { headers: { Upgrade: "websocket" } }));
+    const res = await room.fetch(new Request("https://room/ws", { headers: { Upgrade: "websocket" } }));
     expect(res.status).toBe(101);
-    return ctx.sockets.at(-1);
+    const ws = ctx.sockets.at(-1);
+    // The seat's token is the socket's first message, never in its address.
+    room.webSocketMessage(ws, JSON.stringify({ t: "hello", token }));
+    return ws;
   };
   const say = (ws, msg) => room.webSocketMessage(ws, JSON.stringify(msg));
   return { room, ctx, connect, say };
