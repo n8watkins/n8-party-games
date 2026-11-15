@@ -1060,8 +1060,7 @@ input {
   }
 }
 
-/* A small phone held sideways: the line between the buttons has little width. "Closer" keeps only
-   its picture, and the line goes on two: what it is with the rest beside it, then the pick. */
+/* A small phone held sideways: "Closer" keeps only its picture, so the line has the width it needs. */
 @media (orientation: landscape) and (max-height: 520px) and (max-width: 760px) {
   .hud-player .zoom-btn {
     width: 44px;
@@ -1071,36 +1070,44 @@ input {
   .hud-player .zoom-btn > span:not(.pill-icon) {
     display: none;
   }
+}
+/* On any phone the line goes on two rows, and is never cut: what it is and the pick on the first,
+   the rest under it, wrapping rather than trailing off when a long name makes it so. */
+@media (orientation: landscape) and (max-height: 520px), (orientation: portrait) and (max-width: 560px) {
   .hud-player .bar-player .status {
-    display: grid;
-    grid-template-columns: auto auto minmax(0, max-content);
-    grid-template-areas:
-      "label dot main"
-      "rest rest rest";
+    flex-wrap: wrap;
+    align-content: center;
     justify-content: center;
-    align-items: center;
     column-gap: 6px;
     row-gap: 2px;
-  }
-  .hud-player .status-label {
-    grid-area: label;
-  }
-  .hud-player .bar-player .dot {
-    grid-area: dot;
+    white-space: normal;
+    text-align: center;
   }
   .hud-player .bar-player .status-main {
-    grid-area: main;
-    min-width: 0;
     font-size: 15px;
+    white-space: nowrap;
+    overflow: visible;
   }
   .hud-player .bar-player .status-sub {
-    grid-area: rest;
-    justify-self: center;
-    max-width: 100%;
+    flex: 0 0 100%;
     font-size: 12.5px;
+    line-height: 1.25;
+    overflow: visible;
+    text-overflow: clip;
+    white-space: normal;
   }
   .hud-player .status-rule {
     display: none;
+  }
+}
+
+/* An upright phone has the bar's full width for the line: the same two rows, a size larger. */
+@media (orientation: portrait) and (max-width: 560px) {
+  .hud-player .bar-player .status-main {
+    font-size: 17px;
+  }
+  .hud-player .bar-player .status-sub {
+    font-size: 14px;
   }
 }
 
