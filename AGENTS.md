@@ -38,9 +38,13 @@ The global rules file (branches, pull requests, no merging without the owner's w
 Deploys run from the owner's PC, never from CI.
 The short form, with the full checklist in `DEPLOY.md`:
 
-1. On `main`, up to date, `npm ci`, then `npm run predeploy` and the manual checks in "Before every deploy".
+1. On `main`, up to date, `npm ci`, then the manual checks in "Before every deploy".
 2. `npx wrangler whoami` names account `b2c564cf83cb9184dd6d7cc4ff8b38bf`.
 3. `npm run deploy` (it is `wrangler deploy --env=''`; never deploy `--env local`).
+   npm runs a script named `pre<name>` before `npm run <name>`, so `npm run deploy` runs the whole gate (`predeploy`) first by itself and stops if it fails.
+   Do not run `npm run predeploy` before it: that runs the gate twice.
+   `npm run predeploy` alone runs the gate without deploying.
+   In an emergency, and only on the owner's word, `npx wrangler deploy --env=''` deploys without the gate.
 4. The checks in "Check it after a deploy".
 5. If it is wrong, "Rolling back" in `DEPLOY.md`.
 

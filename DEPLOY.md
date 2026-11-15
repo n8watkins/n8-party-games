@@ -29,7 +29,7 @@ Everything else is already in the repository.
 ## Deploying
 
 6. Wrangler must be logged in to the owner's account: `npx wrangler whoami` should name account `b2c564cf83cb9184dd6d7cc4ff8b38bf`. **Owner:** if it is not, run `npx wrangler login`.
-7. Run `npm run deploy`, which deploys the top level (`wrangler deploy --env=''`) and never the local environment. It runs any new Durable Object migrations by itself (the first deploy ran `v1` to `v3`; the first deploy with the party room runs `v4`, the `LobbyRoom` class); nothing is created by hand.
+7. Run `npm run deploy`. npm runs the script `predeploy` before it, so the full gate (unit tests, `test:room`, `test:lobby`, `test:cork`) runs first by itself and the deploy stops if it fails; do not run `npm run predeploy` first, which would run the gate twice. `npm run predeploy` alone runs the gate without deploying. In an emergency, and only on the owner's word, `npx wrangler deploy --env=''` deploys without the gate. The deploy itself is `wrangler deploy --env=''`, which deploys the top level (`wrangler deploy --env=''`) and never the local environment. It runs any new Durable Object migrations by itself (the first deploy ran `v1` to `v3`; the first deploy with the party room runs `v4`, the `LobbyRoom` class); nothing is created by hand.
 8. A deploy while a round is on lets that room finish on the old code for up to five minutes, so deploy when nobody is mid-round if you can.
 
 ## Check it after a deploy
@@ -128,7 +128,7 @@ What that means here, stated plainly:
 - Never use a migration to undo a migration: deleting a class (`deleted_classes`) permanently deletes every object of that class and its stored data.
   If a new class was a mistake, ship a version that stops using it and leave the class in place.
 
-When the rollback is refused or is not enough, go forward: fix the problem in a pull request and deploy that, as a normal deploy after the gate (`npm run predeploy`).
+When the rollback is refused or is not enough, go forward: fix the problem in a pull request and deploy that, as a normal deploy (`npm run deploy` runs the gate first).
 
 ### Other things a rollback does not undo
 
