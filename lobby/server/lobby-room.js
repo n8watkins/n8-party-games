@@ -36,7 +36,7 @@ export const KEEP_ALIVE = { text: "ping", reply: "pong", everyMs: 10_000 };
  * A socket that has said nothing at all for this long (not even a keep-alive, which a page sends
  * every ten seconds) belongs to a phone that is gone: it lost its signal without closing. Looked
  * at whenever anything happens in the room, at most every five seconds; nothing is timed for it.
- * A page hidden during a turn-based game is given longer (silentLimit).
+ * A page hidden during a turn-based game is given longer (awayLimit).
  */
 const SILENT_MS = 25_000;
 const REAP_EVERY_MS = 5_000;
@@ -409,8 +409,13 @@ export function createLobbyRoom(wallFor) {
         const out = core?.turnUpkeep(now);
         if (!out) return null;
         await this.save();
-        // Only what the game was told changed: saved, and nothing to send.
-        if (this.core !== core || out.quiet) return out;
+        if (this.core !== core) return out;
+        // Only what the game was told changed: saved, and nothing to send. A seat that dropped
+        // may still need its grace-end wake-up.
+        if (out.quiet) {
+          this.arm(now);
+          return out;
+        }
         this.deliverTurn(out, now);
         return out;
       } catch (err) {
@@ -470,26 +475,39 @@ export function createLobbyRoom(wallFor) {
       let reaped = false;
       for (const [ws, entry] of [...this.sockets]) {
         const auto = this.ctx.getWebSocketAutoResponseTimestamp(ws)?.getTime() ?? 0;
-        if (now - Math.max(auto, entry.kept.seen ?? 0, entry.kept.at) < this.silentLimit(entry)) continue;
+        const heard = Math.max(auto, entry.kept.seen ?? 0, entry.kept.at);
+        const away = this.awayInTurnGame(entry);
+        if (now - heard < (away ? this.awayLimit() : SILENT_MS)) continue;
         this.drop(ws, entry, 1001, "silent");
-        if (!this.isConnected(entry.token)) this.core.disconnect(entry.token, now);
-        else this.syncAway(entry.token);
+        if (!this.isConnected(entry.token)) {
+          this.core.disconnect(entry.token, now);
+          // An away phone was already given the grace while silent: its drop dates from its last
+          // sign of life, so the seat is held one grace in all, and is gone at once if that is past.
+          const m = this.core.members[entry.seat];
+          if (away && m && !m.connected && m.droppedAt > heard) m.droppedAt = heard;
+        } else this.syncAway(entry.token);
         this.broadcastRoom(now);
         reaped = true;
       }
-      if (reaped) void this.upkeep(now);
+      if (!reaped) return;
+      void this.upkeep(now);
+      // The grace of a seat that dropped here is a wake-up; nothing else may set it (a quiet upkeep, a quiet refusal).
+      this.arm(now);
     }
 
     /**
-     * How long a socket may say nothing before it is taken for gone (reap). A hidden page's
-     * keep-alive is slowed or stopped by its browser, so a socket that said it is away, of a seat
-     * in the turn-based game being played, is given the game's grace (at least SILENT_MS) before
-     * it is reaped; reaped, it is a drop, held for the grace again. Away never runs the grace down.
+     * A hidden page's keep-alive is slowed or stopped by its browser, so a socket that said it is
+     * away, of a seat in the turn-based game being played, is not reaped after SILENT_MS like any
+     * other: it is given the game's grace (awayLimit). Reaped, its drop dates from when it was last
+     * heard, so the seat is held one grace from its last sign of life, not two.
      */
-    silentLimit(entry) {
-      const game = this.core?.turnGame();
-      if (!game || !entry.kept.away || entry.role !== "player" || !this.core.activity.seats.includes(entry.seat)) return SILENT_MS;
-      return Math.max(SILENT_MS, graceOf(game, TURN_GRACE_MS));
+    awayInTurnGame(entry) {
+      return !!this.core?.turnGame() && !!entry.kept.away && entry.role === "player" && this.core.activity.seats.includes(entry.seat);
+    }
+
+    /** How long an away socket in a turn-based game may say nothing: the game's grace, and at least SILENT_MS. Infinity: never reaped. */
+    awayLimit() {
+      return Math.max(SILENT_MS, graceOf(this.core.turnGame(), TURN_GRACE_MS));
     }
 
     // ------------------------------------------------------------ the vote, the alarm and the game

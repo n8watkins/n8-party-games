@@ -83,28 +83,68 @@ describe("an away socket in a turn-based game", () => {
     expect(ws.bo.closed).toBeNull();
   });
 
-  it("silent for longer than the game's grace is reaped then, and is a drop held for the grace from there", async () => {
+  it.each([
+    ["just after the grace", 1_000],
+    ["long after the grace", 120_000],
+  ])("silent for longer than the game's grace, reaped %s: one grace from its last sign of life, so the seat is gone at once", async (_, late) => {
     const grace = 60_000;
-    const game = turnGame({ fields: { reconnectGraceMs: grace } });
+    // No turn timer, so nothing but the poke wakes the room.
+    const game = turnGame({ fields: { reconnectGraceMs: grace, nextDeadline: () => null } });
     const { ctx, say, ws, quiet } = await startedWithQuiet(game);
     say(ws.bo, { t: "away" });
     await settle();
-    const silentFrom = Date.now();
+    const lastHeard = Date.now();
     quiet.add(ws.bo);
     await wait(grace - 6_000);
     await poke(say, ws);
     expect(ws.bo.closed).toBeNull();
-    await wait(7_000);
+    expect(ctx.room.core.activity.kind).toBe("game");
+    await wait(6_000 + late);
+    const reapedAt = Date.now();
     await poke(say, ws);
     expect(ws.bo.closed).toMatchObject({ code: 1001, reason: "silent" });
-    const droppedAt = ctx.room.core.members[1].droppedAt;
-    expect(droppedAt - silentFrom).toBeGreaterThanOrEqual(grace);
-    expect(ctx.room.core.members[1].connected).toBe(false);
+    // The drop is dated from the last sign of life, never later: not a second grace.
+    expect(ctx.room.core.members[1]).toMatchObject({ connected: false, droppedAt: lastHeard });
+    expect(reapedAt - lastHeard).toBeGreaterThanOrEqual(grace);
+    expect(ctx.room.core.activity.kind).toBe("lobby");
+    const note = ws.ann.messages().find((m) => m.t === "note" && m.k === "ended");
+    expect(note).toMatchObject({ why: "gone", seat: 1 });
+  });
+
+  it("the reviewer's case, with presence and the default grace: an away phone that goes silent ends the game when it is reaped, not at the stale limit", async () => {
+    const game = turnGame({ presence: true });
+    const { ctx, say, ws, quiet } = await startedWithQuiet(game);
+    say(ws.ann, { t: "away" });
+    await settle();
+    const lastHeard = Date.now();
+    quiet.add(ws.ann);
+    expect(ctx.room.core.activity.state.paused).not.toBeNull();
+    await wait(TURN_GRACE_MS);
+    // Bo taps (out of turn: a quiet refusal), and the room looks for silent sockets.
+    say(ws.bo, { t: "in", d: { say: "Is it me?" }, id: "b1" });
+    await settle();
+    expect(ws.ann.closed).toMatchObject({ code: 1001, reason: "silent" });
+    expect(ctx.room.core.members[0].droppedAt).toBe(lastHeard);
+    expect(ctx.room.core.activity.kind).toBe("lobby");
+  });
+});
+
+describe("a socket reaped as silent in a turn-based game", () => {
+  it("whose game hears nothing new (a quiet upkeep) still gets its grace-end wake-up, and the game ends at the grace, not at the stale limit", async () => {
+    // No presence and no turn timer: the reap tells the game nothing it acts on, and no deadline arms the alarm.
+    const game = turnGame({ fields: { nextDeadline: () => null } });
+    const { ctx, say, ws, quiet } = await startedWithQuiet(game);
+    quiet.add(ws.ann);
+    await wait(SILENT_MS + 5_000);
+    // Bo taps out of turn: a quiet refusal that arms nothing; the room reaps Ann first.
+    say(ws.bo, { t: "in", d: { say: "Hello?" }, id: "b1" });
+    await settle();
+    expect(ws.ann.closed).toMatchObject({ code: 1001, reason: "silent" });
+    const droppedAt = ctx.room.core.members[0].droppedAt;
+    expect(ctx.alarm.at).toBe(droppedAt + TURN_GRACE_MS);
+    await vi.advanceTimersByTimeAsync(droppedAt + TURN_GRACE_MS - Date.now() - 1);
     expect(ctx.room.core.activity.kind).toBe("game");
-    // The drop's own grace, then the game ends.
-    await wait(droppedAt + grace - Date.now() - 1, 1000);
-    expect(ctx.room.core.activity.kind).toBe("game");
-    await wait(10_000, 1000);
+    await vi.advanceTimersByTimeAsync(1);
     expect(ctx.room.core.activity.kind).toBe("lobby");
   });
 
