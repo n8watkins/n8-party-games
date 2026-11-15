@@ -26,13 +26,21 @@ export const OVERRIDE_MS = 30_000;
  * With `carry`, a match leaves the loser and its draw for a rematch, and the loser starts it.
  * `calls.created` holds every context `create` was given. `fields`
  * are added to the game object as they are (reconnectGraceMs, idleShutdownMs, abandon, ...).
+ *
+ * With `firstTo`, it is a match of points, as Who Am I?'s "first to 3" is: saying something with
+ * `point` scores one. The seat that reaches `firstTo` decides the match and its summary is up
+ * ("Match over"), but the match is over for the room only once a player says `results` (Who Am
+ * I?'s "See final results"). Its places and result are the scores', from the moment it is
+ * decided, and its `abandon` keeps that decided result whoever leaves; before then, the seats
+ * still here are placed by their scores and the one gone gets no place (a forfeit).
+ * `seats` is how many may play (2 or 3); the turn goes round them in order.
  */
-export function turnGame({ own = false, maxTimeouts = Infinity, presence = false, settings = false, carry = false, fields = {} } = {}) {
+export function turnGame({ own = false, maxTimeouts = Infinity, presence = false, settings = false, carry = false, firstTo = 0, seats: maxSeats = 2, fields = {} } = {}) {
   const calls = { tick: 0, input: 0, presence: [], abandon: [], bot: 0, created: [], settings: [] };
   const game = {
     id: "turns",
     minSeats: 2,
-    maxSeats: 2,
+    maxSeats,
     tickHz: 0,
     calls,
     create(context) {
@@ -55,6 +63,9 @@ export function turnGame({ own = false, maxTimeouts = Infinity, presence = false
         moves: [],
         timeouts: 0,
         winner: null,
+        // With firstTo: each seat's points, and whether the match is decided (its summary is up).
+        scores: Object.fromEntries(order.map((s) => [s, 0])),
+        decided: false,
         // The last match's draw, kept out of this one (Who Am I?'s identities).
         avoid: context.carry?.used ?? [],
       };
@@ -68,22 +79,37 @@ export function turnGame({ own = false, maxTimeouts = Infinity, presence = false
         state.winner = seat;
         return { ok: true, events: [{ k: "override", seat }] };
       }
+      if (state.decided) {
+        // The match summary is up: the only thing left is to see the final results.
+        if (!data?.results) return { ok: false, error: "match_over", message: "The match is over." };
+        state.winner = ranked(state)[0].seat;
+        return { ok: true, events: [{ k: "results" }] };
+      }
       if (seat !== state.seats[state.turn]) return { ok: false, error: "not_your_turn", message: "It is not your turn." };
       const say = String(data?.say ?? "");
       state.moves.push({ seat, say });
       if (data?.win) state.winner = seat;
-      const other = state.seats[1 - state.turn];
-      state.turn = 1 - state.turn;
+      const other = state.seats[(state.turn + 1) % state.seats.length];
+      state.turn = (state.turn + 1) % state.seats.length;
       if (state.paused === null) state.deadline = now + state.turnMs;
       else state.paused = state.turnMs;
-      return { ok: true, events: [{ k: "said", seat, say }, { k: "psst", only: other, about: seat, secret: state.secrets[seat] }] };
+      const events = [{ k: "said", seat, say }, { k: "psst", only: other, about: seat, secret: state.secrets[seat] }];
+      if (firstTo && data?.point) {
+        state.scores[seat] += 1;
+        if (state.scores[seat] >= firstTo) {
+          state.decided = true;
+          events.push({ k: "match_over", winner: seat });
+        }
+      }
+      return { ok: true, events };
     },
-    nextDeadline: (state) => (state.paused === null ? state.deadline : null),
+    // No turn timer runs while the match summary is up.
+    nextDeadline: (state) => (state.paused === null && !state.decided ? state.deadline : null),
     tick(state, now) {
       calls.tick += 1;
       const seat = state.seats[state.turn];
       state.timeouts += 1;
-      state.turn = 1 - state.turn;
+      state.turn = (state.turn + 1) % state.seats.length;
       state.deadline = now + state.turnMs;
       if (state.timeouts >= maxTimeouts) state.winner = state.seats[state.turn];
       return [{ k: "timed_out", seat }];
@@ -106,6 +132,19 @@ export function turnGame({ own = false, maxTimeouts = Infinity, presence = false
       return [];
     },
   };
+  if (firstTo) {
+    game.standings = (state) => (state.decided ? placesOf(ranked(state)) : []);
+    // Result rows, best first, each with its score: the card shows the score beside the points.
+    game.result = (state) => (state.decided ? ranked(state) : null);
+    game.abandon = (state, seat, now) => {
+      calls.abandon.push({ seat, at: now, decided: state.decided });
+      // Decided before anyone left: the match ends as it was decided, whoever leaves.
+      if (state.decided) return { standings: game.standings(state), result: game.result(state), events: [] };
+      // Still being played: the seats still here are placed by their points, the one gone forfeits.
+      const stayed = ranked(state).filter((r) => r.seat !== seat);
+      return { standings: placesOf(stayed), result: { winnerSeat: stayed[0].seat, abandonedBy: seat }, events: [{ k: "abandoned", seat }] };
+    };
+  }
   if (presence) {
     game.presence = (state, seat, report, now) => {
       calls.presence.push({ seat, ...report, at: now });
@@ -146,6 +185,16 @@ export function turnGame({ own = false, maxTimeouts = Infinity, presence = false
     };
   }
   return Object.assign(game, fields);
+}
+
+/** With firstTo: each seat and its points, most first (a tie by seat order). */
+function ranked(state) {
+  return state.seats.map((seat) => ({ seat, score: state.scores[seat] })).sort((p, q) => q.score - p.score || p.seat - q.seat);
+}
+
+/** Places for rows of scores: equal scores share a place. */
+function placesOf(rows) {
+  return rows.map((r) => ({ seat: r.seat, place: 1 + rows.filter((o) => o.score > r.score).length }));
 }
 
 /** How the test game's settings are described in its manifest (`manifest.settings`). */
