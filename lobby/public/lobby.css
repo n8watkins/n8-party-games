@@ -1155,10 +1155,11 @@ input {
   top: max(2px, env(safe-area-inset-top));
   left: max(4px, env(safe-area-inset-left));
   z-index: 30;
-  max-width: calc(100% - 120px);
+  /* Clear of the corner's three round buttons at the top right (rooms.css). */
+  max-width: calc(100% - 190px);
   padding: 1px 6px;
   border-radius: 4px;
-  background: rgba(0, 0, 0, 0.62);
+  background: rgba(0, 0, 0, 0.7);
   color: #e8f7d4;
   font: 600 11px/15px var(--mono);
   white-space: nowrap;
@@ -1168,4 +1169,12 @@ input {
 }
 #app.in-game .frame-meter {
   display: none;
+}
+/* A phone held upright: under the corner's buttons and the "turn your phone sideways" hint (rooms.css), on as many lines as it needs. */
+@media (orientation: portrait) and (max-width: 560px) {
+  .frame-meter {
+    top: calc(max(10px, env(safe-area-inset-top)) + 118px);
+    max-width: calc(100% - 20px);
+    white-space: normal;
+  }
 }
