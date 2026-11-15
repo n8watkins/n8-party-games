@@ -6,7 +6,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { GAME_FRAME, dropFakeRuntime, fakeEnv, openRoom, settle, useFakeRuntime } from "./fake-room.js";
 import { started as startedIn, turnGame } from "./turn-game.js";
-import { DROP_FADE_MS } from "../server/lobby-core.js";
+import { DROP_FADE_MS, SEAT_HOLD_MS } from "../server/lobby-core.js";
 import { CLOSE_BAD_TOKEN, CLOSE_HELLO_EXPECTED, CLOSE_HELLO_LATE, HELLO_MS, MAX_UNKNOWN } from "../../party-kit/src/worker/hello-logic.js";
 
 vi.mock("cloudflare:workers", () => ({
@@ -133,7 +133,7 @@ describe("a hello that names no seat", () => {
     expect(ws.frames).toEqual([]);
   });
 
-  it("the token of a seat that was given up is refused, and so is one whose held seat ran out", async () => {
+  it("the token of a seat that was given up is refused", async () => {
     const r = await party();
     const bo = await r.connect(r.tokens.bo);
     await settle();
@@ -143,6 +143,24 @@ describe("a hello that names no seat", () => {
     expect(again.closed).toEqual({ code: CLOSE_BAD_TOKEN, reason: "bad_token" });
     expect(again.frames).toEqual([]);
     expect(r.ctx.room.core.members[1]).toBeNull();
+  });
+
+  it("a phone that dropped has its seat back with a hello while it is held, and is refused once the hold ran out", async () => {
+    const r = await party();
+    const bo = await r.connect(r.tokens.bo);
+    await settle();
+    r.ctx.room.webSocketClose(bo, 1006, "");
+    await vi.advanceTimersByTimeAsync(DROP_FADE_MS + 1000);
+    expect(r.ctx.room.core.members[1]).toBeNull();
+    const back = await r.connect(r.tokens.bo);
+    await settle();
+    expect(back.messages()[0]).toMatchObject({ t: "hello", you: { role: "player", seat: 1 } });
+
+    r.ctx.room.webSocketClose(back, 1006, "");
+    await vi.advanceTimersByTimeAsync(DROP_FADE_MS + SEAT_HOLD_MS + 2000);
+    const late = await r.connect(r.tokens.bo);
+    expect(late.closed).toEqual({ code: CLOSE_BAD_TOKEN, reason: "bad_token" });
+    expect(late.frames).toEqual([]);
   });
 
   it("a room that does not exist closes the socket at once", async () => {

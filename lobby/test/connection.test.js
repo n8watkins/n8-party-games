@@ -183,7 +183,8 @@ describe("a page hidden in a turn-based game", () => {
     vi.advanceTimersByTime(4000);
     const again = FakeWebSocket.last;
     again.open();
-    expect(again.kinds()[0]).toBe("away");
+    // The hello that names the seat, then away: the first thing the seat says.
+    expect(again.kinds().slice(0, 2)).toEqual(["hello", "away"]);
   });
 
   it("offline while hidden parks it; shown and online, it opens a socket that is showing", () => {

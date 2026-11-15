@@ -168,13 +168,19 @@ export class PartyClient {
     const origin = this.base || location.origin;
     const url = new URL(`${this.api}/rooms/${this.session.code}/ws`, origin);
     url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
-    url.searchParams.set("token", this.session.token);
+    // The seat's token is never part of the address: addresses are written down by the server's
+    // logs, and whoever reads the token there could take the seat. It is the first message.
     if (this.lag) url.searchParams.set("lag", String(this.lag));
+    const { token } = this.session;
     const ws = new WebSocket(url);
     this.ws = ws;
     ws.onopen = () => {
-      this.retry = 0;
+      // A socket this page has already given up on says nothing: it is not ours to seat.
+      if (this.ws !== ws) return;
       this.heardAt = Date.now();
+      // The hello comes before anything else: until the room has read it, this socket has no
+      // seat, is sent nothing, and is closed by any other first message.
+      ws.send(JSON.stringify({ t: "hello", token }));
       // A new socket is a page that is showing, to the room: one that is hidden says so first.
       if (this.away) this.send({ t: "away" });
       this.setStatus("open");
@@ -195,7 +201,10 @@ export class PartyClient {
       this.ws = null;
       // An answer cannot come on a closed socket: whoever waits may send the same id again once it is back.
       this.dropAnswers();
-      // 4000: the room closed. 4003: the seat is no longer ours (the grace ran out).
+      // 4000: the room closed. 4003: the seat is no longer ours (the grace ran out, it was given
+      // up, or the room does not know the token). Anything else is a drop, and the socket is
+      // opened again: the signal went, or the room let go of a socket that had not said hello yet
+      // (4009: too many were waiting, or the hello came too late).
       if (event.code === 4000 || event.code === 4003 || !this.wantOpen) {
         this.forget();
         this.setStatus("closed");
@@ -246,6 +255,9 @@ export class PartyClient {
     }
     switch (msg.t) {
       case "hello":
+        // The room read our hello and seated this socket. Only now does the reconnect back-off
+        // start over: a socket that opens and is closed before this keeps backing off.
+        this.retry = 0;
         this.you = msg.you;
         this.setRoom(msg.room);
         break;

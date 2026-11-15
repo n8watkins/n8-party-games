@@ -10,6 +10,11 @@ export const RATE_LIMITS = {
   // A round takes a minute and a half, so nobody honest posts a score more often than this.
   score_short: { limit: 6, windowMs: 10 * 60_000 },
   score_long: { limit: 60, windowMs: 24 * 60 * 60_000 },
+  // Opening a room's socket. The door cannot tell a good socket from a bad one (the seat's token
+  // is the first message, not part of the address), so it limits how many one address may open:
+  // each one wakes the room. A party of five devices on one address, each reconnecting as fast as
+  // the client's back-off allows (every four seconds), opens 75 a minute; a script opens far more.
+  socket: { limit: 120, windowMs: 60_000 },
 };
 
 /**

@@ -12,6 +12,7 @@ import { generate } from "lean-qr";
 import { toSvgSource } from "lean-qr/extras/svg";
 import { cleanName } from "../core/room-core.js";
 import { API_HEADERS, CODE_ALPHABET, CODE_LENGTH, allowedOrigins, error, isCode, isJoinLink, json, originAllowed, readBody } from "./http.js";
+import { MAX_TOKEN_LENGTH } from "./hello-logic.js";
 import { isPin, PIN_DIRECTORY_NAME } from "./pin-logic.js";
 import { allowRequest } from "./rate-limiter.js";
 import { fullMessage, roomBudgetState } from "./room-budget.js";
@@ -52,7 +53,7 @@ async function resolveRoom(env, value) {
  *   POST /api/party/rooms              {nickname, as?: "player" | "screen", turnstile?}  -> {code, pin, token, seat, role}
  *   GET  /api/party/join/:pinOrCode                                                      -> {preview}
  *   POST /api/party/join/:pinOrCode    {nickname, as?}                                   -> {code, pin, token, seat, role}
- *   GET  /api/party/rooms/:code/ws?token=...[&lag=ms]                                    WebSocket
+ *   GET  /api/party/rooms/:code/ws[?lag=ms]                                              WebSocket; its first message is {t: "hello", token}
  *   GET  /api/party/qr.svg?text=<this site's join link>                                  a QR code as SVG
  *   GET  /api/party/config                                                               {publicOrigin, simLatency, turnstileSiteKey}
  *   GET  /api/party/scores/:game                                                         -> {top: [{name, score, at}]}
@@ -164,7 +165,14 @@ async function route(request, env, url, options) {
     if (!isCode(parts[1])) return error("not_found", "That room code is not valid.");
     // Simulated latency is a test switch: a server without it says so instead of ignoring it.
     if (url.searchParams.has("lag") && env.PARTY_SIM_LATENCY !== "on") return error("bad_request", "Simulated latency is off on this server.");
-    if ((url.searchParams.get("token") ?? "").length > 64) return error("bad_request", "That seat token is not valid.");
+    // The seat's token is not in the address (every address is written down by the logs): it is
+    // the socket's first message, read by the room. A page loaded before that still sends
+    // ?token=; the room refuses it and gives that seat up (room.js, fetch). Something too long to
+    // be a token is not passed on at all.
+    if ((url.searchParams.get("token") ?? "").length > MAX_TOKEN_LENGTH) return error("bad_request", "That seat token is not valid.");
+    // With no token to look at, the door cannot tell whose socket this is, and every socket
+    // wakes the room: one address may open only so many a minute.
+    if (!(await allowRequest(env, request, "socket"))) return error("rate_limited", "Too many connections. Try again in a minute.");
     return rooms.getByName(parts[1]).fetch(request);
   }
 
