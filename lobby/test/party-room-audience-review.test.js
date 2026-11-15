@@ -2,8 +2,8 @@
 // real Durable Object class before it was fixed: pieces that jumped back after a sleep, a second
 // socket of someone who left, a moving piece taking a spot, and the spot step's sums.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { dropFakeRuntime, settle, useFakeRuntime, walkTo } from "./fake-room.js";
-import { spotsFor4, standOn, turnGame } from "./turn-game.js";
+import { dropFakeRuntime, openRoom, settle, useFakeRuntime, voteTo, walkTo } from "./fake-room.js";
+import { SETTINGS_FIELDS, spotsFor4, standOn, turnGame } from "./turn-game.js";
 import { SETTINGS_MS } from "../server/lobby-core.js";
 import { boxCentre, posAt, spawnX } from "../shared/world.js";
 
@@ -115,6 +115,29 @@ describe("a piece walking across a spot", () => {
     say(ws.cy, { t: "m", x: Math.round(core.members[2].x), d: 1, r: core.members[2].rev });
     await settle();
     expect(core.activity.spots.map((s) => s.seat)).toEqual([2, null]);
+  });
+});
+
+describe("a wall too small for spots", () => {
+  it("seats only the game's first seats by seat, also for a game with settings", async () => {
+    const game = turnGame({ settings: true });
+    // One light on the wall: two spots cannot be offered.
+    const r = await openRoom(createLobbyRoom, game, { manifest: { audience: true, settings: SETTINGS_FIELDS } });
+    const { ctx, say } = r;
+    ctx.keepAlive = true;
+    const ann = await ctx.room.create({ code: "BCDFGH", nickname: "Ann", as: "player" });
+    const tokens = [ann];
+    for (const nickname of ["Bo", "Cy", "Di"]) tokens.push(await ctx.room.join({ nickname, as: "player" }));
+    const ws = [];
+    for (const t of tokens) ws.push(await r.connect(t.token));
+    await voteTo(r, "settings", ...ws.map((w, seat) => [w, seat]));
+    expect(ctx.room.core.activity).not.toHaveProperty("spots");
+    expect(ctx.room.core.activity.seats).toEqual([0, 1]);
+    say(ws[0], { t: "settings-start" });
+    await settle();
+    expect(ctx.room.core.activity).toMatchObject({ kind: "game", seats: [0, 1] });
+    expect(game.calls.created.at(-1).seats.map((s) => s.seat)).toEqual([0, 1]);
+    expect(ctx.room.core.viewerOf({ role: "player", seat: 3 })).toEqual({ role: "audience", seat: 3 });
   });
 });
 

@@ -850,7 +850,9 @@ export class LobbyCore {
    * The vote chose a game with settings: the room's activity is the settings step. Its first picks
    * are the settings this game was last started with, when the game still takes them, and
    * otherwise its defaults (the fields' defaults, cleaned by `game.settings`). The players are the
-   * party as it is now; anyone who joins during the step watches the game. Returns {ok, choosing}.
+   * party as it is now (its first members by seat, for a game with an audience on a wall too small
+   * for spots: partySeats), or with spots nobody yet; anyone who joins during the step watches the
+   * game. Returns {ok, choosing}.
    */
   beginSettings(game, id, now, spots = null) {
     let first = { ok: true, settings: {} };
@@ -863,7 +865,8 @@ export class LobbyCore {
         return fail("bad_game", `settings() refused its own defaults: ${first.message}`);
       }
     }
-    const seats = this.present().map((m) => m.seat);
+    // The party, or its first members by seat when the game takes fewer and the wall is too small for spots.
+    const seats = this.partySeats(id);
     if (!seats.length) return fail("not_ready", "Nobody is here to play.");
     this.count = null;
     this.toss = null;
