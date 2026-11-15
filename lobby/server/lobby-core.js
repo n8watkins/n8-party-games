@@ -23,7 +23,12 @@
 //   turn-based  a game with `tickHz: 0` is never ticked on a timer. An input is applied at once
 //               (playTurn), its deadline is one more wake-up (nextWake, then gameDeadline), and
 //               the game is saved with the room (serialize), so it survives a sleep or a deploy.
+//               It is humans only: nobody stands in for a player. A seat whose phone dropped is
+//               held for the game's grace, the game is told of every change in who is here
+//               (turnUpkeep, game.presence), and a seat gone for good ends the game early
+//               (game.abandon). While it is played the room's lifetimes are the game's own.
 import { makeRng } from "../../party-kit/src/core/rng.js";
+import { abandonOutcome, goneWhy, graceEndsAt, graceOf, lifetimesOf, presenceOutcome, reportOf, sameReport } from "../../party-kit/src/core/presence.js";
 import { deadlineOf, gameProblems, inputOutcome, isTurnBased, loadState, saveState } from "../../party-kit/src/core/turns.js";
 import { viewerFor } from "../../party-kit/src/core/views.js";
 import { IDLE_SHUTDOWN_MS, NAME_MAX, SEAT_COLOURS, STALE_ROOM_MS, cleanName, randomToken } from "../../party-kit/src/core/room-core.js";
@@ -56,6 +61,11 @@ export const DROP_FADE_MS = 12_000;
  * in. An empty room with a seat held waits for it this long before it closes.
  */
 export const SEAT_HOLD_MS = 120_000;
+/**
+ * A turn-based game that does not choose its own grace (`game.reconnectGraceMs`) holds a dropped
+ * seat this long before the game ends without it: the same as a seat held in the lobby.
+ */
+export const TURN_GRACE_MS = SEAT_HOLD_MS;
 /** How many people who left are remembered by name, so coming back restores their points. */
 const MAX_REMEMBERED = 12;
 
@@ -120,8 +130,8 @@ export class LobbyCore {
   join(nickname, now, token = randomToken(), wantSeat = -1) {
     const name = cleanName(nickname);
     if (!name) return fail("bad_name", "Pick a nickname first.");
-    // While a game is on, a seat somebody left in the middle of it still has a stall in the
-    // round (the game's stand-in is playing it): a newcomer is never given that seat.
+    // While a game is on, a seat somebody left in the middle of it is still the game's (a
+    // ticking game's stand-in is playing it): a newcomer is never given that seat.
     const inPlay = this.activity.kind === "game" ? this.activity.seats : [];
     const free = (i) => this.members[i] === null && !inPlay.includes(i);
     const seat = wantSeat >= 0 && free(wantSeat) ? wantSeat : this.members.findIndex((m, i) => free(i));
@@ -248,6 +258,21 @@ export class LobbyCore {
       this.count = null;
     }
     this.noteEmpty(now);
+  }
+
+  /**
+   * Whether a player's page is hidden while its socket stays open (a desktop tab put behind
+   * another; the room's page closes its socket instead when a phone is locked). The room works
+   * it out from every open socket of the token (presence.js, allAway). Returns whether it changed.
+   * It changes nothing in the lobby; a turn-based game is told of it (turnUpkeep).
+   */
+  setAway(token, away) {
+    const who = this.identify(token);
+    if (!who || who.role !== "player") return false;
+    const m = this.members[who.seat];
+    if (!!m.away === !!away) return false;
+    m.away = !!away;
+    return true;
   }
 
   /**
@@ -553,8 +578,22 @@ export class LobbyCore {
       if (now - this.lastActive >= STALE_ROOM_MS) out.close = "stale";
       else if (now - this.createdAt >= MAX_ROOM_LIFE_MS) out.close = "expired";
       else if (this.closing && now >= this.closing.at) out.close = this.closing.reason;
+    } else if (this.turnGame() && now - this.lastActive >= this.lifetimes().staleRoomMs) {
+      // A turn-based match nobody has touched for the game's own stale limit is forgotten.
+      out.close = "stale";
     }
     return out;
+  }
+
+  /**
+   * How long the room waits before it closes as empty and as forgotten: the room's own values,
+   * or while a game is played the ones it chooses (`idleShutdownMs`, `staleRoomMs`). A game that
+   * chooses nothing (Cork & Bell) keeps the room's.
+   */
+  lifetimes() {
+    const defaults = { idleShutdownMs: IDLE_SHUTDOWN_MS, staleRoomMs: STALE_ROOM_MS };
+    const a = this.activity;
+    return a.kind === "game" ? lifetimesOf(this.games.get(a.id), defaults) : defaults;
   }
 
   /**
@@ -588,9 +627,14 @@ export class LobbyCore {
     this.count = null;
   }
 
-  /** How long an empty room waits before it closes: longer while a dropped player's seat is held. */
+  /**
+   * How long an empty room waits before it closes: longer while a dropped player's seat is held,
+   * and while a game is played that asks for longer (a match of two locked phones).
+   */
   emptyLimit(now) {
-    return this.heldSeats(now) ? SEAT_HOLD_MS : IDLE_SHUTDOWN_MS;
+    const held = this.heldSeats(now) ? SEAT_HOLD_MS : 0;
+    if (this.activity.kind !== "game") return held || IDLE_SHUTDOWN_MS;
+    return Math.max(held, this.lifetimes().idleShutdownMs);
   }
 
   /** When the room should next be woken if nothing else happens (for the alarm), or null. */
@@ -605,10 +649,14 @@ export class LobbyCore {
       // The rest after a game: a count may be due the moment it is over, if anyone is here to vote.
       if (this.holdUntil > now && this.connected().length) at = Math.min(at, this.holdUntil);
       for (const m of this.present()) if (!m.connected && m.droppedAt !== null) at = Math.min(at, m.droppedAt + DROP_FADE_MS);
-    } else {
-      // A turn-based game's deadline (a turn timer running out) is a wake-up like any other.
+    } else if (this.turnGame()) {
+      // A turn-based game's deadline (a turn timer running out) is a wake-up like any other, and
+      // so are the game's stale limit and the moment a dropped seat's grace runs out.
       const deadline = this.turnDeadline();
       if (deadline !== null) at = Math.min(at, deadline);
+      at = Math.min(at, this.lastActive + this.lifetimes().staleRoomMs);
+      const grace = graceOf(this.turnGame(), TURN_GRACE_MS);
+      for (const seat of this.activity.seats) at = Math.min(at, graceEndsAt(this.members[seat], grace) ?? Infinity);
     }
     return at === Infinity ? null : Math.max(at, now + 20);
   }
@@ -636,6 +684,14 @@ export class LobbyCore {
     this.toss = null;
     const state = game.create({ seed: seed >>> 0, seats, now, round: this.round });
     this.activity = { kind: "game", id, state, startedAt: now, ticks: 0, seats: seats.map((s) => s.seat) };
+    if (isTurnBased(game)) {
+      // What the game has been told of each seat: it starts with every seat here, as the vote
+      // had them, and hears at once of one that is not (before anyone sees the first snapshot).
+      this.activity.told = Object.fromEntries(seats.map((s) => [s.seat, { connected: true, away: false }]));
+      // The names, so a game a player has left can still say who left.
+      this.activity.names = Object.fromEntries(seats.map((s) => [s.seat, s.name]));
+      if (!game.isOver(state)) this.tellPresence(game, now);
+    }
     this.lastActive = now;
     return { ok: true, ended: game.isOver(state) ? this.finishGame(now) : null };
   }
@@ -722,6 +778,70 @@ export class LobbyCore {
   }
 
   /**
+   * Who is here, for the turn-based game being played: call it after anything that may have
+   * changed it (a socket opening or closing, a page hidden or shown, a player leaving, a wake-up,
+   * the room waking from sleep). Only the game's own seats count, never the rest of the party.
+   *   - A seat gone for good (its player left the party, or its phone dropped and the game's
+   *     grace ran out) ends the game early (abandonGame).
+   *   - Otherwise every seat whose presence changed since the game last heard is reported to
+   *     `game.presence`.
+   * Returns null when the game did not change, or what playTurn returns (without `answer`): the
+   * room saves, sends the fresh views and asks for the next deadline, as after an input.
+   */
+  turnUpkeep(now) {
+    const game = this.turnGame();
+    if (!game) return null;
+    const grace = graceOf(game, TURN_GRACE_MS);
+    for (const seat of this.activity.seats) {
+      const why = goneWhy(this.members[seat], now, grace);
+      if (why) return this.abandonGame(game, seat, why, now);
+    }
+    const { changed, events } = this.tellPresence(game, now);
+    return changed ? { ok: true, ...this.turnOut(game, events, now) } : null;
+  }
+
+  /** Tells the game of every seat whose presence changed since it last heard. Returns {changed, events}. */
+  tellPresence(game, now) {
+    const a = this.activity;
+    const out = { changed: false, events: [] };
+    for (const seat of a.seats) {
+      const report = reportOf(this.members[seat]);
+      if (sameReport(a.told[seat], report)) continue;
+      a.told[seat] = report;
+      if (typeof game.presence !== "function") continue;
+      const { changed, events } = presenceOutcome(game.presence(a.state, seat, { ...report }, now));
+      if (!changed) continue;
+      out.changed = true;
+      out.events.push(...events);
+    }
+    return out;
+  }
+
+  /**
+   * A seat in the turn-based game is gone for good: the game ends now. `game.abandon`, when the
+   * game has it, decides the result (presence.js, abandonOutcome); without it the game ends with
+   * no points. Everyone hears why in a note, and the room's card says so too (`last.early`).
+   */
+  abandonGame(game, seat, why, now) {
+    const a = this.activity;
+    let outcome = abandonOutcome(null);
+    if (typeof game.abandon === "function") {
+      try {
+        outcome = abandonOutcome(game.abandon(a.state, seat, now));
+      } catch (err) {
+        console.error(`party room: ${a.id} could not be abandoned; it ends with no points`, err);
+      }
+    }
+    const name = this.members[seat]?.name ?? a.names?.[seat] ?? "A player";
+    const gameName = this.boxes.find((box) => box.id === a.id)?.name ?? a.id;
+    const text = why === "left" ? `${name} left the party, so ${gameName} ended.` : `${name} did not come back, so ${gameName} ended.`;
+    this.notes.push({ k: "ended", why, seat, name, colour: SEAT_COLOURS[seat], text });
+    const out = { ok: true, events: outcome.events, snapshot: (viewer) => game.snapshot(a.state, now, viewer), viewerOf: (who) => this.viewerOf(who, a), ended: null };
+    out.ended = this.finishGame(now, { standings: outcome.standings, result: outcome.result, early: { seat, name, why, text } });
+    return out;
+  }
+
+  /**
    * Advances the game; call it at the game's tick rate. Returns {events, snapshot, viewerOf, ended}:
    *   events    all of them; the room sends each viewer its own with `eventsFor`
    *   snapshot  null, or `(viewer) => game.snapshot(...)` when one is due (the last one included)
@@ -752,12 +872,16 @@ export class LobbyCore {
     return out;
   }
 
-  /** The game is over: its places become points, and everyone is back by the door. */
-  finishGame(now) {
+  /**
+   * The game is over: its places become points, and everyone is back by the door. `ending` is
+   * set when the game was ended before it was over (abandonGame): its standings and result are
+   * what `game.abandon` decided, and the card says why it ended (`last.early`).
+   */
+  finishGame(now, ending = null) {
     const a = this.activity;
     const game = this.games.get(a.id);
-    const result = game.result ? game.result(a.state) : null;
-    const places = game.standings ? game.standings(a.state) : standingsFromRows(result);
+    const result = ending ? ending.result : game.result ? game.result(a.state) : null;
+    const places = ending ? ending.standings : game.standings ? game.standings(a.state) : standingsFromRows(result);
     const rows = [];
     for (const { seat, place } of places ?? []) {
       const m = this.members[seat];
@@ -775,6 +899,7 @@ export class LobbyCore {
     record(this.history, { round: this.round, name: this.boxes.find((box) => box.id === a.id)?.name ?? a.id, rows });
     if (rows.length) this.gamesPlayed += 1;
     this.last = { round: this.round, game: a.id, name: this.boxes.find((box) => box.id === a.id)?.name ?? a.id, rows, at: now };
+    if (ending) this.last.early = ending.early;
     this.activity = { kind: "lobby" };
     for (const m of this.present()) {
       m.x = spawnX(m.seat, this.boxes.length);
@@ -802,15 +927,16 @@ export class LobbyCore {
       game: a.kind === "game" ? { id: a.id, name: this.boxes.find((box) => box.id === a.id)?.name ?? a.id, round: this.round, ...(this.turnGame() ? { turns: true } : {}) } : null,
       boxes: this.boxes,
       members: this.members.map((m) =>
-        m ? { seat: m.seat, name: m.name, colour: m.colour, connected: m.connected, x: Math.round(posAt(m, now)), d: m.d, rev: m.rev, points: m.points, ...this.bumpView(m, now), emoteCool: Math.round(emoteLeft(m.emoteAt, now)) } : null,
+        m ? { seat: m.seat, name: m.name, colour: m.colour, connected: m.connected, ...(m.connected && m.away ? { away: true } : {}), x: Math.round(posAt(m, now)), d: m.d, rev: m.rev, points: m.points, ...this.bumpView(m, now), emoteCool: Math.round(emoteLeft(m.emoteAt, now)) } : null,
       ),
       screens: this.screensConnected(),
       vote: this.voteView(now),
       tonight: { games: this.gamesPlayed, played: this.history },
       last: this.last ? { ...this.last, ago: now - this.last.at } : null,
       closesIn: Math.max(0, this.createdAt + MAX_ROOM_LIFE_MS - now),
-      // How long a room may go with nobody doing anything before it is put away.
-      idleLimit: STALE_ROOM_MS,
+      // How long a room may go with nobody doing anything before it is put away (a game being
+      // played may choose its own).
+      idleLimit: this.lifetimes().staleRoomMs,
       closing: this.closing ? { in: Math.max(0, this.closing.at - now), reason: this.closing.reason } : null,
       // The room the party is in, and who picks it (lobby/shared/rooms.js).
       room: this.room,
@@ -861,8 +987,8 @@ export class LobbyCore {
   savedGame() {
     const game = this.turnGame();
     if (!game) return null;
-    const { id, state, startedAt, ticks, seats } = this.activity;
-    return { id, startedAt, ticks, seats, state: saveState(game, state) };
+    const { id, state, startedAt, ticks, seats, told, names } = this.activity;
+    return { id, startedAt, ticks, seats, told, names, state: saveState(game, state) };
   }
 
   /**
@@ -877,7 +1003,10 @@ export class LobbyCore {
       if (!isTurnBased(game)) throw new Error(`${saved.id} is not a turn-based game here.`);
       if (!Array.isArray(saved.seats) || !saved.seats.every(Number.isInteger)) throw new Error("The saved game has no seats.");
       const state = loadState(game, saved.state);
-      this.activity = { kind: "game", id: saved.id, state, startedAt: saved.startedAt, ticks: saved.ticks ?? 0, seats: [...saved.seats] };
+      // What the game was last told of each seat comes back too, so a wake tells it only what
+      // changed while the room slept (turnUpkeep).
+      const told = Object.fromEntries(saved.seats.map((seat) => [seat, saved.told?.[seat] ?? { connected: true, away: false }]));
+      this.activity = { kind: "game", id: saved.id, state, startedAt: saved.startedAt, ticks: saved.ticks ?? 0, seats: [...saved.seats], told, names: { ...saved.names } };
     } catch (err) {
       console.error("party room: a saved game could not be restored", err);
       this.activity = { kind: "lobby" };
@@ -889,7 +1018,7 @@ export class LobbyCore {
     const room = new LobbyCore({ ...config, seed: data.seed, code: data.code, now });
     room.pin = data.pin;
     // Nobody is connected until their socket is seen again; a piece left mid-stride stands still.
-    room.members = data.members.map((m) => (m ? { ...m, x: m.d ? posAt(m, now) : m.x, d: 0, t: now, connected: false, droppedAt: m.droppedAt ?? now, bumpAt: -Infinity } : null));
+    room.members = data.members.map((m) => (m ? { ...m, x: m.d ? posAt(m, now) : m.x, d: 0, t: now, connected: false, away: false, droppedAt: m.droppedAt ?? now, bumpAt: -Infinity } : null));
     // One screen at most. A screen that had dropped before the room slept keeps the moment it
     // dropped, so its grace runs on through the sleep; one that was connected is seen again by
     // its socket (resume). A room saved before screens had a grace kept bare tokens.

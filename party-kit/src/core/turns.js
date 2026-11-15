@@ -7,6 +7,8 @@
 // Plain logic: no network, no clock, no storage. Any room class (the party room today, the kit's
 // own room later) can use it to decide how a game runs and how its state is written down.
 
+import { presenceProblems } from "./presence.js";
+
 /** The version of what saveState writes, so a later shape can still read an older save. */
 export const SAVE_VERSION = 1;
 
@@ -37,6 +39,9 @@ export function gameProblems(game) {
   } else if (typeof game.tick !== "function") {
     problems.push("A ticking game needs tick().");
   }
+  // Presence, the grace, an early end and the room's lifetimes (presence.js): read only while a
+  // turn-based game is played, but a wrong value is wrong on any game.
+  problems.push(...presenceProblems(game));
   return problems;
 }
 

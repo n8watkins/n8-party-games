@@ -8,11 +8,14 @@
 //   - The keep-alive ("ping") is answered by the runtime itself and never wakes the room.
 //   - A timer runs only while a game is being played, and only if the game has a tick rate.
 //     A turn-based game (`tickHz: 0`) runs none: each input is applied and saved as it comes,
-//     and the game's deadline is one more alarm.
+//     and the game's deadline is one more alarm. Nobody stands in for its players: a phone that
+//     drops keeps its seat for the game's grace (one more alarm), the game is told who is here
+//     (upkeep), and a seat gone for good ends it early.
 // So a lobby (or a turn-based game) where nobody touches anything holds its sockets through the WebSocket Hibernation
 // API and costs nothing, and all the time the room is awake is counted against the room budget.
 import { DurableObject } from "cloudflare:workers";
 import { LagLine, eventsFor, fanOut } from "../../party-kit/src/core/room-core.js";
+import { allAway, presenceSignal } from "../../party-kit/src/core/presence.js";
 import { newSeed } from "../../party-kit/src/core/rng.js";
 import { SOCKET_RATE, newBucket, strike, takeMessage } from "../../party-kit/src/worker/limit-logic.js";
 import { PIN_DIRECTORY_NAME } from "../../party-kit/src/worker/pin-logic.js";
@@ -84,9 +87,14 @@ export function createLobbyRoom(wallFor) {
           this.flushedAt = Math.max(this.flushedAt, kept.flushedAt ?? 0);
           this.pinAt = Math.max(this.pinAt, kept.pinAt ?? 0);
         }
+        // A page that was hidden when the room slept is still hidden: its socket says so.
+        for (const entry of this.sockets.values()) this.syncAway(entry.token);
         // A ticking game cut short by a restart is gone (a turn-based one was restored with the
         // room, unless its save could not be read); everyone has to hear they are back in the lobby.
         if (saved.midGame || this.core.lost) this.changed(this.wokeAt);
+        // A turn-based game hears of a phone whose socket did not come through the sleep, and
+        // ends if a seat's grace ran out while the room was asleep.
+        else await this.upkeep(this.wokeAt);
       });
     }
 
@@ -156,7 +164,11 @@ export function createLobbyRoom(wallFor) {
       this.send(entry, { t: "hello", you: { role: who.role, seat: who.seat }, room: core.view(now) });
       // Mid-game (a reload, a phone back from a drop, a late joiner): the game as this socket may see it.
       if (core.activity.kind === "game") this.send(entry, { t: "snap", s: core.snapshotFor(core.viewerOf(entry), now), now, full: true });
+      // A new socket is a page that is showing; the token is away only if every socket of it is.
+      this.syncAway(token);
       this.changed(now);
+      // A phone back in a turn-based game: the game hears it is here (its timer may run again).
+      void this.upkeep(now);
       this.bill(now);
       return new Response(null, { status: 101, webSocket: client });
     }
@@ -262,6 +274,9 @@ export function createLobbyRoom(wallFor) {
         }
         case "e":
           return this.emote(ws, entry, msg, now);
+        case "away":
+        case "back":
+          return this.presence(entry, msg, now);
         case "in":
           if (!player) return;
           if (core.turnGame()) void this.playTurn(entry, msg.d, now);
@@ -280,6 +295,8 @@ export function createLobbyRoom(wallFor) {
           core.leave(entry.token, now);
           this.drop(ws, entry, 1000, "left");
           this.changed(now);
+          // A seat that leaves a turn-based game on purpose is gone for good: the game ends.
+          void this.upkeep(now);
           return;
         default:
           return;
@@ -302,12 +319,50 @@ export function createLobbyRoom(wallFor) {
       if (tooEager(out.wait) && strike(entry.bucket, SOCKET_RATE, EAGER_STRIKE) === "close") this.kick(ws, entry);
     }
 
+    /**
+     * A page says it is hidden (`away`) or shown again (`back`) while its socket stays open. The
+     * seat is away when every open socket of it is. Nothing is saved or relayed in the lobby but
+     * the room view; a turn-based game is told (upkeep).
+     */
+    presence(entry, msg, now) {
+      if (entry.role !== "player") return;
+      const away = presenceSignal(msg);
+      if (entry.kept.away === away) return;
+      entry.kept.away = away;
+      entry.ws.serializeAttachment(entry.kept);
+      if (!this.syncAway(entry.token)) return;
+      this.broadcastRoom(now);
+      void this.upkeep(now);
+    }
+
+    /** Works out whether a token is away from all its open sockets. Returns whether that changed. */
+    syncAway(token) {
+      const mine = [...this.sockets.values()].filter((e) => e.token === token).map((e) => ({ away: !!e.kept.away }));
+      return this.core?.setAway(token, allAway(mine)) ?? false;
+    }
+
+    /**
+     * After anything that may have changed who is here in a turn-based game: the game is told,
+     * or ended when a seat is gone for good (LobbyCore.turnUpkeep). What it did is saved before
+     * anyone hears it, as an input is.
+     */
+    async upkeep(now) {
+      const core = this.core;
+      const out = core?.turnUpkeep(now);
+      if (!out) return null;
+      await this.save();
+      if (this.core !== core) return out;
+      this.deliverTurn(out, now);
+      return out;
+    }
+
     /** A socket that floods is closed and its seat given up: dropped messages are still billed. */
     kick(ws, entry) {
       const now = Date.now();
       this.core?.leave(entry.token, now);
       this.drop(ws, entry, CLOSE_TOO_FAST, "too_fast");
       this.changed(now);
+      void this.upkeep(now);
     }
 
     drop(ws, entry, code, reason) {
@@ -334,21 +389,32 @@ export function createLobbyRoom(wallFor) {
       if (entry) this.drop(ws, entry, 1000, "gone");
       if (!this.core || !token) return;
       if (!this.isConnected(token)) this.core.disconnect(token, now);
+      else this.syncAway(token);
       this.changed(now);
+      // A phone gone from a turn-based game: the game hears it (its timer may pause), and the
+      // seat is held for the game's grace (a wake-up, LobbyCore.nextWake).
+      void this.upkeep(now);
       this.bill(now);
     }
 
-    /** Closes sockets whose phone has gone without saying so, so nobody waits on a ghost. */
+    /**
+     * Closes sockets whose phone has gone without saying so, so nobody waits on a ghost. Looked at
+     * when anything happens in the lobby, and on every input and wake-up of a turn-based game.
+     */
     reap(now) {
       if (now - this.reapedAt < REAP_EVERY_MS) return;
       this.reapedAt = now;
+      let reaped = false;
       for (const [ws, entry] of [...this.sockets]) {
         const auto = this.ctx.getWebSocketAutoResponseTimestamp(ws)?.getTime() ?? 0;
         if (now - Math.max(auto, entry.kept.seen ?? 0, entry.kept.at) < SILENT_MS) continue;
         this.drop(ws, entry, 1001, "silent");
         if (!this.isConnected(entry.token)) this.core.disconnect(entry.token, now);
+        else this.syncAway(entry.token);
         this.broadcastRoom(now);
+        reaped = true;
       }
+      if (reaped) void this.upkeep(now);
     }
 
     // ------------------------------------------------------------ the vote, the alarm and the game
@@ -400,12 +466,19 @@ export function createLobbyRoom(wallFor) {
       const core = this.core;
       if (!core) return;
       const now = Date.now();
-      // A turn-based game's deadline: the game is ticked once, saved, and everyone hears what it did.
-      const due = core.gameDeadline(now);
-      if (due) {
-        await this.save();
+      if (core.turnGame()) {
+        // A phone that went quiet without closing its socket is noticed here too.
+        this.reap(now);
+        // A turn-based game's deadline: the game is ticked once, saved, and everyone hears what it did.
+        const due = core.gameDeadline(now);
+        if (due) {
+          await this.save();
+          if (this.core !== core) return;
+          this.deliverTurn(due, now);
+        }
+        // A dropped seat whose grace has run out ends the game.
+        await this.upkeep(now);
         if (this.core !== core) return;
-        this.deliverTurn(due, now);
       }
       const out = core.tick(now);
       if (out.start) {
@@ -455,8 +528,9 @@ export function createLobbyRoom(wallFor) {
         (viewer) => ({ t: "start", room, s: core.snapshotFor(viewer, now), now }),
       );
       // A turn-based game runs no timer: the room sleeps between inputs and wakes at its deadline
-      // (the alarm), so only the time it is really awake is counted.
-      if (turns) return;
+      // (the alarm), so only the time it is really awake is counted. A seat whose phone had
+      // already dropped when the vote ended is held from then (upkeep, and the grace's wake-up).
+      if (turns) return void (await this.upkeep(now));
       // The one place a timer runs: while a game with a tick rate is being played.
       this.meter.hold(now);
       this.timer = setInterval(() => this.gameTick(), Math.round(1000 / (game.tickHz ?? 30)));
@@ -470,6 +544,8 @@ export function createLobbyRoom(wallFor) {
      */
     async playTurn(entry, data, now) {
       const core = this.core;
+      // The other phone may have gone quiet without closing its socket: the game hears of it first.
+      this.reap(now);
       const out = core.playTurn(entry.seat, data, now);
       if (!out.ok) return out;
       const saving = Date.now();

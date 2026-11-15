@@ -481,6 +481,8 @@ link.on("message", (msg) => {
       break;
     case "note":
       if (msg.k === "left") hud?.note(`${msg.name} left`, msg.colour);
+      // A game that ended early because a player in it left or did not come back says why.
+      else if (msg.k === "ended") hud?.note(msg.text, msg.colour);
       break;
     case "away":
       // An outside game won the vote: the card says where everyone is going, then goAway runs.
@@ -629,7 +631,8 @@ link.on("end", (msg) => {
   stirAt = performance.now();
   endStage();
   apply(msg.room);
-  hud?.result(msg.last);
+  // A game ended early with nobody placed has no card to show: the room's note says why it ended.
+  if (msg.last.rows.length || !msg.last.early) hud?.result(msg.last);
   roomSounds?.play("result", -1, { gain: 0.8 });
 });
 
