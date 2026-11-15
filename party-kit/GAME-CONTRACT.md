@@ -32,7 +32,7 @@ export const manifest = {
 
 | Name | What it is |
 | --- | --- |
-| `game` | The server game definition for `createPartyRoom(game)`: `id`, `minSeats`, `maxSeats`, `tickHz`, `snapshotEvery`, `create`, `input`, `bot`, `tick`, `snapshot`, `isOver`, `result` (see the kit's README, "The game object"). |
+| `game` | The server game definition for `createPartyRoom(game)`: `id`, `minSeats`, `maxSeats`, `tickHz`, `snapshotEvery`, `create`, `input`, `bot`, `tick`, `snapshot`, `isOver`, `result` (see the kit's README, "The game object" and "Per-seat views"). |
 | `manifest.id` | A short name in lower case with dashes. It matches `game.id`. |
 | `manifest.name` | The name people read. |
 | `manifest.path` | Where the game lives on a site, with a slash at both ends. The same on the party site and on the game's own site, so a join link works on either. |
@@ -48,6 +48,7 @@ export const manifest = {
 - **The game's own files stay under its path.** Pages and scripts refer to each other with relative addresses, and to the API as `/api/party/...`.
 - **Everything served is listed.** The site's build copies `manifest.public` and the kit's client and nothing else (`buildPublic` in `n8-party-games/kit/build`).
 - **The package has no `prepare` script** and its `files` list holds what a host needs: `party.js`, the public files, and the tools a host may run.
+- **Secrets stay in the views.** A game that hides something from some seats does it in `snapshot(state, now, viewer)` and with `only` on its events (the kit's README, "Per-seat views"); anything else it hands the room (`result`, `standings`) goes to everyone. An unknown viewer is treated as a screen. The room never sends its seed, and a game with secrets does not draw them from its round seed.
 
 ## What a site does with it
 
@@ -87,6 +88,7 @@ When the vote's count ends, the room calls `game.create({ seed, seats, now, roun
 Seat numbers are the room's and may have gaps (seats 0 and 2 when seat 1 left earlier), and there may be only one: the room does not look at `game.minSeats`, since the wall already kept the light off for a party the game does not take.
 There is no waiting room and no ready step: the vote was the ready step.
 The room sends everyone `start { room, s, now }`, the same message the kit's own rooms send, where `s` is `game.snapshot(state, now)`.
+The party room does not shape per-seat views yet: it calls `snapshot` with no viewer and sends every socket the same snapshot and every event, so a game with secrets cannot be hosted in it until it does (it is to use the kit's `viewerFor`, `eventsFor` and `fanOut`, the way the kit's own room does, with members outside the round as `{ role: "screen", seat }`).
 From then on it is the kit's round protocol unchanged: `in { d }` from a player goes to `game.input`, and `ev { ev, now }` and `snap { s, now }` come from `game.tick` and `game.snapshot`.
 The room answers the kit client's clock ping while a game is on, so `party.now()` works as it does in a game's own room.
 A seat whose player dropped is played by `game.bot`, if the game has one, so the round can finish.

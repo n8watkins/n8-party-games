@@ -11,8 +11,9 @@ What a game gets:
 - Presence: who is connected, who is ready, who dropped.
 - Reconnect to the same seat within 30 seconds.
 - A bot takes a seat the moment its player drops or leaves, so a round always finishes.
-- A seed owned by the room; each round derives its own seed from it.
-- An authoritative room: clients send inputs, the room runs the game and broadcasts events and snapshots.
+- A seed owned by the room; each round derives its own seed from it. The seed never leaves the room.
+- An authoritative room: clients send inputs, the room runs the game and sends events and snapshots.
+- Per-seat views: each socket gets the snapshot its viewer may see, and an event can be for one seat only, so a game can keep a secret per seat.
 - Simulated latency for tests.
 - Idle rooms shut down after one minute with nobody connected.
 - A plain waiting room with two slots: the lobby toy and the characters.
@@ -50,6 +51,7 @@ What a game must export so the party site can host it is in [GAME-CONTRACT.md](G
 | Path | What it is |
 | --- | --- |
 | `src/core/room-core.js` | The room as plain logic with an injected clock: seats, ready, start, drop and rejoin, bots, idle. No network. |
+| `src/core/views.js` | Per-seat views: the viewer a socket gets, events filtered by `only`, and one message built per kind of viewer. |
 | `src/core/rng.js` | `makeRng(seed)`, `hashSeed`, `newSeed`. |
 | `src/worker/index.js` | `handlePartyApi(request, env)`, `createPartyRoom(game)`, `PinDirectory`, `RateLimiter`. |
 | `src/worker/room.js` | The Durable Object around `RoomCore`: WebSockets, the tick loop, saving, shutdown. |
@@ -191,17 +193,43 @@ export const game = {
   // Optional. Inputs for a seat a bot is holding, called once per tick.
   bot(state, seat, now) { return [/* data */]; },
 
-  // Advance to `now`. Return the events every client should hear about.
+  // Advance to `now`. Return the events clients should hear about.
+  // An event with `only: seat` (or `only: [seats]`) reaches only the players in those seats.
   tick(state, now) { return events; },
 
-  snapshot(state, now) { return json; },
+  // What this viewer may see. A game that shows everyone the same can leave `viewer` out.
+  snapshot(state, now, viewer) { return json; },
   isOver(state) { return false; },
-  result(state) { return json; },   // optional, shown in the room view after the round
+  result(state) { return json; },   // optional, shown in the room view after the round: sent to everyone
 };
 ```
 
 `now` is always the room's clock in milliseconds.
 Use `makeRng(seed)` for every random choice so a round can be replayed.
+
+### Per-seat views
+
+A game with a secret per seat (Who Am I?: each phone shows the other player's identity, never its own) shapes what each socket receives.
+`viewer` is one of these:
+
+| `viewer` | Who it is |
+| --- | --- |
+| `{ role: "player", seat }` | A player's phone, and the seat is in the round. |
+| `{ role: "screen" }` | The shared big screen, which holds no seat. |
+| `{ role: "screen", seat }` | A member of the room whose seat is not in the round, who watches (in the kit's own room: someone who took a seat after the round ended, since a mid-round joiner takes over a bot's seat in the round). They get a screen's view; `seat` is there so a later version can tell a watching phone from the big screen. |
+
+A game should treat any viewer it does not recognise as a screen, so new roles stay safe.
+The room calls `snapshot` once for each kind of viewer and sends each socket its own: the `start` message, every `snap` (on schedule, at the end of the round, and the full one a socket gets when it connects mid-round) are all shaped this way.
+Events are filtered the same way: an event whose `only` names seats goes to those players and to nobody else (no screen, no watcher); every other event goes to everyone.
+The field is `only`, not `to`, because games already use `to` for their own meaning (Cork & Bell's shots).
+What is not shaped: the room view and `end`'s `result` (from `game.result`) go to everyone, so they must hold no secret.
+
+The room's seed is never sent (it used to be in the room view), because every round's seed is drawn from it: a game that drew a secret from its round seed would otherwise give it away.
+A game that wants its clients to have a seed puts one in its own snapshot, as Cork & Bell does; a game with secrets keeps them out of it, and Who Am I? draws its identities from `crypto.getRandomValues` instead.
+`game.privateSeed` is therefore not needed: the kit keeps every room's seed private.
+
+A game that ignores `viewer` and puts no `only` on its events gets the same frames on every socket as before this existed.
+The helpers are plain logic in `src/core/views.js`, also exported from `n8-party-games/kit/core` (`viewerFor`, `viewerKey`, `eventsFor`, `fanOut`), so another kind of room can shape its messages the same way.
 
 ### HTTP API
 
@@ -227,9 +255,10 @@ It needs no signing secret, so local development needs no `.dev.vars`.
 
 Client to room: `ping {c}`, `in {d}` (an input), `ready {v}`, `name {v}`, `character {v}`, `addBot`, `removeBot {seat}`, `start`, `leave`.
 
-Room to client: `hello {you, room}`, `room {room}`, `pong {c, s}`, `start {room, s, now}`, `ev {ev, now}`, `snap {s, now}`, `end {room, result, now}`, `error {error, message}`.
+Room to client: `hello {you, room}`, `room {room}`, `pong {c, s}`, `start {room, s, now}`, `ev {ev, now}`, `snap {s, now, full?}`, `end {room, result, now}`, `error {error, message}`.
+`s` in `start` and `snap`, and the list in `ev`, are shaped for the socket's viewer ("Per-seat views"); a socket left with no events after filtering gets no `ev` message for that tick.
 
-The room view (`room`) holds `pin`, `code`, `phase` (`lobby`, `playing`, `ended`), `round`, `seed`, `startAt`, `canStart`, `hostSeat`, `screens`, and `seats`: for each seat `{seat, name, kind: "human" or "bot", colour, connected, ready, away, character}`.
+The room view (`room`) holds `pin`, `code`, `phase` (`lobby`, `playing`, `ended`), `round`, `startAt`, `canStart`, `hostSeat`, `screens`, and `seats`: for each seat `{seat, name, kind: "human" or "bot", colour, connected, ready, away, character}`.
 Tokens never appear in it.
 
 ## Browser side
@@ -254,7 +283,7 @@ party.sendInput({ fire: 1, at: party.now() });   // inputs only, with the room's
 Events: `room`, `start`, `events`, `snapshot`, `end`, `status`, `error`, `closed` (with the room's own reason for closing the socket as a second argument, when it gave one), and `message` for anything the kit does not know.
 Options: `base`, `lag`, `storage`, `api` and `quietPing` (see "A second kind of room on one site").
 
-A screen (`create({as: "screen"})` or `join(pin, {as: "screen"})`) holds no seat and receives everything: use it for the shared big screen.
+A screen (`create({as: "screen"})` or `join(pin, {as: "screen"})`) holds no seat and receives the screen's view of the game: use it for the shared big screen.
 
 ## The lobby and its two slots
 
@@ -312,6 +341,7 @@ The delay runs inside the room (`LagLine`), so the room's view of time is the re
 ## Tests
 
 `npm test` at the repository root runs `party-kit/test/room-core.test.js`: seats and colours, nickname cleaning, ready and start, round seeds, the authoritative round, drop, rejoin inside and outside the grace, leaving, late joiners, stand-ins, idle shutdown, saving and restoring, the latency line, the seeded generator, PIN picking and the rate-limit window.
+`party-kit/test/views.test.js` drives the room's Durable Object class itself, with fake sockets that keep every frame as sent: with a game that holds a secret per seat, no frame to a seat carries its own secret, the other seat's frames carry it, the screen and a later arrival get neither, the room's seed is in no frame, and a game that ignores the viewer sends every socket the same frames.
 `npm run test:room` (with `npm run dev` running) checks the Durable Object wiring end to end over real sockets, with no browser: create, PIN lookup, QR code, join, a wrong PIN, simulated latency, start, an input relayed to the other seat, a drop with a stand-in, the same seat back with a full snapshot, and with `-- --full=1` the length of a whole round and the instant rematch.
 The games' multiplayer playtests (for example `npm run playtest:battle`) drive the same path through real browsers.
 `npm test` also checks the deploy settings (`test/deploy-config.test.js`), the API guards (`test/http.test.js`) and the score board's rules (`test/score.test.js`).
