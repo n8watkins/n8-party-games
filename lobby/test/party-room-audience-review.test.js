@@ -215,7 +215,7 @@ describe("what the pages say during a spot step", () => {
       { place: "soon-0", seat: null },
     ]).choosing;
     const full = { ...open, spots: [{ place: "turns", seat: 0 }, { place: "soon-0", seat: 3 }] };
-    expect(timeLine("Ann is choosing.", open.spots, 90_000)).toBe("Ann is choosing. Back to the room in 1:30 unless every spot is taken.");
+    expect(timeLine("Ann is choosing.", open.spots, 90_000)).toBe("Ann is choosing. Back to the room in 1:30 if a spot is still open.");
     expect(timeLine("Ann is choosing.", full.spots, 90_000)).toBe("Ann is choosing. Starts by itself in 1:30.");
     expect(timeLine("Ann is choosing.", null, 5_000)).toBe("Ann is choosing. Starts by itself in 0:05.");
     // Who stands on the spots is not part of what rebuilds the card.

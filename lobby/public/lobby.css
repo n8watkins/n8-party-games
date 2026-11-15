@@ -800,9 +800,10 @@ input {
 #app.in-game svg.scene {
   display: none;
 }
-/* Any game's view (main.js, startStage): the room's bar, its walk and emote buttons and its hints
-   do nothing for the game, so none of them lies over the view. */
-#app.staged .bar,
+/* Any game's view (main.js, startStage): a player's bar, its walk and emote buttons and the hints
+   do nothing for the game, so none of them lies over the view. The big screen keeps its bottom
+   line: the join code is still worth seeing. */
+#app.staged .hud-player .bar,
 #app.staged .turn-hint,
 #app.staged .banner {
   display: none;
@@ -1072,32 +1073,31 @@ input {
   }
   .hud-player .bar-player .status {
     display: grid;
-    grid-template-columns: auto minmax(0, max-content);
+    grid-template-columns: auto auto minmax(0, max-content);
     grid-template-areas:
-      "label rest"
-      "dot main";
+      "label dot main"
+      "rest rest rest";
     justify-content: center;
     align-items: center;
     column-gap: 6px;
-    row-gap: 1px;
+    row-gap: 2px;
   }
   .hud-player .status-label {
     grid-area: label;
-    justify-self: end;
-    font-size: 12px;
-  }
-  .hud-player .bar-player .status-sub {
-    grid-area: rest;
-    font-size: 12px;
   }
   .hud-player .bar-player .dot {
     grid-area: dot;
-    justify-self: end;
   }
   .hud-player .bar-player .status-main {
     grid-area: main;
     min-width: 0;
     font-size: 15px;
+  }
+  .hud-player .bar-player .status-sub {
+    grid-area: rest;
+    justify-self: center;
+    max-width: 100%;
+    font-size: 12.5px;
   }
   .hud-player .status-rule {
     display: none;
@@ -1300,10 +1300,16 @@ input {
     padding: 14px 16px;
     gap: 10px;
   }
-  .spots-card .settings-actions .button,
-  .spots-card .settings-actions .plain {
+  /* "Back to the room" keeps its own width on one line; Start takes the rest. */
+  .settings-card .settings-actions {
+    grid-template-columns: auto 1fr;
+  }
+  .settings-card .settings-actions .button,
+  .settings-card .settings-actions .plain {
     min-height: 48px;
-    padding: 8px 12px;
+    padding: 8px 16px;
+    font-size: 15px;
+    white-space: nowrap;
   }
 }
 
@@ -1328,16 +1334,16 @@ input {
   }
   .settings-back.spots {
     place-items: start stretch;
-    padding: 8px calc(max(10px, env(safe-area-inset-right)) + 52px) 0 max(8px, env(safe-area-inset-left));
+    padding: 6px calc(max(10px, env(safe-area-inset-right)) + 52px) 0 max(8px, env(safe-area-inset-left));
   }
   .settings-card.spots-card {
     width: auto;
-    padding: 8px 12px 10px;
-    gap: 6px 12px;
+    padding: 6px 12px 8px;
+    gap: 5px 12px;
     grid-template-columns: auto minmax(0, 1fr) auto;
     grid-template-areas:
-      "head line line"
-      "time time time"
+      "head time time"
+      "line line line"
       "spots spots actions"
       "picks picks picks";
     align-items: center;
@@ -1349,26 +1355,40 @@ input {
     display: none;
   }
   .spots-card .card-title {
-    font-size: 22px;
+    font-size: 21px;
   }
   .spots-card .spots-line {
     grid-area: line;
-    font-size: 14px;
+    font-size: 13.5px;
   }
   .spots-card .settings-left,
   .spots-card .settings-said {
     grid-area: time;
     font-size: 13px;
+    line-height: 1.25;
   }
   .settings-back.said .spots-card .settings-left {
     display: none;
   }
   .spots-card .spots-list {
     grid-area: spots;
+    flex-wrap: nowrap;
+    min-width: 0;
   }
   .spots-card .spot-chip {
     flex: 0 1 auto;
+    min-width: 0;
     min-height: 44px;
+    gap: 8px;
+    padding: 4px 12px;
+  }
+  .spots-card .spot-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .spots-card .spot-label {
+    white-space: nowrap;
   }
   .spots-card .settings-pills {
     grid-area: picks;
@@ -1382,7 +1402,8 @@ input {
   .spots-card .settings-actions .plain {
     width: auto;
     min-height: 44px;
-    padding: 6px 18px;
+    padding: 6px 16px;
+    font-size: 15px;
     white-space: nowrap;
   }
 }

@@ -40,7 +40,8 @@ export function cardKey(choosing, mine) {
  */
 export function timeLine(who, spots, ms) {
   const open = Array.isArray(spots) && spots.some((spot) => spot.seat === null);
-  return open ? `${who} Back to the room in ${minutes(ms)} unless every spot is taken.` : `${who} Starts by itself in ${minutes(ms)}.`;
+  // Short enough for one line beside the game's name on a small phone held sideways.
+  return open ? `${who} Back to the room in ${minutes(ms)} if a spot is still open.` : `${who} Starts by itself in ${minutes(ms)}.`;
 }
 
 /**
