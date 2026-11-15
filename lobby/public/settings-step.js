@@ -106,7 +106,7 @@ export class SettingsStep {
     const side = spots ? ` side-${cardSide(room.boxes ?? [], spots)}` : "";
     const back = (this.back = h("div", `card-back settings-back${spots ? " spots" : ""}${side}`, "", this.parent));
     // Under the door button's sheet and the other sheets, whichever opened first (lobby.css).
-    const card = h("div", `card settings-card${spots ? " spots-card" : ""}`, "", back);
+    const card = (this.card = h("div", `card settings-card${spots ? " spots-card" : ""}`, "", back));
     card.setAttribute("role", "dialog");
     card.setAttribute("aria-label", `${spots ? "Who plays" : "Settings for"} ${choosing.name}`);
     const head = h("div", "settings-head", "", card);
@@ -208,13 +208,19 @@ export class SettingsStep {
     if (this.left.textContent !== text) this.left.textContent = text;
   }
 
+  /** Where the spot card ends on the screen, in CSS pixels from the top; null without one (main.js keeps the name tags below it). */
+  cardBottom() {
+    if (!this.spots || !this.card?.isConnected) return null;
+    return this.card.getBoundingClientRect().bottom;
+  }
+
   get isOpen() {
     return !!this.back;
   }
 
   close() {
     this.back?.remove();
-    this.back = this.left = this.said = this.spotCells = this.spots = null;
+    this.back = this.card = this.left = this.said = this.spotCells = this.spots = null;
     this.selects = [];
     this.key = "";
   }

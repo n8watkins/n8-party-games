@@ -447,7 +447,7 @@ export class Scene {
     p.tagDot = s("circle", { r: this.tagSize * 0.3 });
     p.tagText = label("", { "font-size": this.tagSize, class: "t-ui t-semi" });
     p.tagTip = s("path", { d: "M-8,0 L8,0 L0,9 Z", display: "none" });
-    p.tag = s("g", {}, p.tagBack, p.tagTip, p.tagDot, p.tagText);
+    p.tag = s("g", { class: "name-tag" }, p.tagBack, p.tagTip, p.tagDot, p.tagText);
     this.layers.shadows.append(p.shadow);
     this.layers.pieces.append(p.g);
     this.layers.tags.append(p.tag);

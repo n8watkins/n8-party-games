@@ -159,6 +159,41 @@ describe("the spot card", () => {
     expect(hud.children[0].className).toContain("side-left");
   });
 
+  it("frames the room so no name tag, stacked or mid-jump, goes under the card on a phone", async () => {
+    const { FRAME, PHONE_FRAME, camera } = await import("../shared/camera.js");
+    const { JUMP_HEIGHT } = await import("../shared/world.js");
+    const { CARD_AIR, clearOfCard: clear, tagsTop } = await import("../public/card-clear.js");
+    const clearOfCard = (aim, o) => clear(aim, { ...o, jump: JUMP_HEIGHT, bottom: PHONE_FRAME.bottom, room: FRAME });
+    const screenOf = (worldY, v) => (worldY - v.y) * v.scale;
+    for (const [w, h, cardBottom] of [
+      [640, 360, 158],
+      [667, 375, 158],
+      [844, 390, 158],
+      [390, 844, 430],
+    ]) {
+      const bar = w > h ? 70 : 220;
+      const aim = camera({ w, h, bar, mode: "closer", focusX: 900, phone: true, boxes: 6 });
+      // The flat drawing's tags at this framing: two side by side, one mid-jump, one stacked (CSS pixels).
+      const k = aim.scale;
+      const tag = (worldTop, up = 0) => ({ top: (worldTop - up - aim.y) * k, height: 40 * k, up });
+      const top = tagsTop([tag(694), tag(694, 60), tag(648)], aim);
+      expect(top).toBeCloseTo(648, 5);
+      const framed = clearOfCard(aim, { cardBottom, top, w, h, bar });
+      // The highest a tag can go is a stacked one mid-jump: it still clears the card.
+      expect(screenOf(top - JUMP_HEIGHT, framed)).toBeGreaterThanOrEqual(cardBottom + CARD_AIR - 0.01);
+      // The pieces still stand on the bar, and the room is never drawn bigger than asked.
+      expect(screenOf(915, framed)).toBeCloseTo(h - bar, 3);
+      expect(framed.scale).toBeLessThanOrEqual(aim.scale);
+      expect(framed.width * framed.scale).toBeCloseTo(w, 5);
+    }
+    // A lone tag still keeps one step of stacking in hand.
+    const aim = camera({ w: 640, h: 360, bar: 70, mode: "closer", focusX: 900, phone: true });
+    expect(tagsTop([{ top: (694 - aim.y) * aim.scale, height: 40 * aim.scale, up: 0 }], aim)).toBeCloseTo(648, 5);
+    // No card, or no tags: the framing is left alone.
+    expect(clearOfCard(aim, { cardBottom: null, top: 600, w: 640, h: 360, bar: 70 })).toBe(aim);
+    expect(tagsTop([], aim)).toBe(null);
+  });
+
   it("finds a pick among a field's options", () => {
     expect(pickIndex(FIELDS[1], { rounds: 9 })).toBe(2);
     expect(pickIndex(FIELDS[1], {})).toBe(-1);
