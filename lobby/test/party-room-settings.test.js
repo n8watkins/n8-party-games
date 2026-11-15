@@ -9,6 +9,7 @@ import { dropFakeRuntime, fakeEnv, openRoom, settle, useFakeRuntime, voteIn, vot
 import { SETTINGS_FIELDS, choosing as choosingIn, from, started as startedIn, turnGame } from "./turn-game.js";
 import { SETTINGS_MS } from "../server/lobby-core.js";
 import { SETTLE_MS } from "../shared/vote.js";
+import { buildWall } from "../wall.js";
 
 vi.mock("cloudflare:workers", () => ({
   DurableObject: class {
@@ -77,6 +78,10 @@ describe("the settings step after the vote", () => {
       { value: 60, label: "60 seconds" },
     ]);
     expect(view.endsIn).toBeGreaterThan(SETTINGS_MS - 1000);
+    // The fields travel only in `choosing`, during the step: a box says no more than that its game has settings.
+    for (const w of Object.values(ws)) for (const m of w.messages()) for (const box of m.room?.boxes ?? []) expect(box.settings === undefined || box.settings === true).toBe(true);
+    expect(roomOf(ws.ann).boxes[0].settings).toBe(true);
+    expect(ws.ann.messages().find((m) => m.t === "hello").room).not.toHaveProperty("choosing");
     // On record, with its time limit as the room's alarm; no timer of any kind runs.
     expect(ctx.store.get("lobby").choosing).toMatchObject({ id: "turns", picks: { pace: 30 }, seats: [0, 1] });
     expect(ctx.alarm.at).toBe(ctx.room.core.activity.endsAt);
@@ -329,6 +334,18 @@ describe("the settings step after the vote", () => {
     expect(ctx.room.core.activity.kind).toBe("lobby");
     expect(errors.mock.calls.some(([text]) => /turns cannot start: A game with settings describes them in manifest\.settings/.test(text))).toBe(true);
     errors.mockRestore();
+  });
+});
+
+describe("the wall", () => {
+  it("keeps a hosted game's settings for the room, and puts only a flag on its box", () => {
+    const manifest = { id: "turns", name: "Turns", path: "/turns/", players: { min: 2, max: 2 }, devices: { phone: true }, lobby: { view: "view.js" }, settings: SETTINGS_FIELDS };
+    const wall = buildWall([{ manifest, game: turnGame({ settings: true }) }]);
+    expect(wall.fields.get("turns")).toBe(SETTINGS_FIELDS);
+    expect(wall.boxes.find((b) => b.id === "turns").settings).toBe(true);
+    // A game with no settings has neither.
+    expect(wall.boxes.filter((b) => b.id !== "turns").every((b) => !("settings" in b))).toBe(true);
+    expect([...wall.fields.keys()]).toEqual(["turns"]);
   });
 });
 

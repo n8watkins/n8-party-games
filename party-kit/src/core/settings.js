@@ -25,6 +25,10 @@ export const OPTIONS_MAX = 24;
 /** The most a clean settings object and a carry may weigh, as JSON. Both are saved with the room. */
 export const SETTINGS_MAX_BYTES = 2048;
 export const CARRY_MAX_BYTES = 4096;
+/** The most the checked fields may weigh as JSON: they go to every page in each room view of the step. */
+export const FIELDS_MAX_BYTES = 8192;
+/** The longest a string option's value may be. */
+export const VALUE_MAX = 64;
 
 /** Whether a game has settings to choose before it starts. */
 export function hasSettings(game) {
@@ -36,7 +40,7 @@ export function hasCarry(game) {
   return typeof game?.carry === "function";
 }
 
-const isChoice = (v) => typeof v === "string" || typeof v === "boolean" || (typeof v === "number" && Number.isFinite(v));
+const isChoice = (v) => (typeof v === "string" && v.length <= VALUE_MAX) || typeof v === "boolean" || (typeof v === "number" && Number.isFinite(v));
 
 /**
  * The fields a manifest describes (`manifest.settings`), checked and in one shape:
@@ -75,7 +79,7 @@ export function settingFields(described) {
     }
     const options = field.options.map((o) => (o && typeof o === "object" ? { value: o.value, label: o.label } : { value: o, label: undefined }));
     if (!options.every((o) => isChoice(o.value))) {
-      out.problems.push(`${at}.options are strings, numbers or true and false.`);
+      out.problems.push(`${at}.options are strings of up to ${VALUE_MAX} characters, numbers or true and false.`);
       continue;
     }
     if (new Set(options.map((o) => JSON.stringify(o.value))).size !== options.length) {
@@ -94,6 +98,12 @@ export function settingFields(described) {
       options: options.map((o) => ({ value: o.value, label: labelOf(o.label, String(o.value)) })),
       default: value,
     });
+  }
+  // The fields go to every page in each room view of the step: a description too heavy for that is refused whole.
+  const bytes = new TextEncoder().encode(JSON.stringify(out.fields)).length;
+  if (bytes > FIELDS_MAX_BYTES) {
+    out.fields = [];
+    out.problems.push(`manifest.settings weighs ${bytes} bytes as the room sends it; at most ${FIELDS_MAX_BYTES} are allowed.`);
   }
   return out;
 }

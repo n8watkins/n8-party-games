@@ -268,7 +268,7 @@ The plain logic for presence is `src/core/presence.js`: `presenceSignal`, `allAw
 
 A game may have settings that the party's host chooses after the vote, before the game starts.
 It declares `settings(value)`, which checks a settings object and returns it clean with its defaults filled in, or refuses it with `{ ok: false, error, message }`.
-Its manifest describes the choices for the page as `manifest.settings`, a list of fields, each with `key`, `label`, `options` (each `{ value, label }` or a bare value: a string, a number, `true` or `false`) and `default`.
+Its manifest describes the choices for the page as `manifest.settings`, a list of fields, each with `key`, `label`, `options` (each `{ value, label }` or a bare value: a string of up to 64 characters, a number, `true` or `false`) and `default`, at most 8 KB in all once checked; they reach the pages only during the settings step.
 When the game wins the vote the party room is in a short settings step; the host's picks are checked by the game, shown to everyone, and passed to `create` as `settings`.
 A game may also declare `carry(state)`, which returns a small plain-JSON object when a game ends; the room keeps it for that game and the same people in the same seats, and passes it to the next `create` of that game for them as `carry` (null when there is none).
 The rules are in `GAME-CONTRACT.md`, "Settings after the vote" and "What a rematch carries".

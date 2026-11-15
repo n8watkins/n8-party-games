@@ -86,13 +86,17 @@ const MAX_REMEMBERED = 12;
 
 export class LobbyCore {
   /**
-   * @param {{boxes: object[], games: Map<string, object>, seed: number, code: string, now: number}} opts
+   * @param {{boxes: object[], games: Map<string, object>, fields?: Map<string, object[]>, seed: number, code: string, now: number}} opts
    *   boxes: the wall, in order (lobby/shared/vote.js, boxFromManifest).
    *   games: the server definition of every box that can actually start, by id.
+   *   fields: each game's settings as its manifest describes them (`manifest.settings`), by id.
+   *     They reach the pages only in the settings step's `choosing`; a box says only `settings: true`.
    */
-  constructor({ boxes, games, seed, code, now }) {
+  constructor({ boxes, games, fields = new Map(), seed, code, now }) {
     this.boxes = boxes;
     this.games = games;
+    this.fields = fields;
+    this.fieldCache = new Map();
     this.seed = seed >>> 0;
     this.code = code;
     this.pin = null;
@@ -749,11 +753,17 @@ export class LobbyCore {
   startGame(id, now, seed = this.roundSeed(this.round + 1)) {
     const game = this.games.get(id);
     if (!game || this.activity.kind !== "lobby") return fail("not_found", "That game cannot start here.");
-    const problems = [...gameProblems(game), ...settingsProblems(game, this.boxOf(id)?.settings)];
+    const problems = [...gameProblems(game), ...settingsProblems(game, this.fields.get(id))];
     if (problems.length) return fail("bad_game", problems.join(" "));
     // A game with settings has them chosen first: the room waits for its host (startChosen).
     if (hasSettings(game)) return this.beginSettings(game, id, now);
     return this.createGame(game, id, now, seed, this.present().map((m) => m.seat), null);
+  }
+
+  /** A game's settings fields, checked and in one shape (settings.js, settingFields); worked out once per game. */
+  fieldsOf(id) {
+    if (!this.fieldCache.has(id)) this.fieldCache.set(id, settingFields(this.fields.get(id)).fields);
+    return this.fieldCache.get(id);
   }
 
   /** The box on the wall for a game id. */
@@ -768,7 +778,7 @@ export class LobbyCore {
    * party as it is now; anyone who joins during the step watches the game. Returns {ok, choosing}.
    */
   beginSettings(game, id, now) {
-    const { fields } = settingFields(this.boxOf(id)?.settings);
+    const fields = this.fieldsOf(id);
     let first = this.lastSettings[id] ? checkSettings(game, this.lastSettings[id]) : null;
     if (!first?.ok) first = checkSettings(game, fieldDefaults(fields));
     if (!first.ok) {
@@ -804,7 +814,7 @@ export class LobbyCore {
     if (!may.ok) return may;
     const a = this.activity;
     const game = this.games.get(a.id);
-    const { fields } = settingFields(this.boxOf(a.id)?.settings);
+    const fields = this.fieldsOf(a.id);
     const changed = applyChange(fields, a.picks, change);
     if (!changed.ok) return changed;
     const checked = checkSettings(game, changed.picks);
@@ -1329,7 +1339,7 @@ export class LobbyCore {
     return {
       id: a.id,
       name: box?.name ?? a.id,
-      fields: settingFields(box?.settings).fields,
+      fields: this.fieldsOf(a.id),
       picks: a.picks,
       seats: a.seats,
       by: this.pickerView()?.seat ?? null,

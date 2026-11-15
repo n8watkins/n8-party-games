@@ -61,9 +61,9 @@ export function boxFromManifest(manifest, extra = {}) {
     art: extra.art ?? manifest.id,
     // Whether emotes and sounds may be used while it is played (the kit's defaults when the manifest says nothing).
     play: playRules(manifest),
-    // The game's settings, as its manifest describes them, for the step after the vote (the room
-    // checks them: party-kit/src/core/settings.js). Only on a box whose game has them.
-    ...(manifest.settings ? { settings: manifest.settings } : {}),
+    // Only that the game has settings, chosen in a step after the vote. The fields themselves go
+    // to the pages in that step alone (the room view's `choosing`), not with every box.
+    ...(manifest.settings ? { settings: true } : {}),
   };
 }
 

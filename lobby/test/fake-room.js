@@ -148,7 +148,11 @@ const manifestOf = (game, players) => ({ id: game.id, name: game.id, players, de
  */
 export async function openRoom(createLobbyRoom, game, { players = { min: 2, max: 2 }, env = fakeEnv(), manifest = {} } = {}) {
   // `manifest`: more of the game's manifest, as its box is drawn from it (its `settings`, say).
-  const wall = { boxes: [boxFromManifest({ ...manifestOf(game, players), ...manifest }, { view: "/x/view.js" })], games: new Map([[game.id, game]]) };
+  const wall = {
+    boxes: [boxFromManifest({ ...manifestOf(game, players), ...manifest }, { view: "/x/view.js" })],
+    games: new Map([[game.id, game]]),
+    fields: new Map(manifest.settings ? [[game.id, manifest.settings]] : []),
+  };
   const Room = createLobbyRoom(() => wall);
   const ctx = fakeCtx();
   ctx.room = new Room(ctx, env);
