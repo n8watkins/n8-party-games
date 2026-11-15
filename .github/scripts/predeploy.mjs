@@ -4,6 +4,11 @@
 //   npm run predeploy                 (locally, from the owner's PC)
 //   .github/workflows/predeploy-gate.yml   (the same script, on a GitHub-hosted runner)
 //
+// The script is named `predeploy` on purpose: npm runs `pre<name>` before `npm run <name>`, so
+// `npm run deploy` runs this gate first by itself and stops if it fails. `npm run predeploy`
+// alone runs the gate without deploying. In an emergency, and only on the owner's word,
+// `npx wrangler deploy --env=''` deploys without the gate.
+//
 // Needs `npm ci` first, and Playwright's Chromium for the Cork & Bell step
 // (`npx playwright install chromium`). It starts its own local Worker on PREDEPLOY_PORT (default
 // 8853), so it does not touch a dev server that is already running. The Windows-Chrome playtest
