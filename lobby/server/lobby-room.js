@@ -337,7 +337,6 @@ export function createLobbyRoom(wallFor) {
       if (msg.t === "settings-cancel") {
         const done = core.cancelSettings(entry.token, now);
         if (!done.ok) return no(done);
-        for (const other of this.sockets.values()) this.keep(other);
         return this.changed(now);
       }
       // Start: the host's, and with every spot taken when the players are chosen on spots.
@@ -540,6 +539,10 @@ export function createLobbyRoom(wallFor) {
       this.tellNotes();
       this.broadcastRoom(now);
       this.arm(now);
+      // Whatever moved the pieces on the way here (a settings step that ended by itself, a start
+      // refused for the budget), each socket carries its piece as the room now has it, so a sleep
+      // does not bring back an older one (resume).
+      for (const entry of this.sockets.values()) this.keep(entry);
       void this.save();
     }
 
@@ -592,7 +595,6 @@ export function createLobbyRoom(wallFor) {
         // An outside game won: every page hears where it is going, and goes. Nothing is asked of
         // the budget and nothing is billed but this wake-up: the game is played somewhere else.
         this.broadcast({ t: "away", ...out.away });
-        for (const entry of this.sockets.values()) this.keep(entry);
         this.changed(now);
       } else if (out.close) {
         this.bill(now);
