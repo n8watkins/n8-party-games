@@ -79,7 +79,14 @@ export function createLobbyRoom(wallFor) {
       ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair(KEEP_ALIVE.text, KEEP_ALIVE.reply));
       void ctx.blockConcurrencyWhile(async () => {
         const saved = await ctx.storage.get(STORAGE_KEY);
-        if (!saved) return;
+        if (!saved) {
+          // No party here: the only sockets there can be are ones that never said whose they are.
+          for (const ws of ctx.getWebSockets()) {
+            const kept = ws.deserializeAttachment();
+            if (kept?.unknown) this.unknown.restore(ws, kept);
+          }
+          return;
+        }
         this.core = LobbyCore.restore(wall, saved, this.wokeAt);
         this.alarmAt = await ctx.storage.getAlarm();
         // Waking from sleep: the sockets are still open, so their owners are still here, and each
@@ -164,12 +171,12 @@ export function createLobbyRoom(wallFor) {
         // which is loaded afresh, with the way back in).
         this.revoke(inAddress, now);
         closeQuietly(server, CLOSE_BAD_TOKEN, OLD_FORM_REASON);
-      } else if (!this.core) {
-        closeQuietly(server, CLOSE_BAD_TOKEN, "bad_token");
       } else {
         // Nobody's socket yet: it has no seat and is sent nothing until its first message says
         // whose it is (greet). It wakes nothing and saves nothing; opening it is still an event
-        // the room was awake for. Simulated latency is for tests, off unless the Worker allows it.
+        // the room was awake for. A code that is no party is answered the same way, and its hello
+        // is refused like any wrong token: opening a socket does not tell anyone which codes are
+        // parties. Simulated latency is for tests, off unless the Worker allows it.
         const lag = this.env.PARTY_SIM_LATENCY === "on" ? Number(url.searchParams.get("lag") ?? 0) : 0;
         this.unknown.add(server, now, lag);
         this.meter.event(now, Date.now());

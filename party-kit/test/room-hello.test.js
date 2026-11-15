@@ -159,13 +159,28 @@ describe("a hello that names no seat", () => {
     expect(r.ctx.room.core.seats[1]).toBeNull();
   });
 
-  it("a room that does not exist closes the socket at once", async () => {
+  it("a room that does not exist answers exactly as one that does: nothing until the hello, then a seat that is not there", async () => {
     const Room = createPartyRoom(secretGame());
     const ctx = fakeCtx();
-    const room = new Room(ctx, fakeEnv());
-    await room.fetch(new Request("https://room/ws", { headers: { Upgrade: "websocket" } }));
-    expect(ctx.sockets[0].closed).toEqual({ code: CLOSE_BAD_TOKEN, reason: "bad_token" });
-    expect(ctx.sockets[0].frames).toEqual([]);
+    const env = fakeEnv();
+    let room = new Room(ctx, env);
+    const open = async () => (await room.fetch(new Request("https://room/ws", { headers: { Upgrade: "websocket" } })), ctx.sockets.at(-1));
+    // Opening a socket does not say whether the code is a room.
+    const silent = await open();
+    expect(silent.closed).toBeNull();
+    expect(silent.attachment).toEqual({ unknown: true, at: Date.now(), lag: 0 });
+    const ws = await open();
+    // The object sleeps and wakes with nothing saved: the sockets are still nobody's.
+    room = new Room(ctx, env);
+    await settle();
+    room.webSocketMessage(ws, JSON.stringify({ t: "hello", token: "any-token" }));
+    expect(ws.closed).toEqual({ code: CLOSE_BAD_TOKEN, reason: "bad_token" });
+    expect(ws.frames).toEqual([]);
+    // And never more than a handful wait there either.
+    const flood = [];
+    for (let i = 0; i < 40; i++) flood.push(await open());
+    expect([silent, ...flood].filter((s) => !s.closed)).toHaveLength(MAX_UNKNOWN);
+    expect(ctx.store.size).toBe(0);
   });
 });
 
@@ -265,6 +280,24 @@ describe("many sockets that never say whose they are", () => {
     const bo = await r.connect(r.bo.token);
     await settle();
     expect(bo.messages()[0]).toMatchObject({ t: "hello", you: { seat: 1 } });
+  });
+
+  it("someone who keeps the room's handful full of silent sockets, topping them up, keeps no player out", async () => {
+    const r = await openRoom();
+    // Bo was in, and dropped.
+    const first = await r.connect(r.bo.token);
+    r.ctx.room.webSocketClose(first, 1006, "");
+    for (let round = 0; round < 5; round++) {
+      for (let i = 0; i < MAX_UNKNOWN + 2; i++) await r.open();
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(r.ctx.room.unknown.size).toBe(MAX_UNKNOWN);
+      // A real page: its socket is the newest of the handful, and its hello follows at once.
+      const ws = await r.open();
+      expect(ws.closed).toBeNull();
+      r.hello(ws, round % 2 ? r.ann.token : r.bo.token);
+      expect(ws.messages()[0]).toMatchObject({ t: "hello" });
+      r.ctx.room.webSocketClose(ws, 1006, "");
+    }
   });
 
   it("one that said nothing in time is closed the next time anyone opens a socket", async () => {

@@ -11,7 +11,7 @@
 import { generate } from "lean-qr";
 import { toSvgSource } from "lean-qr/extras/svg";
 import { cleanName } from "../core/room-core.js";
-import { API_HEADERS, CODE_ALPHABET, CODE_LENGTH, allowedOrigins, error, isCode, isJoinLink, json, originAllowed, readBody } from "./http.js";
+import { API_HEADERS, CODE_ALPHABET, CODE_LENGTH, OUTDATED_MESSAGE, allowedOrigins, currentPage, error, isCode, isJoinLink, json, originAllowed, readBody } from "./http.js";
 import { MAX_TOKEN_LENGTH } from "./hello-logic.js";
 import { isPin, PIN_DIRECTORY_NAME } from "./pin-logic.js";
 import { allowRequest } from "./rate-limiter.js";
@@ -49,6 +49,8 @@ async function resolveRoom(env, value) {
 /**
  * Answers every request under /api/party. Returns null for any other path, so the caller can
  * fall through to its static assets.
+ *
+ * The two POSTs that hand out a seat need the client's mark, `X-Party-Protocol: 2` (http.js).
  *
  *   POST /api/party/rooms              {nickname, as?: "player" | "screen", turnstile?}  -> {code, pin, token, seat, role}
  *   GET  /api/party/join/:pinOrCode                                                      -> {preview}
@@ -102,6 +104,11 @@ async function route(request, env, url, options) {
     const svg = toSvgSource(generate(text), { on: "#1c1410", off: "#f4ead2", pad: 2, xmlDeclaration: true });
     return new Response(svg, { headers: { ...API_HEADERS, "Content-Type": "image/svg+xml", "Cache-Control": "public, max-age=3600" } });
   }
+
+  // A seat is handed out only to a page that will open its socket the current way (http.js,
+  // PROTOCOL). Refused before anything is counted or woken, with a line the old page shows.
+  const seats = (parts[0] === "rooms" && parts.length === 1) || (parts[0] === "join" && parts.length === 2);
+  if (seats && method === "POST" && !currentPage(request)) return error("page_outdated", OUTDATED_MESSAGE);
 
   if (parts[0] === "rooms" && parts.length === 1 && method === "POST") {
     const allowed = await Promise.all([allowRequest(env, request, "create_short"), allowRequest(env, request, "create_long")]);

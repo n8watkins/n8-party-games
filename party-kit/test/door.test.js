@@ -13,6 +13,7 @@ vi.mock("cloudflare:workers", () => ({
 
 const { handlePartyApi } = await import("../src/worker/index.js");
 const { RATE_LIMITS } = await import("../src/worker/limit-logic.js");
+const { PROTOCOL } = await import("../src/worker/http.js");
 
 /** A Worker environment whose limiter and room keep what they were asked. */
 function door({ limit = "on", allow = true } = {}) {
@@ -104,5 +105,59 @@ describe("opening a room's socket", () => {
     expect(res.status).toBe(101);
     expect(lobbies).toEqual([{ code: "BCDFGH", url: "https://party.test/api/lobby/rooms/BCDFGH/ws" }]);
     expect(hits).toHaveLength(1);
+  });
+});
+
+describe("making or joining a room from a page loaded before the token left the address", () => {
+  // Such a page keeps its old script until it is loaded afresh: it would be given a seat and then
+  // open its socket the old way, putting a fresh token in an address each time. The new client
+  // marks its requests; one without the mark is told, in words the old page shows, to reload.
+  const post = (path, headers = {}) => new Request(`https://party.test${path}`, { method: "POST", body: JSON.stringify({ nickname: "Ann" }), headers: { "Content-Type": "application/json", "CF-Connecting-IP": "203.0.113.7", ...headers } });
+  const rooms = () => {
+    const calls = [];
+    return { calls, getByName: (code) => ({ create: async (a) => (calls.push(["create", code]), { ok: true, code: a.code, pin: "4821", token: "t", seat: 0, role: "player" }), join: async () => (calls.push(["join", code]), { ok: true, code, pin: "4821", token: "t", seat: 1, role: "player" }) }) };
+  };
+
+  it.each([
+    ["making a room", "/api/party/rooms"],
+    ["joining one", "/api/party/join/BCDFGH"],
+  ])("%s without the mark is refused before anything is counted or woken, with a line to show", async (_, path) => {
+    const { env, hits } = door();
+    env.PARTY_ROOMS = rooms();
+    const res = await handlePartyApi(post(path), env);
+    expect(res.status).toBe(426);
+    const body = await res.json();
+    expect(body).toMatchObject({ ok: false, error: "page_outdated" });
+    expect(body.message).toMatch(/reload/i);
+    expect(hits).toEqual([]);
+    expect(env.PARTY_ROOMS.calls).toEqual([]);
+  });
+
+  it("a wrong mark is refused the same way", async () => {
+    const { env } = door();
+    env.PARTY_ROOMS = rooms();
+    expect((await handlePartyApi(post("/api/party/join/BCDFGH", { "X-Party-Protocol": "1" }), env)).status).toBe(426);
+  });
+
+  it("with the mark, joining goes through", async () => {
+    const { env } = door();
+    env.PARTY_ROOMS = rooms();
+    const res = await handlePartyApi(post("/api/party/join/BCDFGH", { "X-Party-Protocol": PROTOCOL }), env);
+    expect(res.status).toBe(200);
+    expect(env.PARTY_ROOMS.calls).toEqual([["join", "BCDFGH"]]);
+  });
+
+  it("looking a code up needs no mark: it hands out no seat", async () => {
+    const { env } = door();
+    env.PARTY_ROOMS = { getByName: () => ({ preview: async () => ({ code: "BCDFGH", players: [] }) }) };
+    const res = await handlePartyApi(new Request("https://party.test/api/party/join/BCDFGH", { headers: { "CF-Connecting-IP": "203.0.113.7" } }), env);
+    expect(res.status).toBe(200);
+  });
+
+  it("the party room's API asks for the mark too", async () => {
+    const { env } = door();
+    const lobbies = rooms();
+    expect((await handlePartyApi(post("/api/lobby/rooms"), env, { prefix: "/api/lobby", rooms: lobbies })).status).toBe(426);
+    expect(lobbies.calls).toEqual([]);
   });
 });

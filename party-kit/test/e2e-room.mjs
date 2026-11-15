@@ -13,7 +13,8 @@ const check = (ok, what) => {
   console.log((ok ? "ok   " : "FAIL ") + what);
   if (!ok) problems.push(what);
 };
-const post = async (path, body) => (await fetch(api + path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) })).json();
+// "X-Party-Protocol" is the mark the kit's client puts on its requests (party-client.js, PROTOCOL).
+const post = async (path, body, mark = { "X-Party-Protocol": "2" }) => (await fetch(api + path, { method: "POST", headers: { "Content-Type": "application/json", ...mark }, body: JSON.stringify(body) })).json();
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 /**
@@ -75,6 +76,11 @@ const b = await post("/join/" + a.pin, { nickname: "Bo" });
 check(b.ok && b.seat === 1 && b.code === a.code, "join by PIN with a nickname: seat 2");
 const bad = await post("/join/0000", { nickname: "X" });
 check(!bad.ok, "a wrong PIN is turned away");
+// A page loaded before the seat's token left the socket's address does not mark its requests.
+const stale = await post("/join/" + a.pin, { nickname: "Old" }, {});
+check(stale.ok === false && stale.error === "page_outdated" && /reload/i.test(stale.message ?? ""), `a request to join without the client's mark is refused, with a line the old page shows: "${stale.message}"`);
+const staleRoom = await post("/rooms", { nickname: "Old" }, {});
+check(staleRoom.error === "page_outdated" && !staleRoom.token, "and so is one to make a room: no seat, no token");
 
 const A = connect(a);
 const B = connect(b, 150);

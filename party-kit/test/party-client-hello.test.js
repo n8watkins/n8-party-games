@@ -2,7 +2,8 @@
 // builds (addresses are written down by the server's logs); it is the first message on every
 // socket, before anything else the page has to say.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { PartyClient } from "../client/party-client.js";
+import { PROTOCOL, PROTOCOL_HEADER, PartyClient } from "../client/party-client.js";
+import { PROTOCOL as WORKER_PROTOCOL, PROTOCOL_HEADER as WORKER_PROTOCOL_HEADER } from "../src/worker/http.js";
 import { FakeWebSocket } from "./fake-browser-socket.js";
 
 const TOKEN = "tok-3f9aQ_secret-seat-token";
@@ -82,6 +83,46 @@ describe("the address of the socket", () => {
     await c.join("4821", { nickname: "Ann" });
     expect(calls.map((call) => call.url)).toEqual(["https://party.test/api/party/rooms", "https://party.test/api/party/join/4821"]);
     for (const call of calls) expect(call.url + call.body).not.toContain(TOKEN);
+  });
+
+  it("the calls that make and join a room carry the mark the Worker asks for, the same one", async () => {
+    const sent = [];
+    vi.stubGlobal("fetch", async (url, init) => {
+      sent.push(init.headers ?? {});
+      return { json: async () => ({ ok: true, code: "BCDFGH", pin: "4821", token: TOKEN, seat: 0, role: "player" }) };
+    });
+    const c = client();
+    await c.create({ nickname: "Ann" });
+    await c.join("4821", { nickname: "Ann" });
+    expect(PROTOCOL).toBe(WORKER_PROTOCOL);
+    expect(PROTOCOL_HEADER).toBe(WORKER_PROTOCOL_HEADER);
+    for (const headers of sent) expect(headers[PROTOCOL_HEADER]).toBe(WORKER_PROTOCOL);
+  });
+});
+
+describe("after a close that is final", () => {
+  it.each([
+    ["the seat is gone (4003)", 4003, "bad_token"],
+    ["the page is out of date (4003 reload)", 4003, "reload"],
+    ["the room closed (4000)", 4000, "room_closed"],
+  ])("%s: the page showing again, or anything else, opens no new socket", (_, code, reason) => {
+    const c = client({ api: "/api/lobby", quietPing: { text: "ping", everyMs: 10_000 } });
+    c.connect();
+    const ws = FakeWebSocket.last;
+    ws.open();
+    ws.hear({ t: "hello", you: { role: "player", seat: 0 }, room: { phase: "playing", game: { id: "who-am-i", round: 1, turns: true }, members: [] } });
+    // Hidden in a turn-based game: away, with the socket kept.
+    c.setAway(true);
+    ws.readyState = 3;
+    ws.onclose({ code, reason });
+    expect(c.status).toBe("closed");
+    // The tab is shown again, and time passes.
+    expect(c.setAway(false)).toBe(false);
+    vi.advanceTimersByTime(60_000);
+    c.setAway(true);
+    c.setAway(false);
+    expect(FakeWebSocket.made).toHaveLength(1);
+    expect(c.status).toBe("closed");
   });
 });
 

@@ -22,7 +22,7 @@ const say = (ok, what) => {
 // Each run uses its own made-up address, so the limits start from zero.
 const ip = `198.51.100.${1 + Math.floor(Math.random() * 250)}`;
 const post = (path, body, headers = {}) =>
-  fetch(api + path, { method: "POST", body: JSON.stringify(body), headers: { "Content-Type": "application/json", "CF-Connecting-IP": ip, ...headers } }).then(async (r) => ({ status: r.status, headers: r.headers, ...(await r.json()) }));
+  fetch(api + path, { method: "POST", body: JSON.stringify(body), headers: { "Content-Type": "application/json", "CF-Connecting-IP": ip, "X-Party-Protocol": "2", ...headers } }).then(async (r) => ({ status: r.status, headers: r.headers, ...(await r.json()) }));
 
 /**
  * Opens a socket and says hello with `token` (the seat's token is the first message, never in

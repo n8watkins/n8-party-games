@@ -34,15 +34,14 @@ export function createPartyRoom(game) {
       this.meterFrom = null;
       void ctx.blockConcurrencyWhile(async () => {
         const saved = await ctx.storage.get(STORAGE_KEY);
-        if (!saved) return;
         const now = Date.now();
-        this.core = RoomCore.restore(game, saved, now);
+        if (saved) this.core = RoomCore.restore(game, saved, now);
         // Waking from sleep: the sockets are still open, so their owners are still here. One that
-        // had not said whose it is before the sleep is still nobody's.
+        // had not said whose it is before the sleep is still nobody's (also where there is no room).
         for (const ws of ctx.getWebSockets()) {
           const kept = ws.deserializeAttachment();
           if (kept?.unknown) this.unknown.restore(ws, kept);
-          else if (kept && this.core.connect(kept.token, now)) this.sockets.set(ws, this.entryFor(ws, kept));
+          else if (kept && this.core?.connect(kept.token, now)) this.sockets.set(ws, this.entryFor(ws, kept));
         }
       });
     }
@@ -97,13 +96,13 @@ export function createPartyRoom(game) {
         // names is given up, and the page is told its seat is gone (it must be loaded afresh).
         this.revoke(inAddress, now);
         closeQuietly(server, CLOSE_BAD_TOKEN, OLD_FORM_REASON);
-      } else if (!this.core) {
-        closeQuietly(server, CLOSE_BAD_TOKEN, "bad_token");
       } else {
         // Nobody's socket yet: it has no seat and is sent nothing until its first message says
         // whose it is (greet). What the room knows of it rides along on the socket, since the
-        // room's memory does not survive sleep. Simulated latency is for tests, and off unless
-        // the Worker allows it.
+        // room's memory does not survive sleep. A code that is no room is answered the same way,
+        // and its hello is refused like any wrong token: opening a socket does not tell anyone
+        // which codes are rooms. Simulated latency is for tests, and off unless the Worker
+        // allows it.
         const lag = this.env.PARTY_SIM_LATENCY === "on" ? Number(url.searchParams.get("lag") ?? 0) : 0;
         this.unknown.add(server, now, lag);
       }

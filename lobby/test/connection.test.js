@@ -200,6 +200,44 @@ describe("a page hidden in a turn-based game", () => {
   });
 });
 
+describe("a page whose seat is gone for good", () => {
+  it.each([
+    ["the seat was let go", 4003, "bad_token"],
+    ["the page is out of date", 4003, "reload"],
+    ["the room closed", 4000, "room_closed"],
+  ])("%s while it was hidden: shown again, online again or looked at later, it opens no new socket", (_, code, reason) => {
+    const { link, ws, watch, hide, show } = page(turns);
+    hide();
+    ws.readyState = 3;
+    ws.onclose({ code, reason });
+    expect(link.status).toBe("closed");
+    show();
+    watch.online(false);
+    hide();
+    watch.offline();
+    show();
+    watch.online(false);
+    vi.advanceTimersByTime(60_000);
+    watch.check(Date.now());
+    expect(FakeWebSocket.made).toHaveLength(1);
+    expect(link.status).toBe("closed");
+  });
+
+  it("the same in the lobby, where a hidden phone had parked its connection", () => {
+    const { link, hide, show } = page(lobby);
+    hide();
+    show();
+    const again = FakeWebSocket.last;
+    again.open();
+    again.readyState = 3;
+    again.onclose({ code: 4003, reason: "bad_token" });
+    hide();
+    show();
+    expect(FakeWebSocket.made).toHaveLength(2);
+    expect(link.status).toBe("closed");
+  });
+});
+
 describe("the activity changes while the page is hidden", () => {
   it("a turn-based game that ends parks a phone, as in the lobby", () => {
     const { ws, hide } = page(turns);

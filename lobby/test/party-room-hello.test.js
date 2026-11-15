@@ -163,11 +163,45 @@ describe("a hello that names no seat", () => {
     expect(late.frames).toEqual([]);
   });
 
-  it("a room that does not exist closes the socket at once", async () => {
+  it("a room that does not exist answers exactly as one that does: nothing until the hello, then a seat that is not there", async () => {
     const r = await openRoom(createLobbyRoom, turnGame());
+    // Opening a socket does not say whether the code is a party.
+    const silent = await r.open();
+    expect(silent.closed).toBeNull();
+    expect(silent.attachment).toEqual({ unknown: true, at: Date.now(), lag: 0 });
     const ws = await r.open();
+    // The object sleeps and wakes with nothing saved: the sockets are still nobody's.
+    await r.sleepAndWake();
+    hello(r, ws, "any-token");
     expect(ws.closed).toEqual({ code: CLOSE_BAD_TOKEN, reason: "bad_token" });
     expect(ws.frames).toEqual([]);
+    // Never more than a handful wait there either, and nothing is written or timed for them.
+    const flood = [];
+    for (let i = 0; i < 40; i++) flood.push(await r.open());
+    expect([silent, ...flood].filter((s) => !s.closed)).toHaveLength(MAX_UNKNOWN);
+    expect(r.ctx.store.size).toBe(0);
+    expect(r.ctx.alarm.at).toBeNull();
+  });
+
+  it("someone who keeps the party's handful full of silent sockets, topping them up, keeps no player out: not one coming back from a drop either", async () => {
+    const r = await party();
+    const first = await r.connect(r.tokens.bo);
+    await settle();
+    r.ctx.room.webSocketClose(first, 1006, "");
+    await settle();
+    for (let round = 0; round < 5; round++) {
+      for (let i = 0; i < MAX_UNKNOWN + 2; i++) await r.open();
+      await vi.advanceTimersByTimeAsync(1000);
+      expect((await r.ctx.room.debug()).unknown).toBe(MAX_UNKNOWN);
+      // Bo's page: its socket is the newest of the handful, and its hello follows at once.
+      const ws = await r.open();
+      expect(ws.closed).toBeNull();
+      hello(r, ws, r.tokens.bo);
+      await settle();
+      expect(ws.messages()[0]).toMatchObject({ t: "hello", you: { role: "player", seat: 1 } });
+      r.ctx.room.webSocketClose(ws, 1006, "");
+      await settle();
+    }
   });
 });
 

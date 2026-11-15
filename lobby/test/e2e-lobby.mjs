@@ -48,8 +48,14 @@ const wrong = await call("POST", "/join/0000", { nickname: "X" });
 check(!wrong.ok, "a wrong code is turned away");
 const foreign = await fetch(api + "/rooms", { method: "POST", headers: { "Content-Type": "application/json", Origin: "https://evil.example" }, body: JSON.stringify({ nickname: "Mal" }) });
 check(foreign.status === 403, "a page on another site cannot start a party (the kit's origin check)");
-const fat = await fetch(api + "/rooms", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ nickname: "x".repeat(5000) }) });
+const fat = await fetch(api + "/rooms", { method: "POST", headers: { "Content-Type": "application/json", "X-Party-Protocol": "2" }, body: JSON.stringify({ nickname: "x".repeat(5000) }) });
 check(fat.status === 400, "an oversized body is refused (the kit's body cap)");
+// A page loaded before the seat's token left the socket's address does not mark its requests.
+const stale = await fetch(api + "/join/" + a.pin, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ nickname: "Old" }) });
+const staleSaid = await stale.json().catch(() => ({}));
+check(stale.status === 426 && staleSaid.error === "page_outdated" && /reload/i.test(staleSaid.message ?? ""), `a request to join without the client's mark is refused, with a line the old page shows: "${staleSaid.message}"`);
+const stillFour = await call("GET", "/join/" + a.pin);
+check(stillFour.preview?.players.length === 4, "and it was given no seat");
 
 // A party of one whose only player leaves at once: by the end of this run it must be gone.
 const left = await call("POST", "/rooms", { nickname: "Zed" });

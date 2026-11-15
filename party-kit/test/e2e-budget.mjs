@@ -5,7 +5,7 @@
 //     --var PARTY_ROOM_BUDGET_SHARE:0.00001 --var PARTY_RATE_LIMIT:on
 //   node party-kit/test/e2e-budget.mjs http://localhost:8793
 const base = process.argv[2];
-const post = (path, body) => fetch(base + path, { method: "POST", body: JSON.stringify(body), headers: { "CF-Connecting-IP": "203.0.113.9" } }).then(async (r) => ({ status: r.status, ...(await r.json()) }));
+const post = (path, body) => fetch(base + path, { method: "POST", body: JSON.stringify(body), headers: { "CF-Connecting-IP": "203.0.113.9", "X-Party-Protocol": "2" } }).then(async (r) => ({ status: r.status, ...(await r.json()) }));
 const say = (ok, what) => {
   console.log((ok ? "ok   " : "FAIL ") + what);
   if (!ok) process.exitCode = 1;

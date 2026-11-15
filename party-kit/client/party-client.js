@@ -17,6 +17,13 @@
 // same seat (the room holds it for 30 seconds).
 
 const API = "/api/party";
+/**
+ * The mark on every request this client makes to the room API: it says the page opens its socket
+ * the current way, with the seat's token as the first message. The Worker hands a seat only to a
+ * request that carries it (party-kit/src/worker/http.js holds the same two values).
+ */
+export const PROTOCOL_HEADER = "X-Party-Protocol";
+export const PROTOCOL = "2";
 const STORE_KEY = "party-kit:session";
 // Pings keep the two clocks in step. That matters during a round; in the lobby a slow ping is
 // enough, and it lets the room sleep.
@@ -97,7 +104,7 @@ export class PartyClient {
   async request(method, path, body) {
     const res = await fetch(this.base + this.api + path, {
       method,
-      headers: body ? { "Content-Type": "application/json" } : undefined,
+      headers: body ? { "Content-Type": "application/json", [PROTOCOL_HEADER]: PROTOCOL } : { [PROTOCOL_HEADER]: PROTOCOL },
       body: body ? JSON.stringify(body) : undefined,
     });
     let data = null;
@@ -206,6 +213,9 @@ export class PartyClient {
       // opened again: the signal went, or the room let go of a socket that had not said hello yet
       // (4009: too many were waiting, or the hello came too late).
       if (event.code === 4000 || event.code === 4003 || !this.wantOpen) {
+        // Final: nothing opens a socket for this session again, not a back-off still pending and
+        // not the page being shown again (setAway).
+        this.wantOpen = false;
         this.forget();
         this.setStatus("closed");
         // The second word is the room's own reason for closing the socket, when it gave one.

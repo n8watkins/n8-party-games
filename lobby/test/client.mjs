@@ -9,7 +9,9 @@ export function partyApi(base) {
   const api = base + "/api/lobby";
 
   async function call(method, path, body) {
-    const res = await fetch(api + path, { method, headers: body ? { "Content-Type": "application/json" } : undefined, body: body ? JSON.stringify(body) : undefined });
+    // The mark the kit's client puts on its requests (party-client.js, PROTOCOL): a request to
+    // make or join a room without it is taken for a page loaded before the handshake changed.
+    const res = await fetch(api + path, { method, headers: body ? { "Content-Type": "application/json", "X-Party-Protocol": "2" } : undefined, body: body ? JSON.stringify(body) : undefined });
     return { status: res.status, ...(await res.json().catch(() => ({}))) };
   }
 
