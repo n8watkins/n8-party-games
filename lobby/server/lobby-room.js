@@ -7,7 +7,9 @@
 //   - Everything that depends on time is the alarm (the count, the toss, a dropped phone).
 //   - The keep-alive ("ping") is answered by the runtime itself and never wakes the room.
 //   - A timer runs only while a game is being played, and only if the game has a tick rate.
-// So a lobby where nobody touches anything holds its sockets through the WebSocket Hibernation
+//     A turn-based game (`tickHz: 0`) runs none: each input is applied and saved as it comes,
+//     and the game's deadline is one more alarm.
+// So a lobby (or a turn-based game) where nobody touches anything holds its sockets through the WebSocket Hibernation
 // API and costs nothing, and all the time the room is awake is counted against the room budget.
 import { DurableObject } from "cloudflare:workers";
 import { LagLine, eventsFor, fanOut } from "../../party-kit/src/core/room-core.js";
@@ -82,8 +84,9 @@ export function createLobbyRoom(wallFor) {
           this.flushedAt = Math.max(this.flushedAt, kept.flushedAt ?? 0);
           this.pinAt = Math.max(this.pinAt, kept.pinAt ?? 0);
         }
-        // A game cut short by a restart is gone; everyone has to hear they are back in the lobby.
-        if (saved.midGame) this.changed(this.wokeAt);
+        // A ticking game cut short by a restart is gone (a turn-based one was restored with the
+        // room, unless its save could not be read); everyone has to hear they are back in the lobby.
+        if (saved.midGame || this.core.lost) this.changed(this.wokeAt);
       });
     }
 
@@ -260,7 +263,9 @@ export function createLobbyRoom(wallFor) {
         case "e":
           return this.emote(ws, entry, msg, now);
         case "in":
-          if (player) core.gameInput(entry.seat, msg.d, now);
+          if (!player) return;
+          if (core.turnGame()) void this.playTurn(entry, msg.d, now);
+          else core.gameInput(entry.seat, msg.d, now);
           return;
         case "pick": {
           // The party moves to another room: one stored value and one relayed message. Refused
@@ -395,12 +400,19 @@ export function createLobbyRoom(wallFor) {
       const core = this.core;
       if (!core) return;
       const now = Date.now();
+      // A turn-based game's deadline: the game is ticked once, saved, and everyone hears what it did.
+      const due = core.gameDeadline(now);
+      if (due) {
+        await this.save();
+        if (this.core !== core) return;
+        this.deliverTurn(due, now);
+      }
       const out = core.tick(now);
       if (out.start) {
         // The allowance for the day or month is spent: no game starts, and the room is told it will close.
         const budget = await roomBudgetState(this.env).catch(() => "open");
         if (this.core !== core) return;
-        if (budget === "open") this.startGame(out.start);
+        if (budget === "open") await this.startGame(out.start);
         else core.refuseStart(Date.now());
         this.changed(Date.now());
       } else if (out.away) {
@@ -420,31 +432,70 @@ export function createLobbyRoom(wallFor) {
       this.bill(now, out.start ? 2 : 1);
     }
 
-    startGame(id) {
+    async startGame(id) {
       const core = this.core;
       const game = this.wall.games.get(id);
       const now = Date.now();
       // Each game its own seed from the secure source: nothing a page is shown leads to the room's or the next game's.
       const started = core.startGame(id, now, newSeed());
-      if (!started.ok) return;
+      if (!started.ok) {
+        if (started.error === "bad_game") console.error(`party room: ${id} cannot start: ${started.message}`);
+        return;
+      }
       if (started.ended) return this.finish(started.ended, now);
+      const turns = core.turnGame() !== null;
+      // A turn-based game is on record before anyone hears it began.
+      if (turns) {
+        await this.save();
+        if (this.core !== core || core.activity.kind !== "game") return;
+      }
       const room = core.view(now);
       this.broadcastViews(
         (e) => core.viewerOf(e),
         (viewer) => ({ t: "start", room, s: core.snapshotFor(viewer, now), now }),
       );
+      // A turn-based game runs no timer: the room sleeps between inputs and wakes at its deadline
+      // (the alarm), so only the time it is really awake is counted.
+      if (turns) return;
       // The one place a timer runs: while a game with a tick rate is being played.
       this.meter.hold(now);
       this.timer = setInterval(() => this.gameTick(), Math.round(1000 / (game.tickHz ?? 30)));
     }
 
-    gameTick() {
+    /**
+     * An input to a turn-based game: applied at once, the game saved, and only then does anyone
+     * hear of it (every viewer gets a fresh snapshot, and the events it produced). The one place
+     * where such an input is applied and saved; it returns what playTurn returned, so the sender
+     * can be answered from here when inputs are answered.
+     */
+    async playTurn(entry, data, now) {
       const core = this.core;
-      if (!core || core.activity.kind !== "game") return this.stopTimer();
-      const now = Date.now();
-      const out = core.gameTick(now);
-      // Built per viewer: an event addressed to some seats (`only`) reaches only them, and each
-      // snapshot is the one its viewer may see. The game's seats decide, even on the last tick.
+      const out = core.playTurn(entry.seat, data, now);
+      if (!out.ok) return out;
+      const saving = Date.now();
+      await this.save();
+      // The wait for storage is time awake too.
+      this.meter.add(Date.now() - saving, 0);
+      if (this.core !== core) return out;
+      this.deliverTurn(out, now);
+      return out;
+    }
+
+    /** Sends what a turn-based game did (an input or a deadline), and ends it or sets the next wake-up. */
+    deliverTurn(out, now) {
+      this.sendGame(out, now);
+      if (out.ended) {
+        this.finish(out.ended, now);
+        this.changed(now);
+        this.flush(now);
+      } else this.arm(now);
+    }
+
+    /**
+     * Built per viewer: an event addressed to some seats (`only`) reaches only them, and each
+     * snapshot is the one its viewer may see. The game's seats decide, even on the last one.
+     */
+    sendGame(out, now) {
       if (out.events.length) {
         this.broadcastViews(out.viewerOf, (viewer) => {
           const ev = eventsFor(out.events, viewer);
@@ -452,6 +503,14 @@ export function createLobbyRoom(wallFor) {
         });
       }
       if (out.snapshot) this.broadcastViews(out.viewerOf, (viewer) => ({ t: "snap", s: out.snapshot(viewer), now }));
+    }
+
+    gameTick() {
+      const core = this.core;
+      if (!core || core.activity.kind !== "game") return this.stopTimer();
+      const now = Date.now();
+      const out = core.gameTick(now);
+      this.sendGame(out, now);
       if (out.ended) {
         this.stopTimer();
         this.finish(out.ended, now);
@@ -571,8 +630,22 @@ export function createLobbyRoom(wallFor) {
       if (this.core) this.broadcast({ t: "room", room: this.core.view(now) });
     }
 
+    /**
+     * Writes the room down, with a turn-based game in progress. `midGame` says a game was on that
+     * the save does not hold (a ticking one), so a restart knows to tell everyone it is over. A
+     * turn-based game whose state cannot be written is left out the same way, and said so.
+     */
     async save() {
-      if (this.core) await this.ctx.storage.put(STORAGE_KEY, { ...this.core.serialize(), midGame: this.core.activity.kind === "game" });
+      const core = this.core;
+      if (!core) return;
+      let data;
+      try {
+        data = core.serialize();
+      } catch (err) {
+        console.error("party room: the game in progress could not be saved", err);
+        data = core.serialize({ withGame: false });
+      }
+      await this.ctx.storage.put(STORAGE_KEY, { ...data, midGame: core.activity.kind === "game" && !data.game });
     }
 
     /** Empty, forgotten, too old, or out of allowance: close every socket, give the code back, forget everything. */

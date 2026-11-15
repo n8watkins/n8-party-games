@@ -3,8 +3,7 @@
 // raw text that would go down the wire. The secrets are then looked for in those frames.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as cork from "cork-and-bell";
-import { COUNT_MS, boxFromManifest } from "../shared/vote.js";
-import { POSITION_SLACK, boxCentre } from "../shared/world.js";
+import { GAME_FRAME, dropFakeRuntime, eventsOf, expectNoRoomSeed, kindsOf, openRoom as open, useFakeRuntime, voteIn } from "./fake-room.js";
 
 vi.mock("cloudflare:workers", () => ({
   DurableObject: class {
@@ -16,97 +15,6 @@ vi.mock("cloudflare:workers", () => ({
 }));
 
 const { createLobbyRoom } = await import("../server/lobby-room.js");
-
-const START = 1_700_000_000_000;
-
-/** The server end of a socket: keeps every frame the room sends it. */
-class FakeSocket {
-  constructor() {
-    this.frames = [];
-    this.closed = null;
-    this.attachment = null;
-  }
-  send(text) {
-    if (typeof text !== "string") throw new Error("frames are text");
-    if (this.closed) throw new Error("closed");
-    this.frames.push(text);
-  }
-  close(code, reason) {
-    this.closed ??= { code, reason };
-  }
-  serializeAttachment(v) {
-    this.attachment = structuredClone(v);
-  }
-  deserializeAttachment() {
-    return this.attachment;
-  }
-  messages() {
-    return this.frames.map((f) => JSON.parse(f));
-  }
-  text() {
-    return this.frames.join("\n");
-  }
-}
-
-class FakePair {
-  constructor() {
-    this[0] = new FakeSocket();
-    this[1] = new FakeSocket();
-  }
-}
-
-/** The runtime allows a 101 with a socket; Node's Response does not, so the test has its own. */
-class FakeResponse {
-  constructor(body, init = {}) {
-    this.status = init.status ?? 200;
-    this.webSocket = init.webSocket ?? null;
-  }
-}
-
-/**
- * The Durable Object's state: storage that outlives an instance, the sockets it accepted (which
- * stay open through a sleep, as the Hibernation API keeps them), and one alarm that calls the
- * instance awake at the time.
- */
-function fakeCtx() {
-  const store = new Map();
-  const sockets = [];
-  const ctx = {
-    sockets,
-    /** The instance the alarm wakes: the newest one. */
-    room: null,
-    alarm: { at: null, timer: null },
-    setWebSocketAutoResponse: () => {},
-    getWebSocketAutoResponseTimestamp: () => null,
-    blockConcurrencyWhile: (fn) => fn(),
-    acceptWebSocket: (ws) => sockets.push(ws),
-    getWebSockets: () => sockets.filter((ws) => !ws.closed),
-    waitUntil: () => {},
-    storage: {
-      get: async (k) => structuredClone(store.get(k)),
-      put: async (k, v) => void store.set(k, structuredClone(v)),
-      getAlarm: async () => ctx.alarm.at,
-      setAlarm: async (at) => {
-        clearTimeout(ctx.alarm.timer);
-        ctx.alarm.at = at;
-        ctx.alarm.timer = setTimeout(() => {
-          ctx.alarm.at = null;
-          void ctx.room.alarm();
-        }, Math.max(0, at - Date.now()));
-      },
-      deleteAlarm: async () => {
-        clearTimeout(ctx.alarm.timer);
-        ctx.alarm.at = null;
-      },
-      deleteAll: async () => store.clear(),
-    },
-  };
-  return ctx;
-}
-
-const env = {
-  PARTY_PINS: { getByName: () => ({ issue: async () => ({ value: "4821" }), refresh: async () => {}, release: async () => {} }) },
-};
 
 /**
  * A game with a secret per seat, in the shape of Who Am I?: each player may see the other
@@ -152,78 +60,10 @@ function secretGame({ ticks = 30 } = {}) {
   };
 }
 
-const manifestOf = (game, players) => ({ id: game.id, name: game.id, players, devices: { phone: true, desktop: true, sharedScreen: true } });
+const openRoom = (game, players = { min: 2, max: 2 }) => open(createLobbyRoom, game, { players });
 
-async function openRoom(game, players = { min: 2, max: 2 }) {
-  const wall = { boxes: [boxFromManifest(manifestOf(game, players), { view: "/x/view.js" })], games: new Map([[game.id, game]]) };
-  const Room = createLobbyRoom(() => wall);
-  const ctx = fakeCtx();
-  ctx.room = new Room(ctx, env);
-  await settle();
-  const connect = async (token) => {
-    const res = await ctx.room.fetch(new Request(`https://room/ws?token=${token}`, { headers: { Upgrade: "websocket" } }));
-    expect(res.status).toBe(101);
-    return ctx.sockets.at(-1);
-  };
-  const say = (ws, msg) => ctx.room.webSocketMessage(ws, JSON.stringify(msg));
-  /** Puts the room to sleep and wakes a new instance over the same storage and sockets (a restart). */
-  const sleepAndWake = async () => {
-    ctx.room.stopTimer(); // the old instance is gone, and its timer with it
-    ctx.room = new Room(ctx, env);
-    await settle();
-  };
-  return { ctx, connect, say, sleepAndWake, room: () => ctx.room };
-}
-
-/** Lets the room's promises (storage, the budget check before a game) settle. */
-const settle = () => vi.advanceTimersByTimeAsync(0);
-
-/** Walks a seat's piece into the light of the only box, in steps the room believes. */
-async function walkIn(say, ctx, ws, seat) {
-  const target = boxCentre(0, 1);
-  for (;;) {
-    const m = ctx.room.core.members[seat];
-    if (Math.abs(target - m.x) < 1) return;
-    const x = Math.abs(target - m.x) > POSITION_SLACK ? m.x + Math.sign(target - m.x) * POSITION_SLACK : target;
-    say(ws, { t: "m", x, d: 0, r: m.rev });
-    await vi.advanceTimersByTimeAsync(50);
-  }
-}
-
-/** Both players walk into the light; the count runs out on the alarm and the game starts. */
-async function voteIn({ ctx, say }, ...players) {
-  for (const [ws, seat] of players) await walkIn(say, ctx, ws, seat);
-  expect(ctx.room.core.count).not.toBeNull();
-  // Up to the moment the game starts, and no further.
-  const until = Date.now() + COUNT_MS + 1000;
-  while (ctx.room.core.activity.kind !== "game" && Date.now() < until) await vi.advanceTimersByTimeAsync(10);
-  expect(ctx.room.core.activity.kind).toBe("game");
-}
-
-const GAME_FRAME = /^\{"t":"(start|ev|snap)"/;
-const kindsOf = (ws) => new Set(ws.messages().map((m) => m.t));
-const eventsOf = (ws) => ws.messages().filter((m) => m.t === "ev").flatMap((m) => m.ev);
-
-/** No frame names the room's seed, and no room view carries one. */
-function expectNoRoomSeed(core, sockets) {
-  const seed = String(core.seed);
-  for (const ws of sockets) {
-    for (const m of ws.messages()) if (m.room) expect(m.room).not.toHaveProperty("seed");
-    expect(ws.text()).not.toMatch(new RegExp(`\\b${seed}\\b`));
-  }
-}
-
-beforeEach(() => {
-  vi.useFakeTimers({ now: START });
-  vi.stubGlobal("WebSocketPair", FakePair);
-  vi.stubGlobal("WebSocketRequestResponsePair", class {});
-  vi.stubGlobal("Response", FakeResponse);
-});
-
-afterEach(() => {
-  vi.useRealTimers();
-  vi.unstubAllGlobals();
-});
+beforeEach(useFakeRuntime);
+afterEach(dropFakeRuntime);
 
 describe("per-seat views in the party room, on the wire", () => {
   it("a seat never receives its own secret, the other seat does, and the screen and a member outside the game get neither", async () => {

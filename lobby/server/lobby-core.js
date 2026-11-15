@@ -16,7 +16,15 @@
 // Nothing here ticks while people merely stand around: the room is told where a piece is and
 // which way it walks, and works out the rest (lobby/shared/world.js). Everything that depends
 // on time (the count, the toss, a dropped phone's grace, closing) is a wake-up: nextWake().
+//
+// A game runs one of two ways (party-kit/src/core/turns.js):
+//   ticking     a game with a tick rate (Cork & Bell) is ticked on the room's timer for the whole
+//               round (gameTick), and is not saved: a restart ends it.
+//   turn-based  a game with `tickHz: 0` is never ticked on a timer. An input is applied at once
+//               (playTurn), its deadline is one more wake-up (nextWake, then gameDeadline), and
+//               the game is saved with the room (serialize), so it survives a sleep or a deploy.
 import { makeRng } from "../../party-kit/src/core/rng.js";
+import { deadlineOf, gameProblems, inputOutcome, isTurnBased, loadState, saveState } from "../../party-kit/src/core/turns.js";
 import { viewerFor } from "../../party-kit/src/core/views.js";
 import { IDLE_SHUTDOWN_MS, NAME_MAX, SEAT_COLOURS, STALE_ROOM_MS, cleanName, randomToken } from "../../party-kit/src/core/room-core.js";
 import { AWAY_MS, COUNT_MS, SETTLE_MS, TOSS_MS, leaders, pointsForPlace, standingsFromRows, tally, whyNot } from "../shared/vote.js";
@@ -69,6 +77,8 @@ export class LobbyCore {
     this.screens = new Map();
     /** {kind: "lobby"} or {kind: "game", id, state, startedAt, ticks, seats} */
     this.activity = { kind: "lobby" };
+    /** Set by restore when a turn-based game was saved and could not be brought back. */
+    this.lost = false;
     this.round = 0;
     this.gamesPlayed = 0;
     /** The games played tonight and who won each, oldest first (lobby/shared/tonight.js). */
@@ -595,6 +605,10 @@ export class LobbyCore {
       // The rest after a game: a count may be due the moment it is over, if anyone is here to vote.
       if (this.holdUntil > now && this.connected().length) at = Math.min(at, this.holdUntil);
       for (const m of this.present()) if (!m.connected && m.droppedAt !== null) at = Math.min(at, m.droppedAt + DROP_FADE_MS);
+    } else {
+      // A turn-based game's deadline (a turn timer running out) is a wake-up like any other.
+      const deadline = this.turnDeadline();
+      if (deadline !== null) at = Math.min(at, deadline);
     }
     return at === Infinity ? null : Math.max(at, now + 20);
   }
@@ -613,6 +627,8 @@ export class LobbyCore {
   startGame(id, now, seed = this.roundSeed(this.round + 1)) {
     const game = this.games.get(id);
     if (!game || this.activity.kind !== "lobby") return fail("not_found", "That game cannot start here.");
+    const problems = gameProblems(game);
+    if (problems.length) return fail("bad_game", problems.join(" "));
     const seats = this.present().map((m) => ({ seat: m.seat, name: m.name, kind: "human", colour: m.colour }));
     if (!seats.length) return fail("not_ready", "Nobody is here to play.");
     this.round += 1;
@@ -646,12 +662,63 @@ export class LobbyCore {
     return a.kind === "game" ? this.games.get(a.id).snapshot(a.state, now, viewer) : null;
   }
 
-  /** An input from a player in the game. Seats that joined after it started just watch. */
+  /** An input from a player in a ticking game. Seats that joined after it started just watch. */
   gameInput(seat, data, now) {
     const a = this.activity;
     if (a.kind !== "game" || !a.seats.includes(seat) || !this.members[seat]?.connected) return false;
     this.games.get(a.id).input(a.state, seat, data, now);
     return true;
+  }
+
+  /** The game being played, when it is turn-based (`tickHz: 0`); otherwise null. */
+  turnGame() {
+    const a = this.activity;
+    if (a.kind !== "game") return null;
+    const game = this.games.get(a.id);
+    return isTurnBased(game) ? game : null;
+  }
+
+  /** When the turn-based game being played next needs the room awake, or null. */
+  turnDeadline() {
+    const game = this.turnGame();
+    return game ? deadlineOf(game, this.activity.state) : null;
+  }
+
+  /**
+   * An input from a player in a turn-based game, applied at once. Returns {ok: false, error} when
+   * it was not taken (no such game, a seat not in it, a phone not connected), or
+   * {ok: true, answer, events, snapshot, viewerOf, ended}, as gameTick returns, with `snapshot`
+   * always set (every viewer gets a fresh one after every input) and `answer` the game's own word
+   * to the sender (party-kit/src/core/turns.js, inputOutcome).
+   */
+  playTurn(seat, data, now) {
+    const a = this.activity;
+    const game = this.turnGame();
+    if (!game) return fail("not_playing", "No turn-based game is being played.");
+    if (!a.seats.includes(seat) || !this.members[seat]?.connected) return fail("not_in_game", "That seat is not playing this game.");
+    const { events, answer } = inputOutcome(game.input(a.state, seat, data, now));
+    this.lastActive = now;
+    return { ok: true, answer, ...this.turnOut(game, events, now) };
+  }
+
+  /**
+   * The alarm rang for a turn-based game: when its deadline has come, `game.tick` is called once.
+   * Returns null when nothing was due (an alarm set for a deadline that has since moved), or what
+   * playTurn returns, without `answer`.
+   */
+  gameDeadline(now) {
+    const game = this.turnGame();
+    const deadline = this.turnDeadline();
+    if (!game || deadline === null || now < deadline) return null;
+    const events = game.tick(this.activity.state, now) ?? [];
+    return { ok: true, ...this.turnOut(game, events, now) };
+  }
+
+  turnOut(game, events, now) {
+    const a = this.activity;
+    const out = { events, snapshot: (viewer) => game.snapshot(a.state, now, viewer), viewerOf: (who) => this.viewerOf(who, a), ended: null };
+    if (game.isOver(a.state)) out.ended = this.finishGame(now);
+    return out;
   }
 
   /**
@@ -729,9 +796,10 @@ export class LobbyCore {
       kind: "party",
       code: this.code,
       pin: this.pin,
-      // The kit's client paces its pings by this: "playing" while a game is on.
+      // The kit's client paces its pings by this: "playing" while a game is on, and `game.turns`
+      // when that game is turn-based, so the pages keep to the keep-alive the room never wakes for.
       phase: a.kind === "game" ? "playing" : "lobby",
-      game: a.kind === "game" ? { id: a.id, name: this.boxes.find((box) => box.id === a.id)?.name ?? a.id, round: this.round } : null,
+      game: a.kind === "game" ? { id: a.id, name: this.boxes.find((box) => box.id === a.id)?.name ?? a.id, round: this.round, ...(this.turnGame() ? { turns: true } : {}) } : null,
       boxes: this.boxes,
       members: this.members.map((m) =>
         m ? { seat: m.seat, name: m.name, colour: m.colour, connected: m.connected, x: Math.round(posAt(m, now)), d: m.d, rev: m.rev, points: m.points, ...this.bumpView(m, now), emoteCool: Math.round(emoteLeft(m.emoteAt, now)) } : null,
@@ -758,9 +826,14 @@ export class LobbyCore {
     return { cool: cooldownLeft(m.bumpAt ?? -Infinity, now), down: Math.max(0, (m.stunUntil ?? 0) - now), safe: Math.max(0, (m.immuneUntil ?? 0) - now) };
   }
 
-  /** The room survives being put to sleep; a game in progress does not (it is short, and held awake). */
-  serialize() {
+  /**
+   * The room survives being put to sleep, and so does a turn-based game in progress (`game`): its
+   * state, its seats, when it started. A ticking game does not: it is short, and held awake.
+   * Throws when a turn-based game's state cannot be written down (turns.js, saveState).
+   */
+  serialize({ withGame = true } = {}) {
     return {
+      game: withGame ? this.savedGame() : null,
       seed: this.seed,
       code: this.code,
       pin: this.pin,
@@ -782,6 +855,34 @@ export class LobbyCore {
       room: this.room,
       hostToken: this.hostToken,
     };
+  }
+
+  /** A turn-based game in progress as it is saved with the room, or null. */
+  savedGame() {
+    const game = this.turnGame();
+    if (!game) return null;
+    const { id, state, startedAt, ticks, seats } = this.activity;
+    return { id, startedAt, ticks, seats, state: saveState(game, state) };
+  }
+
+  /**
+   * The saved game back as the room's activity. Its seats come back with it, so every viewer is
+   * who it was before the sleep. A game that cannot be restored (it is no longer on the wall, no
+   * longer turn-based, or its save does not read) is lost, as a ticking game is: `lost` is set and
+   * everyone is back in the lobby.
+   */
+  restoreGame(saved) {
+    const game = this.games.get(saved.id);
+    try {
+      if (!isTurnBased(game)) throw new Error(`${saved.id} is not a turn-based game here.`);
+      if (!Array.isArray(saved.seats) || !saved.seats.every(Number.isInteger)) throw new Error("The saved game has no seats.");
+      const state = loadState(game, saved.state);
+      this.activity = { kind: "game", id: saved.id, state, startedAt: saved.startedAt, ticks: saved.ticks ?? 0, seats: [...saved.seats] };
+    } catch (err) {
+      console.error("party room: a saved game could not be restored", err);
+      this.activity = { kind: "lobby" };
+      this.lost = true;
+    }
   }
 
   static restore(config, data, now) {
@@ -813,6 +914,7 @@ export class LobbyCore {
     room.emptySince = data.emptySince ?? now;
     room.room = isRoom(data.room) ? data.room : DEFAULT_ROOM;
     room.hostToken = data.hostToken ?? null;
+    if (data.game) room.restoreGame(data.game);
     return room;
   }
 }

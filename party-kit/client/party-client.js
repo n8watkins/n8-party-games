@@ -48,6 +48,8 @@ export class PartyClient {
     this.retry = 0;
     this.wantOpen = false;
     this.pingTimer = null;
+    /** The turn-based game the clock was last set for, by a few round trips ("id/round"). */
+    this.clockFor = null;
   }
 
   on(type, handler) {
@@ -145,6 +147,7 @@ export class PartyClient {
       this.heardAt = Date.now();
       this.setStatus("open");
       this.pingPace = 0;
+      this.clockFor = null;
       this.setPingPace(this.pingPaceFor(this.room));
     };
     ws.onmessage = (event) => {
@@ -223,8 +226,22 @@ export class PartyClient {
   }
 
   pingPaceFor(room) {
-    if (room?.phase === "playing") return PING_EVERY_MS;
+    if (ticking(room)) return PING_EVERY_MS;
     return this.quietPing?.everyMs ?? IDLE_PING_EVERY_MS;
+  }
+
+  /**
+   * A turn-based game (`room.game.turns`) keeps the quiet pace, so a match of people talking does
+   * not wake the room every two seconds; the clock is set by a few round trips when it begins
+   * and after every reconnect, which is all a turn timer needs.
+   */
+  syncClock(room) {
+    if (room?.phase !== "playing" || !room.game?.turns) return;
+    const key = `${room.game.id}/${room.game.round}`;
+    if (this.clockFor === key) return;
+    this.clockFor = key;
+    this.send({ t: "ping", c: Date.now() });
+    for (const after of [300, 1000]) setTimeout(() => this.clockFor === key && this.send({ t: "ping", c: Date.now() }), after);
   }
 
   setPingPace(ms) {
@@ -239,7 +256,10 @@ export class PartyClient {
 
   setRoom(room) {
     this.room = room;
-    if (this.ws?.readyState === WebSocket.OPEN) this.setPingPace(this.pingPaceFor(room));
+    if (this.ws?.readyState === WebSocket.OPEN) {
+      this.setPingPace(this.pingPaceFor(room));
+      this.syncClock(room);
+    }
     if (this.session && room.pin && room.pin !== this.session.pin) this.session.pin = room.pin;
     this.emit("room", room);
   }
@@ -259,7 +279,7 @@ export class PartyClient {
   }
 
   ping() {
-    if (this.quietPing && this.room?.phase !== "playing") {
+    if (this.quietPing && !ticking(this.room)) {
       if (this.ws?.readyState === WebSocket.OPEN) this.ws.send(this.quietPing.text);
       return;
     }
@@ -334,6 +354,11 @@ export class PartyError extends Error {
     super(message);
     this.code = code;
   }
+}
+
+/** A game on the room's timer is being played: the clock pings keep their quick pace. A turn-based game is not ticked. */
+function ticking(room) {
+  return room?.phase === "playing" && !room.game?.turns;
 }
 
 function safeStorage() {
