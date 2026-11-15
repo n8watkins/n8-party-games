@@ -10,6 +10,7 @@ import { openDoor } from "./door.js";
 import { h } from "./dom.js";
 import { GAME_VIEWS } from "./games/views.js";
 import { farewellKind, goFront } from "./farewell.js";
+import { FrameMeter, meterWanted } from "./frame-meter.js";
 import { Hud } from "./hud.js";
 import { TouchSpots } from "./touch.js";
 import { KEEP_ALIVE_MS, watchConnection } from "./connection.js";
@@ -76,6 +77,8 @@ let dim = null;
 const lastMoves = new Map();
 /** Watches for a 3D room that stays slow on this device, and offers the simpler one once (slow-room.js). */
 const slow = new SlowWatch(params.get("gl") !== "any");
+/** The frame meter at the top left, on this device only when it asked with ?meter=1 (frame-meter.js). */
+const meter = meterWanted(params) ? new FrameMeter(app) : null;
 /** Set when this device chose to go, so the socket closing is not taken for the room ending. */
 let bye = null;
 /** Which walk keys and buttons are down, newest last, so the latest one wins. */
@@ -133,6 +136,7 @@ function teardown() {
   stageBox?.remove();
   dim?.remove();
   slow.stop();
+  meter?.stop();
   scene = pilot = stageBox = view = dim = null;
   lastMoves.clear();
   litKey = "";
@@ -197,6 +201,7 @@ async function enter() {
   fit = new ScreenFit(menu.corner, app);
   void keepAwake();
   slow.start(scene.look, performance.now(), simpler);
+  meter?.start(scene);
   zoom = phone() ? "closer" : "room";
   apply(room);
   if (!lastFrame) requestAnimationFrame(frame);
@@ -279,6 +284,7 @@ async function showRoom() {
     scene.setRoom(room, now);
     for (const [s, move] of lastMoves) if (room.members[s] && move.t > roomSeenAt) scene.onMove({ s, x: posAt(move, now), d: move.d }, now);
     slow.start(scene.look, now, simpler);
+    meter?.start(scene);
   }
   await nextFrame();
   await nextFrame();
@@ -781,6 +787,7 @@ function frame(t) {
   if (!app.classList.contains("in-game") && !swapping) {
     scene.frame(now, dt, pilot, view);
     slow.frame(now, dt);
+    meter?.frame(t);
   }
   hud.update(room, room.vote, now, voteAt, zoom, now - stirAt);
   const left = room.vote.count ? Math.max(0, room.vote.count.endsIn - (now - voteAt)) : null;
