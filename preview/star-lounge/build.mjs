@@ -31,10 +31,17 @@ if (args[0] === "assets") {
   await webp(join(out, "pack/lights.png"), "lights", { quality: 84 });
   await webp(join(out, "pack/cards.png"), "cards", { quality: 88, alphaQuality: 95 });
   await webp(join(out, "env.png"), "env", { quality: 78 });
-  await webp(join(out, "tex-planet.png"), "planet", { quality: 82 });
+  // Round two: the planet's surface at 4096 across (render.sh), twice round one's, when it is there.
+  const planet2 = join(here, "out/tex-planet.png");
+  await webp(existsSync(planet2) ? planet2 : join(out, "tex-planet.png"), "planet", { quality: existsSync(planet2) ? 74 : 82 });
   await webp(join(out, "tex-moon.png"), "moon", { quality: 78 });
   await webp(join(out, "tex-sky.png"), "sky", { quality: 60 }, { width: 1024 });
-  for (const s of ["liner", "rocket", "saucer", "rock0", "rock1", "rock2"]) await webp(join(out, `sprite-${s}.png`), s, { quality: 86, alphaQuality: 90 });
+  // Round two: the passing things come from preview/star-lounge/out (render.sh: the same scene at twice the size) when they are there.
+  const out2 = join(here, "out");
+  for (const s of ["liner", "rocket", "saucer", "rock0", "rock1", "rock2"]) {
+    const big = join(out2, `sprite-${s}.png`);
+    await webp(existsSync(big) ? big : join(out, `sprite-${s}.png`), s, { quality: 86, alphaQuality: 90 });
+  }
   writeFileSync(join(assets, "plate.json"), readFileSync(join(out, "pack/plate.json")));
   const before = opt("before");
   if (before) {

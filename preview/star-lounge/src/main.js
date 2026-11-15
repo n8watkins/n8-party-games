@@ -16,6 +16,7 @@ import { ROOM, WALK_SPEED, boxCentre, clampX, lightAt, lightHalf } from "../../.
 import { boxArt } from "../../../lobby/public/look3d/paint.js";
 import { dressPawn, makePawn, posePawn } from "../../../lobby/public/look3d/pieces.js";
 import { CAM, D_WALL, SPACE, U, WALK, layout, walkX, wallX, wallY } from "../../../lobby/public/look3d/space.js";
+import { THINGS, createSky } from "./sky.js";
 
 const A = window.__ASSETS;
 const P = window.__PLATE;
@@ -43,6 +44,7 @@ const state = {
   paused: false,
 };
 const still = Q.has("still"); // for screenshots: a fixed moment, nothing random
+const SPEED = Math.max(1, Number(Q.get("speed") ?? 1) || 1);
 
 // ------------------------------------------------------------------ renderer
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: (window.devicePixelRatio || 1) < 2, powerPreference: "high-performance", alpha: false });
@@ -51,7 +53,16 @@ renderer.toneMappingExposure = 1.0;
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.setClearColor(0x01020a, 1);
 renderer.sortObjects = true;
+renderer.autoClear = false;
+renderer.info.autoReset = false; // a frame is two drawings; the count of draw calls is for both
+// Two pictures, drawn one after the other, every frame:
+//   1. `outside`: everything beyond the glass (sky, stars, planet, moon, and whatever is passing, with its lights).
+//   2. `scene`: the room, drawn over it. The room's picture is solid everywhere but the glass.
+// What is outside is put in the first and can never be drawn after the room, whatever its own
+// drawing order says. (Round one kept both in one list, and an engine's glow, added as a child of
+// its ship, fell back to the default place in that list: after the room, so over the door and the wall.)
 const scene = new THREE.Scene();
+const sceneOut = new THREE.Scene();
 const cam = new THREE.PerspectiveCamera();
 cam.position.set(0, CAM.y, CAM.z);
 cam.matrixAutoUpdate = true;
@@ -101,7 +112,56 @@ const place = (xw, yw, z) => {
 // ================================================================== outside the window
 const SUN = new THREE.Vector3(...CFG.sun).normalize();
 const outside = new THREE.Group(); // everything so far away that it follows the eye
-scene.add(outside);
+sceneOut.add(outside);
+
+/** A small picture of tangled noise that repeats without a seam, for the fine grain of a surface:
+ *  red is its height, green and blue the slope of that height (east and north), alpha a second, unrelated height. */
+function grainTexture(size = 256) {
+  const rnd = seeded(77);
+  const field = (octaves) => {
+    const h = new Float32Array(size * size);
+    let amp = 1;
+    let sum = 0;
+    for (const cells of octaves) {
+      const g = new Float32Array(cells * cells);
+      for (let i = 0; i < g.length; i++) g[i] = rnd();
+      const s = (v) => v * v * (3 - 2 * v);
+      for (let y = 0; y < size; y++)
+        for (let x = 0; x < size; x++) {
+          const fx = (x / size) * cells;
+          const fy = (y / size) * cells;
+          const [x0, y0] = [Math.floor(fx), Math.floor(fy)];
+          const [tx, ty] = [s(fx - x0), s(fy - y0)];
+          const at = (cx, cy) => g[(cy % cells) * cells + (cx % cells)];
+          h[y * size + x] += amp * (at(x0, y0) * (1 - tx) * (1 - ty) + at(x0 + 1, y0) * tx * (1 - ty) + at(x0, y0 + 1) * (1 - tx) * ty + at(x0 + 1, y0 + 1) * tx * ty);
+        }
+      sum += amp;
+      amp *= 0.55;
+    }
+    for (let i = 0; i < h.length; i++) h[i] /= sum;
+    return h;
+  };
+  const a = field([4, 8, 16, 32, 64]);
+  const b = field([3, 6, 12, 24, 48]);
+  const px = new Uint8Array(size * size * 4);
+  const w = (v) => (v + size) % size;
+  for (let y = 0; y < size; y++)
+    for (let x = 0; x < size; x++) {
+      const i = y * size + x;
+      const dx = a[y * size + w(x + 1)] - a[y * size + w(x - 1)];
+      const dy = a[w(y + 1) * size + x] - a[w(y - 1) * size + x];
+      px.set([clamp(a[i] * 255, 0, 255), clamp(127.5 + dx * 1800, 0, 255), clamp(127.5 + dy * 1800, 0, 255), clamp(b[i] * 255, 0, 255)], i * 4);
+    }
+  const t = new THREE.DataTexture(px, size, size, THREE.RGBAFormat);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  t.magFilter = THREE.LinearFilter;
+  t.minFilter = THREE.LinearMipmapLinearFilter;
+  t.generateMipmaps = true;
+  t.colorSpace = THREE.NoColorSpace;
+  t.needsUpdate = true;
+  return t;
+}
+const grain = grainTexture();
 
 function buildSky(sky) {
   // The window only ever shows a low band of the sky, so the gas clouds are wrapped on a band all
@@ -164,48 +224,113 @@ function buildStars(count, seed, size, bright) {
 }
 
 /** A ball lit by the far sun, with a rendered surface that turns: the planet and the moon. */
-function ball(map, o, { ringed = false, air = 0 } = {}) {
+function ball(map, o, { gas = false, air = 0 } = {}) {
   const axis = new THREE.Vector3(...(o.axis ?? [0, 1, 0])).normalize();
   const centre = new THREE.Vector3(...o.centre);
   const mat = new THREE.ShaderMaterial({
     transparent: true,
-    uniforms: { uMap: { value: map }, uTurn: { value: 0 }, uSun: { value: SUN }, uCentre: { value: centre }, uAxis: { value: axis }, uR: { value: o.radius }, uRing: { value: new THREE.Vector2(...(o.ring ?? [0, 0])) }, uRingMap: { value: null }, uAir: { value: air }, uTime: { value: 0 } },
+    uniforms: { uMap: { value: map }, uGrain: { value: grain }, uTurn: { value: 0 }, uSun: { value: SUN }, uCentre: { value: centre }, uAxis: { value: axis }, uR: { value: o.radius }, uRing: { value: new THREE.Vector2(...(o.ring ?? [0, 0])) }, uRingMap: { value: null }, uAir: { value: air }, uTime: { value: 0 }, uDetail: { value: Q.get("detail") === "off" ? 0 : 1 } },
     vertexShader: `varying vec2 vUv; varying vec3 vN; varying vec3 vP;
       void main(){ vUv = uv; vN = normalize(mat3(modelMatrix) * normal); vec4 w = modelMatrix * vec4(position, 1.0); vP = w.xyz; gl_Position = projectionMatrix * viewMatrix * w; }`,
-    fragmentShader: `uniform sampler2D uMap; uniform sampler2D uRingMap; uniform float uTurn; uniform vec3 uSun; uniform vec3 uCentre; uniform vec3 uAxis; uniform float uR; uniform vec2 uRing; uniform float uAir; uniform float uTime;
+    fragmentShader: `uniform sampler2D uMap; uniform sampler2D uGrain; uniform sampler2D uRingMap; uniform float uTurn; uniform vec3 uSun; uniform vec3 uCentre; uniform vec3 uAxis; uniform float uR; uniform vec2 uRing; uniform float uAir; uniform float uTime; uniform float uDetail;
       varying vec2 vUv; varying vec3 vN; varying vec3 vP;
+      float grey(vec3 c){ return dot(c, vec3(0.3, 0.6, 0.1)); }
+      ${
+        gas
+          ? `// A storm: the belts round one place are wound into a spiral. s = where (across, up), how big, how flat; it returns how deep in the storm this point is.
+      float storm(inout vec2 uv, vec4 s, float wind){
+        float wide = 2.0 * cos((s.y - 0.5) * 3.14159);
+        vec2 d = vec2((fract(uv.x - s.x + 0.5) - 0.5) * wide, (uv.y - s.y) * s.w);
+        float r = length(d) / s.z;
+        if (r >= 1.0) return 0.0;
+        float f = (1.0 - r) * (1.0 - r);
+        float a = wind * f;
+        vec2 q = mat2(cos(a), -sin(a), sin(a), cos(a)) * d;
+        uv += vec2((q.x - d.x) / wide, (q.y - d.y) / s.w);
+        return f;
+      }`
+          : ""
+      }
       void main(){
         vec3 n = normalize(vN);
-        // The belts do not all turn together: the faster ones slide past the slower ones a little.
-        float slide = 0.006 * sin(vUv.y * 31.0 + uTime * 0.05) + 0.003 * sin(vUv.y * 77.0 - uTime * 0.08);
-        vec3 albedo = texture2D(uMap, vec2(vUv.x + uTurn + slide, vUv.y)).rgb;
-        float d = dot(n, uSun);
-        float lit = smoothstep(-0.1, 0.42, d);
-        // The planet's colours are deepened; the moon is left as it was painted.
-        albedo = mix(albedo, mix(vec3(dot(albedo, vec3(0.3, 0.6, 0.1))), albedo, 1.3) * mix(vec3(1.0), albedo, 0.75), uAir);
-        vec3 col = albedo * (lit * mix(1.7, 1.25, uAir) + 0.012);
+        // East and north on the surface here, and where the sun is in those terms: for the relief.
+        vec3 east = normalize(cross(uAxis, n)); vec3 north = cross(n, east);
+        vec2 sun2 = vec2(dot(uSun, east), dot(uSun, north));
+        vec2 uv = vec2(vUv.x + uTurn, vUv.y);
+        vec3 albedo; float relief = 0.0;
         ${
-          ringed
+          gas
+            ? `// The belts do not all turn together: the faster ones slide past the slower ones a little.
+        uv.x += 0.006 * sin(vUv.y * 31.0 + uTime * 0.05) + 0.003 * sin(vUv.y * 77.0 - uTime * 0.08);
+        // Three storms, carried round with the planet: one great red one and two pale ones.
+        float breathe = 0.35 * sin(uTime * 0.07);
+        // (The window looks down on the planet's far north, from about 40 degrees up from its middle to nearly the pole, so that is where they are.
+        // Measured, not guessed: the surface's own coordinates were drawn as colours and read off a still.)
+        float great = storm(uv, vec4(0.02, 0.812, 0.034, 1.15), 4.2 + breathe) * uDetail;
+        float pale = (storm(uv, vec4(0.42, 0.875, 0.015, 1.1), -3.6 - breathe) + storm(uv, vec4(0.71, 0.80, 0.017, 1.1), 3.2 + breathe)) * uDetail;
+        // Fine weather the picture is too coarse to hold: its edges are torn by two sizes of noise that drift slowly against each other.
+        vec4 g1 = texture2D(uGrain, uv * vec2(10.0, 7.0) + vec2(uTime * 0.0007, 0.0));
+        vec4 g2 = texture2D(uGrain, uv * vec2(46.0, 30.0) - vec2(uTime * 0.0016, 0.0));
+        vec4 g3 = texture2D(uGrain, uv * vec2(150.0, 110.0));
+        // It is wind, so it tears along the belts far more than across them.
+        vec2 tear = ((g1.gb - 0.5) * vec2(0.0075, 0.0022) + (g2.gb - 0.5) * vec2(0.0024, 0.0008)) * uDetail;
+        vec2 at = uv + tear;
+        albedo = texture2D(uMap, at).rgb;
+        // Cloud tops are soft: they only show their height where the sun is low, and then only a little.
+        relief = (dot(g2.gb - 0.5, sun2) * -0.22 + dot(g3.gb - 0.5, sun2) * -0.12) * uDetail;
+        // Grain in the colour itself: thin streaks along the belts, and the faintest mottle across them.
+        float streak = texture2D(uGrain, at * vec2(14.0, 230.0)).a;
+        albedo *= 1.0 + ((g2.r - 0.5) * 0.07 + (g3.r - 0.5) * 0.06 + (streak - 0.5) * 0.16) * uDetail;
+        albedo = mix(albedo, albedo * mix(vec3(1.05, 0.98, 0.93), vec3(0.96, 1.0, 1.05), g1.a), 0.5 * uDetail);
+        // The storms' own colour: the great one's red eye inside a pale collar, the small ones white.
+        albedo = mix(albedo, albedo * vec3(1.04, 0.47, 0.3), smoothstep(0.1, 0.7, great) * 0.85);
+        albedo = mix(albedo, vec3(1.0, 0.93, 0.8), (smoothstep(0.0, 0.1, great) * (1.0 - smoothstep(0.1, 0.3, great)) * 0.35 + smoothstep(0.1, 0.8, pale) * 0.5));`
+            : `// The moon: its own picture, with its pits and ridges standing up in the sun.
+        albedo = texture2D(uMap, uv).rgb;
+        vec4 g2 = texture2D(uGrain, uv * vec2(8.0, 4.0));
+        relief = ((grey(albedo) - grey(texture2D(uMap, uv + sun2 * vec2(0.004, 0.008)).rgb)) * 3.0 + dot(g2.gb - 0.5, sun2) * -0.6) * uDetail;
+        albedo *= 1.0 + (g2.r - 0.5) * 0.25 * uDetail;`
+        }
+        vec3 v = normalize(cameraPosition - vP);
+        float face = max(dot(n, v), 0.0);
+        float d = dot(n, uSun);
+        // Relief shows most where the sun is low: it is nearly nothing at noon and strong toward the edge of day.
+        float low = 1.0 - smoothstep(0.1, 0.8, d);
+        relief *= mix(1.0, low, uAir);
+        float lit = smoothstep(-0.1, 0.42, d + relief);
+        // The planet's colours are deepened; the moon is left as it was painted.
+        albedo = mix(albedo, mix(vec3(grey(albedo)), albedo, 1.3) * mix(vec3(1.0), albedo, 0.75), uAir);
+        vec3 col = albedo * (lit * mix(1.7, 1.25, uAir) * (1.0 + relief * 0.55 * uAir) + 0.012);
+        ${
+          gas
             ? `// The ring's shadow lies across the lit side.
         float den = dot(uSun, uAxis);
         float t = dot(uCentre - vP, uAxis) / (abs(den) < 1e-4 ? 1e-4 : den);
-        if (t > 0.0) { float r = length(vP + uSun * t - uCentre) / uR; if (r > uRing.x && r < uRing.y) col *= 1.0 - 0.62 * texture2D(uRingMap, vec2((r - uRing.x) / (uRing.y - uRing.x), 0.5)).a; }`
+        if (t > 0.0) { float r = length(vP + uSun * t - uCentre) / uR; if (r > uRing.x && r < uRing.y) col *= 1.0 - 0.62 * texture2D(uRingMap, vec2((r - uRing.x) / (uRing.y - uRing.x), 0.5)).a; }
+        // Day's edge: the last light comes through a lot of air and goes red, and the night side is not black (the ring lights it a little).
+        float dusk = smoothstep(-0.12, 0.08, d) * (1.0 - smoothstep(0.08, 0.5, d));
+        col *= mix(vec3(1.0), vec3(1.12, 0.74, 0.5), dusk * uDetail);
+        col += albedo * vec3(0.016, 0.022, 0.035) * (1.0 - lit) * uDetail;
+        // Its air, thicker the more of it the eye looks through: toward the edge the surface darkens and a blue haze lies over it.
+        // (From this window nearly all of the planet is seen at a slant, so this is kept to its last edge: any more and the whole of it goes pale.)
+        float haze = pow(1.0 - face, 9.0);
+        col = mix(col, vec3(0.42, 0.62, 0.95) * (0.05 + lit) * 0.95, haze * 0.5 * uDetail);`
             : ""
         }
-        // Its air: a thin bright edge where the ball turns away, strongest on the lit side.
-        vec3 v = normalize(cameraPosition - vP);
-        float rim = pow(1.0 - max(dot(n, v), 0.0), 7.0);
+        // A thin bright edge where the ball turns away, strongest on the lit side.
+        float rim = pow(1.0 - face, 7.0);
         col += vec3(0.55, 0.75, 1.0) * rim * uAir * (0.1 + lit) * 0.7;
-        gl_FragColor = vec4(col, 1.0);
+        // The very edge is faded over a pixel or so, so the ball has a clean outline on a phone that does not smooth edges itself.
+        float edge = clamp(face / max(fwidth(face) * 1.5, 1e-5), 0.0, 1.0);        gl_FragColor = vec4(col, edge);
         #include <tonemapping_fragment>
         #include <colorspace_fragment>
       }`,
   });
-  const mesh = new THREE.Mesh(new THREE.SphereGeometry(o.radius, 96, 48), mat);
+  const mesh = new THREE.Mesh(new THREE.SphereGeometry(o.radius, 192, 96), mat);
   mesh.position.copy(centre);
   mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), axis);
   mesh.renderOrder = -97;
-  scene.add(mesh);
+  sceneOut.add(mesh);
   return mesh;
 }
 
@@ -226,8 +351,8 @@ function halo(o) {
   });
   const mesh = new THREE.Mesh(new THREE.SphereGeometry(o.radius * 1.035, 96, 48), mat);
   mesh.position.set(...o.centre);
-  mesh.renderOrder = -96.5;
-  scene.add(mesh);
+  mesh.renderOrder = -97.5; // before the planet, which is drawn over it: the planet's soft edge then fades into this glow and not into black
+  sceneOut.add(mesh);
   return mesh;
 }
 
@@ -277,63 +402,100 @@ function buildRing(o) {
   mesh.position.set(...o.centre);
   mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), axis);
   mesh.renderOrder = -96;
-  scene.add(mesh);
+  sceneOut.add(mesh);
   return { mesh, bandsTex };
 }
 
 // ---- things that pass the window: each is a rendered picture at its own depth
+// When each one passes is not decided here: the sky's timetable (sky.js) says what is passing, one thing at a time.
 const PASSERS = [
-  // name, picture, length in metres, depth z, height y (room metres at that depth), seconds to cross, every (s), first at (s), direction, bob
-  { name: "rocket", w: 2.0, z: -7.5, y: 1.5, lasts: 8, every: 23, first: 2.5, dir: 1, bob: 0.06, flame: [-0.5, 0.0, 0.3, 0xffb060] },
-  { name: "liner", w: 7.5, z: -30, y: 1.75, lasts: 34, every: 52, first: 9, dir: -1, bob: 0.0, flame: [0.44, -0.03, 0.13, 0x7fd8ff] },
-  { name: "saucer", w: 1.8, z: -9, y: 1.75, lasts: 11, every: 41, first: 30, dir: -1, bob: 0.2, wobble: true },
-  { name: "rock0", w: 1.5, z: -4.6, y: 1.1, lasts: 30, every: 37, first: 14, dir: -1, spin: 0.25 },
-  { name: "rock1", w: 0.8, z: -4.0, y: 1.9, lasts: 24, every: 37, first: 17, dir: -1, spin: -0.4 },
-  { name: "rock2", w: 0.9, z: -5.4, y: 5.55, lasts: 36, every: 37, first: 12, dir: -1, spin: 0.18 },
+  // name, length in metres, depth z, height y (room metres at that depth), direction, bob;
+  // flame: where its engine is (in lengths from its middle), how long and how thick the flame is (in lengths), its colour.
+  { name: "rocket", w: 2.0, z: -7.5, y: 1.5, dir: 1, bob: 0.06, flames: [{ at: [-0.355, 0.0], len: 0.42, thick: 0.15, colour: 0xffa050 }] },
+  { name: "liner", w: 7.5, z: -30, y: 1.75, dir: -1, bob: 0.0, flames: [{ at: [0.405, -0.022], len: 0.09, thick: 0.034, colour: 0x7fd8ff }] },
+  { name: "saucer", w: 1.8, z: -9, y: 1.75, dir: -1, bob: 0.2, wobble: true },
+  { name: "rock0", w: 1.5, z: -4.6, y: 1.1, dir: -1, spin: 0.25 },
+  { name: "rock1", w: 0.8, z: -4.0, y: 1.9, dir: -1, spin: -0.4 },
+  { name: "rock2", w: 0.9, z: -5.4, y: 1.5, dir: -1, spin: 0.18 },
 ];
+for (const p of PASSERS) p.lasts = THINGS.find((t) => t.name === p.name).lasts;
+const timetable = createSky();
+const LABEL = { star: "shooting star", rocket: "rocket", liner: "liner", saucer: "saucer", rock0: "rock", rock1: "rock", rock2: "rock" };
+/** An engine's flame: hot and white at the nozzle, thinning to a point behind. It points to the picture's left. */
+const flameTex = canvasTexture(256, 64, (g, w, h) => {
+  const body = g.createLinearGradient(0, 0, w, 0);
+  body.addColorStop(0, "rgba(255,255,255,0)");
+  body.addColorStop(0.45, "rgba(255,255,255,.28)");
+  body.addColorStop(0.86, "rgba(255,255,255,.9)");
+  body.addColorStop(1, "rgba(255,255,255,1)");
+  g.fillStyle = body;
+  g.beginPath();
+  g.moveTo(0, h / 2);
+  g.quadraticCurveTo(w * 0.6, h * 0.08, w - 4, h * 0.14);
+  g.lineTo(w - 4, h * 0.86);
+  g.quadraticCurveTo(w * 0.6, h * 0.92, 0, h / 2);
+  g.fill();
+  // Soft edges: the same shape blurred over itself.
+  g.globalCompositeOperation = "destination-in";
+  const soft = g.createLinearGradient(0, 0, 0, h);
+  soft.addColorStop(0, "rgba(0,0,0,0)");
+  soft.addColorStop(0.5, "rgba(0,0,0,1)");
+  soft.addColorStop(1, "rgba(0,0,0,0)");
+  g.fillStyle = soft;
+  g.fillRect(0, 0, w, h);
+});
 function buildPassers(tex) {
   for (const p of PASSERS) {
     const t = tex[p.name];
     const h = (p.w * t.image.height) / t.image.width;
-    p.mesh = new THREE.Mesh(new THREE.PlaneGeometry(p.w, h), new THREE.MeshBasicMaterial({ map: t, color: 0xd8d8d8, transparent: true, depthWrite: false, toneMapped: true }));
-    p.mesh.renderOrder = -95 + (p.z + 30) * 0.01;
+    p.mesh = new THREE.Mesh(new THREE.PlaneGeometry(p.w, h), new THREE.MeshBasicMaterial({ map: t, color: 0xd8d8d8, transparent: true, depthWrite: false, depthTest: false, toneMapped: true }));
+    p.mesh.renderOrder = -95;
     p.mesh.visible = false;
-    scene.add(p.mesh);
-    if (p.flame) {
-      p.glow = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ map: radial, color: p.flame[3], transparent: true, blending: THREE.AdditiveBlending, depthWrite: false }));
-      p.glow.position.set(p.flame[0] * p.w, p.flame[1] * p.w, 0.01);
-      p.mesh.add(p.glow);
-    }
-    p.next = p.first;
+    sceneOut.add(p.mesh);
+    p.flameMeshes = (p.flames ?? []).map((f) => {
+      // The flame trails behind: to the left of a thing heading right, to the right of one heading left.
+      const geo = new THREE.PlaneGeometry(1, 1);
+      geo.translate(-0.5, 0, 0);
+      const m = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ map: flameTex, color: f.colour, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, depthTest: false }));
+      m.position.set(f.at[0] * p.w, f.at[1] * p.w, 0);
+      m.rotation.z = p.dir > 0 ? 0 : Math.PI;
+      m.renderOrder = -95.5; // under its ship, and (like the ship) in the outside picture: the room is drawn over both
+      p.mesh.add(m);
+      return { m, f };
+    });
   }
 }
 /** How far left and right of the middle a thing at depth z must go to be off any screen. */
 const offstage = (z) => ((CAM.z - z) / D_WALL) * 11.5 + 3;
-function runPassers(t) {
+/** Puts one passing thing where it is at the point u (0 to 1) of its way. */
+function placePasser(p, u, t) {
+  const edge = offstage(p.z) + p.w;
+  const k = (CAM.z - p.z) / D_WALL;
+  const hold = p.wobble ? 0.08 * Math.sin(u * Math.PI * 3) : 0;
+  p.mesh.position.set(-p.dir * edge + p.dir * 2 * edge * (u + hold), CAM.y + (p.y - CAM.y) * k + (p.bob ? Math.sin(t * 2.1 + p.z) * p.bob * k : 0), p.z);
+  if (p.spin) p.mesh.rotation.z = t * p.spin;
+  if (p.wobble) p.mesh.rotation.z = Math.sin(t * 2.6) * 0.12;
+  for (const { m, f } of p.flameMeshes) m.scale.set(f.len * p.w * (0.82 + 0.18 * Math.sin(t * 43) * Math.sin(t * 17)), f.thick * p.w * (0.92 + 0.08 * Math.sin(t * 31)), 1);
+}
+/** For a screenshot (?still&pass=rocket&at=0.3): one named thing held at one point of its way. */
+let heldEv = Q.get("pass") ? { thing: { name: Q.get("pass") }, u: Number(Q.get("at") ?? 0.5) } : null;
+let passing = null; // the name of what is in the sky this frame, for the checks
+function runSky(t) {
+  const ev = heldEv ?? (still ? null : timetable.step(t));
+  const name = ev ? ev.thing.name : null;
   for (const p of PASSERS) {
-    if (!p.mesh.visible && t >= p.next) {
-      p.start = p.next;
-      p.mesh.visible = true;
-    }
-    if (!p.mesh.visible) continue;
-    const u = (t - p.start) / p.lasts;
-    if (u >= 1) {
-      p.mesh.visible = false;
-      p.next = p.start + p.every;
-      continue;
-    }
-    const edge = offstage(p.z) + p.w;
-    const k = (CAM.z - p.z) / D_WALL;
-    const hold = p.wobble ? 0.08 * Math.sin(u * Math.PI * 3) : 0;
-    p.mesh.position.set(-p.dir * edge + p.dir * 2 * edge * (u + hold), CAM.y + (p.y - CAM.y) * k + (p.bob ? Math.sin(t * 2.1 + p.z) * p.bob * k : 0), p.z);
-    if (p.spin) p.mesh.rotation.z = t * p.spin;
-    if (p.wobble) p.mesh.rotation.z = Math.sin(t * 2.6) * 0.12;
-    if (p.glow) p.glow.scale.setScalar(p.flame[2] * p.w * (0.75 + 0.25 * Math.sin(t * 43) * Math.sin(t * 17)));
+    p.mesh.visible = p.name === name;
+    if (p.mesh.visible) placePasser(p, ev.u, t);
   }
+  if (name === "star") {
+    if (!streak.m.visible || streak.ev !== ev) aimStreak(ev);
+    drawStreak(ev.u);
+  } else streak.m.visible = false;
+  passing = name;
 }
 
-// ---- shooting stars and comets: a streak of light, drawn on the glass side of the stars
-const streaks = [];
+// ---- a shooting star: a streak of light. There is only ever one, because the timetable passes one thing at a time.
+const streak = { m: null, ev: null };
 function buildStreaks() {
   const tex = canvasTexture(256, 32, (g, w, h) => {
     const grad = g.createLinearGradient(0, 0, w, 0);
@@ -353,40 +515,28 @@ function buildStreaks() {
     g.fillStyle = head;
     g.fillRect(w - 22, 0, 22, h);
   });
-  for (let i = 0; i < 5; i++) {
-    const m = new THREE.Mesh(new THREE.PlaneGeometry(1, 0.125), new THREE.MeshBasicMaterial({ map: tex, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, depthTest: false }));
-    m.visible = false;
-    m.renderOrder = -94;
-    scene.add(m);
-    streaks.push({ m, until: 0 });
-  }
+  streak.m = new THREE.Mesh(new THREE.PlaneGeometry(1, 0.125), new THREE.MeshBasicMaterial({ map: tex, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, depthTest: false }));
+  streak.m.visible = false;
+  streak.m.renderOrder = -94;
+  sceneOut.add(streak.m);
 }
-let nextStreak = 4;
-/** A streak through the point (x, y) on the plane at depth z, in room metres. */
-function shoot(t, x, y, { z = -40, len = 9, lasts = 0.9, angle = -0.28 - Math.random() * 0.2, dir = Math.random() < 0.5 ? 1 : -1 } = {}) {
-  const s = streaks.find((q) => !q.m.visible) ?? streaks[0];
-  Object.assign(s, { t0: t, until: t + lasts, x, y, z, len, angle: dir > 0 ? angle : Math.PI - angle, lasts });
-  s.m.visible = true;
+/** Aims the streak for one shooting star: through the place that was tapped (the timetable carries it), or through a place of its own in the band of sky the window shows. */
+function aimStreak(ev) {
+  const z = -40;
+  const k = (CAM.z - z) / D_WALL;
+  const d = ev.data ?? { x: eye + (Math.random() - 0.5) * 12 * k, y: CAM.y + (0.9 + Math.random() * 1.6 - CAM.y) * k, len: 9 };
+  const angle = -0.28 - Math.random() * 0.2;
+  Object.assign(streak, { ev, x: d.x, y: d.y, z, len: d.len ?? 11, angle: Math.random() < 0.5 ? angle : Math.PI - angle });
+  if (ev === heldEv) Object.assign(streak, { x: heldEv.x ?? eye, y: CAM.y + (1.5 - CAM.y) * k, angle: -0.35 });
+  streak.m.visible = true;
 }
-function runStreaks(t) {
-  if (!still && t > nextStreak) {
-    const k = (CAM.z + 40) / D_WALL;
-    shoot(t, (Math.random() - 0.5) * 14 * k, CAM.y + (1.2 + Math.random() * 5 - CAM.y) * k);
-    nextStreak = t + 4 + Math.random() * 6;
-  }
-  for (const s of streaks) {
-    if (!s.m.visible) continue;
-    const u = (t - s.t0) / s.lasts;
-    if (u >= 1) {
-      s.m.visible = false;
-      continue;
-    }
-    const travel = s.len * 2.2 * (u - 0.5);
-    s.m.position.set(s.x + Math.cos(s.angle) * travel, s.y + Math.sin(s.angle) * travel, s.z);
-    s.m.rotation.z = s.angle;
-    s.m.scale.set(s.len * Math.sin(u * Math.PI), s.len * 0.6, 1);
-    s.m.material.opacity = Math.sin(u * Math.PI);
-  }
+function drawStreak(u) {
+  const s = streak;
+  const travel = s.len * 2.2 * (u - 0.5);
+  s.m.position.set(s.x + Math.cos(s.angle) * travel, s.y + Math.sin(s.angle) * travel, s.z);
+  s.m.rotation.z = s.angle;
+  s.m.scale.set(s.len * Math.sin(u * Math.PI), s.len * 0.6, 1);
+  s.m.material.opacity = Math.sin(u * Math.PI);
 }
 
 // ================================================================== the room, from its rendered picture
@@ -414,9 +564,10 @@ function buildShell(base, lights) {
       uExposure: { value: Number(Q.get("exposure") ?? 0.95) },
       uGlass: { value: 1 },
       uShine: { value: Number(Q.get("shine") ?? 0.5) },
+      uProbe: { value: 0 },
     },
     vertexShader: `varying vec3 vW; void main(){ vec4 w = modelMatrix * vec4(position, 1.0); vW = w.xyz; gl_Position = projectionMatrix * viewMatrix * w; }`,
-    fragmentShader: `uniform sampler2D uBase; uniform sampler2D uLights; uniform float uGain[${n}]; uniform vec3 uTint[${n}]; uniform float uSway[${n}]; uniform float uExposure; uniform float uGlass; uniform float uShine;
+    fragmentShader: `uniform sampler2D uBase; uniform sampler2D uLights; uniform float uGain[${n}]; uniform vec3 uTint[${n}]; uniform float uSway[${n}]; uniform float uExposure; uniform float uGlass; uniform float uShine; uniform float uProbe;
       varying vec3 vW;
       const vec2 GRID = vec2(${grid.cols.toFixed(1)}, ${grid.rows.toFixed(1)});
       vec3 light(vec2 uv, vec2 at){ vec2 t = (at + clamp(uv, 0.003, 0.997)) / GRID; return texture2D(uLights, vec2(t.x, 1.0 - t.y)).rgb; }
@@ -428,7 +579,11 @@ function buildShell(base, lights) {
         vec2 c = clamp(uv, 0.0, 1.0);
         vec3 sum = texture2D(uBase, vec2(c.x, 1.0 - c.y)).rgb;
         ${LIGHTS.map((_, i) => `if (uGain[${i}] > 0.0) sum += light(uv + vec2(uSway[${i}], 0.0), ${tile(i)}) * uGain[${i}] * uTint[${i}];`).join("\n        ")}
-        float through = light(uv, ${tile(P.glassTile)}).r * uGlass;
+        // How much of the outside shows here: 1 in the middle of a pane, 0 on anything solid. The picture
+        // that says so is squeezed small and comes back with faint smudges where it was 0, so its lowest
+        // few hundredths are read as nothing: a wall, a post or the door is solid, with no exceptions.
+        float through = smoothstep(0.04, 0.96, light(uv, ${tile(P.glassTile)}).r) * uGlass;
+        if (uProbe > 0.5) { gl_FragColor = vec4(vec3(through > 0.0 ? 1.0 : 0.0), 1.0); return; }
         // The glass holds a picture of the room, but faintly: the universe is the brighter thing.
         sum *= mix(1.0, uShine, through);
         // Past the picture's edge the room carries on as darkness.
@@ -455,7 +610,7 @@ function buildShell(base, lights) {
   add(new THREE.PlaneGeometry(zf - ZB, h), [-w / 2, h / 2, (zf + ZB) / 2], [0, Math.PI / 2, 0]);
   add(new THREE.PlaneGeometry(zf - ZB, h), [w / 2, h / 2, (zf + ZB) / 2], [0, -Math.PI / 2, 0]);
   scene.add(g);
-  shell = { mat, u: mat.uniforms };
+  shell = { mat, u: mat.uniforms, group: g };
   // A lamp's light on the dark blue deck comes back very blue; it is warmed a little so the pool reads as light.
   for (const [i, name] of LIGHTS.entries()) if (name.startsWith("lamp")) shell.u.uTint.value[i].setRGB(1.3, 1.08, 0.86);
 }
@@ -621,6 +776,66 @@ const rr = (g, x, y, w, h, r) => {
   if (g.roundRect) g.roundRect(x, y, w, h, r);
   else g.rect(x, y, w, h); // an older phone: square corners
 };
+/** A hung screen's body: a dark glass panel in a metal rim, with a line of the room's light inside it. */
+function panel(g, w, h, r, line = "rgba(110,231,255,.65)") {
+  g.fillStyle = "rgba(4,8,20,.93)";
+  rr(g, 3, 3, w - 6, h - 6, r);
+  g.fill();
+  const rim = g.createLinearGradient(0, 0, 0, h);
+  rim.addColorStop(0, "#c9d6ea");
+  rim.addColorStop(0.08, "#5d6c86");
+  rim.addColorStop(0.92, "#27324a");
+  rim.addColorStop(1, "#0b1020");
+  g.strokeStyle = rim;
+  g.lineWidth = 6;
+  g.stroke();
+  g.strokeStyle = line;
+  g.lineWidth = 2.5;
+  rr(g, 11, 11, w - 22, h - 22, Math.max(2, r - 8));
+  g.stroke();
+}
+/** The shine on a screen's glass: a soft slanted band of light. It slides as the eye moves (see tick), which is what makes the glass read as glass. */
+const sheenTex = canvasTexture(256, 256, (g, w, h) => {
+  const band = g.createLinearGradient(0, h, w, 0);
+  band.addColorStop(0.3, "rgba(255,255,255,0)");
+  band.addColorStop(0.47, "rgba(190,220,255,.16)");
+  band.addColorStop(0.53, "rgba(220,235,255,.26)");
+  band.addColorStop(0.6, "rgba(190,220,255,.06)");
+  band.addColorStop(0.75, "rgba(255,255,255,0)");
+  g.fillStyle = band;
+  g.fillRect(0, 0, w, h);
+});
+sheenTex.wrapS = sheenTex.wrapT = THREE.ClampToEdgeWrapping;
+const sheens = [];
+function sheen(over, w, h) {
+  const tex = sheenTex.clone();
+  tex.needsUpdate = true;
+  tex.repeat.set(0.5, 0.5);
+  tex.offset.set(0.25, 0.25);
+  const m = new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshBasicMaterial({ map: tex, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, depthTest: false, toneMapped: false }));
+  m.position.copy(over.position);
+  m.position.z += 0.005;
+  m.scale.copy(over.scale);
+  m.renderOrder = -38;
+  scene.add(m);
+  sheens.push({ tex, x: over.position.x });
+}
+function runSheens() {
+  for (const s of sheens) s.tex.offset.x = 0.25 + clamp((s.x - eye) * 0.07, -0.25, 0.25);
+}
+/** Two rods from the beam over the window down to a hung screen, like the ones the game screens hang from in the rendered room. */
+const rodTex = canvasTexture(8, 4, (g, w, h) => {
+  const metal = g.createLinearGradient(0, 0, w, 0);
+  metal.addColorStop(0, "#111724");
+  metal.addColorStop(0.45, "#77849c");
+  metal.addColorStop(1, "#161d2c");
+  g.fillStyle = metal;
+  g.fillRect(0, 0, w, h);
+});
+function rods(xw, ww, topYw) {
+  const beam = (6.25 - P.layout.head) * U - 2;
+  for (const x of [xw + ww * 0.2, xw + ww * 0.8]) wallQuad(x - 2, beam, 4, topYw - beam + 4, rodTex, ZB + 0.42, -41);
+}
 function buildWall(images) {
   for (const [i, box] of BOXES.entries()) {
     const tex = new THREE.CanvasTexture(boxArt(box, images));
@@ -631,6 +846,7 @@ function buildWall(images) {
     m.position.set(L.xs[i], L.by, ZB + 0.36);
     m.renderOrder = -40;
     scene.add(m);
+    sheen(m, L.bw, L.bh);
     posters.push({ mat, glitch: -1 });
     // Its sign: the same size and place as in every room.
     const sw = Math.round(L.signW * 0.84);
@@ -670,13 +886,9 @@ function buildWall(images) {
     }));
   }
   // The join sign: its code must stay readable (the QR picture is a stand-in pattern, not a working code).
-  wallQuad(181 - 106, 133, 212, 276, canvasTexture(212 * 3, 276 * 3, (g, w, h) => {
-    g.fillStyle = "rgba(4,8,20,.9)";
-    rr(g, 3, 3, w - 6, h - 6, 24);
-    g.fill();
-    g.strokeStyle = "rgba(110,231,255,.65)";
-    g.lineWidth = 4;
-    g.stroke();
+  rods(181 - 106, 212, 133);
+  const join = wallQuad(181 - 106, 133, 212, 276, canvasTexture(212 * 3, 276 * 3, (g, w, h) => {
+    panel(g, w, h, 24);
     g.fillStyle = "#6ee7ff";
     g.font = "700 30px ui-monospace, Menlo, Consolas, monospace";
     g.textAlign = "center";
@@ -712,14 +924,11 @@ function buildWall(images) {
     g.font = "500 30px ui-monospace, Menlo, Consolas, monospace";
     g.fillText("partygames.n8builds.dev", w / 2, 730);
   }));
+  sheen(join, 212 / U, 276 / U);
   // The Tonight board.
-  wallQuad(1722 - 118, 136, 236, 240, canvasTexture(236 * 3, 240 * 3, (g, w, h) => {
-    g.fillStyle = "rgba(4,8,20,.9)";
-    rr(g, 3, 3, w - 6, h - 6, 18);
-    g.fill();
-    g.strokeStyle = "rgba(110,231,255,.65)";
-    g.lineWidth = 4;
-    g.stroke();
+  rods(1722 - 118, 236, 136);
+  const board = wallQuad(1722 - 118, 136, 236, 240, canvasTexture(236 * 3, 240 * 3, (g, w, h) => {
+    panel(g, w, h, 18);
     g.fillStyle = "#6ee7ff";
     g.font = "700 44px ui-monospace, Menlo, Consolas, monospace";
     g.textAlign = "center";
@@ -750,6 +959,7 @@ function buildWall(images) {
     g.textAlign = "center";
     g.fillText("1st 3 pts, 2nd 2, 3rd 1", w / 2, h - 60);
   }));
+  sheen(board, 236 / U, 240 / U);
 }
 
 // ---- the lights on the bench that blink, and the ring a touch leaves on the glass
@@ -1080,9 +1290,11 @@ function touch(cx, cy) {
     const r = ripples.reduce((a, b) => (a.t0 < b.t0 ? a : b));
     r.t0 = t;
     r.m.position.set(gx, gy, ZB + 0.02);
+    // The shooting star is the sky's to give: it comes only into an empty sky, like everything else out there.
     const [sx, sy] = under(cx, cy, -40);
-    shoot(t, sx, sy, { lasts: 0.8, len: 11 });
-    return say("A ring on the glass, and a shooting star behind it.");
+    const busy = timetable.now?.thing.name;
+    if (timetable.startIfEmpty("star", t, { x: sx, y: sy, len: 11 })) return say("A ring on the glass, and a shooting star behind it.");
+    return say(busy === "star" ? "A ring on the glass." : `A ring on the glass. No shooting star while the ${LABEL[busy] ?? "sky"} is passing: one thing at a time.`);
   }
   // The deck: a piece comes over.
   if (ly < 0.2 || gy < P.layout.sill) {
@@ -1102,7 +1314,7 @@ function say(text) {
 }
 
 // ================================================================== the frame
-const clock = { t: still ? 30 : 0, last: performance.now() };
+const clock = { t: still ? Number(Q.get("t") ?? 30) : 0, last: performance.now() };
 const meter = { frames: [], script: [], shown: 0 };
 let view = null;
 let eye = 0;
@@ -1129,6 +1341,59 @@ let sky = null;
 let planet = null;
 let moon = null;
 
+/** One frame: the outside first, then the room over it. */
+function drawFrame() {
+  renderer.info.reset();
+  renderer.clear();
+  renderer.render(sceneOut, cam);
+  renderer.clearDepth();
+  renderer.render(scene, cam);
+}
+/** For the checks (shoot.mjs --leak): does what is passing change any pixel that is not glass?
+ *  Draws this same moment three times (nothing passing; the thing passing; only the glass, in white)
+ *  and counts the pixels the thing changed, and how many of those are not glass. */
+function leakCheck() {
+  const gl = renderer.getContext();
+  const [w, h] = [gl.drawingBufferWidth, gl.drawingBufferHeight];
+  const grab = () => {
+    const px = new Uint8Array(w * h * 4);
+    gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, px);
+    return px;
+  };
+  const movers = [...PASSERS.map((p) => p.mesh), streak.m];
+  const was = movers.map((m) => m.visible);
+  movers.forEach((m) => (m.visible = false));
+  drawFrame();
+  const empty = grab();
+  movers.forEach((m, i) => (m.visible = was[i]));
+  drawFrame();
+  const full = grab();
+  const others = scene.children.filter((o) => o !== shell.group && o.visible);
+  others.forEach((o) => (o.visible = false));
+  shell.u.uProbe.value = 1;
+  renderer.clear();
+  renderer.render(scene, cam);
+  const glass = grab();
+  shell.u.uProbe.value = 0;
+  others.forEach((o) => (o.visible = true));
+  drawFrame();
+  let changed = 0;
+  let leaked = 0;
+  let worst = 0;
+  let panes = 0;
+  for (let i = 0; i < empty.length; i += 4) {
+    const d = Math.max(Math.abs(empty[i] - full[i]), Math.abs(empty[i + 1] - full[i + 1]), Math.abs(empty[i + 2] - full[i + 2]));
+    if (glass[i] > 0) panes++;
+    if (!d) continue;
+    changed++;
+    if (glass[i] === 0) {
+      leaked++;
+      worst = Math.max(worst, d);
+    }
+  }
+  return { passing, changed, leaked, worst, glass: panes, pixels: w * h };
+}
+
 function tick(nowMs) {
   requestAnimationFrame(tick);
   const dtReal = Math.min(0.1, (nowMs - clock.last) / 1000);
@@ -1136,7 +1401,9 @@ function tick(nowMs) {
   clock.last = nowMs;
   if (state.look !== "real" || state.paused) return;
   const t0 = performance.now();
-  const dt = still ? 0 : dtReal;
+  // ?speed=20 runs the room's clock fast, for the check that watches the sky for a long time (shoot.mjs --sky).
+  // Each step is still at most a tenth of a second, as on a slow phone.
+  const dt = still ? 0 : Math.min(0.1, dtReal * SPEED);
   clock.t += dt;
   const t = clock.t;
   const now = t * 1000;
@@ -1171,10 +1438,10 @@ function tick(nowMs) {
   planet.material.uniforms.uTurn.value = (t / CFG.planet.turnSeconds) % 1;
   planet.material.uniforms.uTime.value = t;
   moon.material.uniforms.uTurn.value = (t / CFG.moon.turnSeconds) % 1;
-  runPassers(t);
-  runStreaks(t);
+  runSky(t);
+  runSheens();
 
-  renderer.render(scene, cam);
+  drawFrame();
 
   // The names over the pieces (HTML, as in the room).
   const w = stage.clientWidth;
@@ -1242,6 +1509,15 @@ function wire() {
   $("depth").addEventListener("click", () => setDepth(!state.depth));
   $("notes-open").addEventListener("click", () => document.body.classList.toggle("notes-on"));
   $("notes-shut").addEventListener("click", () => document.body.classList.remove("notes-on"));
+  // "Send one now": the thing asked for still goes through the timetable, so it waits for an empty sky.
+  for (const b of document.querySelectorAll("[data-send]"))
+    b.addEventListener("click", () => {
+      const name = b.dataset.send === "rock" ? `rock${Math.floor(Math.random() * 3)}` : b.dataset.send;
+      const waitsFor = timetable.ask(name, clock.t);
+      document.body.classList.remove("notes-on"); // sideways, the notes cover the window: get them out of the way
+      const what = name === "star" ? "A shooting star" : `The ${LABEL[name]}`;
+      say(waitsFor ? `${what} comes next, a few seconds after the ${LABEL[waitsFor]} has gone.` : `${what} is on its way.`);
+    });
   // A touch on the stage: a short one sets something off, a drag moves the eye.
   let down = null;
   canvas.addEventListener("pointerdown", (e) => {
@@ -1291,7 +1567,7 @@ async function start() {
   sky = buildSky(skyMap);
   farStars = buildStars(3000, 61, 2.4, 1.2);
   nearStars = buildStars(240, 19, 5.0, 1.9);
-  planet = ball(planetMap, CFG.planet, { ringed: true, air: 1 });
+  planet = ball(planetMap, CFG.planet, { gas: true, air: 1 });
   halo(CFG.planet);
   const ring = buildRing(CFG.planet);
   planet.material.uniforms.uRingMap.value = ring.bandsTex;
@@ -1316,10 +1592,29 @@ async function start() {
     pieces[2].piece.rx = boxCentre(2, N) + 10;
     pieces[3].piece.rx = boxCentre(3, N) + 150;
     for (const b of lamps) b.level = b.aim = pieces.some((p) => Math.abs(p.piece.rx - b.cx) <= lightHalf(N)) ? 1 : 0;
-    for (const p of PASSERS) if (["liner", "rock0", "rock1"].includes(p.name)) p.next = clock.t - p.lasts * (p.name === "liner" ? 0.55 : 0.4);
   }
   document.body.classList.add("ready");
   // For the checks (shoot.mjs): what the lamps and the pieces are doing.
+  // With a name, it first holds that thing at the point u of its way (see __hold), then checks that very moment.
+  window.__leak = (name, u, x) => {
+    if (name) {
+      window.__hold(name, u, x);
+      runSky(clock.t);
+    }
+    return leakCheck();
+  };
+  // What is in the sky this frame: the timetable's word, and (counted separately, from the drawing itself) every passing thing that is switched on.
+  window.__sky = () => ({ t: clock.t, passing, drawn: [...PASSERS.filter((p) => p.mesh.visible).map((p) => p.name), ...(streak.m.visible ? ["star"] : [])] });
+  window.__ask = (name) => timetable.ask(name, clock.t);
+  // Holds one named thing at one point of its way (or lets go, with no name). A shooting star can be put through a place of the wall (x in the room's metres).
+  window.__hold = (name, u, x) => {
+    heldEv = name ? { thing: { name }, u, x: x === undefined ? undefined : x * ((CAM.z + 40) / D_WALL) } : null;
+    streak.ev = null;
+  };
+  window.__glass = (on) => {
+    shell.u.uProbe.value = on ? 1 : 0;
+    for (const o of scene.children) if (o !== shell.group) o.visible = !on;
+  };
   window.__probe = () => ({ lamps: lamps.map((b) => ({ level: +b.level.toFixed(2), gain: +shell.u.uGain.value[b.i].toFixed(2), halo: +b.halo.material.opacity.toFixed(2), spot: +b.spot.intensity.toFixed(2) })), pieces: pieces.map((p) => Math.round(p.piece.rx)), eye: +eye.toFixed(2), view });
   window.__ready = true;
   requestAnimationFrame(tick);

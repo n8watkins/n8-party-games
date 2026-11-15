@@ -248,6 +248,23 @@
     font-weight: 800;
     cursor: pointer;
   }
+  #notes b {
+    color: var(--ink);
+  }
+  #send {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin: 8px 0 4px;
+  }
+  #send .chip {
+    min-height: 40px;
+    background: transparent;
+  }
+  #send .chip:active {
+    border-color: var(--accent);
+    color: var(--accent);
+  }
   #turn {
     display: none;
   }
@@ -339,12 +356,38 @@
   <aside id="notes">
     <button type="button" id="notes-shut" aria-label="Close the notes">X</button>
     <p id="turn">Turn your phone sideways: that is how the room is played, and how this page is meant to be seen.</p>
+    <h2>What changed since round one</h2>
+    <ul>
+      <li><b>The light through the walls is gone.</b> The rocket's engine light was being drawn after the room instead of before it, so it showed over the door, the posts and the left wall. Now everything outside is drawn first, as a picture of its own, and the room is drawn over it. Nothing out there can show anywhere but through glass, and that holds for anything added later.</li>
+      <li><b>A calmer sky.</b> One thing passes at a time, and then the sky is empty for 20 to 45 seconds. Nothing overlaps and nothing crosses. Round one could have six things out at once, and a shooting star every few seconds.</li>
+      <li><b>More on the planet.</b> Its surface is drawn at twice the size. Three storms turn with it: a great red one and two small pale ones. Thin streaks run along its belts and tear slowly in the wind. Its edge is clean, with a haze of air. The colours and the belts are the ones from round one.</li>
+      <li><b>Sharper ships.</b> The rocket, the liner, the saucer and the rocks are rendered at twice the size. An engine now has a flame, not a round glow. The moon shows its pits in the sun.</li>
+    </ul>
+    <h2>How often things pass</h2>
+    <p>The rocket comes first, 6 seconds after the page opens. After that the sky picks, never the same kind twice running:</p>
+    <ul>
+      <li>a shooting star: about every 3 minutes</li>
+      <li>a rock: about every 3 minutes</li>
+      <li>the rocket: about every 3 and a half minutes</li>
+      <li>the liner: about every 6 minutes</li>
+      <li>the saucer: about every 12 minutes (the rare one)</li>
+    </ul>
+    <p>Taken together, something passes about every 50 seconds, and the sky is empty two thirds of the time. A tap on the glass still calls a shooting star, but only into an empty sky.</p>
+    <p>Not waiting 12 minutes for a saucer: send one now. It still takes its turn.</p>
+    <div id="send">
+      <button type="button" class="chip" data-send="rocket">Rocket</button>
+      <button type="button" class="chip" data-send="liner">Liner</button>
+      <button type="button" class="chip" data-send="saucer">Saucer</button>
+      <button type="button" class="chip" data-send="rock">Rock</button>
+      <button type="button" class="chip" data-send="star">Shooting star</button>
+    </div>
     <h2>This is a preview</h2>
     <p>It is a trial of how the Star Lounge could look, not the game. Nothing here is played, saved or sent anywhere. The number in the top corner is the real time one frame takes on the device you are holding, measured live.</p>
     <h2>Look at these first</h2>
     <ul>
-      <li>The window. The planet turns, its ring throws a shadow on it, the stars drift at two speeds, and a rocket, a liner, a saucer and rocks pass at different distances.</li>
-      <li>With Depth on, drag sideways with a finger. The rocks slide past the glass fastest, the planet slower, the stars slowest. That is real depth, not one picture.</li>
+      <li>The window. The planet turns, its ring throws a shadow on it, the stars drift at two speeds. Wait for the great storm to come round: the planet turns once in 95 seconds.</li>
+      <li>The rocket, as it passes behind the posts and the door: its flame is hidden with it.</li>
+      <li>With Depth on, drag sideways with a finger. A passing rock slides past the glass fastest, the planet slower, the stars slowest. That is real depth, not one picture.</li>
       <li>The pieces. Watch one walk from the dark into a lamp's pool: the lamp comes on with a stutter, the piece is lit from above, and the deck holds its reflection.</li>
       <li>Switch to Today and back to compare with the room as it is now.</li>
     </ul>
@@ -352,21 +395,29 @@
     <ul>
       <li>Tap a lamp (Whole room shows them): it swings and flickers, and its pool of light swings with it.</li>
       <li>Tap the chart globe on the right: it spins up, turns pink and throws sparks, and the light it gives the wall turns pink too.</li>
-      <li>Tap the glass: a ring on the glass and a shooting star behind it.</li>
+      <li>Tap the glass: a ring on the glass, and a shooting star behind it if the sky is empty.</li>
       <li>Tap a game screen: it stutters.</li>
       <li>Tap the deck: your piece walks there.</li>
     </ul>
     <h2>What is rendered and what is live</h2>
     <ul>
       <li>Rendered in Blender: the room, with each light on its own layer; the lamps; the chart table; the planet's and the moon's surface; the gas clouds; the rocket, liner, saucer and rocks.</li>
-      <li>Live: the pieces (the room's real pawn, not a picture), the posters, the planet turning, the stars, everything that moves.</li>
+      <li>Live: the pieces (the room's real pawn, not a picture), the posters, the planet turning, its storms and its fine streaks, the stars, the flames, everything that moves.</li>
       <li>Stand-ins for now: the join sign, the Tonight board, the signs under the screens and the name tags. The room's own will be used.</li>
       <li>Today is a still picture of the room as it runs now.</li>
     </ul>
     <h2>One thing to decide</h2>
     <p>In the room today the eye never moves, so nothing can pass in front of anything. Depth: on lets the eye slide a little as your piece walks (and sway slightly when it stands). Depth: off shows the same room with the eye held still, as it is today.</p>
+    <h2>What I would do next</h2>
+    <ul>
+      <li><b>Give the window more room.</b> The game screens hang over the top half of the glass, so the universe only gets a band under them. Smaller screens, or screens that hang higher, would show more of it. That changes the wall's layout, which every room shares, so it needs your yes.</li>
+      <li><b>The pieces.</b> They are the room's simple pawn, and next to this room they look like toys. A more finished piece belongs to the character work, not to this room.</li>
+      <li><b>The words on the wall.</b> The join sign, the Tonight board and the signs under the screens are stand-ins. Here they got a rim, rods to hang from and a shine on the glass; in the room they are the room's own.</li>
+      <li><b>Night on the planet.</b> From this window the planet is nearly all in daylight. A slower turn of the whole scene, with the edge of night coming into view, would show its air and its storms' lightning.</li>
+      <li><b>The bar,</b> remade the same way as this room.</li>
+    </ul>
     <h2>Not in this preview</h2>
-    <p>Sound, bumps, emotes and votes. The number in the top corner is the real time one frame takes on the device you are holding.</p>
+    <p>Sound, bumps, emotes and votes. The number in the top corner is the real time one frame takes on the device you are holding, and only that number counts: /*SPEED*/</p>
   </aside>
 </div>
 <script>
