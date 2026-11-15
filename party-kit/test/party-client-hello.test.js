@@ -103,7 +103,7 @@ describe("the address of the socket", () => {
 describe("after a close that is final", () => {
   it.each([
     ["the seat is gone (4003)", 4003, "bad_token"],
-    ["the page is out of date (4003 reload)", 4003, "reload"],
+    ["the seat was given up on another socket (4003 left)", 4003, "left"],
     ["the room closed (4000)", 4000, "room_closed"],
   ])("%s: the page showing again, or anything else, opens no new socket", (_, code, reason) => {
     const c = client({ api: "/api/lobby", quietPing: { text: "ping", everyMs: 10_000 } });

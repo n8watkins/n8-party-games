@@ -160,9 +160,14 @@ export async function openRoom(createLobbyRoom, game, { players = { min: 2, max:
   const ctx = fakeCtx();
   ctx.room = new Room(ctx, env);
   await settle();
-  /** Opens a socket and says nothing on it yet: the room does not know whose it is. `query` is added to the address ("?lag=0"). */
-  const open = async (query = "") => {
-    const res = await ctx.room.fetch(new Request(`https://room/ws${query}`, { headers: { Upgrade: "websocket" } }));
+  /**
+   * Opens a socket and says nothing on it yet: the room does not know whose it is. `query` is
+   * added to the address ("?lag=0"); `ip` is the address Cloudflare puts on the request (none, as
+   * in a local run, by default).
+   */
+  const open = async (query = "", ip = null) => {
+    const headers = { Upgrade: "websocket", ...(ip ? { "CF-Connecting-IP": ip } : {}) };
+    const res = await ctx.room.fetch(new Request(`https://room/ws${query}`, { headers }));
     expect(res.status).toBe(101);
     return ctx.sockets.at(-1);
   };

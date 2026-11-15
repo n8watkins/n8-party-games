@@ -1,13 +1,13 @@
 // The socket handshake on the real party room class: a socket opens with no token in its
 // address, has no seat and hears nothing (of the room or of a game) until its first message
 // names its seat's token, and is closed by anything else. The old form, with the token in the
-// address, is refused and the seat it named is given up. Sockets that never say whose they are
-// are kept to a handful, wake nothing and hold nobody's place.
+// address, is taken as that hello for now. Sockets that never say whose they are are shared out
+// by the address they came from, wake nothing and push no real phone out.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { GAME_FRAME, dropFakeRuntime, fakeEnv, openRoom, settle, useFakeRuntime } from "./fake-room.js";
 import { started as startedIn, turnGame } from "./turn-game.js";
 import { DROP_FADE_MS, SEAT_HOLD_MS } from "../server/lobby-core.js";
-import { CLOSE_BAD_TOKEN, CLOSE_HELLO_EXPECTED, CLOSE_HELLO_LATE, HELLO_MS, MAX_UNKNOWN } from "../../party-kit/src/worker/hello-logic.js";
+import { CLOSE_BAD_TOKEN, CLOSE_HELLO_EXPECTED, CLOSE_HELLO_LATE, HELLO_MS, MAX_UNKNOWN, MAX_UNKNOWN_PER_CLIENT } from "../../party-kit/src/worker/hello-logic.js";
 
 vi.mock("cloudflare:workers", () => ({
   DurableObject: class {
@@ -41,8 +41,8 @@ afterEach(dropFakeRuntime);
 describe("a socket before it says whose it is", () => {
   it("carries no token, has no seat, and hears nothing while the room goes on in front of it", async () => {
     const r = await party();
-    const stranger = await r.open();
-    expect(stranger.attachment).toEqual({ unknown: true, at: Date.now(), lag: 0 });
+    const stranger = await r.open("", "203.0.113.7");
+    expect(stranger.attachment).toEqual({ unknown: true, at: Date.now(), lag: 0, client: "203.0.113.7" });
     expect((await r.ctx.room.debug()).sockets).toBe(1);
     expect((await r.ctx.room.debug()).unknown).toBe(1);
 
@@ -168,102 +168,176 @@ describe("a hello that names no seat", () => {
     // Opening a socket does not say whether the code is a party.
     const silent = await r.open();
     expect(silent.closed).toBeNull();
-    expect(silent.attachment).toEqual({ unknown: true, at: Date.now(), lag: 0 });
+    expect(silent.attachment).toEqual({ unknown: true, at: Date.now(), lag: 0, client: "local" });
     const ws = await r.open();
     // The object sleeps and wakes with nothing saved: the sockets are still nobody's.
     await r.sleepAndWake();
     hello(r, ws, "any-token");
     expect(ws.closed).toEqual({ code: CLOSE_BAD_TOKEN, reason: "bad_token" });
     expect(ws.frames).toEqual([]);
-    // Never more than a handful wait there either, and nothing is written or timed for them.
+    // Never more than a client's share wait there either, and nothing is written or timed for them.
     const flood = [];
     for (let i = 0; i < 40; i++) flood.push(await r.open());
-    expect([silent, ...flood].filter((s) => !s.closed)).toHaveLength(MAX_UNKNOWN);
+    expect([silent, ...flood].filter((s) => !s.closed)).toHaveLength(MAX_UNKNOWN_PER_CLIENT);
     expect(r.ctx.store.size).toBe(0);
     expect(r.ctx.alarm.at).toBeNull();
   });
+});
 
-  it("someone who keeps the party's handful full of silent sockets, topping them up, keeps no player out: not one coming back from a drop either", async () => {
+describe("silent sockets opened while a phone's hello is on its way", () => {
+  /** Bo was in from `home`, and dropped; the party is full of someone else's silent sockets already, from 40 addresses. */
+  async function crowded(home) {
     const r = await party();
-    const first = await r.connect(r.tokens.bo);
+    const first = await r.open("", home);
+    hello(r, first, r.tokens.bo);
     await settle();
     r.ctx.room.webSocketClose(first, 1006, "");
     await settle();
-    for (let round = 0; round < 5; round++) {
-      for (let i = 0; i < MAX_UNKNOWN + 2; i++) await r.open();
-      await vi.advanceTimersByTimeAsync(1000);
-      expect((await r.ctx.room.debug()).unknown).toBe(MAX_UNKNOWN);
-      // Bo's page: its socket is the newest of the handful, and its hello follows at once.
-      const ws = await r.open();
-      expect(ws.closed).toBeNull();
-      hello(r, ws, r.tokens.bo);
-      await settle();
-      expect(ws.messages()[0]).toMatchObject({ t: "hello", you: { role: "player", seat: 1 } });
-      r.ctx.room.webSocketClose(ws, 1006, "");
-      await settle();
-    }
+    for (let i = 0; i < MAX_UNKNOWN; i++) await r.open("", `198.51.100.${i % 40}`);
+    return r;
+  }
+
+  /** Bo's phone opens from `from`, `n` more silent sockets arrive from `others(i)`, and then its hello lands. */
+  async function comesBack(r, from, n, others) {
+    const phone = await r.open("", from);
+    for (let i = 0; i < n; i++) await r.open("", others(i));
+    await vi.advanceTimersByTimeAsync(500);
+    const waited = phone.closed;
+    hello(r, phone, r.tokens.bo);
+    await settle();
+    expect((await r.ctx.room.debug()).unknown).toBeLessThanOrEqual(MAX_UNKNOWN);
+    return { waited, heard: phone.messages()[0] };
+  }
+
+  // Each of the 1,000 is from an address of its own (an IPv6 /48 each).
+  const everywhere = (i) => `2001:db8:${(i >> 8).toString(16)}${(i & 255).toString(16).padStart(2, "0")}::1`;
+
+  it.each([8, 40, MAX_UNKNOWN, 1000])(
+    "a phone back on the network it played on is seated though %i silent sockets from addresses of their own arrived during its round trip",
+    async (n) => {
+      const r = await crowded("203.0.113.7");
+      const { waited, heard } = await comesBack(r, "203.0.113.7", n, everywhere);
+      expect(waited).toBeNull();
+      expect(heard).toMatchObject({ t: "hello", you: { role: "player", seat: 1 } });
+    },
+  );
+
+  it.each([8, 40, MAX_UNKNOWN, 1000])(
+    "a phone on a network the party has never seen is seated though %i silent sockets from 40 addresses arrived during its round trip",
+    async (n) => {
+      const r = await crowded("203.0.113.7");
+      const { waited, heard } = await comesBack(r, "192.0.2.50", n, (i) => `198.51.100.${i % 40}`);
+      expect(waited).toBeNull();
+      expect(heard).toMatchObject({ t: "hello", you: { role: "player", seat: 1 } });
+    },
+  );
+
+  it("a phone joined from a network is known there before its first socket", async () => {
+    const r = await party();
+    const cy = await r.ctx.room.join({ nickname: "Cy", as: "player", client: "192.0.2.80" });
+    for (let i = 0; i < MAX_UNKNOWN; i++) await r.open("", `198.51.100.${i % 40}`);
+    const phone = await r.open("", "192.0.2.80");
+    for (let i = 0; i < 1000; i++) await r.open("", everywhere(i));
+    expect(phone.closed).toBeNull();
+    hello(r, phone, cy.token);
+    await settle();
+    expect(phone.messages()[0]).toMatchObject({ t: "hello", you: { role: "player", seat: 2 } });
+  });
+
+  it("one address cannot hold more than its share: its newest pushes out its own oldest, never another's", async () => {
+    const r = await party();
+    const phone = await r.open("", "192.0.2.50");
+    const greedy = [];
+    for (let i = 0; i < 50; i++) greedy.push(await r.open("", "198.51.100.9"));
+    expect(phone.closed).toBeNull();
+    expect(r.ctx.room.unknown.countOf("198.51.100.9")).toBe(MAX_UNKNOWN_PER_CLIENT);
+    expect(greedy.slice(-MAX_UNKNOWN_PER_CLIENT).every((ws) => ws.closed === null)).toBe(true);
+    hello(r, phone, r.tokens.bo);
+    await settle();
+    expect(phone.messages()[0]).toMatchObject({ t: "hello" });
+  });
+
+  it("the party remembers the networks it let in across a sleep and a restart, and forgets them when it closes", async () => {
+    const r = await crowded("203.0.113.7");
+    await r.sleepAndWake();
+    expect((await comesBack(r, "203.0.113.7", 1000, everywhere)).waited).toBeNull();
+    expect(r.ctx.store.get("clients")).toContain("203.0.113.7");
+    await r.ctx.room.destroy();
+    expect(r.ctx.store.size).toBe(0);
   });
 });
 
-describe("the old form: the token in the address", () => {
-  it("is refused, and the seat it named is given up, on every socket it had", async () => {
+describe("the old form, the token in the address, from a page loaded before the deploy", () => {
+  it("is taken as a socket that opened and said hello with that token at once: seated, and the room told", async () => {
     const r = await party();
-    const tab = await r.connect(r.tokens.bo);
-    await settle();
     const old = await r.open(`?token=${r.tokens.bo}`);
     await settle();
-    expect(old.closed).toEqual({ code: CLOSE_BAD_TOKEN, reason: "reload" });
-    expect(old.frames).toEqual([]);
-    // The address was written down the moment it arrived: the token in it opens nothing any more.
-    expect(tab.closed).toEqual({ code: CLOSE_BAD_TOKEN, reason: "reload" });
-    expect(r.ctx.room.core.identify(r.tokens.bo)).toBeNull();
-    expect(roomOf(r.ws.ann).members[1]).toBeNull();
-    const again = await r.connect(r.tokens.bo);
-    expect(again.closed).toEqual({ code: CLOSE_BAD_TOKEN, reason: "bad_token" });
-    // The person comes back through the way in, by name, and has their seat again.
-    const back = await r.ctx.room.join({ nickname: "Bo", as: "player" });
-    expect(back).toMatchObject({ ok: true, seat: 1 });
-    expect(back.token).not.toBe(r.tokens.bo);
+    expect(old.closed).toBeNull();
+    expect(old.messages()[0]).toMatchObject({ t: "hello", you: { role: "player", seat: 1 } });
+    expect(old.attachment).toMatchObject({ token: r.tokens.bo, role: "player", seat: 1 });
+    expect((await r.ctx.room.debug()).unknown).toBe(0);
+    expect(roomOf(r.ws.ann).members[1]).toMatchObject({ name: "Bo", connected: true });
+    // It keeps the seat across a sleep, as any seated socket does.
+    await r.sleepAndWake();
+    expect(r.ctx.room.sockets.get(old)).toMatchObject({ seat: 1, token: r.tokens.bo });
   });
 
-  it("gives up a seat that was only held for a phone that dropped", async () => {
+  it("brings back a seat that was only held for a phone that dropped, as a hello does", async () => {
     const r = await party();
     const bo = await r.connect(r.tokens.bo);
     await settle();
     r.ctx.room.webSocketClose(bo, 1006, "");
     await vi.advanceTimersByTimeAsync(DROP_FADE_MS + 1000);
-    expect(r.ctx.room.core.held.has(r.tokens.bo)).toBe(true);
-    await r.open(`?token=${r.tokens.bo}`);
+    expect(r.ctx.room.core.members[1]).toBeNull();
+    const old = await r.open(`?token=${r.tokens.bo}`);
     await settle();
-    expect(r.ctx.room.core.held.has(r.tokens.bo)).toBe(false);
-    expect((await r.connect(r.tokens.bo)).closed).toEqual({ code: CLOSE_BAD_TOKEN, reason: "bad_token" });
+    expect(old.messages()[0]).toMatchObject({ t: "hello", you: { role: "player", seat: 1 } });
+    expect(roomOf(r.ws.ann).members[1]).toMatchObject({ name: "Bo", connected: true });
   });
 
-  it("with a token that names nobody, is refused the same way and changes nothing", async () => {
+  it.each([
+    ["a token that names nobody", "?token=not-a-token"],
+    ["an empty token", "?token="],
+  ])("with %s gets what a wrong hello gets: closed with nothing said, and nothing changes", async (_, query) => {
     const r = await party();
     const before = r.ws.ann.frames.length;
-    const old = await r.open("?token=not-a-token");
+    const old = await r.open(query);
     await settle();
-    expect(old.closed).toEqual({ code: CLOSE_BAD_TOKEN, reason: "reload" });
+    expect(old.closed).toEqual({ code: CLOSE_BAD_TOKEN, reason: "bad_token" });
+    expect(old.frames).toEqual([]);
     expect(r.ws.ann.frames.length).toBe(before);
     expect(r.ctx.room.core.members.filter(Boolean)).toHaveLength(2);
   });
 
-  it("is refused even beside a hello", async () => {
+  it("with the token of a seat that was given up, gets what a wrong hello gets", async () => {
+    const r = await party();
+    const bo = await r.connect(r.tokens.bo);
+    await settle();
+    r.say(bo, { t: "leave" });
+    await settle();
+    const old = await r.open(`?token=${r.tokens.bo}`);
+    expect(old.closed).toEqual({ code: CLOSE_BAD_TOKEN, reason: "bad_token" });
+    expect(old.frames).toEqual([]);
+  });
+
+  it("a hello after it on the same socket changes nothing: it is already that seat", async () => {
     const r = await party();
     const old = await r.open(`?token=${r.tokens.bo}`);
     hello(r, old, r.tokens.ann);
     await settle();
-    expect(old.frames).toEqual([]);
-    expect(r.ctx.room.sockets.has(old)).toBe(false);
+    expect(r.ctx.room.sockets.get(old)).toMatchObject({ seat: 1, token: r.tokens.bo });
   });
 
-  it("ends a turn-based game whose seat it named, as leaving does", async () => {
+  it("in a turn-based game, a phone back with it plays on in its seat, and sees only its own view", async () => {
     const r = await startedIn(createLobbyRoom, turnGame());
-    await r.open(`?token=${r.tokens.bo}`);
+    r.ctx.room.webSocketClose(r.ws.bo, 1006, "");
     await settle();
-    expect(r.ws.bo.closed).toEqual({ code: CLOSE_BAD_TOKEN, reason: "reload" });
-    expect(r.ctx.room.core.activity.kind).toBe("lobby");
+    const old = await r.open(`?token=${r.tokens.bo}`);
+    await settle();
+    expect(r.ctx.room.core.activity.kind).toBe("game");
+    expect(old.frames.some((f) => GAME_FRAME.test(f))).toBe(true);
+    expect(old.text()).toContain(r.secrets.ann);
+    expect(old.text()).not.toContain(r.secrets.bo);
     expect(r.ws.ann.closed).toBeNull();
   });
 });
@@ -391,7 +465,7 @@ describe("many sockets that never say whose they are", () => {
     const flood = [];
     for (let i = 0; i < 300; i++) flood.push(await r.open());
     await settle();
-    expect(flood.filter((ws) => !ws.closed)).toHaveLength(MAX_UNKNOWN);
+    expect(flood.filter((ws) => !ws.closed)).toHaveLength(MAX_UNKNOWN_PER_CLIENT);
     expect(flood.filter((ws) => ws.closed).every((ws) => ws.closed.code === CLOSE_HELLO_LATE)).toBe(true);
     expect(flood.every((ws) => ws.frames.length === 0)).toBe(true);
     // Nobody in the room heard of it, nothing was saved, no timer runs, the alarm is where it was.
@@ -402,7 +476,7 @@ describe("many sockets that never say whose they are", () => {
     // The budget is not called once per socket.
     expect(budget.length - reports).toBeLessThanOrEqual(1);
     const debug = await r.ctx.room.debug();
-    expect(debug).toMatchObject({ sockets: 1, unknown: MAX_UNKNOWN, timer: false });
+    expect(debug).toMatchObject({ sockets: 1, unknown: MAX_UNKNOWN_PER_CLIENT, timer: false });
     // The party is as full as it was, and no fuller: every seat and the screen can still come in.
     expect(debug.view.members.filter(Boolean)).toHaveLength(4);
     const bo = await r.connect(r.tokens.bo);

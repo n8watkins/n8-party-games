@@ -7,11 +7,13 @@
 import { DurableObject } from "cloudflare:workers";
 import { RoomCore, LagLine, eventsFor, fanOut } from "../core/room-core.js";
 import { newSeed } from "../core/rng.js";
-import { CLOSE_BAD_TOKEN, CLOSE_HELLO_EXPECTED, OLD_FORM_REASON, UnknownSockets, closeQuietly, readHello } from "./hello-logic.js";
+import { CLOSE_BAD_TOKEN, CLOSE_HELLO_EXPECTED, HONOUR_TOKEN_IN_ADDRESS, KnownClients, UnknownSockets, clientOf, closeQuietly, readHello, seatToken } from "./hello-logic.js";
 import { PIN_DIRECTORY_NAME } from "./pin-logic.js";
 import { REPORT_EVERY_MS, fullMessage, roomBudgetState, spendRoomTime } from "./room-budget.js";
 
 const STORAGE_KEY = "room";
+/** The clients the room has let in (KnownClients), kept apart from the game's own save. */
+const CLIENTS_KEY = "clients";
 const CLOSE_ROOM_CLOSED = 4000;
 const MAX_MESSAGE_BYTES = 2048;
 
@@ -27,13 +29,16 @@ export function createPartyRoom(game) {
       this.core = null;
       /** socket -> {token, role, seat, out: LagLine, in: LagLine}: the sockets that have a seat (or are a screen). */
       this.sockets = new Map();
+      /** The clients this room has let in; their waiting sockets give way after everyone else's. */
+      this.known = new KnownClients();
       /** The sockets that have not said whose they are yet: no seat, and nothing is sent to them. */
-      this.unknown = new UnknownSockets();
+      this.unknown = new UnknownSockets((client) => this.known.has(client));
       this.timer = null;
       /** When the awake time not yet reported to the room budget began; null while the room is asleep. */
       this.meterFrom = null;
       void ctx.blockConcurrencyWhile(async () => {
         const saved = await ctx.storage.get(STORAGE_KEY);
+        this.known = new KnownClients(await ctx.storage.get(CLIENTS_KEY));
         const now = Date.now();
         if (saved) this.core = RoomCore.restore(game, saved, now);
         // Waking from sleep: the sockets are still open, so their owners are still here. One that
@@ -49,13 +54,14 @@ export function createPartyRoom(game) {
     // ------------------------------------------------------------ RPC from the Worker
 
     /** Creates the room. `as` is "player" (takes seat 1) or "screen" (the shared screen, no seat). */
-    async create({ code, nickname, as }) {
+    async create({ code, nickname, as, client }) {
       if (this.core) return { ok: false, error: "exists", message: "Room code already in use." };
       const now = Date.now();
       const core = new RoomCore({ game, seed: newSeed(), code, now });
       const joined = as === "screen" ? core.watch(now) : core.join(nickname, now);
       if (!joined.ok) return joined;
       this.core = core;
+      this.remember(client);
       const issued = await this.env.PARTY_PINS.getByName(PIN_DIRECTORY_NAME).issue(code);
       core.pin = issued ? issued.value : null;
       await this.save();
@@ -68,11 +74,12 @@ export function createPartyRoom(game) {
       return { code: v.code, game: v.game, phase: v.phase, players: v.seats.filter(Boolean).map((s) => s.name), full: v.seats.every(Boolean) };
     }
 
-    async join({ nickname, as }) {
+    async join({ nickname, as, client }) {
       if (!this.core) return { ok: false, error: "not_found", message: "This room has closed." };
       const now = Date.now();
       const joined = as === "screen" ? this.core.watch(now) : this.core.join(nickname, now);
       if (!joined.ok) return joined;
+      this.remember(client);
       await this.save();
       this.broadcastRoom();
       return { ok: true, code: this.core.code, pin: this.core.pin, token: joined.token, seat: joined.seat ?? -1, role: as === "screen" ? "screen" : "player" };
@@ -89,39 +96,45 @@ export function createPartyRoom(game) {
       // A hibernatable socket, also when it is about to be refused: one accepted the standard way
       // (accept()) keeps the room from sleeping for as long as it lives.
       this.ctx.acceptWebSocket(server);
-      const inAddress = url.searchParams.get("token");
+      // Simulated latency is for tests, and off unless the Worker allows it.
+      const lag = this.env.PARTY_SIM_LATENCY === "on" ? Number(url.searchParams.get("lag") ?? 0) : 0;
+      const inAddress = HONOUR_TOKEN_IN_ADDRESS ? url.searchParams.get("token") : null;
       if (inAddress !== null) {
-        // The old form, from a page loaded before the token left the address. The address has
-        // been written down by now, so the token in it must open nothing any more: the seat it
-        // names is given up, and the page is told its seat is gone (it must be loaded afresh).
-        this.revoke(inAddress, now);
-        closeQuietly(server, CLOSE_BAD_TOKEN, OLD_FORM_REASON);
+        // The old form, from a page loaded before the token left the address (hello-logic.js,
+        // HONOUR_TOKEN_IN_ADDRESS): taken as a socket that opened and said hello with it at once.
+        this.unknown.clear(now);
+        this.seat(server, seatToken(inAddress), lag, now, clientOf(request));
       } else {
         // Nobody's socket yet: it has no seat and is sent nothing until its first message says
-        // whose it is (greet). What the room knows of it rides along on the socket, since the
-        // room's memory does not survive sleep. A code that is no room is answered the same way,
-        // and its hello is refused like any wrong token: opening a socket does not tell anyone
-        // which codes are rooms. Simulated latency is for tests, and off unless the Worker
-        // allows it.
-        const lag = this.env.PARTY_SIM_LATENCY === "on" ? Number(url.searchParams.get("lag") ?? 0) : 0;
-        this.unknown.add(server, now, lag);
+        // whose it is (greet). What the room knows of it, its client included, rides along on the
+        // socket, since the room's memory does not survive sleep. A code that is no room is
+        // answered the same way, and its hello is refused like any wrong token: opening a socket
+        // does not tell anyone which codes are rooms.
+        this.unknown.add(server, now, lag, clientOf(request));
       }
       return new Response(null, { status: 101, webSocket: client });
     }
 
-    /**
-     * The first message on a socket: `{t: "hello", token}` seats it, and anything else closes it.
-     * Only now does the socket hear anything: the room, and the round as its seat may see it.
-     */
+    /** The first message on a socket: `{t: "hello", token}` seats it, and anything else closes it. */
     greet(ws, data) {
       const now = Date.now();
       const opened = this.unknown.take(ws);
       this.unknown.clear(now);
       const token = readHello(data, MAX_MESSAGE_BYTES);
       if (token === null) return void closeQuietly(ws, CLOSE_HELLO_EXPECTED, "hello_expected");
+      this.seat(ws, token, opened.lag, now, opened.client);
+    }
+
+    /**
+     * Seats a socket from `client` whose hello named `token`, or closes it with nothing said if
+     * that names no seat. Only now does the socket hear anything: the room, and the round as its
+     * seat may see it.
+     */
+    seat(ws, token, lag, now, client) {
       const who = this.core ? this.core.connect(token, now) : null;
       if (!who) return void closeQuietly(ws, CLOSE_BAD_TOKEN, "bad_token");
-      const kept = { token, role: who.role, seat: who.seat, lag: opened.lag };
+      this.remember(client);
+      const kept = { token, role: who.role, seat: who.seat, lag };
       ws.serializeAttachment(kept);
       const entry = this.entryFor(ws, kept);
       this.sockets.set(ws, entry);
@@ -133,22 +146,6 @@ export function createPartyRoom(game) {
       this.broadcastRoom();
       this.schedule();
       void this.save();
-    }
-
-    /**
-     * A token that was sent where it gets written down is no longer a secret: whatever it names
-     * is given up at once (as "leave" does), on every socket it has open.
-     */
-    revoke(token, now) {
-      const core = this.core;
-      if (!core || !token || !core.identify(token)) return;
-      core.leave(token, now);
-      for (const [ws, entry] of [...this.sockets]) {
-        if (entry.token !== token) continue;
-        this.sockets.delete(ws);
-        closeQuietly(ws, CLOSE_BAD_TOKEN, OLD_FORM_REASON);
-      }
-      this.changed();
     }
 
     entryFor(ws, kept) {
@@ -236,11 +233,8 @@ export function createPartyRoom(game) {
         case "leave":
           core.leave(entry.token, now);
           this.sockets.delete(ws);
-          try {
-            ws.close(1000, "left");
-          } catch {
-            // Already closed.
-          }
+          closeQuietly(ws, 1000, "left");
+          this.dropToken(entry.token, "left");
           this.changed();
           return;
         default:
@@ -261,6 +255,24 @@ export function createPartyRoom(game) {
       this.broadcastViews((viewer) => ({ t: "start", room, s: core.snapshotFor(viewer, now), now }));
       this.schedule();
       void this.save();
+    }
+
+    /** A client this room has let in (hello-logic.js, KnownClients), saved the first time. */
+    remember(client) {
+      if (this.known.add(client)) void this.ctx.storage.put(CLIENTS_KEY, this.known.list());
+    }
+
+    /**
+     * After a seat is given up: every other open socket of that token is closed too. Left open, it
+     * would still be taken for that seat and hear its views while a bot plays it. Closed as a seat
+     * that is no longer ours (4003), with why, so its page does not come back.
+     */
+    dropToken(token, reason) {
+      for (const [ws, entry] of [...this.sockets]) {
+        if (entry.token !== token) continue;
+        this.sockets.delete(ws);
+        closeQuietly(ws, CLOSE_BAD_TOKEN, reason);
+      }
     }
 
     isConnected(token) {
@@ -400,6 +412,7 @@ export function createPartyRoom(game) {
       }
       this.sockets.clear();
       this.unknown.forget();
+      this.known = new KnownClients();
       this.core = null;
       await this.ctx.storage.deleteAlarm();
       await this.ctx.storage.deleteAll();

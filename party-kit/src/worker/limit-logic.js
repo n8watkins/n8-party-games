@@ -61,9 +61,10 @@ export function nextWindow(current, rule, now) {
 
 /**
  * The key a client is limited by. One IPv6 customer usually holds a whole /64, so all of it counts
- * as one client; IPv4 addresses, including IPv4-mapped IPv6 ones, are used as they are.
+ * as one client (`prefix`, 64 or 48); IPv4 addresses, including IPv4-mapped IPv6 ones, are used as
+ * they are.
  */
-export function clientKey(ip) {
+export function clientKey(ip, prefix = 64) {
   const mapped = /^::ffff:(\d+\.\d+\.\d+\.\d+)$/i.exec(ip);
   if (mapped) return mapped[1];
   if (!ip.includes(":")) return ip;
@@ -71,7 +72,18 @@ export function clientKey(ip) {
   const left = head ? head.split(":") : [];
   const right = tail ? tail.split(":") : [];
   const zeros = tail === undefined ? [] : new Array(Math.max(0, 8 - left.length - right.length)).fill("0");
-  const groups = [...left, ...zeros, ...right].slice(0, 4);
-  return `${groups.map((g) => g.toLowerCase().replace(/^0+(?=.)/, "")).join(":")}::/64`;
+  const groups = [...left, ...zeros, ...right].slice(0, prefix / 16);
+  return `${groups.map((g) => g.toLowerCase().replace(/^0+(?=.)/, "")).join(":")}::/${prefix}`;
+}
+
+/**
+ * The client a room's socket comes from, for the door's socket limit and for sharing out the
+ * sockets a room lets wait for their hello (hello-logic.js). IPv6 counts by the /48: that is what
+ * a home or a small host is commonly given, and one /48 holds 65,536 /64s, each of which would
+ * otherwise count as a client of its own. With no address (a local run, a test) every socket is
+ * the one local client, as the rate limiter has always counted them.
+ */
+export function socketClient(ip) {
+  return clientKey(ip || "local", 48);
 }
 

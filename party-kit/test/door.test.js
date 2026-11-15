@@ -12,7 +12,7 @@ vi.mock("cloudflare:workers", () => ({
 }));
 
 const { handlePartyApi } = await import("../src/worker/index.js");
-const { RATE_LIMITS } = await import("../src/worker/limit-logic.js");
+const { RATE_LIMITS, clientKey, socketClient } = await import("../src/worker/limit-logic.js");
 const { PROTOCOL } = await import("../src/worker/http.js");
 
 /** A Worker environment whose limiter and room keep what they were asked. */
@@ -52,6 +52,25 @@ describe("opening a room's socket", () => {
     expect(hits).toEqual([{ name: "socket:203.0.113.7", rule: RATE_LIMITS.socket }]);
   });
 
+  it("counts IPv6 by the /48, so a /48's 65,536 /64s are one client and not 65,536", async () => {
+    const { env, hits } = door();
+    for (const ip of ["2001:db8:1:2::5", "2001:0db8:0001:ffff:1:2:3:4", "2001:db8:1::"]) await handlePartyApi(socket("/api/party/rooms/BCDFGH/ws", { "CF-Connecting-IP": ip }), env);
+    await handlePartyApi(socket("/api/party/rooms/BCDFGH/ws", { "CF-Connecting-IP": "2001:db8:2::1" }), env);
+    expect(hits.map((h) => h.name)).toEqual(["socket:2001:db8:1::/48", "socket:2001:db8:1::/48", "socket:2001:db8:1::/48", "socket:2001:db8:2::/48"]);
+    // The other limits keep the /64.
+    expect(clientKey("2001:db8:1:2::5")).toBe("2001:db8:1:2::/64");
+    expect(socketClient("::ffff:203.0.113.9")).toBe("203.0.113.9");
+    expect(socketClient(null)).toBe("local");
+  });
+
+  it("passes the caller's address on to the room, which shares out its waiting sockets by it", async () => {
+    const { env } = door();
+    let seen = null;
+    env.PARTY_ROOMS = { getByName: () => ({ fetch: async (request) => ((seen = request.headers.get("CF-Connecting-IP")), { status: 101 }) }) };
+    await handlePartyApi(socket("/api/party/rooms/BCDFGH/ws", { "CF-Connecting-IP": "198.51.100.4" }), env);
+    expect(seen).toBe("198.51.100.4");
+  });
+
   it("is refused before the room is woken when one address opens too many", async () => {
     const { env, fetched } = door({ allow: false });
     const res = await handlePartyApi(socket("/api/party/rooms/BCDFGH/ws"), env);
@@ -74,7 +93,7 @@ describe("opening a room's socket", () => {
     expect(fetched).toHaveLength(1);
   });
 
-  it("the old form, with the token in the address, is the room's to refuse: the door only limits it", async () => {
+  it("the old form, with the token in the address, is the room's to take: the door only limits it", async () => {
     const { env, hits, fetched } = door();
     await handlePartyApi(socket("/api/party/rooms/BCDFGH/ws?token=abc"), env);
     expect(hits).toHaveLength(1);

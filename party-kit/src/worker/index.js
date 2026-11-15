@@ -12,7 +12,7 @@ import { generate } from "lean-qr";
 import { toSvgSource } from "lean-qr/extras/svg";
 import { cleanName } from "../core/room-core.js";
 import { API_HEADERS, CODE_ALPHABET, CODE_LENGTH, OUTDATED_MESSAGE, allowedOrigins, currentPage, error, isCode, isJoinLink, json, originAllowed, readBody } from "./http.js";
-import { MAX_TOKEN_LENGTH } from "./hello-logic.js";
+import { MAX_TOKEN_LENGTH, clientOf } from "./hello-logic.js";
 import { isPin, PIN_DIRECTORY_NAME } from "./pin-logic.js";
 import { allowRequest } from "./rate-limiter.js";
 import { fullMessage, roomBudgetState } from "./room-budget.js";
@@ -126,7 +126,7 @@ async function route(request, env, url, options) {
     }
     for (let attempt = 0; attempt < CODE_ATTEMPTS; attempt++) {
       const code = randomCode();
-      const result = await rooms.getByName(code).create({ code, nickname: body.nickname, as });
+      const result = await rooms.getByName(code).create({ code, nickname: body.nickname, as, client: clientOf(request) });
       if (result.ok) return json(result, 201);
       if (result.error !== "exists") return error(result.error, result.message);
     }
@@ -146,7 +146,8 @@ async function route(request, env, url, options) {
     const body = await readBody(request);
     if (!body) return error("bad_request", "Expected a small JSON body.");
     if (!stub) return error("not_found", "No open room matches that. Check it with the host.");
-    const result = await stub.join({ nickname: body.nickname, as: body.as === "screen" ? "screen" : "player" });
+    // The client it came from: the room lets its sockets wait ahead of strangers' (hello-logic.js, KnownClients).
+    const result = await stub.join({ nickname: body.nickname, as: body.as === "screen" ? "screen" : "player", client: clientOf(request) });
     return result.ok ? json(result) : error(result.error, result.message);
   }
 
@@ -174,8 +175,8 @@ async function route(request, env, url, options) {
     if (url.searchParams.has("lag") && env.PARTY_SIM_LATENCY !== "on") return error("bad_request", "Simulated latency is off on this server.");
     // The seat's token is not in the address (every address is written down by the logs): it is
     // the socket's first message, read by the room. A page loaded before that still sends
-    // ?token=; the room refuses it and gives that seat up (room.js, fetch). Something too long to
-    // be a token is not passed on at all.
+    // ?token=, and the room takes it as that hello for now (hello-logic.js,
+    // HONOUR_TOKEN_IN_ADDRESS). Something too long to be a token is not passed on at all.
     if ((url.searchParams.get("token") ?? "").length > MAX_TOKEN_LENGTH) return error("bad_request", "That seat token is not valid.");
     // With no token to look at, the door cannot tell whose socket this is, and every socket
     // wakes the room: one address may open only so many a minute.

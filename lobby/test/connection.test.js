@@ -203,7 +203,7 @@ describe("a page hidden in a turn-based game", () => {
 describe("a page whose seat is gone for good", () => {
   it.each([
     ["the seat was let go", 4003, "bad_token"],
-    ["the page is out of date", 4003, "reload"],
+    ["the seat was given up on another socket", 4003, "left"],
     ["the room closed", 4000, "room_closed"],
   ])("%s while it was hidden: shown again, online again or looked at later, it opens no new socket", (_, code, reason) => {
     const { link, ws, watch, hide, show } = page(turns);
