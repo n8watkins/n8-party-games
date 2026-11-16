@@ -30,6 +30,7 @@ import { ghostRigById } from "../public/characters/ghost-rig.js";
 import { ROBOT_RIG } from "../public/characters/robot.js";
 import { SLIME_RIG } from "../public/characters/slime.js";
 import { CHARACTERS, LOOK_COOLDOWN_MS } from "../shared/characters.js";
+import { boxCentre } from "../shared/world.js";
 import { gpu, launchBrowser } from "./browser.mjs";
 import { partyApi, sleep } from "./client.mjs";
 
@@ -55,11 +56,54 @@ const MARMALADE = "#d9662b";
 /** The two new characters' rigs, by id. */
 const RIGS = { slime: SLIME_RIG, robot: ROBOT_RIG };
 
+// On the graphics card with TEST_GPU=1 (browser.mjs drops the software flags then); in software otherwise.
 const browser = await launchBrowser({ args: ["--autoplay-policy=user-gesture-required", "--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--ignore-gpu-blocklist"] });
+
+/**
+ * Read in each page: how faded a seat's ghost is drawn (0 to 1), and watchFright(), which keeps,
+ * for the next few seconds, how wide-eyed each piece went and how far it was moved, in
+ * window.__fright[seat] = {scared, moved}.
+ */
+function pageHelpers() {
+  const flatX = (g) => Number(/translate\(([-\d.]+)/.exec(g.getAttribute("transform") ?? "")?.[1] ?? NaN);
+  window.fadedOn = (seat) => {
+    const room = window.__room3d;
+    if (room) return room.pieces.get(seat)?.faded ?? 0;
+    return Number(document.querySelector(`svg.scene g[data-seat="${seat}"]`)?.getAttribute("data-faded") ?? 0);
+  };
+  window.watchFright = () => {
+    window.__fright = {};
+    const start = {};
+    const until = performance.now() + 2600;
+    const look = () => {
+      const room = window.__room3d;
+      const seats = room ? [...room.pieces.keys()] : [...document.querySelectorAll("svg.scene g[data-seat]")].map((g) => Number(g.dataset.seat));
+      for (const seat of seats) {
+        let scared, x;
+        if (room) {
+          const p = room.pieces.get(seat);
+          scared = p.fright ? (p.body.scaredK ?? 0) : 0;
+          x = p.rx;
+        } else {
+          const g = document.querySelector(`svg.scene g[data-seat="${seat}"]`);
+          scared = Number(g.getAttribute("data-scared") ?? 0);
+          x = flatX(g);
+        }
+        start[seat] ??= x;
+        const was = window.__fright[seat] ?? { scared: 0, moved: 0 };
+        window.__fright[seat] = { scared: Math.max(was.scared, scared), moved: Math.round(Math.max(was.moved, Math.abs(x - start[seat]))) };
+      }
+      if (performance.now() < until) requestAnimationFrame(look);
+    };
+    requestAnimationFrame(look);
+  };
+}
+
 try {
   const errors = [];
   async function open(name, viewport = { width: 844, height: 390 }) {
     const context = await browser.newContext({ viewport, hasTouch: true });
+    await context.addInitScript(pageHelpers);
     const page = await context.newPage();
     page.on("pageerror", (e) => errors.push(`${name}: ${e.message}`));
     page.on("console", (m) => m.type() === "error" && errors.push(`${name}: ${m.text()}`));
@@ -382,13 +426,144 @@ try {
     await sleep(900);
     check(await cy.evaluate(() => window.__shut), "and the ghost's eyes are squeezed shut while it is thrown and lying");
 
+    // ================================================================ the ghost's move: fade, scare, boo
+    /** Walks a phone's piece (by its keys) to x, as the room has it. */
+    const walkTo = async (page, seat, x, near = 40) => {
+      for (let i = 0; i < 14; i++) {
+        const gap = x - (await where())[seat].x;
+        if (Math.abs(gap) < near) return;
+        const key = gap > 0 ? "ArrowRight" : "ArrowLeft";
+        await page.keyboard.down(key);
+        await sleep(Math.max(50, Math.min(900, ((Math.abs(gap) - near / 2) / 430) * 1000)));
+        await page.keyboard.up(key);
+        await sleep(300);
+      }
+    };
+    /** Walks a phone's piece up to another's, from where it is, so it faces it `gap` away. */
+    const walkUp = async (page, seat, other, gap = 70) => {
+      const at = await where();
+      const side = at[seat].x <= at[other].x ? -1 : 1;
+      await walkTo(page, seat, at[other].x + side * gap, 25);
+      // A last step toward it, so it faces it.
+      const key = side < 0 ? "ArrowRight" : "ArrowLeft";
+      await page.keyboard.down(key);
+      await sleep(30);
+      await page.keyboard.up(key);
+      await sleep(300);
+    };
+
+    section(`${look}: a ghost's button is Fade; it fades, and the other phone still sees it`);
+    await sleep(2600);
+    check((await bea.locator(".ctl-bump .ctl-word").textContent()) === "Fade" && (await bea.locator(".ctl-bump").getAttribute("aria-label")) === "Fade, ready", "Bea's move button says Fade, and it is ready");
+    check((await cy.locator(".ctl-bump .ctl-word").textContent()) === "Bump", "Cy's (a pawn) still says Bump");
+    ada.goto(1700);
+    // Cy walks up to Bea, so he faces her within a kick's reach.
+    await walkUp(cy, C, B);
+    let mark = ada.seen.length;
+    await bea.keyboard.press("KeyX");
+    const fade = await ada.wait((m) => m.t === "fade" && m.s === B, 3000, mark).catch(() => null);
+    check(fade?.for === 2500, "a tap on Fade: the room tells everybody Bea's ghost has faded for 2.5 s");
+    const seenFaded = await cy.waitForFunction((seat) => window.fadedOn(seat) > 0.8, B, { timeout: 2000, polling: 30 }).then(() => true, () => false);
+    const others = await cy.evaluate((seat) => window.fadedOn(seat), B);
+    const own = await bea.evaluate((seat) => window.fadedOn(seat), B);
+    check(seenFaded && (await pieceOn(cy, B))?.character === "ghost", `on Cy's phone her ghost is faded (${others}) and still there, a ghost`);
+    check(own > 0.3 && own < others, `on her own phone it is faded less (${own}), so she can always find herself`);
+    await sleep(300);
+    await shot(cy, look, "09-faded-ghost-seen-by-cy");
+    await shot(bea, look, "09-faded-ghost-own-phone");
+
+    section(`${look}: a kick into a faded ghost scares the kicker, on both phones`);
+    for (const page of [bea, cy]) await page.evaluate(() => window.watchFright());
+    mark = ada.seen.length;
+    await cy.keyboard.press("KeyX");
+    const scare = await ada.wait((m) => m.t === "b" && m.s === C, 3000, mark).catch(() => null);
+    check(scare?.sc === B && scare.to === -1, `Cy's kick passes through Bea's faded ghost and scares Cy (the room says ${JSON.stringify(scare && { to: scare.to, sc: scare.sc })})`);
+    await sleep(350);
+    await shot(cy, look, "10-scare-cy-phone");
+    await shot(bea, look, "10-scare-bea-phone");
+    // Tapping the kick while scared, and the fade while it recharges: nothing more happens.
+    for (let i = 0; i < 4; i++) {
+      await cy.keyboard.press("KeyX");
+      await bea.keyboard.press("KeyX");
+    }
+    await sleep(1600);
+    const seenCy = await cy.evaluate((seat) => window.__fright[seat] ?? null, C);
+    const seenBea = await bea.evaluate((seat) => window.__fright[seat] ?? null, C);
+    check(!!seenCy && seenCy.scared > 0.9 && seenCy.moved > 60, `on Cy's phone his pawn starts, freezes wide-eyed and scurries off (${JSON.stringify(seenCy)})`);
+    check(!!seenBea && seenBea.scared > 0.9 && seenBea.moved > 60, `and Bea's phone shows the same (${JSON.stringify(seenBea)})`);
+    const later = ada.seen.slice(mark).filter((m) => (m.t === "b" && m.s === C) || (m.t === "fade" && m.s === B));
+    check(later.length === 1, `tapping both buttons again and again while scared and recharging sends nothing more (${later.length} event${later.length === 1 ? "" : "s"})`);
+    // A script asking for a fade again and again is told no, with the time left.
+    mark = ada.seen.length;
+    ada.send({ t: "fade" });
+    await ada.wait((m) => m.t === "fade" && m.s === ada.seat, 3000, mark).catch(() => null);
+    ada.send({ t: "fade" });
+    const refused = await ada.wait((m) => m.t === "fade-no", 3000, mark).catch(() => null);
+    check(refused?.wait > 7000, `a second fade straight after the first is refused to the sender, with ${refused?.wait} ms to wait ("${refused?.why}")`);
+
+    section(`${look}: a faded ghost drifting through a piece spooks it (boo), on both phones`);
+    // Bea's fade is ready again 8 s after it began.
+    await sleep(6000);
+    await walkUp(bea, B, C, 150);
+    for (const page of [bea, cy]) await page.evaluate(() => window.watchFright());
+    const soundMark = await bea.evaluate(() => globalThis.__partyRoom.sounds.log.length);
+    mark = ada.seen.length;
+    await bea.keyboard.press("KeyX");
+    const again = await ada.wait((m) => m.t === "fade" && m.s === B, 3000, mark).catch(() => null);
+    check(!!again, "Bea fades again once her cooldown is over");
+    // Straight through Cy's piece while faded.
+    const at = await where();
+    const dir = at[C].x > at[B].x ? "ArrowRight" : "ArrowLeft";
+    await bea.keyboard.down(dir);
+    const spook = await ada.wait((m) => m.t === "spook" && m.s === B, 2000, mark).catch(() => null);
+    await sleep(120);
+    await bea.keyboard.up(dir);
+    check(spook?.to === C, `the room spooks Cy's pawn out of place (${spook ? `from ${at[C].x} to ${spook.x}` : "nothing"})`);
+    await sleep(150);
+    await shot(cy, look, "11-boo-cy-phone");
+    await sleep(900);
+    const booCy = await cy.evaluate((seat) => window.__fright[seat] ?? null, C);
+    const booBea = await bea.evaluate((seat) => window.__fright[seat] ?? null, C);
+    check(!!booCy && booCy.scared > 0.9 && !!booBea && booBea.scared > 0.9, `both phones show the spook as Cy's pawn's own start and scurry (${JSON.stringify(booCy)} / ${JSON.stringify(booBea)})`);
+    const booSound = await bea.evaluate((n) => globalThis.__partyRoom.sounds.log.slice(n).map((l) => `${l.name}:${l.what}`), soundMark);
+    check(booSound.some((s) => s.startsWith("ghost-fade:")) && booSound.some((s) => s.startsWith("ghost-boo:")), `and the ghost's own sounds were asked for on Bea's phone: ${booSound.join(", ")}`);
+
+    section(`${look}: no fade during the count`);
+    await sleep(2800);
+    const light = Math.round(boxCentre(0, ada.room.boxes.length));
+    ada.send({ t: "look", c: "pawn" });
+    await sleep(300);
+    ada.goto(light - 60);
+    await walkTo(bea, B, light);
+    await walkTo(cy, C, light + 60);
+    const counting = await ada.wait((m) => m.t === "vote" && !!m.vote.count, 5000, mark).then(() => true, () => !!ada.room.vote?.count);
+    check(counting, "everyone stands in a light, and the count runs");
+    mark = ada.seen.length;
+    await bea.keyboard.press("KeyX");
+    await sleep(500);
+    check(!ada.seen.slice(mark).some((m) => m.t === "fade"), "Bea taps Fade during the count: nothing is sent, nobody fades");
+    check((await bea.locator(".note", { hasText: "Not during the count." }).count()) > 0, "and her phone says why: Not during the count.");
+    await shot(bea, look, "12-no-fade-during-count");
+    // A script asking anyway is refused by the room, with the reason.
+    ada.send({ t: "look", c: "ghost" });
+    await ada.wait((m) => m.room?.members[ada.seat]?.character === "ghost", 3000, mark).catch(() => null);
+    const during = ada.seen.length;
+    ada.send({ t: "fade" });
+    const noCount = await ada.wait((m) => m.t === "fade-no", 3000, during).catch(() => null);
+    check(noCount?.why === "Not during the count.", `and the room refuses one from a script too: "${noCount?.why}"`);
+    // The count is stopped before it starts a game: Ada steps out of the light.
+    ada.goto(light - 400);
+    await ada.wait((m) => m.t === "vote" && !m.vote.count, 3000, during).catch(() => null);
+    check(!ada.room.vote?.count && ada.room.phase !== "playing", "Ada steps out, and the count stops");
+    await sleep(400);
+
     section(`${look}: a knocked slime's eyes squeeze shut and it flattens; a knocked robot's eyes are crosses`);
     for (const character of ["slime", "robot"]) {
       await sleep(Math.max(LOOK_COOLDOWN_MS, 2800));
       from = ada.seen.length;
       ada.send({ t: "look", c: character });
       await ada.wait((m) => m.room?.members[ada.seat]?.character === character, 5000, from);
-      // Ada comes over beside Bea, on the far side from Cy; Bea steps away.
+      // Ada comes over beside Cy, on the far side from Bea.
       const at = await where();
       ada.goto(at[C].x + (at[B].x > at[C].x ? -260 : 260));
       await sleep(900);

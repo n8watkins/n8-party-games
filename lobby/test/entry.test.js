@@ -1,7 +1,7 @@
 // What the way in offers a device (lobby/shared/entry.js): a phone leads with playing, a wide
 // screen is offered both, and a party that has its screen offers only playing.
 import { describe, expect, it } from "vitest";
-import { ROLE_CARDS, doorPlan, isSmall } from "../shared/entry.js";
+import { doorPlan, isSmall, roleCards } from "../shared/entry.js";
 
 describe("which devices are phones", () => {
   it("goes by the short side of the window, upright or sideways", () => {
@@ -39,8 +39,16 @@ describe("a wide screen", () => {
         expect(plan).toMatchObject({ as, choice: "cards", link: null, askName: as === "player" });
       }
     }
-    expect(ROLE_CARDS.map((card) => card[0])).toEqual(["player", "screen"]);
-    expect(ROLE_CARDS.map((card) => card[1])).toEqual(["Play on this device", "Use this as the room's screen"]);
+    expect(roleCards().map((card) => card[0])).toEqual(["player", "screen"]);
+    expect(roleCards().map((card) => card[1])).toEqual(["Play on this device", "Use this as the room's screen"]);
+  });
+
+  it("speaks of a piece only for a party on the Floor, never at the Table", () => {
+    expect(roleCards()[0][2]).toBe("Join as a player, with your own piece.");
+    expect(roleCards("party-games")[0][2]).toBe("Join as a player, with your own piece.");
+    const table = roleCards("turn-based");
+    expect(table.map((card) => card[1])).toEqual(["Play on this device", "Use this as the room's screen"]);
+    for (const [, , text] of table) expect(text).not.toMatch(/piece/);
   });
 });
 
