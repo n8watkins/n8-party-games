@@ -413,6 +413,10 @@ input {
   gap: 6px;
   justify-items: center;
   pointer-events: none;
+  /* As wide as the longest note, never wider than the screen: a long note ("You joined mid-game:
+     ...", 420 pixels at 15px) wraps on an upright phone instead of running off both edges. */
+  width: max-content;
+  max-width: calc(100vw - 24px);
 }
 .note,
 .banner,
@@ -428,6 +432,10 @@ input {
   font-size: clamp(15px, 2.3vh, 26px);
   white-space: nowrap;
   transition: opacity 0.6s;
+}
+.note {
+  white-space: normal;
+  text-align: center;
 }
 .note.going {
   opacity: 0;
