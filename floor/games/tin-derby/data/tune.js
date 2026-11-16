@@ -24,7 +24,8 @@ const DATA = {
     ["A", 14, 180, { tag: "bank", bank: 16 }],
     ["S", 108, { tag: "back" }],
     ["A", 9, 90, { tag: "w1" }],
-    ["S", 12, { tag: "west" }],
+    // 10, not round five's 12: the bank is 28 across (radius 14), so the far end must be 9 + 10 + 9 for the loop to close.
+    ["S", 10, { tag: "west" }],
     ["A", 9, 90, { tag: "w2" }],
   ],
   // Where the road widens: round the shakers (a real gap on both sides) and round the lazy Susan.
@@ -106,7 +107,8 @@ const DATA = {
   // The egg in its cup on the west straight's infield: it rocks, tips out and rolls across the road to the far rail.
   EGG: { u: 280, from: 5.4, to: -3.0, every: 7.5, warn: 1.5, roll: 2.8, r: 0.62, rest: 0.9, phase: 1.5 },
   // The syrup bottle over the last corner's inside: it tips, a strand drips and a sticky patch grows on the road, then dries.
-  SYRUP: { u: 294, lat: 1.85, every: 9, warn: 1.4, grow: 0.8, stay: 4.0, dry: 0.8, r: 1.35, phase: 3 },
+  // At 292 (round five's 294 less the 2 the west straight lost), so it sits at the same point of the corner as before.
+  SYRUP: { u: 292, lat: 1.85, every: 9, warn: 1.4, grow: 0.8, stay: 4.0, dry: 0.8, r: 1.35, phase: 3 },
 
   // ---- Powers: three, each unlike the others. Sweets on doilies give one (one held at a time) ----
   BOXES: [

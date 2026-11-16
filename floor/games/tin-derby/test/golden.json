@@ -1,10 +1,10 @@
 {
-  "plain, seed 1": "d7189a075962d125 4297 [{\"seat\":0,\"place\":1,\"time\":63.595}]",
-  "sloppy ghost, seed 2": "d35483b53c1cc7d5 4286 [{\"seat\":0,\"place\":1,\"time\":64.07}]",
-  "hands off, seed 3": "4316c04ffeb7d9d8 4486 [{\"seat\":0,\"place\":1,\"time\":69.946}]",
-  "thumb robot, seed 4": "5f791586b72922e2 3742 [{\"seat\":0,\"place\":1,\"time\":54.356}]",
-  "two players, seed 5": "4243e3dda95f9d2b 4360 [{\"seat\":0,\"place\":1,\"time\":57.029},{\"seat\":1,\"place\":2,\"time\":64.655}]",
-  "three players, seed 6": "4c820adde88f282e 4303 [{\"seat\":1,\"place\":1,\"time\":57.25},{\"seat\":0,\"place\":2,\"time\":68.349},{\"seat\":2,\"place\":3,\"time\":68.7}]",
-  "four players, seed 7": "811821d98b7d81de 4491 [{\"seat\":1,\"place\":1,\"time\":59.666},{\"seat\":0,\"place\":2,\"time\":61.604},{\"seat\":3,\"place\":3,\"time\":65.303},{\"seat\":2,\"place\":4,\"time\":71.826}]",
-  "four players, seed 4000000000": "1728685aa3490764 4141 [{\"seat\":0,\"place\":1,\"time\":56.555},{\"seat\":3,\"place\":2,\"time\":60.918},{\"seat\":1,\"place\":3,\"time\":62.63},{\"seat\":2,\"place\":4,\"time\":66.007}]"
+  "plain, seed 1": "e945bd9e00088cff 4169 [{\"seat\":0,\"place\":1,\"time\":61.467}]",
+  "sloppy ghost, seed 2": "ee2af2fc34342be7 4295 [{\"seat\":0,\"place\":1,\"time\":67.043}]",
+  "hands off, seed 3": "1f2056895dfb4f3d 4453 [{\"seat\":0,\"place\":1,\"time\":69.528}]",
+  "thumb robot, seed 4": "150c35184e76ec0a 3773 [{\"seat\":0,\"place\":1,\"time\":54.873}]",
+  "two players, seed 5": "697702f2ff9f7d29 4385 [{\"seat\":0,\"place\":1,\"time\":62.148},{\"seat\":1,\"place\":2,\"time\":65.585}]",
+  "three players, seed 6": "a559a8cc64ec3c1f 4282 [{\"seat\":1,\"place\":1,\"time\":61.18},{\"seat\":0,\"place\":2,\"time\":67.465},{\"seat\":2,\"place\":3,\"time\":68.355}]",
+  "four players, seed 7": "d0b410fe0805a4c7 4108 [{\"seat\":1,\"place\":1,\"time\":58.11},{\"seat\":3,\"place\":2,\"time\":63.017},{\"seat\":0,\"place\":3,\"time\":63.621},{\"seat\":2,\"place\":4,\"time\":65.458}]",
+  "four players, seed 4000000000": "dbae745e80e3a1cd 4130 [{\"seat\":0,\"place\":1,\"time\":56.421},{\"seat\":1,\"place\":2,\"time\":62.344},{\"seat\":3,\"place\":3,\"time\":63.391},{\"seat\":2,\"place\":4,\"time\":65.82}]"
 }

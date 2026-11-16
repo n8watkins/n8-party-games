@@ -54,21 +54,35 @@ describe("the loop", () => {
     const end = C.trackAt(C.LEN - 1e-9), start = C.trackAt(0);
     expect(end.x).toBeCloseTo(start.x, 6);
     expect(Math.cos(end.th)).toBeCloseTo(1, 9);
-    expect(C.LEN).toBeCloseTo(108 + 14 * Math.PI + 108 + 4.5 * Math.PI + 12 + 4.5 * Math.PI, 9);
+    expect(C.LEN).toBeCloseTo(108 + 14 * Math.PI + 108 + 4.5 * Math.PI + 10 + 4.5 * Math.PI, 9);
   });
 
-  // KNOWN, carried from round five's TRACK and not changed here (README.md, "Carried from round five"): the bank is
-  // 28 across (radius 14) and the far end 30 (9 + 12 + 9), so the last corner ends 2 lengths outside the start of the
-  // home straight, and a car is moved 2 across the road as it passes the seam. Making the west straight 10 closes it.
-  // This test fails on purpose until the data is fixed; then drop `.fails`.
-  it.fails("closes: the last piece ends exactly where the first begins", () => {
-    expect(C.trackAt(C.LEN - 1e-9).z).toBeCloseTo(C.trackAt(0).z, 6);
+  // Round five's loop did not close: the bank is 28 across (radius 14) and its far end was 30 (9 + 12 + 9), so the
+  // last corner ended 2 lengths outside the start of the home straight and a car was moved 2 across the road at the
+  // seam. The west straight is 10 now (9 + 10 + 9 = 28).
+  it("closes: the last piece ends exactly where the first begins", () => {
+    const end = C.trackAt(C.LEN - 1e-9), start = C.trackAt(0);
+    expect(end.x).toBeCloseTo(start.x, 6);
+    expect(end.z).toBeCloseTo(start.z, 6);
+    expect(Math.sin(end.th)).toBeCloseTo(Math.sin(start.th), 9);
   });
 
-  it("locate undoes trackAt everywhere on the road (but at the seam, above)", () => {
+  it("moves nobody across the road at the seam: a point just before it and just after it are where locate says", () => {
+    const out = {}, p = {};
+    for (const lat of [-3, -1.5, 0, 1.5, 3]) {
+      for (const u of [C.LEN - 0.5, C.LEN - 0.01, 0.01, 0.5]) {
+        C.trackAt(u, lat, p);
+        C.locate(p.x, p.z, u, out);
+        expect(Math.abs(C.wrapS(out.u - u))).toBeLessThan(1e-6);
+        expect(out.lat).toBeCloseTo(lat, 6);
+      }
+    }
+  });
+
+  it("locate undoes trackAt everywhere on the road, the seam included", () => {
     const out = {}, p = {};
     for (let k = 0; k < 4000; k++) {
-      const u = 4 + hash(3, k) * (C.LEN - 8), lat = (hash(5, k) - 0.5) * 6;
+      const u = hash(3, k) * C.LEN, lat = (hash(5, k) - 0.5) * 6;
       C.trackAt(u, lat, p);
       C.locate(p.x, p.z, u, out);
       expect(Math.abs(C.wrapS(out.u - u))).toBeLessThan(1e-6);
