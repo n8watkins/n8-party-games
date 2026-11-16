@@ -1,7 +1,7 @@
 // End to end, in real pages (headless and muted): the front page's three doors, and every way
 // out of them.
 //
-//   node site/test/e2e-home.mjs [--base=http://localhost:8791] [--out=site/test/shots]
+//   node site/test/e2e-home.mjs [--base=http://localhost:8791] [--out=/tmp/claude-three-doors/shots]
 //
 // Ann, on an upright phone, opens the room door, goes back with the browser's back button, then
 // starts a party on the Floor from the room door. Bo, on a laptop by day, joins it from the
@@ -18,7 +18,9 @@ import { launchBrowser } from "../../lobby/test/browser.mjs";
 const args = process.argv.slice(2);
 const opt = (k, d) => (args.find((a) => a.startsWith("--" + k + "=")) ?? "--" + k + "=" + d).split("=").slice(1).join("=");
 const base = opt("base", "http://localhost:8791");
-const out = resolve(opt("out", "site/test/shots"));
+// Outside the repository: site/ is in the local build's watch list (wrangler.jsonc), so a still
+// saved under it would rebuild dist/public under every Worker of the pre-deploy gate mid-run.
+const out = resolve(opt("out", "/tmp/claude-three-doors/shots"));
 mkdirSync(out, { recursive: true });
 const problems = [];
 const check = (ok, what) => {
