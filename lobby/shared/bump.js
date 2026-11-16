@@ -134,12 +134,14 @@ export function landingGround(n, lit = null) {
  * that distance which is clear of every pool of light and at least KNOCK_MIN away. So a knock
  * always puts a piece out of the light it stood in and never into another one. It stops at the
  * walls: a piece with its back to one is knocked against it.
+ * `reach` changes how far: {distance, least} in place of KNOCK_DISTANCE and KNOCK_MIN (the
+ * ghost's spook is weaker than a kick: lobby/shared/ghost.js).
  */
-export function knockLanding(x, dir, n, lit = null) {
+export function knockLanding(x, dir, n, lit = null, { distance = KNOCK_DISTANCE, least: leastFar = KNOCK_MIN } = {}) {
   const side = dir < 0 ? -1 : 1;
-  const aim = clampX(x + side * KNOCK_DISTANCE);
+  const aim = clampX(x + side * distance);
   let best = null;
-  for (const least of [KNOCK_MIN, 0]) {
+  for (const least of [leastFar, 0]) {
     for (const [a, b] of landingGround(n, lit)) {
       // The part of this stretch that is far enough along in the direction of the blow.
       const lo = side > 0 ? Math.max(a, x + least) : a;
