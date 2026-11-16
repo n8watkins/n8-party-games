@@ -104,7 +104,7 @@ function loadIndex(id) {
 // ---- The page's state ------------------------------------------------------------------------
 
 const game = $("game");
-const art =createPotatoArt($("pot"), { seed: 7, reducedMotion: reduced });
+const art = createPotatoArt($("pot"), { seed: 7, reducedMotion: reduced });
 const sounds = createSounds();
 // Vibration only where it can be felt: a phone or tablet held in the hand (a touch screen as the main
 // pointer). Desktop Chrome has navigator.vibrate too, but nothing to vibrate, so no Buzz there.
@@ -119,6 +119,15 @@ let listener = null;
 let micTimer = 0; // gives up waiting for the microphone (MIC_WAIT_MS)
 let turnTyped = false; // this turn only is typed (the microphone did not come on, or kept stopping)
 let turnNote = ""; // and why, said on the turn's status line
+// A microphone that is on but hears nothing (muted, turned down, the wrong one chosen) gives no
+// error: the recogniser runs and the fuse runs out, turn after turn. After DEAF_TURNS such turns in
+// a row the word box comes up by itself, while the microphone keeps listening; the first speech
+// heard takes it away again, and each round starts on voice.
+const DEAF_TURNS = 2;
+let deafTurns = 0; // turns in a row in which the recogniser ran and heard no speech at all
+let turnRan = false; // this turn's recogniser came on
+let turnHeard = false; // and heard speech
+let deafBox = false; // this turn shows the word box for that reason, and still listens
 let firstNext = 0; // who holds it first in the next round: it goes round the group
 let focusBefore = null; // what had the keyboard before the pause
 let heardNow = "";
@@ -294,6 +303,8 @@ async function beginRound() {
   // The next round starts with the next player along.
   firstNext = (g.holder + 1) % g.players;
   heardNow = "";
+  deafTurns = 0;
+  turnRan = false;
   art.play("reset");
   setScreen("turn");
   render();
@@ -306,13 +317,21 @@ function goTurn() {
   if (!g || !canStart(g)) return;
   if (setup.sound) sounds.wake();
   if (!startTurn(g)) return;
+  // The turn before: its recogniser ran and heard no speech at all, or it heard some.
+  if (turnRan) deafTurns = turnHeard ? 0 : deafTurns + 1;
+  deafBox = false;
   heardNow = "";
   turnTyped = false;
   turnNote = "";
+  turnRan = false;
+  turnHeard = false;
   nextTick = g.fuseMax - 1000;
   $("g-word").value = "";
-  if (mode === "voice") listen();
-  else {
+  if (mode === "voice") {
+    listen();
+    // The microphone has heard nothing for turns: the word box too, and it still listens.
+    if (deafTurns >= DEAF_TURNS) showBoxWhileListening();
+  } else {
     lightFuse(g);
     render();
     $("g-word").focus({ preventScroll: true });
@@ -334,18 +353,25 @@ function listen() {
     lang: listenLang(),
     onStart: () => {
       clearTimeout(micTimer);
+      turnRan = true;
       lightFuse(g);
       afterEvents();
     },
-    onSpeech: () => g && speaking(g),
+    onSpeech: () => {
+      if (!g) return;
+      speaking(g);
+      heardSpeech();
+    },
     onInterim: (text) => {
       if (!g || g.phase !== "listen") return;
       speaking(g);
       heardNow = text;
+      heardSpeech();
       render();
     },
     onFinal: (alts) => {
       if (!g || g.phase !== "listen") return;
+      heardSpeech();
       heardNow = alts[0].transcript;
       hear(g, alts);
       afterEvents();
@@ -356,10 +382,33 @@ function listen() {
   listener.start();
 }
 
+/** The microphone that heard nothing for turns hears speech: back to voice, the word box goes. */
+function heardSpeech() {
+  turnHeard = true;
+  deafTurns = 0;
+  if (!deafBox) return;
+  deafBox = false;
+  turnTyped = false;
+  turnNote = "";
+  if (document.activeElement === $("g-word")) $("g-word").blur();
+  render();
+}
+
+/** The word box comes up for this turn (renderStatus says why), while the microphone keeps listening. */
+function showBoxWhileListening() {
+  deafBox = true;
+  turnTyped = true;
+  turnNote = "";
+  if (g?.phase === "listen") lightFuse(g);
+  render();
+  if (g?.phase === "listen") $("g-word").focus({ preventScroll: true });
+}
+
 /** This turn only is typed, with the reason on the status line; the next turn listens again. */
 function typeThisTurn(note) {
   clearTimeout(micTimer);
   listener?.abort();
+  deafBox = false;
   turnTyped = true;
   turnNote = note;
   if (g?.phase === "listen") {
@@ -375,6 +424,7 @@ function typeThisTurn(note) {
 function switchToTyped(why) {
   mode = "typed";
   modeWhy = why;
+  deafBox = false;
   clearTimeout(micTimer);
   listener?.abort();
   if (g?.phase === "listen") {
@@ -419,7 +469,7 @@ function pause(on) {
     if (!typing()) {
       g.lit = false;
       listen();
-    }
+    } else if (deafBox) listen(); // the word box stays up, and speech can still take it away
   }
   afterEvents();
   if (on) $("p-resume").focus({ preventScroll: true });
@@ -653,15 +703,31 @@ function wanted() {
   return g.need ? `${esc(cat.a)} starting with <b>${showLetter(g.need)}</b>` : `any ${esc(cat.one)}`;
 }
 
+/**
+ * A word or a phrase heard, cut to SHORT letters for the status line: it holds two lines at most,
+ * so the strip and the microphone above it never move (the last word shows in full beside it).
+ */
+const SHORT = 14;
+const LONG_WHY = 28;
+const short = (s) => (s.length > SHORT ? `${s.slice(0, SHORT - 1).trimEnd()}…` : s);
+/** The verdict's reason with what was heard shortened: in quotes, or the phrase it starts with. */
+function shortWhy(why) {
+  const quoted = why.replace(/"([^"]+)"/g, (_, q) => `"${short(q)}"`);
+  return quoted.replace(/^(.+?)( starts with [A-Z], not [A-Z]| was said already| is too little known for this list| was the last word again)$/, (_, said, rest) => short(said) + rest);
+}
+
 function verdictLine(v) {
   if (!v) return "";
   if (v.ok && !v.overturned) {
     const dead = v.skipped?.length ? ` ${v.skipped.map(showLetter).join(", ")} ${v.skipped.length === 1 ? "is a dead end" : "are dead ends"}, so ${showLetter(g.need) || "any letter"}.` : "";
-    return `<span class="mark ok" aria-hidden="true"></span><span><b>${esc(v.word.said)}.</b> It settles.${dead}</span>`;
+    return `<span class="mark ok" aria-hidden="true"></span><span><b>${esc(short(v.word.said))}.</b> It settles.${dead}</span>`;
   }
-  if (v.overturned === "right") return `<span class="mark ok" aria-hidden="true"></span><span><b>Taken: ${esc(g.chain.at(-1)?.said ?? v.heard)}.</b> The damage is undone.</span>`;
+  if (v.overturned === "right") return `<span class="mark ok" aria-hidden="true"></span><span><b>Taken: ${esc(short(g.chain.at(-1)?.said ?? v.heard))}.</b> The damage is undone.</span>`;
   if (v.overturned === "wrong") return `<span class="mark bad" aria-hidden="true"></span><span><b>Overturned.</b> It gets worse.</span>`;
-  return `<span class="mark bad" aria-hidden="true"></span><span><b>${esc(v.why)}.</b> ${g.phase === "doom" ? "It is going to burst!" : "It gets worse."}</span>`;
+  // After a long reason, "It gets worse" is left to the potato, the lives and the big "Nope!".
+  const why = shortWhy(v.why);
+  const then = g.phase === "doom" ? " It is going to burst!" : why.length <= LONG_WHY ? " It gets worse." : "";
+  return `<span class="mark bad" aria-hidden="true"></span><span><b>${esc(why)}.</b>${then}</span>`;
 }
 
 function renderStatus() {
@@ -681,11 +747,13 @@ function renderStatus() {
   } else if (g.phase === "listen") {
     if (!typing()) {
       // The microphone and the letter say it on screen; the words are for screen readers.
-      html = g.lit ? `<span>Say ${wanted()}</span>` : "<span>Starting the microphone</span>";
+      // (Starting with the microphone's own caption, "Say it now" or "Starting".)
+      html = g.lit ? `<span>Say it now: ${wanted()}</span>` : "<span>Starting the microphone</span>";
       if (g.lit) cls = "quiet";
       shown = heardNow;
       part = true;
-    } else html = `<span>${turnNote ? `${esc(turnNote)} ` : ""}Type ${wanted()}</span>`;
+    } else if (deafBox) html = `<span>The microphone hears nothing. Type ${wanted()}, or check the mic.</span>`;
+    else html = `<span>${turnNote ? `${esc(turnNote)} ` : ""}Type ${wanted()}</span>`;
   } else if (g.phase === "doom") {
     html = verdictLine(g.last);
     cls = "bad";
@@ -705,9 +773,11 @@ function renderActs() {
   go.hidden = !ready;
   go.disabled = !canStart(g);
   const name = playerName(g.holder);
-  // Who is up is said just above it; the button says what it does.
-  $("g-go-text").textContent = "Press to talk";
-  go.setAttribute("aria-label", `${name}, start your turn${touchFirst ? "" : " (Space or Enter)"}`);
+  // Who is up is said just above it; the button says what it does. Its name starts with the words
+  // it shows, so "Press to talk" is what a voice-control user says to press it.
+  const label = "Press to talk";
+  $("g-go-text").textContent = label;
+  go.setAttribute("aria-label", `${label}: ${name}'s turn${touchFirst ? "" : " (Space or Enter)"}`);
   const ap = $("g-appeal");
   ap.hidden = !canAppeal(g);
   ap.textContent = g.last?.ok ? "That was wrong" : "That was right";

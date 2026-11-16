@@ -1,6 +1,7 @@
 // Stills of Hot Potato's key screens, for looking at, not a test: the start, a listening turn at the
-// calm stage, a verdict with its appeal, the last stage listening, who was holding it, the end, and
-// (where listening cannot work) a typed turn and the pause. Each still is captioned underneath with
+// calm stage, a verdict with its appeal, a long verdict, the last stage listening, who was holding
+// it, the end, the word box after a microphone that hears nothing, and (where listening cannot work)
+// a typed turn and the pause. Each still is captioned underneath with
 // how much of the screen the potato takes, measured from what is drawn: his body's width, and the
 // whole rig's box (potato, clamps, antennas, tubes, tray) against the screen. Headless and muted,
 // in software (these pictures are for a person), with the browser test's kind of fake recogniser.
@@ -161,8 +162,15 @@ for (const name of SIZES) {
   await phase(page, "ready");
   await page.waitForTimeout(350);
   await shot("03-verdict-appeal", "verdict and appeal");
-  // Three more misses: the last stage, listening.
-  for (let i = 0; i < 3; i++) {
+  // A long word refused, once its big verdict has gone: the strip keeps its height.
+  await ready(page);
+  await page.evaluate(() => window.__turns.push([[100, "final", "Onomatopoeiaville Extraordinaire"]]));
+  await page.click("#g-go");
+  await phase(page, "ready");
+  await page.waitForFunction(() => !document.getElementById("game").dataset.react, null, { timeout: 5000 });
+  await shot("03b-long-verdict", "a long verdict");
+  // Two more misses: the last stage, listening.
+  for (let i = 0; i < 2; i++) {
     await ready(page);
     await page.evaluate(() => window.__turns.push([[100, "final", "Table"]]));
     await page.click("#g-go");
@@ -182,6 +190,25 @@ for (const name of SIZES) {
   await page.waitForTimeout(1200);
   await shot("06-end", "the end");
   await context.close();
+
+  // A microphone that is on but hears nothing: after two silent turns the word box comes up.
+  const muted = await open([fake]);
+  await muted.page.click("#s-start");
+  for (let i = 0; i < 2; i++) {
+    await ready(muted.page);
+    await muted.page.click("#g-go");
+    await muted.page.waitForFunction(() => window.__hotPotato.round().lit);
+    await muted.page.evaluate(() => {
+      window.__hotPotato.round().fuse = 30;
+    });
+    await muted.page.waitForFunction(() => window.__hotPotato.round().phase !== "listen");
+  }
+  await ready(muted.page);
+  await muted.page.click("#g-go");
+  await muted.page.waitForSelector("#g-typed:not([hidden])");
+  await muted.page.waitForFunction(() => !document.getElementById("game").dataset.react, null, { timeout: 5000 });
+  out["muted microphone"] = await captioned(muted.page, file("06b-muted-mic"), `${name} the microphone hears nothing`);
+  await muted.context.close();
 
   // Where listening cannot work: a typed turn, and the pause over it.
   const typed = await open([fake, noSpeech]);
