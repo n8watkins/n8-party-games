@@ -1,7 +1,8 @@
 // End-to-end check of the Hot Potato hearing test in a headless, muted Chromium, with speech
 // recognition replaced by a scripted fake (headless Chromium cannot really hear). It proves the
-// page's timings, matcher, verdicts, appeals, log, keyboard, microphone picker and copied report
-// work, on desktop and phone sizes; it says nothing about how well a real device hears.
+// page's timings, matcher, verdicts, appeals, log, keyboard, microphone picker, categories and
+// copied report work, on desktop and phone sizes; it says nothing about how well a real device
+// hears.
 //
 //   node lab/hot-potato/test/e2e-hearing.mjs --base=http://localhost:8875 [--shots=/tmp/claude-hot-potato/shots]
 import { mkdirSync } from "node:fs";
@@ -128,11 +129,16 @@ async function open(viewport, init, { phone = viewport.width < 600 } = {}) {
   const errors = [];
   page.on("console", (m) => m.type() === "error" && errors.push(m.text()));
   page.on("pageerror", (e) => errors.push(e.message));
+  const fetched = [];
+  page.on("request", (r) => fetched.push(new globalThis.URL(r.url()).pathname));
   if (init) await page.addInitScript(init);
   await page.goto(URL);
-  await page.waitForFunction(() => document.getElementById("caps").textContent.includes("well-known places"));
-  return { context, page, errors };
+  await listLoaded(page);
+  return { context, page, errors, fetched };
 }
+
+/** Waits for the chosen category's list: the caps line names its size. */
+const listLoaded = (page) => page.waitForFunction(() => / list: [\d,]+ well known/.test(document.getElementById("caps").textContent), null, { timeout: 15000 });
 
 const turnsDone = (page, n) => page.waitForFunction((n) => document.querySelectorAll("#log li").length >= n, n, { timeout: 10000 });
 
@@ -163,6 +169,16 @@ for (const [name, viewport] of SIZES) {
   check(!/your phone|this phone/i.test(body), `${name}: the wording never assumes a phone`);
   await page.screenshot({ path: `${SHOTS}/load-${name}.png` });
   await page.screenshot({ path: `${SHOTS}/load-${name}-full.png`, fullPage: true });
+  // The longest picker label and the dead-end note must fit too.
+  for (const id of ["food", "animals"]) {
+    await page.selectOption("#category", id);
+    await listLoaded(page);
+    const wide = await page.evaluate((w) => Math.max(document.documentElement.scrollWidth, window.innerWidth) - w, viewport.width);
+    check(wide <= 0, `${name}: no sideways scroll with ${id} chosen (${wide}px)`);
+  }
+  check(await page.isVisible("#deadNote"), `${name}: the dead-end note is shown for animals`);
+  await page.screenshot({ path: `${SHOTS}/animals-${name}.png` });
+  await page.screenshot({ path: `${SHOTS}/animals-${name}-full.png`, fullPage: true });
   check(errors.length === 0, `${name}: no console errors ${errors.join(" | ")}`);
   await context.close();
 }
@@ -234,21 +250,22 @@ for (const [name, viewport] of SIZES) {
   const report = await page.evaluate(() => navigator.clipboard.readText());
   console.log("---- copied report ----\n" + report + "\n-----------------------");
   const line = (n) => report.split("\n").find((l) => l.startsWith(`#${n} `)) ?? "";
-  check(report.startsWith("Hot Potato hearing test, v2 (matching rules m2)"), "the report says v2 and the rules version");
+  check(report.startsWith("Hot Potato hearing test, v3 (matching rules m3)"), "the report says v3 and the rules version");
   check(/^device: desktop \(Linux, Chrome \d+\)/m.test(report), "the report names a desktop, its system and browser");
   check(/^microphone: chosen: headset \(2 inputs\); used by recognition: yes$/m.test(report), "the report names the microphone only by its kind");
   check(!/Jabra|Realtek/.test(report), "no microphone's own name in the report");
-  check(report.split("\n").filter((l) => /^#\d+ m2 (known|hard) /.test(l)).length === 15, "every turn line carries the rules version and the list");
+  check(report.split("\n").filter((l) => /^#\d+ m3 cities (known|hard) /.test(l)).length === 15, "every turn line carries the rules version, the category and the list");
   check(/RIGHT exact Los Angeles US/.test(line(1)) && /by final/.test(line(1)), "turn 1: Los Angeles, exact, decided on the final (early off)");
   check(/RIGHT alternative Sydney AU/.test(line(2)) && /MISHEARD/.test(line(2)), "turn 2: Sydney from the second guess, marked misheard");
-  check(/WRONG word \(heard "salmon"/.test(line(3)) && /APPEAL:real-city/.test(line(3)), "turn 3: salmon, an ordinary word, appealed from the log");
-  check(/WRONG/.test(line(7)) && /APPEAL:real-city/.test(line(7)), "turn 7: Leopold refused, appealed under the verdict");
+  check(/WRONG word \(heard "salmon"/.test(line(3)) && /APPEAL:real\b/.test(line(3)), "turn 3: salmon, an ordinary word, appealed from the log");
+  check(/WRONG/.test(line(7)) && /APPEAL:real\b/.test(line(7)), "turn 7: Leopold refused, appealed under the verdict");
   check(/RIGHT exact Accra GH \(heard "accra", by interim\)/.test(line(9)) && /early-would:Accra@\d+/.test(line(9)) && !/final-differs/.test(line(9)), "turn 9: Accra answered early from a stable interim, and the final agreed");
   check(/WRONG hard-only Orange/.test(line(11)) && / known /.test(line(11)), "turn 11: Orange, hard mode only");
   check(/RIGHT exact Orange US/.test(line(12)) && / hard /.test(line(12)), "turn 12: Orange in hard mode");
   check(/NONE/.test(line(13)) && /err:no-speech/.test(line(13)), "turn 13: nothing heard, no-speech error");
   check(/RIGHT exact Edmonton CA/.test(line(14)) && /RIGHT exact Nairobi KE/.test(line(15)) && /auto/.test(line(15)), "turns 14 and 15: hands-free, Edmonton then Nairobi");
-  check(/summary: turns 15, right 11, wrong 3, nothing heard 1, misheard 1, sound-alike 0, appeals real-city 2 wrong 0/.test(report), "summary counts, with appeals");
+  check(/summary: turns 15, right 11, wrong 3, nothing heard 1, misheard 1, sound-alike 0, appeals real 2 wrong 0/.test(report), "summary counts, with appeals");
+  check(/^settings now: category=cities /m.test(report), "the report's settings name the category");
   check(/^early answer: would have taken \d+, 0 differing from the final$/m.test(report), "the early-answer tally is reported");
   const times = line(1).split(" | ")[1].split(" ").map(Number);
   const [, , , , interim, valid, final] = times;
@@ -275,6 +292,101 @@ for (const [name, viewport] of SIZES) {
   check(/RIGHT exact Oslo NO/.test(report), "phone: Oslo by tap");
   await page.screenshot({ path: `${SHOTS}/game-390.png` });
   check(errors.length === 0, `phone: no console errors ${errors.join(" | ")}`);
+  await context.close();
+}
+
+// 3b. Categories: only the chosen list is fetched; animals with a plural and a dead end, food,
+//     countries and any word; the choice is remembered on this device; the report names each
+//     turn's category; the keyboard still starts turns.
+{
+  const { context, page, errors, fetched } = await open({ width: 1280, height: 720 }, fake);
+  const lists = () => fetched.filter((p) => /\/(cities|countries|animals|food|words)\.json$/.test(p)).map((p) => p.split("/").pop());
+  check(JSON.stringify(lists().sort()) === JSON.stringify(["cities.json", "words.json"]), `only the cities list is loaded at first (${lists().join(", ")})`);
+  check((await page.inputValue("#category")) === "cities", "cities is the first category");
+  await page.selectOption("#category", "animals");
+  await listLoaded(page);
+  check(lists().includes("animals.json") && !lists().includes("food.json"), "choosing animals loads the animal list, and only that");
+  check((await page.textContent("#turn")) === "Your turn: click, then say an animal", "the button asks for an animal");
+  check((await page.textContent("#need")) === "Say any animal to start", "the chain line asks for an animal");
+  check(/^Dead ends: U, X, Y and Z \(fewer than 3 animals start with them\)/.test(await page.textContent("#deadNote")), `the dead ends are named (${await page.textContent("#deadNote")})`);
+  check(/Hard mode: rare animals too/.test(await page.textContent("#hardText")) && !(await page.isDisabled("#hard")), "hard mode says what it adds for animals");
+  let n = 0;
+  const say = async (steps, key) => {
+    await page.evaluate((s) => window.__turns.push(s), steps);
+    if (key) {
+      await page.locator("body").click({ position: { x: 5, y: 5 } });
+      await page.keyboard.press(key);
+    } else await page.click("#turn");
+    await turnsDone(page, ++n);
+    return page.textContent("#verdict");
+  };
+  const lions = await say([[200, "interim", "lions"], [300, "final", [["lions", 0.91]]]], "Space");
+  check(lions === 'Yes: lion (mammal), heard "lions"', `a plural is heard as its entry (${lions})`);
+  check((await page.textContent("#need")) === "Next: an animal starting with N", "the chain goes on from lion, not lions");
+  await say([[200, "interim", "newt"], [300, "final", [["newt", 0.9]]]]);
+  const turkey = await say([[200, "interim", "turkey"], [300, "final", [["turkey", 0.9]]]], "Enter");
+  check(/^Yes: turkey \(bird\), exact/.test(turkey), `turkey (${turkey})`);
+  check((await page.textContent("#need")) === "Next: an animal starting with E", "after turkey (Y is a dead end) the next animal starts with E");
+  check((await page.textContent("#chainLine")) === "after turkey · Y is a dead end · 3 animals so far", `the chain line says why (${await page.textContent("#chainLine")})`);
+  const hello = await say([[200, "interim", "hello"], [300, "final", [["hello", 0.9]]]]);
+  check(hello === 'No: heard "hello", an ordinary word, not an animal', `an ordinary word is refused as not an animal (${hello})`);
+  check((await page.textContent("#appealSlot button")) === "That was a real animal", "the appeal names the category");
+  await page.screenshot({ path: `${SHOTS}/animals-game-1280.png` });
+
+  await page.selectOption("#category", "food");
+  await listLoaded(page);
+  check((await page.textContent("#need")) === "Say any food or drink to start", "a new category starts a new game");
+  const tomatoes = await say([[200, "interim", "tomatoes"], [300, "final", [["tomatoes", 0.88]]]]);
+  check(tomatoes === 'Yes: tomato, heard "tomatoes"', `tomatoes is tomato (${tomatoes})`);
+  check((await page.textContent("#need")) === "Next: a food or drink starting with O", "tomato needs an O");
+  const juice = await say([[200, "interim", "orange juice"], [300, "final", [["orange juice", 0.9]]]]);
+  check(/^Yes: orange juice \(drink\)/.test(juice), `orange juice is a drink (${juice})`);
+
+  await page.selectOption("#category", "countries");
+  await listLoaded(page);
+  check(await page.isDisabled("#hard"), "countries have no hard mode: the switch is off");
+  const mexico = await say([[200, "interim", "Mexico"], [300, "final", [["Mexico", 0.9]]]]);
+  check(/^Yes: Mexico \(North America\), exact/.test(mexico), `Mexico (${mexico})`);
+  check((await page.textContent("#need")) === "Next: a country starting with C", "after Mexico (O is a dead end) the next country starts with C");
+  const holland = await say([[200, "interim", "Holland"], [300, "final", [["Holland", 0.9]]]]);
+  check(/^No: Holland starts with H, not C/.test(holland), `a country with the wrong letter (${holland})`);
+
+  await page.selectOption("#category", "anything");
+  await listLoaded(page);
+  const word = await say([[200, "interim", "umbrella"], [300, "final", [["umbrella", 0.9]]]]);
+  check(/^Yes: umbrella, exact/.test(word), `any ordinary word (${word})`);
+
+  await page.click("#copy");
+  const report = await page.evaluate(() => navigator.clipboard.readText());
+  console.log("---- copied report (categories) ----\n" + report + "\n-----------------------");
+  const line = (k) => report.split("\n").find((l) => l.startsWith(`#${k} `)) ?? "";
+  check(/^#1 m3 animals known .*RIGHT exact-plural lion mammal \(heard "lions"/.test(line(1)), "turn 1 names animals and the plural");
+  check(/^#3 m3 animals .*dead-end:y>e/.test(line(3)), "turn 3 records the dead end");
+  check(/^#5 m3 food known .*RIGHT exact-plural tomato/.test(line(5)), "turn 5 names food");
+  check(/^#7 m3 countries known .*RIGHT exact Mexico North-America .*dead-end:o>c/.test(line(7)), "turn 7 names countries and the dead end");
+  check(/^#9 m3 anything known .*RIGHT exact umbrella/.test(line(9)), "turn 9 names anything");
+  check(/^settings now: category=anything /m.test(report), "the settings line names the category now");
+  check((await page.textContent("#log li:first-child .row-extra")).startsWith("Anything"), "the log names each turn's category");
+
+  // The choice is remembered on this device.
+  await page.reload();
+  await listLoaded(page);
+  check((await page.inputValue("#category")) === "anything", "after a reload the last category is chosen again");
+  check(errors.length === 0, `categories: no console errors ${errors.join(" | ")}`);
+  await context.close();
+}
+
+// 3c. A browser that refuses storage: the page still works, on the first category.
+{
+  const { context, page, errors } = await open(
+    { width: 390, height: 844 },
+    { content: `Object.defineProperty(window, "localStorage", { get() { throw new DOMException("denied", "SecurityError"); } }); (${fake.toString()})();` },
+  );
+  check((await page.inputValue("#category")) === "cities", "no storage: cities");
+  await page.selectOption("#category", "animals");
+  await listLoaded(page);
+  check((await page.textContent("#turn")) === "Your turn: tap and say an animal", "no storage: choosing a category still works");
+  check(errors.length === 0, `no storage: no console errors ${errors.join(" | ")}`);
   await context.close();
 }
 
