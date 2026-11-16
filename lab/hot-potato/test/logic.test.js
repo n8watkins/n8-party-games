@@ -179,7 +179,7 @@ describe("the owner's first run (fixtures/hearing-report-1.txt), replayed", () =
     expect(m.place.country).toBe("US");
     const h = replay(6, { hard: true });
     expect(h).toMatchObject({ ok: true, kind: "exact", said: "Orange" });
-    expect(h.place.region).toBe("");
+    expect(h.place.region).toBe("California");
     expect(h.place.country).toBe("US");
     expect(h.others.map((p) => p.country)).toContain("AU");
   });

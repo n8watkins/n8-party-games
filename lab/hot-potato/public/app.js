@@ -1,18 +1,22 @@
-// The Hot Potato hearing test: one turn = one speech recognition session, started by a tap (or
-// again by itself in hands-free mode). Each turn's timings, guesses and verdict are logged on the
-// page and in the "Copy results" report. Nothing is stored or sent anywhere by this page.
-import { buildIndex, lastLetter, matchHeard, median, normalize } from "./logic.js";
+// The Hot Potato hearing test: one turn = one speech recognition session, started by a tap, a
+// click or the keyboard (or again by itself in hands-free mode). Each turn's timings, guesses
+// and verdict are logged on the page and in the "Copy results" report. Nothing is stored or sent
+// anywhere by this page.
+import { deviceInfo, micKind } from "./device.js";
+import { EARLY_STABLE_MS, RULES_VERSION, buildIndex, earlyMatch, lastLetter, matchHeard, median, normalize } from "./logic.js";
 
 const $ = (id) => document.getElementById(id);
 const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition || null;
 const ua = navigator.userAgent;
-const isIOS = /iPad|iPhone|iPod/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1);
 const MAX_ALTERNATIVES = 10;
 const POTATO_MAX = 10;
+const REPORT_VERSION = "v2";
+
+const device = deviceInfo(ua, navigator.userAgentData, navigator.maxTouchPoints || 0);
+const touchFirst = device.kind !== "desktop";
 
 const state = {
   index: null,
-  places: 0,
   chain: [], // spoken names accepted this game
   used: new Set(),
   usedNames: new Set(),
@@ -24,19 +28,23 @@ const state = {
   silentInARow: 0,
   wakeLock: null,
   notes: { vibrate: "", wakeLock: "", onDevice: "" },
+  mics: [], // audio inputs, once the browser names them
+  micTrackSupport: "unknown", // "yes", "no" or "unknown": can speech recognition listen to a chosen microphone?
 };
 
-// ---- The city list, loaded after the page is up -----------------------------------------------
+// ---- The city and word lists, loaded after the page is up --------------------------------------
 
-const listReady = fetch("cities.json")
-  .then((r) => {
-    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+const getJSON = (name) =>
+  fetch(name).then((r) => {
+    if (!r.ok) throw new Error(`${name}: HTTP ${r.status}`);
     return r.json();
-  })
-  .then((doc) => {
-    state.index = buildIndex(doc);
-    state.places = doc.rows.length;
+  });
+
+const listReady = Promise.all([getJSON("cities.json"), getJSON("words.json")])
+  .then(([cities, words]) => {
+    state.index = buildIndex(cities, words);
     renderCaps();
+    renderButtons();
     return state.index;
   })
   .catch((err) => {
@@ -123,6 +131,88 @@ document.addEventListener("visibilitychange", () => {
   if (document.visibilityState === "visible" && (state.live || $("handsFree").checked)) holdScreen();
 });
 
+// ---- The microphone picker ------------------------------------------------------------------------
+
+async function refreshMics() {
+  if (!navigator.mediaDevices?.enumerateDevices) return;
+  let devices = [];
+  try {
+    devices = await navigator.mediaDevices.enumerateDevices();
+  } catch {
+    return;
+  }
+  // Browsers only name devices after the microphone is allowed; unnamed ones cannot be told apart.
+  state.mics = devices.filter((d) => d.kind === "audioinput" && d.deviceId && d.deviceId !== "default" && d.deviceId !== "communications" && d.label);
+  renderMics();
+}
+
+function renderMics() {
+  const pick = $("micPick");
+  const select = $("mic");
+  if (state.mics.length < 2) {
+    pick.hidden = true;
+    return;
+  }
+  const chosen = select.value;
+  const options = [new Option("System default", "")].concat(state.mics.map((m) => new Option(m.label, m.deviceId)));
+  select.replaceChildren(...options);
+  select.value = state.mics.some((m) => m.deviceId === chosen) ? chosen : "";
+  pick.hidden = false;
+  renderMicNote();
+}
+
+function renderMicNote() {
+  const note = $("micNote");
+  if (state.micTrackSupport === "no") {
+    note.textContent = "This browser's speech recognition always listens to the system's default microphone, so this choice cannot be used here. Change the default in the system's sound settings.";
+  } else if (state.micTrackSupport === "yes" && $("mic").value) {
+    note.textContent = "Speech recognition listens to this microphone.";
+  } else {
+    note.textContent = "";
+  }
+  note.hidden = !note.textContent;
+}
+
+/**
+ * Whether this browser's speech recognition can take a chosen microphone (start(audioTrack)).
+ * A browser with that form rejects a non-track argument at once; one without it ignores the
+ * argument and starts listening, which is stopped straight away.
+ */
+function probeTrackSupport() {
+  if (state.micTrackSupport !== "unknown" || !Recognition) return state.micTrackSupport;
+  let probe;
+  try {
+    probe = new Recognition();
+    probe.start({});
+    state.micTrackSupport = "no";
+    try {
+      probe.abort();
+    } catch {}
+  } catch (err) {
+    state.micTrackSupport = err instanceof TypeError ? "yes" : "no";
+  }
+  return state.micTrackSupport;
+}
+
+async function chosenTrack() {
+  const id = $("mic").value;
+  if (!id || state.micTrackSupport !== "yes") return null;
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: { deviceId: { exact: id } } });
+    return stream.getAudioTracks()[0] ?? null;
+  } catch {
+    return null;
+  }
+}
+
+const micInReport = () => {
+  const id = $("mic").value;
+  const chosen = state.mics.find((m) => m.deviceId === id);
+  const count = `${state.mics.length || "unknown number of"} input${state.mics.length === 1 ? "" : "s"}`;
+  if (!chosen) return `system default (${count})`;
+  return `chosen: ${micKind(chosen.label)} (${count}); used by recognition: ${state.micTrackSupport}`;
+};
+
 // ---- One turn -----------------------------------------------------------------------------------
 
 function newTurn(auto) {
@@ -133,6 +223,7 @@ function newTurn(auto) {
     sounds: $("sounds").checked,
     handsFree: $("handsFree").checked,
     early: $("early").checked,
+    hard: $("hard").checked,
     auto,
     required: state.required,
     rules: snapshot(),
@@ -140,15 +231,18 @@ function newTurn(auto) {
     at: {}, // ms after the tap: start, audiostart, speechstart, speechend, interim, valid, final, end
     interimCount: 0,
     firstInterim: "",
-    validInterim: "",
     alternatives: [],
     finalMatch: null,
+    earlyWould: null, // what an early answer would have taken, even with the switch off
+    pendingEarly: null,
     match: null,
     decidedBy: "",
     verdict: "",
     error: "",
     misheard: false,
+    appeal: "", // "real-city" or "wrong": the player says the verdict was wrong
     onDevice: "",
+    mic: "",
   };
 }
 
@@ -158,15 +252,21 @@ const mark = (turn, key) => {
 };
 
 /** The game as it stood when a turn began: every check in that turn is made against it. */
-const snapshot = () => ({ required: state.required, used: new Set(state.used), usedNames: new Set(state.usedNames), previous: state.chain.at(-1) ?? "" });
+const snapshot = () => ({
+  required: state.required,
+  used: new Set(state.used),
+  usedNames: new Set(state.usedNames),
+  previous: state.chain.at(-1) ?? "",
+  hard: $("hard").checked,
+});
 
 function check(turn, alternatives) {
   if (!state.index) return null;
   return matchHeard(state.index, alternatives, turn.rules);
 }
 
-function startTurn(auto = false) {
-  if (state.live || !Recognition) return;
+async function startTurn(auto = false) {
+  if (state.live || !Recognition || !state.index) return;
   unlockAudio();
   const turn = newTurn(auto);
   let rec;
@@ -181,7 +281,9 @@ function startTurn(auto = false) {
   rec.continuous = false;
   rec.maxAlternatives = MAX_ALTERNATIVES;
   turn.onDevice = "processLocally" in rec ? `processLocally=${rec.processLocally}` : "not exposed";
-  state.live = { turn, rec };
+  turn.mic = micInReport();
+  state.live = { turn, rec, track: null };
+  renderButtons();
 
   for (const name of ["start", "audiostart", "soundstart", "speechstart", "speechend", "soundend", "audioend"]) {
     rec.addEventListener(name, () => mark(turn, name));
@@ -197,57 +299,85 @@ function startTurn(auto = false) {
     finishTurn(turn);
   });
 
+  // Only a chosen microphone waits for getUserMedia; otherwise start() stays inside the tap, as
+  // some browsers (Safari) want.
+  const track = $("mic").value && state.micTrackSupport === "yes" ? await chosenTrack() : null;
+  state.live.track = track;
   try {
-    rec.start();
+    if (track) rec.start(track);
+    else rec.start();
   } catch (err) {
     turn.error = `start failed (${err.name})`;
+    track?.stop();
     state.live = null;
     return finishTurn(turn);
   }
   holdScreen();
   $("heard").textContent = "Listening...";
   $("heard").classList.add("listening");
-  $("verdict").textContent = " ";
+  $("verdict").textContent = " ";
   $("verdict").className = "verdict";
-  renderButtons();
+  renderAppeal(null);
 }
 
 function onResult(turn, rec, e) {
   let interim = "";
+  let interimAlts = [];
   for (let i = e.resultIndex; i < e.results.length; i++) {
     const result = e.results[i];
     if (result.isFinal) {
       mark(turn, "final");
+      clearTimeout(turn.pendingEarly?.timer);
+      turn.pendingEarly = null;
       turn.alternatives = Array.from(result, (a) => ({ transcript: a.transcript.trim(), confidence: a.confidence }));
       const m = check(turn, turn.alternatives);
       turn.finalMatch = m;
-      $("heard").textContent = turn.alternatives[0]?.transcript || " ";
+      $("heard").textContent = turn.alternatives[0]?.transcript || " ";
       if (!turn.verdict) decide(turn, m, "final");
     } else {
       interim += result[0].transcript;
+      if (result.length > 1) interimAlts = Array.from(result, (a) => a.transcript);
     }
   }
   interim = interim.trim();
-  if (!interim) return;
+  if (!interim || turn.at.final !== undefined) return;
   turn.interimCount++;
   if (turn.at.interim === undefined) {
     mark(turn, "interim");
     turn.firstInterim = interim;
   }
   if (!turn.verdict) $("heard").textContent = interim;
-  if (turn.at.valid === undefined) {
-    const m = check(turn, [{ transcript: interim, confidence: 0 }]);
-    if (m?.ok) {
-      mark(turn, "valid");
-      turn.validInterim = interim;
+  considerEarly(turn, rec, interimAlts.length > 1 ? [interim, ...interimAlts.slice(1)] : [interim]);
+}
+
+/**
+ * The early answer: an interim that the rules would take starts a short timer; if the interim
+ * is still the same when it fires, the early answer is noted (and, with the switch on, taken).
+ */
+function considerEarly(turn, rec, transcripts) {
+  if (!state.index || turn.earlyWould) return;
+  const key = normalize(transcripts[0]);
+  if (turn.pendingEarly?.key === key) return;
+  clearTimeout(turn.pendingEarly?.timer);
+  turn.pendingEarly = null;
+  const m = earlyMatch(state.index, transcripts, turn.rules);
+  if (!m.ok) return;
+  mark(turn, "valid");
+  turn.pendingEarly = {
+    key,
+    timer: setTimeout(() => {
+      turn.pendingEarly = null;
+      if (turn.at.final !== undefined || state.live?.turn !== turn) return;
+      turn.earlyWould = m;
+      mark(turn, "early");
       if (turn.early && !turn.verdict) {
         decide(turn, m, "interim");
         try {
           rec.stop();
         } catch {}
       }
-    }
-  }
+    }, EARLY_STABLE_MS),
+  };
 }
 
 function decide(turn, m, by) {
@@ -278,8 +408,13 @@ function decide(turn, m, by) {
 }
 
 async function finishTurn(turn) {
-  const wasLive = state.live?.turn === turn;
-  if (wasLive) state.live = null;
+  const live = state.live?.turn === turn ? state.live : null;
+  if (live) {
+    live.track?.stop();
+    state.live = null;
+  }
+  clearTimeout(turn.pendingEarly?.timer);
+  turn.pendingEarly = null;
   if (!turn.verdict && turn.alternatives.length) {
     // The final result came before the city list was ready.
     await listReady.catch(() => {});
@@ -288,7 +423,7 @@ async function finishTurn(turn) {
   }
   if (!turn.verdict) {
     turn.verdict = "none";
-    $("heard").textContent = " ";
+    $("heard").textContent = " ";
     showVerdict(turn);
   }
   $("heard").classList.remove("listening");
@@ -297,10 +432,11 @@ async function finishTurn(turn) {
   renderLog();
   renderSummary();
   renderButtons();
+  if (state.turns.length === 1) refreshMics();
 
   const fatal = /not-allowed|service-not-allowed|language-not-supported|cannot create|start failed/.test(turn.error);
   if ($("handsFree").checked && !fatal && state.silentInARow < 3) {
-    // Wait for the ding or buzz to finish, so the phone does not hear its own sound.
+    // Wait for the ding or buzz to finish, so the microphone does not hear the page's own sound.
     state.nextTurn = setTimeout(() => {
       state.nextTurn = null;
       if ($("handsFree").checked) startTurn(true);
@@ -329,20 +465,26 @@ function stopListening() {
 
 // ---- Words for verdicts ----------------------------------------------------------------------
 
-const REASONS = {
-  used: "already said this game",
-  "wrong-letter": "wrong first letter",
-  echo: "that was the last city again",
-  "not-a-city": "not a city in the list",
-};
-
 function population(n) {
   if (n >= 1e6) return `${(n / 1e6).toFixed(1)}M`;
   if (n >= 1e3) return `${Math.round(n / 1e3)}k`;
   return String(n);
 }
 
-function verdictText(turn) {
+/** "Edmonton (Alberta, Canada)": where a place is, as plainly as the list allows. */
+const where = (place) => [place.region, place.countryName].filter(Boolean).join(", ");
+
+/** The other places of that name, when there are any: "; there is also one in Australia". */
+function alsoText(m) {
+  const abroad = [...new Set(m.others.filter((p) => p.country !== m.place.country).map((p) => p.countryName))];
+  const home = m.others.filter((p) => p.country === m.place.country);
+  const parts = [];
+  if (abroad.length) parts.push(`one in ${abroad.slice(0, 2).join(" and ")}${abroad.length > 2 ? " and elsewhere" : ""}`);
+  if (home.length) parts.push(`another in ${home[0].region || "the same country"}${home.length > 1 ? " and more" : ""}`);
+  return parts.length ? `; there is also ${parts.join(", and ")}` : "";
+}
+
+export function verdictText(turn) {
   const m = turn.match;
   if (turn.verdict === "none") {
     if (/not-allowed|service-not-allowed/.test(turn.error)) return `Microphone blocked (${turn.error})`;
@@ -352,17 +494,67 @@ function verdictText(turn) {
   }
   if (!m) return "";
   if (m.ok) {
-    const how = m.kind === "exact" ? "exact" : m.kind === "alternative" ? `guess ${m.alternative + 1}` : "sounds like";
-    return `Yes: ${m.said} (${m.place.country}, ${population(m.place.population)}), ${how}`;
+    const how =
+      m.kind === "exact"
+        ? m.wordName
+          ? "exact (the city, not the word)"
+          : "exact"
+        : m.kind === "alternative"
+          ? `from the recogniser's guess ${m.alternative + 1}, "${m.heard}"`
+          : `heard "${m.heard}", ${m.distance === 1 ? "one letter" : `${m.distance} letters`} off`;
+    return `Yes: ${m.said} (${where(m.place)}, ${population(m.place.population)}), ${how}${alsoText(m)}`;
   }
-  const near = m.place ? `: ${m.said} (${m.place.country})` : "";
-  return `No, ${REASONS[m.reason] ?? m.reason}${near}`;
+  const near = m.place ? `${m.said} (${m.place.countryName})` : "";
+  switch (m.reason) {
+    case "word":
+      return `No: heard "${m.heard}", an ordinary word, not a city`;
+    case "name":
+      return `No: heard "${m.heard}", a name, not a city`;
+    case "hard-only":
+      return `No: ${near} is only in hard mode (a town of ${population(m.place.population)} not on the well-known list)`;
+    case "wrong-letter":
+      return `No: ${near} starts with ${m.said.charAt(0).toUpperCase()}, not ${turn.required.toUpperCase()}`;
+    case "used":
+      return `No: ${m.said} was already said this game`;
+    case "echo":
+      return "No: that was the last city again";
+    default:
+      return `No: heard "${m.heard}", not a city on the list`;
+  }
 }
 
 function showVerdict(turn) {
   const el = $("verdict");
-  el.textContent = verdictText(turn) || " ";
+  el.textContent = verdictText(turn) || " ";
   el.className = `verdict ${turn.verdict}`;
+  renderAppeal(turn);
+}
+
+// ---- Appeals: the player says the verdict was wrong --------------------------------------------------
+
+const appealLabel = (turn) => (turn.verdict === "right" ? "That was wrong" : "That was a real city");
+const appealKind = (turn) => (turn.verdict === "right" ? "wrong" : "real-city");
+
+function toggleAppeal(turn) {
+  turn.appeal = turn.appeal ? "" : appealKind(turn);
+  renderAppeal(state.stageTurn);
+  renderLog();
+  renderSummary();
+}
+
+function appealButton(turn, cls) {
+  const b = el("button", cls, turn.appeal ? `Marked: ${appealLabel(turn).toLowerCase()} (undo)` : appealLabel(turn));
+  b.type = "button";
+  b.setAttribute("aria-pressed", String(Boolean(turn.appeal)));
+  b.addEventListener("click", () => toggleAppeal(turn));
+  return b;
+}
+
+/** The appeal under the current verdict, for the turn just decided. */
+function renderAppeal(turn) {
+  state.stageTurn = turn;
+  const slot = $("appealSlot");
+  slot.replaceChildren(...(turn && (turn.verdict === "right" || turn.verdict === "wrong") ? [appealButton(turn, "appeal")] : []));
 }
 
 // ---- Rendering -----------------------------------------------------------------------------------
@@ -378,8 +570,16 @@ function renderGame() {
 function renderButtons() {
   const live = Boolean(state.live);
   const btn = $("turn");
-  btn.disabled = !Recognition || live;
-  btn.textContent = !Recognition ? "No speech recognition here" : live ? "Listening..." : "Your turn: tap and say a city";
+  btn.disabled = !Recognition || live || !state.index;
+  btn.textContent = !Recognition
+    ? "No speech recognition here"
+    : !state.index
+      ? "Loading the city list..."
+      : live
+        ? "Listening..."
+        : touchFirst
+          ? "Your turn: tap and say a city"
+          : "Your turn: click, then say a city";
   btn.classList.toggle("live", live);
   $("stop").hidden = !live && !$("handsFree").checked;
 }
@@ -391,6 +591,7 @@ function summary() {
   const count = (f) => t.filter(f).length;
   const pick = (k) => median(t.map((x) => x.at[k]));
   const speechToFinal = median(t.map((x) => (x.at.final !== undefined && x.at.speechend !== undefined ? x.at.final - x.at.speechend : null)));
+  const earlyTurns = t.filter((x) => x.earlyWould);
   return {
     turns: t.length,
     right: count((x) => x.verdict === "right"),
@@ -398,7 +599,11 @@ function summary() {
     none: count((x) => x.verdict === "none"),
     misheard: count((x) => x.misheard),
     soundAlike: count((x) => x.match?.kind === "sound-alike"),
+    appealCity: count((x) => x.appeal === "real-city"),
+    appealWrong: count((x) => x.appeal === "wrong"),
     errors: count((x) => x.error),
+    earlyWould: earlyTurns.length,
+    earlyDiffers: earlyTurns.filter((x) => x.finalMatch && (!x.finalMatch.ok || x.finalMatch.place.id !== x.earlyWould.place.id)).length,
     interim: pick("interim"),
     valid: pick("valid"),
     final: pick("final"),
@@ -414,9 +619,13 @@ function renderSummary() {
     ["Wrong", s.wrong],
     ["Nothing heard", s.none],
     ["It misheard me", s.misheard],
-    ["Median: tap to first word", s.interim === null ? "-" : `${s.interim} ms`],
-    ["Median: tap to a matching city", s.valid === null ? "-" : `${s.valid} ms`],
-    ["Median: tap to final result", s.final === null ? "-" : `${s.final} ms`],
+    ["You said: that was a real city", s.appealCity],
+    ["You said: that was wrong", s.appealWrong],
+    ["Early answers it would take", s.earlyWould],
+    ["Early answers unlike the final", s.earlyDiffers],
+    ["Median: start to first word", s.interim === null ? "-" : `${s.interim} ms`],
+    ["Median: start to a matching city", s.valid === null ? "-" : `${s.valid} ms`],
+    ["Median: start to final result", s.final === null ? "-" : `${s.final} ms`],
     ["Median: end of speech to final", s.speechToFinal === null ? "-" : `${s.speechToFinal} ms`],
   ];
   $("summary").replaceChildren(
@@ -443,7 +652,7 @@ function el(tag, cls, text) {
 
 function renderLog() {
   const items = [...state.turns].reverse().map((turn) => {
-    const li = el("li", `turn-row ${turn.verdict}${turn.misheard ? " misheard" : ""}`);
+    const li = el("li", `turn-row ${turn.verdict}${turn.misheard ? " misheard" : ""}${turn.appeal ? " appealed" : ""}`);
     const head = el("p", "row-head");
     head.append(el("span", "row-n", `#${turn.n}`), el("span", "row-verdict", verdictText(turn)));
     const times = el("p", "row-times", `first word ${ms(turn.at.interim)} · matching city ${ms(turn.at.valid)} · final ${ms(turn.at.final)} ms${turn.decidedBy ? ` · decided on ${turn.decidedBy}` : ""}`);
@@ -456,14 +665,15 @@ function renderLog() {
     li.append(head, times, heard);
     const extra = [];
     if (turn.required) extra.push(`needed ${turn.required.toUpperCase()}`);
-    extra.push(`test ${turn.scenario}`, turn.sounds ? "sounds on" : "sounds off");
+    extra.push(turn.hard ? "hard mode" : "well-known list", `test ${turn.scenario}`, turn.sounds ? "sounds on" : "sounds off");
     if (turn.auto) extra.push("hands-free");
     if (turn.error) extra.push(`error: ${turn.error}`);
     if (turn.finalMatch && turn.match && turn.decidedBy === "interim" && turn.finalMatch.said !== turn.match.said) {
-      extra.push(`final said: ${turn.finalMatch.ok ? turn.finalMatch.said : REASONS[turn.finalMatch.reason]}`);
+      extra.push(`final said: ${turn.finalMatch.ok ? turn.finalMatch.said : turn.finalMatch.reason}`);
     }
     li.append(el("p", "row-extra", extra.join(" · ")));
-    const mis = el("button", "mis", turn.misheard ? "Marked: it misheard me (tap to undo)" : "It misheard me");
+    const actions = el("div", "row-actions");
+    const mis = el("button", "mis", turn.misheard ? "Marked: it misheard me (undo)" : "It misheard me");
     mis.type = "button";
     mis.setAttribute("aria-pressed", String(turn.misheard));
     mis.addEventListener("click", () => {
@@ -471,45 +681,45 @@ function renderLog() {
       renderLog();
       renderSummary();
     });
-    li.append(mis);
+    actions.append(mis);
+    if (turn.verdict === "right" || turn.verdict === "wrong") actions.append(appealButton(turn, "mis appeal-row"));
+    li.append(actions);
     return li;
   });
   $("log").replaceChildren(...items);
 }
 
 function renderCaps() {
+  const idx = state.index;
   const parts = [
-    `Speech recognition: ${Recognition ? (window.SpeechRecognition ? "SpeechRecognition" : "webkitSpeechRecognition") : "none"}`,
+    `device: ${device.label}`,
+    `speech recognition: ${Recognition ? (window.SpeechRecognition ? "SpeechRecognition" : "webkitSpeechRecognition") : "none"}`,
     `on device or server: ${state.turns.at(-1)?.onDevice || state.notes.onDevice || "not known until the first turn"}`,
     `vibration: ${state.notes.vibrate || ("vibrate" in navigator ? "not tried yet" : "not supported")}`,
     `screen awake: ${state.notes.wakeLock || ("wakeLock" in navigator ? "not tried yet" : "not supported")}`,
-    `city list: ${state.places ? `${state.places.toLocaleString("en-US")} places` : "loading"}`,
+    `city list: ${idx ? `${idx.knownCount.toLocaleString("en-US")} well-known places, ${idx.places.length.toLocaleString("en-US")} in hard mode` : "loading"}`,
   ];
   $("caps").textContent = parts.join(" · ");
 }
 
 // ---- The report -----------------------------------------------------------------------------------
 
-function platform() {
-  if (isIOS) return "iOS";
-  if (/Android/.test(ua)) return "Android";
-  return "other";
-}
-
 export function reportText() {
   const s = summary();
   const ticks = [...document.querySelectorAll("#checklist input")].map((c, i) => `${i + 1}${c.checked ? "x" : "-"}`).join(" ");
   const lines = [
-    "Hot Potato hearing test, v1",
+    `Hot Potato hearing test, ${REPORT_VERSION} (matching rules ${RULES_VERSION})`,
     `date: ${new Date().toISOString().slice(0, 16)}Z`,
-    `device: ${platform()}; ${ua}`,
+    `device: ${device.label}; ${ua}`,
     `recognition: ${Recognition ? (window.SpeechRecognition ? "SpeechRecognition" : "webkitSpeechRecognition") : "none"}; on-device: ${state.turns.at(-1)?.onDevice || "-"}; ${state.notes.onDevice || ""}`.trim(),
-    `vibration: ${state.notes.vibrate || "-"}; wake lock: ${state.notes.wakeLock || "-"}; screen ${window.innerWidth}x${window.innerHeight}`,
-    `settings now: lang=${$("lang").value} sounds=${on($("sounds"))} handsfree=${on($("handsFree"))} early=${on($("early"))} maxAlternatives=${MAX_ALTERNATIVES}`,
+    `microphone: ${micInReport()}`,
+    `vibration: ${state.notes.vibrate || "-"}; wake lock: ${state.notes.wakeLock || "-"}; window ${window.innerWidth}x${window.innerHeight}`,
+    `settings now: lang=${$("lang").value} sounds=${on($("sounds"))} handsfree=${on($("handsFree"))} early=${on($("early"))} hard=${on($("hard"))} maxAlternatives=${MAX_ALTERNATIVES}`,
     `checklist done: ${ticks}`,
-    `summary: turns ${s.turns}, right ${s.right}, wrong ${s.wrong}, nothing heard ${s.none}, misheard ${s.misheard}, sound-alike ${s.soundAlike}, errors ${s.errors}`,
+    `summary: turns ${s.turns}, right ${s.right}, wrong ${s.wrong}, nothing heard ${s.none}, misheard ${s.misheard}, sound-alike ${s.soundAlike}, appeals real-city ${s.appealCity} wrong ${s.appealWrong}, errors ${s.errors}`,
+    `early answer: would have taken ${s.earlyWould}, ${s.earlyDiffers} differing from the final`,
     `medians ms: tap>first word ${ms(s.interim)}, tap>matching city ${ms(s.valid)}, tap>final ${ms(s.final)}, speech end>final ${ms(s.speechToFinal)}`,
-    "turns (#n test sounds mode need | ms after tap: start audio speech speechend first-word city final end | verdict | heard):",
+    "turns (#n rules list test sounds mode need | ms after tap: start audio speech speechend first-word city final end | verdict | heard):",
     ...state.turns.map(turnLine),
   ];
   return lines.join("\n");
@@ -525,11 +735,12 @@ function turnLine(t) {
       ? "NONE"
       : m?.ok
         ? `RIGHT ${m.kind} ${m.said} ${m.place.country} (heard "${m.heard}", by ${t.decidedBy})`
-        : `WRONG ${m?.reason ?? "?"}${m?.place ? ` ${m.said}` : ""} (by ${t.decidedBy})`;
+        : `WRONG ${m?.reason ?? "?"}${m?.place ? ` ${m.said}` : ""} (heard "${m?.heard ?? ""}", by ${t.decidedBy})`;
   const heard = t.alternatives.length ? t.alternatives.map((x) => `${x.transcript}=${x.confidence ? x.confidence.toFixed(2) : 0}`).join(" / ") : t.firstInterim ? `interim:${t.firstInterim}` : "-";
   const finalDiff = t.decidedBy === "interim" && t.finalMatch && t.finalMatch.said !== m?.said ? ` final-differs:${t.finalMatch.ok ? t.finalMatch.said : t.finalMatch.reason}` : "";
-  const flags = [t.error && `err:${t.error}`, t.misheard && "MISHEARD", t.auto && "auto", `n-interim:${t.interimCount}`].filter(Boolean).join(" ");
-  return `#${t.n} t${t.scenario} snd:${t.sounds ? "on" : "off"} ${t.handsFree ? "hf" : "tap"} ${t.early ? "early" : "final"} ${t.lang} need:${t.required || "-"} | ${[a.start, a.audiostart, a.speechstart, a.speechend, a.interim, a.valid, a.final, a.end].map(ms).join(" ")} | ${verdict}${finalDiff} | ${heard} | ${flags}`;
+  const early = t.earlyWould ? `early-would:${t.earlyWould.said}@${ms(a.early)}` : "";
+  const flags = [t.error && `err:${t.error}`, t.misheard && "MISHEARD", t.appeal && `APPEAL:${t.appeal}`, t.auto && "auto", early, `n-interim:${t.interimCount}`].filter(Boolean).join(" ");
+  return `#${t.n} ${m?.rules ?? RULES_VERSION} ${t.hard ? "hard" : "known"} t${t.scenario} snd:${t.sounds ? "on" : "off"} ${t.handsFree ? "hf" : "tap"} ${t.early ? "early" : "final"} ${t.lang} need:${t.required || "-"} | ${[a.start, a.audiostart, a.speechstart, a.speechend, a.interim, a.valid, a.final, a.end].map(ms).join(" ")} | ${verdict}${finalDiff} | ${heard} | ${flags}`;
 }
 
 async function copyResults() {
@@ -561,7 +772,7 @@ async function copyResults() {
 
 function showMicBlocked(blocked) {
   $("micBlocked").hidden = !blocked;
-  if (isIOS) $("micHelp").textContent = "On iPhone: open Settings, then Safari, then Microphone, and choose Allow; also check Settings, Privacy & Security, Speech Recognition. Then reload the page.";
+  if (device.ios) $("micHelp").textContent = "On iPhone or iPad: open Settings, then Safari, then Microphone, and choose Allow; also check Settings, Privacy & Security, Speech Recognition. Then reload the page.";
 }
 
 function setScenario(n) {
@@ -581,18 +792,43 @@ async function checkOnDevice() {
   renderCaps();
 }
 
+/** Space or Enter starts a turn and Escape stops listening, unless a control has the keyboard. */
+function onKey(e) {
+  if (e.key === "Escape") {
+    if (state.live || $("handsFree").checked) {
+      e.preventDefault();
+      stopListening();
+    }
+    return;
+  }
+  if (e.key !== " " && e.key !== "Enter") return;
+  if (e.repeat || e.altKey || e.ctrlKey || e.metaKey) return;
+  if (e.target.closest?.("button, input, select, textarea, a, [contenteditable]")) return;
+  e.preventDefault();
+  startTurn(false);
+}
+
 function init() {
   $("noRecognition").hidden = Boolean(Recognition);
-  $("iosNote").hidden = !isIOS;
+  $("iosNote").hidden = !device.ios;
+  $("keys").hidden = touchFirst;
   $("turn").addEventListener("click", () => startTurn(false));
   $("stop").addEventListener("click", stopListening);
   $("copy").addEventListener("click", copyResults);
   $("handsFree").addEventListener("change", renderButtons);
   $("lang").addEventListener("change", checkOnDevice);
+  $("mic").addEventListener("change", () => {
+    if ($("mic").value) probeTrackSupport();
+    if (state.micTrackSupport === "no") $("mic").value = "";
+    renderMicNote();
+  });
+  navigator.mediaDevices?.addEventListener?.("devicechange", refreshMics);
+  document.addEventListener("keydown", onKey);
   $("newGame").addEventListener("click", () => {
     Object.assign(state, { chain: [], used: new Set(), usedNames: new Set(), required: "", potato: 0 });
-    $("heard").textContent = " ";
-    $("verdict").textContent = " ";
+    $("heard").textContent = " ";
+    $("verdict").textContent = " ";
+    renderAppeal(null);
     renderGame();
   });
   for (const btn of document.querySelectorAll("#checklist button")) btn.addEventListener("click", () => setScenario(Number(btn.dataset.scenario)));
@@ -602,7 +838,11 @@ function init() {
       .query({ name: "microphone" })
       .then((status) => {
         showMicBlocked(status.state === "denied");
-        status.addEventListener("change", () => showMicBlocked(status.state === "denied"));
+        if (status.state === "granted") refreshMics();
+        status.addEventListener("change", () => {
+          showMicBlocked(status.state === "denied");
+          if (status.state === "granted") refreshMics();
+        });
       })
       .catch(() => {});
   }

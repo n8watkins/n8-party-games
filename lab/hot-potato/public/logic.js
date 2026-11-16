@@ -147,8 +147,9 @@ export function trimFillers(text) {
 }
 
 /**
- * Turns the shipped JSON into an index. cities.json is {countries, rows: [[name, ascii|0,
- * alts|0, abbrs|0, country, population, why|0, region|0]]}, biggest first; words.json is
+ * Turns the shipped JSON into an index. cities.json is {countries, regions, rows: [[name,
+ * ascii|0, alts|0, abbrs|0, country, population, why|0, region number|0]]}, biggest first
+ * (a region number counts from 1 into `regions`); words.json is
  * {words, names}. Each place gets an id (its row number); every name, ASCII name, English
  * alternate name and abbreviation is a key. A place is well known (in the default list) when it
  * has a "why".
@@ -157,6 +158,7 @@ export function buildIndex(doc, wordsDoc = { words: [], names: [] }) {
   const ordinary = new Set(wordsDoc.words ?? []);
   const names = new Set(wordsDoc.names ?? []);
   const countries = doc.countries ?? {};
+  const regions = doc.regions ?? [];
   const places = [];
   const byKey = new Map();
   const byLetter = new Map();
@@ -169,7 +171,7 @@ export function buildIndex(doc, wordsDoc = { words: [], names: [] }) {
   };
   doc.rows.forEach(([name, ascii, alts, abbrs, country, population, why, region], id) => {
     const known = Boolean(why);
-    const place = { id, name, country, countryName: countries[country] ?? country, population, why: why || "", region: region || "", known };
+    const place = { id, name, country, countryName: countries[country] ?? country, population, why: why || "", region: (region && regions[region - 1]) || "", known };
     places.push(place);
     const all = [name, ...(ascii ? [ascii] : []), ...(alts || [])];
     for (const n of all) {

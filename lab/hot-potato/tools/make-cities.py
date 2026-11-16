@@ -13,7 +13,7 @@ Then: python3 -I lab/hot-potato/tools/make-cities.py <geonames folder> <words.js
 
 Each place keeps its name, ASCII name, up to five English alternate names (not nicknames; old
 names such as Bombay are kept), up to two abbreviations (NYC), country code, population, why it is
-well known, and (for well-known places) its state or province. City sections (PPLX),
+well known, and its state or province. City sections (PPLX),
 numbered districts and abandoned or destroyed places are left out, except the hand-listed famous places.
 
 Well known (the default list), "why":
@@ -143,6 +143,7 @@ def why(r):
 
 out = []
 used_countries = set()
+region_list, region_ids = [], {}
 for r in sorted(rows.values(), key=lambda r: -r["pop"]):
     seen = {letters(r["name"]), letters(r["ascii"])}
     alts = []
@@ -157,18 +158,23 @@ for r in sorted(rows.values(), key=lambda r: -r["pop"]):
             abbr.append(a)
     ascii_name = r["ascii"] if r["ascii"] != r["name"] else 0
     w = why(r)
-    region = regions.get(f"{r['cc']}.{r['admin1']}", 0) if w else 0
+    region = regions.get(f"{r['cc']}.{r['admin1']}")
+    if region and region not in region_ids:
+        region_ids[region] = len(region_list) + 1
+        region_list.append(region)
     used_countries.add(r["cc"])
-    out.append([r["name"], ascii_name, alts or 0, abbr or 0, r["cc"], r["pop"], w, region])
+    out.append([r["name"], ascii_name, alts or 0, abbr or 0, r["cc"], r["pop"], w, region_ids.get(region, 0)])
 
 doc = {
     "source": "GeoNames cities15000, cities500 (hand-listed famous places), alternateNamesV2, admin1CodesASCII and countryInfo, https://www.geonames.org/, CC BY 4.0",
     "fetched": fetched,
     "fields": [
         "name", "ascii name (0: same as name)", "English alternate names", "abbreviations", "country", "population",
-        "why well known (c capital, s state capital, f famous list, p population; 0 hard mode only)", "state or province (well-known places only)",
+        "why well known (c capital, s state capital, f famous list, p population; 0 hard mode only)",
+        "state or province (its number in regions, counting from 1; 0: not known)",
     ],
     "countries": {cc: country_names.get(cc, cc) for cc in sorted(used_countries)},
+    "regions": region_list,
     "rows": out,
 }
 with open(out_path, "w", encoding="utf-8") as fh:
