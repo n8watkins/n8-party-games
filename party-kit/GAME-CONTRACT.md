@@ -369,11 +369,31 @@ A hosted game whose view cannot be mounted in the room yet is hung the same way,
 The party has two waiting rooms (`lobby/shared/mode.js`): the Floor, where the vote above chooses a game, and the Table (`/party/`), a plain page where the host picks a turn-based game from a list.
 A Table game keeps the same contract as any turn-based game ("Turn-based games", "Who is here during a turn-based game"), run by the same room, with these differences.
 
-- **What it is.** A package in `TURN_GAMES` (`games.js`) exporting `game` and `manifest`.
-  The game must be turn-based (`tickHz: 0`) and must not have `settings` yet: the Table has no settings step.
+- **The rules.** A Table game is a pure rules module, the shape Paper Masks set (`party/games/paper-masks/README.md`):
+
+  ```js
+  export const GAME_ID, MIN_PLAYERS, MAX_PLAYERS, SYSTEM;
+  create(seats, options, seed, now)  // -> state, or { refused, message }; seats are seat numbers; options.host is the host's seat
+  apply(state, seat, move, now)      // -> a new state, or { refused, message }; never changes `state`
+  view(state, seat)                  // what that seat may see; -1 is a big screen. Nothing else is ever sent
+  nextDeadline(state), done(state), result(state), standings(state)
+  ```
+
+  The state is plain JSON, kept and saved on the server; only `view` output reaches a page.
+  The room sends its own moves as `SYSTEM`, and `apply` must refuse them from a player (`not_system`):
+  `{ t: "tick" }` at `nextDeadline` (a Durable Object alarm: nothing ticks in memory, and the room sleeps between moves), `{ t: "join", seat }` when someone in the party who is not in the match is here (a late joiner; the game makes them a watcher, or refuses, and then they wait at the Table), `{ t: "leave", seat }` when a seat is gone for good (it left the party, or its phone was gone past the grace; the game goes on without it, or ends by itself), and `{ t: "host", seat }` when the host's controls pass to another player.
+  `create` gets `seed`, a fresh seed per match from the platform's secure source; the room's own seed, which pages may learn, is never used.
+  `party/games/table-game.js` (`tableGame(rules)`) turns the module into the kit's turn-based `game`: the room's `join`, `leave` and `host` hooks (`lobby/server/lobby-core.js`, `turnUpkeep`) are those three moves, and a refusal is the answer to the input.
+  A seat taken in by `join` is the game's from then on (it may send moves, and gets `view` for its seat); a seat gone by `leave` is kept out of the party until the match ends, so nobody new sits in it.
+- **Where it lives.** The rules in `party/games/<id>/` (server only), the view in `party/public/games/` (served at `/party/games/`), wired in `lobby/wall.js` as Count to ten is; a game from its own package goes in `TURN_GAMES` (`games.js`) exporting `game` and `manifest`.
+  Nothing in `party/games`, `lobby/server`, `worker.js` or `games.js` can reach the site: `scripts/build-public.mjs` refuses to copy them (`SERVER_ONLY`), and `lobby/test/public-files.test.js` fails if a served file imports them, so server-only data such as Paper Masks' `questions.js` stays on the server.
+- **What it is to the wall.** The game must be turn-based (`tickHz: 0`) and must not have `settings` yet: the Table has no settings step, so a rules module's `options` are its defaults (and `host`).
   The manifest adds `table: { view }`, the module under `manifest.path` whose `mount` shows the game at the Table ("In the browser"), and may add `pitch` (one line about the game) and `art` (the address of its door picture).
   `buildTurnWall` in `lobby/wall.js` refuses a game that breaks any of this when the Worker loads, not when a party picks it.
   A game in `TABLE_SOON` with the same id is replaced by the real one.
+- **The places.** The Table has eight places (`TABLE_MAX_PLAYERS`), the Floor four (`MAX_PLAYERS`).
+  A party of more than four cannot move to the Floor (`mode-no`, "The Floor has room for 4, and 5 are here"); one of four or fewer is seated in the Floor's four places on the way, and the sockets of whoever moved speak for the new seat at once.
+  Seats 4 to 7 take the picker's next four colours (`seatColour`).
 - **The list.** The room view carries `table`: every entry (`id`, `name`, `pitch`, `min`, `max`, `art`, `soon`, `test`, `view`) with `why`, the reason the party cannot play it now in a few words ("Needs 3 or more", "For exactly 2", "Coming soon"), or null.
   The party's size is its connected players (`lobby/shared/table.js`, `tableWhyNot`).
   An entry marked `test` is listed only on a page whose address ends in `#dev`.
@@ -382,15 +402,18 @@ A Table game keeps the same contract as any turn-based game ("Turn-based games",
   A yes is a beat of `PLAY_BEAT_MS` (three seconds) that everyone sees in the room view as `starting: { id, name, by, in }`; nothing may switch rooms or start another game meanwhile.
   At its end the size is checked again, and the game starts as any game does (the budget check, `create`, `start`), or does not, with a `cancelled` note.
   The beat lives in memory only: a restart during it starts nothing, and the host picks again.
-- **The players.** The seats are the phones connected when the game starts.
-  The room view's `game` carries `seats` at the Table, so every page knows who plays.
+- **The players.** The seats are the phones connected when the game starts, and any the game takes in later (`join`).
+  The room view's `game` carries `seats` at the Table, so every page knows who plays; it is sent again when they change, before the new seat's view.
   A player's page shows the game's view; the big screen shows it with `{ role: "screen", seat: -1 }`.
-  Anyone else, including whoever joins mid-game, stays on the Table and sees that a game is on; the room sends them the screen's view, which must hold no secret.
+  Anyone else (a late joiner the game turned down, or a game without a `join` hook) stays on the Table and sees that a game is on; the room sends them the screen's view, which must hold no secret.
   There is no audience at the Table.
 - **The end.** As for any turn-based game, plus one way more: the host sends `{ t: "stop" }` and the game ends with no points and a note, `note { k: "ended", why: "host", seat, name, text }` ("Ann ended Count to ten."), the card's `last.early` saying the same; anyone else is refused, `stop-no { error, message }`.
   Everyone is back at the Table, with the card.
 
-Count to ten (`party/games/count-to-ten/`, view in `party/public/games/`) is the test game that shows the whole shape: per-seat secrets, a turn timer, `presence` skipping a dropped phone's turns, and a view that keeps to `mount`.
+Count to ten (`party/games/count-to-ten/`, view in `party/public/games/`) is the test game that shows the whole shape through the same adapter: per-seat secrets from the match's seed, a turn timer on the alarm, `join` (a watcher), `leave` (it goes on, and the last one left wins), `host`, and a view that keeps to `mount`.
+
+The kit-level hooks are open to any turn-based game, not only Table ones: `game.join(state, seat, now)`, `game.leave(state, seat, now)` and `game.host(state, seat, now)` return `false` or `{ ok: false }` to turn it down, otherwise nothing, `true`, events or `{ events }`; one that throws ends the game with no points.
+A game without `leave` ends when a seat is gone for good, through `abandon`, as before.
 
 ### What hosting a game through this takes
 
