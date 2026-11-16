@@ -48,7 +48,8 @@ const RAD = Math.PI / 180;
 /** How much the sheet glows by itself in the dark (the emissive strength of its materials). */
 const GLOW = 0.16;
 /** How bright a dropped player's sheet is against a connected one's. */
-const DROPPED = 0.62;
+const DROPPED = 0.5;
+const DROPPED_OPACITY = 0.55;
 /**
  * Below these a ghost is still, and the room need not draw every frame for it (poseGhost's
  * `moving`): how far its hem trails behind (model units), and how fast its trail, squash, lean and
@@ -510,7 +511,8 @@ export function poseGhost(g, piece, now, dt, how) {
   const char = piece.fx?.char ?? 0;
   // A white sheet dimmed as far as a pawn's paint is turns to mud: it keeps most of its white in the dark, and glows a little, as a ghost may.
   const k = mix(0.9 + 0.1 * lit, 1, fl) * (g.connected ? 1 : DROPPED);
-  g.opacity = clamp(1 - 0.5 * fl, 0.2, 1) * (g.fade < 1 ? g.fade * 0.8 : 1);
+  // A dropped player's ghost is dimmer and half see-through: a white sheet stays bright under a lamp however grey it is painted.
+  g.opacity = clamp(1 - 0.5 * fl, 0.2, 1) * (g.fade < 1 ? g.fade * 0.8 : 1) * (g.connected ? 1 : DROPPED_OPACITY);
   const clear = g.opacity < 0.985;
   for (const m of [g.mat, g.softMat]) {
     m.color.copy(WHITE).multiplyScalar(k).lerp(SOOT, char * 0.82);
