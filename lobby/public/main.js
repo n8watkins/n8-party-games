@@ -215,7 +215,8 @@ async function enter() {
       // The line of words under the room carries a dot in the player's colour: it is written again.
       onChange: () => hud && (hud.last = ""),
     });
-    looks.restore(room);
+    // The first room view: draws the button, and asks for the saved piece when it can.
+    looks.update(room);
   }
   count = new CountTick(hud.el, { buzz: isPlayer() ? buzz : null });
   // The one who chooses is the room's picker: a player's seat, or -1 for the room's screen.
@@ -515,8 +516,12 @@ link.on("message", (msg) => {
       break;
     case "look-no":
       // The room turned down this device's choice of character or colour: said on the sheet, or as a note.
-      if (looks?.isOpen) looks.refused(msg.why);
-      else hud?.note(msg.why);
+      // One that only came a little early is sent again by itself, and nothing is said.
+      if (looks && !looks.refused(msg.why, msg.wait)) hud?.note(msg.why);
+      break;
+    case "look-ok":
+      // The room already had the piece this device asked for: nothing to wait for.
+      looks?.answered();
       break;
     case "note":
       if (msg.k === "left") hud?.note(`${msg.name} left`, msg.colour);
@@ -709,6 +714,8 @@ link.on("status", (status) => {
   hud?.link(status === "reconnecting" ? "Reconnecting..." : "");
   // Back after a drop: the room stood the piece still, so say again where it is going.
   if (status === "open" && pilot) pilot.dirty = true;
+  // An answer to a choice of piece lost with the drop never comes: a tap on it again is sent again.
+  if (status === "open") looks?.forget();
 });
 
 link.on("closed", (why, reason) => {

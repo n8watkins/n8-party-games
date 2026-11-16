@@ -358,14 +358,19 @@ export function createLobbyRoom(wallFor) {
         }
         case "look": {
           // A player chooses a character or a colour: kept with the room, shown to everyone in
-          // the room view. Refused to that page only, with the reason and what it still is.
+          // the room view. Refused to that page only, with the reason and what it still is, and
+          // for one that came too soon how long is left (the page sends it again then). One
+          // refused far too soon counts against the socket's rate limit, as an emote does. A
+          // choice the piece already is gets a plain yes, so the page is not left waiting.
           if (!player) return;
           const chose = core.setLook(entry.seat, msg, now);
+          const m = core.members[entry.seat];
           if (!chose.ok) {
-            const m = core.members[entry.seat];
-            return this.send(entry, { t: "look-no", why: chose.why, c: m?.character, v: m?.colour });
+            this.send(entry, { t: "look-no", why: chose.why, c: m?.character, v: m?.colour, ...(chose.wait ? { wait: Math.ceil(chose.wait) } : {}) });
+            if (tooEager(chose.wait) && strike(entry.bucket, SOCKET_RATE, EAGER_STRIKE) === "close") this.kick(ws, entry);
+            return;
           }
-          if (!chose.changed) return;
+          if (!chose.changed) return this.send(entry, { t: "look-ok", c: m.character, v: m.colour });
           this.broadcastRoom(now);
           void this.save();
           return;

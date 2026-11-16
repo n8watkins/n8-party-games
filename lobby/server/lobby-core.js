@@ -46,7 +46,7 @@ import { IDLE_SHUTDOWN_MS, NAME_MAX, SEAT_COLOURS, STALE_ROOM_MS, cleanName, ran
 import { AWAY_MS, COUNT_MS, SETTLE_MS, TOSS_MS, leaders, pointsForPlace, spotLights, standingsFromRows, tally, whyNot } from "../shared/vote.js";
 import { bumpTarget, cooldownLeft, isDown, isSafe, knockLanding, knocked, mayBump } from "../shared/bump.js";
 import { DEFAULT_ROOM, ROOM_COOLDOWN_MS, isRoom, roomLocked } from "../shared/rooms.js";
-import { DEFAULT_CHARACTER, LOOK_COOLDOWN_MS, characterOr, cleanColour, readLook } from "../shared/characters.js";
+import { DEFAULT_CHARACTER, LOOK_COOLDOWN_MS, LOOK_SLACK_MS, characterOr, cleanColour, readLook } from "../shared/characters.js";
 import { record } from "../shared/tonight.js";
 import { DURING_PLAY, cooldownLeft as emoteLeft, mayEmote, relayEmote, waitMessage } from "../../party-kit/client/emotes.js";
 import { POSITION_SLACK, clampX, lightAt, posAt, spawnX } from "../shared/world.js";
@@ -526,8 +526,9 @@ export class LobbyCore {
    * A player chooses a character, a colour or both (lobby/shared/characters.js): `msg` is {c, v}.
    * Kept on the member, so it comes back with a reconnect and through a sleep, and is in the room
    * view for every page. Two players may choose the same. Not while a game is on (the game was
-   * handed its colours when it began), and not again within a moment. Returns {ok, changed} or
-   * {ok: false, why}.
+   * handed its colours when it began), and not again within a moment: measured at arrival, with
+   * LOOK_SLACK_MS given for the network. Returns {ok, changed} or {ok: false, why}, and for a
+   * change that came too soon `wait`, the cooldown still left (the page sends it again then).
    */
   setLook(seat, msg, now) {
     const m = this.members[seat];
@@ -538,7 +539,8 @@ export class LobbyCore {
     const character = look.character ?? m.character;
     const colour = look.colour ?? m.colour;
     if (character === m.character && colour === m.colour) return { ok: true, changed: false };
-    if (now - (m.lookAt ?? -Infinity) < LOOK_COOLDOWN_MS) return { ok: false, why: "Wait a moment before changing it again." };
+    const gap = now - (m.lookAt ?? -Infinity);
+    if (gap < LOOK_COOLDOWN_MS - LOOK_SLACK_MS) return { ok: false, why: "Wait a moment before changing it again.", wait: LOOK_COOLDOWN_MS - gap };
     Object.assign(m, { character, colour, lookAt: now });
     this.lastActive = now;
     return { ok: true, changed: true };

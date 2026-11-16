@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { SEAT_COLOURS } from "../../party-kit/src/core/room-core.js";
 import { game as coinFlip, manifest as coinFlipManifest } from "../games/coin-flip.js";
 import { LobbyCore } from "../server/lobby-core.js";
-import { CHARACTERS, COLOUR_PRESETS, DEFAULT_CHARACTER, LOOK_COOLDOWN_MS, MIN_LUMINANCE, characterOr, cleanColour, isCharacter, isPale, luminance, readLook } from "../shared/characters.js";
+import { CHARACTERS, COLOUR_PRESETS, DEFAULT_CHARACTER, LOOK_COOLDOWN_MS, LOOK_SLACK_MS, MIN_LUMINANCE, characterOr, cleanColour, isCharacter, isPale, luminance, readLook } from "../shared/characters.js";
 import { boxFromManifest } from "../shared/vote.js";
 import { dropFakeRuntime, openRoom, settle, useFakeRuntime, voteIn } from "./fake-room.js";
 import { turnGame } from "./turn-game.js";
@@ -122,9 +122,21 @@ describe("the room's rules for a choice", () => {
     const { core } = seatedRoom("Ann");
     expect(core.setLook(0, { c: "ghost" }, 2000)).toEqual({ ok: true, changed: true });
     expect(core.setLook(0, { c: "ghost" }, 2001)).toEqual({ ok: true, changed: false });
-    expect(core.setLook(0, { c: "pawn" }, 2000 + LOOK_COOLDOWN_MS - 1).ok).toBe(false);
+    const early = core.setLook(0, { c: "pawn" }, 2000 + LOOK_COOLDOWN_MS - LOOK_SLACK_MS - 1);
+    expect(early.ok).toBe(false);
+    // It says how long is left of the whole cooldown, so a page that sends it again then is taken.
+    expect(early.wait).toBe(LOOK_SLACK_MS + 1);
     expect(core.members[0].character).toBe("ghost");
     expect(core.setLook(0, { c: "pawn" }, 2000 + LOOK_COOLDOWN_MS)).toEqual({ ok: true, changed: true });
+  });
+
+  it("takes a change that arrives a little inside the cooldown: the network is never that even", () => {
+    const { core } = seatedRoom("Ann");
+    // A phone that waited 1060 ms by its own clock, the first message 150 ms on the wire and the second 40 ms.
+    core.setLook(0, { c: "ghost" }, 2150);
+    expect(core.setLook(0, { v: "#8a5bc4" }, 2150 + 950)).toEqual({ ok: true, changed: true });
+    expect(LOOK_SLACK_MS).toBeGreaterThanOrEqual(200);
+    expect(LOOK_SLACK_MS).toBeLessThan(LOOK_COOLDOWN_MS / 2);
   });
 
   it("keeps the choice through a dropped phone and a sleep", () => {
@@ -200,6 +212,40 @@ describe("a choice on the real room", () => {
     expect(since(ws.ann, a).filter((m) => m.t === "look-no" || m.t === "room")).toEqual([]);
     expect(since(ws.screen, s).filter((m) => m.t === "look-no" || m.t === "room")).toEqual([]);
     expect(ctx.room.core.members[1]).toMatchObject({ character: "pawn", colour: SEAT_COLOURS[1] });
+  });
+
+  it("answers a choice the piece already is to that page alone, so it is not left waiting", async () => {
+    const { say, ws } = await party();
+    const [a, b, s] = mark(ws.ann, ws.bo, ws.screen);
+    say(ws.bo, { t: "look", c: "pawn", v: SEAT_COLOURS[1] });
+    await settle();
+    expect(since(ws.bo, b).filter((m) => m.t.startsWith("look") || m.t === "room")).toEqual([{ t: "look-ok", c: "pawn", v: SEAT_COLOURS[1] }]);
+    expect(since(ws.ann, a).filter((m) => m.t.startsWith("look") || m.t === "room")).toEqual([]);
+    expect(since(ws.screen, s).filter((m) => m.t.startsWith("look") || m.t === "room")).toEqual([]);
+  });
+
+  it("tells a page that changed too soon how long is left", async () => {
+    const { say, ws } = await party();
+    say(ws.bo, { t: "look", c: "ghost" });
+    await settle();
+    const [b] = mark(ws.bo);
+    say(ws.bo, { t: "look", v: "#8a5bc4" });
+    await settle();
+    const no = since(ws.bo, b).find((m) => m.t === "look-no");
+    expect(no).toMatchObject({ c: "ghost", v: SEAT_COLOURS[1] });
+    expect(no.wait).toBeGreaterThan(LOOK_SLACK_MS);
+    expect(no.wait).toBeLessThanOrEqual(LOOK_COOLDOWN_MS);
+  });
+
+  it("counts a change sent far too soon against the socket's rate limit, as an emote is, so a script hammering it is closed", async () => {
+    const { ctx, say, ws } = await party();
+    say(ws.bo, { t: "look", c: "ghost" });
+    await settle();
+    for (let i = 0; i < 40 && !ws.bo.closed; i++) say(ws.bo, { t: "look", v: i % 2 ? "#8a5bc4" : "#3aa9a0" });
+    await settle();
+    expect(ws.bo.closed?.reason).toBe("too_fast");
+    expect(ws.ann.closed).toBeNull();
+    expect(ctx.room.core.members[1]).toBeFalsy();
   });
 
   it("does not let the screen, which has no piece, choose one", async () => {

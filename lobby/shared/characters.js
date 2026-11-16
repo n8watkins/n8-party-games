@@ -54,6 +54,12 @@ export const COLOUR_PRESETS = [
  * a script cannot make a room busy with them either.
  */
 export const LOOK_COOLDOWN_MS = 1000;
+/**
+ * How early a second change may come and still be taken. A phone waits out the cooldown by its
+ * own clock, but the room measures it at arrival, and two messages are rarely the same time on
+ * the wire: ordinary jitter must never turn a patient tap into a refusal.
+ */
+export const LOOK_SLACK_MS = 250;
 
 /** How dark a chosen colour may be (relative luminance, 0 to 1): the rooms are dark, and a black piece cannot be seen in them. */
 export const MIN_LUMINANCE = 0.05;

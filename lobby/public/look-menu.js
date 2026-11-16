@@ -14,6 +14,8 @@ import { CHARACTERS, COLOUR_PRESETS, LOOK_COOLDOWN_MS, characterOr, cleanColour,
 const SAVED_KEY = "party-room:piece";
 /** A choice the room has not answered in this long is given up (the connection is down). */
 const WAIT_MS = 4000;
+/** A held tap goes this much after the room's cooldown is over by this page's clock. */
+const HOLD_MARGIN_MS = 60;
 
 function saved() {
   try {
@@ -49,6 +51,9 @@ export class LookMenu {
     this.held = null;
     /** What was last asked of the room, until it answers. */
     this.pending = null;
+    /** The last choice sent, for the one retry of a choice that came a little early. */
+    this.asked = null;
+    this.retrying = false;
     this.restored = false;
   }
 
@@ -68,21 +73,27 @@ export class LookMenu {
   }
 
   /**
-   * Once, when the room is first drawn: the piece last chosen on this device, if the room has
-   * this seat as something else. A choice the room refuses (a character it no longer has) is
-   * simply not applied.
+   * Once: the piece last chosen on this device, if the room has this seat as something else.
+   * Tried when the room is first drawn, and again with each room view until it can be asked (a
+   * phone that comes in during a game becomes its piece when the lobby is back). It is sent like
+   * a tap, so a tap just after waits out the room's cooldown. A choice the room refuses (a
+   * character it no longer has) is simply not applied.
    */
   restore(room) {
     if (this.restored) return;
-    this.restored = true;
     const want = saved();
+    if (!want) {
+      this.restored = true;
+      return;
+    }
     const now = this.mine(room);
-    if (!want || !now || this.whyNot(room)) return;
+    if (!now || this.whyNot(room)) return;
+    this.restored = true;
     const look = {};
     if (isCharacter(want.c) && want.c !== now.character) look.c = want.c;
     const colour = cleanColour(want.v);
     if (colour && colour !== now.colour) look.v = colour;
-    if (look.c || look.v) this.opts.send(look);
+    if (look.c || look.v) this.send(look);
   }
 
   open() {
@@ -141,15 +152,44 @@ export class LookMenu {
   }
 
   close() {
-    clearTimeout(this.waitTimer);
+    // What was asked and not yet answered is not waited on any more: a tap on the same choice
+    // later is sent again, not taken as already on its way.
+    this.forget();
     // A tap still held back is sent all the same: it was made.
     if (this.held) {
       clearTimeout(this.holdTimer);
-      const wait = Math.max(0, this.sentAt + LOOK_COOLDOWN_MS + 60 - performance.now());
+      const wait = Math.max(0, this.sentAt + LOOK_COOLDOWN_MS + HOLD_MARGIN_MS - performance.now());
       this.holdTimer = setTimeout(() => this.pick({}), wait);
     }
     this.sheet?.remove();
     this.sheet = null;
+  }
+
+  /**
+   * Stops waiting for the room's answer to the last choice: the sheet is closed, or the
+   * connection dropped and came back (an answer lost with it never comes).
+   */
+  forget() {
+    clearTimeout(this.waitTimer);
+    this.pending = null;
+    this.sheet?.classList.remove("waiting");
+  }
+
+  /** Sends a choice to the room: the one way a choice leaves this page. */
+  send(look) {
+    this.sentAt = performance.now();
+    this.asked = look;
+    this.pending = { ...this.pending, ...look, ...(look.v ? { v: cleanColour(look.v) } : {}) };
+    this.opts.send(look);
+    this.sheet?.classList.add("waiting");
+    clearTimeout(this.waitTimer);
+    this.waitTimer = setTimeout(() => this.refused("The room did not answer. Check the connection and try again."), WAIT_MS);
+  }
+
+  /** The room has the choice (it changed the piece, or the piece already was that): nothing is waited on. */
+  answered() {
+    this.retrying = false;
+    this.forget();
   }
 
   /** A tap on a character or a colour: asks the room, and remembers it for the next party on this device. */
@@ -161,30 +201,30 @@ export class LookMenu {
     if (why) return this.nudge(why);
     // The room makes a second change wait a moment; taps inside it are held back, put together (a
     // character and then a colour are one choice) and sent when the moment is over.
+    // A new tap is a new choice: it may be sent once more if it comes a little early (refused).
+    if (Object.keys(look).length) this.retrying = false;
     look = { ...this.held, ...look };
     this.held = null;
     clearTimeout(this.holdTimer);
     // Against what the piece is about to be: the room may not have answered the last choice yet.
     const soon = { c: now.character, v: now.colour, ...this.pending };
-    if ((look.c ?? soon.c) === soon.c && (cleanColour(look.v) ?? soon.v) === soon.v) return;
-    const wait = this.sentAt + LOOK_COOLDOWN_MS + 60 - performance.now();
+    if ((look.c ?? soon.c) === soon.c && (cleanColour(look.v) ?? soon.v) === soon.v) {
+      this.retrying = false;
+      return;
+    }
+    const wait = this.sentAt + LOOK_COOLDOWN_MS + HOLD_MARGIN_MS - performance.now();
     if (wait > 0) {
       this.held = look;
       this.sheet?.classList.add("waiting");
       this.holdTimer = setTimeout(() => this.pick({}), wait);
       return;
     }
-    this.sentAt = performance.now();
-    this.pending = { ...this.pending, ...look, ...(look.v ? { v: cleanColour(look.v) } : {}) };
-    this.opts.send(look);
+    this.send(look);
     try {
       localStorage.setItem(SAVED_KEY, JSON.stringify({ ...saved(), ...look }));
     } catch {
       // No storage here: the choice still holds for this party.
     }
-    this.sheet?.classList.add("waiting");
-    clearTimeout(this.waitTimer);
-    this.waitTimer = setTimeout(() => this.refused("The room did not answer. Check the connection and try again."), WAIT_MS);
   }
 
   /** A tap that cannot apply: the reason, made to stand out for a moment. */
@@ -197,12 +237,31 @@ export class LookMenu {
     this.why.classList.add("nudge");
   }
 
-  /** The room said no to this device's choice. */
-  refused(why) {
+  /**
+   * The room said no to this device's choice. A choice that only came a little early (`wait`, the
+   * room's cooldown still left: the two clocks and the network never agree to the millisecond) is
+   * sent once more when the moment is over, and the player sees nothing. Returns whether the page
+   * dealt with it (a retry, or the reason on the open sheet); if not, the caller says it as a note.
+   */
+  refused(why, wait = 0) {
     clearTimeout(this.waitTimer);
-    this.pending = null;
-    this.sheet?.classList.remove("waiting");
+    if (wait > 0 && this.asked && !this.retrying) {
+      this.retrying = true;
+      const again = this.asked;
+      clearTimeout(this.retryTimer);
+      this.retryTimer = setTimeout(() => {
+        // Whatever was tapped since is put together with it, as a held tap is.
+        this.held = { ...again, ...this.held };
+        this.pending = null;
+        this.sentAt = -Infinity;
+        this.pick({});
+      }, wait + HOLD_MARGIN_MS);
+      return true;
+    }
+    this.retrying = false;
+    this.forget();
     this.nudge(why);
+    return !!this.sheet;
   }
 
   /** Call whenever the room may have changed: cheap, and only touches the page when the piece does. */
@@ -214,20 +273,18 @@ export class LookMenu {
     // A game began while the sheet was open: it would lie over the game, so it goes.
     if (why && this.sheet) this.close();
     const key = `${now.character}/${now.colour}/${why ?? ""}/${this.isOpen}`;
-    if (key === this.key) return;
+    const same = key === this.key;
     const changed = !this.key.startsWith(`${now.character}/${now.colour}/`);
     this.key = key;
     if (changed) {
-      this.pending = null;
+      // The room answered: the choice is on.
+      this.answered();
       this.face.replaceChildren(characterPortrait(now.character, now.colour, 34));
       this.opts.onChange?.(now);
     }
-    if (!this.sheet) return;
-    if (changed) {
-      // The room answered: the choice is on.
-      clearTimeout(this.waitTimer);
-      this.sheet.classList.remove("waiting");
-    }
+    // The saved piece waits for a room view in which it can be asked for.
+    if (!this.restored) this.restore(room);
+    if (same || !this.sheet) return;
     this.why.textContent = why ?? "";
     this.why.hidden = !why;
     for (const card of this.cards) {
@@ -254,6 +311,7 @@ export class LookMenu {
   destroy() {
     this.held = null;
     clearTimeout(this.holdTimer);
+    clearTimeout(this.retryTimer);
     this.close();
     this.button.remove();
   }

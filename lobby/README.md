@@ -290,15 +290,18 @@ The corner of a phone holds a button with the player's own piece on it; it opens
 
 - The choice is the room's to keep (`shared/characters.js`, `LobbyCore.setLook`): each member carries `character` and `colour`, and the room view shows them to every page.
 - A page asks with `{t: "look", c: "ghost", v: "#8a5bc4"}`, either part or both.
-  The room answers with the room view, or with `{t: "look-no", why, c, v}` to that page only.
+  The room answers with the room view, with `{t: "look-ok", c, v}` to that page when the piece already is that, or with `{t: "look-no", why, c, v}` to that page only (and `wait`, the cooldown left, when it came too soon).
 - An unknown character or anything but a six-digit colour is refused and changes nothing.
   A colour too dark to see in a dark room is lifted toward white (`cleanColour`).
 - Two players may choose the same character in the same colour.
 - It cannot be changed while a game is on, nor twice within a second: each change is one room view to everybody and one write of the room to storage.
   A phone holds back a tap made inside that second and sends it when the second is over.
+  The room measures the second at arrival and allows `LOOK_SLACK_MS` (250 ms) for the network; a choice it still finds too soon is sent once more by the phone when the time left is over, so normal tapping never shows a cooldown message.
+  One that comes far too soon counts against the socket's rate limit, as an emote does.
 - It is kept through a dropped phone and through a sleep of the room, because it is on the member.
-  The last choice made on a device is kept on it, and asked for again in the next party.
+  The last choice made on a device is kept on it, and asked for again in the next party; a phone that comes in during a game asks for it when the lobby is back.
 - It is lobby state, not game state: a game is handed each seat's colour when it starts and may ignore the character.
+- The lobby and the Tonight board use the chosen colour; inside Cork & Bell a stall keeps its seat's colour for now, because the game paints its own seats.
 
 ### The interface
 
