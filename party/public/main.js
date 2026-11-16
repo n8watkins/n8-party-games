@@ -583,6 +583,7 @@ link.on("room", (next) => {
   if (picked && (room.starting || room.phase === "playing")) pickAnswered("");
   // The view on show belongs to a game that is over, or to another one (a reconnect across games).
   if (stage && (stageStale(stage.key, room) || !showsGame())) endStage();
+  stage?.room(room);
   update();
 });
 

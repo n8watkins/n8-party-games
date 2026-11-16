@@ -3,7 +3,8 @@
 //
 // A game's view is a module on this site (its entry's `view`) with the shape every game keeps
 // (party-kit/GAME-CONTRACT.md, "In the browser"): mount(container, ctx) returns {snapshot,
-// events, unmount}. The module is fetched when the game starts, so the stage stands in for the
+// events, unmount}, and may add room(next) to hear the room view as it changes (the names of
+// players who join during the game). The module is fetched when the game starts, so the stage stands in for the
 // view at once and hands on whatever the room says in the meantime.
 import { stageKey } from "/lobby/shared/stage.js";
 
@@ -61,6 +62,8 @@ export function mountStage(box, { link, room, snapshot, onError }) {
     key: stageKey(room.game),
     snapshot: (...args) => pass("snapshot", args),
     events: (...args) => pass("events", args),
+    // The room view as it changes (someone joined: their name), for a view that asks for it with room(next).
+    room: (...args) => pass("room", args),
     unmount() {
       mine.gone = true;
       mine.view?.unmount?.();

@@ -112,17 +112,18 @@ describe("the Table's list", () => {
     const r = await table({ players: 2 });
     const list = r.core().view(Date.now()).table;
     expect(list.map((e) => [e.id, e.min, e.max, e.soon, e.test, e.why])).toEqual([
+      ["paper-masks", 3, 8, false, false, "Needs 3 or more"],
       [GAME, 2, 8, false, true, null],
-      ["paper-masks", 3, 8, true, false, "Coming soon"],
       ["who-am-i", 2, 2, true, false, "Coming soon"],
     ]);
-    expect(list[0]).toMatchObject({ name: "Count to ten", view: "/party/games/count-to-ten.js", art: null });
+    expect(list[0]).toMatchObject({ name: "Paper Masks", view: "/party/games/paper-masks.js", art: "/party/games/paper-masks/art/door-480.webp" });
+    expect(list[1]).toMatchObject({ name: "Count to ten", view: "/party/games/count-to-ten.js", art: null });
     for (const e of list) expect(e.pitch.length, e.id).toBeGreaterThan(10);
 
     // Bo's phone drops: one player here, so the test game needs two.
     r.ctx.room.webSocketClose(r.ws.bo, 1001, "");
     await settle();
-    expect(r.core().view(Date.now()).table[0].why).toBe("Needs 2 or more");
+    expect(r.core().view(Date.now()).table[1].why).toBe("Needs 2 or more");
 
     // Back on the Floor there is no list, and no word of a game starting.
     r.ws.bo = await r.connect(r.tokens.bo);
@@ -161,7 +162,7 @@ describe("who may start a Table game", () => {
     expect(since(r.ws.screen)).toEqual([{ t: "play-no", error: "not_host", message: "Only the one who started the party picks the game." }]);
     expect(since(r.ws.ann)).toEqual([
       { t: "play-no", error: "not_found", message: "That game is not on the Table's list." },
-      { t: "play-no", error: "not_ready", message: "Paper Masks: Coming soon." },
+      { t: "play-no", error: "party_size", message: "Paper Masks: Needs 3 or more." },
       { t: "play-no", error: "not_ready", message: "Who Am I?: Coming soon." },
       { t: "play-no", error: "not_found", message: "That game is not on the Table's list." },
     ]);
