@@ -2,11 +2,14 @@
 // made where it was open).
 //
 // Everything here is a pure function of plain JSON: no browser or platform APIs, no clock, no
-// hidden randomness. Randomness comes from a mulberry32 generator whose position is kept in the
-// state (`state.rng`), started from the seed given to `create`. That seed and the state are server
-// only: a page gets `view(state, seat)` and nothing else.
+// hidden randomness. Every draw (the masks, the deck, the ghost's answer, the order of the cards)
+// comes from the match's secret (`state.secret`, at least 128 bits the Table's adapter takes from
+// the platform's secure source) through party/games/draws.js, at a position kept in the state
+// (`state.draws`); card ids are keyed hashes of the same secret under a label of their own. The
+// room's `seed` is not used: it is 32 bits, and what one phone sees of a deal is enough to find it
+// by trying them all. The state is server only: a page gets `view(state, seat)` and nothing else.
 //
-//   create(seats, options, seed, now)  -> state | refusal
+//   create(seats, options, seed, now, { secret })  -> state | refusal
 //   apply(state, seat, move, now)      -> new state | refusal     (never changes `state`)
 //   view(state, seat)                  -> what that seat may see
 //   nextDeadline(state)                -> when the host must send { t: "tick" }, or null
@@ -16,6 +19,9 @@
 
 import { QUESTION_BY_ID, QUESTIONS, PACKS } from "./questions.js";
 import { ANSWER_MAX, matchKey, tidyAnswer } from "./text.js";
+import { drawsFor, freshSecret, isSecret, keyedHex } from "../draws.js";
+
+const draw = drawsFor("paper-masks");
 
 export const GAME_ID = "paper-masks";
 export const MIN_PLAYERS = 3;
@@ -55,6 +61,7 @@ const MESSAGES = {
   bad_pack: "That pack does not exist.",
   bad_option: "That option is not one the game knows.",
   bad_host: "The host must be one of the seats.",
+  bad_secret: "The match needs a secret of at least 128 bits.",
   bad_move: "That move is not one the game knows.",
   over: "The match is over.",
   not_now: "That cannot be done at this point of the round.",
@@ -87,9 +94,9 @@ export function isRefusal(x) {
 }
 
 // ---------------------------------------------------------------------------------------------
-// Seeded randomness, kept in the state
+// Randomness from the match's secret, its position kept in the state
 
-/** Mixes any seed into a 32-bit number (FNV-1a with a final mix, as the kit's rng.js). */
+/** Mixes a public value into a 32-bit number (FNV-1a with a final mix, as the kit's rng.js). Not for secrets. */
 export function hashSeed(value) {
   const text = String(value);
   let h = 2166136261 >>> 0;
@@ -103,12 +110,11 @@ export function hashSeed(value) {
   return h >>> 0;
 }
 
+/** The next draw from the match's secret (party/games/draws.js), in [0, 1). */
 function rand(state) {
-  const a = (state.rng + 0x6d2b79f5) | 0;
-  state.rng = a;
-  let t = Math.imul(a ^ (a >>> 15), 1 | a);
-  t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-  return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  const n = state.draws;
+  state.draws += 1;
+  return draw(state.secret, n);
 }
 
 function shuffle(state, list) {
@@ -120,16 +126,13 @@ function shuffle(state, list) {
 }
 
 /**
- * A card's id: a hash of the match's id key (two 32-bit values derived from the seed, separately
- * from the generator), the round and the card's position. It never touches `state.rng`, so the
- * ids say nothing about the generator's later draws (the ghost choice, later shuffles), and they
- * do not depend on who wrote a card or when.
+ * A card's id: 64 bits of SHA-256 keyed by the match's secret, under a label of its own with the
+ * round and the card's position. It never uses the draws, so the ids say nothing about them (the
+ * ghost choice, later shuffles), and they do not depend on who wrote a card or when.
  */
 function cardId(state, round, index, taken) {
-  const [a, b] = state.idKey;
   for (let salt = 0; ; salt++) {
-    const base = `${a}:${b}:${round}:${index}:${salt}`;
-    const id = hashSeed(`${base}:hi`).toString(36).padStart(7, "0") + hashSeed(`${base}:lo`).toString(36).padStart(7, "0");
+    const id = keyedHex(`paper-masks/card-id/${round}/${index}/${salt}`, state.secret);
     if (!taken.has(id)) return id;
   }
 }
@@ -156,13 +159,16 @@ export function cleanOptions(options = {}) {
 // Create
 
 /**
- * Starts a match. `seats` are the players' seat numbers (3 to 8, different, whole numbers);
- * `seed` must be secret (a fresh secure seed, never the room's round seed, which pages may know);
- * `now` is the room's clock in milliseconds. Round 1 starts at once, read by the host.
+ * Starts a match. `seats` are the players' seat numbers (3 to 8, different, whole numbers); `now`
+ * is the room's clock in milliseconds. `secret` is the match's own (at least 128 bits, as hex):
+ * every draw comes from it, so it is kept in the state, which only the server holds, and nothing
+ * made from it but the card ids reaches a view. The room's `seed` is not used (a page may work it
+ * out). Round 1 starts at once, read by the host.
  */
-export function create(seats, options = {}, seed = 0, now = 0) {
+export function create(seats, options = {}, seed = 0, now = 0, { secret = freshSecret() } = {}) {
   if (!Array.isArray(seats) || seats.length < MIN_PLAYERS || seats.length > MAX_PLAYERS) return refuse("bad_seats");
   if (!seats.every((s) => Number.isInteger(s) && s >= 0) || new Set(seats).size !== seats.length) return refuse("bad_seats");
+  if (!isSecret(secret)) return refuse("bad_secret");
   const opts = cleanOptions(options);
   if (isRefusal(opts)) return opts;
   const order = [...seats].sort((a, b) => a - b);
@@ -171,9 +177,9 @@ export function create(seats, options = {}, seed = 0, now = 0) {
 
   const state = {
     game: GAME_ID,
-    v: 1,
-    rng: hashSeed(seed) || 1,
-    idKey: [hashSeed(`paper-masks/card-ids/a/${seed}`), hashSeed(`paper-masks/card-ids/b/${seed}`)],
+    v: 2,
+    secret,
+    draws: 0,
     now,
     options: opts,
     host,
@@ -389,6 +395,27 @@ function availableFor(state, seat, card) {
   if (state.round.skippedAny) return chips;
   const used = usedBy(state, seat, card.id);
   return chips.filter((c) => !used.includes(c));
+}
+
+/**
+ * What the author of the card being guessed sees of the names: exactly what a guesser in their
+ * seat would see, so from the side their phone looks like anyone's. The same chips (every author
+ * and the game but themselves); their own names already used greyed as anyone's are; and once
+ * their decoy tap is in, one name shown as tapped. Their page remembers which chip it tapped while
+ * it is open; this is the one shown after a reload: picked by the card's id, from the names still
+ * free. On the last card, where every guesser has one name left and it is filled in, the author
+ * (whose names are all used by then) has one left and filled in too.
+ */
+function authorChips(state, seat, card) {
+  const r = state.round;
+  const chips = chipsFor(state, seat);
+  let available = availableFor(state, seat, card);
+  const visible = visibleCards(r);
+  const last = !r.skippedAny && card === visible[visible.length - 1];
+  const pick = (list) => (list.length ? list[hashSeed(`paper-masks/decoy/${card.id}`) % list.length] : null);
+  if (last && available.length === 0) available = [pick(chips)].filter((x) => x !== null);
+  const tapped = !!r.decoys[card.id];
+  return { chips, available, guess: tapped ? pick(available) : null, auto: tapped && last && available.length === 1 };
 }
 
 /**
@@ -789,7 +816,8 @@ export function nextDeadline(state) {
  * late joiner watching, a player who left, a big screen, an unknown seat) gets what a seated
  * player who wrote nothing gets, without a "yours" marker; a watcher also gets its own guesses.
  * Never: another seat's answer before writing closes, a card's author before its reveal, a
- * skipped card's author or text, another seat's guesses before the reveal, or the seed.
+ * skipped card's author or text, another seat's guesses before the reveal, the secret or any draw
+ * from it (the card ids, keyed hashes of it, are the only values made from it that a page gets).
  */
 export function view(state, seat) {
   const r = state.round;
@@ -848,20 +876,25 @@ export function view(state, seat) {
     const card = currentCard(state);
     const cards = visibleCards(r);
     const index = cards.indexOf(card);
+    const isAuthor = writer && card.author === seat;
     const mayGuess = role !== "screen" && card.author !== seat && canGuess(state, seat);
     const due = tappersOf(state).length;
     const tapped = tapsIn(state, card);
+    // The author gets the very same fields a guesser gets (authorChips), so their page draws the
+    // same screen; `yours` is what tells the page to send the decoy tap instead of a guess.
+    const names = isAuthor
+      ? authorChips(state, seat, card)
+      : mayGuess
+        ? { chips: chipsFor(state, seat), available: availableFor(state, seat, card), guess: viewerGuesses[card.id] ?? null, auto: !!r.auto[key(seat)]?.[card.id] }
+        : { chips: [], available: [], guess: null, auto: false };
     out.step = {
       card: cardText(card),
       index,
       of: cards.length,
-      yours: writer && card.author === seat,
+      yours: isAuthor,
       yourCard: yoursCard ? cardText(yoursCard) : null,
       yourSkipped: writer && r.authors.includes(seat) && !yoursCard,
-      chips: mayGuess ? chipsFor(state, seat) : [],
-      available: mayGuess ? availableFor(state, seat, card) : [],
-      guess: mayGuess ? (viewerGuesses[card.id] ?? null) : null,
-      auto: mayGuess ? !!r.auto[key(seat)]?.[card.id] : false,
+      ...names,
       eachNameOnce: !r.skippedAny,
       // your own tap is in (your guess, or your decoy on your own card)
       tapped: writer ? hasTapped(state, card, seat) : role === "watcher" ? card.id in viewerGuesses : false,

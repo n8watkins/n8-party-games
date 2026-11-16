@@ -1,9 +1,18 @@
 // A test table: drives Paper Masks the way the phones and the room would, using only each seat's
 // view to decide what to tap. Not a test file itself (no ".test.js").
 import { apply, create, isRefusal, SYSTEM, view } from "../rules.js";
+import { sha256 } from "../../draws.js";
 
 export const T0 = 1_000_000;
 const LETTERS = "abcdefghijklmnop";
+
+/** A match secret made from a test's seed, so a test repeats (the room's adapter draws a real one). */
+export function testSecret(seed) {
+  return Array.from(sha256(new TextEncoder().encode(`paper-masks test secret ${seed}`)), (b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+/** rules.create with the test's secret for `seed` (the room's seed itself is not used by the rules). */
+export const createFor = (seats, options = {}, seed = 1, now = 0) => create(seats, options, seed, now, { secret: testSecret(seed) });
 
 export function must(x) {
   if (isRefusal(x)) throw new Error(`refused: ${x.refused} (${x.message})`);
@@ -14,9 +23,10 @@ export function must(x) {
 export const answerFor = (seat, round) => `Answer ${LETTERS[seat]}${round} plum`;
 
 export class Table {
+  /** `seed` picks the test's secret (testSecret). */
   constructor(seats, options = {}, seed = 1) {
     this.now = T0;
-    this.state = must(create(seats, options, seed, T0));
+    this.state = must(createFor(seats, options, seed, T0));
     this.history = [this.state];
   }
 
@@ -70,8 +80,8 @@ export class Table {
   guessAll(pick = () => undefined, only = null) {
     for (const seat of only ?? this.guessers()) {
       const v = this.view(seat);
-      if (v.step.yours && !v.step.tapped) {
-        this.do(seat, { t: "decoy", card: v.step.card.id });
+      if (v.step.yours) {
+        if (!v.step.tapped) this.do(seat, { t: "decoy", card: v.step.card.id });
         continue;
       }
       if (!v.step.chips.length || v.step.guess !== null) continue;

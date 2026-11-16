@@ -29,7 +29,7 @@ function playToCurtain(state, now = T0) {
     else if (phase === "guessing") {
       for (const seat of live) {
         const mine = v(seat).step;
-        if (mine.yours && !mine.tapped) act(seat, { t: "decoy", card: mine.card.id });
+        if (mine.yours) !mine.tapped && act(seat, { t: "decoy", card: mine.card.id });
         else if (mine.chips.length && mine.guess === null) act(seat, { t: "guess", card: mine.card.id, who: mine.available[0] });
       }
       act(s.match.round.reader, { t: "next" });
@@ -91,8 +91,45 @@ describe("the waiting step", () => {
     for (const seat of [0, 1, 2, 3, -1, 9]) {
       const json = JSON.stringify(view(s, seat));
       expect(json).not.toContain("12345");
-      expect(json).not.toMatch(/"(seed|rng|idKey|deck|ghostPool)"/);
+      expect(json).not.toContain(s.match.secret);
+      expect(json).not.toMatch(/"(seed|secret|draws|rng|idKey|deck|ghostPool)"/);
     }
+  });
+
+  it("keeps the match's secret (never the room's seed) until the match begins, and hands it to the rules", () => {
+    const secret = "5e".repeat(32);
+    const s = must(create([0, 1, 2], { host: 0 }, 12345, T0, { secret }));
+    expect(s).not.toHaveProperty("seed");
+    expect(s.secret).toBe(secret);
+    for (const seat of [0, 1, 2, -1]) expect(JSON.stringify(view(s, seat))).not.toContain(secret);
+    const on = must(apply(s, 0, { t: "begin" }, T0 + 1));
+    expect(on).not.toHaveProperty("secret");
+    expect(on.match.secret).toBe(secret);
+  });
+
+  it("restores from storage in the waiting step and goes on as if nothing happened", () => {
+    let s = must(create([0, 1, 2, 3], { host: 1 }, 5, T0, { secret: "ab".repeat(32) }));
+    s = must(apply(s, 1, { t: "choose", rounds: 3, pack: "the-group" }, T0 + 1));
+    const restored = JSON.parse(JSON.stringify(s));
+    expect(restored).toEqual(s);
+    const a = must(apply(s, 1, { t: "begin" }, T0 + 2));
+    const b = must(apply(restored, 1, { t: "begin" }, T0 + 2));
+    expect(b).toEqual(a);
+    expect(b.match.options).toMatchObject({ rounds: 3, pack: "the-group" });
+  });
+
+  it("a restore mid-match continues the same deal", () => {
+    let s = must(create([0, 1, 2, 3, 4], { host: 0, rounds: 5 }, 5, T0, { secret: "cd".repeat(32) }));
+    s = must(apply(s, 0, { t: "begin" }, T0));
+    const straight = playToCurtain(s);
+    // the same match, saved and restored after its first move (as the room saves every change)
+    let half = must(apply(s, 0, { t: "answer", text: "Answer from 0 in round 1" }, T0 + 10));
+    half = JSON.parse(JSON.stringify(half));
+    const after = playToCurtain(half, T0 + 10);
+    expect(after.match.deck).toEqual(straight.match.deck);
+    expect(after.match.players.map((p) => p.mask)).toEqual(straight.match.players.map((p) => p.mask));
+    expect(after.match.draws).toBe(straight.match.draws);
+    expect(result(after)).toEqual(result(straight));
   });
 
   it("begins by itself at its deadline, with the choices as they stand", () => {
@@ -176,6 +213,59 @@ describe("the curtain", () => {
     s = must(apply(s, SYSTEM, { t: "leave", seat: 1 }, T0 + 5));
     expect(s.at).toBe("curtain");
     expect(view(s, 0).result).toMatchObject({ early: true });
+  });
+
+  it("the host's controls at the curtain go only to a player of the match who is still here", () => {
+    let s = must(create([0, 1, 2, 3], { host: 0, rounds: 3 }, 77, T0));
+    s = playToCurtain(must(apply(s, 0, { t: "begin" }, T0)));
+    expect(s.host).toBe(0);
+    // the big screen (-1), a seat that never played, a non-number: refused; the host stays
+    for (const seat of [-1, 9, null, "0"]) expect(apply(s, SYSTEM, { t: "host", seat }, s.now), String(seat)).toMatchObject({ refused: "bad_host" });
+    s = must(apply(s, SYSTEM, { t: "host", seat: 2 }, s.now));
+    expect(s.host).toBe(2);
+    // the host leaves: the controls pass on, so someone can always tap Back to the Table
+    s = must(apply(s, SYSTEM, { t: "leave", seat: 2 }, s.now));
+    expect(s.host).toBe(0);
+    expect(view(s, 0).you.host).toBe(true);
+    expect(apply(s, SYSTEM, { t: "host", seat: 2 }, s.now)).toMatchObject({ refused: "bad_host" });
+    const shut = must(apply(s, 0, { t: "close" }, s.now + 1));
+    expect(done(shut)).toBe(true);
+    expect(standings(shut)).toHaveLength(4); // a seat that went after the match was decided keeps its place
+  });
+
+  it("when the host's leaving ends the match early, the curtain's controls go to one who stayed", () => {
+    let s = must(create([0, 1, 2], { host: 1 }, 8, T0));
+    s = must(apply(s, 1, { t: "begin" }, T0));
+    s = must(apply(s, SYSTEM, { t: "leave", seat: 1 }, T0 + 5));
+    expect(s.at).toBe("curtain");
+    expect(s.host).toBe(0);
+    expect(view(s, 0).you.host).toBe(true);
+    expect(must(apply(s, 0, { t: "close" }, T0 + 6)).at).toBe("closed");
+  });
+
+  it("restores from storage at the curtain, with its deadline and its host", () => {
+    let s = must(create([0, 1, 2], { host: 0, rounds: 3 }, 8, T0));
+    s = playToCurtain(must(apply(s, 0, { t: "begin" }, T0)));
+    s = must(apply(s, SYSTEM, { t: "host", seat: 2 }, s.now));
+    const back = JSON.parse(JSON.stringify(s));
+    expect(back).toEqual(s);
+    expect(nextDeadline(back)).toBe(s.until);
+    expect(view(back, 2)).toEqual(view(s, 2));
+    expect(apply(back, 0, { t: "close" }, s.now)).toMatchObject({ refused: "not_host" });
+    expect(done(must(apply(back, SYSTEM, { t: "tick" }, s.until)))).toBe(true);
+  });
+
+  it("says the match is decided while the curtain is up, and only then", () => {
+    let s = must(create([0, 1, 2], { host: 0, rounds: 3 }, 8, T0));
+    expect(atTable.decided(s)).toBe(false);
+    s = must(apply(s, 0, { t: "begin" }, T0));
+    expect(atTable.decided(s)).toBe(false);
+    s = playToCurtain(s);
+    expect(atTable.decided(s)).toBe(true);
+    expect(standings(s)).toHaveLength(3);
+    expect(atTable.decided(must(apply(s, 0, { t: "close" }, s.now)))).toBe(false);
+    const game = tableGame(atTable);
+    expect(game.decided(s)).toBe(true);
   });
 });
 

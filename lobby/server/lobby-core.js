@@ -1702,11 +1702,31 @@ export class LobbyCore {
     return out;
   }
 
-  turnOut(game, events, now) {
+  /**
+   * What a turn-based game's change gives the room. `gone` ({seat, why}) is set when the change
+   * was a seat leaving: a game that ended because of it and places nobody (Paper Masks' waiting
+   * step, left with fewer than three) ends as an abandoned one does, the note and the card saying
+   * who left, so the card is never silent about why.
+   */
+  turnOut(game, events, now, gone = null) {
     const a = this.activity;
     const out = { events, snapshot: (viewer) => game.snapshot(a.state, now, viewer), viewerOf: (who) => this.viewerOf(who, a), ended: null };
-    if (game.isOver(a.state)) out.ended = this.finishGame(now);
+    if (!game.isOver(a.state)) return out;
+    const places = gone && game.standings ? game.standings(a.state) : null;
+    if (gone && Array.isArray(places) && !places.some((p) => p?.place >= 1)) {
+      out.ended = this.finishGame(now, { standings: [], result: game.result ? game.result(a.state) : null, early: this.endedByGoing(gone.seat, gone.why) });
+    } else out.ended = this.finishGame(now);
     return out;
+  }
+
+  /** A seat gone for good ended the game being played: everyone's note, and the card's `early`. */
+  endedByGoing(seat, why) {
+    const a = this.activity;
+    const name = this.members[seat]?.name ?? a.names?.[seat] ?? "A player";
+    const gameName = this.nameOf(a.id);
+    const text = why === "left" ? `${name} left the party, so ${gameName} ended.` : `${name} did not come back, so ${gameName} ended.`;
+    this.notes.push({ k: "ended", why, seat, name, colour: seatColour(seat), text });
+    return { seat, name, why, text };
   }
 
   /**
@@ -1743,7 +1763,7 @@ export class LobbyCore {
       delete a.told[seat];
       changed = true;
       events.push(...out.events);
-      if (game.isOver(a.state)) return { ok: true, ...this.turnOut(game, events, now) };
+      if (game.isOver(a.state)) return { ok: true, ...this.turnOut(game, events, now, { seat, why }) };
     }
     // Someone in the party who is not in the game (they joined it late, or were not here when it
     // began): a game with a `join` hook is told (a Table game's `{t: "join", seat}`), and from then
@@ -1879,6 +1899,10 @@ export class LobbyCore {
    * everyone is back at the Table, and the card says who ended it. The same rule as every other
    * host tap says who may: the host, or whoever holds the controls while the host is away.
    * Returns what stopGame returns, or {ok: false, error, message}.
+   *
+   * A game that says its match is already decided (`game.decided(state)`, optional: a final
+   * screen still up, as Paper Masks' curtain) is not thrown away: it ends as a finished match, its
+   * places scored as when it ends by itself, once, with no "ended" note and no `last.early`.
    */
   endByHost(token, now) {
     const game = this.turnGame();
@@ -1887,6 +1911,14 @@ export class LobbyCore {
     const who = this.identify(token);
     const by = who.role === "screen" ? { seat: -1, name: "The room's screen" } : { seat: who.seat, name: this.members[who.seat].name };
     this.lastActive = now;
+    const a = this.activity;
+    let decided = false;
+    try {
+      decided = typeof game.decided === "function" && game.decided(a.state) === true;
+    } catch (err) {
+      console.error(`party room: ${a.id} could not say whether its match is decided`, err);
+    }
+    if (decided) return { ok: true, events: [], snapshot: (viewer) => game.snapshot(a.state, now, viewer), viewerOf: (socket) => this.viewerOf(socket, a), ended: this.finishGame(now) };
     return this.stopGame(game, "host", now, by);
   }
 
@@ -1912,14 +1944,7 @@ export class LobbyCore {
     }
     const out = { ok: true, events: outcome.events, snapshot: (viewer) => game.snapshot(a.state, now, viewer), viewerOf: (who) => this.viewerOf(who, a), ended: null };
     const decided = outcome.standings.some((p) => p?.seat === seat && p.place >= 1);
-    let early = null;
-    if (!decided) {
-      const name = this.members[seat]?.name ?? a.names?.[seat] ?? "A player";
-      const gameName = this.nameOf(a.id);
-      const text = why === "left" ? `${name} left the party, so ${gameName} ended.` : `${name} did not come back, so ${gameName} ended.`;
-      this.notes.push({ k: "ended", why, seat, name, colour: seatColour(seat), text });
-      early = { seat, name, why, text };
-    }
+    const early = decided ? null : this.endedByGoing(seat, why);
     out.ended = this.finishGame(now, { standings: outcome.standings, result: outcome.result, early });
     return out;
   }

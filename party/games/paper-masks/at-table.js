@@ -17,10 +17,15 @@
 // the choices as they stand, SETUP_MS after it opened, and the curtain closes CURTAIN_MS after it
 // rose. Pages show the time left.
 //
-// The seed is kept only until the match is created (rules.create keeps what it needs) and is
-// never in a view. Nothing here is ever sent to a page except view().
+// The match's secret (the adapter's fifth argument to `create`) is kept in the waiting step until
+// the match is created and handed to rules.create, which keeps it; the room's seed is not kept at
+// all. Neither is ever in a view. Nothing here is ever sent to a page except view().
+//
+// `decided(state)` is true while the curtain is up: the match is over and its standings are final,
+// so the room scores it (once) even when the host ends the game from the Table's own controls.
 import * as rules from "./rules.js";
 import { PACKS } from "./questions.js";
+import { freshSecret, isSecret } from "../draws.js";
 
 export const { GAME_ID, MIN_PLAYERS, MAX_PLAYERS, SYSTEM, ROUND_CHOICES, DEFAULT_ROUNDS, PACK_CHOICES, isRefusal } = rules;
 
@@ -37,33 +42,40 @@ const DEFAULT_OPTIONS = Object.freeze({ rounds: DEFAULT_ROUNDS, pack: "mixed", f
 
 /**
  * The waiting step for these seats. `options.host` is the host's seat (the room's picker); the
- * other options are the host's choices to start from (the defaults when left out).
+ * other options are the host's choices to start from (the defaults when left out). `secret` is the
+ * match's (at least 128 bits, as hex; the Table's adapter passes 256 from the secure source).
  */
-export function create(seats, options = {}, seed = 0, now = 0) {
-  if (!Array.isArray(seats) || seats.length < MIN_PLAYERS || seats.length > MAX_PLAYERS) return rules.create(seats, options, seed, now);
-  if (!seats.every((s) => Number.isInteger(s) && s >= 0) || new Set(seats).size !== seats.length) return rules.create(seats, options, seed, now);
+export function create(seats, options = {}, seed = 0, now = 0, { secret = freshSecret() } = {}) {
+  if (!Array.isArray(seats) || seats.length < MIN_PLAYERS || seats.length > MAX_PLAYERS) return rules.create(seats, options, seed, now, { secret });
+  if (!seats.every((s) => Number.isInteger(s) && s >= 0) || new Set(seats).size !== seats.length) return rules.create(seats, options, seed, now, { secret });
+  if (!isSecret(secret)) return refuse("bad_secret", "The match needs a secret of at least 128 bits.");
   const { host: wanted, ...picked } = options ?? {};
   const clean = rules.cleanOptions({ ...DEFAULT_OPTIONS, ...picked });
   if (isRefusal(clean)) return clean;
   const order = [...seats].sort((a, b) => a - b);
   const host = wanted ?? order[0];
   if (!order.includes(host)) return refuse("bad_host", "The host must be one of the seats.");
-  return { game: GAME_ID, at: "setup", seats: order, host, seed, now, options: clean, until: now + SETUP_MS, match: null, early: false };
+  return { game: GAME_ID, at: "setup", seats: order, host, secret, now, options: clean, until: now + SETUP_MS, match: null, early: false };
 }
 
 function begin(state, now) {
-  const match = rules.create(state.seats, { ...state.options, host: state.host }, state.seed, now);
+  const match = rules.create(state.seats, { ...state.options, host: state.host }, 0, now, { secret: state.secret });
   if (isRefusal(match)) return match;
   state.at = "match";
   state.match = match;
   state.until = null;
-  delete state.seed; // the match keeps its own generator; the seed is not needed again
+  delete state.secret; // the match keeps it (rules.js); one copy is enough
   return null;
 }
 
+/** Seats that may hold the host's controls at the curtain: the match's players still here. */
+const stayers = (state) => state.match.players.filter((p) => !p.left && !(state.gone ?? []).includes(p.seat)).map((p) => p.seat);
+
 function raiseCurtain(state, now) {
   state.at = "curtain";
-  state.host = state.match.host;
+  state.gone = [];
+  // The match's host, unless the match ended because the host left (the rules end it first).
+  state.host = stayers(state).includes(state.match.host) ? state.match.host : (stayers(state)[0] ?? null);
   state.until = now + CURTAIN_MS;
 }
 
@@ -146,10 +158,18 @@ function curtainMove(state, seat, move, now) {
       }
       return state;
     }
-    // Nobody new sits down after the last round, and a seat that goes changes nothing now.
+    // Nobody new sits down after the last round, and a seat that goes changes no score now; when
+    // it held the host's controls they pass on, so someone can always tap Back to the Table.
     if (t === "join") return refuse("over", "The match is over.");
-    if (t === "leave") return state;
+    if (t === "leave") {
+      if (!Number.isInteger(move.seat)) return refuse("bad_move", "That move is not one the game knows.");
+      if (!(state.gone ?? []).includes(move.seat)) state.gone = [...(state.gone ?? []), move.seat];
+      if (state.host === move.seat) state.host = stayers(state)[0] ?? null;
+      return state;
+    }
     if (t === "host") {
+      // Only a player of the match who is still here may hold them (never the big screen, -1).
+      if (!stayers(state).includes(move.seat)) return refuse("bad_host", "The host must be one of the seats.");
       state.host = move.seat;
       return state;
     }
@@ -169,6 +189,9 @@ export function nextDeadline(state) {
 }
 
 export const done = (state) => state.at === "closed";
+
+/** True while the curtain is up: the match is over and `standings` are its final word. */
+export const decided = (state) => state.at === "curtain";
 
 const EMPTY_RESULT = Object.freeze({ early: true, roundsPlayed: 0, rows: [], winners: [], awards: { bestMask: { seats: [], count: 0 }, mindReader: { seats: [], count: 0 } }, watchers: [] });
 
