@@ -385,7 +385,10 @@ A Table game keeps the same contract as any turn-based game ("Turn-based games",
   `create` gets `seed`, a fresh seed per match from the platform's secure source; the room's own seed, which pages may learn, is never used.
   `party/games/table-game.js` (`tableGame(rules)`) turns the module into the kit's turn-based `game`: the room's `join`, `leave` and `host` hooks (`lobby/server/lobby-core.js`, `turnUpkeep`) are those three moves, and a refusal is the answer to the input.
   A seat taken in by `join` is the game's from then on (it may send moves, and gets `view` for its seat); a seat gone by `leave` is kept out of the party until the match ends, so nobody new sits in it.
-- **Where it lives.** The rules in `party/games/<id>/` (server only), the view in `party/public/games/` (served at `/party/games/`), wired in `lobby/wall.js` as Count to ten is; a game from its own package goes in `TURN_GAMES` (`games.js`) exporting `game` and `manifest`.
+- **Where it lives.** The rules in `party/games/<id>/` (server only), with an `index.js` that exports `game` and `manifest`, and the view in `party/public/games/` (served at `/party/games/`).
+  It goes in `TURN_GAMES` (`games.js`); its manifest has `path: "/party/"`, `table: { view: "games/<id>.js" }` and `public: []`, since its view is already one of the party's pages, so the build looks up no package for it.
+  A game from its own package goes in `TURN_GAMES` the same way, and lists its public files.
+  Count to ten has the same shape and is added by `lobby/wall.js` only where `PARTY_TEST_GAMES` is on.
   Nothing in `party/games`, `lobby/server`, `worker.js` or `games.js` can reach the site: `scripts/build-public.mjs` refuses to copy them (`SERVER_ONLY`), and `lobby/test/public-files.test.js` fails if a served file imports them, so server-only data such as Paper Masks' `questions.js` stays on the server.
 - **What it is to the wall.** The game must be turn-based (`tickHz: 0`) and must not have `settings` yet: the Table has no settings step, so a rules module's `options` are its defaults (and `host`).
   The manifest adds `table: { view }`, the module under `manifest.path` whose `mount` shows the game at the Table ("In the browser"), and may add `pitch` (one line about the game) and `art` (the address of its door picture).
@@ -396,7 +399,7 @@ A Table game keeps the same contract as any turn-based game ("Turn-based games",
   Seats 4 to 7 take the picker's next four colours (`seatColour`).
 - **The list.** The room view carries `table`: every entry (`id`, `name`, `pitch`, `min`, `max`, `art`, `soon`, `test`, `view`) with `why`, the reason the party cannot play it now in a few words ("Needs 3 or more", "For exactly 2", "Coming soon"), or null.
   The party's size is its connected players (`lobby/shared/table.js`, `tableWhyNot`).
-  An entry marked `test` is listed only on a page whose address ends in `#dev`.
+  An entry marked `test` is on the list only where `PARTY_TEST_GAMES` is on (never in production, where a `play` for it is refused as not on the list), and is shown only on a page whose address ends in `#dev`.
 - **The pick.** The host (or whoever holds the controls while the host is away, the same rule as every host tap) sends `{ t: "play", id }`.
   It is refused to that page alone with `play-no { error, message }` unless the party is at the Table, nothing else is going on (no game, no settings step, no other start, no switch being saved, the room not closing), the game can start and the party's size is in range.
   A yes is a beat of `PLAY_BEAT_MS` (three seconds) that everyone sees in the room view as `starting: { id, name, by, in }`; nothing may switch rooms or start another game meanwhile.

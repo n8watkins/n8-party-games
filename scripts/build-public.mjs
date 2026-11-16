@@ -20,11 +20,27 @@ export const OUT = join(ROOT, "dist", "public");
 
 const require = createRequire(import.meta.url);
 
-/** One game's public files: from its package's folder to its path on the site. */
-function gameEntries({ manifest }) {
-  const from = dirname(require.resolve(`${manifest.id}/package.json`));
+/**
+ * One game's public files: from its package's folder to its path on the site.
+ *
+ * A Table game may live in this repository instead of a package of its own (party/games/<id>,
+ * as Count to ten does and Paper Masks will): its rules are server-only and its view is one of
+ * the party's own pages (party/public/games), already served with them, so it lists no public
+ * files and has no package to look up. One that lists public files must be a package: they are
+ * copied from the package's folder, never from party/games.
+ */
+export function gameEntries({ manifest }) {
+  const files = manifest.public ?? [];
+  if (!files.length) return [];
+  let pkg;
+  try {
+    pkg = require.resolve(`${manifest.id}/package.json`);
+  } catch {
+    throw new Error(`build-public: ${manifest.id} lists public files but is not a package (add it to devDependencies, or keep its view in party/public/games and list none)`);
+  }
+  const from = dirname(pkg);
   const under = manifest.path.replace(/^\/|\/$/g, "");
-  return manifest.public.map((file) => ({ from: join(from, file.from), to: `${under}/${file.to}` }));
+  return files.map((file) => ({ from: join(from, file.from), to: `${under}/${file.to}` }));
 }
 
 /**

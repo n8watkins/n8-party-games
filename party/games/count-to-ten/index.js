@@ -18,8 +18,8 @@ export const manifest = {
   path: "/party/",
   players: { min: rules.MIN_PLAYERS, max: rules.MAX_PLAYERS },
   devices: { phone: true, desktop: true, upright: true },
+  // In this repository, not a package: its view is one of the party's own pages
+  // (party/public/games/count-to-ten.js), so it lists no public files.
   public: [],
+  table: { view: "games/count-to-ten.js" },
 };
-
-/** Where its view is on this site (party/public/games/count-to-ten.js). */
-export const VIEW = "/party/games/count-to-ten.js";

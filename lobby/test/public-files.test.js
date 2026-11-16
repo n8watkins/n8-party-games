@@ -5,7 +5,10 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import { describe, expect, it } from "vitest";
-import { SERVED, SERVER_ONLY, SOURCES } from "../../scripts/build-public.mjs";
+import { SERVED, SERVER_ONLY, SOURCES, gameEntries } from "../../scripts/build-public.mjs";
+import { GAMES } from "../../games.js";
+import { TEST_WALL } from "../wall.js";
+import * as countToTen from "../../party/games/count-to-ten/index.js";
 
 const ROOT = resolve(import.meta.dirname, "..", "..");
 const inside = (path, folder) => path === folder || path.startsWith(folder + sep);
@@ -57,6 +60,37 @@ describe("what the site serves", () => {
       }
     }
     expect(bad).toEqual([]);
+  });
+});
+
+describe("a Table game that lives in this repository (party/games/<id>)", () => {
+  it("needs no package of its own: its view is one of the party's pages, so the build copies nothing for it", () => {
+    expect(gameEntries(countToTen)).toEqual([]);
+    // Shaped as Paper Masks will be (party/games/paper-masks, in TURN_GAMES), with no package.
+    const inRepo = { manifest: { id: "paper-masks-like", path: "/party/", public: [], table: { view: "games/paper-masks-like.js" } } };
+    expect(gameEntries(inRepo)).toEqual([]);
+  });
+
+  it("is refused, with what to do, when it lists public files without being a package", () => {
+    const listed = { manifest: { id: "not-a-package", path: "/party/", public: [{ from: "x.js", to: "x.js" }] } };
+    expect(() => gameEntries(listed)).toThrow(/not-a-package lists public files but is not a package/);
+  });
+
+  it("still copies a packaged game's public files from its package", () => {
+    const entries = gameEntries(GAMES[0]);
+    expect(entries.length).toBeGreaterThan(0);
+    for (const { from } of entries) expect(from).toContain(`${sep}node_modules${sep}cork-and-bell${sep}`);
+  });
+
+  it("has every Table game's view served from a file that exists", () => {
+    for (const entry of TEST_WALL.table.filter((e) => e.view)) {
+      const site = entry.view.replace(/^\//, "");
+      const i = SERVED.findIndex((to) => site === to || site.startsWith(to + "/"));
+      expect(i, entry.view).toBeGreaterThan(-1);
+      const file = join(SOURCES[i], site.slice(SERVED[i].length));
+      expect(statSync(file).isFile(), file).toBe(true);
+      expect(SERVER_ONLY.some((f) => inside(file, f)), file).toBe(false);
+    }
   });
 });
 

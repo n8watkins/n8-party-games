@@ -8,7 +8,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { dropFakeRuntime, fakeCtx, fakeEnv, settle, useFakeRuntime } from "./fake-room.js";
 import { from } from "./turn-game.js";
-import { TEST_WALL, buildTurnWall } from "../wall.js";
+import { TEST_WALL, WALL, buildTurnWall } from "../wall.js";
 import { PLAY_BEAT_MS, tableWhyNot, tablePlayers, tableEntry } from "../shared/table.js";
 import { MODE_COOLDOWN_MS } from "../shared/mode.js";
 import { DROP_FADE_MS, HOST_GRACE_MS, MAX_PLAYERS, TABLE_MAX_PLAYERS, TURN_GRACE_MS, seatColour } from "../server/lobby-core.js";
@@ -166,6 +166,17 @@ describe("who may start a Table game", () => {
       { t: "play-no", error: "not_found", message: "That game is not on the Table's list." },
     ]);
     expect(r.core().starting).toBeNull();
+  });
+
+  it("refuses the test game in production, where PARTY_TEST_GAMES is off, even sent by hand", async () => {
+    const r = await table({ players: 2, wall: WALL });
+    expect(r.core().view(Date.now()).table.map((e) => e.id)).not.toContain(GAME);
+    r.say(r.ws.ann, { t: "play", id: GAME });
+    await settle();
+    expect(r.ws.ann.messages().at(-1)).toEqual({ t: "play-no", error: "not_found", message: "That game is not on the Table's list." });
+    expect(r.core().starting).toBeNull();
+    await vi.advanceTimersByTimeAsync(PLAY_BEAT_MS + 50);
+    expect(r.core().activity.kind).toBe("lobby");
   });
 
   it("refuses a party too small, counting only the phones that are here", async () => {

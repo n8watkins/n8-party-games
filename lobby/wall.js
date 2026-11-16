@@ -83,12 +83,14 @@ export const TABLE_SOON = [
  * mount and no settings step (the Table has no settings form yet); a game that is not is refused
  * here, when the Worker loads, not when a party picks it.
  *
- * Count to ten, the test game, is always on the list, also in production, marked `test`: the
- * Table's page shows it only when its address ends in #dev, so the path can be tried on a phone
- * on the live site without anyone else seeing it.
+ * Count to ten, the test game, is on the list only where PARTY_TEST_GAMES is "on", as Coin Flip
+ * is on the Floor: in production the room has no such game, so a hand-sent `play` for it is
+ * refused. Where it is on, it is marked `test` and the Table's page shows it only when its
+ * address ends in #dev.
  * @param {object[]} hosted  the site's Table games (games.js, TURN_GAMES)
+ * @param {{testGames?: boolean}} [opts]  testGames: also list Count to ten
  */
-export function buildTurnWall(hosted) {
+export function buildTurnWall(hosted, { testGames = false } = {}) {
   const table = [];
   const games = new Map();
   const add = (game, manifest, extra) => {
@@ -97,8 +99,9 @@ export function buildTurnWall(hosted) {
     table.push(tableEntry(manifest, extra));
     games.set(manifest.id, game);
   };
-  for (const { manifest, game } of hosted) add(game, manifest, { view: manifest.table?.view ? manifest.path + manifest.table.view : null });
-  add(countToTen.game, countToTen.manifest, { test: true, view: countToTen.VIEW });
+  const viewOf = (manifest) => (manifest.table?.view ? manifest.path + manifest.table.view : null);
+  for (const { manifest, game } of hosted) add(game, manifest, { view: viewOf(manifest) });
+  if (testGames) add(countToTen.game, countToTen.manifest, { test: true, view: viewOf(countToTen.manifest) });
   for (const manifest of TABLE_SOON) if (!games.has(manifest.id)) table.push(tableEntry(manifest, { soon: true }));
   return { table, games };
 }
@@ -111,8 +114,8 @@ function bothWalls(floor, turn) {
 
 /** Production: the hosted games, the outside games and the coming-soon boxes, and the Table's list. */
 export const WALL = bothWalls(buildWall(GAMES), buildTurnWall(TURN_GAMES));
-/** Local play and the tests: the same, with Coin Flip. */
-export const TEST_WALL = bothWalls(buildWall(GAMES, { testGames: true }), buildTurnWall(TURN_GAMES));
+/** Local play and the tests: the same, with Coin Flip on the Floor and Count to ten at the Table. */
+export const TEST_WALL = bothWalls(buildWall(GAMES, { testGames: true }), buildTurnWall(TURN_GAMES, { testGames: true }));
 
 /** The wall a Worker's environment asks for. One switch, PARTY_TEST_GAMES, set in wrangler.jsonc. */
 export function wallFor(env) {

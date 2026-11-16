@@ -119,12 +119,14 @@ describe("which games the party can play", () => {
     ]);
     expect(WALL.boxes.some((b) => b.test)).toBe(false);
     for (const b of WALL.boxes) expect(b.blurb.length, b.id).toBeGreaterThan(5);
-    // The games that can start: the Floor's, and the Table's test game (hidden on its page unless #dev).
-    expect([...WALL.games.keys()]).toEqual(["cork-and-bell", "count-to-ten"]);
+    // The games that can start: the Floor's. No test game in production, on the Floor or at the Table.
+    expect([...WALL.games.keys()]).toEqual(["cork-and-bell"]);
+    expect(WALL.table.some((e) => e.test)).toBe(false);
     expect(WALL.games.get("cork-and-bell").tickHz).toBe(30);
   });
 
-  it("adds Coin Flip only where the environment switches test games on", () => {
+  it("adds Coin Flip and Count to ten only where the environment switches test games on", () => {
+    expect(TEST_WALL.table.filter((e) => e.test).map((e) => e.id)).toEqual(["count-to-ten"]);
     expect(TEST_WALL.boxes.map((b) => b.id)).toEqual(["cork-and-bell", "coin-flip", "who-am-i", "tin-derby", "flood", "fox-trouble"]);
     expect(TEST_WALL.boxes[1]).toMatchObject({ test: true, min: 1, url: null, view: null });
     expect([...TEST_WALL.games.keys()]).toEqual(["cork-and-bell", "coin-flip", "count-to-ten"]);
