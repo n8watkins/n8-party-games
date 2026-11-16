@@ -29,6 +29,8 @@ const room = opt("room", "ship");
 const SIZES = [
   { name: "phone 844x390 @2x closer", viewport: { width: 844, height: 390 }, deviceScaleFactor: 2, hasTouch: true, isMobile: true, query: "as=player&zoom=closer" },
   { name: "phone 844x390 @2x whole room", viewport: { width: 844, height: 390 }, deviceScaleFactor: 2, hasTouch: true, isMobile: true, query: "as=player&zoom=room" },
+  // An upright phone: the view follows its piece (closer), so the bar's eye moves and the street slides behind the glass.
+  { name: "phone 390x844 @2x upright", viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, hasTouch: true, isMobile: true, query: "as=player&zoom=closer" },
   { name: "big screen 1280x720", viewport: { width: 1280, height: 720 }, deviceScaleFactor: 1, query: "" },
   // Far more pixels than any device has, so that the graphics card sets the pace and not the script: the only way a
   // desktop card says anything about what each pixel costs. The room caps its own pixels (MAX_PIXELS), so this is
