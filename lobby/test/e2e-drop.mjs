@@ -10,7 +10,7 @@
 //   at the next thing anyone does after 25 silent seconds.
 // It takes about two minutes. A real lock screen and a real lost signal are emulated: see the
 // report for what that cannot show.
-import { chromium } from "playwright";
+import { launchBrowser } from "./browser.mjs";
 import { partyApi, sleep } from "./client.mjs";
 
 const args = process.argv.slice(2);
@@ -24,7 +24,7 @@ const check = (ok, what) => {
 };
 const PHONE = { viewport: { width: 844, height: 390 }, deviceScaleFactor: 1, hasTouch: true, isMobile: true };
 
-const browser = await chromium.launch({ headless: true, args: ["--mute-audio"] });
+const browser = await launchBrowser();
 const timers = [];
 try {
   // A party: a socket that watches (and moves now and then), and a phone.
