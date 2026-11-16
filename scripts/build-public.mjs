@@ -72,14 +72,9 @@ export const SERVED = entries.map((entry) => entry.to);
 export function build(out = OUT) {
   // The party room shows a hosted game by putting the game's own page in a frame, so this site's
   // pages may be framed by this site's pages, and by nobody else.
-<<<<<<< HEAD
   // Hot Potato (one-device/hot-potato) and its hearing test (lab/hot-potato) listen through the
   // microphone; no other page may.
-  return buildPublic({ out: OUT, entries, frames: "self", microphone: ["/lab/hot-potato/*", "/one-device/hot-potato/*"] });
-=======
-  // The Hot Potato hearing test (lab/hot-potato) listens through the microphone; no other page may.
-  return buildPublic({ out, entries, frames: "self", microphone: ["/lab/hot-potato/*"] });
->>>>>>> origin/main
+  return buildPublic({ out, entries, frames: "self", microphone: ["/lab/hot-potato/*", "/one-device/hot-potato/*"] });
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) report(build(), OUT);
