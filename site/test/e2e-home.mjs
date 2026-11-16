@@ -87,6 +87,11 @@ try {
     return { shown: [...document.querySelectorAll("#roomWall .wall-name")].map((el) => el.textContent), floor: FLOOR.map((b) => b.name) };
   });
   check(wall.shown.length > 0 && JSON.stringify(wall.shown) === JSON.stringify(wall.floor), `"On the wall tonight" is the room's production wall: ${wall.shown.join(", ")}`);
+  const pieces = await ann.evaluate(async () => {
+    const { CHARACTERS } = await import("/lobby/shared/characters.js");
+    return { shown: [...document.querySelectorAll("#roomPieces .piece-name")].map((el) => el.textContent), room: CHARACTERS.map((c) => c.name) };
+  });
+  check(pieces.shown.length > 0 && JSON.stringify(pieces.shown) === JSON.stringify(pieces.room), `"Who you walk in as" is the room's own list of characters: ${pieces.shown.join(", ")}`);
   check((await ann.locator("#roomStart").getAttribute("href")) === "/lobby/?start", "Start a party leads to a new party on the Floor");
   await looksRight(ann, "the room door on an upright phone");
   await shot(ann, "02-room-390x844-dark");

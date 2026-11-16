@@ -884,6 +884,11 @@ ol {
   font: 800 15px/1.1 var(--display);
   margin-top: 4px;
 }
+.piece-move {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--ink-soft);
+}
 @media (min-width: 760px) {
   .room-grid {
     grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);

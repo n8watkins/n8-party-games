@@ -151,6 +151,9 @@ function drawDoors() {
 
 // ---------------------------------------------------------------- behind the room door
 
+/** Each character's move (lobby/shared/characters.js, `move`), as the room's button calls it. */
+const MOVE = { kick: "Bump", fade: "Fade" };
+
 function drawRoom() {
   const room = kindOf("room");
   $("roomInside").textContent = room.inside;
@@ -169,7 +172,7 @@ function drawRoom() {
     pic.width = 60;
     pic.height = 64;
     pic.addEventListener("error", () => pic.remove(), { once: true });
-    $("roomPieces").append(h("li", "piece", "", pic, h("span", "piece-name", c.name)));
+    $("roomPieces").append(h("li", "piece", "", pic, h("span", "piece-name", c.name), h("span", "piece-move", MOVE[c.move] ?? c.move ?? "")));
   }
   $("piecesNote").textContent = `Pick ${CHARACTERS.length > 1 ? "one" : "it"} and a colour as you walk in. More characters, each with a move of its own, are on the way.`;
 }
