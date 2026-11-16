@@ -378,7 +378,8 @@ ol {
   box-shadow: 0 7px 0 var(--k-d);
   color: var(--ink);
   text-align: left;
-  transition: box-shadow 0.15s var(--ease-soft), translate 0.15s var(--ease-soft), scale 0.15s var(--ease-soft);
+  /* Transform-like properties only: a shadow that slid would repaint the whole door each frame. */
+  transition: translate 0.15s var(--ease-soft), scale 0.15s var(--ease-soft);
 }
 @media (hover: hover) {
   .door:hover {
@@ -930,7 +931,7 @@ ol {
   box-shadow: 0 7px 0 var(--k-d);
   color: var(--ink);
   text-align: left;
-  transition: box-shadow 0.15s var(--ease-soft), translate 0.15s var(--ease-soft), scale 0.15s var(--ease-soft);
+  transition: translate 0.15s var(--ease-soft), scale 0.15s var(--ease-soft);
 }
 .tile-art {
   width: 100%;
@@ -1231,7 +1232,7 @@ body[data-sheet="open"] .detail {
   border: 3px solid var(--ink);
   font: 800 21px/1.1 var(--display);
   text-decoration: none;
-  transition: translate 0.1s, box-shadow 0.1s;
+  transition: translate 0.1s;
 }
 .btn svg {
   width: 18px;
