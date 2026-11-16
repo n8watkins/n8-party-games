@@ -438,13 +438,14 @@ What one piece costs in the 3D look, with its shadow, measured with `npm run tes
 
 | Character | Draws | Triangles | Pose, standing | Pose, walking |
 | --- | --- | --- | --- | --- |
-| Pawn | 5 | 2,800 | 0.7 µs | 1.0 µs |
-| Ghost | 6 | 2,160 | 8.9 µs | 33.5 µs |
-| Slime | 6 | 2,520 | 0.4 µs | 9.6 µs |
-| Robot | 8 (9 while its lamp glows) | 3,452 | 0.6 µs | 3.6 µs |
+| Pawn | 5 | 2,800 | 0.3 µs | 0.2 µs |
+| Ghost | 6 | 2,160 | 3.6 µs | 13.4 µs |
+| Slime | 6 | 3,144 | 0.4 µs | 1.0 µs |
+| Robot | 8 (9 while its lamp glows) | 3,452 | 0.5 µs | 1.8 µs |
 
 The robot's two more draws are its head and its mast, which move apart from its body; its paint, steel and dark parts are one material coloured point by point (`pointLitMat` in `public/look3d/body-kit.js`).
-Four of any one character in the 3D bar held 60 frames a second on the graphics card; the software numbers on a loaded PC were too noisy to rank them (22 to 34 frames a second for all four characters).
+The slime is turned finer than the pawn (44 sides) so a lit room's lines of light run smoothly over its gloss.
+Four of any one character in the 3D bar held 60 frames a second, on the graphics card and in software, drawing in 0.6 to 1.0 ms a picture (a quiet PC, phone held sideways).
 Not built yet: their own moves (the slime's harden and absorb, the robot's hook and stilt legs); `move` is `"kick"` until then.
 
 ## Sound
