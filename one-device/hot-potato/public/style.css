@@ -1,0 +1,379 @@
+/* Hot Potato. One fixed screen that never scrolls sideways: the round's state on top, the potato in
+   the middle, the turn under it; sideways and on a desktop, the potato on the left and the rest
+   beside it. The look is the Game Art Picker's "Specimen": a deep navy ground with a lighter
+   diagonal band that heats up with the potato (blue, teal, purple, magenta), bold condensed
+   capitals (Anton) slanted a little, yellow and green on ink, thick dark outlines, flat colours. */
+
+@font-face {
+  font-family: "Anton";
+  src: url("fonts/anton-latin-400-normal.woff2") format("woff2");
+  font-weight: 400;
+  font-display: swap;
+}
+
+:root {
+  --ink: #1a1433;
+  --y: #ffd23f;
+  --g: #3ee6a8;
+  --lav: #b9c0ee;
+  --pink: #ff3d7f;
+  --white: #fff;
+  --soft: #dfe3ff;
+  --panel: rgba(26, 20, 51, 0.55);
+  --edge: rgba(185, 192, 238, 0.55);
+  /* Verdict words on the status line: light enough for 4.5:1 on every heat's ground. */
+  --good: #9af7cf;
+  --bad: #ffd0e0;
+  --f: 100%;
+  --slant: skewX(-6deg);
+  --display: "Anton", Impact, "Arial Narrow", "Helvetica Neue", sans-serif;
+  --text: system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+  color-scheme: dark;
+}
+
+html { height: 100%; overflow: hidden; background: #1e1a4a; }
+body { height: 100%; margin: 0; overflow: hidden; background: #1e1a4a; color: var(--white); font: 15px/1.4 var(--text); overscroll-behavior: none; -webkit-tap-highlight-color: transparent; -webkit-text-size-adjust: 100%; }
+*, *::before, *::after { box-sizing: border-box; }
+button, input { font: inherit; color: inherit; }
+button { background: none; border: 0; padding: 0; margin: 0; cursor: pointer; touch-action: manipulation; }
+button:disabled { cursor: default; }
+:focus-visible { outline: 3px solid var(--y); outline-offset: 3px; }
+h1, h2, p { margin: 0; }
+fieldset { border: 0; margin: 0; padding: 0; min-width: 0; }
+legend { padding: 0; }
+[hidden] { display: none !important; }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+
+/* ---------- The screen and its ground ---------- */
+.game { position: fixed; inset: 0; container: game / size; overflow: hidden; isolation: isolate; user-select: none; -webkit-user-select: none; --lbl: var(--lav); }
+.ground, .ground i { position: absolute; inset: 0; }
+.ground { z-index: -1; background: linear-gradient(112deg, #2c2768 0 44%, #1e1a4a 44.2%); }
+.ground i { opacity: 0; transition: opacity 0.7s; }
+.ground .l-warm { background: linear-gradient(112deg, #2a3f7a 0 44%, #1c2c5a 44.2%); }
+.ground .l-hot { background: linear-gradient(112deg, #1d6670 0 44%, #154a55 44.2%); }
+.ground .l-crit { background: linear-gradient(112deg, #9a1f5e 0 44%, #6a1244 44.2%); }
+.ground .l-pulse { background: var(--pink); transition: none; }
+.game[data-heat="warm"] .l-warm, .game[data-heat="hot"] .l-warm, .game[data-heat="hot"] .l-hot, .game[data-heat="strain"] .l-hot, .game[data-heat="critical"] .l-hot, .game[data-heat="critical"] .l-crit, .game[data-heat="boom"] .l-crit { opacity: 1; }
+.game[data-heat="strain"] .l-crit { opacity: 0.45; }
+/* The pulse stays soft enough that every word keeps 4.5:1 at its brightest (yellow on the critical
+   band is the closest, at 4.67:1). */
+.game[data-heat="strain"] .l-pulse { --to: 0.12; animation: pulse 0.8s ease-in-out infinite alternate; }
+.game[data-heat="critical"] .l-pulse { --to: 0.15; animation: pulse 0.5s ease-in-out infinite alternate; }
+.game[data-heat="hot"], .game[data-heat="strain"], .game[data-heat="critical"], .game[data-heat="boom"] { --lbl: var(--soft); }
+.game[data-paused="yes"] .l-pulse { animation-play-state: paused; }
+@keyframes pulse { from { opacity: 0; } to { opacity: var(--to, 0.3); } }
+/* A verdict tints the ground for a moment; the burst lights it up briefly (a light flash, never a
+   blank white screen). */
+.ground .tint { transition: none; }
+.game[data-react="right"] .tint { background: #12a35c; animation: tint 1.2s ease-out both; }
+.game[data-react="wrong"] .tint { background: #c81e3a; animation: tint 1.2s ease-out both; }
+@keyframes tint { 0% { opacity: 0; } 12%, 70% { opacity: 0.88; } 100% { opacity: 0; } }
+.ground .flash { background: #fff; transition: none; }
+.game[data-phase="burst"] .flash { animation: flash 0.35s ease-out both; }
+@keyframes flash { 0% { opacity: 0.4; } 100% { opacity: 0; } }
+
+.gi {
+  position: absolute; display: grid; min-height: 0;
+  inset: env(safe-area-inset-top, 0px) env(safe-area-inset-right, 0px) env(safe-area-inset-bottom, 0px) env(safe-area-inset-left, 0px);
+  grid-template-areas: "top" "pot" "bot"; grid-template-rows: auto minmax(0, 1fr) auto; grid-template-columns: minmax(0, 1fr);
+  gap: clamp(4px, 1.2cqh, 12px); padding: clamp(10px, 2.4cqmin, 22px) clamp(16px, 3.2cqw, 26px);
+  max-width: 1280px; margin: 0 auto;
+}
+/* The screen takes the keyboard for a moment after a pause while the go button settles (app.js):
+   no ring around the whole screen. */
+.gi:focus { outline: none; }
+.top { grid-area: top; min-width: 0; }
+.pot { grid-area: pot; position: relative; min-height: 0; min-width: 0; }
+.potato-art { position: absolute; inset: 0; width: 100%; height: 100%; display: block; overflow: visible; pointer-events: none; }
+/* Upright, the rig is about three quarters of the screen's width, as the picker drew it. */
+@container game (max-aspect-ratio: 1/1) { .potato-art.specimen { width: min(100%, 82cqw); left: calc((100% - min(100%, 82cqw)) / 2); } }
+.bot { grid-area: bot; min-width: 0; min-height: 0; display: flex; flex-direction: column; container: bot / inline-size; }
+.v { display: grid; }
+.game:not([data-screen="start"]) .v-start, .game:not([data-screen="turn"]) .v-turn, .game:not([data-screen="end"]) .v-end { display: none !important; }
+.game[data-screen="end"] .gi { grid-template-rows: auto minmax(0, 0.8fr) minmax(0, 1fr); }
+.game[data-screen="end"] .bot > .v-end { min-height: 0; flex: 1; }
+@container game (min-aspect-ratio: 1/1) {
+  .gi { grid-template-areas: "pot top" "pot bot"; grid-template-columns: minmax(0, 1fr) minmax(0, 1.05fr); grid-template-rows: auto minmax(0, 1fr); column-gap: clamp(12px, 3cqw, 40px); }
+  .game[data-screen="end"] .gi { grid-template-rows: auto minmax(0, 1fr); }
+  .bot { justify-content: flex-end; }
+  .game[data-screen="turn"] .bot { justify-content: center; }
+}
+
+/* ---------- Type ---------- */
+.logo, .kicker, .flabel, .head, .lbl, .after, .dead, .cap-t, .status, .heard, .rv, .pbox h2 { transform: var(--slant); transform-origin: 0 100%; }
+.logo { font: 400 clamp(44px, 15cqmin, 104px)/0.92 var(--display); text-transform: uppercase; letter-spacing: 0.01em; text-shadow: 0.06em 0.06em 0 var(--ink); overflow-wrap: anywhere; }
+.logo em { font-style: normal; color: var(--y); }
+.logo.burst-on { color: var(--y); font-size: clamp(48px, 18cqmin, 128px); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding-right: 0.1em; }
+.lede { color: var(--soft); font-size: clamp(14px, 3.4cqmin, 18px); max-width: 36ch; margin-top: clamp(4px, 1cqh, 10px); text-wrap: pretty; }
+.kicker { font: 400 clamp(14px, 3.4cqmin, 18px)/1.1 var(--display); color: var(--lbl); text-transform: uppercase; letter-spacing: 0.14em; margin-bottom: 6px; }
+.kicker .home { color: inherit; text-decoration: none; }
+.kicker .home:hover { color: var(--white); }
+.v-start, .v-end { align-content: start; }
+
+/* ---------- Buttons ---------- */
+/* The main button: a yellow block, slanted, in ink. */
+.go { display: block; width: 100%; transform: var(--slant); filter: drop-shadow(4px 4px 0 var(--ink)); }
+.go .plate { display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; min-height: 52px; padding: 6px 16px; background: var(--y); color: var(--ink); border: 3px solid var(--ink); font: 400 clamp(20px, 5cqmin, 26px)/1 var(--display); text-transform: uppercase; letter-spacing: 0.04em; }
+.go:active { transform: var(--slant) translate(2px, 2px); filter: drop-shadow(2px 2px 0 var(--ink)); }
+.go:disabled { filter: none; opacity: 0.6; }
+/* The other buttons: ink panels with a lavender edge; pressed ones go yellow. */
+.cap {
+  min-height: 44px; padding: 0 12px; display: inline-flex; align-items: center; justify-content: center; gap: 7px; transform: var(--slant);
+  background: var(--panel); border: 2px solid var(--edge); color: var(--white);
+  font: 400 17px/1 var(--display); text-transform: uppercase; letter-spacing: 0.05em; white-space: nowrap;
+}
+.cap:active { background: rgba(26, 20, 51, 0.8); }
+.cap[aria-pressed="true"] { background: var(--y); color: var(--ink); border-color: var(--ink); box-shadow: 3px 3px 0 var(--ink); }
+.cap:disabled { opacity: 0.4; }
+.cap.ghost { background: none; border-color: rgba(223, 227, 255, 0.45); color: var(--soft); }
+.tog::before { content: ""; width: 9px; height: 9px; border-radius: 50%; flex: none; background: rgba(255, 255, 255, 0.25); }
+.tog[aria-pressed="true"]::before { background: var(--ink); }
+
+/* ---------- Start ---------- */
+.setup { gap: clamp(8px, 1.6cqh, 14px); }
+.field { display: grid; gap: 6px; min-width: 0; }
+.flabel { font: 400 15px/1.1 var(--display); text-transform: uppercase; letter-spacing: 0.14em; color: var(--lbl); margin-bottom: 4px; }
+.setrow .flabel { margin-bottom: 0; }
+.chips { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.chips .chip { padding: 0 8px; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.chips .chip:last-child:nth-child(odd) { grid-column: 1 / -1; }
+@container game (min-width: 520px) and (max-aspect-ratio: 1/1) { .chips { grid-template-columns: repeat(3, minmax(0, 1fr)); } .chips .chip:last-child:nth-child(odd) { grid-column: auto; } }
+.stepper { display: flex; align-items: center; gap: 10px; }
+.stepper .cap { flex: none; width: 48px; padding: 0; font: 400 30px/1 var(--text); }
+.stepper output { font: 400 34px/1 var(--display); min-width: 1.3em; text-align: center; font-variant-numeric: tabular-nums; color: var(--y); transform: var(--slant); }
+.setrow { display: flex; flex-wrap: wrap; gap: 10px 18px; align-items: end; }
+.tg { display: flex; gap: 8px; }
+.note { font-size: 13px; color: var(--soft); line-height: 1.35; padding: 8px 10px; background: var(--panel); border-left: 3px solid var(--y); }
+.note b { color: var(--y); }
+
+/* ---------- Turn: who is up, the lives, the fuse ---------- */
+.turnhead { gap: clamp(4px, 1cqh, 10px); }
+.head { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-width: 0; transform-origin: 50% 50%; }
+.cat { flex: none; max-width: 48%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; background: var(--y); color: var(--ink); font: 400 clamp(17px, 4.6cqmin, 24px)/1 var(--display); text-transform: uppercase; letter-spacing: 0.03em; padding: 0.3em 0.75em 0.22em 0.65em; clip-path: polygon(6% 0, 100% 0, 94% 100%, 0 100%); }
+.holder { min-width: 0; display: flex; align-items: baseline; justify-content: flex-end; gap: 0.3em; font: 400 clamp(17px, 4.4cqmin, 24px)/1 var(--display); text-transform: uppercase; letter-spacing: 0.04em; white-space: nowrap; }
+.holder b { font-weight: 400; font-size: 1.55em; color: var(--y); overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.bar { display: flex; align-items: center; gap: 10px; min-width: 0; }
+/* Lives: a solid block for each left, an empty outline (light, at least 3:1 on every ground) for
+   each lost, so they read by shape as well as colour. The one at risk warms from yellow to pink
+   with the potato's stress, as the fuse does. */
+.life { display: inline-flex; align-items: center; gap: 4px; flex: none; }
+.life i { width: 13px; height: 15px; transform: var(--slant); background: none; border: 2px solid var(--soft); transition: background 0.4s, border-color 0.4s; }
+.life i.on { background: var(--y); border-color: var(--ink); }
+.life i.on.risk { background: color-mix(in srgb, var(--pink) calc(var(--stress, 0) * 100%), var(--y)); transition: border-color 0.4s; }
+.lifelbl { font: 400 15px/1 var(--display); text-transform: uppercase; letter-spacing: 0.06em; color: var(--lbl); white-space: nowrap; flex: none; }
+.fuse { flex: 1; min-width: 40px; }
+.fuse .track { position: relative; height: 14px; background: rgba(26, 20, 51, 0.6); border: 2px solid var(--ink); transform: var(--slant); }
+.fuse .cable { position: absolute; left: 0; top: 0; bottom: 0; width: var(--f); background: color-mix(in srgb, var(--pink) calc(var(--stress, 0) * 100%), var(--y)); }
+.fuse.low .cable { background: var(--pink); }
+.fuse .spark { position: absolute; left: var(--f); top: 50%; width: 26px; height: 26px; transform: translate(-50%, -50%); border-radius: 50%; background: radial-gradient(circle, #fff 0 18%, var(--y) 34%, rgba(255, 210, 63, 0) 68%); opacity: 0; }
+.game[data-lit="yes"] .fuse .spark { opacity: 1; animation: spark 0.5s ease-in-out infinite alternate; }
+@keyframes spark { from { transform: translate(-50%, -50%) scale(0.8); } to { transform: translate(-50%, -50%) scale(1.1); } }
+.ibtn { width: 44px; height: 44px; min-width: 44px; display: inline-grid; place-items: center; background: var(--panel); border: 2px solid var(--edge); transform: var(--slant); }
+.ibtn svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; }
+#g-sound[aria-pressed="false"] { color: var(--soft); }
+#g-sound[aria-pressed="true"] .off, #g-sound[aria-pressed="false"] .on { display: none; }
+
+/* ---------- Turn: the last word, the microphone and the letter ---------- */
+.v-turn.bot-turn { gap: clamp(4px, 1cqh, 10px); }
+.lastword { display: grid; justify-items: start; gap: 2px; min-width: 0; }
+.lbl { font: 400 clamp(14px, 3.4cqmin, 17px)/1.1 var(--display); text-transform: uppercase; letter-spacing: 0.14em; color: var(--lbl); }
+.after { --n: 8; font: 400 min(15cqi, calc(92cqi / (max(var(--n), 6) * 0.47)), 64px)/1.02 var(--display); text-transform: uppercase; white-space: nowrap; max-width: 100%; overflow: hidden; text-overflow: ellipsis; padding-right: 0.12em; text-shadow: 0.05em 0.05em 0 var(--ink); }
+.after b { font-weight: 400; background: var(--y); color: var(--ink); padding: 0 0.08em; margin-left: 0.03em; text-shadow: none; }
+.after.first { color: var(--soft); }
+.dead { font: 400 15px/1.1 var(--display); text-transform: uppercase; letter-spacing: 0.06em; color: var(--y); }
+.ask { display: grid; grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr); align-items: center; gap: 10px; min-height: 0; }
+.spot { display: grid; place-items: center; min-width: 0; }
+.spot > * { grid-area: 1 / 1; }
+.disc { --d: clamp(66px, min(11cqh, 27cqi), 116px); width: var(--d); height: var(--d); border-radius: 50%; display: grid; place-items: center; background: var(--g); color: var(--ink); box-shadow: 0 0 0 4px var(--ink), 5px 5px 0 4px var(--ink); }
+.disc svg { width: 56%; height: 56%; }
+.disc .cup { fill: currentColor; }
+.disc .ln { fill: none; stroke: currentColor; stroke-width: 3.6; stroke-linecap: round; stroke-linejoin: round; }
+.cap-t { font: 400 clamp(16px, 4.2cqi, 21px)/1.05 var(--display); text-transform: uppercase; letter-spacing: 0.1em; text-align: center; transform-origin: 50% 50%; }
+.mic-btn { display: grid; justify-items: center; gap: 10px; padding: 6px 4px; min-width: 0; max-width: 100%; }
+.mic-btn .cap-t { color: var(--white); max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mic-btn:active .disc { transform: translate(2px, 2px); box-shadow: 0 0 0 4px var(--ink), 3px 3px 0 4px var(--ink); }
+.mic-btn:disabled { opacity: 0.6; }
+.listening { position: relative; display: grid; justify-items: center; gap: 10px; padding: 6px 4px; }
+.listening .ring { position: absolute; left: 50%; top: 6px; width: var(--d, 90px); height: var(--d, 90px); margin-left: calc(var(--d, 90px) / -2); border-radius: 50%; border: 4px solid var(--g); opacity: 0; pointer-events: none; }
+.listening { --d: clamp(66px, min(11cqh, 27cqi), 116px); }
+.game[data-lit="yes"] .listening .ring { animation: micring 1.4s ease-out infinite; }
+.game[data-lit="yes"] .listening .r2 { animation-delay: 0.7s; }
+.game[data-paused="yes"] .listening .ring { animation-play-state: paused; }
+@keyframes micring { 0% { transform: scale(1); opacity: 0.8; } 100% { transform: scale(1.55); opacity: 0; } }
+.game[data-lit="no"] .listening .disc { background: #8a90b8; }
+/* What the spot shows: the go button when it is passed, the microphone while it listens. */
+.game:not([data-phase="ready"]) .mic-btn { display: none; }
+.game:not([data-phase="listen"]) .listening, .game[data-typing="yes"] .listening { display: none; }
+.game[data-typing="yes"][data-phase="listen"] .spot { display: none; }
+.game[data-typing="yes"][data-phase="listen"] .ask { grid-template-columns: minmax(0, 1fr); justify-items: center; }
+.game[data-phase="doom"] .spot, .game[data-phase="burst"] .spot, .game[data-phase="over"] .spot { visibility: hidden; }
+.need { display: grid; justify-items: center; text-align: center; min-width: 0; gap: 0; }
+.need .lbl { max-width: 100%; text-wrap: balance; transform-origin: 50% 50%; }
+.tag { display: grid; place-items: center; min-width: 0; }
+.tag span { font: 400 clamp(64px, min(15cqh, 36cqi), 180px)/0.98 var(--display); color: var(--y); text-shadow: 0.05em 0.05em 0 var(--ink); transform: var(--slant); text-transform: uppercase; }
+.tag.any span { font-size: clamp(40px, min(8cqh, 18cqi), 92px); }
+.tag.new span { animation: stamp 0.45s cubic-bezier(0.3, 1.6, 0.5, 1); }
+@keyframes stamp { from { transform: var(--slant) scale(1.3); } to { transform: var(--slant) scale(1); } }
+
+/* Status, what was heard, and the turn's controls */
+.status { min-height: 1.3em; display: flex; align-items: center; gap: 10px; font: 400 clamp(15px, 3.8cqi, 19px)/1.2 var(--display); text-transform: uppercase; letter-spacing: 0.04em; color: var(--soft); }
+.status:empty { display: none; }
+.status.quiet { position: absolute; width: 1px; height: 1px; min-height: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.status b { font-weight: 400; color: var(--white); }
+.status.ok b { color: var(--good); }
+.status.bad b { color: var(--bad); }
+.heard { min-height: 1.1em; font: 400 clamp(24px, 6.4cqi, 38px)/1.05 var(--display); text-transform: uppercase; color: var(--white); overflow-wrap: anywhere; text-shadow: 0.05em 0.05em 0 var(--ink); }
+.heard:empty { display: none; }
+.heard.part { color: var(--soft); }
+.mark { width: 24px; height: 24px; flex: none; display: grid; place-items: center; border: 2px solid var(--ink); }
+.mark.ok { background: var(--good); }
+.mark.ok::after { content: ""; width: 10px; height: 5px; border: solid var(--ink); border-width: 0 0 3px 3px; transform: translateY(-2px) rotate(-45deg); }
+.mark.bad { background: var(--pink); }
+.mark.bad::after { content: "!"; font: 400 16px/1 var(--display); color: var(--ink); }
+.acts { display: flex; flex-wrap: wrap; gap: 8px; min-width: 0; }
+.acts > * { flex: 1 1 100%; }
+.acts .appeal { border-color: var(--y); color: var(--y); }
+.typed { display: flex; gap: 8px; min-width: 0; }
+/* width: 0 so the box's own default width never pushes the row (and "Say it") off a narrow screen. */
+.typed input { flex: 1; width: 0; min-width: 0; min-height: 50px; padding: 0 14px; border: 3px solid var(--ink); background: #fff; color: var(--ink); font: 400 20px/1 var(--display); letter-spacing: 0.03em; text-transform: uppercase; user-select: text; -webkit-user-select: text; transform: var(--slant); }
+.typed input::placeholder { color: #6b6890; text-transform: none; font: 16px var(--text); }
+.typed .cap { min-height: 50px; flex: none; padding: 0 16px; background: var(--y); color: var(--ink); border-color: var(--ink); }
+
+.keys { font-size: 12px; color: var(--soft); text-align: center; }
+.keys kbd { font: 600 11px/1 var(--text); padding: 2px 6px 3px; border: 1px solid var(--edge); color: var(--white); background: var(--panel); }
+@media (pointer: coarse), (hover: none) { .keys { display: none; } }
+
+/* While a verdict shows big, the turn's own lines step back. */
+.react { position: absolute; inset: 0; z-index: 5; pointer-events: none; display: grid; align-content: end; justify-items: center; padding: 0 16px max(14cqh, 90px); }
+.rv { grid-area: 1 / 1; display: grid; justify-items: center; align-content: center; gap: 4px; text-align: center; opacity: 0; transform-origin: 50% 50%; }
+.rv .mk { width: clamp(52px, 14cqmin, 96px); height: auto; fill: none; stroke: #fff; stroke-width: 14; stroke-linecap: round; stroke-linejoin: round; filter: drop-shadow(4px 4px 0 var(--ink)); }
+.rv b { font: 400 clamp(58px, 20cqmin, 140px)/0.92 var(--display); text-transform: uppercase; text-shadow: 0.05em 0.05em 0 var(--ink); }
+.rv span { font: 400 clamp(20px, 6.4cqmin, 40px)/1.05 var(--display); text-transform: uppercase; letter-spacing: 0.03em; max-width: 22ch; text-wrap: balance; text-shadow: 0.05em 0.05em 0 var(--ink); }
+.game[data-react="right"] .rv-right, .game[data-react="wrong"] .rv-wrong { animation: pop 1.2s cubic-bezier(0.2, 1.5, 0.4, 1) both; }
+/* The burst: who was holding it, big, over the turn. */
+.rv-boom b { color: var(--y); font-size: clamp(64px, 24cqmin, 170px); max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding-right: 0.1em; }
+.game[data-phase="burst"] .rv-boom { animation: fadein 0.4s 0.45s both; }
+@keyframes fadein { from { opacity: 0; transform: var(--slant); } to { opacity: 1; transform: var(--slant); } }
+.game[data-phase="burst"] .bot-turn > :not(.status), .game[data-phase="burst"] .turnhead .bar { visibility: hidden; }
+@keyframes pop { 0% { opacity: 0; transform: var(--slant) scale(0.3); } 16% { opacity: 1; transform: var(--slant) scale(1.06); } 28% { transform: var(--slant) scale(1); } 80% { opacity: 1; transform: var(--slant) scale(1); } 100% { opacity: 0; transform: var(--slant) scale(1); } }
+/* The appeal buttons (in .acts) stay clearly visible throughout: the group may need them at once. */
+.game[data-react] .bot-turn > :not(.acts), .game[data-react] .turnhead { animation: stepback 1.2s ease-out both; }
+@keyframes stepback { 0% { opacity: 1; } 10%, 75% { opacity: 0.12; } 100% { opacity: 1; } }
+@container game (min-aspect-ratio: 1/1) { .react { padding: 0 16px; align-content: center; justify-items: end; padding-right: max(6cqw, 24px); } .rv { width: 48cqw; } }
+
+/* ---------- End ---------- */
+.game[data-screen="end"] .v-end.bot-end { display: flex; flex-direction: column; gap: 12px; }
+.chain { list-style: none; margin: 0; padding: 4px 6px 14px; display: flex; flex-wrap: wrap; gap: 8px; align-content: flex-start; overflow-y: auto; min-height: 0; flex: 1; scrollbar-width: thin; -webkit-mask-image: linear-gradient(#000 calc(100% - 16px), rgba(0, 0, 0, 0)); mask-image: linear-gradient(#000 calc(100% - 16px), rgba(0, 0, 0, 0)); }
+.chain li { display: inline-flex; align-items: baseline; padding: 6px 10px 5px; background: var(--panel); border: 2px solid var(--edge); font: 400 17px/1.1 var(--display); text-transform: uppercase; letter-spacing: 0.03em; max-width: 100%; overflow-wrap: anywhere; transform: var(--slant); }
+.chain li b { font-weight: 400; color: var(--y); }
+.chain li small { margin-left: 8px; font: 400 12px/1 var(--display); letter-spacing: 0.08em; color: var(--lbl); white-space: nowrap; }
+.chain li.none { color: var(--soft); }
+.endbtns { display: flex; gap: 10px; }
+.endbtns .go { flex: 1.4 1 0; min-width: 0; }
+.endbtns .cap { flex: 1 1 0; min-width: 0; min-height: 52px; padding: 0 8px; white-space: normal; line-height: 1.05; text-align: center; }
+
+/* ---------- Pause ---------- */
+.paused { position: absolute; inset: 0; z-index: 10; display: grid; place-items: center; padding: 16px; background: rgba(20, 16, 44, 0.8); backdrop-filter: blur(3px); -webkit-backdrop-filter: blur(3px); }
+.pbox { width: min(320px, 100%); display: grid; gap: 12px; justify-items: stretch; text-align: center; }
+.pbox h2 { font: 400 56px/1 var(--display); text-transform: uppercase; color: var(--y); text-shadow: 0.05em 0.05em 0 var(--ink); transform-origin: 50% 50%; }
+.pnote { color: var(--soft); font-size: 15px; }
+.pbox .tg { justify-content: center; }
+.pbox .tg .cap { flex: 1; }
+.game[data-paused="yes"] .spark, .game[data-paused="yes"] .rv, .game[data-paused="yes"] .tint { animation-play-state: paused !important; }
+
+/* ---------- Smaller screens ---------- */
+/* Short upright screens: smaller headings, no captions (the end screen keeps its count) */
+@container game (max-height: 700px) and (max-aspect-ratio: 1/1) {
+  .v-start .lede { display: none; }
+  .v-end .lede { font-size: 13px; margin-top: 4px; }
+  .logo { font-size: 44px; }
+  .logo.burst-on { font-size: 52px; }
+  .lastword .lbl { display: none; }
+  .ibtn { width: 40px; height: 40px; min-width: 40px; }
+  .disc { --d: 62px; }
+  .listening { --d: 62px; }
+  .mic-btn, .listening { gap: 7px; padding: 4px 2px; }
+  .cap-t { font-size: 15px; }
+  .tag span { font-size: 70px; }
+  .need .lbl { font-size: 13px; }
+  .status { font-size: 14px; }
+  .heard { font-size: 22px; }
+  .mark { width: 20px; height: 20px; }
+  .setup { gap: 8px; }
+  .go .plate { min-height: 46px; }
+  .typed input, .typed .cap { min-height: 46px; }
+}
+@container game (max-height: 600px) and (max-aspect-ratio: 1/1) {
+  .holder b { font-size: 1.35em; }
+  .after { font-size: min(11cqi, calc(92cqi / (max(var(--n), 6) * 0.47)), 40px); }
+  .tag span { font-size: 58px; }
+  .disc, .listening { --d: 54px; }
+  .chips .chip, .setup .cap { min-height: 42px; }
+}
+/* Narrow sideways (a phone on its side): the info column needs more of the width */
+@container game (min-aspect-ratio: 1/1) and (max-width: 900px) {
+  .gi { grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr); column-gap: 12px; padding: 8px 14px; }
+  /* The start screen: the title over the potato, the setup down the whole right side, so a note
+     (cannot listen, microphone blocked) still fits. */
+  .game[data-screen="start"] .gi { grid-template-areas: "top bot" "pot bot"; }
+  .game[data-screen="start"] .bot { justify-content: center; }
+  .lastword .lbl, .v-start .lede { display: none; }
+  .lede { font-size: 13px; margin-top: 2px; }
+  .cat { font-size: 16px; }
+  .holder { font-size: 16px; }
+  .logo { font-size: 40px; }
+  .logo.burst-on { font-size: 44px; }
+  .kicker { margin-bottom: 0; font-size: 13px; }
+  .after { font-size: min(9cqi, calc(92cqi / (max(var(--n), 6) * 0.47)), 38px); }
+  .ask { grid-template-columns: auto minmax(0, 1fr); }
+  .disc, .listening { --d: 54px; }
+  .mic-btn, .listening { gap: 5px; padding: 2px; grid-template-columns: auto; }
+  .cap-t { font-size: 14px; }
+  .tag span { font-size: 64px; }
+  .tag.any span { font-size: 36px; }
+  .need .lbl { font-size: 13px; }
+  .status { font-size: 13.5px; gap: 6px; }
+  .heard { font-size: 20px; }
+  .mark { width: 20px; height: 20px; }
+  .setup { gap: 6px; }
+  .flabel { margin-bottom: 2px; font-size: 13px; }
+  .chips { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
+  .chips .chip:last-child:nth-child(odd) { grid-column: auto; }
+  .chips .chip, .setup .cap { min-height: 40px; font-size: 15px; }
+  .stepper .cap { width: 42px; }
+  .stepper output { font-size: 26px; }
+  .go .plate { min-height: 44px; font-size: 19px; }
+  .typed input, .typed .cap { min-height: 44px; }
+  .endbtns .cap, .endbtns .plate { min-height: 44px; }
+  .v-turn.bot-turn { gap: 4px; }
+  .acts { gap: 6px; }
+  .rv b { font-size: 64px; }
+  .rv span { font-size: 22px; }
+}
+@container game (min-aspect-ratio: 1/1) and (max-height: 430px) {
+  .turnhead { gap: 4px; }
+  .ibtn { width: 40px; height: 40px; min-width: 40px; }
+  .keys { display: none; }
+  /* Short sideways setup: the small labels beside their controls, and a tighter note. */
+  .setrow .field { display: flex; align-items: center; gap: 8px; }
+  .note { font-size: 12px; line-height: 1.3; padding: 5px 8px; }
+}
+/* The smallest sideways phones (568x320): the setup's buttons a little shorter, so the longest note
+   (the microphone blocked, on an iPhone) and Start still fit. */
+@container game (min-aspect-ratio: 1/1) and (max-height: 340px) {
+  .chips .chip, .setup .cap { min-height: 36px; }
+  .go .plate { min-height: 40px; }
+  .setup { gap: 5px; }
+  .chips { gap: 5px; }
+}
+@container game (max-width: 359px) {
+  /* Too narrow for "5 lives" beside the squares and the fuse: the squares alone (by shape and colour). */
+  .lifelbl { display: none; }
+  .gi { padding-left: 12px; padding-right: 12px; }
+  .stepper .cap { width: 44px; }
+  .setrow { gap: 8px 12px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .game *, .game *::before, .game *::after { animation-duration: 0.01s !important; animation-iteration-count: 1 !important; transition-duration: 0.01s !important; }
+}

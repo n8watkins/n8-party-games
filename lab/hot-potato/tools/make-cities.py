@@ -1,5 +1,5 @@
-"""Builds lab/hot-potato/public/cities.json from GeoNames: every town over 15,000 people (hard
-mode), each marked with why it is, or is not, in the default list of well-known places.
+"""Builds one-device/hot-potato/shared/cities.json from GeoNames: every town over 15,000 people (the
+wider list, "Also allow lesser-known cities"), each marked with why it is, or is not, in the default list of well-known places.
 
 Download and unzip, in an empty folder of their own:
   https://download.geonames.org/export/dump/cities15000.zip     -> cities15000.txt
@@ -7,7 +7,7 @@ Download and unzip, in an empty folder of their own:
   https://download.geonames.org/export/dump/alternateNamesV2.zip -> alternateNamesV2.txt
   https://download.geonames.org/export/dump/admin1CodesASCII.txt
   https://download.geonames.org/export/dump/countryInfo.txt
-and build public/words.json first (tools/make-words.py).
+and build shared/words.json first (tools/make-words.py).
 
 Then: python3 -I lab/hot-potato/tools/make-cities.py <geonames folder> <words.json> <famous-places.txt> <out.json> <date fetched>
 
@@ -21,9 +21,9 @@ Well known (the default list), "why":
   s  a US state, Canadian province or Australian state capital (PPLA in US, CA, AU)
   f  on the hand list tools/famous-places.txt
   p  100,000 people or more
-  0  none of these: hard mode only
+  0  none of these: lesser known (only in the wider list)
 A place whose name is also an ordinary English word (Orange, Surprise, Independence) must be a
-capital, on the hand list, or have 250,000 people or more; otherwise it is hard mode only.
+capital, on the hand list, or have 250,000 people or more; otherwise it is lesser known.
 """
 import json
 import os
@@ -170,7 +170,7 @@ doc = {
     "fetched": fetched,
     "fields": [
         "name", "ascii name (0: same as name)", "English alternate names", "abbreviations", "country", "population",
-        "why well known (c capital, s state capital, f famous list, p population; 0 hard mode only)",
+        "why well known (c capital, s state capital, f famous list, p population; 0 lesser known, only in the wider list)",
         "state or province (its number in regions, counting from 1; 0: not known)",
     ],
     "countries": {cc: country_names.get(cc, cc) for cc in sorted(used_countries)},
