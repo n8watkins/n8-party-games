@@ -16,7 +16,7 @@ const from = (p) => import(pathToFileURL(resolve(dir, p)).href);
 const [{ game: theirs }, { TUNE: THEIR_TUNE }, { makeDriver, decide }] = await Promise.all([from("src/sim.js"), from("src/tune.js"), from("tools/drivers.mjs")]);
 
 const engine = { sin: Math.sin, cos: Math.cos, tan: Math.tan, atan: Math.atan, atan2: Math.atan2, hypot: Math.hypot, wrapA: (a) => Math.atan2(Math.sin(a), Math.cos(a)) };
-const ours = makeRules(retune({}, { ...JSON.parse(JSON.stringify(THEIR_TUNE)), NET: TUNE.NET }), { math: engine });
+const ours = makeRules(retune({}, { ...JSON.parse(JSON.stringify(THEIR_TUNE)), NET: TUNE.NET }), { math: engine, preview: true });
 const differs = Object.keys(THEIR_TUNE).filter((k) => JSON.stringify(THEIR_TUNE[k]) !== JSON.stringify(TUNE[k]));
 console.log(differs.length ? `numbers that differ between the preview and data/tune.js: ${differs.join(", ")}` : "the preview's numbers and data/tune.js are the same");
 

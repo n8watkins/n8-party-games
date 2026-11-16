@@ -17,7 +17,7 @@ export function stage({ rules = RULES, seed = 9, character = "pawn", tau = rules
   const api = {
     rules, T, st, me: st.cars[0], cars: st.cars, stats: st.stats,
     /** Off the table and out of the way for good. */
-    park(...cars) { for (const o of cars) { o.fallT = 1e9; o.x = 1e4; o.z = 1e4; o.house = true; } return api; },
+    park(...cars) { for (const o of cars) { o.fallT = 1e9; o.x = 1e4; o.z = 1e4; } return api; },
     /** A car at (u, lat), pointing `side` radians off the road's direction, at speed v, holding `b` with the wheel at `steer`. */
     place(c, u, lat, v, { side = 0, b = GO, steer = 0 } = {}) {
       const p = trackAt(u, lat, {}), L = locate(p.x, p.z, u, {});

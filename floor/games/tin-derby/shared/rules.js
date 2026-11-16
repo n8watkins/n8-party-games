@@ -41,10 +41,12 @@ const TIMERS = ["postT", "springT", "boostT", "wobT", "wallT", "knockT", "safeT"
 const newStats = () => ({ pads: 0, drifts: 0, minis: 0, bigDrifts: 0, walls: 0, posts: 0, bumps: 0, falls: 0, jumps: 0, airT: 0, raced: 0, stuck: 0, items: 0, used: 0, hits: 0, slicks: 0, spills: 0, phases: 0, steadied: 0 });
 
 /**
- * The rules for the numbers `T` (data/tune.js). `math` is for the parity check against the preview only
- * (tools/parity.mjs): the rules are the same on every device only with the default.
+ * The rules for the numbers `T` (data/tune.js). The options are for the parity check against the preview only
+ * (tools/parity.mjs): `math` swaps in the engine's own maths, and `preview` turns off the rules that differ
+ * from the preview's on purpose (README.md, "Rules that differ from round five"). A race is the same on every
+ * device only with the defaults.
  */
-export function makeRules(T = TUNE, { math: M = dmath } = {}) {
+export function makeRules(T = TUNE, { math: M = dmath, preview: PREVIEW = false } = {}) {
   const { sin, cos, atan, atan2, hypot, wrapA } = M;
   const course = makeCourse(T, M);
   const house = makeHouse(T, course, M);
@@ -235,6 +237,17 @@ export function makeRules(T = TUNE, { math: M = dmath } = {}) {
 
   // ---- One car, one step ----
   const P = {}, Q = {}, STH = [], EGQ = {};
+  /**
+   * Something other than its own wheels moved the car (a post it slid round, the turntable, the steam): where it is on
+   * the loop is read again, and the distance it has raced moves with it. So the distance raced (s) and the place on
+   * the loop (u) never drift apart, and every car finishes at the same line on the table. (The preview left s alone
+   * here, so a car the turntable had carried on finished a length or so past the line.)
+   */
+  function moved(c) {
+    locate(c.x, c.z, c.u, Q);
+    if (!PREVIEW) c.s += wrapS(Q.u - c.u);
+    c.u = Q.u; c.lat = Q.lat;
+  }
   function stepCar(state, c, lead) {
     const t = state.t, racing = t >= 0, S = state.stats[c.i];
     for (const k of TIMERS) if (c[k] > 0) c[k] -= DT;
@@ -248,6 +261,7 @@ export function makeRules(T = TUNE, { math: M = dmath } = {}) {
       if (c.fallT > T.HAND_T) { c.vy -= T.GRAVITY * DT; c.y = Math.max(-8, c.y + c.vy * DT); c.x += cos(c.mh) * c.v * 0.5 * DT; c.z += sin(c.mh) * c.v * 0.5 * DT; }
       if (c.fallT <= 0) {
         const u = wrapU(c.fallU - 1), p = trackAt(u, -0.8, P);
+        if (!PREVIEW) c.s += wrapS(u - c.u); // set back a little before where it went over: that much less raced
         c.fallT = 0; c.x = p.x; c.z = p.z; c.h = c.mh = p.th; c.u = u; c.lat = -0.8; c.v = 3; c.y = groundAt(u, -0.8, state); c.vy = 0; c.air = false;
         c.safeT = 1.2; c.st = 0; c.drOn = false; c.slow = 0; c.spinT = 0; c.spun = false; c.sneezeT = 0;
         emit(state, { k: "back", car: c.i });
@@ -423,7 +437,7 @@ export function makeRules(T = TUNE, { math: M = dmath } = {}) {
       c.x = SUSAN_AT.x + rx * cw - rz * sw; c.z = SUSAN_AT.z + rx * sw + rz * cw;
       c.h = wrapA(c.h + w); c.mh = wrapA(c.mh + w);
       if (!c.onSusan) { c.onSusan = true; emit(state, { k: "susan", car: c.i, side: Math.sign(-rx * SUSAN_AT.dz + rz * SUSAN_AT.dx) }); }
-      locate(c.x, c.z, c.u, Q); c.u = Q.u; c.lat = Q.lat;
+      moved(c);
     } else c.onSusan = false;
     for (const th of susanThings(tau, STH)) if (above < th.h) post(state, c, th.x, th.z, th.r, th.kind, null);
     {
@@ -444,7 +458,7 @@ export function makeRules(T = TUNE, { math: M = dmath } = {}) {
         c.x -= pr.dz * KT.push * f * DT; c.z += pr.dx * KT.push * f * DT; // away from the kettle's side, across the track
         const n = Math.floor(tau / KT.period);
         if (c.steamN !== n) { c.steamN = n; hit(state, c, "steam", -1); }
-        locate(c.x, c.z, c.u, Q); c.u = Q.u; c.lat = Q.lat;
+        moved(c);
       }
     }
     // The walls, last, after anything that pushes: soft. Touching one turns the car along it and costs a little speed, never a stop.
@@ -582,7 +596,7 @@ export function makeRules(T = TUNE, { math: M = dmath } = {}) {
         if (what === "cherry") hit(state, c, "cherry", -1);
       }
     }
-    locate(c.x, c.z, c.u, Q); c.u = Q.u; c.lat = Q.lat;
+    moved(c);
   }
 
   /** Bumps: cars push apart; the one doing the hitting loses a little speed, the other is nudged. Nobody flips. */
