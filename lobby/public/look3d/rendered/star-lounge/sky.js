@@ -56,15 +56,19 @@ export function createSky(rnd = Math.random, things = THINGS, times = TIMES) {
 
   return {
     step(t) {
-      if (now && t >= now.end) {
-        // It has gone. The sky is now empty for a while, whatever happens.
-        nextAt = now.end + (asked ? times.askedQuiet : times.quiet[0] + rnd() * (times.quiet[1] - times.quiet[0]));
-        now = null;
-      }
-      if (!now && t >= nextAt) {
+      // Everything due by `t` happens at the moment it was due, not the moment it is noticed, and as
+      // many times over as fit: so a screen that came late, a tab that was hidden or a room that was
+      // away in a game is on the same timetable as one that drew every frame.
+      for (;;) {
+        if (now && t >= now.end) {
+          // It has gone. The sky is now empty for a while, whatever happens.
+          nextAt = now.end + (asked ? times.askedQuiet : times.quiet[0] + rnd() * (times.quiet[1] - times.quiet[0]));
+          now = null;
+        }
+        if (now || t < nextAt) break;
         const thing = asked ?? nextThing ?? pick();
         asked = null;
-        begin(thing, t, undefined);
+        begin(thing, nextAt, undefined);
       }
       if (now) now.u = Math.min(1, Math.max(0, (t - now.start) / now.thing.lasts));
       return now;

@@ -40,6 +40,8 @@ const siteEntries = [
   { from: join(ROOT, "site", "icons"), to: "icons" },
   { from: join(ROOT, "lobby", "public"), to: "lobby" },
   { from: join(ROOT, "lobby", "shared"), to: "lobby/shared" },
+  // The Star Lounge's numbers, which its Blender scene and its rendered drawing in the room share (one file, not a copy).
+  { from: join(ROOT, "lobby", "tools", "blender", "star-lounge.json"), to: "lobby/look3d/rendered/star-lounge/layers/star-lounge.json" },
 ];
 
 /**
