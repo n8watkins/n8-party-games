@@ -15,7 +15,7 @@
  */
 export const CHARACTERS = [
   { id: "pawn", name: "Pawn", move: "kick" },
-  { id: "ghost", name: "Ghost", move: "kick" },
+  { id: "ghost", name: "Ghost", move: "fade" },
 ];
 
 /** What everyone is until they choose, and what an unknown character is read as. */
@@ -29,6 +29,12 @@ export const characterOr = (id) => (isCharacter(id) ? id : DEFAULT_CHARACTER);
 
 /** A character's name, for the words. */
 export const characterName = (id) => CHARACTERS.find((c) => c.id === id)?.name ?? "Pawn";
+
+/**
+ * What a character's action button does: "kick", or the ghost's "fade" (lobby/shared/ghost.js).
+ * A ghost does not kick. An unknown character is read as the default.
+ */
+export const moveOf = (id) => CHARACTERS.find((c) => c.id === characterOr(id))?.move ?? "kick";
 
 /**
  * The colours the picker offers. The first four are the seat colours (party-kit's SEAT_COLOURS:
