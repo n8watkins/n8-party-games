@@ -66,7 +66,13 @@ export function hopTarget(room, mine) {
  * The loop guard. `last` is the hop note this tab left (readHop), `now` the wall clock. A page
  * may hop when it has not hopped in the last HOP_GAP_MS.
  */
-export const mayHop = (last, now) => !last || !(now - last.at < HOP_GAP_MS && now >= last.at);
+export const mayHop = (last, now) => hopWait(last, now) === 0;
+
+/** How long until the loop guard lets this tab hop again (0: now). A clock that stepped back never holds it. */
+export function hopWait(last, now) {
+  if (!last || now < last.at) return 0;
+  return Math.max(0, last.at + HOP_GAP_MS - now);
+}
 
 /** The hop note this tab left, or null. */
 export function readHop(storage) {
@@ -83,8 +89,9 @@ export function readHop(storage) {
  * and the page offers a link. `text` is said on the page it arrives at ("Ann moved the party
  * here"). Replaced, not added: the back button does not lead into the room just left.
  */
-export function hopNow(path, { storage, now = Date.now(), text = "", go = (to) => location.replace(to) } = {}) {
-  if (!mayHop(readHop(storage), now)) return false;
+export function hopNow(path, { storage, now = Date.now(), text = "", force = false, go = (to) => location.replace(to) } = {}) {
+  // `force`: a person tapped to go; the guard is for pages moving by themselves.
+  if (!force && !mayHop(readHop(storage), now)) return false;
   try {
     storage?.setItem(HOP_KEY, JSON.stringify({ at: now, to: path, text }));
   } catch {

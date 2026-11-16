@@ -71,8 +71,12 @@ A.c.send({ t: "mode", v: "party-games" });
 const again = await A.c.wait((m) => m.t === "mode-no", 8000, since.a);
 check(/Wait a moment/.test(again.why) && again.v === "turn-based", `a second tap at once is refused: "${again.why}"`);
 
-// Every page moves: a new socket each, the same token, the same seat.
-A = await hop(A.c, ann);
+// Every page moves: a new socket each, the same token, the same seat. Ann's page is the slow one:
+// her socket goes first and her next page comes up last, so the others are back while she is
+// still between pages.
+const switchedAt = Date.now();
+A.c.ws.close(1000, "");
+await A.c.closed;
 T = await hop(T.c, tv);
 // Bo's phone reconnects in the middle of it: its socket drops before it hears anything more,
 // and the next page comes up a moment later.
@@ -80,9 +84,17 @@ B.c.ws.close(1000, "");
 await B.c.closed;
 await sleep(150);
 B = await seat(bo);
-check(A.hello.room.mode === "turn-based" && A.hello.you.seat === 0, "Ann's next page is seated as Ann, in turn-based");
 check(B.hello.room.mode === "turn-based" && B.hello.you.seat === 1, "Bo's next page, after a drop mid-switch, is seated as Bo, in turn-based");
 check(T.hello.room.mode === "turn-based" && T.hello.you.role === "screen", "the screen's next page is the screen, in turn-based");
+check(B.hello.room.picker?.seat === 0, "while Ann's page is still loading, Ann still holds the controls (Bo's page does not show him as host)");
+// Past the cooldown, with Ann still between pages: Bo cannot send the party back.
+await sleep(Math.max(0, switchedAt + MODE_COOLDOWN_MS + 200 - Date.now()));
+const beforeBo = B.c.seen.length;
+B.c.send({ t: "mode", v: "party-games" });
+const boNo = await B.c.wait((m) => m.t === "mode-no", 8000, beforeBo);
+check(/Only the one who started the party/.test(boNo.why) && boNo.v === "turn-based", `nor can Bo switch the party back meanwhile: "${boNo.why}"`);
+A = await seat(ann);
+check(A.hello.room.mode === "turn-based" && A.hello.you.seat === 0, `Ann's next page, ${((Date.now() - switchedAt) / 1000).toFixed(1)} s after the switch, is seated as Ann, in turn-based`);
 check(A.hello.room.picker?.seat === 0, "Ann still holds the controls");
 await sleep(300);
 const members = (B.c.room ?? B.hello.room).members.filter(Boolean);
@@ -101,6 +113,13 @@ A.c.send({ t: "m", x: me.x + 40, d: 1, r: me.rev });
 A.c.send({ t: "b" });
 await sleep(500);
 check(!B.c.seen.slice(since.b).some((m) => m.t === "m" || m.t === "b"), "nothing walks or bumps in the plain room: a move and a bump are not passed on");
+since = { a: A.c.seen.length, b: B.c.seen.length };
+A.c.send({ t: "pick", v: "camp" });
+A.c.send({ t: "e", e: "popcorn" });
+const pickNo = await A.c.wait((m) => m.t === "pick-no", 8000, since.a);
+await sleep(300);
+check(/chosen on the Floor/.test(pickNo.why), `a room pick at the Table is refused: "${pickNo.why}"`);
+check(!B.c.seen.slice(since.b).some((m) => m.t === "e" || m.t === "pick"), "and an emote there is not passed on");
 
 // ---------------------------------------------------------------- Bo is offline when the party goes back
 B.c.ws.close(1000, "");

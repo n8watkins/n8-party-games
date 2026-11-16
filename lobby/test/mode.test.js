@@ -7,7 +7,7 @@ import { game as coinFlip, manifest as coinFlipManifest } from "../games/coin-fl
 import { DROP_FADE_MS, HOST_GRACE_MS, LobbyCore, TABLE_STALE_MS } from "../server/lobby-core.js";
 import { STALE_ROOM_MS } from "../../party-kit/src/core/room-core.js";
 import { COUNT_MS, SETTLE_MS, boxFromManifest } from "../shared/vote.js";
-import { DEFAULT_MODE, HOP_GAP_MS, HOP_KEY, MODES, MODE_COOLDOWN_MS, MODE_NAME, MODE_PAGE, arrived, hopNow, hopTarget, isMode, mayHop, modeLocked, modeOf, modeTitle, readHop } from "../shared/mode.js";
+import { DEFAULT_MODE, HOP_GAP_MS, HOP_KEY, MODES, MODE_COOLDOWN_MS, MODE_NAME, MODE_PAGE, arrived, hopNow, hopTarget, hopWait, isMode, mayHop, modeLocked, modeOf, modeTitle, readHop } from "../shared/mode.js";
 import { POSITION_SLACK, boxCentre, spawnX } from "../shared/world.js";
 
 const duo = { id: "duo", name: "Duo", players: { min: 1, max: 4 }, devices: { phone: true, desktop: true } };
@@ -368,6 +368,30 @@ describe("the pages' rules (lobby/shared/mode.js)", () => {
     // A clock that stepped back is never a reason to stay stuck.
     expect(mayHop({ at: 50_000 }, 10_000)).toBe(true);
     expect(mayHop(null, 0)).toBe(true);
+  });
+
+  it("says how long a held hop must wait, so the page tries again by itself (a switch heard just after a hop)", () => {
+    const s = store();
+    // The phone heard the first switch late and hopped at 10 s; the switch back reaches its new page 1.25 s later.
+    hopNow("/party/", { storage: s, now: 10_000, go: () => {} });
+    expect(hopNow("/lobby/", { storage: s, now: 11_250, go: () => {} })).toBe(false);
+    expect(hopWait(readHop(s), 11_250)).toBe(HOP_GAP_MS - 1250);
+    expect(hopWait(readHop(s), 10_000 + HOP_GAP_MS)).toBe(0);
+    expect(hopWait(null, 5)).toBe(0);
+    expect(hopWait({ at: 50_000 }, 10_000)).toBe(0);
+    // When the wait is over it goes.
+    const went = [];
+    expect(hopNow("/lobby/", { storage: s, now: 10_000 + HOP_GAP_MS, go: (to) => went.push(to) })).toBe(true);
+    expect(went).toEqual(["/lobby/"]);
+  });
+
+  it("goes at once on a tap, guard or not, and leaves the note for the page it goes to", () => {
+    const s = store();
+    hopNow("/party/", { storage: s, now: 10_000, go: () => {} });
+    const went = [];
+    expect(hopNow("/lobby/", { storage: s, now: 10_100, force: true, text: "Ann moved the party here", go: (to) => went.push(to) })).toBe(true);
+    expect(went).toEqual(["/lobby/"]);
+    expect(readHop(s)).toMatchObject({ at: 10_100, to: "/lobby/", text: "Ann moved the party here" });
   });
 
   it("hops without a guard where nothing can be stored", () => {

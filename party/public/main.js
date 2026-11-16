@@ -50,10 +50,17 @@ function build() {
   const screen = link.you?.role === "screen";
   if (wide()) document.documentElement.classList.add("as-screen");
   const top = h("header", "top", "", app);
-  // The room's own name is the page's heading.
-  const brand = h("h1", "brand", "", top);
+  // The room's own name is the page's heading, and under it one plain line: who chooses the
+  // room, or for a few seconds what just happened (notes take its place, so they never cover
+  // anything on the page).
+  const title = h("div", "title", "", top);
+  const brand = h("h1", "brand", "", title);
   h("span", "brand-mark", "", brand);
   h("span", "", modeTitle("turn-based"), brand);
+  const line = h("p", "line", "", title);
+  line.setAttribute("aria-live", "polite");
+  const lineText = h("span", "line-text", "", line);
+  const lineNote = h("span", "line-note", "", line);
   const status = h("p", "status", "", top);
   status.setAttribute("role", "status");
   const leave = h("button", "leave", "", top);
@@ -64,8 +71,9 @@ function build() {
 
   const grid = h("div", "grid", "", app);
 
-  // The switch between the two rooms. On the big screen it sits in the bar at the top, so the
-  // code and everyone's names fit on the screen without scrolling.
+  // The switch between the two rooms, for the one who holds the controls only (update): anyone
+  // else reads who chooses in the line under the heading. On the big screen it sits in the bar
+  // at the top, so the code and everyone's names fit on the screen without scrolling.
   const rooms = h("section", "panel rooms", "", wide() ? top : grid);
   if (wide()) top.insertBefore(rooms, status);
   rooms.setAttribute("aria-label", "Waiting room");
@@ -80,7 +88,6 @@ function build() {
     option.addEventListener("click", () => switchTo(mode));
     return option;
   });
-  const who = h("p", "switch-who", "", rooms);
   const why = h("p", "switch-why", "", rooms);
   why.setAttribute("role", "alert");
   why.hidden = true;
@@ -111,9 +118,7 @@ function build() {
   h("h2", "", `${modeTitle("turn-based").replace(/^The /, "")} games are coming`, soon);
   h("p", "", `Games you play in turns, each on your own phone, will be chosen here. Until then the party can wait here, or go back to ${MODE_NAME["party-games"]}.`, soon);
 
-  const notes = h("div", "notes", "", app);
-  notes.setAttribute("aria-live", "polite");
-  ui = { status, options, who, why, digits, qr, where, count, list, notes, shown: "" };
+  ui = { status, rooms, options, line, lineText, lineNote, why, digits, qr, where, count, list, shown: "" };
   void fillQr();
 }
 
@@ -153,9 +158,12 @@ function update() {
     option.setAttribute("aria-disabled", String(!host || here));
     option.textContent = going ? "Moving..." : modeTitle(option.dataset.mode);
   }
-  ui.options[0].parentElement.classList.toggle("locked", !host);
+  // Only the one who holds the controls gets the switch; it looks flat while it cannot be used.
+  ui.rooms.hidden = !host;
+  document.documentElement.classList.toggle("holds-controls", host);
+  ui.options[0].parentElement.classList.toggle("locked", !!modeLocked(room));
   const name = holder();
-  ui.who.textContent = host ? "You choose the room for everyone." : name ? `${name} chooses the room for everyone.` : "The one who started the party chooses the room.";
+  ui.lineText.textContent = host ? "You choose the room" : name ? `${name[0].toUpperCase()}${name.slice(1)} chooses the room` : "The one who started the party chooses the room";
   ui.digits.textContent = room.pin ?? "----";
   ui.digits.setAttribute("aria-label", `Code ${(room.pin ?? "").split("").join(" ")}`);
   // Who is here, in seat order, then the big screen.
@@ -164,7 +172,8 @@ function update() {
   if (key !== ui.shown) {
     ui.shown = key;
     ui.list.textContent = "";
-    for (const m of members) ui.list.append(personRow(m));
+    // Every seat, taken or free, so the list shows how many more can join.
+    for (const m of room.members) ui.list.append(m ? personRow(m) : freeRow());
     if (room.screens > 0 || room.picker?.seat === -1) ui.list.append(screenRow());
     ui.count.textContent = `${members.length} of ${room.members.length}`;
   }
@@ -184,6 +193,13 @@ function personRow(m) {
   return li;
 }
 
+function freeRow() {
+  const li = h("li", "person free");
+  h("span", "dot", "", li);
+  h("span", "person-name", "A free seat", h("span", "person-words", "", li));
+  return li;
+}
+
 function screenRow() {
   const li = h("li", `person screen${room.screens > 0 ? "" : " gone"}`);
   h("span", "screen-icon", "", li).append(icon(TV_ICON, 18));
@@ -195,13 +211,16 @@ function screenRow() {
   return li;
 }
 
-/** A short line at the foot of the page that goes by itself. */
+/**
+ * A short note ("Cy joined") in the line under the heading for a few seconds, in place of who
+ * chooses the room: it takes no space of its own, so it never covers anything.
+ */
 function note(text) {
   if (!ui || !text) return;
-  const el = h("p", "note", text, ui.notes);
-  setTimeout(() => el.classList.add("going"), NOTE_MS);
-  setTimeout(() => el.remove(), NOTE_MS + 400);
-  while (ui.notes.children.length > 3) ui.notes.firstChild.remove();
+  ui.lineNote.textContent = text;
+  ui.line.classList.add("noting");
+  clearTimeout(note.timer);
+  note.timer = setTimeout(() => ui.line.classList.remove("noting"), NOTE_MS);
 }
 
 /** Why a tap on the switch did nothing, under it, for a moment. */

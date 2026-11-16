@@ -128,7 +128,8 @@ export class RoomMenu {
     this.update(this.room);
     // While the room is resting after a change, the words count down.
     this.ticker = setInterval(() => this.update(this.room), 500);
-    done.focus();
+    // Focused without scrolling: a picker taller than the screen opens at its top, with its title in view.
+    done.focus({ preventScroll: true });
   }
 
   /** The host's way to the plain waiting room, under the rooms. */
