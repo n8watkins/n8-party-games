@@ -6,7 +6,7 @@
 //     &shot=vote|count|toss|off|empty|live  the moment (default vote: four pieces mid-vote; live: the
 //                                    wall as it hangs today, with the games that are not built yet dark)
 //     &look=baked                    the baked look (../baked/room-baked.js) on today's wall of five boxes
-//     &look=real                     the Star Lounge made real (./rendered/), on the same wall; &rung=, &ladder=off as in the room
+//     &look=real                     the room made real (./rendered/: room=ship or room=bar), on the same wall; &rung=, &ladder=off as in the room
 //     &as=screen|player              the big screen's bottom line, or a player's buttons (seat 2)
 //     &zoom=room|closer              a player's view
 //     &bare=1                        no bottom line or buttons at all
@@ -101,7 +101,8 @@ function fixture() {
 const app = document.getElementById("app");
 const phone = () => Math.min(innerWidth, innerHeight) < 520;
 const room = fixture();
-const View = baked ? (await import("../baked/room-baked.js")).RoomBaked : real ? (await import("./rendered/star-lounge/room.js")).RoomStarLounge : Room3D;
+// A rendered room is the one the skin has (rendered/switch.js): the Star Lounge (room=ship) or the bar (room=bar).
+const View = baked ? (await import("../baked/room-baked.js")).RoomBaked : real ? await (await import("./rendered/switch.js")).RENDERED[query.get("room") ?? "bar"].load() : Room3D;
 const view3d = await View.open(app, {
   boxes: N,
   concept: true,

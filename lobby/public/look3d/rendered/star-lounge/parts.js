@@ -8,7 +8,7 @@
 import { boxCentre } from "../../../shared/world.js";
 import { CAM, D_WALL, SPACE, U, wallX, wallY } from "../../space.js";
 import * as THREE from "../../three.js";
-import { canvasTexture, card, seeded } from "../plate.js";
+import { beamMaterial, canvasTexture, card, seeded } from "../plate.js";
 
 /** The names of the lights in the plate, in the order of the room picture's uniforms. */
 export const LIGHTS = ["lamp0", "lamp1", "lamp2", "lamp3", "lamp4", "strips", "holo"];
@@ -16,22 +16,8 @@ export const LIGHTS = ["lamp0", "lamp1", "lamp2", "lamp3", "lamp4", "strips", "h
 /** The colours of the Star Lounge's numbers (lobby/tools/blender/star-lounge.json) as three.js colours. */
 export const colours = (cfg) => ({ accent: new THREE.Color().setRGB(...cfg.accent), lamp: new THREE.Color().setRGB(...cfg.lampColour), pink: new THREE.Color(0xff5fb0) });
 
-/** A beam of light from a lamp: brightest where it is seen face on, fading at both ends. */
-export const beamMaterial = (colour, { depthTest = false } = {}) =>
-  new THREE.ShaderMaterial({
-    transparent: true,
-    depthWrite: false,
-    depthTest,
-    blending: THREE.AdditiveBlending,
-    side: THREE.FrontSide,
-    uniforms: { uStrength: { value: 0 }, uColor: { value: colour.clone() } },
-    vertexShader: `varying vec3 vN; varying vec3 vV; varying float vH;
-      void main(){ vec4 mv = modelViewMatrix * vec4(position, 1.0); vN = normalize(normalMatrix * normal); vV = normalize(-mv.xyz); vH = uv.y; gl_Position = projectionMatrix * mv; }`,
-    fragmentShader: `uniform float uStrength; uniform vec3 uColor; varying vec3 vN; varying vec3 vV; varying float vH;
-      void main(){ float f = pow(abs(dot(normalize(vN), normalize(vV))), 1.6);
-        float along = smoothstep(0.0, 0.06, vH) * smoothstep(1.0, 0.5, vH);
-        gl_FragColor = vec4(uColor * uStrength * f * along, 1.0); }`,
-  });
+/** A beam of light from a lamp (rendered/plate.js: every rendered room's). */
+export { beamMaterial };
 
 /**
  * One lamp: its rendered card hung from a pivot in the ceiling (it swings about that), its glow,

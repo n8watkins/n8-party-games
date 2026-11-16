@@ -206,59 +206,14 @@ export class RoomStarLounge extends RoomRendered {
     return { passing: this.world?.passing ?? null, next: this.sky?.nextAt ?? null, now: this.sky?.now?.thing.name ?? null, T: this.skyT };
   }
 
-  /**
-   * For checks (lobby/test/shoot-real.mjs): does a passing thing change any pixel that is not glass,
-   * anywhere along its way? This moment of the room is drawn with an empty sky, then only its glass
-   * (in white), then with `name` at each of `steps` + 1 points of its way, and the pixels each
-   * changed are counted, with how many of those are not glass. Nothing else moves between the drawings.
-   */
-  leaks(name, steps = 12) {
-    const gl = this.renderer.getContext();
-    const [w, h] = [gl.drawingBufferWidth, gl.drawingBufferHeight];
-    const grab = () => {
-      const px = new Uint8Array(w * h * 4);
-      gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, px);
-      return px;
-    };
-    const T = this.skyT ?? 0;
-    const put = (ev) => {
-      this.world.step(T, 0, ev);
-      this.draw();
-    };
-    put(null);
-    const empty = grab();
-    // The pieces were dressed for this picture once (dressing is done to a fresh pose each frame); not again.
-    this.dressPieces = () => {};
-    this.shellMat.uniforms.uProbe.value = 1;
-    this.renderer.setScissorTest(false);
-    this.renderer.clear();
-    this.renderer.render(this.shellMesh, this.camera);
-    const glass = grab();
-    this.shellMat.uniforms.uProbe.value = 0;
-    let panes = 0;
-    for (let i = 0; i < glass.length; i += 4) if (glass[i] > 0) panes++;
-    const changed = [];
-    const leaked = [];
-    let worst = 0;
-    for (let s = 0; s <= steps; s++) {
-      put({ thing: { name }, u: s / steps, held: true, start: 0 });
-      const full = grab();
-      let [c, l] = [0, 0];
-      for (let i = 0; i < empty.length; i += 4) {
-        const d = Math.max(Math.abs(empty[i] - full[i]), Math.abs(empty[i + 1] - full[i + 1]), Math.abs(empty[i + 2] - full[i + 2]));
-        if (!d) continue;
-        c++;
-        if (glass[i] === 0) {
-          l++;
-          worst = Math.max(worst, d);
-        }
-      }
-      changed.push(c);
-      leaked.push(l);
-    }
-    delete this.dressPieces;
-    this.idle = 0;
-    return { changed, leaked, worst, glass: panes, pixels: w * h };
+  /** For leaks() (rendered/room-rendered.js): a passing thing at one point of its way. */
+  passAt(name, u) {
+    return { thing: { name }, u, held: true, start: 0 };
+  }
+
+  /** For leaks(): what is outside, drawn this instant with `ev` passing and nothing else moving. */
+  putOutside(ev) {
+    this.world.step(this.skyT ?? 0, 0, ev);
   }
 
   fallBack(note) {

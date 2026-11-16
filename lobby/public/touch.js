@@ -62,6 +62,7 @@ export class TouchSpots {
         const w = boxWidth(n);
         const spot = this.spot(`About ${box.name}`, { x: boxCentre(i, n) - w / 2, y: POSTER.top, w, h: POSTER.bottom - POSTER.top }, () => this.poster(box), "poster");
         spot.box = box;
+        spot.i = i;
         return spot;
       }),
     ];
@@ -125,11 +126,16 @@ export class TouchSpots {
     setTimeout(() => this.el.classList.remove("hinting"), 6000);
   }
 
-  /** Every frame: puts each spot over its thing for the part of the room on the screen. Only touches the page when that changes. */
+  /**
+   * Every frame: puts each spot over its thing for the part of the room on the screen. Only touches the page when that changes.
+   * A drawing whose picture has the sign, the board and the posters somewhere else (the bar made real, a painting) says
+   * where, in world units, as `touchPlaces`: {key, sign, board, posters: [{x, y, w, h}]}.
+   */
   place(view, scene) {
     const life = scene?.life;
     const spotX = scene?.look === "3d" && life?.feature ? life.spotX : null;
-    const key = [view.x, view.y, view.width, innerWidth, spotX].map((n) => Math.round(n ?? -1)).join();
+    const own = scene?.touchPlaces ?? null;
+    const key = [view.x, view.y, view.width, innerWidth, spotX].map((n) => Math.round(n ?? -1)).join() + (own ? `/${own.key}` : "");
     if (key === this.key) return;
     this.key = key;
     const k = innerWidth / view.width;
@@ -138,7 +144,7 @@ export class TouchSpots {
       if (spotX !== null) this.feature.at.x = spotX - FEATURE.w / 2;
     }
     for (const s of this.spots) {
-      const { x, y, w, h: hh } = s.at;
+      const { x, y, w, h: hh } = (own && (s.kind === "poster" ? own.posters?.[s.i] : own[s.kind])) || s.at;
       s.el.style.transform = `translate(${((x - view.x) * k).toFixed(1)}px, ${((y - view.y) * k).toFixed(1)}px)`;
       s.el.style.width = `${(w * k).toFixed(1)}px`;
       s.el.style.height = `${(hh * k).toFixed(1)}px`;
