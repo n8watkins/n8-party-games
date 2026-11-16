@@ -38,9 +38,15 @@
           <h1 id="doorsTitle" class="sticker" tabindex="-1">How do you want to play?</h1>
           <p class="top-line">Party games for friends in one room. Free, no app, no sign-up.</p>
         </div>
-        <div class="doors" id="doors"></div>
+        <!-- The three ways in as plain links, for a page whose script has not run (or cannot):
+             home.js replaces them with the doors. -->
+        <div class="doors doors-plain" id="doors">
+          <a class="door-link" data-kind="room" href="/lobby/?start"><b>In the room</b><span>Start a party</span></a>
+          <a class="door-link" data-kind="table" href="/table/"><b>Round the table</b><span>Start a party at the Table</span></a>
+          <a class="door-link" data-kind="device" href="/one-device/hot-potato/"><b>Pass one device</b><span>Play Hot Potato</span></a>
+        </div>
         <noscript>
-          <p class="top-line">The doors and the games need JavaScript. Turn it on to play.</p>
+          <p class="top-line">The games need JavaScript. Turn it on to play.</p>
         </noscript>
 
         <footer class="made" aria-labelledby="madeTitle">
@@ -67,7 +73,7 @@
         </div>
         <div class="room-grid">
           <figure class="room-pic">
-            <img src="/art/room-light.webp" alt="The party room: four pieces gather in the light under Cork &amp; Bell's lamp, beside the party code on the wall." width="960" height="960" />
+            <img src="/art/room-light.webp" alt="The party room: four pieces gather in the light under Cork &amp; Bell's lamp, beside the party code on the wall." width="960" height="960" loading="lazy" />
           </figure>
           <div class="room-side">
             <p class="in-line" id="roomInside"></p>
@@ -106,7 +112,7 @@
           <div class="meta" id="gamesNeeds"></div>
           <div class="table-start" id="tableStart" hidden>
             <div class="d-actions">
-              <a class="btn btn-go" href="/table/">Start a party at the Table</a>
+              <a class="btn btn-go" id="tableGo" href="/table/">Start a party at the Table</a>
               <button class="btn btn-alt" type="button" data-join>Join with a code</button>
             </div>
             <p class="d-note" id="tableNote"></p>

@@ -69,3 +69,22 @@ describe("a party that already has its screen", () => {
     expect(doorPlan({ small: false, starting: true, as: "screen", screenTaken: true })).toMatchObject({ as: "screen", choice: "cards", note: "" });
   });
 });
+
+describe("a way in for the Table (the front page's /table/)", () => {
+  it("names the Table and says nothing of a QR code on a wall", () => {
+    for (const small of [true, false]) {
+      const plan = doorPlan({ small, starting: true, as: "player", room: "turn-based" });
+      expect(plan.title).toBe("Start a party at the Table");
+      expect(plan.sub).not.toMatch(/QR|wall/);
+      expect(plan.sub).toBe("You get a room and a code. Friends join with the code on their phones.");
+    }
+  });
+
+  it("leaves the party room's own way in as it was", () => {
+    for (const room of [undefined, null, "party-games"]) {
+      const plan = doorPlan({ small: false, starting: true, as: "player", room });
+      expect([plan.title, plan.sub]).toEqual(["Start a party", "You get a room and a code. Friends join with the code or the QR code on the wall."]);
+      expect(doorPlan({ small: false, starting: false, as: "player", room }).sub).toBe("It is on the sign by the door in the room.");
+    }
+  });
+});

@@ -52,3 +52,35 @@ export const gamesOf = (model, kind) => model[kind] ?? [];
 
 /** Whether any game at the Table can be picked there today. */
 export const tablePlays = (model) => model.table.some((g) => g.status === "table");
+
+/** The status of a game that plays behind a door itself: in the room, at the Table, on this device. */
+const HERE = { room: "room", table: "table", device: "page" };
+
+/**
+ * What a door's peek says about its games: `here` play behind that door today ("Now"),
+ * `elsewhere` play today but somewhere else (Who Am I? on its own site, not in the room and not
+ * at the Table), and `soon` are not built yet.
+ */
+export function peekOf(kind, games) {
+  const here = games.filter((g) => g.status === HERE[kind]);
+  const elsewhere = games.filter((g) => isLive(g.status) && g.status !== HERE[kind]);
+  const soon = games.filter((g) => !isLive(g.status));
+  return { here, elsewhere, soon };
+}
+
+/**
+ * The Table door's way to start: when a game can be picked at the Table, starting a party there
+ * is the main button; when none can, the note saying so leads, and the start is a plain button.
+ * Flips by itself the day the wall gains a Table game.
+ * @returns {{lead: "start" | "note", note: string}}
+ */
+export function tableStart(model) {
+  const ownSite = model.table.filter((g) => g.status === "own-site").map((g) => g.name);
+  const soon = model.table.filter((g) => g.status === "soon").map((g) => g.name);
+  const plays = tablePlays(model);
+  const lines = [];
+  if (plays) lines.push("The host picks a game at the Table, and everyone plays it together. Friends join with the code.");
+  else lines.push(`No game plays at the Table yet${soon.length ? `: ${soon.join(" and ")} ${soon.length > 1 ? "are" : "is"} on the way` : ""}.`);
+  if (ownSite.length) lines.push(`${ownSite.join(" and ")} ${ownSite.length > 1 ? "play" : "plays"} today on ${ownSite.length > 1 ? "their own sites" : "its own site"}.`);
+  return { lead: plays ? "start" : "note", note: lines.join(" ") };
+}

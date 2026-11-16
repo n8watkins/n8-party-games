@@ -1,7 +1,7 @@
 // The front page never offers what the site does not serve. What it calls playable comes from
 // the production wall (lobby/wall.js, copied by the build to /home-wall.js) and from the
 // one-device games' own pages; every way out it offers is a page the site serves.
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { HOME_WALL_PATH, SERVED, SOURCES, homeWall, homeWallModule } from "../../scripts/build-public.mjs";
@@ -11,7 +11,7 @@ import * as paperMasksRules from "../../party/games/paper-masks/rules.js";
 import { tableGame } from "../../party/games/table-game.js";
 import { MAX_PLAYERS, MIN_PLAYERS } from "../../one-device/hot-potato/public/game.js";
 import { KINDS, LINKS, ONE_DEVICE } from "../home-data.js";
-import { homeModel, isLive } from "../home-model.js";
+import { homeModel, isLive, peekOf, tableStart } from "../home-model.js";
 
 /** The site page a path names, as a file the build copies: "/one-device/hot-potato/" -> its index.html. */
 function servedPage(path) {
@@ -113,6 +113,86 @@ describe("what the front page says is playable", () => {
   it("gives Hot Potato the player counts of its own rules", () => {
     const potato = ONE_DEVICE.find((g) => g.id === "hot-potato");
     expect([potato.min, potato.max]).toEqual([MIN_PLAYERS, MAX_PLAYERS]);
+  });
+});
+
+/** The wall the day Paper Masks can be started at the Table (as the test above builds it). */
+function wallWithPaperMasks() {
+  const paperMasks = { manifest: { id: "paper-masks", name: "Paper Masks", path: "/party/", players: { min: paperMasksRules.MIN_PLAYERS, max: paperMasksRules.MAX_PLAYERS }, public: [], table: { view: "games/paper-masks.js" } }, game: tableGame(paperMasksRules) };
+  const turn = buildTurnWall([paperMasks]);
+  return { ...WALL, table: turn.table, games: new Map([...WALL.games, ...turn.games]) };
+}
+/** The wall with no game the Table can start: Paper Masks still coming. */
+const wallWithoutTableGame = () => ({ ...WALL, table: WALL.table.map((e) => (e.id === "paper-masks" ? { ...e, soon: true } : e)) });
+const ids = (games) => games.map((g) => g.id);
+
+describe("what each door's peek calls Now", () => {
+  it("is only a game that plays behind that door: Who Am I? plays on its own site, not in the room or at the Table", async () => {
+    const model = await modelFrom(wallWithoutTableGame());
+    const room = peekOf("room", model.room);
+    expect(ids(room.here)).toEqual(["cork-and-bell"]);
+    expect(ids(room.elsewhere)).toEqual(["who-am-i"]);
+    const table = peekOf("table", model.table);
+    expect(ids(table.here)).toEqual([]);
+    expect(ids(table.elsewhere)).toEqual(["who-am-i"]);
+    expect(ids(table.soon)).toEqual(["paper-masks"]);
+    expect(ids(peekOf("device", model.device).here)).toEqual(["hot-potato"]);
+  });
+
+  it("calls Paper Masks Now at the Table by itself the day the Table can start it", async () => {
+    const table = peekOf("table", (await modelFrom(wallWithPaperMasks())).table);
+    expect(ids(table.here)).toEqual(["paper-masks"]);
+    expect(ids(table.elsewhere)).toEqual(["who-am-i"]);
+    expect(ids(table.soon)).toEqual([]);
+  });
+});
+
+describe("the Table door's way to start", () => {
+  it("leads with the note, not the start, while no game plays at the Table", async () => {
+    const start = tableStart(await modelFrom(wallWithoutTableGame()));
+    expect(start.lead).toBe("note");
+    expect(start.note).toBe("No game plays at the Table yet: Paper Masks is on the way. Who Am I? plays today on its own site.");
+  });
+
+  it("leads with the start by itself the day a game plays at the Table", async () => {
+    const start = tableStart(await modelFrom(wallWithPaperMasks()));
+    expect(start.lead).toBe("start");
+    expect(start.note).toMatch(/^The host picks a game at the Table/);
+  });
+
+  it("follows the production wall today", async () => {
+    const model = await modelFrom(WALL);
+    expect(tableStart(model).lead).toBe(model.table.some((g) => g.status === "table") ? "start" : "note");
+  });
+});
+
+describe("the front page's HTML before its script runs", () => {
+  const html = readFileSync(resolve(import.meta.dirname, "..", "index.html"), "utf8");
+
+  it("holds the three ways in as plain links, to where the doors lead", () => {
+    const doors = html.match(/<div class="doors[^"]*" id="doors">([\s\S]*?)<\/div>/)?.[1] ?? "";
+    const links = [...doors.matchAll(/href="([^"]+)"/g)].map(([, href]) => href);
+    expect(links).toEqual([LINKS.floorStart, LINKS.tableStart, ONE_DEVICE[0].path]);
+    for (const path of links) expect(servedPage(new URL(path, "https://x.invalid").pathname), path).toBe(true);
+  });
+
+  it("loads the room's picture lazily, inside a hidden view", () => {
+    expect(html).toMatch(/<img src="\/art\/room-light\.webp"[^>]*loading="lazy"/);
+  });
+});
+
+describe("the web app manifest", () => {
+  const manifest = JSON.parse(readFileSync(resolve(import.meta.dirname, "..", "manifest.webmanifest"), "utf8"));
+
+  it("names n8games in the front page's words and colours, any way up", () => {
+    expect([manifest.name, manifest.short_name]).toEqual(["n8games", "n8games"]);
+    expect(manifest.description).toBe("Party games for friends in one room. Free, no app, no sign-up.");
+    expect(manifest.description).not.toMatch(/two to four/i);
+    expect(manifest.orientation).toBe("any");
+    const css = readFileSync(resolve(import.meta.dirname, "..", "site.css"), "utf8");
+    // The navy the front page has by night.
+    expect(css).toContain(`--ground: ${manifest.theme_color};`);
+    expect(manifest.background_color).toBe(manifest.theme_color);
   });
 });
 

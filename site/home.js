@@ -9,15 +9,24 @@
 //
 // Which door is open is kept in the address (#room, #table, #device), so the back button closes
 // it. Everything is drawn with DOM calls (no inline styles or scripts: the site's CSP allows none).
+import { passLookup } from "/lobby/door-handoff.js";
 import { CHARACTERS } from "/lobby/shared/characters.js";
 import { FLOOR, TABLE } from "/home-wall.js";
 import { FLOATERS, LINKS, ROOM_VOTE } from "./home-data.js";
-import { gamesOf, homeModel, isLive, playersText, tablePlays } from "./home-model.js";
+import { gamesOf, homeModel, isLive, peekOf, playersText, tableStart } from "./home-model.js";
 
 const model = homeModel({ FLOOR, TABLE });
 const $ = (id) => document.getElementById(id);
 const ART = (name) => `/art/${name}${/\.\w+$/.test(name) ? "" : ".webp"}`;
 const reduced = () => matchMedia("(prefers-reduced-motion: reduce)").matches;
+/** This tab's sessionStorage, or null where the browser refuses it. */
+const session = () => {
+  try {
+    return sessionStorage;
+  } catch {
+    return null;
+  }
+};
 const wideQuery = matchMedia("(min-width: 860px)");
 const isWide = () => wideQuery.matches;
 
@@ -96,18 +105,20 @@ const metaOf = (g, opts = {}) => h("span", "meta", "", h("span", "chip", "", ICO
 
 // ---------------------------------------------------------------- the three doors
 
-/** What is behind a door, said in a few words: the games playable now, then what is coming. */
-function peekOf(games) {
-  const live = games.filter((g) => isLive(g.status));
-  const soon = games.filter((g) => !isLive(g.status));
-  return { live, soon, soonWords: soon.length === 1 ? `${soon[0].name} soon` : soon.length ? `${soon.length} more coming` : "" };
-}
+/** Where a game that plays somewhere other than behind its door plays, in two words. */
+const ELSEWHERE = { "own-site": "Own site", page: "Own page" };
+const elsewhereWords = (g) => (g.status === "own-site" ? `${g.name} on its own site` : `${g.name} on its own page`);
 
 function drawDoors() {
   const doors = $("doors");
+  // The plain links the HTML holds for a page whose scripts did not run give way to the doors.
+  doors.replaceChildren();
+  doors.classList.remove("doors-plain");
   for (const k of model.kinds) {
     const games = gamesOf(model, k.id);
-    const { live, soon, soonWords } = peekOf(games);
+    // "Now" only for a game that plays behind this door; Who Am I? says it plays on its own site.
+    const { here, elsewhere, soon } = peekOf(k.id, games);
+    const soonWords = soon.length === 1 ? `${soon[0].name} soon` : soon.length ? `${soon.length} more coming` : "";
     const door = h("button", "door");
     door.type = "button";
     door.dataset.kind = k.id;
@@ -130,14 +141,16 @@ function drawDoors() {
     const needs = h("span", "door-needs", "", ...k.needs.map((n) => h("span", "", "", ICON[NEED[n][0]](), NEED[n][1])));
 
     // The games inside, for a screen reader in one sentence; on screen as chips (wide) or a line (phone).
-    const said = [...live.map((g) => `${g.name}, playable now`), ...soon.map((g) => `${g.name}, coming soon`)].join("; ");
+    const said = [...here.map((g) => `${g.name}, playable now`), ...elsewhere.map((g) => `${elsewhereWords(g)}, playable now`), ...soon.map((g) => `${g.name}, coming soon`)].join("; ");
     const chips = h("span", "peek-chips");
-    for (const g of live) chips.append(h("span", "peek-game", "", face(g, "peek-face"), h("span", "peek-name", g.name), h("span", "peek-state", "Now")));
+    for (const g of here) chips.append(h("span", "peek-game", "", face(g, "peek-face"), h("span", "peek-name", g.name), h("span", "peek-state", "Now")));
+    for (const g of elsewhere) chips.append(h("span", "peek-game is-elsewhere", "", face(g, "peek-face"), h("span", "peek-name", g.name), h("span", "peek-state", ELSEWHERE[g.status])));
     if (soon.length === 1) chips.append(h("span", "peek-game is-soon", "", face(soon[0], "peek-face"), h("span", "peek-name", soon[0].name), h("span", "peek-state", "Soon")));
     else if (soon.length) chips.append(h("span", "peek-game is-soon peek-more", "", h("span", "peek-name", `${soon.length} more`), h("span", "peek-state", "Soon")));
     chips.setAttribute("aria-hidden", "true");
-    const names = h("span", "peek-names", live.map((g) => g.name).join(", "));
-    if (soonWords) names.append(live.length ? ", " : "", h("i", "", soonWords));
+    const names = h("span", "peek-names", here.map((g) => g.name).join(", "));
+    const asides = [...elsewhere.map(elsewhereWords), soonWords].filter(Boolean);
+    asides.forEach((words, i) => names.append(here.length || i ? ", " : "", h("i", "", words)));
     const compact = h("span", "peek-compact", "", h("span", "peek-faces", "", ...games.slice(0, 3).map((g) => face(g, "peek-face"))), names);
     compact.setAttribute("aria-hidden", "true");
     const peek = h("span", "peek", "", h("span", "sr", `Inside: ${said}.`), chips, compact);
@@ -160,10 +173,14 @@ function drawRoom() {
   $("roomNeeds").append(...room.needs.map(needChip));
   $("roomStart").href = LINKS.floorStart;
   $("roomVote").append(...ROOM_VOTE.map((s) => h("li", "", s)));
+  // Coming-soon games with no picture yet are folded into one line, not shown as lettered plates.
+  const folded = model.room.filter((g) => g.status === "soon" && !g.tile);
   for (const g of model.room) {
+    if (folded.includes(g)) continue;
     const item = h("li", `wall-game${isLive(g.status) ? " is-live" : ""}`, "", face(g, "wall-art"), h("span", "wall-info", "", h("span", "wall-name", g.name), h("span", "wall-line", g.line), metaOf(g, { room: true })));
     $("roomWall").append(item);
   }
+  if (folded.length) $("roomWall").append(h("li", "wall-more", `and ${folded.length} more on the way`));
   // The characters a player can be today, from the room's own list (lobby/shared/characters.js).
   for (const c of CHARACTERS) {
     const pic = h("img");
@@ -171,6 +188,7 @@ function drawRoom() {
     pic.alt = "";
     pic.width = 60;
     pic.height = 64;
+    pic.loading = "lazy";
     pic.addEventListener("error", () => pic.remove(), { once: true });
     $("roomPieces").append(h("li", "piece", "", pic, h("span", "piece-name", c.name), h("span", "piece-move", MOVE[c.move] ?? String(c.move ?? "").replace(/^./, (l) => l.toUpperCase()))));
   }
@@ -189,13 +207,12 @@ function drawTableStart(kindId) {
   const strip = $("tableStart");
   strip.hidden = kindId !== "table";
   if (strip.hidden) return;
-  const ownSite = model.table.filter((g) => g.status === "own-site").map((g) => g.name);
-  const soon = model.table.filter((g) => g.status === "soon").map((g) => g.name);
-  const lines = [];
-  if (tablePlays(model)) lines.push("The host picks a game at the Table, and everyone plays it together. Friends join with the code.");
-  else lines.push(`No game plays at the Table yet${soon.length ? `: ${soon.join(" and ")} ${soon.length > 1 ? "are" : "is"} on the way` : ""}.`);
-  if (ownSite.length) lines.push(`${ownSite.join(" and ")} ${ownSite.length > 1 ? "play" : "plays"} today on ${ownSite.length > 1 ? "their own sites" : "its own site"}.`);
-  $("tableNote").textContent = lines.join(" ");
+  // With no game to pick at the Table, the note leads and the start is not the main button.
+  const { lead, note } = tableStart(model);
+  strip.dataset.lead = lead;
+  $("tableGo").classList.toggle("btn-go", lead === "start");
+  $("tableGo").classList.toggle("btn-alt", lead !== "start");
+  $("tableNote").textContent = note;
 }
 
 function drawGames(kindId) {
@@ -280,12 +297,14 @@ function drawDetail(g) {
     art.alt = "";
     art.width = 720;
     art.height = 405;
+    art.loading = "lazy";
     wrap.append(art);
   } else wrap.append(face({ ...g, tile: null }, "d-art"));
   if (g.piece) {
     const piece = h("img", "d-piece");
     piece.src = ART(`fl-${g.piece}`);
     piece.alt = "";
+    piece.loading = "lazy";
     wrap.append(piece);
   }
   const name = h("h2", "d-name", g.name);
@@ -472,19 +491,24 @@ $("joinForm").addEventListener("submit", async (e) => {
     joinCode.focus();
   };
   if (!/^\d{4}$/.test(code)) return fail(code ? "A code is four digits. Check your friend's screen." : "Type the four digits from your friend's screen.");
-  // Asked once, so a mistyped code is said here and not after a name is typed for nothing.
-  // If the room does not answer, the party room's own way in tries it.
+  // Asked once, so a mistyped code or a full party is said here, not after a name is typed for
+  // nothing. The answer goes along to the party room's way in, which then does not ask again:
+  // every look-up counts against the limit on guessing codes that friends on one Wi-Fi share
+  // (lobby/public/door-handoff.js). If the room does not answer, the way in asks it itself.
   joinGo.disabled = true;
-  let known = true;
+  let res = null;
+  let data = null;
   try {
-    const res = await fetch(`/api/lobby/join/${code}`);
-    const data = await res.json().catch(() => null);
-    known = !(data?.error === "not_found" || res.status === 404);
+    res = await fetch(`/api/lobby/join/${code}`);
+    data = await res.json().catch(() => null);
   } catch {
-    known = true;
+    // No answer: the way in tries.
   }
   joinGo.disabled = false;
-  if (!known) return fail("No party has that code right now. Check the four digits.");
+  if (data?.error === "not_found" || res?.status === 404) return fail("No party has that code right now. Check the four digits.");
+  if (data?.error === "rate_limited") return fail(typeof data.message === "string" ? data.message : "Too many tries. Wait a few minutes and try again.");
+  if (data?.preview?.full) return fail("This party is full: every seat is taken. Start a party of your own, or ask the host.");
+  if (data?.preview) passLookup(session(), code, data.preview);
   location.assign(LINKS.join(code));
 });
 document.addEventListener("click", (e) => {
@@ -498,10 +522,24 @@ document.addEventListener("click", (e) => {
 document.addEventListener("pointerdown", (e) => {
   if (!joinPop.hidden && !joinPop.contains(e.target) && !e.target.closest("#joinOpen, [data-join]")) closeJoin({ refocus: false });
 });
+// Tabbing out of the code box closes it, as a click outside does: backwards to the page behind
+// it, or forwards past its last button, from where the page's order goes on after "Join".
+joinPop.addEventListener("focusout", (e) => {
+  const to = e.relatedTarget;
+  if (to && !joinPop.contains(to) && !to.closest("#joinOpen")) closeJoin({ refocus: false });
+});
+joinPop.addEventListener("keydown", (e) => {
+  if (e.key !== "Tab" || e.shiftKey || e.target !== $("joinClose")) return;
+  closeJoin({ refocus: false });
+  // Not prevented: the Tab itself then moves on from the button that opened the box.
+  $("joinOpen").focus({ preventScroll: true });
+});
+// Escape closes what is on top: the code box, then a game's card, then the open door.
 document.addEventListener("keydown", (e) => {
-  if (e.key !== "Escape") return;
+  if (e.key !== "Escape" || e.defaultPrevented) return;
   if (!joinPop.hidden) closeJoin();
   else if (document.body.dataset.sheet === "open") closeSheet();
+  else if (shown !== "doors") leave();
 });
 
 // ---------------------------------------------------------------- wide or narrow
