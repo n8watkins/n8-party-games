@@ -20,9 +20,13 @@ The browser's own speech service may send what it hears to its maker.
    Wrong or too slow: it gets worse by one stage and the potato passes on.
 5. Every verdict has one appeal ("That was right" on a refusal, "That was wrong" on an acceptance), usable until the next turn starts, because recognisers mishear.
    An appeal on the fifth miss can still save it in the moment before it bursts.
+   House rule: the group has the last word, so any refused word can be called right, even one the game is sure is not in the category.
+   The only exception is a refusal with no word in it (silence, or nothing readable such as "???"), which offers no "That was right": there would be nothing to put in the chain.
 6. The fifth miss bursts it; the end screen names who it burst on and shows the chain, with Play again and Change setup.
+   Each new round starts with the next player along.
 
 Escape (or the pause button) pauses; a hidden page pauses by itself, and listening stops until Go on.
+While paused, the game behind the pause box is inert (Tab stays in the box), and Go on puts the keyboard back where it was.
 The screen is kept on during a round where the browser allows it (Wake Lock).
 
 ## Listening, and typing instead
@@ -31,6 +35,10 @@ Chrome, Edge and Safari can listen (the Web Speech API).
 Where the browser cannot (Firefox, some in-app browsers), the start screen says so and every word is typed instead.
 When the microphone is refused, or listening fails, the round goes on by typing and the start screen says how to allow the microphone.
 "Type it instead" switches one round to typing, for a loud room.
+
+A turn never waits for ever on the microphone.
+The fuse is lit when the recogniser says it has started; if it has not after 4 seconds, that turn is typed instead, saying why, and the next turn listens again.
+When a recognition session ends having heard nothing, the next starts by itself; sessions that end almost at once are restarted with a growing wait (150 ms, doubling, at most 2 s), and after 4 of those in a row, or 12 restarts in one turn, that turn is typed instead.
 
 ## Files
 
@@ -50,17 +58,21 @@ When the microphone is refused, or listening fails, the round goes on by typing 
 
 The potato is drawn in code in the bold, flat, outlined cartoon style of the art picker's "Specimen", and follows what the owner asked of it:
 
-- An ordinary potato merged with a machine, with no face, ever: a steel plate with one status light, two plugs and their cables, a tether from the plate to the stand, and faint circuit traces under the skin.
-- It grows and strains; nothing is bolted on.
-  Every part exists from the first frame, placed by one seed in the body's own coordinates, so the same pores sit in the same places at every stage and only stretch.
-  What appears later is only a consequence of growth: cables pulled straight, creases where they pull, the tether tilting the plate, stretch marks opening, pores glowing through thinner skin, the stand's rod sagging, the frame bowing where it is pushed.
+- An ordinary potato merged with a machine, with no face, ever: a steel plate with a status lamp (a wide pill in a dark bezel, with vent slots, so it reads as a readout and never as an eye), two plugs and their cables, a tether from the plate to the stand, and faint circuit traces under the skin.
+- It grows and strains; nothing is bolted on, and nothing first appears as it grows.
+  Every part is drawn from the calm start, placed by one seed in the body's own coordinates, so the same pores sit in the same places at every stage and only stretch.
+  The marks that tell of strain are there from the start, faint and closed: a pucker where each cable meets the skin, short stretch lines, a faint glow in each pore.
+  Growth only deepens them: the creases fan out as the cables pull straight, the stretch lines open and glow, the pores brighten; the tether tilts the plate, the stand's rod sags, and once it presses on the frame both sides bow out together.
+  The browser test checks that every stage draws exactly the same parts.
+- It stays a potato: it grows rounder and lumpier (knobs all round that swell, bulging over the ends of its stand), not into a flat slab.
 - A proper, framed starting point: at first it sits small and calm in its bay, on its stand.
 - Growth is one continuous value the stages ease between (with a little cartoon bounce), not swapped pictures.
 - Cute and bold, pulsing, never shaking: the only idle motion is a scale about where it rests, slow when healthy and quicker as it strains.
 - The light goes green, dim green, yellow, orange, red, then dark when it bursts.
-  Getting worse lets out a puff of steam; a right answer makes it settle; the burst throws chunks that land in the bay and leaves a pile of mash on the stand.
+  Getting worse lets out a puff of steam; a right answer makes it settle; the burst pops a splat that shrinks away at full colour, throws chunks that land inside the bay, and leaves a pile of mash on the stand.
 
 With reduced motion it does not breathe or bounce, the steam is skipped and the burst shows its end at once.
+It is redrawn only while something moves: still on the start screen, still once the burst has settled, still while paused, and the browser does not draw a hidden page.
 
 ### The seam for other art
 
@@ -71,8 +83,9 @@ A picture-based renderer (painted stages matching this design) can replace the c
 ## Tests
 
 - `npm test` runs `test/game.test.js` (the rules against the real lists) and `test/potato.test.js` (the geometry against the owner's rules).
-- `node one-device/hot-potato/test/e2e-game.mjs --base=http://localhost:PORT` plays the game in a headless, muted Chromium against a built site served on that port (run it through `devguard slot --`), with a scripted fake recogniser: whole rounds to the burst in cities (by taps, on a phone) and animals (by keys, on a desktop), the typed fallback, a blocked microphone, pause and a hidden page, what is remembered, storage refused, reduced motion, and the layout at 390x844, 320x568, 844x390 and 1280x720.
-  It saves stills of every stage of the potato in `--shots` (default `/tmp/claude-hot-potato-game/shots`).
-- The hearing test's own tests (`lab/hot-potato/README.md`) cover the matcher and the lists.
+- `npm run test:hot-potato -- --base=http://localhost:PORT` (`node one-device/hot-potato/test/e2e-game.mjs`) plays the game in a headless, muted Chromium against a built site served on that port (run it through `devguard slot --`), with a scripted fake recogniser: whole rounds to the burst in cities (by taps, on a phone) and animals (by keys, on a desktop), the typed fallback, a blocked microphone, three broken recognisers (one that never starts, one that ends at once, one that starts and aborts), pause (and that it holds the keyboard) and a hidden page, what is remembered, storage refused, reduced motion, that the potato is not redrawn when nothing moves, and the layout at 390x844, 320x568, 844x390 and 1280x720.
+  It saves stills of every stage of the potato at 390x844 and 1280x720 in `--shots` (default `/tmp/claude-hot-potato-game/shots`).
+- `npm run test:hearing -- --base=http://localhost:PORT` runs the hearing test's browser test; its unit tests (`lab/hot-potato/README.md`) cover the matcher and the lists.
+- Neither browser test is part of the predeploy gate.
 
 Only a real voice and a real phone can judge how well it hears in a noisy room, how the sounds and vibrations feel, and whether Safari on an iPhone restarts listening within a turn without a new tap.

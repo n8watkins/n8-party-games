@@ -30,7 +30,7 @@ import {
 import { CATEGORIES, CATEGORY_IDS, DEFAULT_CATEGORY, dataUrl } from "./shared/categories.js";
 import { buildIndex } from "./shared/logic.js";
 import { STAGE_BUZZ, BUZZ, createSounds } from "./sounds.js";
-import { Recognition, createListener, listenLang } from "./voice.js";
+import { MIC_WAIT_MS, Recognition, createListener, listenLang } from "./voice.js";
 
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
@@ -111,6 +111,11 @@ let screen = "start";
 let mode = Recognition ? "voice" : "typed"; // how answers are given
 let modeWhy = Recognition ? "" : "none"; // why typing: "none", "blocked", "failed", "chosen"
 let listener = null;
+let micTimer = 0; // gives up waiting for the microphone (MIC_WAIT_MS)
+let turnTyped = false; // this turn only is typed (the microphone did not come on, or kept stopping)
+let turnNote = ""; // and why, said on the turn's status line
+let firstNext = 0; // who holds it first in the next round: it goes round the group
+let focusBefore = null; // what had the keyboard before the pause
 let heardNow = "";
 let wakeLock = null;
 let nextTick = 0;
@@ -248,7 +253,9 @@ async function beginRound() {
     mode = "voice";
     modeWhy = "";
   }
-  g = newRound({ index, players: setup.players });
+  g = newRound({ index, players: setup.players, first: firstNext });
+  // The next round starts with the next player along.
+  firstNext = (g.holder + 1) % g.players;
   heardNow = "";
   art.play("reset");
   setScreen("turn");
@@ -263,23 +270,33 @@ function goTurn() {
   if (setup.sound) sounds.wake();
   if (!startTurn(g)) return;
   heardNow = "";
+  turnTyped = false;
+  turnNote = "";
   nextTick = g.fuseMax - 1000;
+  $("g-word").value = "";
   if (mode === "voice") listen();
   else {
     lightFuse(g);
     render();
-    const input = $("g-word");
-    input.value = "";
-    input.focus({ preventScroll: true });
+    $("g-word").focus({ preventScroll: true });
   }
   afterEvents();
 }
 
+/** Whether this turn's word is typed: the round is typed, or this turn had to be. */
+const typing = () => mode === "typed" || turnTyped;
+
 function listen() {
   listener?.abort();
+  clearTimeout(micTimer);
+  // A recogniser that never says it has started would leave the turn waiting for ever.
+  micTimer = setTimeout(() => {
+    if (g?.phase === "listen" && !g.lit && !g.paused) typeThisTurn("The microphone did not come on, so type the word this turn.");
+  }, MIC_WAIT_MS);
   listener = createListener({
     lang: listenLang(),
     onStart: () => {
+      clearTimeout(micTimer);
       lightFuse(g);
       afterEvents();
     },
@@ -297,15 +314,31 @@ function listen() {
       afterEvents();
     },
     onBlocked: () => switchToTyped("blocked"),
-    onFail: () => switchToTyped("failed"),
+    onFail: (code) => (code === "restarts" ? typeThisTurn("Listening kept stopping, so type the word this turn.") : switchToTyped("failed")),
   });
   listener.start();
+}
+
+/** This turn only is typed, with the reason on the status line; the next turn listens again. */
+function typeThisTurn(note) {
+  clearTimeout(micTimer);
+  listener?.abort();
+  turnTyped = true;
+  turnNote = note;
+  if (g?.phase === "listen") {
+    lightFuse(g);
+    $("g-word").value = heardNow;
+  }
+  render();
+  if (g?.phase === "listen") $("g-word").focus({ preventScroll: true });
+  afterEvents();
 }
 
 /** Listening cannot work: the round goes on with typed words, and the turn's fuse is lit. */
 function switchToTyped(why) {
   mode = "typed";
   modeWhy = why;
+  clearTimeout(micTimer);
   listener?.abort();
   if (g?.phase === "listen") {
     lightFuse(g);
@@ -338,6 +371,8 @@ function pause(on) {
   if (!g || screen !== "turn") return;
   if (!setPaused(g, on)) return;
   if (on) {
+    focusBefore = document.activeElement;
+    clearTimeout(micTimer);
     listener?.abort();
     buzz(0);
     sounds.silence();
@@ -345,13 +380,23 @@ function pause(on) {
     // Resuming is a tap, so listening may start again; a half-said word is said again.
     heardNow = "";
     g.speaking = false;
-    if (mode === "voice") {
+    if (!typing()) {
       g.lit = false;
       listen();
-    } else $("g-word").focus({ preventScroll: true });
+    }
   }
   afterEvents();
   if (on) $("p-resume").focus({ preventScroll: true });
+  else restoreFocus();
+}
+
+/** After the pause, the keyboard goes back where it was, or to what the turn needs now. */
+function restoreFocus() {
+  const before = focusBefore;
+  focusBefore = null;
+  const usable = (el) => el && el.isConnected && !el.disabled && !el.closest("[hidden]") && el.getClientRects().length > 0;
+  const target = g?.phase === "listen" && typing() ? $("g-word") : usable(before) && before !== document.body ? before : $("g-go");
+  if (usable(target)) target.focus({ preventScroll: true });
 }
 $("g-pause").addEventListener("click", () => pause(true));
 $("p-resume").addEventListener("click", () => pause(false));
@@ -382,6 +427,7 @@ function letScreenSleep() {
 }
 
 function endRound() {
+  clearTimeout(micTimer);
   listener?.abort();
   buzz(0);
   sounds.silence();
@@ -464,8 +510,11 @@ function stampLetter() {
 // ---- Drawing the screen ------------------------------------------------------------------------
 
 function render() {
-  game.dataset.paused = g?.paused ? "yes" : "no";
-  $("g-paused").hidden = !(g?.paused && screen === "turn");
+  const paused = Boolean(g?.paused && screen === "turn");
+  game.dataset.paused = paused ? "yes" : "no";
+  $("g-paused").hidden = !paused;
+  // While paused, only the pause box can be reached: the game behind it is inert.
+  game.querySelector(".gi").inert = paused;
   if (screen !== "turn" || !g) {
     renderSetup();
     return;
@@ -525,11 +574,11 @@ function renderStatus() {
       shown = "";
     } else if (first) html = `<span>${esc(playerName(g.holder))} starts: say ${wanted()}.</span>`;
   } else if (g.phase === "listen") {
-    if (mode === "voice") {
+    if (!typing()) {
       html = `<span class="mic${g.lit ? "" : " wait"}" aria-hidden="true"><i></i><i></i><i></i><i></i></span><span>${g.lit ? `Say ${wanted()}` : "Starting the microphone"}</span>`;
       shown = heardNow;
       part = true;
-    } else html = `<span>Type ${wanted()}</span>`;
+    } else html = `<span>${turnNote ? `${esc(turnNote)} ` : ""}Type ${wanted()}</span>`;
   } else if (g.phase === "doom") {
     html = verdictLine(g.last);
     cls = "bad";
@@ -554,9 +603,9 @@ function renderActs() {
   const ap = $("g-appeal");
   ap.hidden = !canAppeal(g);
   ap.textContent = g.last?.ok ? "That was wrong" : "That was right";
-  const typing = g.phase === "listen" && mode === "typed";
-  $("g-typed").hidden = !typing;
-  $("g-type").hidden = !(g.phase === "listen" && mode === "voice");
+  const typed = g.phase === "listen" && typing();
+  $("g-typed").hidden = !typed;
+  $("g-type").hidden = !(g.phase === "listen" && !typing());
 }
 
 function renderEnd() {
@@ -604,7 +653,8 @@ function frame(now) {
     }
     art.set(artState(g));
   } else if (screen === "start") {
-    art.set({ stage: 0, growth: 0, strain: 0, light: "#5dff6a", phase: "ready", paused: false });
+    // On the start screen it rests, healthy and still: nothing is redrawn until a round starts.
+    art.set({ stage: 0, growth: 0, strain: 0, light: LIGHTS[0], phase: "idle", paused: false });
   }
   requestAnimationFrame(frame);
 }

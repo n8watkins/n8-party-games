@@ -320,6 +320,21 @@ describe("appeals", () => {
     expect(g.burstOn).toBe(who);
   });
 
+  it("offers no 'that was right' when nothing readable was heard, so no blank word reaches the chain", () => {
+    const g = newRound({ index: cities, players: 2 });
+    play(g, "Paris");
+    go(g);
+    const v = hear(g, [{ transcript: "???", confidence: 1 }], { typed: true });
+    expect(v.ok).toBe(false);
+    expect(canAppeal(g)).toBe(false);
+    expect(appeal(g)).toBe(false);
+    expect(g.chain.map((c) => c.said)).toEqual(["Paris"]);
+    // An empty recogniser result is the same.
+    go(g);
+    hear(g, [{ transcript: "", confidence: 0 }]);
+    expect(canAppeal(g)).toBe(false);
+  });
+
   it("is not offered for silence, nor once the next turn has started", () => {
     const g = newRound({ index: cities, players: 2 });
     silence(g);

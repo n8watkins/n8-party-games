@@ -23,13 +23,6 @@ const set = (node, attrs) => {
   for (const [k, v] of Object.entries(attrs)) node.setAttribute(k, v);
 };
 
-/** A hexagon's points, for the status light. */
-const hex = (x, y, r) =>
-  Array.from({ length: 6 }, (_, i) => {
-    const a = (Math.PI / 3) * i + Math.PI / 6;
-    return `${f(x + Math.cos(a) * r)},${f(y + Math.sin(a) * r)}`;
-  }).join(" ");
-
 /** A chamfered rectangle's outline. */
 const chamfered = (x, y, w, h, c) => `M${x + c} ${y}H${x + w - c}L${x + w} ${y + c}V${y + h - c}L${x + w - c} ${y + h}H${x + c}L${x} ${y + h - c}V${y + c}Z`;
 
@@ -115,8 +108,8 @@ export function createCodePotato(host, { seed = 7, reducedMotion = () => false }
     hole: el(inside, "ellipse", { fill: "#6e4219" }),
     glow: el(inside, "ellipse", { fill: CIRCUIT }),
   }));
-  const marks = spec.marks.map(() => ({ ink: el(inside, "path", { fill: "none", stroke: INK, "stroke-width": "4.5", "stroke-linecap": "round", "stroke-linejoin": "round" }), glow: el(inside, "path", { fill: "none", stroke: CIRCUIT, "stroke-width": "1.8", "stroke-linecap": "round", "stroke-linejoin": "round" }) }));
-  const creases = [0, 1, 2].map(() => el(inside, "path", { fill: "none", stroke: "#8a5a26", "stroke-width": "2.6", "stroke-linecap": "round" }));
+  const marks = spec.marks.map(() => ({ ink: el(inside, "path", { fill: "none", stroke: "#7a4a1f", "stroke-linecap": "round", "stroke-linejoin": "round" }), glow: el(inside, "path", { fill: "none", stroke: CIRCUIT, "stroke-width": "1.6", "stroke-linecap": "round", "stroke-linejoin": "round" }) }));
+  const creases = [0, 1, 2].map(() => el(inside, "path", { fill: "none", stroke: "#8a5a26", "stroke-linecap": "round" }));
   const outline = el(body, "path", { fill: "none", stroke: INK, "stroke-width": "7", "stroke-linejoin": "round" });
   const cables = spec.plugs.map((p) => ({
     ink: el(body, "path", { fill: "none", stroke: INK, "stroke-width": "10", "stroke-linecap": "round" }),
@@ -130,9 +123,13 @@ export function createCodePotato(host, { seed = 7, reducedMotion = () => false }
   // Two clips that hold it to the skin.
   el(plateG, "path", { d: chamfered(-10, -33, 20, 12, 3), fill: "#8c929b", stroke: INK, "stroke-width": "4" });
   el(plateG, "path", { d: chamfered(-10, 21, 20, 12, 3), fill: "#8c929b", stroke: INK, "stroke-width": "4" });
-  const lampGlow = el(plateG, "circle", { cx: 8, cy: 1, r: 26, fill: `url(#hp-glow-${id})` });
-  const lamp = el(plateG, "polygon", { points: hex(8, 1, 12), stroke: INK, "stroke-width": "4", "stroke-linejoin": "round" });
-  el(plateG, "polygon", { points: hex(5, -2, 4), fill: "#fff", opacity: "0.7" });
+  // The status lamp: a wide pill in a dark bezel at the plate's top right, with vent slots below,
+  // a readout on a panel rather than anything like an eye.
+  const lampGlow = el(plateG, "ellipse", { cx: 13, cy: -9, rx: 26, ry: 16, fill: `url(#hp-glow-${id})` });
+  el(plateG, "path", { d: chamfered(-6, -17, 38, 17, 4), fill: "#2b2826", stroke: INK, "stroke-width": "3.5", "stroke-linejoin": "round" });
+  const lamp = el(plateG, "rect", { x: -2, y: -13.5, width: 30, height: 10, rx: 5 });
+  el(plateG, "rect", { x: 2, y: -12, width: 12, height: 3, rx: 1.5, fill: "#fff", opacity: "0.6" });
+  el(plateG, "path", { d: "M-24 4H-6M-24 10H-6M-24 16H-6M6 8H26M6 14H26", stroke: "#5c6066", "stroke-width": "3", "stroke-linecap": "round", fill: "none" });
   const tetherInk = el(svg, "path", { fill: "none", stroke: INK, "stroke-width": "10", "stroke-linecap": "round" });
   const tether = el(svg, "path", { fill: "none", stroke: "#4b78c2", "stroke-width": "5", "stroke-linecap": "round" });
 
@@ -158,7 +155,8 @@ export function createCodePotato(host, { seed = 7, reducedMotion = () => false }
   const pileFlecks = el(boom, "path", { fill: "none", stroke: SKIN_SHADE, "stroke-width": "4", "stroke-linecap": "round" });
   const fallenPlate = el(boom, "g");
   el(fallenPlate, "path", { d: chamfered(-35, -26, 70, 52, 10), fill: "#aeb2b6", stroke: INK, "stroke-width": "5", "stroke-linejoin": "round" });
-  el(fallenPlate, "polygon", { points: hex(8, 1, 12), fill: "#2b2826", stroke: INK, "stroke-width": "4", "stroke-linejoin": "round" });
+  el(fallenPlate, "path", { d: chamfered(-6, -17, 38, 17, 4), fill: "#2b2826", stroke: INK, "stroke-width": "3.5", "stroke-linejoin": "round" });
+  el(fallenPlate, "path", { d: "M-24 4H-6M-24 10H-6M-24 16H-6M6 8H26M6 14H26", stroke: "#5c6066", "stroke-width": "3", "stroke-linecap": "round", fill: "none" });
   const chunkEls = Array.from({ length: 11 }, () => el(boom, "polygon", { fill: SKIN, stroke: INK, "stroke-width": "4", "stroke-linejoin": "round" }));
 
   const star = (r1, r2, n, seedOff) => {
@@ -241,17 +239,12 @@ export function createCodePotato(host, { seed = 7, reducedMotion = () => false }
       set(pores[i].hole, { cx: f(p.x), cy: f(p.y), rx: f(p.w / 2), ry: f(p.h / 2), transform: rot });
       set(pores[i].glow, { cx: f(p.x), cy: f(p.y + 0.4), rx: f(p.w / 3.4), ry: f(p.h / 3.4), transform: rot, opacity: f(p.glow * (0.75 + (reduce ? 0 : 0.25 * Math.sin(t * 5 + i)))) });
     });
-    // Stretch marks open as the skin is pulled tight.
+    // Stretch marks: always there, faint and closed when calm, deeper and glowing as it is pulled tight.
     shape.marks.forEach((m, i) => {
-      if (m.len < 7) {
-        set(marks[i].ink, { d: "" });
-        set(marks[i].glow, { d: "" });
-        return;
-      }
       const ca = Math.cos(m.angle);
       const sa = Math.sin(m.angle);
       const h = m.len / 2;
-      const k = m.kink * h * m.side * 0.5;
+      const k = m.kink * h * m.side * (0.2 + 0.3 * m.open);
       const pts = [
         [-h, 0],
         [-h * 0.3, k],
@@ -259,18 +252,17 @@ export function createCodePotato(host, { seed = 7, reducedMotion = () => false }
         [h, 0],
       ].map(([x, y]) => `${f(m.x + x * ca - y * sa)} ${f(m.y + x * sa + y * ca)}`);
       const dd = `M${pts.join("L")}`;
-      set(marks[i].ink, { d: dd, "stroke-width": f(2.5 + 2.5 * m.open) });
-      set(marks[i].glow, { d: dd, opacity: f(m.open) });
+      set(marks[i].ink, { d: dd, "stroke-width": f(2 + 2.6 * m.open), opacity: f(0.35 + 0.65 * m.open) });
+      set(marks[i].glow, { d: dd, opacity: f(0.12 + 0.88 * m.open) });
     });
-    // Creases where taut cables pull.
+    // Creases where the cables are set into the skin: a slight pucker, fanning out as they pull.
     shape.creases.forEach((c, i) => {
-      if (c.len < 1) return set(creases[i], { d: "" });
       let dd = "";
       for (const spread of [-0.5, 0, 0.5]) {
         const a = c.toward + Math.PI + spread;
         dd += `M${f(c.x + Math.cos(a) * 12)} ${f(c.y + Math.sin(a) * 12)}L${f(c.x + Math.cos(a) * (12 + c.len))} ${f(c.y + Math.sin(a) * (12 + c.len))}`;
       }
-      set(creases[i], { d: dd });
+      set(creases[i], { d: dd, "stroke-width": f(1.8 + 1.2 * c.pull), opacity: f(0.45 + 0.55 * c.pull) });
     });
     // Cables and plugs.
     shape.cables.forEach((c, i) => {
@@ -292,7 +284,7 @@ export function createCodePotato(host, { seed = 7, reducedMotion = () => false }
     set(lamp, { fill: target.light });
     set(glowStop0, { "stop-color": target.light });
     set(glowStop1, { "stop-color": target.light });
-    set(lampGlow, { opacity: f(clamp01(blink + flare * 0.6)), r: f(26 + 16 * flare) });
+    set(lampGlow, { opacity: f(clamp01(blink + flare * 0.6)), rx: f(26 + 14 * flare), ry: f(16 + 8 * flare) });
     set(wash, { cx: f(shape.plate.x), cy: f(shape.plate.y), r: f(95 + 40 * flare), opacity: f(0.08 + 0.08 * blink + 0.15 * flare) });
     // Steam, when it gets worse.
     const st2 = t - steamAt;
@@ -335,7 +327,7 @@ export function createCodePotato(host, { seed = 7, reducedMotion = () => false }
     set(legsInk, { d: legPath });
     set(legs, { d: legPath });
     set(flash, { r: f(b.flash.r), opacity: f(b.flash.opacity) });
-    set(splat, { opacity: f(b.splat.opacity) });
+    set(splat, { visibility: b.splat.scale > 0.01 ? "visible" : "hidden" });
     set(splatOuter, { points: scaled(SPLAT[0], b.splat.scale, 200, 205) });
     set(splatMid, { points: scaled(SPLAT[1], b.splat.scale, 200, 205) });
     set(splatCore, { points: scaled(SPLAT[2], b.splat.scale, 200, 205) });
@@ -352,7 +344,22 @@ export function createCodePotato(host, { seed = 7, reducedMotion = () => false }
     set(wash, { opacity: "0" });
   }
 
+  /**
+   * Whether anything on screen is moving: the eased values, the breathing (not when idle on the
+   * start screen, nor with reduced motion), a moment playing, or the burst still flying. Paused,
+   * nothing moves.
+   */
+  function moving() {
+    if (target.paused) return false;
+    const easing = ["growth", "strain"].some((k) => Math.abs(target[k] - shown[k]) > 1e-4) || Math.abs(shown.vg) > 1e-4 || Math.abs(shown.vs) > 1e-4;
+    if (easing) return true;
+    if (burstAt !== null) return !stillMotion() && clock - burstAt < 2;
+    if (stillMotion()) return false;
+    return target.phase !== "idle" || clock - settleAt < 0.9 || clock - steamAt < 1.5;
+  }
+
   function step(now) {
+    raf = 0;
     if (!alive) return;
     const dt = last ? Math.min(0.05, (now - last) / 1000) : 0;
     last = now;
@@ -371,17 +378,32 @@ export function createCodePotato(host, { seed = 7, reducedMotion = () => false }
         }
       }
     }
-    draw();
-    raf = requestAnimationFrame(step);
+    if (dirty || moving()) {
+      dirty = false;
+      draw();
+      draws++;
+    }
+    // Nothing moving and nothing new: the loop stops until set() or play() changes something.
+    if (moving()) raf = requestAnimationFrame(step);
+    else last = 0;
   }
-  raf = requestAnimationFrame(step);
+  let dirty = true;
+  let draws = 0;
+  const wake = () => {
+    if (!raf && alive) raf = requestAnimationFrame(step);
+  };
+  wake();
 
   return {
-    /** The game's state for the art (artState in game.js). */
+    /** The game's state for the art (artState in game.js). Redraws only when something changed. */
     set(state) {
+      const changed = Object.keys(state).some((k) => target[k] !== state[k]);
+      if (!changed) return;
       Object.assign(target, state);
       if (state.phase !== "burst" && burstAt !== null) burstAt = null;
       host.dataset.stage = String(state.stage ?? "");
+      dirty = true;
+      wake();
     },
     /** A moment: "right", "worse", "burst" or "reset". */
     play(event) {
@@ -394,11 +416,12 @@ export function createCodePotato(host, { seed = 7, reducedMotion = () => false }
         Object.assign(shown, { growth: 0, strain: 0, vg: 0, vs: 0 });
         Object.assign(target, { growth: 0, strain: 0 });
       }
-      draw();
+      dirty = true;
+      wake();
     },
-    /** What is drawn now, for tests and stills: the eased values and whether it has burst. */
+    /** What is drawn now, for tests and stills: the eased values, whether it has burst, and how many times it has been drawn. */
     look() {
-      return { growth: shown.growth, strain: shown.strain, burst: burstAt !== null, burstFor: burstAt === null ? 0 : clock - burstAt };
+      return { growth: shown.growth, strain: shown.strain, burst: burstAt !== null, burstFor: burstAt === null ? 0 : clock - burstAt, draws, running: Boolean(raf) };
     },
     destroy() {
       alive = false;

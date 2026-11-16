@@ -8,6 +8,16 @@
 
 export const Recognition = typeof window !== "undefined" ? window.SpeechRecognition || window.webkitSpeechRecognition || null : null;
 export const MAX_ALTERNATIVES = 10;
+/** The first restart waits this long; each quick end in a row doubles it, up to RESTART_MAX_MS. */
+const RESTART_MS = 150;
+const RESTART_MAX_MS = 2000;
+/** A session shorter than this heard nothing and was not really listening. */
+const QUICK_MS = 1000;
+/** This many quick ends in a row, or this many restarts in one turn, and listening gives up. */
+const MAX_QUICK = 4;
+const MAX_RESTARTS = 12;
+/** How long the page waits for the microphone to come on before the turn is typed instead. */
+export const MIC_WAIT_MS = 4000;
 
 /** The recogniser's language: the browser's own English, or US English. */
 export function listenLang(nav = navigator) {
@@ -29,6 +39,8 @@ export function createListener({ lang = "en-US", onStart, onSpeech, onInterim, o
   let wanted = false;
   let started = false;
   let restartTimer = 0;
+  let restarts = 0; // sessions started again within this turn
+  let quick = 0; // sessions in a row that ended almost at once
 
   function session() {
     if (!wanted) return;
@@ -84,10 +96,21 @@ export function createListener({ lang = "en-US", onStart, onSpeech, onInterim, o
       }
       // "no-speech" and "aborted": the session ends; "end" starts the next if still wanted.
     });
+    const born = Date.now();
     r.addEventListener("end", () => {
       if (rec !== r) return;
       rec = null;
-      if (wanted && !final) restartTimer = setTimeout(session, 120);
+      if (!wanted || final) return;
+      // A session that ended at once (aborted by the browser, refused quietly) is not listening:
+      // wait longer before each new one, and give up after a few in a row.
+      quick = Date.now() - born < QUICK_MS ? quick + 1 : 0;
+      restarts++;
+      if (quick >= MAX_QUICK || restarts > MAX_RESTARTS) {
+        wanted = false;
+        onFail?.("restarts");
+        return;
+      }
+      restartTimer = setTimeout(session, Math.min(RESTART_MAX_MS, RESTART_MS * 2 ** quick));
     });
     try {
       r.start();
@@ -104,6 +127,8 @@ export function createListener({ lang = "en-US", onStart, onSpeech, onInterim, o
       clearTimeout(restartTimer);
       wanted = true;
       started = false;
+      restarts = 0;
+      quick = 0;
       session();
     },
     /** Asks for the final result of what was said so far (the fuse ran out mid-word). */

@@ -11,7 +11,7 @@ Download, in an empty folder of their own:
   https://download.geonames.org/export/dump/alternateNamesV2.zip -> alternateNamesV2.txt
       (GeoNames, CC BY 4.0: the countries and their English names)
 
-Then: python3 -I lab/hot-potato/tools/make-categories.py <download folder> lab/hot-potato/tools lab/hot-potato/public <date fetched>
+Then: python3 -I lab/hot-potato/tools/make-categories.py <download folder> lab/hot-potato/tools one-device/hot-potato/shared <date fetched>
 
 Each output is {category, source, fetched, fields, groups, rows}; a row is
 [name, other names|0, abbreviations|0, well known (1) or hard mode only (0), group number|0],

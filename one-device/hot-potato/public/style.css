@@ -227,9 +227,10 @@ legend { padding: 0; }
 .game[data-paused="yes"] .mic i, .game[data-paused="yes"] .spark { animation-play-state: paused !important; }
 
 /* ---------- Smaller screens ---------- */
-/* Short upright screens: smaller heading, no captions */
+/* Short upright screens: smaller heading, no captions (the end screen keeps its count) */
 @container game (max-height: 640px) and (max-aspect-ratio: 1/1) {
-  .holder .sub, .lede { display: none; }
+  .holder .sub, .v-start .lede { display: none; }
+  .v-end .lede { font-size: 13px; margin-top: 4px; }
   .holder b { font-size: 28px; }
   .tag { --s: 56px; }
   .status { min-height: 1.4em; font-size: 14px; }

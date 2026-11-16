@@ -252,9 +252,16 @@ function burst(g, on) {
   emit(g, "burst", { on });
 }
 
-/** Whether the last verdict can still be appealed: until the next turn starts, once. */
+/** The word a refusal would go into the chain as, if the group says it was right ("" when nothing was heard). */
+const appealedWord = (v) => (v.match?.said || titled(v.heard || "")).trim();
+
+/**
+ * Whether the last verdict can still be appealed: until the next turn starts, once. A refusal can
+ * be called right only when a word was heard (letters, not just "???"): silence, or nothing
+ * the matcher could read, has no word to put in the chain.
+ */
 export const canAppeal = (g) =>
-  Boolean(g.last) && !g.last.appealed && (g.phase === "ready" || g.phase === "doom") && (g.last.ok || g.last.reason !== "slow");
+  Boolean(g.last) && !g.last.appealed && (g.phase === "ready" || g.phase === "doom") && (g.last.ok || /[a-z]/i.test(appealedWord(g.last)));
 
 /**
  * The group says the last verdict was wrong: a refusal becomes a right answer ("that was right"),
@@ -268,7 +275,7 @@ export function appeal(g) {
   g.appeals++;
   if (!v.ok) {
     // That was right: undo the damage and put the word in the chain as said.
-    const said = v.match?.said || titled(v.heard);
+    const said = appealedWord(v);
     const entry = { said, id: v.match?.place?.id ?? null, by: v.by, heard: v.heard, typed: v.typed, group: "", appealed: true };
     addWord(g, entry);
     g.misses = Math.max(0, g.misses - 1);

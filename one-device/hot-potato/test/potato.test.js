@@ -3,7 +3,7 @@
 // as it grows, the frame and stand fixed and only reacting to its size, and a pulse, never a shake.
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { FRAME, STAND, TETHER_SOCKET, burstShape, cable, makeSpecimen, potatoShape, pulseAt, smoothPath } from "../public/potato-draw.js";
+import { FLOOR_Y, FRAME, STAND, TETHER_SOCKET, burstShape, cable, makeSpecimen, potatoShape, pulseAt, smoothPath } from "../public/potato-draw.js";
 
 const spec = makeSpecimen(7);
 const stages = [0, 0.25, 0.5, 0.75, 1].map((growth) => potatoShape({ spec, growth, strain: growth * 0.8 }));
@@ -53,7 +53,37 @@ describe("the potato", () => {
       expect(b.right - b.left).toBeGreaterThan(a.right - a.left);
       expect(b.bottom - b.top).toBeGreaterThan(a.bottom - a.top);
     }
-    for (const s of stages) expect(Math.abs(s.box.bottom - s.restY)).toBeLessThan(4);
+    // It rests on the rod; past the rod's ends it may bulge down over them, never to the floor.
+    for (const s of stages) {
+      expect(s.box.bottom).toBeGreaterThan(s.restY - 4);
+      expect(s.box.bottom).toBeLessThan(FLOOR_Y - 10);
+    }
+  });
+
+  it("stays a potato as it grows: rounder and lumpier, never a flat slab", () => {
+    // A healthy potato is long and low; as it swells it gets rounder, never a wide, flat slab.
+    const ratio = (s) => (s.box.right - s.box.left) / (s.box.bottom - s.box.top);
+    expect(ratio(stages[0])).toBeLessThan(1.65);
+    for (const s of stages.slice(2)) expect(ratio(s), "width to height").toBeLessThan(1.47);
+    for (let i = 3; i < stages.length; i++) expect(ratio(stages[i])).toBeLessThan(ratio(stages[i - 1]));
+    const last = stages[4];
+    expect((last.box.bottom - last.box.top) / (stages[0].box.bottom - stages[0].box.top)).toBeGreaterThan(1.6);
+  });
+
+  it("shows every mark from the calm start, faint and closed, so growth only deepens what was there", () => {
+    for (const [i, s] of stages.entries()) {
+      expect(s.marks.every((m) => m.len > 5), `stage ${i} marks`).toBe(true);
+      expect(s.creases.every((c) => c.len > 3), `stage ${i} creases`).toBe(true);
+      expect(s.pores.every((p) => p.glow > 0.1), `stage ${i} pores`).toBe(true);
+    }
+    const [first, , , , last] = stages;
+    expect(first.marks.every((m) => m.open === 0)).toBe(true);
+    expect(first.creases.every((c) => c.pull === 0)).toBe(true);
+    expect(first.pores.every((p) => p.glow < 0.2)).toBe(true);
+    // At the end the same marks are open, the creases pulled, the pores bright.
+    expect(last.marks.every((m) => m.open > 0.5)).toBe(true);
+    expect(last.creases.some((c) => c.pull > 0.5)).toBe(true);
+    expect(last.pores.every((p) => p.glow > first.pores[0].glow)).toBe(true);
   });
 
   it("starts as a proper, framed starting point: small, calm and well inside its bay", () => {
@@ -62,8 +92,6 @@ describe("the potato", () => {
     expect(s.box.right).toBeLessThan(FRAME.right - FRAME.band - 40);
     expect(s.box.top).toBeGreaterThan(FRAME.top + FRAME.band + 100);
     expect(s.frame.bow).toEqual({ left: 0, right: 0, top: 0 });
-    expect(s.marks.every((m) => m.open === 0)).toBe(true);
-    expect(s.pores.every((p) => p.glow === 0)).toBe(true);
     expect(s.cables.every((c) => c.over === 0 && c.sag > 4)).toBe(true);
   });
 
@@ -74,12 +102,14 @@ describe("the potato", () => {
     expect(last.frame.right).toBe(first.frame.right);
     expect(last.stand.feet).toEqual(first.stand.feet);
     expect(last.stand.base).toEqual(first.stand.base);
-    expect(last.frame.bow.left + last.frame.bow.right).toBeGreaterThan(0);
+    // Pressed on, both sides bow out together: the whole bay strains, not one side.
+    expect(last.frame.bow.left).toBeGreaterThan(5);
+    expect(last.frame.bow.right).toBe(last.frame.bow.left);
+    expect(stages[2].frame.bow.left).toBe(0);
     expect(last.stand.rod.sag).toBeGreaterThan(first.stand.rod.sag);
     // The cables keep their length: slack at first, pulled straight at the end, with creases.
     expect(last.cables.every((c) => c.sag === 0 && c.over > 0)).toBe(true);
-    expect(last.creases.some((c) => c.len > 0)).toBe(true);
-    expect(first.creases.every((c) => c.len === 0)).toBe(true);
+    expect(last.creases.every((c, i) => c.len > first.creases[i].len)).toBe(true);
     first.cables.forEach((c, i) => expect(last.cables[i].length).toBeCloseTo(c.length, 6));
     // The tether goes taut and tilts the plate; its socket on the stand stays put.
     expect(last.tether.to).toEqual([TETHER_SOCKET.x, TETHER_SOCKET.y]);
@@ -87,9 +117,6 @@ describe("the potato", () => {
     // The plate is rigid: the same size at every stage.
     expect(last.plate.w).toBe(first.plate.w);
     expect(last.plate.h).toBe(first.plate.h);
-    // Stretch marks open and pores glow only as the skin is pulled tight.
-    expect(last.marks.some((m) => m.open > 0)).toBe(true);
-    expect(last.pores.some((p) => p.glow > 0)).toBe(true);
   });
 
   it("pulses by scale about where it rests, never shaking sideways", () => {
@@ -134,12 +161,36 @@ describe("the potato", () => {
     const end = burstShape(spec, 3);
     expect(end.flash.opacity).toBe(0);
     expect(end.chunks.every((c) => c.landed)).toBe(true);
+    // Every chunk lies wholly inside the bay, above the frame's bottom band.
     for (const c of end.chunks) {
-      expect(c.x).toBeGreaterThan(FRAME.left + FRAME.band);
-      expect(c.x).toBeLessThan(FRAME.right - FRAME.band);
+      const a = (c.angle * Math.PI) / 180;
+      for (const [px, py] of c.shape) {
+        const x = c.x + px * Math.cos(a) - py * Math.sin(a);
+        const y = c.y + px * Math.sin(a) + py * Math.cos(a);
+        expect(x).toBeGreaterThan(FRAME.left + FRAME.band);
+        expect(x).toBeLessThan(FRAME.right - FRAME.band);
+        expect(y).toBeLessThan(FLOOR_Y + 0.5);
+        // Clear of the chamfered bottom corners too: the inner chamfer cuts off a 45° corner
+        // FRAME.chamfer - 0.4 × FRAME.band across (art-code.js framePath), plus the stroke.
+        const corner = FRAME.chamfer - 0.4 * FRAME.band + 4;
+        expect(x - (FRAME.left + FRAME.band) + (FLOOR_Y - y)).toBeGreaterThan(corner);
+        expect(FRAME.right - FRAME.band - x + (FLOOR_Y - y)).toBeGreaterThan(corner);
+      }
     }
+    // So does the fallen plate (70 by 52, turned by its angle).
+    const p = end.plate;
+    const a = (p.angle * Math.PI) / 180;
+    const reach = 35 * Math.abs(Math.sin(a)) + 26 * Math.abs(Math.cos(a));
+    expect(p.y + reach).toBeLessThan(FLOOR_Y + 0.5);
     expect(burstShape(spec, 3)).toEqual(burstShape(spec, 4));
     expect(end.pile.every(([, y]) => y <= STAND.rodY + 20)).toBe(true);
+  });
+
+  it("pops the splat out and shrinks it away at full colour, never fading it through a muddy mix", () => {
+    const sizes = [0, 0.1, 0.2, 0.4, 0.6, 0.8, 1].map((t) => burstShape(spec, t).splat);
+    for (const s of sizes) expect(Object.keys(s)).toEqual(["scale"]);
+    expect(sizes[3].scale).toBeCloseTo(1);
+    expect(sizes[6].scale).toBe(0);
   });
 
   it("draws a closed, smooth outline", () => {

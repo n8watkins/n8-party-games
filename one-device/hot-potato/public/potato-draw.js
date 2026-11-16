@@ -62,14 +62,12 @@ export function rng(seed) {
 export function makeSpecimen(seed = 7) {
   const r = rng(seed);
   const harmonics = [2, 3, 4, 5].map((n) => ({ n, a: (0.012 + r() * 0.022) * (n === 2 ? 0.6 : 1), phase: r() * Math.PI * 2 }));
-  // The two lumps, upper left and upper right, and a smaller one on the right: where it swells.
-  // A waist between the two upper lumps deepens as they swell, so it grows into a double hump.
-  const lumps = [
-    { at: -2.1 + (r() - 0.5) * 0.2, width: 0.4, base: 0.04, grow: 0.4 },
-    { at: -1.0 + (r() - 0.5) * 0.2, width: 0.38, base: 0.035, grow: 0.5 },
-    { at: 0.3 + (r() - 0.5) * 0.3, width: 0.45, base: 0.02, grow: 0.1 },
-    { at: -1.55, width: 0.22, base: 0, grow: -0.12 },
-  ];
+  // Knobs all round, as on a real potato: each is there from the start, small, and swells as it
+  // grows, so a bigger potato is a lumpier potato, not a new shape. Strongest on top, none on the
+  // underside where it rests.
+  const knobAt = [-2.55, -2.0, -1.5, -0.95, -0.4, 0.25, 2.85];
+  const knobGrow = [0.1, 0.16, 0.08, 0.17, 0.1, 0.07, 0.08];
+  const lumps = knobAt.map((at, i) => ({ at: at + (r() - 0.5) * 0.18, width: 0.24 + r() * 0.1, base: 0.018 + r() * 0.018, grow: knobGrow[i] * (0.85 + r() * 0.3) }));
   // The plate sits on the right of the body's front; the plugs on the left.
   const plate = { u: 0.38, v: 0.06 };
   const plugs = [
@@ -92,7 +90,8 @@ export function makeSpecimen(seed = 7) {
     [[plate.u + 0.1, plate.v + 0.22], [plate.u + 0.1, 0.44], [plate.u + 0.32, 0.44]],
     [[plate.u + 0.26, plate.v - 0.12], [0.7, plate.v - 0.12], [0.7, -0.34 - r() * 0.08]],
   ];
-  // Stretch marks: closed at first (they do not show), opening as the skin is pulled tight.
+  // Stretch marks: faint, short, closed lines from the start, opening and glowing as the skin is
+  // pulled tight.
   const marks = [
     { u: -0.2, v: -0.6, angle: 0.3 },
     { u: 0.12, v: -0.72, angle: -0.2 },
@@ -139,9 +138,9 @@ const SLACK = { plug: 1.32, tether: 1.18 };
 export function potatoShape({ spec = makeSpecimen(), growth = 0, strain = 0, pulse = 0 } = {}) {
   const g = clamp01(growth);
   const s = clamp01(strain);
-  const rx = lerp(RX0, 150, g) * (1 + 0.035 * s);
-  const ry = lerp(RY0, 102, g) * (1 + 0.03 * s);
-  const cx = STAND.cx - 4 * g;
+  const rx = lerp(RX0, 144, g) * (1 + 0.035 * s);
+  const ry = lerp(RY0, 116, g) * (1 + 0.03 * s);
+  const cx = STAND.cx;
   const restY = STAND.rodY + rodSag(g);
   const bottomK = radiusFactor(spec, Math.PI / 2, g);
   // It rests on the rod: a little of its bottom is flattened against it.
@@ -166,7 +165,11 @@ export function potatoShape({ spec = makeSpecimen(), growth = 0, strain = 0, pul
     const theta = (i / N) * Math.PI * 2;
     const k = radiusFactor(spec, theta, g);
     const x = cx + rx * k * Math.cos(theta);
-    const y = Math.min(cy + ry * k * Math.sin(theta), rodY(x, g) + 0.5);
+    // Flattened only where it rests on the rod; past the rod's ends it may bulge down over them
+    // (the limit eases down over 40 units, so the outline has no corner there).
+    const past = smooth(clamp01((Math.abs(x - STAND.cx) - STAND.half) / 40));
+    const limit = lerp(rodY(x, g) + 0.5, FLOOR_Y - 16, past);
+    const y = Math.min(cy + ry * k * Math.sin(theta), limit);
     outline.push(place(x, y));
   }
   const xs = outline.map((p) => p[0]);
@@ -179,7 +182,8 @@ export function potatoShape({ spec = makeSpecimen(), growth = 0, strain = 0, pul
     // A pore stretches along the skin as the skin is pulled: wider, a little flatter.
     const w = 10 * p.size * Math.pow(stretch, 0.6) * (1 + 0.25 * s);
     const h = 5.4 * p.size * Math.pow(stretch, 0.35) * (1 - 0.18 * s);
-    return { x, y, w, h, tilt: p.tilt, glow: clamp01((s - 0.45) / 0.4) };
+    // A faint glow in every pore from the start (the machine inside), brighter as it strains.
+    return { x, y, w, h, tilt: p.tilt, glow: 0.16 + 0.84 * clamp01((s - 0.3) / 0.6) };
   });
   // The plate is rigid steel: it moves with the skin but keeps its size. The tether can tilt it.
   const [px, py] = at(spec.plate.u, spec.plate.v);
@@ -195,14 +199,19 @@ export function potatoShape({ spec = makeSpecimen(), growth = 0, strain = 0, pul
   const tether = cable(tetherFrom, [TETHER_SOCKET.x, TETHER_SOCKET.y], rest.tether * SLACK.tether);
   // A taut tether pulls the plate's lower edge toward the socket.
   plate.angle = 10 * clamp01(tether.over * 4);
-  // Creases: where a taut cable pulls the skin, short lines fan out from its plug.
-  const creases = cables.map((c) => ({ x: c.plug[0], y: c.plug[1], toward: Math.atan2(c.to[1] - c.from[1], c.to[0] - c.from[0]), len: 26 * clamp01(c.over * 3) }));
-  creases.push({ x: plate.x - plate.w / 2, y: plate.y, toward: Math.PI, len: 22 * clamp01(Math.max(...cables.map((c) => c.over)) * 3) });
+  // Creases: where a cable is set into the skin there is always a little pucker; as the cable is
+  // pulled taut the lines fan out longer and deeper. `pull` 0 to 1.
+  const creases = cables.map((c) => {
+    const pull = clamp01(c.over * 3);
+    return { x: c.plug[0], y: c.plug[1], toward: Math.atan2(c.to[1] - c.from[1], c.to[0] - c.from[0]), len: 5 + 21 * pull, pull };
+  });
+  const platePull = clamp01(Math.max(...cables.map((c) => c.over)) * 3);
+  creases.push({ x: plate.x - plate.w / 2, y: plate.y, toward: Math.PI, len: 5 + 17 * platePull, pull: platePull });
   const traces = spec.traces.map((run) => run.map(([u, v]) => at(u, v)));
   const marks = spec.marks.map((m) => {
-    const open = clamp01((s - 0.55) / 0.4);
+    const open = clamp01((s - 0.35) / 0.55);
     const [x, y] = at(m.u, m.v);
-    return { x, y, angle: m.angle, len: 30 * open * stretch * 0.7, open, kink: m.kink, side: m.side };
+    return { x, y, angle: m.angle, len: (9 + 20 * open) * Math.sqrt(stretch), open, kink: m.kink, side: m.side };
   });
   return {
     growth: g,
@@ -264,20 +273,19 @@ export function cable(from, to, length) {
 }
 
 /**
- * The frame stays where it is; where the potato presses past its inner edge, that side bows out
- * (and the top bar up) by the amount it is pushed. `bow` is in drawing units for each side.
+ * The frame stays where it is; once the potato presses on its sides, both sides bow out together
+ * (it pushes outward, so the whole bay strains), and the top bar bows up if it reaches that.
+ * `bow` is in drawing units; `press` 0 to 1 is how hard it presses, for the strain lines.
  */
 export function frameShape(box) {
   const inner = { left: FRAME.left + FRAME.band, right: FRAME.right - FRAME.band, top: FRAME.top + FRAME.band };
-  const room = 6;
-  const push = (over) => Math.min(16, Math.max(0, over) * 0.45);
+  const room = 22;
+  const push = (over) => Math.min(14, Math.max(0, over) * 0.6);
+  const side = push(Math.max(inner.left + room - box.left, box.right - (inner.right - room)));
   return {
     ...FRAME,
-    bow: {
-      left: push(inner.left + room - box.left),
-      right: push(box.right - (inner.right - room)),
-      top: push(inner.top + room - box.top),
-    },
+    bow: { left: side, right: side, top: push(inner.top + room - box.top) },
+    press: clamp01(side / 10),
   };
 }
 
@@ -357,15 +365,16 @@ export function burstShape(spec, t) {
     const gravity = 1300;
     let x = cx + vx * t;
     let y = cy + vy * t + 0.5 * gravity * t * t;
-    const floor = FLOOR_Y - size * 0.45;
+    // Resting on the floor, wholly inside the bay (a chunk reaches about 1.15 × size from its middle).
+    const floor = FLOOR_Y - size * 0.95;
     let landed = false;
     if (y > floor) {
       y = floor;
       landed = true;
     }
-    // Clear of the frame's chamfered corners.
-    const minX = FRAME.left + FRAME.chamfer + size;
-    const maxX = FRAME.right - FRAME.chamfer - size;
+    // Clear of the frame's chamfered corners (a chunk reaches about 1.15 × size from its middle).
+    const minX = FRAME.left + FRAME.chamfer + 1.3 * size + 8;
+    const maxX = FRAME.right - FRAME.chamfer - 1.3 * size - 8;
     // The time it lands: from then it stays where it fell.
     const tl = (-vy + Math.sqrt(vy * vy + 2 * gravity * (floor - cy))) / gravity;
     if (landed) x = cx + vx * tl;
@@ -391,11 +400,14 @@ export function burstShape(spec, t) {
   const grow = smooth(clamp01(t / 0.35));
   return {
     flash: { r: 40 + 260 * clamp01(t / 0.5), opacity: clamp01(1 - t / 0.6) },
-    splat: { scale: smooth(clamp01(t / 0.18)) * (1 - 0.25 * clamp01((t - 0.3) / 0.6)), opacity: clamp01(1.4 - t / 0.9) },
+    // The splat pops out, holds, then shrinks away at full strength: it never fades through a
+    // half-transparent, muddy colour.
+    splat: { scale: smooth(clamp01(t / 0.18)) * (1 - smooth(clamp01((t - 0.45) / 0.35))) },
     chunks,
     pile: pile.map(([x, y]) => [cx + (x - cx) * grow, STAND.rodY + 10 + (y - STAND.rodY - 10) * grow]),
     pileShown: grow,
-    plate: { x: 252 + 20 * smooth(clamp01(t / 0.7)), y: lerp(240, FLOOR_Y - 20, smooth(clamp01(t / 0.7))), angle: 24 * smooth(clamp01(t / 0.7)) },
+    // The plate (52 high) comes to rest on the floor at a slant, inside the bay.
+    plate: { x: 262 + 14 * smooth(clamp01(t / 0.7)), y: lerp(240, FLOOR_Y - 36, smooth(clamp01(t / 0.7))), angle: 14 * smooth(clamp01(t / 0.7)) },
     stand: standShape(0.4),
     frame: frameShape({ left: 200, right: 200, top: 200, bottom: 200 }),
   };

@@ -50,8 +50,23 @@ const fake = () => {
     }
     start() {
       window.__starts++;
-      const steps = window.__turns.shift() ?? [[700, "error", "no-speech"]];
       const at = (ms, fn) => this.timers.push(setTimeout(fn, ms));
+      // Broken recognisers, as the review found them: one whose start() does nothing at all, one
+      // that ends at once aborted before it starts, and one that starts and then aborts at once.
+      if (window.__broken === "silent") return;
+      if (window.__broken === "abort-at-once" || window.__broken === "start-then-abort") {
+        if (window.__broken === "start-then-abort") {
+          at(5, () => this.fire("start"));
+          at(10, () => this.fire("audiostart"));
+        }
+        at(20, () => {
+          this.fire("error", { error: "aborted" });
+          this.finish();
+        });
+        return;
+      }
+      // Nothing scripted: a quiet room. Chrome gives up after some seconds of silence.
+      const steps = window.__turns.shift() ?? [[5000, "error", "no-speech"]];
       at(5, () => this.fire("start"));
       at(20, () => this.fire("audiostart"));
       let t = 20;
@@ -190,7 +205,27 @@ async function still(page, name) {
   // The steam of getting worse has blown away by now.
   await page.waitForTimeout(1300);
   await page.locator("#pot").screenshot({ path: `${SHOTS}/${name}.png` });
+  return drawnParts(page);
 }
+
+/**
+ * Which parts of the potato's body are drawn now, by their place among the body's shapes: a path
+ * with a line to draw, a shape with a size, neither hidden nor fully transparent. Every stage must
+ * draw the same parts: nothing may first appear as it grows.
+ */
+const drawnParts = (page) =>
+  page.evaluate(() => {
+    const shapes = [...document.querySelectorAll("#pot .body path, #pot .body ellipse, #pot .body circle, #pot .body rect, #pot .body polygon")];
+    return shapes
+      .map((el, i) => {
+        const a = (n) => el.getAttribute(n);
+        const sized = el.tagName === "path" ? Boolean(a("d")) : el.tagName === "ellipse" ? Number(a("rx")) > 0 && Number(a("ry")) > 0 : el.tagName === "circle" ? Number(a("r")) > 0 : true;
+        const shown = a("opacity") === null || Number(a("opacity")) > 0;
+        return sized && shown ? i : -1;
+      })
+      .filter((i) => i >= 0)
+      .join(",");
+  });
 
 const noSideways = (page, w) => page.evaluate((w) => Math.max(document.documentElement.scrollWidth, document.body.scrollWidth, window.innerWidth) - w, w);
 /** Every visible control inside the screen (nothing cut off at the edges). */
@@ -245,6 +280,12 @@ for (const [name, viewport] of SIZES) {
     await page.screenshot({ path: `${SHOTS}/${name}-${what}.png` });
   };
   await look("start");
+  // On the start screen the potato rests: once drawn, nothing is redrawn.
+  await page.waitForTimeout(500);
+  const idle = await page.evaluate(() => window.__hotPotato.art.look());
+  await page.waitForTimeout(1000);
+  const idleLater = await page.evaluate(() => window.__hotPotato.art.look());
+  check(idleLater.draws === idle.draws && !idleLater.running, `${name}: the start screen does not redraw the potato every frame (${idle.draws} then ${idleLater.draws} draws)`);
   await page.click('#s-cats [data-cat="food"]');
   await look("start-food");
   await start(page, "cities", 8);
@@ -257,14 +298,32 @@ for (const [name, viewport] of SIZES) {
   await say(page, word("Leopold", 0.4));
   check(await page.isVisible("#g-appeal"), `${name}: a refusal offers its appeal`);
   await look("verdict-appeal");
+  await page.focus("#g-appeal");
   await page.keyboard.press("Escape");
   await page.waitForSelector("#g-paused:not([hidden])");
   await look("paused");
+  // The pause holds the keyboard: Tab never reaches the game behind it.
+  const inside = [];
+  for (let i = 0; i < 7; i++) {
+    await page.keyboard.press("Tab");
+    inside.push(await page.evaluate(() => Boolean(document.activeElement?.closest("#g-paused")) || document.activeElement === document.body));
+  }
+  const reachable = await page.evaluate(() => document.querySelector(".gi").inert);
+  check(inside.every(Boolean) && reachable, `${name}: Tab stays in the pause box; the game behind it is inert`);
+  // Paused, the potato is not redrawn.
+  const pausedDraws = await page.evaluate(() => window.__hotPotato.art.look().draws);
+  await page.waitForTimeout(700);
+  check((await page.evaluate(() => window.__hotPotato.art.look().draws)) === pausedDraws, `${name}: paused, the potato is not redrawn`);
   await page.click("#p-resume");
+  check(await page.evaluate(() => document.activeElement?.id === "g-appeal"), `${name}: after the pause the keyboard is back where it was (${await page.evaluate(() => document.activeElement?.id)})`);
   for (let i = 0; i < 4; i++) await say(page, word("hello"));
   await waitPhase(page, "over", 12000);
-  await page.waitForTimeout(300);
+  await page.waitForTimeout(2500);
   await look("end");
+  check(await page.isVisible("#e-stats"), `${name}: the end screen says how long it lasted`);
+  const endDraws = await page.evaluate(() => window.__hotPotato.art.look().draws);
+  await page.waitForTimeout(700);
+  check((await page.evaluate(() => window.__hotPotato.art.look().draws)) === endDraws, `${name}: on the end screen, once the burst has settled, the potato is not redrawn`);
   check(errors.length === 0, `${name}: no console errors ${errors.join(" | ")}`);
   await context.close();
 }
@@ -274,7 +333,7 @@ for (const [name, viewport] of SIZES) {
 {
   const { context, page, errors } = await open({ width: 390, height: 844 });
   await start(page, "cities", 3);
-  await still(page, "potato-stage-0");
+  const parts = [await still(page, "potato-stage-0")];
   let r = await say(page, word("Los Angeles"), "tap");
   check(r.last.ok && r.need === "s" && r.holder === 1, `Los Angeles accepted, the next city needs an S, Player 2 holds it (${JSON.stringify(r.last)})`);
   check((await page.textContent("#g-letter")) === "S", "the steel tag shows S");
@@ -286,10 +345,10 @@ for (const [name, viewport] of SIZES) {
   await page.waitForTimeout(350);
   await page.locator("#pot").screenshot({ path: `${SHOTS}/potato-steam.png` });
   check(/"Salmon" is not a city/.test(await page.textContent("#g-status")), "the verdict says plainly why");
-  await still(page, "potato-stage-1");
+  parts.push(await still(page, "potato-stage-1"));
   r = await say(page, word("Paris"), "tap");
   check(!r.last.ok && r.last.reason === "wrong-letter" && r.stage === 2, "Paris on a Y is refused: wrong letter");
-  await still(page, "potato-stage-2");
+  parts.push(await still(page, "potato-stage-2"));
   // The appeal: the group says Leopold was right.
   r = await say(page, word("Yokohama"), "tap");
   check(r.last.ok && r.need === "a", "Yokohama accepted");
@@ -305,7 +364,7 @@ for (const [name, viewport] of SIZES) {
   await page.click("#g-appeal");
   r = await round(page);
   check(r.stage === 3 && r.chain.at(-1) !== "Moscow" && r.need === "m", `"that was wrong" takes Moscow back and it gets worse (stage ${r.stage}, need ${r.need})`);
-  await still(page, "potato-stage-3");
+  parts.push(await still(page, "potato-stage-3"));
   // Silence: the fuse burns down (9 seconds at stage 3... it is 7 at stage 3).
   const fuseStart = Date.now();
   await waitReady(page);
@@ -321,7 +380,8 @@ for (const [name, viewport] of SIZES) {
   check(r.last.reason === "slow" && r.stage === 4 && took >= 6500, `silence: too slow after the 7-second fuse (${took} ms), last life`);
   check(/Too slow/.test(await page.textContent("#g-status")), "the verdict says Too slow");
   check(!(await page.isVisible("#g-appeal")), "no appeal for silence");
-  await still(page, "potato-stage-4");
+  parts.push(await still(page, "potato-stage-4"));
+  check(parts.every((p) => p === parts[0]) && parts[0].split(",").length > 40, `every stage draws the same parts of the potato: nothing first appears as it grows (${parts.map((p) => p.split(",").length).join(", ")} parts)`);
   const who = r.holder;
   r = await say(page, word("Hello"), "tap");
   check(r.phase === "doom", "the last miss: it is going to burst");
@@ -344,6 +404,7 @@ for (const [name, viewport] of SIZES) {
   await waitPhase(page, "ready");
   r = await round(page);
   check(r.stage === 0 && r.chain.length === 0, "Play again starts a fresh round");
+  check(r.holder === 1, `and the next player along starts it (Player ${r.holder + 1})`);
   await still(page, "potato-again");
   await page.click("#g-pause");
   await page.click("#p-quit");
@@ -365,9 +426,23 @@ for (const [name, viewport] of SIZES) {
   check(/Y is a dead end, so E/.test(await page.textContent("#g-status")), "and so does the verdict");
   r = await say(page, word("eagles"), "Enter");
   check(r.last.ok && r.chain.at(-1) === "eagle" && r.need === "e", "Enter starts a turn; eagles is eagle, and the chain goes on from eagle");
-  for (let i = 0; i < 5; i++) r = await say(page, word("table"), "Space");
+  await still(page, "1280-potato-stage-0");
+  for (let i = 0; i < 5; i++) {
+    r = await say(page, word("table"), "Space");
+    if (i === 0) {
+      await page.waitForTimeout(350);
+      await page.locator("#pot").screenshot({ path: `${SHOTS}/1280-potato-steam.png` });
+    }
+    if (i < 4) await still(page, `1280-potato-stage-${i + 1}`);
+  }
   check(r.phase === "doom", "five misses: it is going to burst");
+  await waitPhase(page, "burst", 5000);
+  await page.waitForTimeout(350);
+  await page.locator("#pot").screenshot({ path: `${SHOTS}/1280-potato-burst-0.35s.png` });
   await waitPhase(page, "over", 8000);
+  await page.waitForTimeout(1500);
+  await page.locator("#pot").screenshot({ path: `${SHOTS}/1280-potato-burst.png` });
+  await page.screenshot({ path: `${SHOTS}/1280-end.png` });
   check((await page.textContent("#e-who")) === "Player 1", "it burst on Player 1");
   check(errors.length === 0, `animals: no console errors ${errors.join(" | ")}`);
   await page.close();
@@ -417,8 +492,8 @@ for (const [name, viewport] of SIZES) {
     document.dispatchEvent(new Event("visibilitychange"));
   });
   check(await page.isVisible("#g-paused"), "coming back shows the pause, waiting for a tap");
-  await page.click("#p-resume");
   await page.evaluate(() => window.__turns.push([[100, "interim", "Ger"], [200, "final", [["Germany", 0.9]]]]));
+  await page.click("#p-resume");
   await page.waitForFunction(() => window.__hotPotato.round().phase === "ready", null, { timeout: 10000 });
   const f = await round(page);
   check(f.chain.at(-1) === "Germany" && f.need === "n", `after Go on the word is heard again (Germany; Y is a dead end, so N: ${f.need})`);
@@ -449,6 +524,14 @@ for (const [name, viewport] of SIZES) {
   await waitPhase(page, "ready");
   r = await round(page);
   check(!r.last.ok && /Boston starts with B, not S/.test(r.last.why), `a typed wrong word is refused with the reason (${r.last.why})`);
+  // Nothing readable typed: refused, and no "that was right" (it would put a blank word in the chain).
+  await waitReady(page);
+  await page.tap("#g-go");
+  await page.fill("#g-word", "???");
+  await page.keyboard.press("Enter");
+  await waitPhase(page, "ready");
+  r = await round(page);
+  check(!r.last.ok && !(await page.isVisible("#g-appeal")) && r.chain.join("|") === "Paris", `"???" is refused with no appeal, and the chain keeps only real words (${r.chain.join(", ")})`);
   check(errors.length === 0, `typed: no console errors ${errors.join(" | ")}`);
   await context.close();
 }
@@ -501,6 +584,36 @@ for (const [name, viewport] of SIZES) {
   const look = await page.evaluate(() => ({ ...window.__hotPotato.art.look(), stage: window.__hotPotato.round().stage }));
   check(look.stage === 3 && Math.abs(look.growth - 0.75) < 0.001, `reduced motion: the potato changes at once, without the bounce (stage ${look.stage}, growth ${look.growth.toFixed(3)})`);
   check(errors.length === 0, `reduced motion, no storage: no console errors ${errors.join(" | ")}`);
+  await context.close();
+}
+
+// 8. Broken recognisers: the turn never hangs, and listening is not restarted without end.
+for (const broken of ["silent", "abort-at-once", "start-then-abort"]) {
+  const { context, page, errors } = await open({ width: 390, height: 844 }, [fake, `window.__broken = ${JSON.stringify(broken)};`]);
+  await start(page, "cities", 2);
+  await waitReady(page);
+  const t0 = Date.now();
+  await page.tap("#g-go");
+  await page.waitForSelector("#g-typed:not([hidden])", { timeout: 8000 }).catch(() => {});
+  const waited = Date.now() - t0;
+  const typedNow = await page.isVisible("#g-typed");
+  const r = await round(page);
+  const note = await page.textContent("#g-status");
+  check(typedNow && r.lit && r.phase === "listen" && waited < 6000, `${broken}: the turn goes to typing after ${waited} ms, with the fuse lit ("${note.trim()}")`);
+  check(/microphone did not come on|Listening kept stopping/.test(note), `${broken}: and says why in plain words`);
+  await page.waitForTimeout(12000 - (Date.now() - t0));
+  const starts = await page.evaluate(() => window.__starts);
+  check(starts <= 6, `${broken}: the recogniser was started ${starts} times in 12 s, not without end`);
+  // The typed answer still plays (the fuse may have run out in those 12 s: then it is the next turn's).
+  if (!typedNow) check(false, `${broken}: no word box to type in: the turn is stuck`);
+  else if ((await round(page)).phase === "listen") {
+    await page.fill("#g-word", "Paris");
+    await page.keyboard.press("Enter");
+    await waitPhase(page, "ready");
+    check((await round(page)).chain.includes("Paris"), `${broken}: the typed word counts`);
+  } else check((await round(page)).last?.reason === "slow", `${broken}: the fuse ran out while nobody typed: too slow`);
+  await page.screenshot({ path: `${SHOTS}/390-broken-${broken}.png` });
+  check(errors.length === 0, `${broken}: no console errors ${errors.join(" | ")}`);
   await context.close();
 }
 
