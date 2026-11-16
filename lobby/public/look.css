@@ -15,6 +15,17 @@
 .corner.folded .look-btn {
   width: 44px;
 }
+/* An upright phone is too narrow for four buttons with their words: this one is its picture from the start. */
+@media (max-width: 560px) {
+  .look-btn .door-word {
+    display: none;
+  }
+  .look-btn {
+    gap: 0;
+    padding: 0;
+    width: 44px;
+  }
+}
 /* During a game the piece cannot be changed, so the button goes, as Rooms does. */
 #app.staged .look-btn {
   display: none;
@@ -23,6 +34,9 @@
 .sheet.picker.look-sheet {
   width: min(100%, 560px);
   gap: 10px;
+}
+.look-sheet > .plain {
+  min-height: 44px;
 }
 .look-label {
   margin: 4px 0 0;
