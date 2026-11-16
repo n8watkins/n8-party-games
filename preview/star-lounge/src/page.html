@@ -1,4 +1,4 @@
-<title>Star Lounge Preview</title>
+<title>Star Lounge Round Two</title>
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
 <style>
   /*FONTS*/
@@ -41,6 +41,7 @@
     display: flex;
     flex-direction: column;
     background: var(--bg);
+    padding-bottom: env(safe-area-inset-bottom, 0px);
   }
   #stage {
     position: relative;
@@ -107,7 +108,7 @@
   #meter {
     position: absolute;
     left: max(8px, env(safe-area-inset-left));
-    top: 6px;
+    top: max(6px, env(safe-area-inset-top));
     padding: 3px 8px;
     border-radius: 6px;
     background: rgba(2, 4, 12, 0.72);
@@ -204,7 +205,7 @@
     bottom: 0;
     width: min(340px, 86%);
     box-sizing: border-box;
-    padding: 12px 14px 20px;
+    padding: max(12px, env(safe-area-inset-top)) max(14px, env(safe-area-inset-right)) max(20px, env(safe-area-inset-bottom)) 14px;
     background: rgba(6, 10, 22, 0.97);
     border-left: 1px solid var(--line);
     overflow-y: auto;
@@ -382,7 +383,7 @@
       <button type="button" class="chip" data-send="star">Shooting star</button>
     </div>
     <h2>This is a preview</h2>
-    <p>It is a trial of how the Star Lounge could look, not the game. Nothing here is played, saved or sent anywhere. The number in the top corner is the real time one frame takes on the device you are holding, measured live.</p>
+    <p>It is a trial of how the Star Lounge could look, not the game. Nothing here is played, saved or sent anywhere. The first number in the top corner (frame, in ms) is how long each picture really takes on the phone you are holding, measured live: about 17 or less is smooth (60 pictures a second or more), and a bigger number means the phone is struggling.</p>
     <h2>Look at these first</h2>
     <ul>
       <li>The window. The planet turns, its ring throws a shadow on it, the stars drift at two speeds. Wait for the great storm to come round: the planet turns once in 95 seconds.</li>
@@ -417,7 +418,7 @@
       <li><b>The bar,</b> remade the same way as this room.</li>
     </ul>
     <h2>Not in this preview</h2>
-    <p>Sound, bumps, emotes and votes. The number in the top corner is the real time one frame takes on the device you are holding, and only that number counts. For what it is worth: on this PC's desktop graphics card, with no window, at a phone's size (844 by 390, two pixels for one), round one read 0.35 to 0.43 ms a frame and round two 0.36 to 0.37 ms, which is the same. A phone is far slower than that card.</p>
+    <p>Sound, bumps, emotes and votes. Only the number your phone shows counts. For what it is worth: on this PC's desktop graphics card, with no window and the 60-a-second limit switched off, at a phone's size (844 by 390, two pixels for one), round one took 0.35 to 0.43 ms a frame and round two 0.36 to 0.37 ms. That says round two is no heavier than round one; it cannot be compared with the number on your phone, which also counts the wait for the screen's next refresh.</p>
   </aside>
 </div>
 <script>

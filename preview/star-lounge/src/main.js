@@ -589,6 +589,15 @@ function buildShell(base, lights) {
         // that says so is squeezed small and comes back with faint smudges where it was 0, so its lowest
         // few hundredths are read as nothing: a wall, a post or the door is solid, with no exceptions.
         float through = smoothstep(0.04, 0.96, light(uv, ${tile(P.glassTile)}).r) * uGlass;
+        // A crack a texel or two wide in that picture (the seam between the door's frame and the first post) is not a
+        // window: with no glass three texels to either side, or three above and below, the point is solid.
+        // The proper fix is to re-render the glass mask without the seam; this guard stays either way.
+        if (through > 0.0) {
+          vec2 tx = vec2(${(3 / grid.w).toFixed(6)}, ${(3 / grid.h).toFixed(6)});
+          float side = max(light(uv - vec2(tx.x, 0.0), ${tile(P.glassTile)}).r, light(uv + vec2(tx.x, 0.0), ${tile(P.glassTile)}).r);
+          float updown = max(light(uv - vec2(0.0, tx.y), ${tile(P.glassTile)}).r, light(uv + vec2(0.0, tx.y), ${tile(P.glassTile)}).r);
+          through *= step(0.04, side) * step(0.04, updown);
+        }
         if (uProbe > 0.5) { gl_FragColor = vec4(vec3(through > 0.0 ? 1.0 : 0.0), 1.0); return; }
         // The glass holds a picture of the room, but faintly: the universe is the brighter thing.
         sum *= mix(1.0, uShine, through);
@@ -1526,12 +1535,12 @@ function tick(nowMs) {
     proj.set(p.pawn.group.position.x, p.pawn.group.position.y + 1.02, SPACE.walkZ).project(cam);
     return { i, x: ((proj.x + 1) / 2) * w, y: ((1 - proj.y) / 2) * h };
   });
-  // Two names over two pieces that stand together: the one on the right goes up a line.
+  // Names over pieces that stand together: each goes up one line above the highest name within 64 px to its left, so three together do not cover one another.
   spots.sort((a, b) => a.x - b.x);
   for (const [k, s] of spots.entries()) {
-    const near = k > 0 && s.x - spots[k - 1].x < 64 && !spots[k - 1].raised;
-    s.raised = near;
-    tags[s.i].style.transform = `translate(${s.x}px, ${s.y - (near ? 24 : 0)}px) translate(-50%, -100%)`;
+    s.lvl = 0;
+    for (let j = 0; j < k; j++) if (s.x - spots[j].x < 64 && spots[j].lvl >= s.lvl) s.lvl = spots[j].lvl + 1;
+    tags[s.i].style.transform = `translate(${s.x}px, ${s.y - s.lvl * 24}px) translate(-50%, -100%)`;
   }
 
   meter.script.push(performance.now() - t0);
