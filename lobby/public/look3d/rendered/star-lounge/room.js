@@ -35,9 +35,6 @@ const LAYERS = new URL("./layers/", import.meta.url);
 /** The Star Lounge's numbers, shared with the Blender scene (the site serves lobby/tools/blender/star-lounge.json here: scripts/build-public.mjs). */
 const NUMBERS = new URL("./layers/star-lounge.json", import.meta.url);
 
-/** Every file a device with ?look=real fetches for the Star Lounge, by name. */
-export const FILES = ["plate.json", "star-lounge.json", ...["base", "lights", "cards", "env", ...OUTSIDE_PICTURES].map((n) => `${n}.webp`)];
-
 /** What the timetable's things sound like: the names the room's sounds listen for (room-sounds.js). */
 const SOUNDS = { star: "star.fall", rocket: "rocket.pass", saucer: "saucer.pass" };
 

@@ -59,8 +59,10 @@ export class RoomRendered extends Room3D {
     const rung = rungOf(def, params);
     this.rung = rung;
     // The ladder is for real devices: a test that asked for software drawing (?gl=any) is slow on
-    // purpose, and stays on the rung it asked for (?rung=) unless it asks for the ladder (?ladder=on).
-    this.ladder = params.get("gl") !== "any" || params.get("ladder") === "on" ? new Ladder({ ratio: this.ratio, steps: def.steps, taken: rung.taken }) : null;
+    // purpose, and stays on the rung it asked for (?rung=) unless it asks for the ladder
+    // (?ladder=on); a measurement holds its rung with ?ladder=off.
+    const ladder = params.get("ladder") ?? (params.get("gl") === "any" ? "off" : "on");
+    this.ladder = ladder === "on" ? new Ladder({ ratio: this.ratio, steps: def.steps, taken: rung.taken }) : null;
     window.__roomRendered = this;
   }
 
@@ -260,7 +262,10 @@ export class RoomRendered extends Room3D {
 
   /** Draws one picture: what is outside first, cut to the glass, then the room over it. */
   draw() {
+    // A picture here is two drawings (outside, then the room): the count of draw calls is for both.
+    this.renderer.info.autoReset = this.plain;
     if (this.plain) return super.draw();
+    this.renderer.info.reset();
     this.dressPieces();
     this.tick(performance.now());
     const [w, h] = [this.el.clientWidth, this.el.clientHeight];

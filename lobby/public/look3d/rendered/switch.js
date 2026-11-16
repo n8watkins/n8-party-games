@@ -48,6 +48,8 @@ export const RENDERED = {
     name: "star-lounge",
     boxes: 5,
     steps: ["weather", "planet", "outside"],
+    /** Every file of its layers (star-lounge/layers/) a device fetches when it draws the room this way, and none otherwise. */
+    files: ["plate.json", "star-lounge.json", ...["base", "lights", "cards", "env", "sky", "planet", "moon", "rocket", "liner", "saucer", "rock0", "rock1", "rock2"].map((n) => `${n}.webp`)],
     load: () => import("./star-lounge/room.js").then((m) => m.RoomStarLounge),
   },
 };
