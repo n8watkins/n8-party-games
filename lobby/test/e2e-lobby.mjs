@@ -4,8 +4,8 @@
 //   node lobby/test/e2e-lobby.mjs [--base=http://localhost:8791] [--quiet=25]
 //
 // Four players join one room and go through an evening: a vote, a count that pauses, a game
-// that starts and comes back with points, a tie and its coin toss, an outside game that sends
-// everyone to its own site, someone leaving, a dropped
+// that starts and comes back with points, a tie and its coin toss, a hosted turn-based game for
+// two (Who Am I?) through its settings to its start, someone leaving, a dropped
 // phone coming back, a bump, a big screen, and a client that misbehaves. Then nobody touches
 // anything for --quiet seconds and the room must go silent (0 skips that part).
 import { KNOCK_MIN, STUN_MS, knockLanding } from "../shared/bump.js";
@@ -24,9 +24,9 @@ const check = (ok, what) => {
 };
 
 const N = 6;
-const COIN = 1; // Coin Flip's place on the wall
+const COIN = 2; // Coin Flip's place on the wall
 const CORK = 0;
-const WHO = 2; // Who Am I?, an outside game
+const WHO = 1; // Who Am I?, hosted: two players, with the rest of the party watching
 const light = (i, off = 0) => Math.round(boxCentre(i, N) + off);
 const dark = (i) => Math.round(boxCentre(i, N) + lightHalf(N) + 20);
 const voteOf = (m) => (m.t === "vote" ? m.vote : m.room?.vote);
@@ -83,7 +83,7 @@ check(
   "everyone starts by the door, in the dark, and the room is waiting for all four",
 );
 const lights = A.room.vote.lights;
-check(lights["cork-and-bell"] === null && lights["coin-flip"] === null && lights["who-am-i"] === "For 2 players" && lights["tin-derby"] === "Coming soon" && lights.flood === "Coming soon" && lights["fox-trouble"] === "Coming soon", "two lights are on (Cork & Bell, Coin Flip); Who Am I? is for two, and the rest say Coming soon");
+check(lights["cork-and-bell"] === null && lights["coin-flip"] === null && lights["who-am-i"] === null && lights["tin-derby"] === "Coming soon" && lights.flood === "Coming soon" && lights["fox-trouble"] === "Coming soon", "three lights are on (Cork & Bell, Who Am I? for two with the rest watching, Coin Flip), and the rest say Coming soon");
 A.send("ping");
 await sleep(300);
 check(A.raw.includes("pong"), "the keep-alive is answered");
@@ -318,40 +318,42 @@ check(relays <= 45, "only the first burst of its messages was passed on (" + rel
 
 const debug = async (code = "") => (await fetch(api + "/debug" + (code ? "/" + code : ""))).json();
 
-// ---------------------------------------------------------------- an outside game (Who Am I?)
-// A room of its own: two players, since Who Am I? is for exactly two.
+// ---------------------------------------------------------------- a hosted turn-based game (Who Am I?)
+// A room of its own: two players, the size Who Am I? takes, so there are no spots, only settings.
 {
   const p = await call("POST", "/rooms", { nickname: "Pat" });
   const q = await call("POST", "/join/" + p.pin, { nickname: "Quin" });
   const [P, Q] = [p, q].map(connect);
+  const breathe = setInterval(() => [P, Q].forEach((c) => c.send("ping")), 20_000);
   await Promise.all([P.opened, Q.opened]);
   await P.wait((m) => m.room?.members.filter((x) => x?.connected).length === 2, 8000, 0);
   const box = P.room.boxes[WHO];
-  check(box.id === "who-am-i" && box.url === "https://whoami.n8builds.dev/" && box.min === 2 && box.max === 2 && P.room.vote.lights["who-am-i"] === null, "Who Am I? hangs as an outside game for exactly two, and its light is on for a party of two");
-  let from = P.seen.length;
+  check(box.id === "who-am-i" && box.url === null && box.view === "/who-am-i/party-view/view.js" && box.min === 2 && box.max === 2 && box.audience && box.upright && P.room.vote.lights["who-am-i"] === null, "Who Am I? hangs as a hosted game for two with its own view, and its light is on for a party of two");
+  const from = P.seen.length;
   P.goto(light(WHO, -30));
   Q.goto(light(WHO, 30));
   const t1 = Date.now();
-  const away = await P.wait((m) => m.t === "away", 15000, from);
-  const awayQ = await Q.wait((m) => m.t === "away", 2000, 0);
-  check(away.id === "who-am-i" && away.url === box.url && away.in >= 5000 && awayQ.url === box.url, `it wins the count: both pages are told to go to ${away.url} in ${away.in / 1000} seconds (${Date.now() - t1} ms)`);
-  const then = await P.wait((m) => m.t === "room", 4000, P.seen.indexOf(away));
-  check(then.room.phase === "lobby" && then.room.game === null && then.room.tonight.games === 0 && then.room.members.filter(Boolean).every((m) => m.points === 0 && m.x === spawnX(m.seat, N)), "nothing starts in the room, nobody scores, and the pieces are back by the door");
-  check(!P.seen.some((m) => m.t === "start" || m.t === "end"), "no game was started for it");
-  // The pages go: the room is left empty and closes by the usual rule, a minute later.
-  P.ws.close();
-  Q.ws.close();
-  await sleep(600);
-  const left = (await debug(p.code)).room;
-  if (left) check(left.sockets === 0 && left.timer === false && left.alarmIn > 5_000 && left.alarmIn <= 12_000, `once both pages have gone the room holds no socket and no timer; it next wakes in ${Math.round(left.alarmIn / 1000)} seconds to fade the two pieces (their seats are then held two minutes before it closes)`);
+  const step = await P.wait((m) => m.room?.phase === "settings", 15000, from);
+  check(step.room.choosing.id === "who-am-i" && !step.room.choosing.spots && step.room.choosing.fields.length === 8 && step.room.choosing.picks.match === "first_to_3", `it wins the count and the host chooses its eight settings, with no spots for a party of two (${Date.now() - t1} ms)`);
+  P.send({ t: "settings-start" });
+  const start = await P.wait((m) => m.t === "start", 6000, from);
+  const startQ = await Q.wait((m) => m.t === "start", 2000, 0);
+  check(start.room.game.id === "who-am-i" && start.room.game.turns && start.s.role === "player" && startQ.s.role === "player", "the host starts it in the room: both are its players");
+  const theirs = start.s.opponentIdentity?.canonicalName;
+  const mine = startQ.s.opponentIdentity?.canonicalName;
+  check(!!theirs && !!mine && !JSON.stringify(start.s).includes(mine) && !JSON.stringify(startQ.s).includes(theirs), "each sees the other's identity and never their own");
+  check(!P.seen.some((m) => m.t === "away"), "nobody is sent to another site");
+  clearInterval(breathe);
+  for (const c of [P, Q]) c.send({ t: "leave" });
+  await sleep(300);
 
-  // A party of three does not fit.
+  // A party of three may vote for it too: two play and the third watches.
   const r = await call("POST", "/rooms", { nickname: "Ria" });
   const more = [await call("POST", "/join/" + r.pin, { nickname: "Sol" }), await call("POST", "/join/" + r.pin, { nickname: "Tam" })];
   const three = [r, ...more].map(connect);
   await Promise.all(three.map((c) => c.opened));
   const full = await three[0].wait((m) => m.room?.members.filter((x) => x?.connected).length === 3, 8000, 0);
-  check(full.room.vote.lights["who-am-i"] === "For 2 players", 'with three in the party its light is off and says "For 2 players"');
+  check(full.room.vote.lights["who-am-i"] === null, "with three in the party its light is still on: two play and the third watches");
   for (const c of three) c.send({ t: "leave" });
   await sleep(300);
 }
