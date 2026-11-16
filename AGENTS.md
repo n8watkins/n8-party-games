@@ -10,6 +10,7 @@ The global rules file (branches, pull requests, no merging without the owner's w
 - 8792: the wall as production hangs it, with `--var PARTY_TEST_GAMES:off` (see `lobby/README.md`).
 - 8804: the production-settings check in `DEPLOY.md` (`wrangler dev --env=""`, then `npm run test:production`).
 - 8853: `npm run predeploy` starts its own server here (`PREDEPLOY_PORT` changes it), so it never collides with a dev server on 8791.
+  On the card (`TEST_GPU=1`) it also takes 8855 and 8856 (`PREDEPLOY_PORT` + 2 and + 3), one server per step, or a free port if one is taken.
 - 8850 to 8854: handed out to build agents for their own servers.
   Use only the range your brief gives you, and stop the server when you finish.
 
@@ -19,8 +20,8 @@ The global rules file (branches, pull requests, no merging without the owner's w
   This is the check every pull request must pass.
 - `npm run dev`, then the end-to-end scripts against that server: `npm run test:room` and `npm run test:lobby` (plain sockets, no browser), `npm run test:cork` (a headless browser, about four minutes), and the rest of the `test:*` scripts listed in `package.json`.
   Each script takes `--base=http://localhost:PORT`.
-- Run one browser test at a time.
-  The PC was overloaded once by three browser runs at once, and Blender renders must not overlap with them.
+- In software (no `TEST_GPU`), run one browser test at a time.
+  The PC was overloaded once by three software browser runs at once, and Blender renders must not overlap with them.
 - Browsers run headless and muted.
   The Windows-Chrome playtest (`npm run playtest:battle`) is run by hand on the owner's PC.
 - `TEST_GPU=1` makes the browser suites draw on the PC's graphics card instead of in software (`lobby/test/browser.mjs`: a private, invisible Xvfb display and Mesa's D3D12 driver, never the desktop).
@@ -28,12 +29,21 @@ The global rules file (branches, pull requests, no merging without the owner's w
   Without it nothing changes, and CI on GitHub's runners (no card) never sets it.
   If the card or Xvfb is missing, or WebGL still draws in software, the run fails at once with the reason.
 - The card is shared with the owner's desktop and with Blender renders.
-  Only one GPU test job runs at a time (a lock on `/tmp/test-gpu-1.lock`; others wait and say so; `TEST_GPU_JOBS=N` raises the limit), and other GPU work can take the same lock with `flock /tmp/test-gpu-1.lock <command>`.
+  Four GPU test jobs may draw at once (`DEFAULT_CARD_SLOTS` in `lobby/test/browser.mjs`; one lock file per slot, `/tmp/test-gpu-1.lock` to `/tmp/test-gpu-4.lock`).
+  A fifth waits its turn, first come first served, and says so: "waiting for a card slot, 2 ahead".
+  `TEST_GPU_JOBS=N` changes the number of slots; do not raise it to get around a wait.
+  Why four: __WHY__
+  Other GPU work can hold a slot with `flock /tmp/test-gpu-1.lock <command>`, and the owner's `gpu-run` takes every slot for a render or a model, so no test draws beside one.
   `TEST_NO_GPU=1` keeps every test off the card, whatever else is set: the one switch when the card is busy or misbehaves.
 - Some browsers stay on software even with `TEST_GPU=1`: the still tools (`shoot*.mjs`, `weigh-baked.mjs`), whose pictures are for a person or compared with earlier ones; the browsers that stand for a device without hardware 3D (`e2e-feel`, `e2e-emotes`, the plain browser in `e2e-leave-rooms`), since a card gets the 3D look instead of the flat one; and `party-kit/test/e2e-turnstile.mjs`, which ships to game repos.
   GPU pixels differ from software ones and can change with a driver update, so any stored-image comparison must run on software.
-- `npm run predeploy` runs the full gate: unit tests, then `test:room`, `test:lobby` and `test:cork` against its own server.
+- `npm run predeploy` runs the full gate: unit tests, then `test:room`, `test:lobby` and `test:cork` against its own server, one after another.
   The same script is the GitHub workflow `predeploy-gate`.
+- On this PC the fastest safe way is `TEST_GPU=1 npm run predeploy` (or `TEST_GPU=1 npm run deploy`): the three steps run side by side, each against a local Worker of its own with empty storage, and the gate takes about as long as its slowest step, `test:cork`.
+  __GATETIMES__
+  Each step's output is printed whole when it ends, then a table of every step's time; the first failure stops the others and fails the gate.
+  `PREDEPLOY_SEQUENTIAL=1` keeps the steps one after another on the card.
+  Without `TEST_GPU` the gate is one after another, exactly as on GitHub's runners, because a software browser beside other work loads the whole PC.
 
 ## The CI policy
 

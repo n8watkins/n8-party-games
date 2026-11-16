@@ -49,6 +49,8 @@ describe("card slots", () => {
     expect(DEFAULT_CARD_SLOTS).toBeGreaterThanOrEqual(1);
     const first = Array.from({ length: DEFAULT_CARD_SLOTS }, () => job());
     await Promise.all(first.map((p) => p.until(/held/)));
+    // Jobs that start together while slots are free take them at once, without lining up.
+    for (const p of first) expect(p.out).not.toMatch(/waiting/);
     expect(readdirSync(dir).filter((f) => /^test-gpu-\d+\.lock$/.test(f)).length).toBe(DEFAULT_CARD_SLOTS);
     const next = job();
     await next.until(/waiting for a card slot, 0 ahead/);

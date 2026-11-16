@@ -115,8 +115,13 @@ export function holdCard() {
     const jobs = Math.max(1, Number(process.env.TEST_GPU_JOBS) || DEFAULT_CARD_SLOTS);
     if (!which("flock")) throw new Error("TEST_GPU=1 needs flock (util-linux) to share the graphics card");
     // Under gpu-run, which already holds a slot for this job and adds one for it to take
-    // (TEST_GPU_SLOT_HELD=1), the slot is not queued for: it is this job's own.
-    const queue = process.env.TEST_GPU_SLOT_HELD === "1" ? { ahead: () => 0, leave: () => {} } : joinQueue();
+    // (TEST_GPU_SLOT_HELD=1), the slot is not queued for: it is this job's own. Otherwise a
+    // free slot is taken at once when nobody is waiting, and the line is joined only when
+    // every slot is in use (or others are already waiting), so jobs that start together do not
+    // line up behind each other for free slots.
+    const held = process.env.TEST_GPU_SLOT_HELD === "1";
+    if ((held || waiting() === 0) && (await takeSlot(jobs))) return;
+    const queue = held ? { ahead: () => 0, leave: () => {} } : joinQueue();
     try {
       for (let said = -1; ; ) {
         const ahead = queue.ahead();
@@ -164,45 +169,51 @@ async function takeSlot(jobs) {
  * so a job that has waited longest goes next. A file whose process has gone (killed outright)
  * no longer counts and is removed by whoever sees it.
  */
+const QUEUE = join(LOCK_DIR, "test-gpu-queue");
+
+/** How many live waiters are in line before `me` (every one when `me` is left out). */
+function waiting(me = "~") {
+  let names;
+  try {
+    names = readdirSync(QUEUE);
+  } catch {
+    return 0;
+  }
+  let n = 0;
+  for (const name of names) {
+    if (name >= me) continue;
+    let alive;
+    try {
+      process.kill(Number(name.split("-")[1]), 0);
+      alive = true;
+    } catch (e) {
+      alive = e.code === "EPERM";
+    }
+    if (alive) n++;
+    else
+      try {
+        unlinkSync(join(QUEUE, name));
+      } catch {}
+  }
+  return n;
+}
+
 function joinQueue() {
-  const dir = join(LOCK_DIR, "test-gpu-queue");
   const me = `${String(Date.now()).padStart(15, "0")}-${process.pid}`;
   try {
-    mkdirSync(dir, { recursive: true, mode: 0o1777 });
-    writeFileSync(join(dir, me), "");
+    mkdirSync(QUEUE, { recursive: true, mode: 0o1777 });
+    writeFileSync(join(QUEUE, me), "");
   } catch {
     return { ahead: () => 0, leave: () => {} }; // no queue: every waiter simply tries
   }
   const leave = () => {
     try {
-      unlinkSync(join(dir, me));
+      unlinkSync(join(QUEUE, me));
     } catch {}
     process.off("exit", leave);
   };
   process.on("exit", leave);
-  const alive = (name) => {
-    try {
-      process.kill(Number(name.split("-")[1]), 0);
-      return true;
-    } catch (e) {
-      return e.code === "EPERM";
-    }
-  };
-  return {
-    ahead() {
-      let n = 0;
-      for (const name of readdirSync(dir)) {
-        if (name >= me) continue;
-        if (alive(name)) n++;
-        else
-          try {
-            unlinkSync(join(dir, name));
-          } catch {}
-      }
-      return n;
-    },
-    leave,
-  };
+  return { ahead: () => waiting(me), leave };
 }
 
 /** The full path of a program on PATH, or null. */
