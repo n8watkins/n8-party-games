@@ -27,8 +27,8 @@
 // (D3D11), driven over the debugging protocol. Each call gets its own throwaway profile folder
 // and lets Chrome pick a free debugging port, so two runs at once never meet; every connect
 // attempt has a timeout, and the Windows Chrome is stopped even if the script dies.
-import { execFileSync, spawn } from "node:child_process";
-import { accessSync, constants, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
+import { execFileSync, spawn, spawnSync } from "node:child_process";
+import { accessSync, constants, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { connect } from "node:net";
 import { tmpdir } from "node:os";
 import { basename, delimiter, join } from "node:path";
@@ -124,7 +124,7 @@ export function holdCard() {
     // line up behind each other for free slots.
     const held = process.env.TEST_GPU_SLOT_HELD === "1";
     if ((held || waiting() === 0) && (await takeSlot(jobs))) return;
-    const queue = held ? { ahead: () => 0, leave: () => {} } : joinQueue();
+    const queue = held ? { ahead: () => 0, leave: () => {} } : await joinQueue();
     try {
       for (let said = -1; ; ) {
         const ahead = queue.ahead();
@@ -146,31 +146,55 @@ export function holdCard() {
   return cardHeld;
 }
 
+/**
+ * Holds a flock on `file` for the life of this process, or until release() is called, through a
+ * small child (flock ... cat) that reads this process's stdin pipe: when this process ends,
+ * however it ends, the pipe closes and the lock is released. Resolves to null when the file is
+ * locked by someone else.
+ */
+async function lockFile(file) {
+  const holder = spawn("flock", ["-n", file, "sh", "-c", "echo held; exec cat >/dev/null"], { stdio: ["pipe", "pipe", "ignore"] });
+  holder.stdin.on("error", () => {});
+  const held = await new Promise((resolve) => {
+    holder.stdout.once("data", () => resolve(true));
+    holder.once("exit", () => resolve(false)); // locked by someone else
+    holder.once("error", () => resolve(false));
+  });
+  if (!held) return null;
+  holder.unref();
+  holder.stdin.unref?.();
+  holder.stdout.unref?.();
+  return {
+    release() {
+      holder.stdin.end();
+      holder.kill();
+    },
+  };
+}
+
+/** Whether someone holds a flock on `file` (it is checked without waiting, and never kept). */
+function isLocked(file) {
+  return spawnSync("flock", ["-n", "-E", "200", file, "true"], { stdio: "ignore" }).status === 200;
+}
+
 /** Takes the first free slot of 1..jobs and keeps it for the life of this process. */
 async function takeSlot(jobs) {
-  for (let n = 1; n <= jobs; n++) {
-    const holder = spawn("flock", ["-n", join(LOCK_DIR, `test-gpu-${n}.lock`), "sh", "-c", "echo held; exec cat >/dev/null"], { stdio: ["pipe", "pipe", "ignore"] });
-    const held = await new Promise((resolve) => {
-      holder.stdout.once("data", () => resolve(true));
-      holder.once("exit", () => resolve(false)); // that slot is taken
-      holder.once("error", () => resolve(false));
-    });
-    if (held) {
-      holder.unref();
-      holder.stdin.unref?.();
-      holder.stdout.unref?.();
-      holder.stdin.on("error", () => {});
-      return true;
-    }
-  }
+  for (let n = 1; n <= jobs; n++) if (await lockFile(join(LOCK_DIR, `test-gpu-${n}.lock`))) return true;
   return false;
 }
 
 /**
  * The line of processes waiting for a slot: one empty file per waiter in /tmp/test-gpu-queue,
  * named by when it started waiting and its process id. Only the first in line tries for a slot,
- * so a job that has waited longest goes next. A file whose process has gone (killed outright)
- * no longer counts and is removed by whoever sees it.
+ * so a job that has waited longest goes next.
+ *
+ * A waiter holds a flock on its own file while it waits, and a file nobody holds a lock on no
+ * longer counts and is removed by whoever sees it. That is what makes a waiter killed outright
+ * (SIGKILL, or a SIGTERM with no handler, so its exit hook never removes the file) drop out of
+ * line: the kernel releases its lock. The process id in the name is never trusted, since after
+ * a restart (/tmp persists on WSL) or once ids wrap, it can belong to any live process.
+ * A waiter locks its file under a dot name and only then renames it into line, so nobody ever
+ * sees a fresh file before its lock is held.
  */
 const QUEUE = join(LOCK_DIR, "test-gpu-queue");
 
@@ -184,35 +208,47 @@ function waiting(me = "~") {
   }
   let n = 0;
   for (const name of names) {
-    if (name >= me) continue;
-    let alive;
-    try {
-      process.kill(Number(name.split("-")[1]), 0);
-      alive = true;
-    } catch (e) {
-      alive = e.code === "EPERM";
+    const file = join(QUEUE, name);
+    if (name.startsWith(".")) {
+      // A waiter killed between locking its file and putting it in line; never in line itself.
+      try {
+        if (Date.now() - statSync(file).mtimeMs > 60000 && !isLocked(file)) unlinkSync(file);
+      } catch {}
+      continue;
     }
-    if (alive) n++;
+    if (name >= me) continue;
+    if (isLocked(file)) n++;
     else
       try {
-        unlinkSync(join(QUEUE, name));
+        unlinkSync(file);
       } catch {}
   }
   return n;
 }
 
-function joinQueue() {
+async function joinQueue() {
   const me = `${String(Date.now()).padStart(15, "0")}-${process.pid}`;
+  const noQueue = { ahead: () => 0, leave: () => {} }; // every waiter simply tries
+  let lock;
   try {
     mkdirSync(QUEUE, { recursive: true, mode: 0o1777 });
-    writeFileSync(join(QUEUE, me), "");
+    writeFileSync(join(QUEUE, "." + me), "");
+    lock = await lockFile(join(QUEUE, "." + me));
+    if (!lock) throw new Error("could not lock its own queue file");
+    renameSync(join(QUEUE, "." + me), join(QUEUE, me));
   } catch {
-    return { ahead: () => 0, leave: () => {} }; // no queue: every waiter simply tries
+    lock?.release();
+    for (const name of ["." + me, me])
+      try {
+        unlinkSync(join(QUEUE, name));
+      } catch {}
+    return noQueue;
   }
   const leave = () => {
     try {
       unlinkSync(join(QUEUE, me));
     } catch {}
+    lock.release();
     process.off("exit", leave);
   };
   process.on("exit", leave);

@@ -3,7 +3,7 @@
 // Real processes and real flocks, in a folder of their own (TEST_GPU_LOCK_DIR), so the
 // machine's own slots in /tmp are never touched. No graphics card is needed.
 import { spawn } from "node:child_process";
-import { mkdtempSync, readdirSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -90,6 +90,28 @@ describe("card slots", () => {
     await a.release();
     await c.until(/held/);
   });
+
+  it("does not count a queue entry that nobody holds, even when its process id is in use", async () => {
+    // A waiter killed outright leaves its file; after a restart (/tmp persists on WSL) or a
+    // process id reused, that id can belong to a live, unrelated process. This one is that.
+    const unrelated = spawn("sleep", ["30"]);
+    procs.push(unrelated);
+    const queue = join(dir, "test-gpu-queue");
+    mkdirSync(queue);
+    const stale = `${String(Date.now() - 60000).padStart(15, "0")}-${unrelated.pid}`;
+    writeFileSync(join(queue, stale), "");
+    // With every slot free, a job takes one at once instead of queueing behind the stale entry.
+    const free = job({ TEST_GPU_JOBS: "1" });
+    await free.until(/held/);
+    expect(free.out).not.toMatch(/waiting/);
+    // With the slot taken, the next waiter is first in line, and gets the slot when it frees.
+    writeFileSync(join(queue, stale), "");
+    const next = job({ TEST_GPU_JOBS: "1" });
+    await next.until(/waiting for a card slot, 0 ahead/);
+    await free.release();
+    await next.until(/held/);
+    expect(readdirSync(queue)).not.toContain(stale);
+  }, 20000);
 
   it("under gpu-run (TEST_GPU_SLOT_HELD=1) takes its own slot without queueing", async () => {
     const a = job({ TEST_GPU_JOBS: "1" });
