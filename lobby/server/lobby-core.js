@@ -51,6 +51,7 @@ import { record } from "../shared/tonight.js";
 import { DURING_PLAY, cooldownLeft as emoteLeft, mayEmote, relayEmote, waitMessage } from "../../party-kit/client/emotes.js";
 import { POSITION_SLACK, clampX, lightAt, posAt, spawnX } from "../shared/world.js";
 import { DEFAULT_MODE, MODE_COOLDOWN_MS, isMode, modeLocked, modeNote } from "../shared/mode.js";
+import { PLAY_BEAT_MS, tableWhyNot } from "../shared/table.js";
 
 export const MAX_PLAYERS = 4;
 /** A room is closed this long after it was made, whatever is going on: a party, not a tenancy. */
@@ -105,9 +106,12 @@ export class LobbyCore {
    *   games: the server definition of every box that can actually start, by id.
    *   fields: each game's settings as its manifest describes them (`manifest.settings`), by id.
    *     They reach the pages only in the settings step's `choosing`; a box says only `settings: true`.
+   *   table: the Table's list (lobby/shared/table.js). Its games that can start are in `games` too.
    */
-  constructor({ boxes, games, fields = new Map(), seed, code, now }) {
+  constructor({ boxes, games, fields = new Map(), table = [], seed, code, now }) {
     this.boxes = boxes;
+    /** The Table's list of games (lobby/shared/table.js, lobby/wall.js buildTurnWall): the host picks from it there. */
+    this.table = table;
     this.games = games;
     this.fields = fields;
     this.fieldCache = new Map();
@@ -182,6 +186,15 @@ export class LobbyCore {
      * Kept in memory only: a restart in that gap starts nothing.
      */
     this.starting = null;
+    /**
+     * null, or {id, at, by}: the host picked a game at the Table (play), and everyone sees it is
+     * starting until `at` (PLAY_BEAT_MS); then the wake-up hands it to the room to start (tick).
+     * `starting` is set for the whole of it. Kept in memory only, as `starting` is: a restart in
+     * that moment starts nothing, and the host picks again.
+     */
+    this.beat = null;
+    /** A switch between the waiting rooms is being saved (setMode, then modeSaved or undoMode). Memory only. */
+    this.switching = false;
   }
 
   // ---------------------------------------------------------------- coming and going
@@ -454,6 +467,8 @@ export class LobbyCore {
     this.respawn(now);
     this.holdUntil = now + SETTLE_MS;
     this.lastActive = now;
+    // Until the switch is saved (modeSaved) or taken back (undoMode), no game is picked at the Table.
+    this.switching = true;
     const name = who.role === "screen" ? "The room's screen" : this.members[who.seat].name;
     this.notes.push({ k: "mode", mode: v, seat: who.seat, name, text: modeNote(name, v) });
     return { ok: true, mode: v, by: who.seat, was: { mode: before.mode, modeAt: before.modeAt } };
@@ -468,11 +483,70 @@ export class LobbyCore {
     this.mode = was.mode;
     this.modeAt = was.modeAt;
     this.notes = this.notes.filter((note) => note.k !== "mode");
+    this.switching = false;
+  }
+
+  /** The switch is saved (lobby-room.js, switchMode): games may be picked at the Table again. */
+  modeSaved() {
+    this.switching = false;
   }
 
   /** Whether the party is in the plain waiting room: nothing walks and nothing is voted for there. */
   plainRoom() {
     return this.mode === "turn-based";
+  }
+
+  // ---------------------------------------------------------------- the Table's games
+
+  /** Whether a game id is one of the Table's (lobby/wall.js, buildTurnWall), not the Floor's. */
+  isTableGame(id) {
+    return this.tableEntry(id) !== null;
+  }
+
+  /** The Table's list as every page sees it: each entry, and why the party cannot play it right now (`why`, or null). */
+  tableView() {
+    const players = this.connected().length;
+    return this.table.map((entry) => ({ ...entry, why: this.games.has(entry.id) ? tableWhyNot(entry, players) : "Coming soon" }));
+  }
+
+  /**
+   * Whether the host may start a Table game now (`{t: "play", id}`). The same rule as every host
+   * tap says who: the host, or whoever holds the controls while the host is away. Only at the
+   * Table, with nothing else going on (no game, no settings step, no other start or switch in
+   * progress, the room not closing), for a game on the list that can be played, by the party's
+   * size now (connected players). Returns {ok, id} or {ok: false, error, message}.
+   */
+  mayPlay(token, id, now) {
+    if (!this.plainRoom()) return fail("not_table", "Games are picked here only when the party is at the Table.");
+    if (!token || (token !== this.pickerToken(now) && token !== this.hostToken)) return fail("not_host", "Only the one who started the party picks the game.");
+    if (this.starting) return fail("starting", "A game is starting already.");
+    if (this.switching) return fail("busy", "The party is moving. Wait a moment, then pick again.");
+    if (this.activity.kind === "game") return fail("playing", "A game is on. You can pick the next one when it ends.");
+    if (this.activity.kind !== "lobby") return fail("busy", "Wait a moment, then pick again.");
+    if (this.closing) return fail("closing", "This party is closing, so no new game can start.");
+    const entry = typeof id === "string" ? this.tableEntry(id) : null;
+    if (!entry) return fail("not_found", "That game is not on the Table's list.");
+    const why = this.games.has(id) ? tableWhyNot(entry, this.connected().length) : "Coming soon";
+    if (why) return fail(entry.soon || !this.games.has(id) ? "not_ready" : "party_size", `${entry.name}: ${why}.`);
+    return { ok: true, id };
+  }
+
+  /**
+   * The host picked a Table game (mayPlay said yes): the starting beat. Everyone sees it in the room
+   * view (`starting`) for PLAY_BEAT_MS, and nothing may switch the room or start another game
+   * meanwhile; then the wake-up hands it to the room to start (tick, then startGame).
+   */
+  beginPlay(id, token, now) {
+    const who = this.identify(token);
+    this.starting = id;
+    this.beat = { id, at: now + PLAY_BEAT_MS, by: who?.role === "player" ? who.seat : -1 };
+    this.lastActive = now;
+  }
+
+  /** The starting beat as every page sees it: {id, name, by, in}, or null. */
+  beatView(now) {
+    const b = this.beat;
+    return b ? { id: b.id, name: this.nameOf(b.id), by: b.by, in: Math.max(0, b.at - now) } : null;
   }
 
   remove(m, why) {
@@ -641,7 +715,7 @@ export class LobbyCore {
   playRules() {
     const a = this.activity;
     if (a.kind !== "game") return DURING_PLAY;
-    return this.boxes.find((box) => box.id === a.id)?.play ?? DURING_PLAY;
+    return this.boxOf(a.id)?.play ?? DURING_PLAY;
   }
 
   /** Connected players and connected big screens: what decides which games can be played. */
@@ -811,6 +885,20 @@ export class LobbyCore {
         }
       }
     }
+    if (inLobby && this.beat && now >= this.beat.at) {
+      // The Table's starting beat is over: the game the host picked starts, if the party can
+      // still play it (someone may have left, or dropped, during the beat).
+      const { id } = this.beat;
+      this.beat = null;
+      const entry = this.tableEntry(id);
+      const why = !this.plainRoom() || !entry || !this.games.has(id) ? "it is not at the Table" : this.closing ? "the party is closing" : tableWhyNot(entry, this.connected().length);
+      if (why === null) out.start = id;
+      else {
+        this.starting = null;
+        this.notes.push({ k: "cancelled", text: `${this.nameOf(id)} did not start: ${why[0].toLowerCase()}${why.slice(1)}.` });
+      }
+      out.changed = true;
+    }
     // From here until the room has started the game or decided not to (startDone), nothing may
     // move the party to another room or the other waiting room: the budget check comes between.
     if (out.start) this.starting = out.start;
@@ -928,6 +1016,8 @@ export class LobbyCore {
       if (this.closing) at = Math.min(at, this.closing.at);
       if (this.count) at = Math.min(at, this.count.endsAt);
       if (this.toss) at = Math.min(at, this.toss.endsAt);
+      // The Table's starting beat ends: the picked game starts.
+      if (this.beat) at = Math.min(at, this.beat.at);
       // The rest after a game: a count may be due the moment it is over, if anyone is here to vote.
       if (this.holdUntil > now && this.connected().length) at = Math.min(at, this.holdUntil);
       for (const m of this.present()) if (!m.connected && m.droppedAt !== null) at = Math.min(at, m.droppedAt + DROP_FADE_MS);
@@ -998,6 +1088,9 @@ export class LobbyCore {
    * phones as seats), the members whose phones are here come first, then the rest, each by seat.
    */
   partySeats(id) {
+    // At the Table a game is played by the phones that are here when it starts (the party's size
+    // it was picked for): a phone that dropped a moment before is not dealt in to hold a seat.
+    if (this.isTableGame(id)) return this.connected().map((m) => m.seat);
     const seats = this.present().map((m) => m.seat);
     const box = this.boxOf(id);
     if (!box?.audience || seats.length <= box.max) return seats;
@@ -1016,7 +1109,17 @@ export class LobbyCore {
 
   /** The box on the wall for a game id. */
   boxOf(id) {
-    return this.boxes.find((box) => box.id === id) ?? null;
+    return this.boxes.find((box) => box.id === id) ?? this.tableEntry(id);
+  }
+
+  /** The entry on the Table's list for a game id (lobby/shared/table.js), or null. */
+  tableEntry(id) {
+    return this.table.find((entry) => entry.id === id) ?? null;
+  }
+
+  /** A game's name as people read it, for notes and the card. */
+  nameOf(id) {
+    return this.boxOf(id)?.name ?? id;
   }
 
   /**
@@ -1496,18 +1599,43 @@ export class LobbyCore {
   /**
    * Ends the turn-based game being played early, with no points, for a reason that is nobody's
    * doing: a callback of the game threw (`error`), the room's four hours are up (`expired`), or
-   * the room is closing (the budget). Everyone gets a note saying why. No last snapshot is sent
-   * after an error: the state may be half changed.
+   * the room is closing (the budget), or the host ended it at the Table (`host`, with `by`, who:
+   * {seat, name}). Everyone gets a note saying why. No last snapshot is sent after an error: the
+   * state may be half changed.
    */
-  stopGame(game, why, now) {
+  stopGame(game, why, now, by = null) {
     const a = this.activity;
-    const gameName = this.boxes.find((box) => box.id === a.id)?.name ?? a.id;
+    const gameName = this.nameOf(a.id);
     const text =
-      why === "error" ? `${gameName} ran into a problem, so it ended.` : why === "expired" ? `This party has reached its four hours, so ${gameName} ended.` : `This party is closing, so ${gameName} ended.`;
-    this.notes.push({ k: "ended", why, seat: -1, name: null, colour: null, text });
+      why === "error"
+        ? `${gameName} ran into a problem, so it ended.`
+        : why === "expired"
+          ? `This party has reached its four hours, so ${gameName} ended.`
+          : why === "host"
+            ? `${by?.name ?? "The host"} ended ${gameName}.`
+            : `This party is closing, so ${gameName} ended.`;
+    const seat = by?.seat ?? -1;
+    const name = by?.name ?? null;
+    this.notes.push({ k: "ended", why, seat, name, colour: seat >= 0 ? SEAT_COLOURS[seat] : null, text });
     const out = { ok: true, events: [], snapshot: why === "error" ? null : (viewer) => game.snapshot(a.state, now, viewer), viewerOf: (who) => this.viewerOf(who, a), ended: null };
-    out.ended = this.finishGame(now, { standings: [], result: null, early: { seat: -1, name: null, why, text } });
+    out.ended = this.finishGame(now, { standings: [], result: null, early: { seat, name, why, text } });
     return out;
+  }
+
+  /**
+   * The host ends the turn-based game being played at the Table (`{t: "stop"}`): nobody scores,
+   * everyone is back at the Table, and the card says who ended it. The same rule as every other
+   * host tap says who may: the host, or whoever holds the controls while the host is away.
+   * Returns what stopGame returns, or {ok: false, error, message}.
+   */
+  endByHost(token, now) {
+    const game = this.turnGame();
+    if (!game || !this.plainRoom()) return fail("not_playing", "No game at the Table is being played.");
+    if (!token || (token !== this.pickerToken(now) && token !== this.hostToken)) return fail("not_host", "Only the one who started the party can end the game.");
+    const who = this.identify(token);
+    const by = who.role === "screen" ? { seat: -1, name: "The room's screen" } : { seat: who.seat, name: this.members[who.seat].name };
+    this.lastActive = now;
+    return this.stopGame(game, "host", now, by);
   }
 
   /**
@@ -1535,7 +1663,7 @@ export class LobbyCore {
     let early = null;
     if (!decided) {
       const name = this.members[seat]?.name ?? a.names?.[seat] ?? "A player";
-      const gameName = this.boxes.find((box) => box.id === a.id)?.name ?? a.id;
+      const gameName = this.nameOf(a.id);
       const text = why === "left" ? `${name} left the party, so ${gameName} ended.` : `${name} did not come back, so ${gameName} ended.`;
       this.notes.push({ k: "ended", why, seat, name, colour: SEAT_COLOURS[seat], text });
       early = { seat, name, why, text };
@@ -1607,9 +1735,9 @@ export class LobbyCore {
     }
     rows.sort((p, q) => p.place - q.place || p.seat - q.seat);
     // The night's list of games, for the board opened large: this one's name and who won it.
-    record(this.history, { round: this.round, name: this.boxes.find((box) => box.id === a.id)?.name ?? a.id, rows });
+    record(this.history, { round: this.round, name: this.nameOf(a.id), rows });
     if (rows.length) this.gamesPlayed += 1;
-    this.last = { round: this.round, game: a.id, name: this.boxes.find((box) => box.id === a.id)?.name ?? a.id, rows, at: now };
+    this.last = { round: this.round, game: a.id, name: this.nameOf(a.id), rows, at: now };
     if (ending?.early) this.last.early = ending.early;
     this.lastAnswers = a.answers ? { round: this.round, answers: a.answers } : null;
     this.keepCarry(game, a, ending);
@@ -1676,6 +1804,9 @@ export class LobbyCore {
       picker: this.pickerView(now),
       // Which waiting room the party is in (lobby/shared/mode.js): a page showing the other one moves.
       mode: this.mode,
+      // At the Table: its list of games, each with why the party cannot play it now, and the game
+      // the host just picked while everyone waits for it to start (lobby/shared/table.js).
+      ...(this.plainRoom() ? { table: this.tableView(), starting: this.beatView(now) } : {}),
     };
   }
 
@@ -1690,6 +1821,8 @@ export class LobbyCore {
     const box = this.boxOf(a.id);
     const out = { id: a.id, name: box?.name ?? a.id, round: this.round };
     if (this.turnGame()) out.turns = true;
+    // At the Table every page needs to know who plays and who waits for the next game.
+    if (this.isTableGame(a.id)) out.seats = [...a.seats];
     if (hasAudience(this.games.get(a.id), box)) {
       Object.assign(out, { seats: [...a.seats], audience: true });
       // Who joined mid-match and so watches it as the big screen does (lateJoiner).

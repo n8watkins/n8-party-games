@@ -351,6 +351,18 @@ export function createLobbyRoom(wallFor) {
         case "mode":
           // The host moves the party to the other waiting room (lobby/shared/mode.js).
           return void this.switchMode(entry, msg, now).catch((err) => console.error("party room: switching rooms failed", err));
+        case "play": {
+          // At the Table the host picks a game from the list: everyone sees it is starting for a
+          // moment (the beat, one wake-up), then the room starts it as it starts any game. A
+          // refusal goes to that page only, `play-no {error, message}`.
+          const may = core.mayPlay(entry.token, msg.id, now);
+          if (!may.ok) return this.send(entry, { t: "play-no", error: may.error, message: may.message });
+          core.beginPlay(may.id, entry.token, now);
+          return this.changed(now);
+        }
+        case "stop":
+          // The host ends the game being played at the Table: everyone is back there, with the card.
+          return void this.stopAtTable(entry, now).catch((err) => console.error("party room: ending a game at the Table failed", err));
         case "pick": {
           // The party moves to another room: one stored value and one relayed message. Refused
           // (to that page only) when it is not the host's tap or not the moment.
@@ -441,7 +453,22 @@ export function createLobbyRoom(wallFor) {
         return this.send(entry, { t: "mode-no", why: "The switch did not go through. Try again.", v: core.mode });
       }
       if (this.core !== core) return;
+      core.modeSaved();
       this.changed(now);
+    }
+
+    /**
+     * The host's "End the game" at the Table. Saved before anyone hears of it, as every change to
+     * a turn-based game is; then everyone gets the note, the last snapshots and `end`. A refusal
+     * goes to the sender alone, `stop-no {error, message}`.
+     */
+    async stopAtTable(entry, now) {
+      const core = this.core;
+      const out = core.endByHost(entry.token, now);
+      if (!out.ok) return this.send(entry, { t: "stop-no", error: out.error, message: out.message });
+      await this.save();
+      if (this.core !== core) return;
+      this.deliverTurn(out, now);
     }
 
     /**
@@ -453,9 +480,10 @@ export function createLobbyRoom(wallFor) {
       try {
         const budget = await roomBudgetState(this.env).catch(() => "open");
         if (this.core !== core) return;
-        // The vote is the Floor's: a game it chose never starts while the party is at the Table.
-        // (The room refuses a switch while a start is pending, core.starting; this is the last guard.)
-        if (core.plainRoom()) console.error(`party room: ${id} was not started: the party is at the Table`);
+        // The vote is the Floor's and the list is the Table's: a game never starts in the other
+        // waiting room. (The room refuses a switch while a start is pending, core.starting; this is
+        // the last guard.)
+        if (core.plainRoom() !== core.isTableGame(id)) console.error(`party room: ${id} was not started: the party is ${core.plainRoom() ? "at the Table" : "on the Floor"}`);
         else if (budget === "open") await this.startGame(id, chosen);
         else core.refuseStart(Date.now());
       } finally {
