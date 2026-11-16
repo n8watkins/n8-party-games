@@ -46,11 +46,14 @@ export function createListener({ lang = "en-US", onStart, onSpeech, onInterim, o
     r.continuous = false;
     r.maxAlternatives = MAX_ALTERNATIVES;
     let final = false;
-    r.addEventListener("audiostart", () => {
+    // The microphone is on: whichever of the two events this browser sends first.
+    const on = () => {
       if (rec !== r || started) return;
       started = true;
       onStart?.();
-    });
+    };
+    r.addEventListener("start", on);
+    r.addEventListener("audiostart", on);
     r.addEventListener("speechstart", () => rec === r && onSpeech?.());
     r.addEventListener("result", (e) => {
       if (rec !== r) return;
