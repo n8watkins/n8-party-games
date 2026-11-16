@@ -48,6 +48,7 @@ say(typeof refused.message === "string" && !/secret|siteverify|error-codes/i.tes
 
 if (browser) {
   const { chromium } = await import("playwright");
+  // Stays on Playwright's own software launch, not lobby/test/browser.mjs: this file ships with the kit to game repos, which have no lobby.
   const b = await chromium.launch({ headless: true, args: ["--use-angle=swiftshader", "--enable-unsafe-swiftshader"] });
   try {
     const host = await b.newPage();

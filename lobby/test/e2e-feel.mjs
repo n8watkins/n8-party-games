@@ -15,7 +15,7 @@
 // clock held still, so they show exactly the moments named.
 import { mkdirSync } from "node:fs";
 import { resolve } from "node:path";
-import { chromium } from "playwright";
+import { launchBrowser } from "./browser.mjs";
 import { SCREEN_GRACE_MS } from "../server/lobby-core.js";
 import { BUMP_COOLDOWN_MS, DOWN_MS, FLIGHT_MS, HIT_PAUSE_MS, IMMUNE_MS, IMPACT_MS, KNOCK_MIN, STUN_MS, WINDUP_MS, knockLanding } from "../shared/bump.js";
 import { ROOM, boxCentre, lightAt, lightHalf } from "../shared/world.js";
@@ -36,7 +36,9 @@ const section = (name) => console.log("\n     -- " + name);
 /** What the room budget has counted, or one room's inner state (the local server's debug door). */
 const debug = async (code = "") => (await fetch(api + "/debug" + (code ? "/" + code : ""))).json();
 
-const browser = await chromium.launch({ headless: true, args: ["--mute-audio"] });
+// Software even with TEST_GPU=1: the checks read the flat drawing (svg.scene), which a browser
+// with hardware 3D would not get.
+const browser = await launchBrowser({ software: true });
 try {
   const errors = [];
   async function open(name, viewport, extra = {}) {

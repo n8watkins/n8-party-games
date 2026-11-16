@@ -23,6 +23,15 @@ The global rules file (branches, pull requests, no merging without the owner's w
   The PC was overloaded once by three browser runs at once, and Blender renders must not overlap with them.
 - Browsers run headless and muted.
   The Windows-Chrome playtest (`npm run playtest:battle`) is run by hand on the owner's PC.
+- `TEST_GPU=1` makes the browser suites draw on the PC's graphics card instead of in software (`lobby/test/browser.mjs`: a private, invisible Xvfb display and Mesa's D3D12 driver, never the desktop).
+  It takes far less CPU; agents on this PC use it for the browser suites and the gate (`TEST_GPU=1 npm run predeploy`), unless told the card is off limits.
+  Without it nothing changes, and CI on GitHub's runners (no card) never sets it.
+  If the card or Xvfb is missing, or WebGL still draws in software, the run fails at once with the reason.
+- The card is shared with the owner's desktop and with Blender renders.
+  Only one GPU test job runs at a time (a lock on `/tmp/test-gpu-1.lock`; others wait and say so; `TEST_GPU_JOBS=N` raises the limit), and other GPU work can take the same lock with `flock /tmp/test-gpu-1.lock <command>`.
+  `TEST_NO_GPU=1` keeps every test off the card, whatever else is set: the one switch when the card is busy or misbehaves.
+- Some browsers stay on software even with `TEST_GPU=1`: the still tools (`shoot*.mjs`, `weigh-baked.mjs`), whose pictures are for a person or compared with earlier ones; the browsers that stand for a device without hardware 3D (`e2e-feel`, `e2e-emotes`, the plain browser in `e2e-leave-rooms`), since a card gets the 3D look instead of the flat one; and `party-kit/test/e2e-turnstile.mjs`, which ships to game repos.
+  GPU pixels differ from software ones and can change with a driver update, so any stored-image comparison must run on software.
 - `npm run predeploy` runs the full gate: unit tests, then `test:room`, `test:lobby` and `test:cork` against its own server.
   The same script is the GitHub workflow `predeploy-gate`.
 

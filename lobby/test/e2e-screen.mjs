@@ -15,7 +15,7 @@
 // What emulation cannot show is said at the end: a real iPhone's bars, a real Android launcher.
 import { mkdirSync } from "node:fs";
 import { resolve } from "node:path";
-import { chromium } from "playwright";
+import { launchBrowser } from "./browser.mjs";
 
 const args = process.argv.slice(2);
 const opt = (k, d) => (args.find((a) => a.startsWith("--" + k + "=")) ?? "--" + k + "=" + d).split("=").slice(1).join("=");
@@ -30,7 +30,7 @@ const check = (ok, what) => {
 const IPHONE = "Mozilla/5.0 (iPhone; CPU iPhone OS 18_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.6 Mobile/15E148 Safari/604.1";
 const ANDROID = "Mozilla/5.0 (Linux; Android 15; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Mobile Safari/537.36";
 
-const browser = await chromium.launch({ headless: true, args: ["--mute-audio"] });
+const browser = await launchBrowser();
 const errors = [];
 try {
   async function open(name, { width, height, ua = ANDROID, iphone = false, standalone = false }) {

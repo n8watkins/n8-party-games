@@ -35,6 +35,7 @@ const check = (ok, what) => {
   if (!ok) problems.push(what);
 };
 
+// Stays on software whatever TEST_GPU says (not lobby/test/browser.mjs): its stills are for a person, and its flat-room checks need a browser without hardware 3D.
 const browser = await chromium.launch({ headless: true, args: ["--mute-audio", "--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--ignore-gpu-blocklist"] });
 try {
   const errors = [];

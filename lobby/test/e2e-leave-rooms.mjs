@@ -11,11 +11,11 @@
 // Rooms: the host's pick reaches every device, others' taps do not apply, nothing changes
 // during the count or a game, a latecomer gets the party's room, a start link's ?room= is the
 // starting choice, it survives the room sleeping, and a device without 3D loads none of it.
-// The 3D pages draw in software (?gl=any), so they are checked for what they draw, not how fast.
+// The 3D pages ask for ?gl=any, so they draw in software too, and are checked for what they draw, not how fast.
 // It takes about two minutes, most of it waiting out a dropped phone's thirty seconds.
 import { mkdirSync } from "node:fs";
 import { resolve } from "node:path";
-import { chromium } from "playwright";
+import { launchBrowser } from "./browser.mjs";
 import { boxCentre } from "../shared/world.js";
 import { partyApi, sleep } from "./client.mjs";
 
@@ -35,10 +35,11 @@ const [COIN, WHO] = [1, 2];
 const light = (i, off = 0) => Math.round(boxCentre(i, N) + off);
 const WHO_SITE = "https://whoami.n8builds.dev/";
 
-// Two browsers: a plain one, which like WSL has no hardware 3D and so gets the flat room, and one
-// that draws WebGL in software for the pages that ask for the 3D look with ?gl=any.
-const browser = await chromium.launch({ headless: true, args: ["--mute-audio"] });
-const soft = await chromium.launch({ headless: true, args: ["--mute-audio", "--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--ignore-gpu-blocklist"] });
+// Two browsers: a plain one, which stands for a device without hardware 3D and so gets the flat
+// room (it stays on software even with TEST_GPU=1, or it would get the 3D look), and one that
+// draws WebGL for the pages that ask for the 3D look with ?gl=any (on the card with TEST_GPU=1).
+const browser = await launchBrowser({ software: true });
+const soft = await launchBrowser({ args: ["--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--ignore-gpu-blocklist"] });
 const errors = [];
 const timers = [];
 try {

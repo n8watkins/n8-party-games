@@ -19,7 +19,7 @@
 //                      no sound file is fetched before the room is drawn
 //
 // The sounds are the room's own recordings (lobby/public/sounds).
-import { chromium } from "playwright";
+import { launchBrowser } from "./browser.mjs";
 import { EMOTE_COOLDOWN_MS } from "../../party-kit/client/emotes.js";
 import { COUNT_MS } from "../shared/vote.js";
 import { boxCentre } from "../shared/world.js";
@@ -38,7 +38,9 @@ const section = (name) => console.log("\n     -- " + name);
 const debug = async (code) => (await (await fetch(api + "/debug/" + code)).json()).room;
 const quiet = (c, ms = 600) => sleep(ms).then(() => c.seen.filter((m) => m.t === "e" || m.t === "wait"));
 
-const browser = await chromium.launch({ headless: true, args: ["--mute-audio", "--autoplay-policy=user-gesture-required"] });
+// Software even with TEST_GPU=1: the checks read the flat drawing (svg.scene), which a browser
+// with hardware 3D would not get.
+const browser = await launchBrowser({ software: true, args: ["--autoplay-policy=user-gesture-required"] });
 try {
   const errors = [];
   async function open(name, viewport = { width: 844, height: 390 }) {
