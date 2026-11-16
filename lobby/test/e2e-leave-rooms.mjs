@@ -219,7 +219,7 @@ try {
   await leaver.waitForURL(base + "/", { timeout: 8000 });
   const left = await chip(leaver);
   check(left?.startsWith(`You left party ${pin}.`) && /Rejoin/.test(left), `leaving lands on the front page with a line and Rejoin: "${left}"`);
-  check((await leaver.locator("text=Start a party").count()) > 0, "the front page offers Start a party and Join with a code beside it");
+  check((await leaver.locator(".door").count()) === 3 && (await leaver.locator("#joinOpen").count()) === 1, "the front page offers its three doors and Join with a code beside them");
   await shot(leaver, "12-phone-front-you-left");
   await leaver.click(".note-act");
   await leaver.waitForSelector(".bar", { timeout: 15000 });
