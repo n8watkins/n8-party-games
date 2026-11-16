@@ -24,8 +24,8 @@
 //  3. Two lists. The default list holds well-known places: capitals, US, Canadian and Australian
 //     state capitals, places of 100,000 people or more, and a hand list of famous small towns.
 //     A place whose name is also an ordinary word (Orange, Surprise) needs 250,000 people, a
-//     capital or the hand list (Nice, Bath, Cork, Reading, Mobile). Hard mode adds every town
-//     over 15,000.
+//     capital or the hand list (Nice, Bath, Cork, Reading, Mobile). The wider list ("Also allow
+//     lesser-known cities", off by default) adds every town over 15,000, so it accepts more.
 //  4. Sound-alike only mends the recogniser's spelling of a well-known city, never a different
 //     word: the best guess must not be an ordinary English word or a common name, the city's name
 //     must not be an ordinary word, it must start with the same letter, have the same consonants,
@@ -197,7 +197,7 @@ function readRows(doc, format) {
  * Turns a category's shipped JSON (and words.json, {words, names}) into an index. Each entry
  * gets an id (its row number); every name, ASCII name, other name and abbreviation is a key
  * (an abbreviation also without its dots: "U.S." is "us"). An entry is well known (in the default
- * list) or hard mode only. `category` is one of CATEGORIES (cities when left out).
+ * list) or lesser known (only in the wider list). `category` is one of CATEGORIES (cities when left out).
  */
 export function buildIndex(doc, wordsDoc = { words: [], names: [] }, category = CATEGORIES.cities) {
   const ordinary = new Set(wordsDoc.words ?? []);
@@ -342,28 +342,28 @@ const SOUND_ALIKE_MIN_LETTERS = 4;
  * letter the answer must start with (or "" on the first turn), `used` a Set of place ids already
  * played and `usedNames` a Set of the normalised names already said (so a second "Sydney" is a
  * repeat even though Sydney in Canada is another place), `previous` the last accepted spoken name
- * (a guess that is just that word again is an echo, not an answer), `hard` true for hard mode
- * (every town over 15,000; otherwise well-known places only).
+ * (a guess that is just that word again is an echo, not an answer), `wide` true to accept the
+ * wider list too (lesser-known entries: every town over 15,000; otherwise well-known places only).
  *
  * Returns {ok, kind, place, said, heard, alternative, others, reason, rules}:
  *  - ok true: kind is "exact" (the best guess), "alternative" (another counted guess) or
  *    "sound-alike"; `said` is the name the chain goes on from; `others` lists other places of
  *    that name in the list, biggest first.
- *  - ok false: reason is "used", "wrong-letter", "echo", "hard-only" (only in the full list),
+ *  - ok false: reason is "used", "wrong-letter", "echo", "lesser-known" (only in the wider list),
  *    "word" (an ordinary word), "name" (a common name) or "not-a-city"; `place` says what it came
  *    closest to, when anything.
  */
-export function matchHeard(index, alternatives, { required = "", used = new Set(), usedNames = new Set(), previous = "", hard = false } = {}) {
+export function matchHeard(index, alternatives, { required = "", used = new Set(), usedNames = new Set(), previous = "", wide = false } = {}) {
   const alts = usableAlternatives(alternatives);
   const rules = RULES_VERSION;
   if (!alts.length) return { ok: false, reason: "not-a-city", kind: null, place: null, said: "", heard: "", others: [], rules };
   const said = (e) => (e.abbr ? index.places[e.id].name : e.via);
   const isUsed = (e) => used.has(e.id) || usedNames.has(normalize(said(e)));
-  const inList = (e) => hard || index.places[e.id].known;
+  const inList = (e) => wide || index.places[e.id].known;
   const prevKey = previous ? normalize(previous) : "";
   let wrongLetter = null;
   let usedHit = null;
-  let hardOnly = null;
+  let lesserKnown = null;
   let echo = false;
 
   const result = (kind, entry, alt, extra = {}) => {
@@ -399,7 +399,7 @@ export function matchHeard(index, alternatives, { required = "", used = new Set(
     const sorted = [...found.entries].sort((a, b) => a.id - b.id);
     const listed = sorted.filter(inList);
     if (!listed.length) {
-      hardOnly ??= { entry: sorted[0], alt };
+      lesserKnown ??= { entry: sorted[0], alt };
       continue;
     }
     const fits = listed.filter((e) => !required || firstLetter(said(e)) === required);
@@ -441,7 +441,7 @@ export function matchHeard(index, alternatives, { required = "", used = new Set(
   }
 
   if (wrongLetter) return fail("wrong-letter", wrongLetter);
-  if (hardOnly) return fail("hard-only", hardOnly);
+  if (lesserKnown) return fail("lesser-known", lesserKnown);
   if (plain) return fail(plain.kind, null, plain.alt.key);
   if (echo) return fail("echo", null);
   return fail("not-a-city", null);
@@ -465,9 +465,9 @@ function lookup(index, key) {
 /** Fewer entries than this left to start with a letter make it a dead end. */
 export const DEAD_END_BELOW = 3;
 
-/** How many entries in the list (well known, or all in hard mode) start with a letter, not counting those already said. */
-export function entriesLeft(index, letter, used = new Set(), hard = false) {
-  const ids = (hard ? index.startIds.all : index.startIds.known).get(letter);
+/** How many entries in the list (well known, or with the lesser-known ones too when `wide`) start with a letter, not counting those already said. */
+export function entriesLeft(index, letter, used = new Set(), wide = false) {
+  const ids = (wide ? index.startIds.all : index.startIds.known).get(letter);
   if (!ids) return 0;
   let n = 0;
   for (const id of ids) if (!used.has(id)) n++;
@@ -481,26 +481,26 @@ export function entriesLeft(index, letter, used = new Set(), hard = false) {
  * the yak starts with Y). Returns {letter, skipped}: the letters passed over, last first; letter
  * is "" (any letter) when every letter of the name is a dead end.
  */
-export function nextLetter(index, said, { used = new Set(), hard = false } = {}) {
+export function nextLetter(index, said, { used = new Set(), wide = false } = {}) {
   const word = letters(said);
   const skipped = [];
   for (let i = word.length - 1; i >= 0; i--) {
     const c = word[i];
     if (skipped.includes(c)) continue;
-    if (entriesLeft(index, c, used, hard) >= DEAD_END_BELOW) return { letter: c, skipped };
+    if (entriesLeft(index, c, used, wide) >= DEAD_END_BELOW) return { letter: c, skipped };
     skipped.push(c);
   }
   return { letter: "", skipped };
 }
 
 /** The letters that are dead ends in a fresh game: fewer than DEAD_END_BELOW entries start with them. */
-export function deadLetters(index, hard = false) {
-  return [..."abcdefghijklmnopqrstuvwxyz"].filter((c) => entriesLeft(index, c, new Set(), hard) < DEAD_END_BELOW);
+export function deadLetters(index, wide = false) {
+  return [..."abcdefghijklmnopqrstuvwxyz"].filter((c) => entriesLeft(index, c, new Set(), wide) < DEAD_END_BELOW);
 }
 
-/** True when some other name in the list (well known, or all in hard mode) starts with this key. */
-export function longerNameStartsWith(index, key, hard = false) {
-  const keys = hard ? index.sortedKeys.all : index.sortedKeys.known;
+/** True when some other name in the list (well known, or with the lesser-known ones too when `wide`) starts with this key. */
+export function longerNameStartsWith(index, key, wide = false) {
+  const keys = wide ? index.sortedKeys.all : index.sortedKeys.known;
   let lo = 0;
   let hi = keys.length;
   while (lo < hi) {
@@ -531,11 +531,11 @@ export function earlyMatch(index, interimTranscripts, opts = {}) {
     const k = trimFillers(t);
     return k.length > key.length && k.startsWith(key);
   })) return { ok: false, why: "a longer guess starts with it" };
-  const m = matchHeard(index, [{ transcript: key, confidence: 0 }], { ...opts, hard: false });
+  const m = matchHeard(index, [{ transcript: key, confidence: 0 }], { ...opts, wide: false });
   const one = index.category?.one ?? "city";
   if (!m.ok || m.kind !== "exact" || m.plural) return { ok: false, why: `not exactly a well-known ${one}` };
   if (m.wordName && index.category?.wordNames !== false) return { ok: false, why: "also an ordinary word" };
-  if (longerNameStartsWith(index, key, Boolean(opts.hard))) return { ok: false, why: `a longer ${one} name starts with it` };
+  if (longerNameStartsWith(index, key, Boolean(opts.wide))) return { ok: false, why: `a longer ${one} name starts with it` };
   return m;
 }
 

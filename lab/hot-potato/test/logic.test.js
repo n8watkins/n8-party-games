@@ -133,7 +133,7 @@ describe("the two lists", () => {
     expect(known("Bath", "GB")).toBe(true);
   });
 
-  it("leaves small places, and middling places named after ordinary words, to hard mode", () => {
+  it("leaves small places, and middling places named after ordinary words, to the lesser-known list", () => {
     expect(known("Edmond", "US")).toBe(false);
     expect(known("Orange", "US")).toBe(false);
     expect(known("Surprise", "US")).toBe(false);
@@ -152,7 +152,7 @@ describe("the owner's first run (fixtures/hearing-report-1.txt), replayed", () =
     for (const [n, kind, word] of [[1, "word", "hello"], [2, "word", "apple"], [11, "word", "ratchet"], [14, "word", "hear it"], [20, "word", "salmon"]]) {
       const m = replay(n);
       expect(m, `turn ${n}`).toMatchObject({ ok: false, reason: kind, heard: word });
-      expect(matchHeard(index, turn(n).alternatives, { required: turn(n).need, hard: true }), `turn ${n}, hard mode`).toMatchObject({ ok: false });
+      expect(matchHeard(index, turn(n).alternatives, { required: turn(n).need, wide: true }), `turn ${n}, lesser-known allowed`).toMatchObject({ ok: false });
     }
   });
 
@@ -170,14 +170,14 @@ describe("the owner's first run (fixtures/hearing-report-1.txt), replayed", () =
 
   it("does not take Leopold as Léo: the whole phrase decides", () => {
     expect(replay(5)).toMatchObject({ ok: false });
-    expect(replay(5, { hard: true })).toMatchObject({ ok: false });
+    expect(replay(5, { wide: true })).toMatchObject({ ok: false });
   });
 
-  it("refuses 'orange' in the default list (a middling city named after a word) and takes it in hard mode, naming the bigger one", () => {
+  it("refuses 'orange' in the default list (a middling city named after a word) and takes it with lesser-known cities allowed, naming the bigger one", () => {
     const m = replay(6);
-    expect(m).toMatchObject({ ok: false, reason: "hard-only", said: "Orange" });
+    expect(m).toMatchObject({ ok: false, reason: "lesser-known", said: "Orange" });
     expect(m.place.country).toBe("US");
-    const h = replay(6, { hard: true });
+    const h = replay(6, { wide: true });
     expect(h).toMatchObject({ ok: true, kind: "exact", said: "Orange" });
     expect(h.place.region).toBe("California");
     expect(h.place.country).toBe("US");
@@ -198,7 +198,7 @@ describe("the owner's first run (fixtures/hearing-report-1.txt), replayed", () =
 
   it("refuses Rodger: a name, and Rogers at 0.02 is not a believable guess (nor a well-known city)", () => {
     expect(replay(19)).toMatchObject({ ok: false, reason: "name", heard: "rodger" });
-    expect(replay(19, { hard: true })).toMatchObject({ ok: false, reason: "name" });
+    expect(replay(19, { wide: true })).toMatchObject({ ok: false, reason: "name" });
   });
 
   it("would not have answered any of the seven interims early, where v1 answered all seven and five differed from the final", () => {
@@ -333,9 +333,9 @@ describe("the matcher's other rules", () => {
     expect(matchHeard(index, [], {})).toMatchObject({ ok: false, reason: "not-a-city" });
   });
 
-  it("tells hard-mode-only towns apart from non-cities", () => {
-    expect(matchHeard(index, heard("Leo"), { required: "l" })).toMatchObject({ ok: false, reason: "hard-only" });
-    expect(matchHeard(index, heard("Leo"), { required: "l", hard: true })).toMatchObject({ ok: true, said: "Léo" });
+  it("tells lesser-known towns apart from non-cities", () => {
+    expect(matchHeard(index, heard("Leo"), { required: "l" })).toMatchObject({ ok: false, reason: "lesser-known" });
+    expect(matchHeard(index, heard("Leo"), { required: "l", wide: true })).toMatchObject({ ok: true, said: "Léo" });
   });
 });
 
@@ -348,7 +348,7 @@ describe("answering early (off by default)", () => {
   it("waits while a longer name could still come", () => {
     expect(earlyMatch(index, ["San"], {})).toMatchObject({ ok: false });
     expect(earlyMatch(index, ["New York"], { required: "n" })).toMatchObject({ ok: false }); // New York City
-    expect(earlyMatch(index, ["Edmond"], { required: "e", hard: true })).toMatchObject({ ok: false }); // Edmonton
+    expect(earlyMatch(index, ["Edmond"], { required: "e", wide: true })).toMatchObject({ ok: false }); // Edmonton
     expect(earlyMatch(index, ["Paris"], { required: "p" })).toMatchObject({ ok: true });
     expect(earlyMatch(index, ["Paris", "Paris Texas"], { required: "p" })).toMatchObject({ ok: false });
   });
@@ -356,6 +356,6 @@ describe("answering early (off by default)", () => {
   it("never answers early on a city named after a word, a sound-alike or a small town", () => {
     expect(earlyMatch(index, ["Nice"], { required: "n" })).toMatchObject({ ok: false });
     expect(earlyMatch(index, ["Sidnee"], { required: "s" })).toMatchObject({ ok: false });
-    expect(earlyMatch(index, ["Edmond"], { required: "e", hard: true })).toMatchObject({ ok: false });
+    expect(earlyMatch(index, ["Edmond"], { required: "e", wide: true })).toMatchObject({ ok: false });
   });
 });

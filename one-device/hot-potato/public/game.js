@@ -171,7 +171,7 @@ export function refusalReason(g, m, required) {
       return `${said} starts with ${showLetter(said.replace(/[^A-Za-z]/g, "").charAt(0))}, not ${showLetter(required)}`;
     case "echo":
       return `${heard || "That"} was the last word again`;
-    case "hard-only":
+    case "lesser-known":
       return `${said} is too little known for this list`;
     case "word":
       return `"${heard}" is not ${a}`;
