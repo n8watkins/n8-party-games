@@ -48,8 +48,12 @@ export const COLOUR_PRESETS = [
   { hex: "#565b66", name: "Slate" },
 ];
 
-/** How long a player waits between two changes of character or colour: nobody can strobe their piece. */
-export const LOOK_COOLDOWN_MS = 500;
+/**
+ * How long a player waits between two changes of character or colour. Nobody can strobe their
+ * piece, and each change is one room view to everybody and one write of the room to storage, so
+ * a script cannot make a room busy with them either.
+ */
+export const LOOK_COOLDOWN_MS = 1000;
 
 /** How dark a chosen colour may be (relative luminance, 0 to 1): the rooms are dark, and a black piece cannot be seen in them. */
 export const MIN_LUMINANCE = 0.05;

@@ -6,7 +6,8 @@
 //
 // What it goes through, in each look:
 //   the picker        a phone opens "Your piece", picks the ghost and a colour; the room carries it
-//   a second page     another phone sees that piece as a ghost in that colour, and the others as pawns
+//   a second page     another phone and the big screen see that piece as a ghost in that colour,
+//                     and the others as pawns
 //   the 14 emotes     a ghost does each one where the second page can see it: its word over its
 //                     head, and its hands the way the owner chose (floating hands; wisps for GG,
 //                     Lighter up and Huh?; a cuff on the pointing hand; none for Fuming)
@@ -87,7 +88,14 @@ try {
   for (const look of looks) {
     // ================================================================ the picker
     section(`${look}: a phone picks the ghost and a colour, and the room carries it`);
-    const host = await call("POST", "/rooms", { nickname: "Ada" });
+    // The party is started by its big screen; Ada is a bare socket, Bea and Cy are phones.
+    const screen = await open(`screen (${look})`, { width: 1280, height: 720 });
+    await screen.goto(`${base}/lobby/?start&${query(look)}`);
+    await screen.click("text=Use this as the room's screen");
+    await screen.click("text=Show the room here");
+    await screen.waitForSelector(look === "flat" ? "svg.scene" : ".look3d canvas", { timeout: 60000 });
+    const pin = (await screen.locator(".code-digits").textContent()).trim();
+    const host = { pin, ...(await call("POST", "/join/" + pin, { nickname: "Ada" })) };
     const ada = connect(host);
     await ada.opened;
     const bea = await open(`bea (${look})`);
@@ -95,6 +103,7 @@ try {
     const cy = await open(`cy (${look})`);
     await join(cy, host.pin, "Cy", look);
     await ada.wait((m) => m.room?.members.filter((x) => x?.connected).length === 3, 10000, 0);
+    check((await screen.locator(".look-btn").count()) === 0, "the big screen has no piece of its own, and no button for one");
     const B = ada.room.members.find((m) => m?.name === "Bea").seat;
     const C = ada.room.members.find((m) => m?.name === "Cy").seat;
     check(ada.room.members.filter(Boolean).every((m) => m.character === "pawn"), "everyone starts as a pawn");
@@ -126,6 +135,9 @@ try {
     check(seenB?.character === "ghost" && (seenB.colour === null || seenB.colour === VIOLET), `on Cy's phone Bea's piece is a ghost${seenB?.colour ? " in " + seenB.colour : ""}`);
     check((await pieceOn(cy, ada.seat))?.character === "pawn" && (await pieceOn(cy, C))?.character === "pawn", "and Ada's and his own are still pawns");
     check((await pieceOn(bea, B))?.character === "ghost", "on her own phone too");
+    const big = await pieceOn(screen, B);
+    check(big?.character === "ghost" && (big.colour === null || big.colour === VIOLET) && (await pieceOn(screen, ada.seat))?.character === "pawn", "and on the big screen: Bea a ghost, Ada a pawn");
+    await shot(screen, look, "03-big-screen");
     await sleep(400);
     await shot(cy, look, "03-a-ghost-among-pawns");
 
@@ -286,7 +298,7 @@ try {
     check(back, "in a new party on the same phone, Bea is her violet ghost again without choosing");
 
     for (const c of [ada, dot]) c.ws.close();
-    for (const page of [bea, cy]) await page.context().close();
+    for (const page of [bea, cy, screen]) await page.context().close();
   }
 
   // ================================================================ what it costs

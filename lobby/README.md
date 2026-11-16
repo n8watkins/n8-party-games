@@ -294,7 +294,8 @@ The corner of a phone holds a button with the player's own piece on it; it opens
 - An unknown character or anything but a six-digit colour is refused and changes nothing.
   A colour too dark to see in a dark room is lifted toward white (`cleanColour`).
 - Two players may choose the same character in the same colour.
-- It cannot be changed while a game is on, nor twice within half a second.
+- It cannot be changed while a game is on, nor twice within a second: each change is one room view to everybody and one write of the room to storage.
+  A phone holds back a tap made inside that second and sends it when the second is over.
 - It is kept through a dropped phone and through a sleep of the room, because it is on the member.
   The last choice made on a device is kept on it, and asked for again in the next party.
 - It is lobby state, not game state: a game is handed each seat's colour when it starts and may ignore the character.

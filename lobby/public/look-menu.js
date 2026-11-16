@@ -8,7 +8,7 @@
 // starts with the same piece (restore).
 import { h } from "./dom.js";
 import { characterPortrait } from "./emotes/svg.js";
-import { CHARACTERS, COLOUR_PRESETS, LOOK_COOLDOWN_MS, characterOr, cleanColour } from "./shared/characters.js";
+import { CHARACTERS, COLOUR_PRESETS, LOOK_COOLDOWN_MS, characterOr, cleanColour, isCharacter } from "./shared/characters.js";
 
 // ("party-room:look" is taken: it is which drawing of the room this device asked for, room-view.js.)
 const SAVED_KEY = "party-room:piece";
@@ -45,6 +45,10 @@ export class LookMenu {
     this.room = null;
     this.key = "";
     this.sentAt = -Infinity;
+    /** Taps made inside the room's cooldown, until they are sent. */
+    this.held = null;
+    /** What was last asked of the room, until it answers. */
+    this.pending = null;
     this.restored = false;
   }
 
@@ -75,7 +79,7 @@ export class LookMenu {
     const now = this.mine(room);
     if (!want || !now || this.whyNot(room)) return;
     const look = {};
-    if (typeof want.c === "string" && want.c !== now.character) look.c = want.c;
+    if (isCharacter(want.c) && want.c !== now.character) look.c = want.c;
     const colour = cleanColour(want.v);
     if (colour && colour !== now.colour) look.v = colour;
     if (look.c || look.v) this.opts.send(look);
@@ -138,6 +142,12 @@ export class LookMenu {
 
   close() {
     clearTimeout(this.waitTimer);
+    // A tap still held back is sent all the same: it was made.
+    if (this.held) {
+      clearTimeout(this.holdTimer);
+      const wait = Math.max(0, this.sentAt + LOOK_COOLDOWN_MS + 60 - performance.now());
+      this.holdTimer = setTimeout(() => this.pick({}), wait);
+    }
     this.sheet?.remove();
     this.sheet = null;
   }
@@ -149,12 +159,23 @@ export class LookMenu {
     if (!now) return;
     const why = this.whyNot(room);
     if (why) return this.nudge(why);
-    if ((look.c ?? now.character) === now.character && (cleanColour(look.v) ?? now.colour) === now.colour) return;
-    // The room makes a second change wait a moment; a tap inside it is held back and sent when the moment is over.
-    const wait = this.sentAt + LOOK_COOLDOWN_MS + 60 - performance.now();
+    // The room makes a second change wait a moment; taps inside it are held back, put together (a
+    // character and then a colour are one choice) and sent when the moment is over.
+    look = { ...this.held, ...look };
+    this.held = null;
     clearTimeout(this.holdTimer);
-    if (wait > 0) return void (this.holdTimer = setTimeout(() => this.pick(look), wait));
+    // Against what the piece is about to be: the room may not have answered the last choice yet.
+    const soon = { c: now.character, v: now.colour, ...this.pending };
+    if ((look.c ?? soon.c) === soon.c && (cleanColour(look.v) ?? soon.v) === soon.v) return;
+    const wait = this.sentAt + LOOK_COOLDOWN_MS + 60 - performance.now();
+    if (wait > 0) {
+      this.held = look;
+      this.sheet?.classList.add("waiting");
+      this.holdTimer = setTimeout(() => this.pick({}), wait);
+      return;
+    }
     this.sentAt = performance.now();
+    this.pending = { ...this.pending, ...look, ...(look.v ? { v: cleanColour(look.v) } : {}) };
     this.opts.send(look);
     try {
       localStorage.setItem(SAVED_KEY, JSON.stringify({ ...saved(), ...look }));
@@ -179,6 +200,7 @@ export class LookMenu {
   /** The room said no to this device's choice. */
   refused(why) {
     clearTimeout(this.waitTimer);
+    this.pending = null;
     this.sheet?.classList.remove("waiting");
     this.nudge(why);
   }
@@ -189,11 +211,14 @@ export class LookMenu {
     const now = this.mine(room);
     if (!now) return;
     const why = this.whyNot(room);
+    // A game began while the sheet was open: it would lie over the game, so it goes.
+    if (why && this.sheet) this.close();
     const key = `${now.character}/${now.colour}/${why ?? ""}/${this.isOpen}`;
     if (key === this.key) return;
     const changed = !this.key.startsWith(`${now.character}/${now.colour}/`);
     this.key = key;
     if (changed) {
+      this.pending = null;
       this.face.replaceChildren(characterPortrait(now.character, now.colour, 34));
       this.opts.onChange?.(now);
     }
@@ -227,6 +252,7 @@ export class LookMenu {
   }
 
   destroy() {
+    this.held = null;
     clearTimeout(this.holdTimer);
     this.close();
     this.button.remove();
