@@ -9,8 +9,10 @@
 // way of showing them. Where the pawn gets crosses for eyes, the ghost squeezes its eyes shut.
 //
 // Cost: a ghost is five draws (the sheet; the lobes and nubs as one instanced mesh; the eyes;
-// their glints; the mouth) plus its shadow, about what a pawn is. The sheet's 500-odd points are
-// moved every frame, and nothing is made per frame.
+// their glints; the mouth) plus its shadow, about what a pawn is, in fewer triangles. The sheet's
+// 300-odd points are moved every frame (that is its cost over a pawn: measured by
+// lobby/test/e2e-characters.mjs --measure), nothing is made per frame, and its idle hover does
+// not keep the room drawing every frame.
 //
 // `piece.faded` (nothing sets it yet) is where the ghost's own move comes in: the model already
 // knows how to be see-through, lighter and higher (fadeK below).
@@ -29,7 +31,9 @@ const GHOST_HEIGHT = (TOP * SIZE) / PX;
 const BELOW_PAWN = PAWN_HEIGHT - GHOST_HEIGHT;
 /** Model units per world unit. */
 const MU = PX / SIZE;
-const SEG = 28;
+/** How many sides the turned sheet has, and how many steps its round top: enough at the size a piece is drawn, and no more (its points are moved every frame). */
+const SEG = 20;
+const DOME = 8;
 const RAD = Math.PI / 180;
 /** How much the sheet glows by itself in the dark (the emissive strength of its materials). */
 const GLOW = 0.16;
@@ -94,8 +98,8 @@ const weight = (y) => Math.pow(clamp((TOP - y) / (TOP - HEM), 0, 1.05), 1.7);
 let SHAPES = null;
 function shapes() {
   const profile = [[0, 0.215], [0.1, 0.2], [0.2, 0.2], [0.255, 0.245], [0.272, 0.32], [0.27, 0.46], [0.264, 0.6]];
-  for (let i = 1; i <= 12; i++) {
-    const a = (i / 12) * Math.PI * 0.5;
+  for (let i = 1; i <= DOME; i++) {
+    const a = (i / DOME) * Math.PI * 0.5;
     profile.push([0.264 * Math.cos(a), 0.64 + (TOP - 0.64) * Math.sin(a)]);
   }
   const ball = new THREE.SphereGeometry(1, 12, 8);
@@ -141,6 +145,60 @@ const blinkAt = (now, seed) => {
   return t < 130 ? Math.sin((t / 130) * Math.PI) : 0;
 };
 
+/** Which way round the sheet's points run: 1 or -1, so sheetNormals points outward. Found once, on the first sheet. */
+let OUTWARD = 0;
+
+/**
+ * The sheet's normals after its points have moved. The sheet is a grid (SEG + 1 columns round
+ * it, each `rows` points from the middle of the underside to the top), so a point's normal is
+ * the cross of its two neighbours across and its two neighbours along: a few hundred small sums,
+ * a tenth of what the general method costs, and the two edges of the seam come out the same.
+ */
+function sheetNormals(geo) {
+  const p = geo.attributes.position.array;
+  const nor = geo.attributes.normal.array;
+  const R = SHAPES.rows;
+  const sign = OUTWARD || 1;
+  for (let i = 0; i <= SEG; i++) {
+    const ia = (i === 0 ? SEG - 1 : i - 1) * R;
+    const ib = (i === SEG ? 1 : i + 1) * R;
+    for (let j = 0; j < R; j++) {
+      const k = (i * R + j) * 3;
+      const a = (ia + j) * 3;
+      const b = (ib + j) * 3;
+      const c = (i * R + (j === 0 ? 0 : j - 1)) * 3;
+      const d = (i * R + (j === R - 1 ? j : j + 1)) * 3;
+      const ux = p[b] - p[a];
+      const uy = p[b + 1] - p[a + 1];
+      const uz = p[b + 2] - p[a + 2];
+      const vx = p[d] - p[c];
+      const vy = p[d + 1] - p[c + 1];
+      const vz = p[d + 2] - p[c + 2];
+      const nx = (uy * vz - uz * vy) * sign;
+      const ny = (uz * vx - ux * vz) * sign;
+      const nz = (ux * vy - uy * vx) * sign;
+      const l = Math.sqrt(nx * nx + ny * ny + nz * nz);
+      if (l < 1e-9) {
+        // The two points on the axis: the middle of the underside looks down, the top looks up.
+        nor[k] = 0;
+        nor[k + 1] = j === 0 ? -1 : 1;
+        nor[k + 2] = 0;
+      } else {
+        nor[k] = nx / l;
+        nor[k + 1] = ny / l;
+        nor[k + 2] = nz / l;
+      }
+    }
+  }
+  if (!OUTWARD) {
+    // A point on the side of the sheet, a little round from the seam: its normal must point away from the axis.
+    const k = (2 * R + 5) * 3;
+    OUTWARD = nor[k] * p[k] + nor[k + 2] * p[k + 2] >= 0 ? 1 : -1;
+    if (OUTWARD < 0) return sheetNormals(geo);
+  }
+  geo.attributes.normal.needsUpdate = true;
+}
+
 /**
  * A ghost, hanging over the origin of its own group. `radial` is the soft round texture its
  * shadow is cut from. Returns the handles poseGhost needs; the first of them are the same as a pawn's.
@@ -151,10 +209,14 @@ export function makeGhost(radial) {
   const pos = geo.attributes.position;
   const n = pos.count;
   const base = Float32Array.from(pos.array);
-  const ang = new Float32Array(n);
+  // The ripple runs three waves round the sheet: sin(3a + phase), kept as its two parts so no point needs a sine every frame.
+  const rs = new Float32Array(n);
+  const rc = new Float32Array(n);
   const wk = new Float32Array(n);
   for (let i = 0; i < n; i++) {
-    ang[i] = Math.atan2(base[i * 3 + 2], base[i * 3]);
+    const a = 3 * Math.atan2(base[i * 3 + 2], base[i * 3]);
+    rs[i] = Math.sin(a);
+    rc[i] = Math.cos(a);
     wk[i] = weight(base[i * 3 + 1]);
   }
   geo.setAttribute("color", new THREE.BufferAttribute(new Float32Array(n * 3), 3));
@@ -205,9 +267,9 @@ export function makeGhost(radial) {
     // The handles every character has (see pieces.js makePawn). `colour` is the sheet's own (white): the player's colour is in `hem`.
     group, tilt, turn, mat, blob, ring, colour: new THREE.Color(0xffffff), lit: 0, fade: 1, air: false, dizzy: false, connected: true,
     // The ghost's own.
-    geo, base, ang, wk, softMat, soft, skins, eyes, glints, mouthAt, mouth, curve, faceMats: null,
+    geo, base, rs, rc, wk, softMat, soft, skins, eyes, glints, mouthAt, mouth, curve, faceMats: null,
     hem: new THREE.Color(), nub: new THREE.Color(), glow: new THREE.Color(),
-    sq: 1, sqV: 0, lean: 0, leanV: 0, yaw: 0, prevX: null, trX: null, trV: 0, trY: 0, trYV: 0, bobT: 0, arm: 0, armV: 0, puff: 0, puffV: 0, nubK: 1, fadeK: 0, ground: 0, opacity: 1, clear: false, want: null,
+    sq: 1, sqV: 0, lean: 0, leanV: 0, yaw: 0, prevX: null, trX: null, trV: 0, trY: 0, trYV: 0, bobT: 0, arm: 0, armV: 0, puff: 0, puffV: 0, nubK: 1, fadeK: 0, ground: 0, opacity: 1, clear: false, want: null, tick: 0, busy: true, shaped: false,
   };
 }
 
@@ -332,32 +394,24 @@ export function poseGhost(g, piece, now, dt, how) {
   const flare = 0.05 + (1 - tall) * 1.3 + Math.max(0, -dY) * 0.5;
   const ripple = calm ? 0 : 0.022 + 0.03 * fl;
   const phase = now * 0.0065;
+  const sinP = Math.sin(phase);
+  const cosP = Math.cos(phase);
   const still = calm && Math.abs(dX) < 0.001 && Math.abs(dY) < 0.001 && Math.abs(g.sqV) < 0.02;
-  if (!still || !g.shaped) {
+  // While it only hovers the room draws every second or third frame, and the sheet is shaped every second one.
+  g.tick = (g.tick + 1) & 1;
+  if (!g.shaped || (!still && (g.busy || g.tick))) {
     g.shaped = true;
     const arr = g.geo.attributes.position.array;
     const base = g.base;
     for (let i = 0, n = g.wk.length; i < n; i++) {
       const k = g.wk[i];
-      const f = 1 + flare * k + ripple * k * Math.sin(3 * g.ang[i] + phase);
+      const f = 1 + flare * k + ripple * k * (g.rs[i] * cosP + g.rc[i] * sinP);
       arr[i * 3] = base[i * 3] * f + dLx * k;
       arr[i * 3 + 1] = base[i * 3 + 1] + dY * k;
       arr[i * 3 + 2] = base[i * 3 + 2] * f + dLz * k;
     }
     g.geo.attributes.position.needsUpdate = true;
-    g.geo.computeVertexNormals();
-    // The seam of the turned sheet: both edges get the same normal, so no line shows.
-    const nor = g.geo.attributes.normal;
-    const rows = SHAPES.rows;
-    for (let j = 0; j < rows; j++) {
-      const c = SEG * rows + j;
-      const x = nor.getX(j) + nor.getX(c);
-      const y = nor.getY(j) + nor.getY(c);
-      const z = nor.getZ(j) + nor.getZ(c);
-      const l = Math.hypot(x, y, z) || 1;
-      nor.setXYZ(j, x / l, y / l, z / l);
-      nor.setXYZ(c, x / l, y / l, z / l);
-    }
+    sheetNormals(g.geo);
   }
   // The lobes along the hem, and its own nub arms: a little lift while it idles, tucked away while an emote gives it hands.
   for (let i = 0; i < 5; i++) {
@@ -421,7 +475,12 @@ export function poseGhost(g, piece, now, dt, how) {
   // Up again and not to be knocked for a while: it flickers (it only glows steadily for people who asked for less motion).
   if (bump.safe) g.mat.emissiveIntensity += how.calm ? 0.25 : 0.55 * Math.abs(Math.sin(now / 70));
 
-  const moving = !calm || walking || air || bump.state !== "idle" || yelp > 0 || !still || Math.abs(g.leanV) > 0.01 || Math.abs(facing - g.yaw) > 0.01 || Math.abs(how.lit - g.lit) > 0.01;
+  // Its hover, bob and ripple are slow, and are not "moving": like a room's own ambient life they are drawn at the still room's rate
+  // (room3d.js draws every frame only while something moves), so a room of idle ghosts costs what a room of idle pawns does.
+  const moving =
+    walking || air || bump.state !== "idle" || yelp > 0 || Math.abs(dX) > 0.004 || Math.abs(g.trV) > 3 || Math.abs(g.sqV) > 0.03 || Math.abs(g.leanV) > 0.01 || Math.abs(g.puffV) > 0.02 ||
+    Math.abs(facing - g.yaw) > 0.01 || Math.abs(how.lit - g.lit) > 0.01 || (fl > 0.01 && fl < 0.99);
+  g.busy = moving;
   return { up: rise + (tall - 1) * GHOST_HEIGHT - BELOW_PAWN, moving, shock: bump.shock, burst: bump.burst, dust: bump.dust, state: bump.state };
 }
 

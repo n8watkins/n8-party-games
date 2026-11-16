@@ -28,7 +28,7 @@ import { partyApi, sleep } from "./client.mjs";
 const args = process.argv.slice(2);
 const opt = (k, d) => (args.find((a) => a.startsWith("--" + k + "=")) ?? "--" + k + "=" + d).split("=").slice(1).join("=");
 const base = opt("base", "http://localhost:8791");
-const looks = opt("looks", "flat,3d,baked").split(",");
+const looks = opt("looks", "flat,3d,baked").split(",").filter(Boolean);
 const shots = opt("shots", "");
 const measure = args.includes("--measure");
 const { api, call, connect } = partyApi(base);
@@ -319,11 +319,18 @@ try {
         const N = 3000;
         for (let i = 0; i < N; i++) p.kind.pose(p.pawn, p, t0 + i * 16.7, 1 / 60, { walking: false, lit: 0.5, calm: false });
         const ms = (performance.now() - t0) / N;
+        // And walking, when everything about it moves every frame.
+        const t1 = performance.now();
+        for (let i = 0; i < N; i++) {
+          p.rx = saved.rx + Math.sin(i / 40) * 120;
+          p.kind.pose(p.pawn, p, t1 + i * 16.7, 1 / 60, { walking: true, lit: 0.5, calm: false });
+        }
+        const walking = (performance.now() - t1) / N;
         p.rx = saved.rx;
-        return { ms, calls: room.renderer.info.render.calls, triangles: room.renderer.info.render.triangles };
+        return { ms, walking, calls: room.renderer.info.render.calls, triangles: room.renderer.info.render.triangles };
       });
       console.log(`     ${label}: ${line}`);
-      console.log(`     ${label}: one piece's pose ${(pose.ms * 1000).toFixed(1)} microseconds; the last picture took ${pose.calls} draws, ${pose.triangles} triangles`);
+      console.log(`     ${label}: one piece's pose ${(pose.ms * 1000).toFixed(1)} microseconds standing, ${(pose.walking * 1000).toFixed(1)} walking; the last picture took ${pose.calls} draws, ${pose.triangles} triangles`);
       return { line, ...pose };
     };
     const pawns = await read("four pawns ");
@@ -334,8 +341,8 @@ try {
     await screen.waitForFunction(() => [...window.__room3d.pieces.values()].every((p) => p.kind.id === "ghost"), null, { timeout: 8000 });
     const ghosts = await read("four ghosts");
     const drawing = (r) => Number(/drawing ([\d.]+) ms/.exec(r.line ?? "")?.[1] ?? NaN);
-    console.log(`     difference: drawing ${drawing(pawns)} ms -> ${drawing(ghosts)} ms a picture (software drawing in this browser, not a phone's); pose ${(pawns.ms * 1000).toFixed(1)} -> ${(ghosts.ms * 1000).toFixed(1)} microseconds a piece; draws ${pawns.calls} -> ${ghosts.calls}; triangles ${pawns.triangles} -> ${ghosts.triangles}`);
-    check(Number.isFinite(ghosts.ms) && ghosts.ms < 1, `a ghost's pose takes under a millisecond here (${(ghosts.ms * 1000).toFixed(1)} microseconds)`);
+    console.log(`     difference: drawing ${drawing(pawns)} ms -> ${drawing(ghosts)} ms a picture (software drawing in this browser, not a phone's); pose ${(pawns.ms * 1000).toFixed(1)} -> ${(ghosts.ms * 1000).toFixed(1)} microseconds a piece standing, ${(pawns.walking * 1000).toFixed(1)} -> ${(ghosts.walking * 1000).toFixed(1)} walking; draws ${pawns.calls} -> ${ghosts.calls}; triangles ${pawns.triangles} -> ${ghosts.triangles}`);
+    check(Number.isFinite(ghosts.walking) && ghosts.walking < 1, `a ghost's pose takes under a millisecond here, even walking (${(ghosts.walking * 1000).toFixed(1)} microseconds)`);
     await shot(screen, "3d", "08-four-ghosts");
     for (const c of four) c.ws.close();
     await screen.context().close();
