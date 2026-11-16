@@ -38,6 +38,7 @@ const WHO_SITE = "https://whoami.n8builds.dev/";
 const light = (i, off = 0) => Math.round(boxCentre(i, N) + off);
 const dark = (i) => Math.round(boxCentre(i, N) + lightHalf(N) + 22);
 
+// Stays on software whatever TEST_GPU says (not lobby/test/browser.mjs): its stills are for a person, of the flat room a browser without hardware 3D gets.
 const browser = await chromium.launch({ headless: true, args: ["--mute-audio"] });
 try {
   const errors = [];
