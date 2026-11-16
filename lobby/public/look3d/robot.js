@@ -18,8 +18,8 @@
 // is six, and the lamp's glow a seventh only while it is lit. Nothing is made per frame.
 import * as THREE from "./three.js";
 import { EmoteArms, RIG_UNIT } from "./emote-arms.js";
-import { blinkAt, clamp, merged, paintPoints, pointLitMat, roundedBox, spring } from "./body-kit.js";
-import { HOP_HEIGHT, HOP_MS, PAWN_HEIGHT, SIZE, bumpPose } from "./pieces.js";
+import { blinkAt, clamp, merged, paintPoints, pointLitMat, roundedBox, spring, tintPaint } from "./body-kit.js";
+import { HOP_HEIGHT, HOP_MS, PALE, PAWN_HEIGHT, SIZE, bumpPose } from "./pieces.js";
 import { PX, SPACE, walkX } from "./space.js";
 import { JUMP_MS, WALK_SPEED, jumpHeight } from "../shared/world.js";
 
@@ -196,6 +196,7 @@ export function fadeRobot(r, left) {
     r.own = [(r.eyes.material = r.eyes.material.clone())];
     r.crosses.material = r.eyes.material;
   }
+  // An emote's arms fade with it (RobotHands.set reads r.fade).
   for (const m of [r.mat, r.lampMat, ...r.own]) {
     m.transparent = true;
     m.opacity = left * 0.8;
@@ -206,7 +207,7 @@ export function fadeRobot(r, left) {
 export function poseRobot(r, piece, now, dt, how) {
   const step = Math.min(dt, 1 / 30);
   const calm = how.calm;
-  const bump = bumpPose(piece, now);
+  const bump = bumpPose(piece, now, calm);
   const thrown = bump.x !== null;
   if (thrown) piece.rx = bump.x;
   r.prevX ??= piece.rx;
@@ -275,9 +276,12 @@ export function poseRobot(r, piece, now, dt, how) {
   r.glow.material.color.copy(alarm ? ALARM : LAMP);
   r.crosses.visible = bump.dizzy;
   r.eyes.visible = !bump.dizzy;
-  const pleased = since < PLEASED_MS + 400 && !alarm;
-  const shut = calm ? 0 : blinkAt(now, piece.seat, 4100);
-  r.eyes.scale.set(1, pleased ? 0.42 : 1 - 0.85 * shut, 1);
+  // Frightened by a ghost: its eyes go wide (no squint, no blink) while it lasts.
+  r.scaredK = bump.scared;
+  const big = 1 + 0.4 * bump.scared;
+  const pleased = since < PLEASED_MS + 400 && !alarm && !(bump.scared > 0);
+  const shut = calm || bump.scared > 0 ? 0 : blinkAt(now, piece.seat, 4100);
+  r.eyes.scale.set(big, (pleased ? 0.42 : 1 - 0.85 * shut) * big, 1);
   r.eyes.position.y = EYES.y - NECK + (pleased ? 0.012 : 0);
   // The resting arms come back once an emote's arms are gone.
   r.arms.visible = !want || want.nubs > 0.5;
@@ -295,6 +299,10 @@ export function poseRobot(r, piece, now, dt, how) {
   r.mat.emissiveIntensity = (r.connected ? 0.09 : 0.06) + 0.27 * r.lit;
   r.mat.clearcoat = 0.7 * (1 - char * 0.8);
   if (bump.safe) r.mat.emissiveIntensity += how.calm ? 0.25 : 0.55 * Math.abs(Math.sin(now / 70));
+  // Frightened by a ghost: its paint goes a lighter, paler tint while it lasts, as a pawn's does
+  // (the paint itself: its dark base and visor stay dark). An emote's red is laid over it after.
+  r.pale = bump.pale;
+  tintPaint(r.mat, PALE, 0.5 * bump.pale, 0.4 * bump.pale);
 
   const moving =
     walking || air || bump.state !== "idle" || yelp > 0 || alarm || since < PLEASED_MS + 450 || Math.abs(r.sqV) > STILL.squashV || Math.abs(r.leanV) > STILL.leanV || Math.abs(r.nodV) > STILL.nodV || Math.abs(r.mastV) > STILL.mastV || Math.abs(facing - r.yaw) > 0.01 || Math.abs(how.lit - r.lit) > 0.01;
@@ -310,8 +318,8 @@ export function emoteRobot(r, pose, now, seat) {
   r.tilt.rotation.z -= b.rot * RAD;
   r.want = pose.ghost;
   if (b.tint > 0) {
-    r.mat.color.lerp(FUMING, b.tint * 0.8);
-    r.mat.emissive.lerp(FUMING, b.tint * 0.6);
+    // The paint goes red, not its colour times red (which is near black on blue or green paint).
+    tintPaint(r.mat, FUMING, b.tint * 0.8, b.tint * 0.6);
     r.lampMat.color.lerp(ALARM, b.tint);
   }
   if (r.dizzy) return;
@@ -332,6 +340,7 @@ export function bakeRobot(r) {
     r.mat.envMapIntensity = 1;
   }
   const flicker = Math.max(0, r.mat.emissiveIntensity - ((r.connected ? 0.09 : 0.06) + 0.27 * r.lit) - 0.01);
+  // A fright's pale is on the paint itself (tintPaint in poseRobot), so it stays.
   r.mat.color.setScalar(1);
   r.mat.emissiveIntensity = 0.035 + flicker * 0.6;
 }
@@ -397,6 +406,7 @@ export class RobotHands {
     const limb = pose?.ghost?.limb ?? "none";
     const hands = limb === "none" ? [] : pose.hands;
     this.arms.set({ hands });
+    if (this.robot.fade < 1) this.fade(this.robot.fade);
     for (let i = 0; i < 2; i++) {
       const h = hands[i];
       const rod = this.rods[i];
@@ -417,12 +427,29 @@ export class RobotHands {
     }
   }
 
+  /** A robot leaving mid-emote: its arms and hands fade with its body (`left` 1 to 0, as fadeRobot). */
+  fade(left) {
+    if (!this.own) {
+      // The arms' metal is shared by every robot, so fading arms get their own.
+      this.own = [rodMat.clone(), jointMat.clone()];
+      for (const rod of this.rods) {
+        rod.upper.material = rod.lower.material = this.own[0];
+        rod.elbow.material = this.own[1];
+      }
+    }
+    for (const m of [...this.own, this.arms.handMat]) {
+      m.transparent = true;
+      m.opacity = left * 0.8;
+    }
+  }
+
   get wisps() {
     return [];
   }
 
   dispose() {
     for (const rod of this.rods) rod.g.removeFromParent();
+    for (const m of this.own ?? []) m.dispose();
     this.arms.dispose();
   }
 }

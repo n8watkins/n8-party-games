@@ -554,7 +554,7 @@ export class Scene {
     // The character lays the pose over its own body (its lean, its swell) and hides what the emote draws in its place.
     p.kind.flat.emote(p.actor, e.pose, bodyTransform);
     set(p.emote.stage, { transform: `translate(${p.rx.toFixed(1)}, ${ROOM.floorY})` });
-    p.emote.draw(e.pose, e.toward);
+    p.emote.draw(e.pose, e.toward, !!p.dizzy);
     // The word over the head, clear of the name tag and of whatever the emote holds up; as easy to read as the tag, and larger on a screen read from across the room.
     const tagTop = ROOM.floorY - 156 - p.up - p.level * (this.tagSize + 20) - (this.tagSize + 14);
     const y = Math.min(tagTop - 4, ROOM.floorY - p.rise + e.top);

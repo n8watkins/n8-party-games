@@ -417,9 +417,16 @@ export class EmoteFigure {
    * Draws a pose (already mirrored when the target is on the left). `toward` is the target's
    * offset in room units (negative: on the left), for what happens at the target: a glance's
    * drop of sweat, a flinch. Nothing is drawn at a target that is not there (toward: null).
+   * `knocked`: the piece is knocked over; a character whose figure says `ownKnockedFace` keeps
+   * its own knocked face then (the robot's crosses, the slime's swirls), and the emote draws none.
    */
-  draw(pose, toward) {
+  draw(pose, toward, knocked = false) {
     if (this.face) {
+      const hide = !!knocked && !!this.kind.ownKnockedFace;
+      if (hide !== !!this.faceHidden) {
+        this.faceHidden = hide;
+        set(this.faceEls.g, { display: hide ? "none" : null });
+      }
       set(this.tint, { opacity: (pose.body.tint * 0.8).toFixed(2) });
       shapeFace(this.faceEls, pose.face);
       // A face that sits elsewhere on this character, and slides toward the piece it is turned to.

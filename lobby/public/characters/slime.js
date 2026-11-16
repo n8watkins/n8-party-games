@@ -91,11 +91,14 @@ function tint(a, colour, connected) {
 function face() {
   const eye = (cx) => s("ellipse", { cx, cy: SLIME.eyeY, rx: 6.2, ry: 9.4, fill: INK });
   const glint = (cx) => s("circle", { cx: cx + 1.8, cy: SLIME.eyeY - 4, r: 2.2, fill: "#fff" });
-  const open = s("g", {}, eye(-SLIME.eyeX), eye(SLIME.eyeX), glint(-SLIME.eyeX), glint(SLIME.eyeX));
+  // Wide eyes for a fright: whites round the eyes (shown by `scared`).
+  const white = (cx) => s("ellipse", { cx, cy: SLIME.eyeY, rx: 8.6, ry: 11.8, fill: "#fff", stroke: INK, "stroke-width": 1.6 });
+  const whites = s("g", { display: "none", class: "slime-wide" }, white(-SLIME.eyeX), white(SLIME.eyeX));
+  const open = s("g", {}, whites, eye(-SLIME.eyeX), eye(SLIME.eyeX), glint(-SLIME.eyeX), glint(SLIME.eyeX));
   // Knocked over: two little swirls for eyes.
   const swirl = (cx) => `M${cx},${SLIME.eyeY} m-1,0 a2.5,2.5 0 1,1 3,2 a5,5 0 1,1 -6,-6 a7,7 0 0,1 9,0`;
   const dizzy = s("path", { d: `${swirl(-SLIME.eyeX)} ${swirl(SLIME.eyeX)}`, stroke: INK, "stroke-width": 2.6, "stroke-linecap": "round", fill: "none", display: "none", class: "slime-dizzy" });
-  return { g: s("g", {}, open, dizzy), open, dizzy };
+  return { g: s("g", {}, open, dizzy), open, dizzy, whites };
 }
 
 /** One step of a damped spring: returns [value, velocity]. */
@@ -122,12 +125,14 @@ export const slime = {
       limbs: "goo",
       // The emote's face is drawn for a pawn's head: on a slime it sits much lower, larger, and slides toward the piece it is turned to.
       face: { dy: SLIME.eyeY + 113, turn: 12, scale: 1.55 },
+      /** Knocked over mid-emote, its own swirls stay and the emote's face is not drawn (as in the 3D look). */
+      ownKnockedFace: true,
       tint(parent) {
         parent.append(s("path", { d: SLIME_DOME }));
       },
     },
     make() {
-      const a = { ...shapes("#888888"), face: face(), colour: "#888888", sq: 1, sqV: 0, lean: 0, leanV: 0, phase: 0, walked: false, puff: 0 };
+      const a = { ...shapes("#888888"), face: face(), colour: "#888888", sq: 1, sqV: 0, lean: 0, leanV: 0, phase: 0, walked: false, puff: 0, scaredK: 0 };
       // The jelly in a group of its own, so its squash is about its foot and an emote's lean (on `inner`) is laid over it.
       a.squish = s("g", {}, a.grad, a.drips, a.body, a.shine, a.face.g);
       a.inner = s("g", {}, a.squish);
@@ -154,10 +159,18 @@ export const slime = {
       const wide = 1 / Math.sqrt(tall);
       set(a.squish, { transform: `skewX(${a.lean.toFixed(2)}) scale(${wide.toFixed(3)},${tall.toFixed(3)})` });
       if (!a.dizzy) {
-        const shut = calm ? 0 : blinkAt(now, seat);
-        set(a.face.open, { transform: `translate(${dir * 4},${(SLIME.eyeY * shut * 0.9).toFixed(1)}) scale(1,${(1 - 0.9 * shut).toFixed(2)})` });
+        // Wide while a ghost has frightened it (no blink then), about the middle of its eyes.
+        const wide = 1 + 0.3 * a.scaredK;
+        const shut = calm || a.scaredK > 0 ? 0 : blinkAt(now, seat);
+        const sy = (1 - 0.9 * shut) * wide;
+        set(a.face.open, { transform: `translate(${dir * 4},${(SLIME.eyeY * (1 - sy)).toFixed(1)}) scale(${wide.toFixed(2)},${sy.toFixed(2)})` });
       }
       return 0;
+    },
+    /** Frightened by a ghost (0 to 1): its eyes go wide, with whites round them. */
+    scared(a, k) {
+      a.scaredK = k;
+      set(a.face.whites, { display: k > 0.3 ? null : "none" });
     },
     dizzy(a, on) {
       a.dizzy = on;
@@ -177,7 +190,8 @@ export const slime = {
       // Fuming swells it, about its middle.
       const puff = 1 + pose.ghost.puff;
       set(a.inner, { transform: `${bodyTransform(pose.body)} translate(0,-30) scale(${puff.toFixed(3)}) translate(0,30)` });
-      set(a.face.g, { display: "none" });
+      // Knocked over, it keeps its swirls (figure.ownKnockedFace: the emote draws no face then).
+      set(a.face.g, { display: a.dizzy ? null : "none" });
     },
     still(colour) {
       const p = shapes(colour);

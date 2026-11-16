@@ -17,7 +17,7 @@
 import * as THREE from "./three.js";
 import { EmoteArms, RIG_UNIT } from "./emote-arms.js";
 import { blinkAt, clamp, merged, spring, tube, tubeGeometry } from "./body-kit.js";
-import { HOP_HEIGHT, HOP_MS, PAWN_HEIGHT, SIZE, bumpPose } from "./pieces.js";
+import { HOP_HEIGHT, HOP_MS, PALE, PAWN_HEIGHT, SIZE, bumpPose } from "./pieces.js";
 import { PX, SPACE, walkX } from "./space.js";
 import { JUMP_MS, WALK_SPEED, jumpHeight } from "../shared/world.js";
 import { wispAt } from "../characters/ghost-rig.js";
@@ -180,7 +180,7 @@ export function fadeSlime(b, left) {
 export function poseSlime(b, piece, now, dt, how) {
   const step = Math.min(dt, 1 / 30);
   const calm = how.calm;
-  const bump = bumpPose(piece, now);
+  const bump = bumpPose(piece, now, calm);
   const thrown = bump.x !== null;
   if (thrown) piece.rx = bump.x;
   b.prevX ??= piece.rx;
@@ -226,10 +226,11 @@ export function poseSlime(b, piece, now, dt, how) {
   b.tilt.scale.set(SIZE * wide * bump.sx * swell, SIZE * tall * bump.sy * (1 + b.puff * 0.6), SIZE * wide * bump.sx * swell);
   b.turn.rotation.y = thrown ? b.yaw * 0.3 : b.yaw;
 
-  // Eyes squeezed shut while it is thrown and lying; a blink now and then.
+  // Eyes squeezed shut while it is thrown and lying; wide while a ghost has frightened it; a blink now and then.
   b.dizzy = bump.dizzy;
+  b.scaredK = bump.scared;
   b.face.position.y = EYE.y;
-  faceSlime(b, bump.dizzy ? 0.92 : calm ? 0 : blinkAt(now, piece.seat, 3700), 1, null);
+  faceSlime(b, bump.dizzy ? 0.92 : calm || bump.scared > 0 ? 0 : blinkAt(now, piece.seat, 3700), 1, null, bump.scared);
 
   const off = Math.max(0.45, 1 - Math.max(0, rise) * PX * 0.6);
   b.blob.position.set(walkX(piece.rx + bump.dx), 0.008, SPACE.walkZ);
@@ -245,14 +246,25 @@ export function poseSlime(b, piece, now, dt, how) {
   b.mat.emissiveIntensity = (b.connected ? 0.13 : 0.06) + 0.27 * b.lit;
   b.mat.clearcoat = 1 - char * 0.8;
   if (bump.safe) b.mat.emissiveIntensity += how.calm ? 0.25 : 0.55 * Math.abs(Math.sin(now / 70));
+  // Frightened by a ghost: a lighter, paler tint while it lasts, as a pawn's (bakeSlime keeps it).
+  b.pale = bump.pale;
+  if (bump.pale > 0) {
+    b.mat.color.lerp(PALE, 0.5 * bump.pale);
+    b.mat.emissive.lerp(PALE, 0.4 * bump.pale);
+  }
 
   const moving = walking || air || bump.state !== "idle" || yelp > 0 || Math.abs(b.sqV) > STILL.squashV || Math.abs(b.leanV) > STILL.leanV || Math.abs(b.puffV) > STILL.puffV || Math.abs(facing - b.yaw) > 0.01 || Math.abs(how.lit - b.lit) > 0.01;
   return { up: rise + (tall - 1) * SLIME_HEIGHT - BELOW_PAWN, moving, shock: bump.shock, burst: bump.burst, dust: bump.dust, state: bump.state };
 }
 
-/** The face: how far shut the eyes are (0 to 1), how big they are open (1: as made), and the rig's name for the mouth (null: none). */
-function faceSlime(b, shut, open, mouth) {
-  b.eyes.scale.set(open > 1.05 ? 1.12 : 1, open * (1 - 0.9 * shut), 1);
+/**
+ * The face: how far shut the eyes are (0 to 1), how big they are open (1: as made), the rig's
+ * name for the mouth (null: none), and how frightened it is (0 to 1: the eyes go wide).
+ */
+function faceSlime(b, shut, open, mouth, scared = 0) {
+  const wide = 1 + 0.4 * scared;
+  b.eyes.scale.set((open > 1.05 ? 1.12 : 1) * wide, open * (1 - 0.9 * shut) * wide, 1);
+  b.glints.scale.set(wide, wide, 1);
   b.glints.visible = shut < 0.5 && open > 0.55;
   b.mouthAt.visible = !!mouth;
   if (!mouth) return;
@@ -299,6 +311,7 @@ export function bakeSlime(b) {
   }
   const flicker = Math.max(0, b.mat.emissiveIntensity - ((b.connected ? 0.13 : 0.06) + 0.27 * b.lit) - 0.01);
   b.mat.color.copy(b.colour);
+  if (b.pale > 0) b.mat.color.lerp(PALE, 0.5 * b.pale);
   b.mat.emissiveIntensity = 0.06 + flicker * 0.6;
 }
 
@@ -341,6 +354,11 @@ export class SlimeHands {
     const limb = pose?.ghost?.limb ?? "none";
     const hands = limb === "none" ? [] : pose.hands;
     this.arms.set({ hands });
+    // A slime leaving mid-emote: its hands fade with it (its goo arms are its body's material, which fades already).
+    if (this.slime.fade < 1) {
+      this.arms.handMat.transparent = true;
+      this.arms.handMat.opacity = this.slime.fade * 0.8;
+    }
     for (let i = 0; i < 2; i++) {
       const h = hands[i];
       const on = !!h && h.s > 0.05;

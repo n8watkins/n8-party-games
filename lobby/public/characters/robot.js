@@ -106,6 +106,21 @@ function face() {
   return { g: s("g", {}, open, crosses, happy), open, crosses, happy };
 }
 
+/**
+ * Sets `el`'s attributes only when they differ from what was last set there under `name`: an idle
+ * robot writes nothing to the page, as an idle ghost does.
+ */
+function put(a, name, el, attrs) {
+  let key = "";
+  for (const k in attrs) key += `${attrs[k]}|`;
+  if (a.shown[name] === key) return;
+  a.shown[name] = key;
+  set(el, attrs);
+}
+
+/** Two decimals, with a spring's last wobble (and the "-0.00" it would flicker to) as nothing. */
+const f2 = (v) => (Math.abs(v) < 0.005 ? "0.00" : v.toFixed(2));
+
 function spring(value, velocity, target, stiffness, damping, dt) {
   velocity += ((target - value) * stiffness - velocity * damping) * dt;
   return [value + velocity * dt, velocity];
@@ -134,13 +149,15 @@ export const robot = {
       face: { dy: ROBOT.visorY + 113, turn: 6, scale: 1.05 },
       ink: EYE,
       skin: VISOR,
+      /** Knocked over mid-emote, its own crosses stay and the emote's face is not drawn (as in the 3D look). */
+      ownKnockedFace: true,
       tint(parent) {
         parent.append(box(0, -0.36 * RU, 0.5 * RU, 0.42 * RU, 11), box(0, -0.8 * RU, 0.48 * RU, 0.34 * RU, 12));
       },
     },
     make() {
       const p = shapes("#888888");
-      const a = { ...p, face: face(), colour: "#888888", lean: 0, leanV: 0, nod: 0, nodV: 0, mastA: 0, mastV: 0, voting: false, pleasedAt: -Infinity, rolled: 0, lastX: null, lampK: 0, arms: 1 };
+      const a = { ...p, face: face(), colour: "#888888", lean: 0, leanV: 0, nod: 0, nodV: 0, mastA: 0, mastV: 0, voting: false, pleasedAt: -Infinity, rolled: 0, lastX: null, lampK: 0, arms: 1, scaredK: 0, shown: {} };
       a.headG = s("g", {}, a.neck, a.head, a.headHi, a.visor, a.visorGlint, a.face.g);
       a.mastG = s("g", {}, a.glowGrad, a.mast, a.glow, a.lamp);
       a.headG.prepend(a.mastG);
@@ -153,7 +170,11 @@ export const robot = {
       a.colour = colour;
       a.connected = connected;
     },
-    /** Every frame: its wheels turn, its body bobs and leans, its head and mast lag; its lamp shows its vote. */
+    /**
+     * Every frame: its wheels turn, its body bobs and leans, its head and mast lag; its lamp shows
+     * its vote, and flashes red from the moment it is hit (`grounded`: thrown, lying or getting up)
+     * until it is up. Each part is written only when it changed.
+     */
     frame(a, { now, dt, face: dir, seat, calm, grounded, walking, x, voting }) {
       const step = Math.min(dt, 1 / 30);
       const moving = !!walking && !grounded;
@@ -161,44 +182,60 @@ export const robot = {
         if (a.lastX !== null) a.rolled += x - a.lastX;
         a.lastX = x;
       }
-      for (const w of a.wheels) set(w.lastChild, { transform: `rotate(${((a.rolled / 8.5) * 57.3).toFixed(1)})` });
+      const roll = `rotate(${((a.rolled / 8.5) * 57.3).toFixed(1)})`;
+      if (roll !== a.shown.wheels) {
+        a.shown.wheels = roll;
+        for (const w of a.wheels) set(w.lastChild, { transform: roll });
+      }
       const bob = moving && !calm ? Math.abs(Math.sin(now / 55)) * 2.2 : 0;
       [a.lean, a.leanV] = spring(a.lean, a.leanV, moving ? dir * 5 : 0, 140, calm ? 30 : 11, step);
       // The head lags the body's lean, and the mast lags the head: on a stop both run on and wobble back.
       [a.nod, a.nodV] = spring(a.nod, a.nodV, a.lean, 170, calm ? 30 : 7, step);
       [a.mastA, a.mastV] = spring(a.mastA, a.mastV, a.nod * 1.4, 90, calm ? 30 : 4, step);
       // The base stays flat on its wheels; what rides on it leans about the top of the base.
-      set(a.upper, { transform: `translate(0,${(-bob).toFixed(2)}) rotate(${a.lean.toFixed(2)},0,${(-0.16 * RU).toFixed(1)})` });
-      set(a.headG, { transform: `rotate(${(a.nod - a.lean).toFixed(2)},0,${(-0.6 * RU).toFixed(1)})` });
-      set(a.mastG, { transform: `rotate(${(a.mastA - a.nod).toFixed(2)},0,${(-0.97 * RU).toFixed(1)})` });
+      put(a, "upper", a.upper, { transform: `translate(0,${f2(-bob)}) rotate(${f2(a.lean)},0,${(-0.16 * RU).toFixed(1)})` });
+      put(a, "head", a.headG, { transform: `rotate(${f2(a.nod - a.lean)},0,${(-0.6 * RU).toFixed(1)})` });
+      put(a, "mast", a.mastG, { transform: `rotate(${f2(a.mastA - a.nod)},0,${(-0.97 * RU).toFixed(1)})` });
       // The lamp: dim at rest, lit while it stands in a game's light (a quick double flash as it steps in), red and flashing when knocked.
       if (voting && !a.voting) a.pleasedAt = now;
       a.voting = !!voting;
       const since = now - a.pleasedAt;
       const flash = since < PLEASED_MS && !calm ? (Math.floor(since / 120) % 2 === 0 ? 1 : 0.35) : 1;
       a.lampK += ((voting ? 1 : 0) - a.lampK) * Math.min(1, step * 10);
-      const alarm = !!a.dizzy;
+      if (Math.abs((voting ? 1 : 0) - a.lampK) < 0.002) a.lampK = voting ? 1 : 0;
+      const alarm = !!grounded;
       const k = alarm ? (calm ? 1 : 0.5 + 0.5 * Math.abs(Math.sin(now / 60))) : (0.35 + 0.65 * a.lampK) * flash;
-      set(a.lamp, { fill: alarm ? ALARM : shade(LAMP, -0.5 * (1 - k)) });
+      put(a, "lamp", a.lamp, { fill: alarm ? ALARM : shade(LAMP, -0.5 * (1 - k)) });
       if (alarm !== a.alarm) {
         a.alarm = alarm;
         for (const stop of [a.glowIn, a.glowOut]) set(stop, { "stop-color": alarm ? ALARM : LAMP });
       }
-      set(a.glow, { opacity: (alarm ? 0.7 * k : 0.75 * a.lampK * flash).toFixed(2) });
-      const pleased = since < PLEASED_MS + 400 && !alarm;
-      if (!alarm) {
-        set(a.face.happy, { display: pleased ? null : "none" });
-        set(a.face.open, { display: pleased ? "none" : null });
-        const shut = calm ? 0 : blinkAt(now, seat);
-        set(a.face.open, { transform: `translate(${dir * 3},${(ROBOT.visorY * shut * 0.85).toFixed(1)}) scale(1,${(1 - 0.85 * shut).toFixed(2)})` });
+      put(a, "glow", a.glow, { opacity: (alarm ? 0.7 * k : 0.75 * a.lampK * flash).toFixed(2) });
+      // Its eyes: crosses while knocked (dizzy), a squint of pleasure, a blink; wide while a ghost has frightened it.
+      if (!alarm && !a.dizzy) {
+        const wide = 1 + 0.35 * a.scaredK;
+        const pleased = since < PLEASED_MS + 400 && !(a.scaredK > 0);
+        const shut = calm || a.scaredK > 0 ? 0 : blinkAt(now, seat);
+        const sy = (1 - 0.85 * shut) * wide;
+        put(a, "happy", a.face.happy, { display: pleased ? null : "none" });
+        put(a, "open", a.face.open, {
+          display: pleased ? "none" : null,
+          transform: `translate(${dir * 3},${(ROBOT.visorY * (1 - sy)).toFixed(1)}) scale(${wide.toFixed(2)},${sy.toFixed(2)})`,
+        });
       }
       return 0;
+    },
+    /** Frightened by a ghost (0 to 1): its eyes go wide (frame draws them). */
+    scared(a, k) {
+      a.scaredK = k;
     },
     dizzy(a, on) {
       a.dizzy = on;
       set(a.face.crosses, { display: on ? null : "none" });
       set(a.face.open, { display: on ? "none" : null });
       if (on) set(a.face.happy, { display: "none" });
+      // What frame last wrote to the eyes is no longer what they show.
+      a.shown.open = a.shown.happy = null;
     },
     blink(a, opacity) {
       set(a.torso, { opacity });
@@ -213,7 +250,8 @@ export const robot = {
         return;
       }
       set(a.inner, { transform: bodyTransform(pose.body) });
-      set(a.face.g, { display: "none" });
+      // Knocked over, it keeps its crosses (figure.ownKnockedFace: the emote draws no face then).
+      set(a.face.g, { display: a.dizzy ? null : "none" });
       // Its own arms give way to the emote's.
       const rest = Math.max(0, Math.min(1, pose.ghost.nubs));
       for (const g of [a.armsL, a.armsR]) set(g, { opacity: rest.toFixed(2) });

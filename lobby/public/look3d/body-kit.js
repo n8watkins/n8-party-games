@@ -44,6 +44,8 @@ export function merged(parts, coloured = false) {
   out.setAttribute("normal", new THREE.Float32BufferAttribute(nor, 3));
   if (coloured) {
     out.setAttribute("color", new THREE.Float32BufferAttribute(col, 3));
+    // Which points are paint, for the shader too (pointLitMat's tint).
+    out.setAttribute("paint", new THREE.Float32BufferAttribute(paint, 1));
     out.userData.paint = Float32Array.from(paint);
     out.userData.fixed = Float32Array.from(col);
   }
@@ -86,14 +88,44 @@ export function roundedBox(w, h, d, r, seg = 3) {
  * A material in the room's toy style whose glow follows its points' own colours (three.js gives
  * every point of a shape the same glow): so a robot's dark parts stay dark in the dark while its
  * paint glows a little, as a pawn's does.
+ *
+ * Its paint (the points merged() marks `paint`) can be tinted toward a colour: `tintPaint(mat,
+ * colour, k, glow)` mixes the paint's lit colour `k` of the way to `colour`, and its glow `glow`
+ * of the way, as a pawn's `mat.color.lerp(colour, k)` does to its whole body. The fixed parts (a
+ * robot's dark base and visor) keep their own colours. Tinting `mat.color` instead would multiply
+ * the tint by the paint: red on blue paint is near black.
  */
 export function pointLitMat(opts, key) {
   const mat = new THREE.MeshPhysicalMaterial({ vertexColors: true, ...opts });
+  const tint = { value: new THREE.Vector4(1, 1, 1, 0) };
+  const glow = { value: 0 };
+  mat.userData.tint = tint;
+  mat.userData.glow = glow;
   mat.onBeforeCompile = (shader) => {
-    shader.fragmentShader = shader.fragmentShader.replace("#include <emissivemap_fragment>", "#include <emissivemap_fragment>\n totalEmissiveRadiance *= vColor.rgb;");
+    shader.uniforms.paintTint = tint;
+    shader.uniforms.paintGlow = glow;
+    shader.vertexShader = shader.vertexShader
+      .replace("#include <common>", "#include <common>\nattribute float paint;\nvarying float vPaint;")
+      .replace("#include <color_vertex>", "#include <color_vertex>\n vPaint = paint;");
+    shader.fragmentShader = shader.fragmentShader
+      .replace("#include <common>", "#include <common>\nuniform vec4 paintTint;\nuniform float paintGlow;\nvarying float vPaint;")
+      .replace("#include <color_fragment>", "#include <color_fragment>\n diffuseColor.rgb = mix(diffuseColor.rgb, paintTint.rgb, paintTint.a * vPaint);")
+      .replace("#include <emissivemap_fragment>", "#include <emissivemap_fragment>\n totalEmissiveRadiance *= mix(vColor.rgb, paintTint.rgb, paintGlow * vPaint);");
   };
   mat.customProgramCacheKey = () => key;
   return mat;
+}
+
+/** Tints a pointLitMat's paint toward `colour` (a THREE.Color): `k` of its lit colour, `glow` of its glow (0: its own paint). */
+export function tintPaint(mat, colour, k, glow = 0) {
+  mat.userData.tint.value.set(colour.r, colour.g, colour.b, k);
+  mat.userData.glow.value = glow;
+}
+
+/** How far a pointLitMat's paint is tinted now, and toward what: {r, g, b, k, glow}. */
+export function paintTintOf(mat) {
+  const v = mat.userData.tint.value;
+  return { r: v.x, g: v.y, b: v.z, k: v.w, glow: mat.userData.glow.value };
 }
 
 /** How many rings and sides an arm's tube has. */
