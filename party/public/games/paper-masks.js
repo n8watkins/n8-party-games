@@ -27,6 +27,8 @@ const SPAN = { writing: 90_000, reading: 180_000, guessing: 45_000, guessingLarg
 
 const MASK_NAMES = { fox: "Fox", moon: "Moon", sun: "Sun", owl: "Owl", butterfly: "Butterfly", jester: "Jester", plume: "Plume", leaf: "Leaf", blank: "Plain" };
 const GHOST = "ghost";
+// Titles are set in the display face, whose figures read as Roman letters: numbers there are words.
+const NUMBER_WORDS = ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "eleven", "twelve"];
 const ANSWER_MAX = 80;
 const DEAL_MS = 5200;
 
@@ -125,6 +127,7 @@ export function mount(container, ctx) {
   /** The latest view, and what this page keeps of its own. */
   let v = null;
   let key = "";
+  let drawnStep = "";
   let lastNote = null;
   let editing = false;
   let sending = null;
@@ -250,20 +253,21 @@ export function mount(container, ctx) {
   function timeWords(late, left) {
     const t = clock(left);
     switch (v.phase) {
+      // Each says what happens by itself when the time runs out.
       case "setup":
-        return `Starts by itself in ${t}`;
+        return `Starts in ${t}`;
       case "writing":
-        return late ? `Time's up. Writing closes in ${t}` : t;
+        return late ? `Time's up · closes in ${t}` : t;
       case "reading":
-        return `Guessing starts by itself in ${t}`;
+        return `Guessing in ${t}`;
       case "guessing":
-        return late ? `Time's up. Moves on in ${t}` : t;
+        return late ? `Time's up · moves on in ${t}` : t;
       case "reveal":
-        return `Next mask comes off by itself in ${t}`;
+        return `Next mask in ${t}`;
       case "summary":
-        return `Next round starts by itself in ${t}`;
+        return `Next round in ${t}`;
       case "over":
-        return `Back to the Table in ${t}`;
+        return `To the Table in ${t}`;
       default:
         return t;
     }
@@ -301,13 +305,19 @@ export function mount(container, ctx) {
     // Keep the half-typed answer's box (and its focus) across redraws.
     const keep = body.querySelector(".pm-write textarea");
     const focused = keep && document.activeElement === keep;
+    const scrolled = body.scrollTop;
     body.textContent = "";
+    // A new step starts at the top; a redraw of the same step keeps where the page was scrolled.
+    const where = `${v.phase}:${v.round}:${v.step?.card?.id ?? ""}`;
+    const same = where === drawnStep;
+    drawnStep = where;
     const hero = el("div", "pm-hero", "", body);
     const side = el("div", "pm-side", "", body);
     const paint = DRAW[v.phase] ?? drawWaiting;
     paint(hero, side, keep);
-    if (focused) body.querySelector(".pm-write textarea")?.focus({ preventScroll: true });
     hostTools(side);
+    if (focused) body.querySelector(".pm-write textarea")?.focus({ preventScroll: true });
+    body.scrollTop = same ? scrolled : 0;
     tick();
   }
 
@@ -337,7 +347,8 @@ export function mount(container, ctx) {
   }
 
   function answerCard(parent, text, { prompt = true, cls = "" } = {}) {
-    const card = el("div", `pm-note ${cls}`, "", parent);
+    const n = codePoints(text);
+    const card = el("div", `pm-note ${cls}${n > 56 ? " longer" : n > 32 ? " long" : ""}`, "", parent);
     if (prompt && v.prompt?.text) el("p", "pm-q", v.prompt.text, card);
     const a = el("p", "pm-a", text, card);
     a.dir = "auto";
@@ -347,8 +358,11 @@ export function mount(container, ctx) {
   // ---------------------------------------------------------------- waiting to start
 
   function drawWaiting(hero, side) {
-    const trio = el("div", "pm-trio", "", hero);
-    for (const [id, cls] of [["plume", "t1"], ["moon", "t2"], ["jester", "t3"]]) mask(id, `lg ${cls}`, trio);
+    // The host's phone needs the room for the choices: the three masks bob on everyone else's.
+    if (!v.you?.host) {
+      const trio = el("div", "pm-trio", "", hero);
+      for (const [id, cls] of [["plume", "t1"], ["moon", "t2"], ["jester", "t3"]]) mask(id, `lg ${cls}`, trio);
+    }
     el("h2", "pm-title", "Paper Masks", hero);
     el("p", "pm-sub", "Answer in secret. Guess who wrote what.", hero);
     const seats = v.players.map((p) => p.seat);
@@ -357,7 +371,7 @@ export function mount(container, ctx) {
     const host = v.you?.host;
     if (host) {
       const form = el("div", "pm-choose", "", side);
-      group(form, "Rounds", v.step.choices.rounds.map((r) => [r, r === "everyone" ? "Everyone reads" : String(r)]), v.rounds, (value) => send({ t: "choose", rounds: value }, "choose"));
+      group(form, "Rounds", v.step.choices.rounds.map((r) => [r, r === "everyone" ? "Everyone reads" : String(r)]), v.rounds, (value) => send({ t: "choose", rounds: value }, "choose"), "rounds");
       group(form, "Prompts", v.step.choices.packs.map((p) => [p.id, p.name]), v.pack, (value) => send({ t: "choose", pack: value }, "choose"), "packs");
       const toggles = el("div", "pm-toggles", "", form);
       toggle(toggles, "Family-safe prompts", v.family, (on) => send({ t: "choose", family: on }, "choose"));
@@ -454,21 +468,27 @@ export function mount(container, ctx) {
     });
     const late = v.deadline?.overdue;
     if (late) el("p", "pm-nudge", "Time's up, finish your sentence.", form);
+    // The box outlives redraws (it keeps its text and focus), so its listeners look up the
+    // count and the button that are on the page now.
     const update = () => {
+      const now = area.closest(".pm-write");
+      if (!now) return;
       const n = tidyLength(area.value);
-      count.textContent = `${n}/${ANSWER_MAX}`;
-      count.classList.toggle("over", n > ANSWER_MAX);
-      go.disabled = !!sending || n > ANSWER_MAX || !hasLetter(area.value);
+      const c = now.querySelector(".pm-count");
+      const b = now.querySelector("button[type=submit]");
+      c.textContent = `${n}/${ANSWER_MAX}`;
+      c.classList.toggle("over", n > ANSWER_MAX);
+      b.disabled = !!sending || n > ANSWER_MAX || !hasLetter(area.value);
     };
     if (!keep) {
       area.addEventListener("input", () => {
-        store.set(draftKey(), area.value || null);
+        if (v?.phase === "writing") store.set(draftKey(), area.value || null);
         update();
       });
       area.addEventListener("keydown", (e) => {
         if (e.key === "Enter" && !e.shiftKey) {
           e.preventDefault();
-          form.requestSubmit();
+          area.closest("form")?.requestSubmit();
         }
       });
     }
@@ -525,8 +545,9 @@ export function mount(container, ctx) {
   function yoursSmall(parent) {
     const step = v.step;
     if (step.yourSkipped) el("p", "pm-hint", "The host skipped your answer. You still guess the others.", parent);
-    const card = step.yours ?? step.yourCard;
-    if (!card) return;
+    // reading: `yours` is your card; guessing: `yours` says the current card is yours, `yourCard` is the card.
+    const card = v.phase === "reading" ? step.yours : step.yourCard;
+    if (!card?.text) return;
     const box = el("div", "pm-yours mini", "", parent);
     el("p", "pm-lab", "Yours", box);
     answerCard(box, card.text, { prompt: false, cls: "small" });
@@ -539,12 +560,14 @@ export function mount(container, ctx) {
 
   function drawGuessing(hero, side) {
     const step = v.step;
-    const readerBox = el("div", "pm-reader", "", hero);
+    // Phones keep the reader and the count with the answer; the big screen gives them the other half.
+    const watching = v.you?.role === "screen";
+    const readerBox = el("div", "pm-reader", "", watching ? side : hero);
     mask(maskOf(v.reader), "lg", readerBox);
     el("span", "", isMe(v.reader) ? "You are reading" : `${nameOf(v.reader)} is reading`, readerBox);
     el("p", "pm-kick", "Who wrote this?", hero);
     answerCard(hero, step.card.text, { cls: "guess" });
-    tapCount(hero);
+    tapCount(watching ? side : hero);
     if (step.talkingOrder) el("p", "pm-hint", `Talking order: ${list(step.talkingOrder.map(nameOf))}`, hero);
 
     const role = v.you?.role;
@@ -663,7 +686,7 @@ export function mount(container, ctx) {
     const fooled = Object.entries(card.guesses ?? {}).filter(([g, who]) => !right.includes(Number(g)) && who !== undefined);
     if (fooled.length) {
       el("p", "pm-lab", "Fooled", side);
-      const ul = el("ul", "pm-fooled", "", side);
+      const ul = el("ul", `pm-fooled${fooled.length > 4 ? " many" : ""}`, "", side);
       for (const [g, who] of fooled) {
         const li = el("li", "", "", ul);
         mask(maskOf(Number(g)), "", li);
@@ -690,9 +713,10 @@ export function mount(container, ctx) {
     const points = v.step?.points ?? {};
     const rows = v.players.filter((p) => p.inRound || points[String(p.seat)]).map((p) => ({ ...p, round: points[String(p.seat)] ?? { correct: 0, fooled: 0, perfect: false, total: 0 } }));
     rows.sort((a, b) => b.score - a.score || b.round.total - a.round.total || a.seat - b.seat);
-    el("h2", "pm-title small", `Round ${v.round} scores`, hero);
+    el("h2", "pm-title small", `Round ${NUMBER_WORDS[v.round] ?? v.round} scores`, hero);
     if (!v.step) el("p", "pm-sub", "Nobody sent an answer, so nobody scores this round.", hero);
-    const ol = el("ol", "pm-scores", "", hero);
+    else if (v.prompt?.text) el("p", "pm-q pm-q-plain", v.prompt.text, hero);
+    const ol = el("ol", "pm-scores", "", side);
     for (const p of rows) {
       const li = el("li", `${p.left ? "gone" : ""}${isMe(p.seat) ? " me" : ""}`, "", ol);
       mask(p.mask ?? "blank", "", li);
@@ -734,7 +758,7 @@ export function mount(container, ctx) {
       el("i", "pm-meter", "", li).append(el("i"));
       el("span", "pm-pts", String(r.score), li);
     });
-    const aw = el("div", "pm-awards", "", side);
+    const aw = el("div", "pm-awards", "", hero);
     const award = (title, a, words) => {
       if (!a?.seats?.length) return;
       const d = el("div", "", "", aw);
@@ -746,6 +770,7 @@ export function mount(container, ctx) {
     };
     award("Best mask", res.awards?.bestMask, (n) => `fooled ${n}`);
     award("Mind reader", res.awards?.mindReader, (n) => `${n} right`);
+    if (!aw.childElementCount) aw.remove();
     if (res.watchers?.length) el("p", "pm-hint", `Watching: ${res.watchers.map((w) => `${nameOf(w.seat)} ${w.side} right`).join(", ")}`, side);
     if (v.curtain && v.you?.host) button("pm-btn", "Back to the Table", side, () => send({ t: "close" }, "close")).disabled = !!sending;
     else if (v.curtain) el("p", "pm-hint", `${nameOf(v.host)} takes everyone back to the Table.`, side);
@@ -755,8 +780,10 @@ export function mount(container, ctx) {
 
   function hostTools(side) {
     if (!v.you?.host || v.phase === "setup" || v.phase === "over") return;
-    for (const ask of v.asks ?? []) {
-      const box = el("div", "pm-ask", "", side);
+    // The reader's asks go first, where the host sees them without scrolling.
+    for (const ask of [...(v.asks ?? [])].reverse()) {
+      const box = el("div", "pm-ask");
+      body.prepend(box);
       el("p", "pm-lab", `${nameOf(v.reader)} asks to skip`, box);
       answerCard(box, ask.text, { prompt: false, cls: "small" });
       const row = el("div", "pm-row", "", box);

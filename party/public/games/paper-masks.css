@@ -71,13 +71,14 @@
   padding: 0;
   list-style: none;
 }
-.pm button {
+/* (no weight of their own, so each kind of button below sets its own type) */
+:where(.pm button) {
   font: inherit;
   color: inherit;
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
 }
-.pm button:disabled {
+:where(.pm button:disabled) {
   cursor: default;
 }
 .pm :focus-visible {
@@ -317,6 +318,12 @@
   box-shadow: 0 0 0 max(2px, calc(var(--u) * 0.55)) var(--pm-out), inset 0 max(2px, calc(var(--u) * 0.5)) 0 rgba(255, 255, 255, 0.55), inset 0 calc(var(--u) * -0.6) 0 rgba(110, 60, 10, 0.45), 0 max(4px, calc(var(--u) * 1.2)) 0 max(2px, calc(var(--u) * 0.55)) #5a300c, 0 calc(var(--u) * 2.4) calc(var(--u) * 4) rgba(0, 0, 0, 0.6);
   transition: transform 0.08s ease-out, filter 0.15s;
 }
+/* The step's main button stays in reach while a long list scrolls under it. */
+.pm-side > .pm-btn {
+  position: sticky;
+  bottom: calc(var(--u) * 1.4);
+  z-index: 3;
+}
 .pm-btn:active:not(:disabled) {
   transform: translateY(2px);
 }
@@ -336,6 +343,7 @@
 }
 .pm-link {
   min-height: 44px;
+  min-width: 44px;
   padding: 0 calc(var(--u) * 2);
   border: 0;
   background: none;
@@ -448,7 +456,18 @@
   font-size: max(20px, calc(var(--u) * 6.4));
 }
 .pm-note.guess .pm-a {
-  font-size: max(21px, calc(var(--u) * 7.6));
+  font-size: max(21px, calc(var(--u) * 7));
+}
+/* A long answer steps down a size or two, so 80 characters still fit the card. */
+.pm-note.long .pm-a {
+  font-size: max(18px, calc(var(--u) * 5.6));
+}
+.pm-note.longer .pm-a {
+  font-size: max(16px, calc(var(--u) * 4.6));
+}
+.pm-note.small.long .pm-a,
+.pm-note.small.longer .pm-a {
+  font-size: max(15px, calc(var(--u) * 4.2));
 }
 .pm-note.small {
   padding: calc(var(--u) * 3.4) calc(var(--u) * 4.4);
@@ -571,7 +590,7 @@
 }
 .pm-opts {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: 1fr 1fr 1fr 1.9fr;
   gap: calc(var(--u) * 1.4);
 }
 .pm-group.packs .pm-opts {
@@ -588,7 +607,8 @@
   color: var(--pm-ink);
   background: rgba(26, 4, 14, 0.55);
   box-shadow: inset 0 0 0 max(1px, calc(var(--u) * 0.35)) var(--pm-line);
-  overflow-wrap: anywhere;
+  overflow-wrap: normal;
+  hyphens: none;
 }
 .pm-opt.on {
   color: var(--pm-out);
@@ -703,7 +723,7 @@
   margin: 0;
 }
 .pm-list .pm-n {
-  font-family: var(--pm-display);
+  font-family: var(--pm-answer);
   font-weight: 700;
   font-size: max(16px, calc(var(--u) * 5));
   color: #8a5a14;
@@ -712,8 +732,10 @@
   grid-column: 2;
   justify-self: start;
   min-height: 44px;
+  margin-bottom: calc(var(--u) * -2);
   color: #7a1426;
-  padding: 0;
+  padding: 0 calc(var(--u) * 1);
+  margin-left: calc(var(--u) * -1);
 }
 
 /* Guessing. */
@@ -727,7 +749,7 @@
   margin-block: auto;
 }
 .pm-reader .pm-mask {
-  width: calc(var(--u) * 28);
+  width: calc(var(--u) * 20);
   filter: drop-shadow(0 calc(var(--u) * 1.2) calc(var(--u) * 1.4) rgba(0, 0, 0, 0.55));
   animation: pm-bob2 3s ease-in-out infinite alternate;
 }
@@ -768,7 +790,7 @@
   display: flex;
   align-items: center;
   gap: calc(var(--u) * 1.8);
-  min-height: max(48px, calc(var(--u) * 14));
+  min-height: max(46px, calc(var(--u) * 12.6));
   min-width: 0;
   padding: 0 calc(var(--u) * 2.4) 0 calc(var(--u) * 1.6);
   border: 0;
@@ -785,9 +807,12 @@
 .pm-chip b {
   flex: 1;
   min-width: 0;
-  white-space: nowrap;
   overflow: hidden;
-  text-overflow: ellipsis;
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
 }
 .pm-chip .pm-mask {
   width: max(30px, calc(var(--u) * 10.5));
@@ -837,7 +862,7 @@
 }
 .pm-unmask {
   --uh: calc(var(--u) * 44);
-  --fw: calc(var(--u) * 92);
+  --fw: calc(var(--u) * 80);
   position: relative;
   width: calc(var(--u) * 70);
   height: var(--uh);
@@ -847,10 +872,11 @@
 }
 .pm-flw {
   position: absolute;
-  left: calc(var(--u) * -12);
-  right: calc(var(--u) * -12);
+  left: calc(var(--u) * -4);
+  right: calc(var(--u) * -4);
   top: calc(var(--u) * -12);
   bottom: calc(var(--u) * -1);
+  overflow: hidden;
   pointer-events: none;
   -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - var(--u) * 7), transparent);
   mask-image: linear-gradient(to bottom, #000 calc(100% - var(--u) * 7), transparent);
@@ -978,10 +1004,11 @@
   font-size: max(14px, calc(var(--u) * 3.8));
   font-variant-numeric: tabular-nums;
 }
+/* Numbers in the answer face: the display face's figures read as Roman letters ("I5"). */
 .pm-total,
 .pm-pts {
-  font-family: var(--pm-display);
-  font-weight: 700;
+  font-family: var(--pm-answer);
+  font-weight: 800;
   font-size: max(17px, calc(var(--u) * 5));
   color: var(--pm-acc);
   font-variant-numeric: tabular-nums;
@@ -1246,9 +1273,22 @@
     justify-content: flex-end;
   }
 }
+/* The reader's mask over the answer only where an upright stage has the height to spare. */
+@container (orientation: portrait) and (max-height: 700px) {
+  /* (the top line already says who reads) */
+  .pm-hero > .pm-reader {
+    display: none;
+  }
+  .pm-unmask.win {
+    --uh: calc(var(--u) * 36);
+    --fw: calc(var(--u) * 70);
+  }
+  .pm-unmask.win .big {
+    width: calc(var(--u) * 42);
+  }
+}
 /* A short upright stage: the pictures that only decorate step aside. */
 @container (orientation: portrait) and (max-height: 620px) {
-  .pm-reader .pm-mask,
   .pm-trio {
     display: none;
   }
@@ -1267,7 +1307,8 @@
 /* Wide: a sideways phone or the big screen. His wide table painting, two columns: the moment on the
    left, the controls on the right. */
 @container (orientation: landscape) {
-  .pm {
+  /* (a container query styles what is inside the container, so the units are set on its children) */
+  .pm > * {
     --u: min(0.5cqw, 0.9cqh);
     --f: min(1cqw, 2.1cqh);
   }
@@ -1277,32 +1318,101 @@
   .pm-in {
     left: calc(var(--f) * 9.5);
     right: calc(var(--f) * 9.5);
-    top: calc(var(--f) * 10);
-    bottom: calc(var(--f) * 5);
+    top: calc(var(--f) * 9.4);
+    bottom: calc(var(--f) * 4.4);
   }
+  /* Two columns that scroll together when a short screen cannot hold them (a sideways phone);
+     the big screen always holds them (the e2e test checks it at 1280x720 and 1920x1080). */
   .pm-body {
     display: grid;
     grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    align-content: start;
+    align-content: safe center;
     align-items: center;
     gap: calc(var(--u) * 3) calc(var(--u) * 8);
   }
   .pm-hero,
   .pm-side {
-    align-self: stretch;
     justify-content: center;
-    max-height: 100%;
   }
-  .pm-side {
-    overflow-y: auto;
-    overflow-x: hidden;
-    padding: calc(var(--u) * 1.6);
-    margin: calc(var(--u) * -1.6);
+  /* Lists that run long at eight players get tighter rows across the room. */
+  .pm-scores,
+  .pm-board {
+    gap: calc(var(--u) * 0.9);
+  }
+  .pm-scores li {
+    grid-template-columns: auto minmax(0, 1fr) auto auto;
+    padding: calc(var(--u) * 0.4) calc(var(--u) * 2);
+  }
+  .pm-scores .pm-mask,
+  .pm-board .pm-mask {
+    width: max(24px, calc(var(--u) * 5.6));
+  }
+  .pm-score-words {
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: baseline;
+    column-gap: calc(var(--u) * 2);
+  }
+  .pm-score-words b {
+    font-size: max(14px, calc(var(--u) * 3.6));
+  }
+  .pm-score-words span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: max(12px, calc(var(--u) * 2.8));
+  }
+  .pm-total,
+  .pm-pts {
+    font-size: max(15px, calc(var(--u) * 4.2));
+  }
+  .pm-board li {
+    min-height: calc(var(--u) * 5.8);
+    font-size: max(14px, calc(var(--u) * 3.4));
+  }
+  .pm-awards > div {
+    padding: calc(var(--u) * 1.2) calc(var(--u) * 2);
+  }
+  .pm-awards .pm-mask {
+    width: max(24px, calc(var(--u) * 6));
+  }
+  .pm-board-name {
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: baseline;
+    column-gap: calc(var(--u) * 1.6);
+  }
+  .pm-fooled.many {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    column-gap: calc(var(--u) * 3);
+  }
+  .pm-fooled.many li {
+    font-size: max(13px, calc(var(--u) * 3.2));
   }
   .pm[data-phase="guessing"] .pm-hero {
     align-items: stretch;
   }
-  .pm-reader {
+  .pm-hero > .pm-reader {
     display: none;
+  }
+  .pm-side > .pm-reader .pm-mask {
+    width: calc(var(--u) * 26);
+  }
+  .pm-trio {
+    zoom: 0.7;
+  }
+  .pm-unmask {
+    --uh: calc(var(--u) * 26);
+    --fw: calc(var(--u) * 56);
+    width: calc(var(--u) * 54);
+  }
+  .pm-body > .pm-ask {
+    grid-column: 1 / -1;
+  }
+  .pm-unmask .big {
+    width: calc(var(--u) * 40);
+  }
+  .pm-unmask.win .big {
+    width: calc(var(--u) * 38);
   }
   .pm-toast {
     left: 25%;
