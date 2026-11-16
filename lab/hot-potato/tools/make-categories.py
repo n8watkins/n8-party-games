@@ -279,6 +279,8 @@ write("food", rows, groups, "Open English WordNet 2025 (CC BY 4.0), well-known e
 
 CONTINENTS = {"AF": "Africa", "AN": "Antarctica", "AS": "Asia", "EU": "Europe", "NA": "North America", "OC": "Oceania", "SA": "South America"}
 GONE = {"CS", "AN"}  # Serbia and Montenegro, Netherlands Antilles: no longer exist
+FORMAL = re.compile(r"\b(republic|kingdom of|principality|sultanate|commonwealth|federation|federal|federated|union of|state of|emirate|grand duchy|country of|territory of|colony of|province of|collectivity)\b", re.I)
+country_drop = set(hand_list("countries-drop.txt"))
 by_id, countries = {}, []
 for line in open(os.path.join(src, "countryInfo.txt"), encoding="utf-8"):
     if line.startswith("#"):
@@ -296,14 +298,23 @@ for line in open(os.path.join(src, "alternateNamesV2.txt"), encoding="utf-8"):
     name = f[3].strip()
     if not letters(name) or "(" in name or "," in name:
         continue
+    # Formal names ("Republic of Turkey", "Union of Burma") are not what anyone says in a game,
+    # and would make R and K look like easy letters.
+    if f[2] == "en" and FORMAL.search(name) or name in country_drop:
+        continue
     c = by_id[f[1]]
     if f[2] == "abbr":
-        if 2 <= len(letters(name)) <= 4:
+        # Two-letter codes ("AS", "PR") are words or are said for other things.
+        if 3 <= len(letters(name)) <= 4:
             c["abbr"].append(name)
     else:
         preferred, short = (f + [""] * 8)[4:6]
         c["alts"].append((0 if short == "1" else 1 if preferred == "1" else 2, name))
 continent_list = sorted(set(CONTINENTS.values()))
+# An abbreviation GeoNames gives two countries ("USA" for South Africa too) is left out.
+abbr_count = collections.Counter(letters(a) for c in countries for a in set(c["abbr"]))
+for c in countries:
+    c["abbr"] = [a for a in c["abbr"] if abbr_count[letters(a)] == 1]
 rows = []
 for c in sorted(countries, key=lambda c: -c["pop"]):
     seen = {letters(c["name"])}
