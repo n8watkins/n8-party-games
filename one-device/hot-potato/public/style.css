@@ -328,8 +328,18 @@ legend { padding: 0; }
 .turn-hint { display: none; }
 @container game (min-aspect-ratio: 1/1) and (max-height: 499.98px) {
   .gi { --u: clamp(13px, 3.4cqh, 18px); --d: clamp(48px, 13cqh, 58px); }
-  .turn-hint { display: block; position: absolute; right: 8px; bottom: 6px; z-index: 3; font: 400 12px/1 var(--display); letter-spacing: 0.08em; text-transform: uppercase; color: var(--soft); padding: 4px 8px; background: var(--panel); border: 1px solid var(--edge); pointer-events: none; }
-  .lede { display: none; }
+  /* The hint on the start screen, in its empty top corner (during a round it would cover the line). */
+  .game[data-screen="start"] .turn-hint { display: block; position: absolute; right: 8px; top: 8px; z-index: 3; font: 400 12px/1 var(--display); letter-spacing: 0.08em; text-transform: uppercase; color: var(--soft); padding: 4px 8px; background: var(--panel); border: 1px solid var(--edge); pointer-events: none; }
+  .v-end .lede { font-size: 12px; margin-top: 2px; }
+  /* The setup across the width, its rows tight, the title small, so a note and Start still fit. */
+  .v-start .kicker { display: none; }
+  .v-start .logo { font-size: 28px; }
+  .game[data-screen="start"] .bot > .v { width: min(100%, 680px); }
+  .setup { gap: 5px; padding: 6px 8px; }
+  .chips { flex-wrap: nowrap; gap: 5px; }
+  .chips .chip { padding: 0 0.4em; }
+  .note { font-size: 11.5px; line-height: 1.25; padding: 4px 6px; }
+  .go .plate { min-height: 42px; }
 }
 
 @media (prefers-reduced-motion: reduce) {

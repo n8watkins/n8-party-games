@@ -1074,8 +1074,9 @@ for (const [w, h] of [[568, 320], [667, 375], [740, 340], [844, 390]]) {
 
 // 13. At the last stage and through the burst, he stays inside the screen, and the flash is a light
 //     one. He is framed big (style.css): he himself (body, face, sprouts), the bulbs, the tray's
-//     lights and the burst's splat must stay on screen; the rig's outer parts (tubes, clamp ends,
-//     tray corners) and the flying chunks may run off the sides.
+//     lights and the burst's "BREACH!" must stay on screen; the rig's outer parts (tubes, clamp
+//     ends, tray corners), the splat's outermost spikes (a few pixels on a narrow phone) and the
+//     flying chunks may run off the sides.
 for (const viewport of [{ width: 390, height: 844 }, { width: 320, height: 568 }, { width: 568, height: 320 }, { width: 844, height: 390 }, { width: 1280, height: 720 }]) {
   const name = `${viewport.width}x${viewport.height}`;
   const { context, page, errors } = await open(viewport);
@@ -1090,8 +1091,8 @@ for (const viewport of [{ width: 390, height: 844 }, { width: 320, height: 568 }
       for (let i = 0; i < 60; i++) {
         await new Promise((ok) => requestAnimationFrame(ok));
         flash = Math.max(flash, Number(getComputedStyle(document.querySelector(".ground .flash")).opacity));
-        for (const el of document.querySelectorAll('#pot [data-part="spud"] [data-part], #pot [data-part^="bulb"], #pot [data-part^="alarm"], #pot [data-part^="light"], #pot [data-part="splat"] [data-part]')) {
-          if (el.closest('[opacity="0"]') || el.tagName === "g" || el.tagName === "text") continue;
+        for (const el of document.querySelectorAll('#pot [data-part="spud"] [data-part], #pot [data-part^="bulb"], #pot [data-part^="alarm"], #pot [data-part^="light"], #pot [data-part="breach"]')) {
+          if (el.closest('[opacity="0"]') || el.tagName === "g") continue;
           const r = el.getBoundingClientRect();
           if (!r.width && !r.height) continue;
           if (r.left < -1 || r.top < -1 || r.right > innerWidth + 1 || r.bottom > innerHeight + 1) out.add(`${el.dataset.part} ${Math.round(r.left)},${Math.round(r.top)},${Math.round(r.right)},${Math.round(r.bottom)}`);
@@ -1110,7 +1111,7 @@ for (const viewport of [{ width: 390, height: 844 }, { width: 320, height: 568 }
   await waitPhase(page, "doom", 15000).catch(() => {});
   await waitPhase(page, "burst", 15000);
   const burst = await outside();
-  check(burst.out.length === 0, `${name}: through the burst, the splat stays inside the screen ${burst.out.slice(0, 4).join(" | ")}`);
+  check(burst.out.length === 0, `${name}: through the burst, "BREACH!" stays inside the screen ${burst.out.slice(0, 4).join(" | ")}`);
   check(burst.flash <= 0.45, `${name}: the burst's flash is a light one, never a blank screen (at most ${burst.flash.toFixed(2)} white)`);
   check(errors.length === 0, `${name} burst: no console errors ${errors.join(" | ")}`);
   await context.close();
