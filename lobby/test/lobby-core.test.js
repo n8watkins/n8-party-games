@@ -633,7 +633,7 @@ describe("Cork & Bell through the seam", () => {
     expect(core.lights()).toEqual({ "cork-and-bell": null });
   });
 
-  it("starts a battle for the party's seats, plays ninety seconds, and turns the scores into 3, 2 and 1", () => {
+  it("starts a battle for the party's seats, plays the round out, and turns the scores into 3, 2 and 1", () => {
     const core = corkRoom();
     for (const n of ["Ann", "Bo", "Cy", "Di"]) seated(core, n);
     for (const seat of [0, 1, 2, 3]) stand(core, seat, 0, 2000);
@@ -647,10 +647,12 @@ describe("Cork & Bell through the seam", () => {
     expect(core.nextWake(at)).toBeNull();
     // Three play; Di holds the gun and never fires.
     const { ended, now, snapshots, kinds } = playOut(core, at, (seat, state, t) => (seat === 3 ? null : botAim(seat, state, t)));
-    expect((now - at) / 1000).toBeGreaterThan(93);
+    // No longer than the count-in and ninety seconds; sooner when the three who fire have spent
+    // their thirty-five corks, which ends the round with only Di's stall still holding any.
+    expect((now - at) / 1000).toBeGreaterThan(30);
     expect((now - at) / 1000).toBeLessThan(97);
-    expect(snapshots).toBeGreaterThan(150);
-    expect([...kinds]).toEqual(expect.arrayContaining(["f", "atk", "time"]));
+    expect(snapshots).toBeGreaterThan(50);
+    expect([...kinds]).toEqual(expect.arrayContaining(["f", "atk"]));
     const rows = ended.last.rows;
     expect(rows).toHaveLength(4);
     expect(rows.map((r) => r.place)).toEqual([1, 2, 3, 4]);
