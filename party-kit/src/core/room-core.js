@@ -9,6 +9,9 @@
 // round goes on. After the grace, or when the human leaves on purpose, the bot keeps the seat.
 
 import { makeRng } from "./rng.js";
+import { viewerFor } from "./views.js";
+
+export { eventsFor, fanOut, viewerFor, viewerKey } from "./views.js";
 
 export const RECONNECT_GRACE_MS = 30_000;
 export const IDLE_SHUTDOWN_MS = 60_000;
@@ -40,10 +43,16 @@ export function cleanName(raw) {
  * @property {(ctx: {seed: number, seats: Array<{seat:number,name:string,kind:string}>, now: number, round: number}) => any} create
  * @property {(state: any, seat: number, input: any, now: number) => void} input
  * @property {(state: any, seat: number, now: number) => any[]} [bot]   inputs for a bot seat this tick
- * @property {(state: any, now: number) => any[]} tick     advances the game, returns events to broadcast
- * @property {(state: any, now: number) => any} snapshot
+ * @property {(state: any, now: number) => any[]} tick     advances the game, returns events (an event with `only: seat` or `only: [seats]` reaches only those players)
+ * @property {(state: any, now: number, viewer: Viewer) => any} snapshot   what this viewer may see (a game may ignore `viewer`)
  * @property {(state: any) => boolean} isOver
- * @property {(state: any) => any} [result]
+ * @property {(state: any) => any} [result]   sent to everyone: it must hold no secret
+ */
+
+/**
+ * Who a snapshot or an event is for (see views.js): a player in the round, the shared screen, or
+ * a member whose seat is not in the round (a screen with that seat).
+ * @typedef {{role: "player", seat: number} | {role: "screen", seat?: number}} Viewer
  */
 
 export class RoomCore {
@@ -63,6 +72,8 @@ export class RoomCore {
     this.screens = new Map();
     this.hostToken = null;
     this.state = null;
+    /** The seats the current (or last) round was created with; null before the first round. */
+    this.roundSeats = null;
     this.result = null;
     this.startAt = 0;
     this.tickCount = 0;
@@ -281,12 +292,9 @@ export class RoomCore {
     this.startAt = now;
     this.tickCount = 0;
     this.result = null;
-    this.state = this.game.create({
-      seed: this.roundSeed(),
-      seats: this.seats.filter(Boolean).map((s) => ({ seat: s.seat, name: s.name, kind: s.kind })),
-      now,
-      round: this.round,
-    });
+    const seats = this.seats.filter(Boolean).map((s) => ({ seat: s.seat, name: s.name, kind: s.kind }));
+    this.roundSeats = new Set(seats.map((s) => s.seat));
+    this.state = this.game.create({ seed: this.roundSeed(), seats, now, round: this.round });
     return { ok: true };
   }
 
@@ -305,12 +313,23 @@ export class RoomCore {
     return true;
   }
 
+  /** The viewer a socket of this identity ({role, seat}) gets. */
+  viewerOf(who) {
+    return viewerFor(who, this.roundSeats);
+  }
+
+  /** The game's state as this viewer may see it. */
+  snapshotFor(viewer, now) {
+    return this.game.snapshot(this.state, now, viewer);
+  }
+
   /**
-   * Advances the room. Returns what to send: events, an optional snapshot, and flags.
+   * Advances the room. Returns what to send: events (all of them: the room filters them per viewer
+   * with `eventsFor`), whether a snapshot is due (`snap`, built per viewer with `snapshotFor`), and flags.
    * Call it at the game's tick rate while playing, and every few seconds otherwise.
    */
   tick(now) {
-    const out = { events: [], snapshot: null, ended: false, roomChanged: false, close: false };
+    const out = { events: [], snap: false, ended: false, roomChanged: false, close: false };
     // The reconnect grace runs out: the seat is the bot's for good (or free again in the lobby).
     for (const s of this.seats) {
       if (!s) continue;
@@ -340,11 +359,11 @@ export class RoomCore {
       }
       out.events = this.game.tick(this.state, now) ?? [];
       const every = this.game.snapshotEvery ?? 15;
-      if (this.tickCount % every === 0) out.snapshot = this.game.snapshot(this.state, now);
+      if (this.tickCount % every === 0) out.snap = true;
       if (this.game.isOver(this.state)) {
         this.phase = "ended";
         this.result = this.game.result ? this.game.result(this.state) : null;
-        out.snapshot = this.game.snapshot(this.state, now);
+        out.snap = true;
         out.ended = true;
         out.roomChanged = true;
         this.lastActive = now;
@@ -368,7 +387,10 @@ export class RoomCore {
 
   // ---------------------------------------------------------------- views
 
-  /** What every client may know about the room. Tokens never leave the room. */
+  /**
+   * What every client may know about the room. Tokens never leave the room, and neither does the
+   * seed: every round's seed comes from it, so a client that had it could work out what a game drew.
+   */
   view(now) {
     return {
       game: this.game.id,
@@ -376,7 +398,6 @@ export class RoomCore {
       pin: this.pin,
       phase: this.phase,
       round: this.round,
-      seed: this.seed,
       startAt: this.startAt,
       now,
       minSeats: this.game.minSeats,

@@ -1,0 +1,47 @@
+# Wind-up derby
+
+I will open your build on screen and show it to an audience for 20 to 60 seconds. Quality is the goal. Take the time that quality needs.
+
+## Your build: Wind-up derby
+
+This build is stylized on purpose, to stay out of the uncanny valley: nothing that tries to pass for a photograph of a living thing and misses. You have one physical medium. Obey its rules in every pixel. The finish must be extremely high: the picture should look like a photograph of a real handmade object or a real print, not like a filter on a 3D scene. No cookie-cutter look: no low-poly, no voxels, no pixel art, no neon synthwave, no glass UI, no generic cel shading, no default three.js materials. Before you write code, decide the rules of the medium: how an edge looks, how colour is laid down, what the surface is, which flaws the hand or the machine leaves, and how it moves. Hold every frame to those rules.
+
+This is a game. It must be fun for two minutes on camera: a clear goal inside 5 seconds, instant restart, an attract mode that plays until the first input, and strong feedback on every action. The design is your own: do not copy the rules, characters, levels or look of a specific existing game.
+
+Your medium: lithographed tinplate wind-up toys, in a macro photograph on a kitchen table.
+
+Four tin toys of your own design (for example a beetle car, a hopping bird, a rocket on wheels, a duck on a trike) race around a course made of household things: a ramp of books, a tunnel under a colander, a slalom of salt shakers, a jump over a butter dish, a slow zone of spilled sugar. The player holds a key to wind the spring (a ratchet clicks; too much winding slips the spring) and lets go to run. The torque falls as the spring unwinds, so the time of the next wind is the game. The toys wobble, tip, bump and right themselves by real rigid-body physics. Three bots. Three laps and a photo finish.
+
+Look: tinplate with printed art that is a little off register, embossed lines, folded tabs in slots, bare metal at scratched edges, a visible key. A low camera, shallow depth of field, morning window light across the table.
+
+Light: bake it. Build the table scene in Blender by script. Bake Cycles light and soft shadows into texture atlases. Render the toys live with an environment map that matches, so that they sit in the baked scene with contact shadows and reflections of the table.
+
+Blender jobs: test at small size and few samples first. Check every baked file after a job (a job can be cut short).
+
+Bar: a frozen frame passes for a photograph in a toy collector's book, at 60 fps.
+
+## Tools and files
+
+- Work in the current folder. The entry file is `index.html`. Put your other files (modules, shaders, baked images, textures, video) in a subfolder beside it.
+- Use three.js or raw WebGL2, whichever gives the better picture. Keep a local copy of three.js in the folder (my builds used r186). No CDN. The only network request that the finished page may make is Google Fonts.
+- CC0 assets from Poly Haven (HDRI skies, PBR textures) are allowed when they clearly raise realism. The subject of your build must be geometry that you make in code, unless the build section names a model.
+- Use Blender only if the build section tells you to.
+- Check your work in a headless browser on the real GPU (for example Playwright with Chrome): load the page, send input steps (move, click, drag, key, wheel), take screenshots and measure the frame rate. Read every screenshot that you take.
+
+## Hard rules
+
+- The page looks alive at load with no input: motion or an attract mode from the first frame. It reacts to the mouse or the keyboard in the first second of input.
+- It fills the window. Target 60 fps at 1920x1080 on a recent laptop GPU. Cap the device pixel ratio at 2, and lower the internal resolution when a frame takes too long.
+- Games, scenes and experiments: a quiet title and one hint line at the top left. Websites and videos: no HUD. The build is the picture.
+- Sound: start muted. Show a clear "Enable sound" control and make no sound before a click on it. Make all sound in code (WebAudio). The build must look complete with the sound off.
+- Make time controllable: `?t=<seconds>` freezes the animation at that time, and `?view=<name>` selects a camera or a state where that helps. Use them to look at exact moments.
+- Original work only. No copy of a specific existing game, film, brand, character, logo or site. Genres, techniques, real places and public buildings are fine.
+- Copy: real words for the subject, sentence case, no lorem ipsum, no emoji as icons. State only facts that you are sure of.
+
+## Process
+
+1. Build a complete v1. Check it in the headless browser. Fix every error.
+2. Run at least 4 improvement rounds. In each round: take three or more screenshots of different moments, views and input states. Read them. Judge them as a harsh art director who compares the picture with the best work of this kind. Name the three weakest things. Fix them. Check again.
+3. Measure the frame rate. Under 50 fps at 1920x1080: make it faster before you add anything.
+4. Stop when one more round would not show on camera, or at 90 minutes from your start.
+5. Final reply, five lines or fewer: what to do in the first five seconds, the best moment and how to reach it, what you used, any known flaw.

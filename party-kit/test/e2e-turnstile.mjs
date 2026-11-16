@@ -24,7 +24,7 @@ const say = (ok, what) => {
   if (!ok) problems.push(what);
 };
 const post = (base, path, body) =>
-  fetch(base + "/api/party" + path, { method: "POST", body: JSON.stringify(body), headers: { "Content-Type": "application/json" } }).then(async (r) => ({ status: r.status, ...(await r.json()) }));
+  fetch(base + "/api/party" + path, { method: "POST", body: JSON.stringify(body), headers: { "Content-Type": "application/json", "X-Party-Protocol": "2" } }).then(async (r) => ({ status: r.status, ...(await r.json()) }));
 
 const config = await (await fetch(passBase + "/api/party/config")).json();
 say(config.turnstileSiteKey === "1x00000000000000000000AA", "the server hands out the site key");

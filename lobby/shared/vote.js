@@ -61,7 +61,28 @@ export function boxFromManifest(manifest, extra = {}) {
     art: extra.art ?? manifest.id,
     // Whether emotes and sounds may be used while it is played (the kit's defaults when the manifest says nothing).
     play: playRules(manifest),
+    // Only that the game has settings, chosen in a step after the vote. The fields themselves go
+    // to the pages in that step alone (the room view's `choosing`), not with every box.
+    ...(manifest.settings ? { settings: true } : {}),
+    // A game for fewer seats than the party (`audience: true`): a larger party may vote for it,
+    // its players are chosen on spots, and the rest watch (party-kit/src/core/audience.js).
+    ...(manifest.audience === true ? { audience: true } : {}),
+    // A game laid out for an upright phone: the page stops asking for sideways while it is on.
+    ...(manifest.devices?.upright === true ? { upright: true } : {}),
   };
+}
+
+/**
+ * The lights that are the spots where a game's players are chosen (a party larger than the game's
+ * seats): `n` lights side by side on the wall, around the winning game's own, as near the middle
+ * of that run as the wall allows. The room's own lights and their drawing, so standing on a spot
+ * is standing in a light. Returns the boxes' ids, or null when the wall has fewer than `n`.
+ */
+export function spotLights(boxes, id, n) {
+  if (!(n >= 1) || boxes.length < n) return null;
+  const at = Math.max(0, boxes.findIndex((box) => box.id === id));
+  const first = Math.min(Math.max(0, at - Math.floor((n - 1) / 2)), boxes.length - n);
+  return boxes.slice(first, first + n).map((box) => box.id);
 }
 
 /**
@@ -71,7 +92,8 @@ export function boxFromManifest(manifest, extra = {}) {
 export function whyNot(box, party) {
   if (box.soon) return "Coming soon";
   if (party.players < box.min) return box.min === 1 ? "Needs a player" : `Needs ${box.min} players`;
-  if (party.players > box.max) return box.max === 1 ? "For 1 player" : box.min === box.max ? `For ${box.max} players` : `For up to ${box.max} players`;
+  // A game with an audience takes a larger party: its players are chosen on spots, the rest watch.
+  if (party.players > box.max && !box.audience) return box.max === 1 ? "For 1 player" : box.min === box.max ? `For ${box.max} players` : `For up to ${box.max} players`;
   if (box.badge === "screen" && party.screens < 1) return "Needs a big screen";
   return null;
 }

@@ -16,16 +16,19 @@ import { TouchSpots } from "./touch.js";
 import { KEEP_ALIVE_MS, watchConnection } from "./connection.js";
 import { CountTick } from "./count-tick.js";
 import { RoomMenu } from "./room-menu.js";
+import { SettingsStep } from "./settings-step.js";
 import { RoomSounds, defineRoomSounds, emoteSound } from "./room-sounds.js";
 import { chosenLook, hardware3D, openRoomView, preferFlat } from "./room-view.js";
-import { ScreenFit, fitVisible } from "./screen-fit.js";
+import { ScreenFit, allowUpright, fitVisible } from "./screen-fit.js";
 import { SlowWatch } from "./slow-room.js";
 import { IMPACT_MS } from "./shared/bump.js";
-import { camera } from "./shared/camera.js";
+import { FRAME, PHONE_FRAME, camera } from "./shared/camera.js";
+import { clearOfCard, tagsTop } from "./card-clear.js";
 import { Pilot } from "./shared/pilot.js";
 import { isRoom, roomName } from "./shared/rooms.js";
+import { stageKey, stageStale } from "./shared/stage.js";
 import { playerLine, statusLine } from "./shared/status.js";
-import { posAt } from "./shared/world.js";
+import { JUMP_HEIGHT, posAt } from "./shared/world.js";
 
 const params = new URLSearchParams(location.search);
 const app = document.getElementById("app");
@@ -60,6 +63,8 @@ let board = null;
 let menu = null;
 /** The count, large, over the foot of the room (count-tick.js). */
 let count = null;
+/** The settings step after the vote, for a game that has settings (settings-step.js). */
+let step = null;
 /** What can be touched on the wall: the board, the posters, the join sign, the 3D room's feature (touch.js). */
 let touch = null;
 /** Full screen, and the way to it on an iPhone (screen-fit.js). */
@@ -127,9 +132,10 @@ function teardown() {
   door = null;
   stage?.unmount();
   stage = null;
-  app.classList.remove("in-game");
-  for (const part of [menu, count, touch, fit, roomSounds]) part?.destroy();
-  menu = count = touch = fit = roomSounds = null;
+  app.classList.remove("in-game", "staged");
+  document.documentElement.classList.remove("upright");
+  for (const part of [menu, count, step, touch, fit, roomSounds]) part?.destroy();
+  menu = count = step = touch = fit = roomSounds = null;
   hud?.destroy();
   hud = null;
   scene?.destroy();
@@ -198,6 +204,8 @@ async function enter() {
   hud.muteButton(menu.corner);
   if (menu.mine(room)) menu.hint();
   count = new CountTick(hud.el, { buzz: isPlayer() ? buzz : null });
+  // The one who chooses is the room's picker: a player's seat, or -1 for the room's screen.
+  step = new SettingsStep(hud.el, { send: (message) => link.send(message), mine: (choosing) => (isPlayer() ? choosing.by === link.you.seat : choosing.by === -1) });
   fit = new ScreenFit(menu.corner, app);
   void keepAwake();
   slow.start(scene.look, performance.now(), simpler);
@@ -362,7 +370,9 @@ function boardLine(now) {
   const closingLeft = room.closing ? room.closing.in - (now - voteAt) : null;
   if (!isPlayer()) return statusLine(room, live, closingLeft).main;
   const line = playerLine(room, live, link.you.seat, closingLeft);
-  return `Your vote: ${line.vote}. ${line.rest}.`;
+  // While players are chosen on spots a light is not a vote: the line says which player this is.
+  if (room.phase === "settings" && room.choosing?.spots) return `${line.voted ? `You play as ${line.vote}` : "You are not on a spot"}. ${line.rest}.`;
+  return `${line.label}: ${line.vote}. ${line.rest}.`;
 }
 
 // ---------------------------------------------------------------- what the room says
@@ -386,6 +396,7 @@ function apply(next) {
   if (!scene) return;
   scene.setRoom(room, voteAt);
   menu?.update(room);
+  step?.update(room, voteAt);
   // A page that missed a change (a drop, a sleep) catches up from the room itself.
   if (room.room !== shownRoom || look !== scene.look) void showRoom();
   const me = isPlayer() ? room.members[link.you.seat] : null;
@@ -399,7 +410,9 @@ function apply(next) {
     } else if (pilot.rev !== me.rev) pilot.place(me.x, me.rev, voteAt);
     tellLit(voteAt);
   }
-  if (room.phase !== "playing" && stage) endStage();
+  // The game is over, or this page missed its end and the next match is on (a drop across a
+  // rematch): the view goes, and the next snapshot mounts the one being played (startStage).
+  if (stage && stageStale(stage.key, room)) endStage();
   // A game takes the whole screen: the board makes way for it.
   if (room.phase === "playing") hideBoard();
 }
@@ -487,6 +500,15 @@ link.on("message", (msg) => {
       break;
     case "note":
       if (msg.k === "left") hud?.note(`${msg.name} left`, msg.colour);
+      // A game that ended early because a player in it left or did not come back says why.
+      else if (msg.k === "ended") hud?.note(msg.text, msg.colour);
+      // The settings step ended with nobody playing: the host went back, or a player left.
+      else if (msg.k === "cancelled") hud?.note(msg.text);
+      break;
+    case "settings-no":
+      // The room turned down this device's change of settings: said on the card, or as a note.
+      if (step?.isOpen) step.refused(msg.message);
+      else hud?.note(msg.message);
       break;
     case "away":
       // An outside game won the vote: the card says where everyone is going, then goAway runs.
@@ -589,6 +611,8 @@ function startStage(snapshot) {
   const mine = { view: null, waiting: [], gone: false };
   const pass = (method, args) => (mine.view ? mine.view[method](...args) : mine.waiting.push([method, args]));
   stage = {
+    // The match this view is for, and so who this device is in it (ctx.you): shared/stage.js.
+    key: stageKey(room.game),
     events: (...args) => pass("events", args),
     snapshot: (...args) => pass("snapshot", args),
     unmount() {
@@ -596,13 +620,21 @@ function startStage(snapshot) {
       mine.view?.unmount();
     },
   };
-  const ctx = { room, you: link.you, snapshot, send: (data) => link.sendInput(data), now: () => link.now(), inset: DOOR_INSET, params };
+  // A game laid out for an upright phone: the page lets go of sideways for the players and its
+  // audience while it is on (the big screen keeps its shape), and the view is told so.
+  const upright = !!room.game.upright && link.you?.role === "player";
+  allowUpright(upright);
+  // send(data, {id}) asks a turn-based game for an answer (a promise); inputId() makes an id no other input of this page has used.
+  const ctx = { room, you: viewerOfGame(link.you, room.game), upright, snapshot, send: (data, opts) => link.sendInput(data, opts), inputId: () => link.nextInputId(), now: () => link.now(), inset: DOOR_INSET, params };
+  if (ctx.you?.role === "screen" && ctx.you.seat >= 0 && room.game.late?.includes(ctx.you.seat)) hud?.note("You joined mid-game: you will see everything next match");
   viewModule(box)
     .then((module) => {
       if (mine.gone || !module?.mount) return;
       stageBox.hidden = false;
       mine.view = module.mount(stageBox, ctx);
-      // A view that covers everything: the room's bars are put away and the room is not drawn under it.
+      // Any view of a game: the room's bar and its buttons do nothing for the game, so they make
+      // way for it. A view that covers everything: the room is not drawn under it either.
+      app.classList.add("staged");
       app.classList.toggle("in-game", !!mine.view.full);
       for (const [method, args] of mine.waiting.splice(0)) mine.view[method](...args);
     })
@@ -612,8 +644,21 @@ function startStage(snapshot) {
 function endStage() {
   stage?.unmount();
   stage = null;
-  app.classList.remove("in-game");
+  app.classList.remove("in-game", "staged");
   if (stageBox) stageBox.hidden = true;
+  if (document.documentElement.classList.contains("upright")) allowUpright(false);
+}
+
+/**
+ * Who this device is to the game's view: as the room decides it (LobbyCore.viewerOf, by the kit's
+ * viewerFor), from the room view's game. A member who is not in a game that takes an audience
+ * watches as `{role: "audience", seat}`, unless it joined in the middle of the match (`game.late`):
+ * then it watches as the big screen does, `{role: "screen", seat}`. Any other game is told the
+ * device's own identity, as before.
+ */
+function viewerOfGame(you, game) {
+  if (you?.role !== "player" || !game?.audience || !Array.isArray(game.seats) || game.seats.includes(you.seat)) return you;
+  return { role: game.late?.includes(you.seat) ? "screen" : "audience", seat: you.seat };
 }
 
 /** While a count runs for a game with a view of its own, its files are fetched ahead of the start. */
@@ -635,7 +680,8 @@ link.on("end", (msg) => {
   stirAt = performance.now();
   endStage();
   apply(msg.room);
-  hud?.result(msg.last);
+  // A game ended early with nobody placed has no card to show: the room's note says why it ended.
+  if (msg.last.rows.length || !msg.last.early) hud?.result(msg.last);
   roomSounds?.play("result", -1, { gain: 0.8 });
 });
 
@@ -646,17 +692,20 @@ link.on("status", (status) => {
 });
 
 link.on("closed", (why, reason) => {
-  const said = bye ?? (why === "seat_lost" ? "seat_lost" : reason || "room_closed");
+  // A seat let go because its person left from another device of theirs says so ("left").
+  const said = bye ?? (why === "seat_lost" ? (reason === "left" ? "left" : "seat_lost") : reason || "room_closed");
   bye = null;
   // Also a saved session whose room is gone (a reload after it closed): the front page says so.
   closed(said);
 });
 
-link.on("error", (err) => hud?.note(err.message));
+// An error with an id is the late answer to a game's input that no longer waits for it: not for the room's notes.
+link.on("error", (err) => err.id === undefined && hud?.note(err.message));
 
 // ---------------------------------------------------------------- keys and fingers
 
-const canMove = () => !!pilot && room?.phase === "lobby" && !hud?.sheet && !hud?.card && !board && !menu?.isOpen;
+// The pieces walk in the lobby, and while a game's players are chosen on its spots (bumping stays the lobby's).
+const canMove = () => !!pilot && (room?.phase === "lobby" || !!room?.choosing?.spots) && !hud?.sheet && !hud?.card && !board && !menu?.isOpen;
 
 function steerNow(d) {
   pilot?.steer(d, performance.now());
@@ -688,7 +737,7 @@ function jump() {
 /** The wind-up starts the moment the button goes down; the room decides whether the blow lands. */
 function bump() {
   const now = performance.now();
-  if (canMove() && pilot.bump(now)) {
+  if (canMove() && room.phase === "lobby" && pilot.bump(now)) {
     scene.ownBump(now);
     roomSounds?.swung(link.you.seat);
   }
@@ -776,7 +825,12 @@ function frame(t) {
   focus += (mine - focus) * Math.min(1, dt * 7);
   // While a count or a coin toss is on, a phone pulls back to the whole room: that is where it happens.
   const drama = room.phase === "lobby" && (room.vote.count || room.vote.toss);
-  const aim = camera({ w: innerWidth, h: innerHeight, bar: hud.barHeight(), mode: isPlayer() && !drama ? zoom : "room", focusX: focus, phone: phone(), boxes: room.boxes.length });
+  const bar = hud.barHeight();
+  let aim = camera({ w: innerWidth, h: innerHeight, bar, mode: isPlayer() && !drama ? zoom : "room", focusX: focus, phone: phone(), boxes: room.boxes.length });
+  // While the spot card lies over the top of a phone's screen, the room is framed so that no name
+  // tag, stacked or mid-jump, goes under it (card-clear.js).
+  const cardBottom = phone() ? step?.cardBottom() : null;
+  if (cardBottom != null && view) aim = clearOfCard(aim, { cardBottom, top: drawnTagsTop(), w: innerWidth, h: innerHeight, bar, jump: JUMP_HEIGHT, bottom: PHONE_FRAME.bottom, room: FRAME });
   // The view glides from one framing to the next, except when the window itself changes shape.
   const size = `${innerWidth}x${innerHeight}`;
   if (!view || size !== viewSize) view = aim;
@@ -792,6 +846,7 @@ function frame(t) {
   hud.update(room, room.vote, now, voteAt, zoom, now - stirAt);
   const left = room.vote.count ? Math.max(0, room.vote.count.endsIn - (now - voteAt)) : null;
   count?.update(room, left);
+  step?.frame(now);
   // The count's end: a chime, once, as the game starts.
   if (left !== null && left <= 0 && countLeft > 0 && room.phase === "lobby") {
     countGoAt = now;
@@ -799,6 +854,18 @@ function frame(t) {
   }
   countLeft = left ?? Infinity;
   roomSounds?.frame(piecesNow(now), room.boxes.length, now);
+}
+
+/** The highest any piece's name tag can be, in world units, from the tags as last drawn (card-clear.js). */
+function drawnTagsTop() {
+  const tags = [];
+  for (const p of scene?.pieces?.values() ?? []) {
+    const el = p.tag?.el ?? p.tag;
+    if (!el?.getBoundingClientRect || p.leaving) continue;
+    const r = el.getBoundingClientRect();
+    tags.push({ top: r.top, height: r.height, up: p.up ?? 0 });
+  }
+  return tagsTop(tags, { y: view.y, scale: innerWidth / view.width });
 }
 
 /** When the count last ran out, and how much it had left a frame ago. */

@@ -923,7 +923,8 @@ export class Room3D {
 
     // Lights: each eases to how many stand in it, and the leading one turns gold.
     const vote = this.vote;
-    const lobby = this.room.phase === "lobby";
+    // Lit in the lobby, and as a spot while a game's players are chosen on spots.
+    const lobby = this.room.phase === "lobby" || !!this.room.choosing?.spots;
     const tossLeft = vote.toss ? vote.toss.endsIn - (now - this.voteAt) : 0;
     const landed = !!vote.toss && tossLeft < vote.toss.of * 0.3;
     const ease = 1 - Math.exp(-dt * 7);

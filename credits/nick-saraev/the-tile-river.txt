@@ -1,0 +1,45 @@
+# The tile river
+
+I will open your build on screen and show it to an audience for 20 to 60 seconds. Quality is the goal. Take the time that quality needs.
+
+## Your build: The tile river
+
+The request: a very stylized game in a medium of its own.
+
+This build is stylized on purpose, to stay out of the uncanny valley: nothing that tries to pass for a photograph of a living thing and misses. You have one physical medium. Obey its rules in every pixel. The finish must be extremely high: the picture should look like a photograph of a real handmade object or a real print, not like a filter on a 3D scene. No cookie-cutter look: no low-poly, no voxels, no pixel art, no neon synthwave, no glass UI, no generic cel shading, no default three.js materials. Before you write code, decide the rules of the medium: how an edge looks, how colour is laid down, what the surface is, which flaws the hand or the machine leaves, and how it moves. Hold every frame to those rules.
+
+This is a game. It must be fun for two minutes on camera: a clear goal inside 5 seconds, instant restart, an attract mode that plays until the first input, and strong feedback on every action. The design is your own: do not copy the rules, characters, levels or look of a specific existing game.
+
+Your medium: hand-painted tin-glazed tiles, cobalt blue on white (the tradition of Portuguese and Dutch tiles).
+
+A wall of tiles. Each tile carries a piece of a painted river, coast or canal. The player turns and swaps tiles until the water joins from the spring to the sea. Then a painted sailing boat travels the route from tile to tile, in the same brushwork, and the painted world wakes as it passes: fish jump, windmills turn, birds lift, a sea creature rolls in the border. Make 6 to 8 levels by hand. Each one teaches one idea (a bridge, a lock, a whirlpool, a tile with two faces) and the last one is a full wall. Undo, a hint, and an attract mode that solves a wall slowly.
+
+Look: a photograph of a real tiled wall. Cobalt brushwork with visible stroke load and pooling, on milky white glaze with fine craze lines and pinholes. Tile sizes vary a little. Grout. A chipped corner here and there. A soft reflection of a window that slides across the glaze as the pointer moves (render the wall in 3D with a normal map for each tile). Generate all painting in code as brush strokes with pressure and pigment load, not as flat vector shapes. Painted things move as in a painted film: strokes redrawn at 8 to 12 pictures a second.
+
+Bar: a frozen frame passes for a photograph of antique tiles. When the boat sails, the wall comes alive.
+
+## Tools and files
+
+- Work in the current folder. The entry file is `index.html`. Put your other files (modules, shaders, baked images, textures, video) in a subfolder beside it.
+- Use three.js or raw WebGL2, whichever gives the better picture. Keep a local copy of three.js in the folder (my builds used r186). No CDN. The only network request that the finished page may make is Google Fonts.
+- CC0 assets from Poly Haven (HDRI skies, PBR textures) are allowed when they clearly raise realism. The subject of your build must be geometry that you make in code, unless the build section names a model.
+- Use Blender only if the build section tells you to.
+- Check your work in a headless browser on the real GPU (for example Playwright with Chrome): load the page, send input steps (move, click, drag, key, wheel), take screenshots and measure the frame rate. Read every screenshot that you take.
+
+## Hard rules
+
+- The page looks alive at load with no input: motion or an attract mode from the first frame. It reacts to the mouse or the keyboard in the first second of input.
+- It fills the window. Target 60 fps at 1920x1080 on a recent laptop GPU. Cap the device pixel ratio at 2, and lower the internal resolution when a frame takes too long.
+- Games, scenes and experiments: a quiet title and one hint line at the top left. Websites and videos: no HUD. The build is the picture.
+- Sound: start muted. Show a clear "Enable sound" control and make no sound before a click on it. Make all sound in code (WebAudio). The build must look complete with the sound off.
+- Make time controllable: `?t=<seconds>` freezes the animation at that time, and `?view=<name>` selects a camera or a state where that helps. Use them to look at exact moments.
+- Original work only. No copy of a specific existing game, film, brand, character, logo or site. Genres, techniques, real places and public buildings are fine.
+- Copy: real words for the subject, sentence case, no lorem ipsum, no emoji as icons. State only facts that you are sure of.
+
+## Process
+
+1. Build a complete v1. Check it in the headless browser. Fix every error.
+2. Run at least 4 improvement rounds. In each round: take three or more screenshots of different moments, views and input states. Read them. Judge them as a harsh art director who compares the picture with the best work of this kind. Name the three weakest things. Fix them. Check again.
+3. Measure the frame rate. Under 50 fps at 1920x1080: make it faster before you add anything.
+4. Stop when one more round would not show on camera, or at 60 minutes from your start.
+5. Final reply, five lines or fewer: what to do in the first five seconds, the best moment and how to reach it, what you used, any known flaw.

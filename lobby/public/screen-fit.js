@@ -43,6 +43,24 @@ export function goFullscreen(asked = false) {
 }
 
 /**
+ * While a game laid out for an upright phone is played (`devices.upright`), the page stops
+ * holding the phone sideways: the lock goes, and the turn hint with it (`#app.upright`, lobby.css).
+ * When it ends, a full-screen phone is turned sideways again, as on the way in.
+ */
+export function allowUpright(on) {
+  root.classList.toggle("upright", on);
+  if (on) {
+    try {
+      screen.orientation?.unlock?.();
+    } catch {
+      // Not locked, or not allowed here: nothing to undo.
+    }
+  } else if (document.fullscreenElement && matchMedia("(pointer: coarse)").matches) {
+    screen.orientation?.lock?.("landscape")?.catch?.(() => {});
+  }
+}
+
+/**
  * Keeps the room the size of what is really visible. iPhone Safari's bars come and go, and a
  * fixed element can sit under them; visualViewport says what is left.
  */

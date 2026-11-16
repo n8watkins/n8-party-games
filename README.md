@@ -59,10 +59,39 @@ The party room is awake for the instant each move takes to pass on, and for the 
 The room budget in the party kit closes rooms for the day or month once a set share of the plan's allowance is used.
 The details are in the [party kit README](party-kit/README.md), and the party room's measured numbers are in the [lobby README](lobby/README.md).
 
+## Credit
+
+[![YouTube: @nicksaraev](https://img.shields.io/badge/YouTube-%40nicksaraev-FF0000?logo=youtube&logoColor=white)](https://www.youtube.com/@nicksaraev)
+[![YouTube: the Fable 5.2 demos video](https://img.shields.io/badge/YouTube-Demos%20video-FF0000?logo=youtube&logoColor=white)](https://www.youtube.com/watch?v=wpFw66kKixU)
+[![YouTube: the Fable 5.2 builds video](https://img.shields.io/badge/YouTube-Builds%20video-FF0000?logo=youtube&logoColor=white)](https://www.youtube.com/watch?v=5mA9Hab09Do)
+[![Skool: Maker Zero, where Nick's prompt packs are](https://img.shields.io/badge/Skool-Maker%20Zero-1d1d1f)](https://www.skool.com/maker-zero/about)
+
+The party games started from build prompts by Nick Saraev, published with two of his Claude Fable 5.2 videos.
+Each of his prompts is a single-player build; each game here takes one and remakes it for friends playing together on their phones.
+
+| Game | Nick's prompt | From his video | State |
+| --- | --- | --- | --- |
+| [Cork & Bell](https://github.com/n8watkins/cork-and-bell) | The cork gallery | [I Threw $1000 at Fable 5.2 to Build The Coolest Demos Possible](https://www.youtube.com/watch?v=wpFw66kKixU) | Built |
+| Flood | The tile river | [I Threw $1000 at Fable 5.2 to Build The Coolest Demos Possible](https://www.youtube.com/watch?v=wpFw66kKixU) | Planned |
+| Bathtub Regatta (Tin Derby on the party room's wall) | Wind-up derby | [13 INSANE Things You Can Build w/ Claude Fable 5.2](https://www.youtube.com/watch?v=5mA9Hab09Do) | Planned |
+| Fox Trouble | The fox knight, loosely | [13 INSANE Things You Can Build w/ Claude Fable 5.2](https://www.youtube.com/watch?v=5mA9Hab09Do) | Planned |
+
+Where to find Nick:
+
+- YouTube: [@nicksaraev](https://www.youtube.com/@nicksaraev)
+- [Maker Zero](https://www.skool.com/maker-zero/about), his free community on Skool.
+  Nick's prompt pack for each of the two videos is free there; both videos' descriptions send you there for it.
+- [Maker School](https://www.skool.com/makerschool/about), his paid community on Skool.
+
+The text of the four prompts in the table is kept unchanged in [`credits/nick-saraev/`](credits/nick-saraev/README.md), with where it came from and where to get his full prompt packs.
+The MIT License here covers this project's own code and assets, apart from the exceptions under License; Nick's prompts and any wording taken from them remain his and are not licensed by this repository.
+This project is not affiliated with Nick Saraev or endorsed by him.
+
 ## License
 
 The code is under the [MIT License](LICENSE).
 Each game carries its own license and the licenses of what it includes.
+Nick Saraev's prompts, and any wording taken from them, are his and not under the MIT License, including the four prompts in `credits/nick-saraev/` (see [Credit](#credit)).
 
 The party room's sounds (`lobby/public/sounds/*.mp3`) are not under the MIT License.
 Every one of them was made from a recording released under Creative Commons Zero (CC0 1.0, public domain).

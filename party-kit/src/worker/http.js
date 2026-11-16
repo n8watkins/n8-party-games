@@ -10,7 +10,24 @@ export const MAX_BODY_BYTES = 4096;
 /** The longest text the QR endpoint encodes: an origin, a short path and ?join=<PIN or code>. */
 export const MAX_QR_TEXT = 200;
 
+/**
+ * The mark the kit's client puts on every request that hands out a seat (making or joining a
+ * room): `X-Party-Protocol: 2`. Protocol 2 is the one where the seat's token is the socket's
+ * first message. A page loaded before that has no mark and would open its socket the old way,
+ * with the token in the address, so it is given no seat: it is told to reload instead.
+ * The client's copy is in party-kit/client/party-client.js; a test holds the two together.
+ */
+export const PROTOCOL_HEADER = "X-Party-Protocol";
+export const PROTOCOL = "2";
+export const OUTDATED_MESSAGE = "This page is out of date. Reload it to play.";
+
+/** Whether a request carries the mark of a page that knows the current handshake. */
+export function currentPage(request) {
+  return request.headers.get(PROTOCOL_HEADER) === PROTOCOL;
+}
+
 export const STATUS = {
+  page_outdated: 426,
   bad_request: 400,
   bad_name: 400,
   bot_check: 403,

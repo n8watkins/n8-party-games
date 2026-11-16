@@ -34,6 +34,7 @@
     "assets:list": "node scripts/build-public.mjs --list",
     "deploy": "wrangler deploy --env=''",
     "test": "vitest run",
+    "predeploy": "node .github/scripts/predeploy.mjs",
     "playtest": "node node_modules/cork-and-bell/tools/playtest.mjs",
     "playtest:battle": "node node_modules/cork-and-bell/tools/playtest-battle.mjs",
     "test:room": "node party-kit/test/e2e-room.mjs",
@@ -60,7 +61,7 @@
     "lean-qr": "^2.7.4"
   },
   "devDependencies": {
-    "cork-and-bell": "github:n8watkins/cork-and-bell#53c44f23b0c49b35ba9a09b90988f5dbb3589079",
+    "cork-and-bell": "github:n8watkins/cork-and-bell#8c62a033434b077b534fc02b99dc6ccc7c9f7eaf",
     "playwright": "^1.64.1",
     "sharp": "^0.35.5",
     "three": "^0.186.1",
