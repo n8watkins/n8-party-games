@@ -6,12 +6,15 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { game as coinFlip, manifest as coinFlipManifest } from "../games/coin-flip.js";
 import { LobbyCore } from "../server/lobby-core.js";
+import { BumpDraw } from "../public/bump-draw.js";
+import { resumeKnock } from "../public/look3d/pieces.js";
 import { COOLDOWN_SLACK_MS, IMMUNE_MS, IMPACT_MS, KNOCK_DISTANCE, STUN_MS, knockLanding } from "../shared/bump.js";
-import { CHARACTERS, moveOf } from "../shared/characters.js";
-import { FADE_COOLDOWN_MS, FADE_MS, SCARE, SCARE_MS, SPOOK, SPOOK_AGAIN_MS, SPOOK_DISTANCE, SPOOK_MS, SPOOK_REACH, SPOOK_SLACK, fadeFraction, fadeLeft, frightPose, frightState, isFaded, mayFade, maySpook } from "../shared/ghost.js";
+import { CHARACTERS, LOOK_COOLDOWN_MS, moveOf } from "../shared/characters.js";
+import { BOO_LATE_MS, FADE_COOLDOWN_MS, FADE_MS, SCARE, SCARE_MS, SPOOK, SPOOK_AGAIN_MS, SPOOK_DISTANCE, SPOOK_FAR, SPOOK_LANDING, SPOOK_MOST, SPOOK_MS, SPOOK_REACH, SPOOK_SLACK, fadeFraction, fadeLeft, frightPose, frightResumed, frightState, isFaded, mayFade, maySpook } from "../shared/ghost.js";
+import { MODE_COOLDOWN_MS } from "../shared/mode.js";
 import { COUNT_MS, boxFromManifest } from "../shared/vote.js";
-import { POSITION_SLACK, boxCentre, lightAt } from "../shared/world.js";
-import { dropFakeRuntime, openRoom, settle, useFakeRuntime } from "./fake-room.js";
+import { POSITION_SLACK, ROOM, boxCentre, lightAt, lightHalf } from "../shared/world.js";
+import { dropFakeRuntime, openRoom, settle, useFakeRuntime, walkTo } from "./fake-room.js";
 import { turnGame } from "./turn-game.js";
 
 vi.mock("cloudflare:workers", () => ({
@@ -141,6 +144,43 @@ describe("the ghost's rules, as numbers", () => {
     const kick = knockLanding(from, 1, n);
     expect(lightAt(spook, n)).toBe(-1);
     expect(spook - from).toBeLessThanOrEqual(kick - from);
+  });
+
+  it("never spooks a piece further than SPOOK_MOST, well under a kick, from anywhere in any room (the worst case was 214)", () => {
+    expect(SPOOK_MOST).toBeLessThanOrEqual(KNOCK_DISTANCE * 0.75);
+    let worst = 0;
+    for (let n = 1; n <= 8; n++) {
+      // Every light on, none on, and each one alone.
+      const lits = [null, [], ...Array.from({ length: n }, (_, i) => [i])];
+      for (const lit of lits) {
+        const on = lit ?? Array.from({ length: n }, (_, i) => i);
+        const dark = (x) => on.every((i) => Math.abs(x - boxCentre(i, n)) > lightHalf(n));
+        for (let x = ROOM.minX; x <= ROOM.maxX; x += 3) {
+          for (const dir of [-1, 1]) {
+            const spook = knockLanding(x, dir, n, lit, SPOOK_LANDING);
+            const kick = knockLanding(x, dir, n, lit);
+            const went = Math.abs(spook - x);
+            worst = Math.max(worst, went);
+            const where = `n=${n} lit=${JSON.stringify(lit)} x=${x} dir=${dir}`;
+            // In bounds, the way it was sent (or nowhere, against a wall), never further than a kick.
+            expect(spook, where).toBeGreaterThanOrEqual(ROOM.minX);
+            expect(spook, where).toBeLessThanOrEqual(ROOM.maxX);
+            expect((spook - x) * dir, where).toBeGreaterThanOrEqual(0);
+            expect(went, where).toBeLessThanOrEqual(SPOOK_MOST);
+            expect(went, where).toBeLessThanOrEqual(Math.abs(kick - x));
+            // Fair: in the dark whenever there is dark within its reach that way.
+            if (!dark(spook)) {
+              // (Clear of the light by more than a unit: it never lands teetering on its very edge.)
+              for (let d = 0; d <= SPOOK_MOST - 2; d += 2) {
+                const y = x + dir * d;
+                if (y >= ROOM.minX && y <= ROOM.maxX) expect(dark(y), `${where}: dark at ${y}, landed in a light at ${spook}`).toBe(false);
+              }
+            }
+          }
+        }
+      }
+    }
+    expect(worst).toBeLessThanOrEqual(SPOOK_MOST);
   });
 });
 
@@ -276,8 +316,132 @@ describe("the room's judgement", () => {
     ghost(core, 0, -10_000);
     core.fade(0, 2000);
     expect(core.faded(core.members[0], 2100)).toBe(true);
-    expect(core.setLook(0, { c: "pawn" }, 2100).ok).toBe(true);
+    expect(core.setLook(0, { c: "pawn" }, 2100)).toEqual({ ok: true, changed: true, unfaded: true });
     expect(core.faded(core.members[0], 2100)).toBe(false);
+    // And back to a ghost: still solid, nothing about a fade in the view.
+    expect(core.setLook(0, { c: "ghost" }, 2100 + LOOK_COOLDOWN_MS)).toEqual({ ok: true, changed: true });
+    expect(core.faded(core.members[0], 2100 + LOOK_COOLDOWN_MS)).toBe(false);
+    expect(core.view(2100 + LOOK_COOLDOWN_MS).members[0].faded).toBeUndefined();
+  });
+
+  it("does not boo at the Table, and a switch of waiting room ends a fade", () => {
+    const core = party("Ann", "Bo");
+    ghost(core, 1, -10_000);
+    place(core, 0, 600, 2000);
+    place(core, 1, 620, 2000);
+    expect(core.fade(1, 2000).ok).toBe(true);
+    // The host switches to the Table mid-fade: the ghost is solid, and has nobody to spook.
+    expect(core.setMode(core.members[0].token, "turn-based", 2000 + MODE_COOLDOWN_MS).ok).toBe(true);
+    const at = 2000 + MODE_COOLDOWN_MS + 10;
+    expect(core.faded(core.members[1], at)).toBe(false);
+    expect(core.view(at).members[1].faded).toBeUndefined();
+    // Even a fade the room still had on the piece (written by hand here) does not boo at the Table.
+    core.members[1].fadedUntil = at + 1000;
+    core.members[0].x = core.members[1].x = 600;
+    expect(core.boo(1, 0, at)).toMatchObject({ ok: false, why: "Nobody there to spook." });
+    expect(core.members[0].stunUntil).toBe(0);
+  });
+
+  it("says which refused boos and fades no real page sends (they cost the socket), and which are honest ones a moment late", () => {
+    const core = party("Ann", "Bo", "Cy");
+    ghost(core, 0, -10_000);
+    place(core, 0, 600, 2000);
+    place(core, 1, 620, 2000);
+    place(core, 2, 1700, 2000);
+    // Never faded: no page boos then.
+    expect(core.boo(0, 1, 2000)).toMatchObject({ ok: false, bad: true });
+    // A pawn boos: no page does.
+    expect(core.boo(1, 0, 2000)).toMatchObject({ ok: false, bad: true });
+    core.fade(0, 2000);
+    // Nonsense targets.
+    for (const to of [-1, 0, 9, "1", null, 1.5]) expect(core.boo(0, to, 2010), String(to)).toMatchObject({ ok: false, bad: true });
+    // Across the room: further than any position the room believes.
+    expect(Math.abs(core.members[2].x - 600)).toBeGreaterThan(SPOOK_FAR);
+    expect(core.boo(0, 2, 2010)).toMatchObject({ ok: false, why: "Too far away.", bad: true });
+    // Honest refusals: a piece just kicked, one just spooked by another ghost, one a little too far by the room's reckoning.
+    core.members[1].stunUntil = 2500;
+    expect(core.boo(0, 1, 2020)).toMatchObject({ ok: false, bad: false });
+    core.members[1].stunUntil = 0;
+    core.members[1].spookedUntil = 5000;
+    expect(core.boo(0, 1, 2030)).toMatchObject({ ok: false, bad: false });
+    core.members[1].spookedUntil = 0;
+    core.members[1].x = 600 + SPOOK_REACH + SPOOK_SLACK + 50;
+    expect(core.boo(0, 1, 2040)).toMatchObject({ ok: false, why: "Too far away.", bad: false });
+    // A boo just after the fade ended is honest; one long after is not.
+    core.members[1].x = 620;
+    expect(core.boo(0, 1, 2000 + FADE_MS + 50)).toMatchObject({ ok: false, bad: false });
+    expect(core.boo(0, 1, 2000 + FADE_MS + BOO_LATE_MS + 1)).toMatchObject({ ok: false, bad: true });
+    // A ghost that just became a pawn may have a boo on its way still.
+    core.fade(0, 2000 + FADE_COOLDOWN_MS);
+    core.setLook(0, { c: "pawn" }, 2000 + FADE_COOLDOWN_MS + 100);
+    expect(core.boo(0, 1, 2000 + FADE_COOLDOWN_MS + 150)).toMatchObject({ ok: false, bad: false });
+  });
+
+  it("says which refused fades no real page asks for: far too soon, or not a ghost", () => {
+    const core = party("Ann", "Bo");
+    ghost(core, 0, -10_000);
+    expect(core.fade(0, 2000).ok).toBe(true);
+    // Far too soon costs; a moment too soon (the clocks) does not.
+    expect(core.fade(0, 4000)).toMatchObject({ ok: false, cooling: true, bad: true });
+    expect(core.fade(0, 2000 + FADE_COOLDOWN_MS - 400)).toMatchObject({ ok: false, bad: false });
+    // Knocked over just as the button went down: honest.
+    core.members[0].stunUntil = 2000 + FADE_COOLDOWN_MS + SCARE_MS;
+    expect(core.fade(0, 2000 + FADE_COOLDOWN_MS)).toMatchObject({ ok: false, bad: false });
+    // During the count: honest (it may have started on the way).
+    core.members[0].stunUntil = 0;
+    core.count = { endsAt: 99_999 };
+    expect(core.fade(0, 2000 + FADE_COOLDOWN_MS)).toMatchObject({ ok: false, bad: false });
+    // A pawn: no page asks.
+    expect(core.fade(1, 2000)).toMatchObject({ ok: false, bad: true });
+  });
+
+  it("tells a page that arrives in the middle that a piece was scared or spooked, not knocked, and which pieces cannot be spooked yet", () => {
+    const core = party("Ann", "Bo", "Cy");
+    ghost(core, 1);
+    place(core, 0, 600, 2000, 1);
+    place(core, 1, 660, 2000);
+    core.fade(1, 2050);
+    core.bump(0, 2100);
+    expect(core.view(2400).members[0]).toMatchObject({ fright: "scare", down: SCARE_MS - 300 });
+    // Spooked: the same, and for SPOOK_AGAIN_MS nobody may spook it again.
+    place(core, 2, 1200, 2000);
+    place(core, 1, 1180, 2200);
+    const out = core.boo(1, 2, 2200);
+    expect(out.ok).toBe(true);
+    expect(core.view(2300).members[2]).toMatchObject({ fright: "spook", down: SPOOK_MS - 100, spooked: SPOOK_AGAIN_MS - 100 });
+    // Knocked by a kick after that: a knock again, no fright.
+    const later = 2200 + SPOOK_AGAIN_MS + IMMUNE_MS;
+    place(core, 0, core.members[2].x - 60, later, 1);
+    expect(core.bump(0, later)).toMatchObject({ to: 2 });
+    expect(core.view(later + 10).members[2].fright).toBeUndefined();
+    expect(core.view(later + 10).members[2].spooked).toBeUndefined();
+  });
+});
+
+describe("a page that arrives in the middle of a fright", () => {
+  it("draws a scare as a scare and a spook as a spook, in both looks, already where the room put it", () => {
+    const now = 10_000;
+    for (const [fright, how, ms] of [["scare", SCARE, SCARE_MS], ["spook", SPOOK, SPOOK_MS]]) {
+      const down = 300;
+      const safe = down + IMMUNE_MS;
+      expect(frightResumed(700, down, safe, fright, now)).toEqual({ at: now - (ms - down), from: 700, to: 700, how, safeFor: IMMUNE_MS });
+      const flat = { rx: 700 };
+      BumpDraw.prototype.resume.call(null, flat, 700, down, safe, now, fright);
+      expect(flat.knock).toBeUndefined();
+      expect(flat.fright).toMatchObject({ how, from: 700, to: 700 });
+      const solid = { rx: 700 };
+      resumeKnock(solid, 700, down, safe, now, fright);
+      expect(solid.knock).toBeUndefined();
+      expect(solid.fright).toMatchObject({ how, from: 700, to: 700 });
+      // It finishes the story: scared or running, then safe, then up.
+      expect(frightState(now - solid.fright.at, how, solid.fright.safeFor)).not.toBe("up");
+      expect(frightState(now + down + IMMUNE_MS + 1 - solid.fright.at, how, solid.fright.safeFor)).toBe("up");
+    }
+    // A knock is still a knock.
+    const knocked = { rx: 700 };
+    BumpDraw.prototype.resume.call(null, knocked, 700, 300, 300 + IMMUNE_MS, now);
+    expect(knocked.knock).toBeTruthy();
+    expect(knocked.fright).toBeUndefined();
   });
 });
 
@@ -368,5 +532,137 @@ describe("the ghost's moves on the real room", () => {
     await settle();
     for (const [page, n] of [[ws.ann, a3], [ws.bo, b3], [ws.screen, s3]]) expect(since(page, n).find((m) => m.t === "b")).toMatchObject({ s: 1, to: -1, sc: 0 });
     expect(core.members[1].x).toBeLessThan(mid - 20);
+  });
+
+  it("ends a fade on every page and starts the count at once when a ghost becomes a pawn mid-fade, and a ghost again is solid", async () => {
+    const { ctx, say, ws } = await room();
+    const core = ctx.room.core;
+    const mid = boxCentre(0, core.boxes.length);
+    await vi.advanceTimersByTimeAsync(LOOK_COOLDOWN_MS);
+    say(ws.ann, { t: "fade" });
+    await settle();
+    await walkTo(say, ctx, ws.ann, 0, mid + 40);
+    await walkTo(say, ctx, ws.bo, 1, mid - 20);
+    // Both in the light, but the ghost is faded: no count.
+    expect(core.count).toBeNull();
+    const [a, b, s] = mark(ws.ann, ws.bo, ws.screen);
+    const changedAt = Date.now();
+    say(ws.ann, { t: "look", c: "pawn" });
+    await settle();
+    for (const [page, n] of [[ws.ann, a], [ws.bo, b], [ws.screen, s]]) {
+      const heard = since(page, n);
+      expect(heard.find((m) => m.t === "fade")).toEqual({ t: "fade", s: 0, for: 0 });
+      // The count starts with the change, not when the fade would have ended.
+      expect(heard.find((m) => m.t === "vote" && m.vote.count)).toBeTruthy();
+    }
+    expect(core.count?.endsAt).toBe(changedAt + COUNT_MS);
+    // Out of the light, and back to a ghost: solid, and the room view says nothing of a fade.
+    await walkTo(say, ctx, ws.bo, 1, mid - 500);
+    await vi.advanceTimersByTimeAsync(LOOK_COOLDOWN_MS);
+    const [b2] = mark(ws.bo);
+    say(ws.ann, { t: "look", c: "ghost" });
+    await settle();
+    const view = since(ws.bo, b2).findLast((m) => m.room)?.room.members[0];
+    expect(view).toMatchObject({ character: "ghost" });
+    expect(view.faded).toBeUndefined();
+  });
+});
+
+describe("the rate limit and the ghost's honest refusals", () => {
+  beforeEach(useFakeRuntime);
+  afterEach(dropFakeRuntime);
+
+  /** Two ghosts (Ann, Bo) and two pawns (Cy, Di) on the real room, with sockets that keep what they hear. */
+  async function fourRoom() {
+    const r = await openRoom(createLobbyRoom, turnGame());
+    const { ctx, connect, say } = r;
+    ctx.keepAlive = true;
+    const tokens = [await ctx.room.create({ code: "BCDFGH", nickname: "Ann", as: "player" })];
+    for (const name of ["Bo", "Cy", "Di"]) tokens.push(await ctx.room.join({ nickname: name, as: "player" }));
+    const ws = [];
+    for (const t of tokens) ws.push(await connect(t.token));
+    await settle();
+    say(ws[0], { t: "look", c: "ghost" });
+    say(ws[1], { t: "look", c: "ghost" });
+    await settle();
+    await vi.advanceTimersByTimeAsync(LOOK_COOLDOWN_MS);
+    const strikes = (i) => ctx.room.sockets.get(ws[i]).bucket.strikes;
+    return { ...r, ws, strikes, core: ctx.room.core };
+  }
+
+  it("never strikes two honest ghosts over a long session of fades, boos and kicking pawns", async () => {
+    const { ctx, say, ws, strikes, core } = await fourRoom();
+    // Well clear of the one light on the wall, so no count starts.
+    const base = boxCentre(0, core.boxes.length) - 500;
+    const refusals = [0, 0];
+    const boo = (g, to) => {
+      const n = ws[g].frames.length;
+      say(ws[g], { t: "boo", to });
+      const heard = ws[g].messages().slice(n);
+      if (heard.some((m) => m.t === "boo-no")) refusals[g] += 1;
+      return heard.find((m) => m.t === "spook" || m.t === "boo-no");
+    };
+    const kinds = new Set();
+    for (let round = 0; round < 16; round++) {
+      // Cy faces Di and kicks her; the ghosts stand on them.
+      await walkTo(say, ctx, ws[2], 2, base);
+      await walkTo(say, ctx, ws[3], 3, base + 60);
+      say(ws[2], { t: "m", x: base, d: 1, r: core.members[2].rev });
+      say(ws[2], { t: "m", x: base, d: 0, r: core.members[2].rev });
+      // The ghosts stand behind Cy, out of the kick's way, then come up to him.
+      await walkTo(say, ctx, ws[0], 0, base - 200);
+      await walkTo(say, ctx, ws[1], 1, base - 200);
+      say(ws[2], { t: "b" });
+      await settle();
+      expect(core.members[3].stunUntil).toBeGreaterThan(Date.now());
+      await walkTo(say, ctx, ws[0], 0, base);
+      say(ws[0], { t: "fade" });
+      say(ws[1], { t: "fade" });
+      await settle();
+      // Ann's page heard of the kick a moment late: Di is down.
+      kinds.add(boo(0, 3)?.why);
+      // The pieces' news a moment old: Bo's page saw Cy a little nearer than the room does.
+      await walkTo(say, ctx, ws[1], 1, base + (round % 2 ? 1 : -1) * (SPOOK_REACH + SPOOK_SLACK + 60));
+      kinds.add(boo(1, 2)?.why);
+      // Ann spooks Cy; Bo's page had not heard yet, and asks too.
+      expect(boo(0, 2)?.t).toBe("spook");
+      await walkTo(say, ctx, ws[1], 1, core.members[2].x);
+      kinds.add(boo(1, 2)?.why);
+      // A boo that reaches the room just after the fade ended there.
+      await vi.advanceTimersByTimeAsync(FADE_MS + 200);
+      kinds.add(boo(0, 3)?.why);
+      kinds.add(boo(1, 3)?.why);
+      // And everyone waits for the fade to be ready again.
+      await vi.advanceTimersByTimeAsync(FADE_COOLDOWN_MS - FADE_MS);
+    }
+    // Every kind of honest refusal came up.
+    for (const why of ["Knocked over, or just up.", "Only a faded ghost can spook.", "Spooked a moment ago.", "Too far away."]) expect(kinds).toContain(why);
+    // Enough refusals that two strikes each would have closed both sockets long ago.
+    expect(refusals[0] + refusals[1]).toBeGreaterThan(60);
+    expect(strikes(0)).toBe(0);
+    expect(strikes(1)).toBe(0);
+    for (const socket of ws) expect(socket.closed).toBeNull();
+  });
+
+  it("still closes a script that boos without a fade, from a pawn, about nobody, or across the room", async () => {
+    for (const abuse of ["unfaded", "pawn", "nobody", "far"]) {
+      const { ctx, say, ws, core } = await fourRoom();
+      const base = boxCentre(0, core.boxes.length) - 700;
+      await walkTo(say, ctx, ws[0], 0, base);
+      await walkTo(say, ctx, ws[2], 2, base + 900);
+      if (abuse === "far") {
+        say(ws[0], { t: "fade" });
+        await settle();
+      }
+      for (let i = 0; i < 40 && !ws[abuse === "pawn" ? 2 : 0].closed; i++) {
+        if (abuse === "pawn") say(ws[2], { t: "boo", to: 0 });
+        else say(ws[0], { t: "boo", to: abuse === "nobody" ? 9 : 2 });
+        await vi.advanceTimersByTimeAsync(60);
+      }
+      expect(ws[abuse === "pawn" ? 2 : 0].closed, abuse).not.toBeNull();
+      expect(ws[1].closed, abuse).toBeNull();
+      dropFakeRuntime();
+      useFakeRuntime();
+    }
   });
 });

@@ -338,9 +338,12 @@ export class Scene {
       p.rev = m.rev;
       // The player chose another character: the same piece, where it stands, with a new body.
       if (p.kind !== drawingOf(m.character)) this.recast(p, m);
-      this.bumps.resume(p, m.x, m.down ?? 0, m.safe ?? 0, now);
-      // A ghost that is faded (shared/ghost.js), for a page that arrives in the middle.
+      this.bumps.resume(p, m.x, m.down ?? 0, m.safe ?? 0, now, m.fright);
+      // A ghost that is faded (shared/ghost.js), for a page that arrives in the middle; the room's
+      // word that it is solid too (a fade this page missed the end of). The viewer's own fade is
+      // drawn the moment its button goes down, before the room has said so: left as it is.
       if (m.faded > 0) p.fadeUntil = now + m.faded;
+      else if (m.seat !== this.opts.own) p.fadeUntil = 0;
       this.dress(p, m);
     }
     for (const [seat, p] of this.pieces) {

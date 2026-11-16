@@ -22,6 +22,7 @@
 // its side but the times written on the piece (fadedUntil, stunUntil, immuneUntil, spookedUntil),
 // and one wake-up when a fade ends, so the vote is looked at again.
 import { COOLDOWN_SLACK_MS, IMPACT_MS, KNOCK_DISTANCE, isDown } from "./bump.js";
+import { POSITION_SLACK } from "./world.js";
 
 /** How long a fade lasts, and how long after one begins the next may. */
 export const FADE_MS = 2500;
@@ -39,8 +40,26 @@ export const SCARE_MS = IMPACT_MS + SCARE_START_MS + SCARE_FREEZE_MS + SCARE_RUN
 export const SPOOK_REACH = 46;
 export const SPOOK_DISTANCE = 120;
 export const SPOOK_MIN = 60;
+/**
+ * The furthest a spook ever moves a piece, wherever it starts: well under a kick's
+ * KNOCK_DISTANCE. A spook lands in the dark when there is dark within this; a piece spooked in
+ * the middle of a wide pool of light is moved SPOOK_DISTANCE inside it instead (it keeps its vote).
+ */
+export const SPOOK_MOST = 150;
 /** The room believes a ghost that says it touched a piece this much further off than it works out (the two pieces' last news may be a moment old). */
 export const SPOOK_SLACK = 70;
+
+// What an honest page can and cannot send. A page boos only while the room has told it that its
+// ghost is faded, and stops BOO_EARLY_MS before that fade ends by its own clock; a boo can still
+// arrive just after the room's fade ended, or about a piece the room has just kicked or another
+// ghost has just spooked. Those are refused and cost nothing. What no page sends: a boo from a
+// piece that is not a ghost, from a ghost whose fade ended more than BOO_LATE_MS ago (or that
+// never faded), about a seat that is not a piece, or about a piece further off than SPOOK_FAR
+// (the most the room ever believes a position is off, POSITION_SLACK, on top of the boo's own
+// reach and slack). Those count against the socket's rate limit (lobby-room.js, ghostMove).
+export const BOO_EARLY_MS = 200;
+export const BOO_LATE_MS = 1500;
+export const SPOOK_FAR = SPOOK_REACH + SPOOK_SLACK + POSITION_SLACK;
 /** A spooked piece starts, then scurries: no freeze. */
 export const SPOOK_RUN_MS = 380;
 export const SPOOK_MS = SCARE_START_MS + SPOOK_RUN_MS;
@@ -89,7 +108,8 @@ export function fadeFraction(left) {
  * Whether the room lets a piece fade now: {ok} or {ok: false, why, wait}. `room` says what the
  * room is doing: {fades (its character's move is the fade), lobby (the pieces' own time: not a
  * game, its settings or the Table), busy (a count, a coin toss or a game starting)}. `wait` is
- * set only when waiting will do: the cooldown, or getting up off the floor.
+ * set only when waiting will do: the cooldown (then `cooling` is set too), or getting up off
+ * the floor.
  */
 export function mayFade(piece, now, { fades, lobby, busy }) {
   if (!fades) return { ok: false, why: "Only a ghost can fade." };
@@ -98,7 +118,7 @@ export function mayFade(piece, now, { fades, lobby, busy }) {
   const down = Math.max(0, (piece.stunUntil ?? 0) - now);
   if (down > 0) return { ok: false, why: "Not while you are knocked over.", wait: down };
   const cooling = fadeLeft(piece.fadeAt, now);
-  if (cooling > COOLDOWN_SLACK_MS) return { ok: false, why: "Your fade is not ready yet.", wait: cooling };
+  if (cooling > COOLDOWN_SLACK_MS) return { ok: false, why: "Your fade is not ready yet.", wait: cooling, cooling: true };
   return { ok: true };
 }
 
@@ -115,16 +135,23 @@ export function maySpook(ghostX, target, now, spooked = []) {
   return { ok: true };
 }
 
-/** What the room writes on a kicker that was just scared at `now`, and on a piece that was just spooked. */
+/**
+ * What the room writes on a kicker that was just scared at `now`, and on a piece that was just
+ * spooked. `fright` says which, so a page that arrives in the middle draws it as that (and not
+ * as a knock): the room view carries it while the piece is down or safe.
+ */
 export function scared(now, immune) {
-  return { stunUntil: now + SCARE_MS, immuneUntil: now + SCARE_MS + immune };
+  return { stunUntil: now + SCARE_MS, immuneUntil: now + SCARE_MS + immune, fright: "scare" };
 }
 export function spooked(now, immune) {
-  return { stunUntil: now + SPOOK_MS, immuneUntil: now + SPOOK_MS + immune, spookedUntil: now + SPOOK_AGAIN_MS };
+  return { stunUntil: now + SPOOK_MS, immuneUntil: now + SPOOK_MS + immune, spookedUntil: now + SPOOK_AGAIN_MS, fright: "spook" };
 }
 
+/** How long a scare or a spook keeps a piece down, by its `fright`. */
+export const frightMs = (fright) => (fright === "scare" ? SCARE_MS : SPOOK_MS);
+
 /** How far a spook sends a piece: for knockLanding (lobby/shared/bump.js). A scare uses a kick's own. */
-export const SPOOK_LANDING = { distance: SPOOK_DISTANCE, least: SPOOK_MIN };
+export const SPOOK_LANDING = { distance: SPOOK_DISTANCE, least: SPOOK_MIN, most: SPOOK_MOST };
 export const SCARE_LANDING = { distance: KNOCK_DISTANCE };
 
 // ---------------------------------------------------------------- the reaction, as a pose
@@ -145,6 +172,16 @@ const mix = (a, b, u) => a + (b - a) * u;
 /** A scare: the kick reaches the ghost at IMPACT_MS. A spook: at once, with no freeze. */
 export const SCARE = { lead: IMPACT_MS, freeze: SCARE_FREEZE_MS, run: SCARE_RUN_MS, hop: SCARE_HOP };
 export const SPOOK = { lead: 0, freeze: 0, run: SPOOK_RUN_MS, hop: SPOOK_HOP };
+
+/**
+ * A scare or a spook already under way, for a page that arrives in the middle (a reload): the
+ * room view says the piece at `x` is down for `down` more milliseconds and safe for `safe`, and
+ * which fright it is. The drawing's record {at, from, to, how, safeFor}, as a fright heard live
+ * makes it; the piece is already where the room put it, so it finishes the story there.
+ */
+export function frightResumed(x, down, safe, fright, now) {
+  return { at: now - (frightMs(fright) - down), from: x, to: x, how: fright === "scare" ? SCARE : SPOOK, safeFor: Math.max(0, safe - down) };
+}
 
 /** The state of a scared or spooked piece `ms` after it began; `safeFor` is how long it stays safe after. */
 export function frightState(ms, how, safeFor) {

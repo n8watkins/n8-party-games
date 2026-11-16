@@ -9,7 +9,7 @@
 // does them (`scared` in its flat definition). Neither jolts the picture.
 import { s, set } from "./dom.js";
 import { IMMUNE_MS, IMPACT_MS, PIECE_PIVOT, STUN_MS, attackPose, cooldownFraction, impactPoint, knockPose } from "./shared/bump.js";
-import { SCARE, SPOOK, frightPose } from "./shared/ghost.js";
+import { SCARE, SPOOK, frightPose, frightResumed } from "./shared/ghost.js";
 import { ROOM } from "./shared/world.js";
 
 const BURST_MS = 240;
@@ -70,9 +70,13 @@ export class BumpDraw {
     p.knock = null;
   }
 
-  /** The room says a piece is on the floor or just up from it (for a page that arrived in the middle). */
-  resume(p, x, down, safe, now) {
+  /**
+   * The room says a piece is on the floor or just up from it (for a page that arrived in the
+   * middle): knocked, or scared or spooked (`fright`), drawn as what it is.
+   */
+  resume(p, x, down, safe, now, fright) {
     if (p.knock || p.fright || !(safe > 0)) return;
+    if (fright) return void (p.fright = frightResumed(x, down, safe, fright, now));
     p.knock = { at: now - (STUN_MS - down), from: x, to: x, safeFor: safe - down, burst: true, dust: true };
   }
 

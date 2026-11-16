@@ -22,8 +22,8 @@ import { RoomSounds, defineRoomSounds, emoteSound } from "./room-sounds.js";
 import { chosenLook, hardware3D, openRoomView, preferFlat } from "./room-view.js";
 import { ScreenFit, allowUpright, fitVisible } from "./screen-fit.js";
 import { SlowWatch } from "./slow-room.js";
-import { BUMP_COOLDOWN_MS, IMPACT_MS } from "./shared/bump.js";
-import { FADE_COOLDOWN_MS, FADE_MS, SCARE_MS, SPOOK_MS, SPOOK_REACH } from "./shared/ghost.js";
+import { BUMP_COOLDOWN_MS, IMMUNE_MS, IMPACT_MS, STUN_MS } from "./shared/bump.js";
+import { BOO_EARLY_MS, FADE_COOLDOWN_MS, FADE_MS, SCARE_MS, SPOOK_AGAIN_MS, SPOOK_MS, SPOOK_REACH } from "./shared/ghost.js";
 import { moveOf } from "./shared/characters.js";
 import { defineGhostSounds } from "./ghost-sounds.js";
 import { FRAME, PHONE_FRAME, camera } from "./shared/camera.js";
@@ -424,6 +424,8 @@ function apply(next) {
   // A page that missed a change (a drop, a sleep) catches up from the room itself.
   if (room.room !== shownRoom || look !== scene.look) void showRoom();
   const me = isPlayer() ? room.members[link.you.seat] : null;
+  // Which pieces a boo cannot move just now, by the room's word (down, safe, or spooked a moment ago).
+  for (const m of room.members) if (m) noBoo(m.seat, voteAt + Math.max(m.safe ?? 0, m.spooked ?? 0));
   if (me) {
     if (!pilot) {
       pilot = new Pilot({ lights: room.boxes.length, send: sendMove, x: me.x, rev: me.rev });
@@ -432,6 +434,8 @@ function apply(next) {
       if (me.down > 0) pilot.knock(me.x, me.rev, voteAt, me.down);
       pilot.cool(me.cool ?? 0, voteAt);
       pilot.fadeCool(me.fadeCool ?? 0, voteAt);
+      // In the middle of its own fade: it still drifts through pieces and boos until it ends.
+      if (me.faded > 0) ownFade(me.faded, voteAt);
     } else if (pilot.rev !== me.rev) pilot.place(me.x, me.rev, voteAt);
     tellLit(voteAt);
   }
@@ -476,9 +480,15 @@ link.on("message", (msg) => {
       stirAt = now;
       break;
     case "b":
-      if (msg.to >= 0) lastMoves.set(msg.to, { x: msg.x, d: 0, t: now });
+      if (msg.to >= 0) {
+        lastMoves.set(msg.to, { x: msg.x, d: 0, t: now });
+        noBoo(msg.to, now + STUN_MS + IMMUNE_MS);
+      }
       // A kick into a faded ghost (`sc`): the kicker is scared off to where the room put it (shared/ghost.js).
-      if (msg.sc !== undefined) lastMoves.set(msg.s, { x: msg.x, d: 0, t: now });
+      if (msg.sc !== undefined) {
+        lastMoves.set(msg.s, { x: msg.x, d: 0, t: now });
+        noBoo(msg.s, now + SCARE_MS + IMMUNE_MS);
+      }
       scene.onBump(msg, now);
       stirAt = now;
       // Knocked: the piece lies where the room threw it, and has nothing to say until it is up.
@@ -494,23 +504,25 @@ link.on("message", (msg) => {
       break;
     case "fade":
       // A ghost faded (shared/ghost.js): see-through, untouchable and without a vote for msg.for.
+      // `for: 0`: it is solid again before its time (it became another character).
       stirAt = now;
       scene.onFade(msg, now);
-      if (msg.s !== link.you.seat || !isPlayer()) ghostSound("ghost-fade", msg.s);
-      else ownFadedUntil = now + msg.for;
+      if (msg.s === link.you.seat && isPlayer()) ownFade(msg.for, now);
+      else if (msg.for > 0) ghostSound("ghost-fade", msg.s);
       break;
     case "fade-no":
       // The room turned down this device's fade: its word on the cooldown replaces this page's
       // guess, the fade this page began at once is taken back, and the reason is said as a note
       // (as a refused choice of piece is), unless it only came a moment early.
       pilot?.fadeCool(msg.wait ?? 0, now);
-      ownFadedUntil = -Infinity;
+      booUntil = -Infinity;
       if (isPlayer()) scene.onFade({ s: link.you.seat, for: 0 }, now);
       if (!(msg.wait > 0 && msg.wait < 400)) hud?.note(msg.why);
       break;
     case "spook":
       // A faded ghost drifted through a piece and spooked it out of place (boo).
       lastMoves.set(msg.to, { x: msg.x, d: 0, t: now });
+      noBoo(msg.to, now + Math.max(SPOOK_AGAIN_MS, SPOOK_MS + IMMUNE_MS));
       scene.onSpook(msg, now);
       stirAt = now;
       if (pilot && msg.to === link.you.seat) {
@@ -833,8 +845,25 @@ function bump() {
 
 /** Seats this fade has already said it drifted through: each is told to the room once (boo). */
 let booSent = new Set();
-/** Until when this player's own ghost is faded, by this page's clock. */
-let ownFadedUntil = -Infinity;
+/**
+ * Until when this page may tell the room it drifted through a piece, by this page's clock: set
+ * only by the room's own word that this ghost is faded (its `fade`, or the room view after a
+ * reload), and ending BOO_EARLY_MS before that fade does, so a boo never reaches the room after
+ * the fade is over there (shared/ghost.js: the room counts such boos against the socket).
+ */
+let booUntil = -Infinity;
+/** seat -> until when (this page's clock) a boo cannot move that piece: down, safe, or spooked a moment ago. */
+const booless = new Map();
+
+function noBoo(seat, until) {
+  if (until > (booless.get(seat) ?? -Infinity)) booless.set(seat, until);
+}
+
+/** The room says this player's own ghost is faded for `left` more milliseconds (0: it is solid now). */
+function ownFade(left, now) {
+  if (left > 0 && now >= booUntil) booSent = new Set();
+  booUntil = left > 0 ? now + left - BOO_EARLY_MS : -Infinity;
+}
 
 function fadeNow(now) {
   if (!canMove() || room.phase !== "lobby") return;
@@ -842,23 +871,23 @@ function fadeNow(now) {
   if (room.vote.count || room.vote.toss) return void hud?.note(room.vote.count ? "Not during the count." : "Not during the coin toss.");
   if (!pilot.fade(now)) return;
   booSent = new Set();
-  ownFadedUntil = now + FADE_MS;
   scene.onFade({ s: link.you.seat, for: FADE_MS }, now);
   ghostSound("ghost-fade", link.you.seat);
 }
 
 /**
  * Boo, on this player's own faded ghost: drifting through another piece, it tells the room once
- * per piece per fade, and the room judges it (spook or boo-no). Looked at only while the ghost is
- * faded and walking: nothing at all otherwise.
+ * per piece per fade, and the room judges it (spook or boo-no). Looked at only while the room
+ * has this ghost faded and it is walking: nothing at all otherwise. A piece this page can see a
+ * boo would not move (another ghost, one down or just up, one spooked a moment ago) is not asked.
  */
 function drift(now) {
-  if (now >= ownFadedUntil || !pilot || pilot.d === 0 || pilot.down(now)) return;
+  if (now >= booUntil || !pilot || pilot.d === 0 || pilot.down(now)) return;
   const x = pilot.x;
   for (const other of piecesNow(now)) {
     if (other.seat === link.you.seat || booSent.has(other.seat) || Math.abs(other.x - x) > SPOOK_REACH) continue;
-    // A ghost does not spook a ghost: not asked.
-    if (moveOf(room.members[other.seat]?.character) === "fade") continue;
+    // A ghost does not spook a ghost, and a piece on the floor, just up or just spooked is not spooked: not asked.
+    if (moveOf(room.members[other.seat]?.character) === "fade" || now < (booless.get(other.seat) ?? -Infinity)) continue;
     booSent.add(other.seat);
     link.send({ t: "boo", to: other.seat });
   }

@@ -108,11 +108,11 @@ export function bumpTarget(x, face, others) {
  * place on the wall (null: all of them); a light that is off is just more dark. Returns
  * [[from, to]], left to right.
  */
-export function landingGround(n, lit = null) {
+export function landingGround(n, lit = null, clear = KNOCK_CLEAR) {
   const half = lightHalf(n);
   // Between two lights there may be less dark than twice the margin: then it is the middle of it.
   const gap = n > 1 ? boxCentre(1, n) - boxCentre(0, n) - 2 * half : Infinity;
-  const margin = Math.min(KNOCK_CLEAR, gap / 2);
+  const margin = Math.min(clear, gap / 2);
   const on = lit ? new Set(lit) : null;
   const ground = [];
   let from = ROOM.minX;
@@ -134,25 +134,33 @@ export function landingGround(n, lit = null) {
  * that distance which is clear of every pool of light and at least KNOCK_MIN away. So a knock
  * always puts a piece out of the light it stood in and never into another one. It stops at the
  * walls: a piece with its back to one is knocked against it.
- * `reach` changes how far: {distance, least} in place of KNOCK_DISTANCE and KNOCK_MIN (the
- * ghost's spook is weaker than a kick: lobby/shared/ghost.js).
+ * `reach` changes how far: {distance, least, most} in place of KNOCK_DISTANCE and KNOCK_MIN,
+ * and `most`, the furthest it may go at all (the ghost's spook is weaker than a kick:
+ * lobby/shared/ghost.js). With `most`, a piece with no clear dark within it lands on the edge of
+ * the dark it is in (it is never moved into a light), and a piece standing in a light with no
+ * dark within `most` is moved `distance` (or `most`) inside it: never further.
  */
-export function knockLanding(x, dir, n, lit = null, { distance = KNOCK_DISTANCE, least: leastFar = KNOCK_MIN } = {}) {
+export function knockLanding(x, dir, n, lit = null, { distance = KNOCK_DISTANCE, least: leastFar = KNOCK_MIN, most = Infinity } = {}) {
   const side = dir < 0 ? -1 : 1;
-  const aim = clampX(x + side * distance);
+  const aim = clampX(x + side * Math.min(distance, most));
   let best = null;
-  for (const least of [leastFar, 0]) {
-    for (const [a, b] of landingGround(n, lit)) {
-      // The part of this stretch that is far enough along in the direction of the blow.
-      const lo = side > 0 ? Math.max(a, x + least) : a;
-      const hi = side > 0 ? b : Math.min(b, x - least);
+  // Clear of the lights by KNOCK_CLEAR and far enough; then clear and any distance; then just out of the light.
+  for (const [least, clear] of [[leastFar, KNOCK_CLEAR], [0, KNOCK_CLEAR], [0, 1]]) {
+    for (const [a, b] of landingGround(n, lit, clear)) {
+      // The part of this stretch that is far enough along in the direction of the blow, and not too far.
+      const lo = side > 0 ? Math.max(a, x + least) : Math.max(a, x - most);
+      const hi = side > 0 ? Math.min(b, x + most) : Math.min(b, x - least);
       if (lo > hi) continue;
       const spot = Math.min(hi, Math.max(lo, aim));
       if (best === null || Math.abs(spot - aim) < Math.abs(best - aim)) best = spot;
     }
     if (best !== null) break;
   }
-  return Math.round(best ?? aim);
+  if (best !== null) return Math.round(best);
+  // On the very edge of a light, with no more dark that way: it stays on its edge, in the dark.
+  const half = lightHalf(n);
+  const inLight = (lit ?? Array.from({ length: n }, (_, i) => i)).some((i) => Math.abs(x - boxCentre(i, n)) <= half);
+  return inLight ? Math.round(aim) : x;
 }
 
 /** What the room writes on a piece that was just knocked at `now`. */

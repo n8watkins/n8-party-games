@@ -12,7 +12,7 @@
 import * as THREE from "./three.js";
 import { PX, SPACE, walkX } from "./space.js";
 import { IMMUNE_MS, IMPACT_MS, PIECE_HEAD, PIECE_PIVOT, STUN_MS, attackPose, impactPoint, knockPose } from "../shared/bump.js";
-import { SCARE, SPOOK, frightPose } from "../shared/ghost.js";
+import { SCARE, SPOOK, frightPose, frightResumed } from "../shared/ghost.js";
 import { JUMP_MS, WALK_SPEED, jumpHeight } from "../shared/world.js";
 
 /** How big a piece is beside the room. */
@@ -232,9 +232,13 @@ export function startFright(piece, to, at, kind) {
   piece.knock = null;
 }
 
-/** The room says a piece is on the floor or just up from it (for a page that arrived in the middle). */
-export function resumeKnock(piece, x, down, safe, now) {
+/**
+ * The room says a piece is on the floor or just up from it (for a page that arrived in the
+ * middle): knocked, or scared or spooked (`fright`), drawn as what it is.
+ */
+export function resumeKnock(piece, x, down, safe, now, fright) {
   if (piece.knock || piece.fright || !(safe > 0)) return;
+  if (fright) return void (piece.fright = frightResumed(x, down, safe, fright, now));
   piece.knock = { at: now - (STUN_MS - down), from: x, to: x, safeFor: safe - down, burst: true, dust: true };
 }
 
