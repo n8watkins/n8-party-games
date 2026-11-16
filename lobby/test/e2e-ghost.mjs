@@ -328,15 +328,16 @@ try {
     }
     // The page is reloaded, and Ada kicks `lead` ms later: a 3D page takes about a second to come
     // back, longer than a flat one, and the scare is over in about one and a half. What is judged
-    // is a page whose first word to the room came after the kick (it arrived in the middle); a
-    // page that was back before the kick is tried again with a shorter lead.
+    // is a page whose first word to the room came after the kick (it arrived in the middle) and
+    // that drew before the scare was over; otherwise it is tried again, up to four times, with
+    // the lead aimed by how long it took. On a machine so busy that a 3D page takes longer than
+    // the scare from its hello to its first picture, nothing can be judged, and that fails.
     for (const [page, look, firstLead] of [[cy, "flat", 0], [eve, "3d", 450]]) {
       let lead = firstLead;
       let seen = null;
       for (let attempt = 0; attempt < 4 && !(seen?.after && seen.inTime); attempt++) {
-        // Back before the kick: a shorter lead. Back after the scare was over: a longer one.
-        if (seen && !seen.after) lead = Math.floor(lead / 2);
-        else if (seen && !seen.inTime) lead += seen.back - (SCARE_MS - 700);
+        // Aimed so the page first speaks to the room just after the kick, by how long it took last time.
+        if (seen) lead = Math.max(0, lead + seen.spoke - 60);
         await ready(B);
         await calmAgain();
         at = await where();
@@ -357,13 +358,15 @@ try {
         // Watched from the first frame it draws: how wide its eyes got, and in how many frames.
         await page.evaluate((s) => window.watchFright(s, 1500), A);
         const back = Date.now() - kickAt;
-        const after = (await page.evaluate(() => window.__firstSend)) > kickAt;
+        const firstSend = await page.evaluate(() => window.__firstSend);
+        const after = firstSend > kickAt;
+        console.log(`     (${look} ${character}, lead ${lead} ms: the page first spoke ${firstSend - kickAt} ms after the kick and drew ${back} ms after it)`);
         await sleep(1600);
         const shown = await page.evaluate(() => window.__fright);
         const wide = shown.scared > 0.5;
         // The page drew in time to see the scare: its first frame came before the scared piece was up again.
         const inTime = back < SCARE_MS - 250;
-        seen = { scared, after, inTime, wide, shown, back };
+        seen = { scared, after, inTime, wide, shown, back, spoke: firstSend - kickAt };
         if (after && shots) await page.screenshot({ path: `${shots}/${look}-${character}-reloaded-mid-scare.png` });
         await sleep(1500);
       }

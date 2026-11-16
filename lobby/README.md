@@ -366,9 +366,11 @@ The page's definition (`public/characters/pawn.js` is the one to copy):
 
 - `emotes`: `byId(id)` gives an emote as `pose(t, calm, reach)`, in the terms of `public/emotes/rig.js`; `mirror(pose)`; `top(pose)`, how high a pose reaches, for the word over the head.
   Every character does the kit's fourteen emotes, with the pawn's lengths and words, so each recording fits them all.
-- `flat`: `make()` returns its body, with `inner` as the group an emote leans; `dress(body, colour, connected)`; `frame(body, {now, dt, face, seat, calm, grounded, walking, x, voting})`, which returns how far off the floor it holds itself (`walking`, `x` and `voting`, whether it stands in a game's light, are for characters that show them: the slime's creep, the robot's wheels and lamp); `dizzy(body, on)`; `blink(body, opacity)`; `emote(body, pose, bodyTransform)`; `still(colour)` and `portrait(colour)` for small pictures.
+- `flat`: `make()` returns its body, with `inner` as the group an emote leans; `dress(body, colour, connected)`; `frame(body, {now, dt, face, seat, calm, grounded, walking, x, voting})`, which returns how far off the floor it holds itself (`walking`, `x` and `voting`, whether it stands in a game's light, are for characters that show them: the slime's creep, the robot's wheels and lamp); `dizzy(body, on)`; `scared(body, k)`, how wide its eyes go when a ghost frightens it (0 to 1); `blink(body, opacity)`; `emote(body, pose, bodyTransform)`; `still(colour)` and `portrait(colour)` for small pictures.
   Its numbers are `tall` (the top of its head against a standing pawn's), `rest`, `shadow` and `glides`.
   `figure` tells the emote drawing (`public/emotes/svg.js`) what turns red when it fumes, where its face sits (`face`: `dy`, `turn`, `scale`) and in what ink (`ink`, `skin`), and how its hands are joined on (`limbs`: `"stick"`, `"ghost"`, `"goo"` or `"rod"`).
+  With `ownKnockedFace` (the slime, the robot) a piece knocked over in the middle of an emote keeps its own knocked eyes and the emote draws no face, as in the 3D look.
+  The robot's paint is coloured point by point, so its fuming red and a fright's pale are laid on the paint itself (`tintPaint` in `public/look3d/body-kit.js`), not on its material's colour, which would multiply them by the paint.
 
 The 3D look's definition (`public/look3d/pieces.js` is the pawn's, `public/look3d/ghost.js` the ghost's, `slime.js` and `robot.js` the others', with the small parts those two share in `body-kit.js`):
 
