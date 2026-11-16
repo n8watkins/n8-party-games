@@ -356,6 +356,20 @@ export function createLobbyRoom(wallFor) {
           void this.save();
           return;
         }
+        case "look": {
+          // A player chooses a character or a colour: kept with the room, shown to everyone in
+          // the room view. Refused to that page only, with the reason and what it still is.
+          if (!player) return;
+          const chose = core.setLook(entry.seat, msg, now);
+          if (!chose.ok) {
+            const m = core.members[entry.seat];
+            return this.send(entry, { t: "look-no", why: chose.why, c: m?.character, v: m?.colour });
+          }
+          if (!chose.changed) return;
+          this.broadcastRoom(now);
+          void this.save();
+          return;
+        }
         case "leave":
           core.leave(entry.token, now);
           this.drop(ws, entry, 1000, "left");

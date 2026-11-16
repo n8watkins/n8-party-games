@@ -46,6 +46,7 @@ import { IDLE_SHUTDOWN_MS, NAME_MAX, SEAT_COLOURS, STALE_ROOM_MS, cleanName, ran
 import { AWAY_MS, COUNT_MS, SETTLE_MS, TOSS_MS, leaders, pointsForPlace, spotLights, standingsFromRows, tally, whyNot } from "../shared/vote.js";
 import { bumpTarget, cooldownLeft, isDown, isSafe, knockLanding, knocked, mayBump } from "../shared/bump.js";
 import { DEFAULT_ROOM, ROOM_COOLDOWN_MS, isRoom, roomLocked } from "../shared/rooms.js";
+import { DEFAULT_CHARACTER, LOOK_COOLDOWN_MS, characterOr, cleanColour, readLook } from "../shared/characters.js";
 import { record } from "../shared/tonight.js";
 import { DURING_PLAY, cooldownLeft as emoteLeft, mayEmote, relayEmote, waitMessage } from "../../party-kit/client/emotes.js";
 import { POSITION_SLACK, clampX, lightAt, posAt, spawnX } from "../shared/world.js";
@@ -180,6 +181,7 @@ export class LobbyCore {
       token,
       name: unique,
       colour: SEAT_COLOURS[seat],
+      character: DEFAULT_CHARACTER,
       connected: false,
       droppedAt: now, // not connected yet: the socket follows the join
       x: spawnX(seat, this.boxes.length),
@@ -518,6 +520,28 @@ export class LobbyCore {
     m.emoteAt = now;
     this.lastActive = now;
     return { relay: relayEmote(seat, id) };
+  }
+
+  /**
+   * A player chooses a character, a colour or both (lobby/shared/characters.js): `msg` is {c, v}.
+   * Kept on the member, so it comes back with a reconnect and through a sleep, and is in the room
+   * view for every page. Two players may choose the same. Not while a game is on (the game was
+   * handed its colours when it began), and not again within a moment. Returns {ok, changed} or
+   * {ok: false, why}.
+   */
+  setLook(seat, msg, now) {
+    const m = this.members[seat];
+    if (!m) return { ok: false, why: "You are not in this party." };
+    const look = readLook(msg);
+    if (look.error) return { ok: false, why: look.error };
+    if (this.activity.kind === "game") return { ok: false, why: "A game is on. You can change your piece when it ends." };
+    const character = look.character ?? m.character;
+    const colour = look.colour ?? m.colour;
+    if (character === m.character && colour === m.colour) return { ok: true, changed: false };
+    if (now - (m.lookAt ?? -Infinity) < LOOK_COOLDOWN_MS) return { ok: false, why: "Wait a moment before changing it again." };
+    Object.assign(m, { character, colour, lookAt: now });
+    this.lastActive = now;
+    return { ok: true, changed: true };
   }
 
   /** What the game being played allows (its box carries the manifest's word), or the defaults. */
@@ -1516,7 +1540,7 @@ export class LobbyCore {
       game: a.kind === "game" ? this.gameView() : null,
       boxes: this.boxes,
       members: this.members.map((m) =>
-        m ? { seat: m.seat, name: m.name, colour: m.colour, connected: m.connected, ...(m.connected && m.away ? { away: true } : {}), x: Math.round(posAt(m, now)), d: m.d, rev: m.rev, points: m.points, ...this.bumpView(m, now), emoteCool: Math.round(emoteLeft(m.emoteAt, now)) } : null,
+        m ? { seat: m.seat, name: m.name, colour: m.colour, character: m.character, connected: m.connected, ...(m.connected && m.away ? { away: true } : {}), x: Math.round(posAt(m, now)), d: m.d, rev: m.rev, points: m.points, ...this.bumpView(m, now), emoteCool: Math.round(emoteLeft(m.emoteAt, now)) } : null,
       ),
       screens: this.screensConnected(),
       vote: this.voteView(now),
@@ -1678,7 +1702,8 @@ export class LobbyCore {
     const room = new LobbyCore({ ...config, seed: data.seed, code: data.code, now });
     room.pin = data.pin;
     // Nobody is connected until their socket is seen again; a piece left mid-stride stands still.
-    room.members = data.members.map((m) => (m ? { ...m, x: m.d ? posAt(m, now) : m.x, d: 0, t: now, connected: false, away: false, droppedAt: m.droppedAt ?? now, bumpAt: -Infinity } : null));
+    // A member saved before characters is a pawn in its seat's colour; a character or colour this room does not know is read the same way.
+    room.members = data.members.map((m) => (m ? { ...m, character: characterOr(m.character), colour: cleanColour(m.colour) ?? SEAT_COLOURS[m.seat], x: m.d ? posAt(m, now) : m.x, d: 0, t: now, connected: false, away: false, droppedAt: m.droppedAt ?? now, bumpAt: -Infinity } : null));
     // One screen at most. A screen that had dropped before the room slept keeps the moment it
     // dropped, so its grace runs on through the sleep; one that was connected is seen again by
     // its socket (resume). A room saved before screens had a grace kept bare tokens.
