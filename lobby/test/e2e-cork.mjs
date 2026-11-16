@@ -23,7 +23,7 @@
 // graphics card would otherwise get the 3D look, which lobby/test/e2e-cork-3d.mjs covers.
 import { mkdirSync } from "node:fs";
 import { resolve } from "node:path";
-import { openBrowser } from "../../node_modules/cork-and-bell/tools/browser.mjs";
+import { launchBrowser, openWindowsChrome } from "./browser.mjs";
 import { COUNT_IN, END_HOLD } from "../../node_modules/cork-and-bell/game/shared/battle.js";
 import { ROUND_SECONDS } from "../../node_modules/cork-and-bell/game/shared/sim.js";
 import { REPORT_EVERY_MS, ROOM_MEMORY_GB } from "../../party-kit/src/worker/budget-logic.js";
@@ -113,7 +113,7 @@ const pageSockets = [];
 const pageAddresses = [];
 const loadProblems = [];
 const timeCalls = [];
-const browser = await openBrowser({ win: opt("win", "0") === "1", width: 960, height: 540 });
+const browser = opt("win", "0") === "1" ? await openWindowsChrome({ width: 960, height: 540 }) : await launchBrowser({ args: ["--use-angle=swiftshader", "--enable-unsafe-swiftshader"] }); // with TEST_GPU=1 the WSL browser draws on the card (lobby/test/browser.mjs)
 try {
   async function open(name, viewport, extra = {}) {
     const context = await browser.newContext({ viewport, deviceScaleFactor: 1, ...extra });
