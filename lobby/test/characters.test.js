@@ -143,7 +143,8 @@ describe("the ghost's emotes", () => {
         }
       }
     }
-  });
+    // About two seconds of plain arithmetic on a quiet PC; on a loaded one it ran past vitest's 5 s default.
+  }, 30000);
 
   it("starts every arm at the side of the sheet, where the nub arms are", () => {
     for (const e of GHOST_RIG) {

@@ -413,4 +413,6 @@ if (!books.ok) {
 for (const c of [A, B, C2, S]) c.ws.close();
 await sleep(200);
 console.log(problems.length ? `\n${problems.length} problem(s):\n- ` + problems.join("\n- ") : "\nAll good.");
-process.exit(problems.length ? 1 : 0);
+// Exit once everything printed has left: process.exit drops what is still queued for a pipe (the
+// pre-deploy gate reads this output through one), and the list of problems is printed last.
+process.stdout.write("", () => process.stderr.write("", () => process.exit(problems.length ? 1 : 0)));

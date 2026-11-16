@@ -65,12 +65,21 @@ const entries = [kitClientEntry(), ...siteEntries, ...GAMES.flatMap(gameEntries)
 /** Every site path that is served: the kit's browser files, the site's pages and each game's public files. */
 export const SERVED = entries.map((entry) => entry.to);
 
-export function build() {
+/**
+ * Builds the public folder into `out`, dist/public unless told otherwise. The unit tests build
+ * into a temporary folder of their own, so they never empty the folder a local Worker serves.
+ */
+export function build(out = OUT) {
   // The party room shows a hosted game by putting the game's own page in a frame, so this site's
   // pages may be framed by this site's pages, and by nobody else.
+<<<<<<< HEAD
   // Hot Potato (one-device/hot-potato) and its hearing test (lab/hot-potato) listen through the
   // microphone; no other page may.
   return buildPublic({ out: OUT, entries, frames: "self", microphone: ["/lab/hot-potato/*", "/one-device/hot-potato/*"] });
+=======
+  // The Hot Potato hearing test (lab/hot-potato) listens through the microphone; no other page may.
+  return buildPublic({ out, entries, frames: "self", microphone: ["/lab/hot-potato/*"] });
+>>>>>>> origin/main
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) report(build(), OUT);
