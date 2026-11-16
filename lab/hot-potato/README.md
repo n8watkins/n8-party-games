@@ -1,25 +1,85 @@
 # Hot Potato hearing test
 
-An unlisted, throwaway test page at `/lab/hot-potato/` that answers one question: can a browser's own speech recognition hear spoken city names well enough, and fast enough, for the Hot Potato word-chain game?
+An unlisted, throwaway test page at `/lab/hot-potato/` that answers one question: can a browser's own speech recognition hear spoken words well enough, and fast enough, for the Hot Potato word-chain game?
 It works the same in a desktop browser with a laptop, desk or headset microphone and on a phone.
-Nothing is stored or sent by the page; the browser's speech service may send the audio to its maker.
+The page sends nothing; it keeps only the chosen category, in this browser's own storage; the browser's speech service may send the audio to its maker.
 
 ## Files
 
 - `public/index.html`, `public/style.css`, `public/app.js`: the page.
-- `public/logic.js`: the pure rules and the matcher (no DOM), shared with the unit tests.
 - `public/device.js`: which device and kind of microphone the page is on, for the report.
-- `public/cities.json`: GeoNames places, built by `tools/make-cities.py`.
-- `public/words.json`: ordinary English words and common names, built by `tools/make-words.py`.
+
+The matcher and the lists belong to the game and live in `one-device/hot-potato/shared/`, served at `/one-device/hot-potato/shared/`.
+This page imports them from there; nothing is copied.
+
+- `shared/logic.js`: the pure rules and the matcher (no DOM), shared with the game and the unit tests.
+- `shared/categories.js`: the categories, as data: each list's file and format, its words for the page, and the few ways the matcher treats it differently.
+- `shared/cities.json`: GeoNames places, built by `tools/make-cities.py`.
+- `shared/countries.json`, `shared/animals.json`, `shared/food.json`: built by `tools/make-categories.py` from GeoNames and Open English WordNet, with the hand lists `tools/countries-extra.txt`, `tools/countries-drop.txt`, `tools/animals-add.txt`, `tools/animals-drop.txt`, `tools/food-add.txt` and `tools/food-drop.txt`.
+- `shared/words.json`: ordinary English words and common names, built by `tools/make-words.py`; also the "Anything" list.
+- `shared/CREDITS.txt`: sources and licences of the lists.
 - `tools/famous-places.txt`: famous places kept in the default list by hand.
-- `tools/replay-report.mjs`: replays a copied report through the current matcher.
-- `test/logic.test.js`, `test/device.test.js`: unit tests (part of `npm test`).
+- `tools/replay-report.mjs`: replays a copied report through the current matcher, each turn in its own category.
+- `tools/letter-report.mjs`: how many entries start and end with each letter, per category, and the dead ends.
+- `test/logic.test.js`, `test/categories.test.js`, `test/device.test.js`: unit tests (part of `npm test`).
 - `test/fixtures/hearing-report-1.txt`: the owner's first real run (v1, desktop Chrome on Windows, 20 turns).
 - `test/e2e-hearing.mjs`: the page in a headless, muted Chromium with a scripted fake recogniser.
 
+## Categories
+
+The category picker sits above the game; the choice is remembered on this device, and changing it starts a new game (the log is kept, and each turn names its category).
+A category's list is loaded only when it is first chosen.
+
+| Category | Well known (default) | With hard mode | Source | Size |
+|---|---|---|---|---|
+| Cities | 5,987 | 31,782 | GeoNames | 1.3 MB |
+| Countries | 254 (no hard mode) | - | GeoNames, plus England, Scotland, Wales and Northern Ireland | 8 KB |
+| Animals | 452 | 3,636 | Open English WordNet | 114 KB |
+| Food and drink | 505 | 2,312 | Open English WordNet | 65 KB |
+| Anything | 29,998 (no hard mode) | - | `words.json` (FrequencyWords and SCOWL) | 395 KB (always loaded) |
+
+Countries are the countries and territories of ISO 3166 by their common English names ("Holland", "Burma", "Czech Republic", "USA", "America"), without formal names ("Republic of Turkey") or names of former states.
+Animals, food and drink are the nouns WordNet files under animals (not humans) and under food, drink and edible nuts.
+The well-known ones are those whose animal or food sense is one of the word's first three senses in WordNet and that are among the 40,000 most frequent words in film subtitles, plus a hand list of names of two or three words ("polar bear", "iced tea") and of words the rule misses ("seal" is first a fastener in WordNet).
+A hand list leaves out names whose everyday meaning is something else ("queen", "frank"), people's names ("Molly"), meals ("dinner") and the rude.
+The page names the entry it matched and its broad group: "Yes: puma (cougar, mammal)", "Yes: Holland (The Netherlands, Europe)", "Yes: iced tea (drink)".
+
+## Matching rules, version m3
+
+Each turn line in the copied report starts with the rules version (`m3`) and the category, so reports from different versions can be compared.
+m3 keeps every rule of m2 below, for every category, and adds three:
+
+- **Categories.** The list is the chosen category's, and the words on the page follow it ("Next: an animal starting with N").
+  Rule 3's ordinary-word test ("Orange" the city needs 250,000 people) and rule 6's "never early on a name that is a word" are for cities only: animals, foods and words are ordinary words themselves, so they are never refused for it.
+  An ordinary word that is not on the list is still refused, saying so: `No: heard "hello", an ordinary word, not an animal`.
+  Sound-alike still never mends an ordinary word, so in those categories it rarely applies.
+- **Plurals** count for animals, food and drink, and words: "lions" is lion, "tomatoes" tomato, "wolves" wolf, "mice" mouse, "polar bears" polar bear.
+  The chain goes on from the entry, not the plural (tomato needs an O), and a plural of a name already said is a repeat.
+  An early answer is never taken from a plural.
+- **Dead ends.** When fewer than three entries not yet said start with the last letter, the chain goes on from the letter before it (and so on).
+  The page names the dead ends of the chosen category and says, after a turn, when one was skipped; the report marks it as `dead-end:y>e`.
+
+### Dead ends per category
+
+From `node lab/hot-potato/tools/letter-report.mjs` (entries per starting letter count every name of an entry, so "Holland" counts for H).
+
+- **Cities:** none; even X (56 well known) and Q (67) have plenty.
+- **Countries:** O (only Oman), Q (Qatar), X, Y (Yemen) and Z (Zambia, Zimbabwe).
+  15 countries end in O (Mexico, Morocco, Congo ...) and 12 in Y (Germany, Italy ...): after Mexico the next country starts with C, after Germany with N, after Iraq with A.
+- **Animals:** U, X, Y and Z (the yak is the only well-known Y, the zebra the only Z).
+  32 well-known animals end in Y (monkey, turkey, donkey, pony ...), 5 in X (fox, ox, lynx, red fox, Arctic fox), 2 in U (emu, nandu) and 1 in Z (spitz): after monkey the next animal starts with E, after fox with O.
+  In hard mode only X is a dead end.
+- **Food and drink:** U, X and Z; 2 end in U (tofu, tiramisu) and 1 in X (lox).
+  Y has 4 (yogurt, yam, yolk, and swede by its other name yellow turnip), so it holds until two of them are said, then becomes a dead end too.
+  35 well-known foods end in Y (candy, curry, jelly ...).
+- **Anything:** X (82 words end in it, 2 start with it).
+
+Two simpler rules were weighed: "any letter after a dead end" makes 32 animals free passes, and keeping the dead letter ends the game on monkey.
+Going back one letter keeps the chain a chain, and it is the house rule many people already play.
+
 ## Matching rules, version m2
 
-Each turn line in the copied report starts with the rules version (`m2`), so reports from different versions can be compared.
+The m2 rules, as written for cities.
 
 1. **The whole phrase decides.**
    After accents, capitals, punctuation and a few fillers ("um", "how about", "please") are dropped, what was heard must be a name of the place, all of it.
@@ -67,16 +127,19 @@ The report names only the kind of microphone (built-in, headset, webcam, USB, ot
 
 ## Rebuilding the data
 
-Download the files listed at the top of `tools/make-words.py` and `tools/make-cities.py` into an empty folder of their own, then:
+Download the files listed at the top of `tools/make-words.py`, `tools/make-cities.py` and `tools/make-categories.py` into an empty folder of their own, then:
 
 ```sh
-python3 -I lab/hot-potato/tools/make-words.py <en_50k.txt> <scowl final/> <census folder> lab/hot-potato/public/words.json <date>
-python3 -I lab/hot-potato/tools/make-cities.py <geonames folder> lab/hot-potato/public/words.json lab/hot-potato/tools/famous-places.txt lab/hot-potato/public/cities.json <date>
+python3 -I lab/hot-potato/tools/make-words.py <en_50k.txt> <scowl final/> <census folder> one-device/hot-potato/shared/words.json <date>
+python3 -I lab/hot-potato/tools/make-cities.py <geonames folder> one-device/hot-potato/shared/words.json lab/hot-potato/tools/famous-places.txt one-device/hot-potato/shared/cities.json <date>
+python3 -I lab/hot-potato/tools/make-categories.py <download folder> lab/hot-potato/tools one-device/hot-potato/shared <date>
+node lab/hot-potato/tools/letter-report.mjs
 ```
 
-Sources and licences are in `public/CREDITS.txt`.
+`make-categories.py` prints each list's size and letter counts; `letter-report.mjs` prints the counts the page uses, every name included, and the dead ends.
+Sources and licences are in `one-device/hot-potato/shared/CREDITS.txt`.
 
 ## Tests
 
-- `npm test` runs the unit tests, including the 20 turns of the first report, about 60 well-known cities and 100 ordinary words and names.
-- `node lab/hot-potato/test/e2e-hearing.mjs --base=http://localhost:8875` checks the page in a headless, muted Chromium against a built site served on that port (run it through `devguard slot --`).
+- `npm test` runs the unit tests, including the 20 turns of the first report, about 60 well-known cities and 100 ordinary words and names, and (`test/categories.test.js`) the common entries of every category, plurals, the ordinary-word rule per category, the dead ends and reports of every version read back.
+- `node lab/hot-potato/test/e2e-hearing.mjs --base=http://localhost:8875` checks the page in a headless, muted Chromium against a built site served on that port (run it through `devguard slot --`), including a game in each category, the plural and dead-end lines, that only the chosen list is fetched, the remembered choice, and a browser that refuses storage.

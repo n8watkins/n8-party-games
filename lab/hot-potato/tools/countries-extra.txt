@@ -1,0 +1,6 @@
+# name|continent|note: countries that are not on the ISO list, kept by hand.
+# The four countries of the United Kingdom are said as countries in any word game.
+England|Europe|part of the United Kingdom
+Scotland|Europe|part of the United Kingdom
+Wales|Europe|part of the United Kingdom
+Northern Ireland|Europe|part of the United Kingdom

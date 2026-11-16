@@ -43,3 +43,43 @@ Fetched: 2026-11-15
 Changed from the sources: lower case, letters a to z only; a name that is also a common
 word is kept in the word list only.
 Rebuilt with lab/hot-potato/tools/make-words.py in the n8-party-games repository.
+words.json is also the list of the "Anything" category.
+
+
+countries.json: country names from GeoNames
+
+Source: https://download.geonames.org/export/dump/countryInfo.txt
+        (the countries and territories of ISO 3166, their continents and populations)
+        https://download.geonames.org/export/dump/alternateNamesV2.zip
+        (English other names and abbreviations, such as "Holland", "Burma" and "UAE")
+Fetched: 2026-11-15
+Licence: Creative Commons Attribution 4.0, https://creativecommons.org/licenses/by/4.0/
+Credit: GeoNames, https://www.geonames.org/
+Changed from the source: only the name, up to eight English other names, up to three
+abbreviations of three or four letters and the continent are kept; formal names ("Republic
+of ..."), names of former states and the names in tools/countries-drop.txt are left out;
+Serbia and Montenegro and the Netherlands Antilles (no longer existing) are left out;
+England, Scotland, Wales and Northern Ireland are added by hand (tools/countries-extra.txt);
+sorted by population, biggest first.
+Rebuilt with lab/hot-potato/tools/make-categories.py in the n8-party-games repository.
+
+
+animals.json and food.json: animals, foods and drinks from Open English WordNet
+
+Source: Open English WordNet 2025 edition, https://en-word.net/
+        https://github.com/globalwordnet/english-wordnet/releases/download/2025-edition/english-wordnet-2025.xml.gz
+Licence: Creative Commons Attribution 4.0, https://creativecommons.org/licenses/by/4.0/
+Credit: Open English WordNet (the Global WordNet Association), based on Princeton WordNet 3.0
+        (Copyright 2006 by Princeton University; WordNet licence, which allows use, copying,
+        modification and distribution with this notice).
+Which entries are well known (in the default list) is chosen with the word counts of
+FrequencyWords en_50k (see words.json above, CC BY-SA 4.0), so animals.json and food.json
+are shared under CC BY-SA 4.0.
+Fetched: 2026-11-15
+Changed from the source: only the names of nouns under WordNet's chordates, invertebrates,
+young animals and larvae (animals; not humans) and under food, nutrient, drink and edible nut
+(food and drink; not animal feed, diets, food stores or vitamins) are kept, with a broad
+group (mammal, bird, fish ...; drink); scientific names and the names in
+tools/animals-drop.txt and tools/food-drop.txt are left out; tools/animals-add.txt and
+tools/food-add.txt mark well-known names the word counts miss.
+Rebuilt with lab/hot-potato/tools/make-categories.py in the n8-party-games repository.

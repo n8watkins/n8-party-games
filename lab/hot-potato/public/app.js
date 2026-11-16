@@ -2,25 +2,50 @@
 // click or the keyboard (or again by itself in hands-free mode). Each turn's timings, guesses
 // and verdict are logged on the page and in the "Copy results" report. Nothing is stored or sent
 // anywhere by this page.
+//
+// The matcher and the lists are the game's (one-device/hot-potato/shared), served at
+// /one-device/hot-potato/shared/: this page and the game use the one copy.
+import { CATEGORIES, CATEGORY_IDS, DEFAULT_CATEGORY, dataUrl } from "/one-device/hot-potato/shared/categories.js";
 import { deviceInfo, micKind } from "./device.js";
-import { EARLY_STABLE_MS, RULES_VERSION, buildIndex, earlyMatch, lastLetter, matchHeard, median, normalize } from "./logic.js";
+import { DEAD_END_BELOW, EARLY_STABLE_MS, RULES_VERSION, buildIndex, deadLetters, earlyMatch, matchHeard, median, nextLetter, normalize } from "/one-device/hot-potato/shared/logic.js";
 
 const $ = (id) => document.getElementById(id);
 const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition || null;
 const ua = navigator.userAgent;
 const MAX_ALTERNATIVES = 10;
 const POTATO_MAX = 10;
-const REPORT_VERSION = "v2";
+const REPORT_VERSION = "v3";
+const CATEGORY_KEY = "hot-potato-category";
 
 const device = deviceInfo(ua, navigator.userAgentData, navigator.maxTouchPoints || 0);
 const touchFirst = device.kind !== "desktop";
 
+/** The category this device chose last time (per device; the page works without storage). */
+function savedCategory() {
+  try {
+    const id = localStorage.getItem(CATEGORY_KEY);
+    return CATEGORIES[id] ? id : DEFAULT_CATEGORY;
+  } catch {
+    return DEFAULT_CATEGORY;
+  }
+}
+
+function saveCategory(id) {
+  try {
+    localStorage.setItem(CATEGORY_KEY, id);
+  } catch {
+    // Storage refused (private window, blocked site data): the choice lasts this visit only.
+  }
+}
+
 const state = {
-  index: null,
+  category: savedCategory(),
+  index: null, // the chosen category's index, once loaded
   chain: [], // spoken names accepted this game
   used: new Set(),
   usedNames: new Set(),
   required: "",
+  skipped: [], // dead-end letters the chain stepped back over after the last answer
   potato: 0,
   turns: [],
   scenario: 1,
@@ -32,25 +57,74 @@ const state = {
   micTrackSupport: "unknown", // "yes", "no" or "unknown": can speech recognition listen to a chosen microphone?
 };
 
-// ---- The city and word lists, loaded after the page is up --------------------------------------
+// ---- The lists, each loaded when its category is first chosen -----------------------------------
 
-const getJSON = (name) =>
-  fetch(name).then((r) => {
-    if (!r.ok) throw new Error(`${name}: HTTP ${r.status}`);
-    return r.json();
-  });
+const cat = () => CATEGORIES[state.category];
 
-const listReady = Promise.all([getJSON("cities.json"), getJSON("words.json")])
-  .then(([cities, words]) => {
-    state.index = buildIndex(cities, words);
-    renderCaps();
-    renderButtons();
-    return state.index;
-  })
-  .catch((err) => {
-    $("need").textContent = `The city list did not load (${err.message}). Reload the page.`;
-    throw err;
-  });
+const files = new Map();
+const getJSON = (name) => {
+  if (!files.has(name)) {
+    const p = fetch(dataUrl(name)).then((r) => {
+      if (!r.ok) throw new Error(`${name}: HTTP ${r.status}`);
+      return r.json();
+    });
+    p.catch(() => files.delete(name)); // a failed load is tried again next time
+    files.set(name, p);
+  }
+  return files.get(name);
+};
+
+const indexes = new Map(); // category id -> Promise of its index
+let listReady = Promise.resolve(null);
+
+/** Loads a category's list (once; words.json is shared) and makes it the current one. */
+function useCategory(id) {
+  const category = CATEGORIES[id];
+  if (!indexes.has(id)) {
+    const p = Promise.all([getJSON(category.file), getJSON("words.json")]).then(([doc, words]) => buildIndex(doc, words, category));
+    p.catch(() => indexes.delete(id));
+    indexes.set(id, p);
+  }
+  state.index = null;
+  listReady = indexes
+    .get(id)
+    .then((index) => {
+      if (state.category !== id) return state.index;
+      state.index = index;
+      renderDeadNote();
+      renderGame();
+      renderCaps();
+      renderButtons();
+      return index;
+    })
+    .catch((err) => {
+      if (state.category === id) $("need").textContent = `The ${category.one} list did not load (${err.message}). Reload the page.`;
+      throw err;
+    });
+  listReady.catch(() => {});
+  renderCategory();
+  renderGame();
+  renderCaps();
+  renderButtons();
+}
+
+function newGame() {
+  Object.assign(state, { chain: [], used: new Set(), usedNames: new Set(), required: "", skipped: [], potato: 0 });
+  $("heard").textContent = " ";
+  $("verdict").textContent = " ";
+  renderAppeal(null);
+  renderGame();
+}
+
+/** A new category starts a new game (the log is kept; each turn names its category). */
+function chooseCategory(id) {
+  if (!CATEGORIES[id] || id === state.category) return;
+  if (state.live) stopListening();
+  state.category = id;
+  saveCategory(id);
+  newGame();
+  useCategory(id);
+}
 
 // ---- Sound and vibration ----------------------------------------------------------------------
 
@@ -218,6 +292,9 @@ const micInReport = () => {
 function newTurn(auto) {
   return {
     n: state.turns.length + 1,
+    category: state.category,
+    index: state.index, // the list this turn is checked against, even if the category changes
+    next: null, // after a right answer: {letter, skipped} from the dead-end rule
     scenario: state.scenario,
     lang: $("lang").value,
     sounds: $("sounds").checked,
@@ -261,8 +338,8 @@ const snapshot = () => ({
 });
 
 function check(turn, alternatives) {
-  if (!state.index) return null;
-  return matchHeard(state.index, alternatives, turn.rules);
+  if (!turn.index) return null;
+  return matchHeard(turn.index, alternatives, turn.rules);
 }
 
 async function startTurn(auto = false) {
@@ -355,12 +432,12 @@ function onResult(turn, rec, e) {
  * is still the same when it fires, the early answer is noted (and, with the switch on, taken).
  */
 function considerEarly(turn, rec, transcripts) {
-  if (!state.index || turn.earlyWould) return;
+  if (!turn.index || turn.earlyWould) return;
   const key = normalize(transcripts[0]);
   if (turn.pendingEarly?.key === key) return;
   clearTimeout(turn.pendingEarly?.timer);
   turn.pendingEarly = null;
-  const m = earlyMatch(state.index, transcripts, turn.rules);
+  const m = earlyMatch(turn.index, transcripts, turn.rules);
   if (!m.ok) return;
   mark(turn, "valid");
   turn.pendingEarly = {
@@ -385,11 +462,15 @@ function decide(turn, m, by) {
   turn.match = m;
   turn.decidedBy = by;
   turn.verdict = m.ok ? "right" : "wrong";
+  // A turn decided after the category changed belongs to the old game: logged, not played.
+  if (turn.index !== state.index) return;
   if (m.ok) {
     state.chain.push(m.said);
     state.used.add(m.place.id);
     state.usedNames.add(normalize(m.said));
-    state.required = lastLetter(m.said);
+    turn.next = nextLetter(turn.index, m.said, { used: state.used, hard: turn.hard });
+    state.required = turn.next.letter;
+    state.skipped = turn.next.skipped;
     state.potato = Math.min(POTATO_MAX, state.potato + 1);
     turn.soundMs = play("ding");
     vibrate(60);
@@ -475,7 +556,9 @@ function population(n) {
 const where = (place) => [place.region, place.countryName].filter(Boolean).join(", ");
 
 /** The other places of that name, when there are any: "; there is also one in Australia". */
-function alsoText(m) {
+function alsoText(m, category) {
+  if (!m.others.length) return "";
+  if (category.format !== "cities") return `; also a name of ${m.others.slice(0, 2).map((p) => p.name).join(" and ")}`;
   const abroad = [...new Set(m.others.filter((p) => p.country !== m.place.country).map((p) => p.countryName))];
   const home = m.others.filter((p) => p.country === m.place.country);
   const parts = [];
@@ -484,8 +567,22 @@ function alsoText(m) {
   return parts.length ? `; there is also ${parts.join(", and ")}` : "";
 }
 
+/**
+ * Which entry was matched, in brackets: "(Alberta, Canada, 1.0M)" for a city, "(The
+ * Netherlands, Europe)" for Holland, "(cougar, mammal)" for puma, "(drink)" for tea.
+ */
+function entryText(m, category) {
+  if (category.format === "cities") return ` (${where(m.place)}, ${population(m.place.population)})`;
+  const parts = [normalize(m.said) !== normalize(m.place.name) ? m.place.name : "", m.place.group].filter(Boolean);
+  return parts.length ? ` (${parts.join(", ")})` : "";
+}
+
+/** What a turn's verdict was checked against: its own category, the one chosen when it began. */
+const turnCategory = (turn) => CATEGORIES[turn.category] ?? CATEGORIES[DEFAULT_CATEGORY];
+
 export function verdictText(turn) {
   const m = turn.match;
+  const category = turnCategory(turn);
   if (turn.verdict === "none") {
     if (/not-allowed|service-not-allowed/.test(turn.error)) return `Microphone blocked (${turn.error})`;
     if (turn.error === "network") return "No connection to the speech service (network)";
@@ -496,30 +593,36 @@ export function verdictText(turn) {
   if (m.ok) {
     const how =
       m.kind === "exact"
-        ? m.wordName
-          ? "exact (the city, not the word)"
-          : "exact"
+        ? m.plural
+          ? `heard "${m.heard}"`
+          : m.wordName && category.wordNames
+            ? `exact (the ${category.one}, not the word)`
+            : "exact"
         : m.kind === "alternative"
           ? `from the recogniser's guess ${m.alternative + 1}, "${m.heard}"`
           : `heard "${m.heard}", ${m.distance === 1 ? "one letter" : `${m.distance} letters`} off`;
-    return `Yes: ${m.said} (${where(m.place)}, ${population(m.place.population)}), ${how}${alsoText(m)}`;
+    return `Yes: ${m.said}${entryText(m, category)}, ${how}${alsoText(m, category)}`;
   }
-  const near = m.place ? `${m.said} (${m.place.countryName})` : "";
+  const near = m.place ? (category.format === "cities" ? `${m.said} (${m.place.countryName})` : m.said) : "";
   switch (m.reason) {
     case "word":
-      return `No: heard "${m.heard}", an ordinary word, not a city`;
+      // In "Anything" every listed word is an answer: this is a phrase, or a one-letter word.
+      if (category.format === "words") return `No: heard "${m.heard}", not one word on the list`;
+      return `No: heard "${m.heard}", an ordinary word, not ${category.a}`;
     case "name":
-      return `No: heard "${m.heard}", a name, not a city`;
+      return `No: heard "${m.heard}", a name, not ${category.a}`;
     case "hard-only":
-      return `No: ${near} is only in hard mode (a town of ${population(m.place.population)} not on the well-known list)`;
+      return category.format === "cities"
+        ? `No: ${near} is only in hard mode (a town of ${population(m.place.population)} not on the well-known list)`
+        : `No: ${near} is only in hard mode (not on the well-known list)`;
     case "wrong-letter":
       return `No: ${near} starts with ${m.said.charAt(0).toUpperCase()}, not ${turn.required.toUpperCase()}`;
     case "used":
       return `No: ${m.said} was already said this game`;
     case "echo":
-      return "No: that was the last city again";
+      return `No: that was the last ${category.one} again`;
     default:
-      return `No: heard "${m.heard}", not a city on the list`;
+      return `No: heard "${m.heard}", not ${category.a} on the list`;
   }
 }
 
@@ -532,8 +635,8 @@ function showVerdict(turn) {
 
 // ---- Appeals: the player says the verdict was wrong --------------------------------------------------
 
-const appealLabel = (turn) => (turn.verdict === "right" ? "That was wrong" : "That was a real city");
-const appealKind = (turn) => (turn.verdict === "right" ? "wrong" : "real-city");
+const appealLabel = (turn) => (turn.verdict === "right" ? "That was wrong" : `That was a real ${turnCategory(turn).one}`);
+const appealKind = (turn) => (turn.verdict === "right" ? "wrong" : "real");
 
 function toggleAppeal(turn) {
   turn.appeal = turn.appeal ? "" : appealKind(turn);
@@ -559,27 +662,73 @@ function renderAppeal(turn) {
 
 // ---- Rendering -----------------------------------------------------------------------------------
 
+/** "Y", "O and Y", "U, X, Y and Z". */
+const upper = (letters) => {
+  const up = letters.map((c) => c.toUpperCase());
+  return up.length > 1 ? `${up.slice(0, -1).join(", ")} and ${up.at(-1)}` : (up[0] ?? "");
+};
+
 function renderGame() {
+  const c = cat();
   const last = state.chain.at(-1);
-  $("need").textContent = state.required ? `Next: a city starting with ${state.required.toUpperCase()}` : "Say any city to start";
-  $("chainLine").textContent = last ? `after ${last}${state.chain.length > 1 ? ` · ${state.chain.length} cities so far` : ""}` : "";
+  $("need").textContent = state.required
+    ? `Next: ${c.a} starting with ${state.required.toUpperCase()}`
+    : last
+      ? `Next: any ${c.one}`
+      : `Say any ${c.one} to start`;
+  const parts = [];
+  if (last) parts.push(`after ${last}`);
+  if (last && state.skipped.length) {
+    parts.push(state.required ? `${upper(state.skipped)} ${state.skipped.length > 1 ? "are dead ends" : "is a dead end"}` : "every letter of it is a dead end");
+  }
+  if (state.chain.length > 1) parts.push(`${state.chain.length} ${c.plural} so far`);
+  $("chainLine").textContent = parts.join(" · ");
   $("potato").style.setProperty("--level", String(state.potato));
   $("potato").dataset.level = String(state.potato);
+}
+
+/** The category picker, the hard-mode switch and the dead-end note, for the chosen category. */
+function renderCategory() {
+  const c = cat();
+  $("category").value = state.category;
+  const hard = $("hard");
+  hard.disabled = !c.hard;
+  if (!c.hard) hard.checked = false;
+  $("hardText").textContent = c.hard ? `Hard mode: ${c.hard}` : `Hard mode: none for ${c.plural}`;
+  $("hardNote").textContent = c.hard ? `(off: ${c.hardOff})` : "(every one is on the list)";
+  renderDeadNote();
+}
+
+function renderDeadNote() {
+  const note = $("deadNote");
+  const idx = state.index;
+  if (!idx) {
+    note.textContent = "";
+    note.hidden = true;
+    return;
+  }
+  const dead = deadLetters(idx, $("hard").checked);
+  const c = cat();
+  note.textContent = dead.length
+    ? `Dead ends: ${upper(dead)} (fewer than ${DEAD_END_BELOW} ${c.plural} start with ${dead.length > 1 ? "them" : "it"}). After one, go on from the letter before.`
+    : "";
+  note.hidden = !dead.length;
 }
 
 function renderButtons() {
   const live = Boolean(state.live);
   const btn = $("turn");
+  const c = cat();
   btn.disabled = !Recognition || live || !state.index;
   btn.textContent = !Recognition
     ? "No speech recognition here"
     : !state.index
-      ? "Loading the city list..."
+      ? `Loading the ${c.one} list...`
       : live
         ? "Listening..."
         : touchFirst
-          ? "Your turn: tap and say a city"
-          : "Your turn: click, then say a city";
+          ? `Your turn: tap and say ${c.a}`
+          : `Your turn: click, then say ${c.a}`;
   btn.classList.toggle("live", live);
   $("stop").hidden = !live && !$("handsFree").checked;
 }
@@ -599,7 +748,7 @@ function summary() {
     none: count((x) => x.verdict === "none"),
     misheard: count((x) => x.misheard),
     soundAlike: count((x) => x.match?.kind === "sound-alike"),
-    appealCity: count((x) => x.appeal === "real-city"),
+    appealReal: count((x) => x.appeal === "real"),
     appealWrong: count((x) => x.appeal === "wrong"),
     errors: count((x) => x.error),
     earlyWould: earlyTurns.length,
@@ -619,12 +768,12 @@ function renderSummary() {
     ["Wrong", s.wrong],
     ["Nothing heard", s.none],
     ["It misheard me", s.misheard],
-    ["You said: that was a real city", s.appealCity],
+    ["You said: that was a real one", s.appealReal],
     ["You said: that was wrong", s.appealWrong],
     ["Early answers it would take", s.earlyWould],
     ["Early answers unlike the final", s.earlyDiffers],
     ["Median: start to first word", s.interim === null ? "-" : `${s.interim} ms`],
-    ["Median: start to a matching city", s.valid === null ? "-" : `${s.valid} ms`],
+    ["Median: start to a matching answer", s.valid === null ? "-" : `${s.valid} ms`],
     ["Median: start to final result", s.final === null ? "-" : `${s.final} ms`],
     ["Median: end of speech to final", s.speechToFinal === null ? "-" : `${s.speechToFinal} ms`],
   ];
@@ -655,7 +804,7 @@ function renderLog() {
     const li = el("li", `turn-row ${turn.verdict}${turn.misheard ? " misheard" : ""}${turn.appeal ? " appealed" : ""}`);
     const head = el("p", "row-head");
     head.append(el("span", "row-n", `#${turn.n}`), el("span", "row-verdict", verdictText(turn)));
-    const times = el("p", "row-times", `first word ${ms(turn.at.interim)} · matching city ${ms(turn.at.valid)} · final ${ms(turn.at.final)} ms${turn.decidedBy ? ` · decided on ${turn.decidedBy}` : ""}`);
+    const times = el("p", "row-times", `first word ${ms(turn.at.interim)} · matching answer ${ms(turn.at.valid)} · final ${ms(turn.at.final)} ms${turn.decidedBy ? ` · decided on ${turn.decidedBy}` : ""}`);
     const alts = turn.alternatives.length
       ? turn.alternatives.map((a) => `"${a.transcript}" ${a.confidence ? a.confidence.toFixed(2) : "0"}`).join(" · ")
       : turn.firstInterim
@@ -663,8 +812,9 @@ function renderLog() {
         : "no words";
     const heard = el("p", "row-alts", `Heard: ${alts}`);
     li.append(head, times, heard);
-    const extra = [];
+    const extra = [turnCategory(turn).label];
     if (turn.required) extra.push(`needed ${turn.required.toUpperCase()}`);
+    if (turn.next?.skipped.length) extra.push(`${upper(turn.next.skipped)}: dead end, next ${turn.next.letter ? turn.next.letter.toUpperCase() : "any letter"}`);
     extra.push(turn.hard ? "hard mode" : "well-known list", `test ${turn.scenario}`, turn.sounds ? "sounds on" : "sounds off");
     if (turn.auto) extra.push("hands-free");
     if (turn.error) extra.push(`error: ${turn.error}`);
@@ -697,7 +847,7 @@ function renderCaps() {
     `on device or server: ${state.turns.at(-1)?.onDevice || state.notes.onDevice || "not known until the first turn"}`,
     `vibration: ${state.notes.vibrate || ("vibrate" in navigator ? "not tried yet" : "not supported")}`,
     `screen awake: ${state.notes.wakeLock || ("wakeLock" in navigator ? "not tried yet" : "not supported")}`,
-    `city list: ${idx ? `${idx.knownCount.toLocaleString("en-US")} well-known places, ${idx.places.length.toLocaleString("en-US")} in hard mode` : "loading"}`,
+    `${cat().one} list: ${idx ? `${idx.knownCount.toLocaleString("en-US")} well known${cat().hard ? `, ${idx.places.length.toLocaleString("en-US")} in hard mode` : ""}` : "loading"}`,
   ];
   $("caps").textContent = parts.join(" · ");
 }
@@ -714,12 +864,12 @@ export function reportText() {
     `recognition: ${Recognition ? (window.SpeechRecognition ? "SpeechRecognition" : "webkitSpeechRecognition") : "none"}; on-device: ${state.turns.at(-1)?.onDevice || "-"}; ${state.notes.onDevice || ""}`.trim(),
     `microphone: ${micInReport()}`,
     `vibration: ${state.notes.vibrate || "-"}; wake lock: ${state.notes.wakeLock || "-"}; window ${window.innerWidth}x${window.innerHeight}`,
-    `settings now: lang=${$("lang").value} sounds=${on($("sounds"))} handsfree=${on($("handsFree"))} early=${on($("early"))} hard=${on($("hard"))} maxAlternatives=${MAX_ALTERNATIVES}`,
+    `settings now: category=${state.category} lang=${$("lang").value} sounds=${on($("sounds"))} handsfree=${on($("handsFree"))} early=${on($("early"))} hard=${on($("hard"))} maxAlternatives=${MAX_ALTERNATIVES}`,
     `checklist done: ${ticks}`,
-    `summary: turns ${s.turns}, right ${s.right}, wrong ${s.wrong}, nothing heard ${s.none}, misheard ${s.misheard}, sound-alike ${s.soundAlike}, appeals real-city ${s.appealCity} wrong ${s.appealWrong}, errors ${s.errors}`,
+    `summary: turns ${s.turns}, right ${s.right}, wrong ${s.wrong}, nothing heard ${s.none}, misheard ${s.misheard}, sound-alike ${s.soundAlike}, appeals real ${s.appealReal} wrong ${s.appealWrong}, errors ${s.errors}`,
     `early answer: would have taken ${s.earlyWould}, ${s.earlyDiffers} differing from the final`,
-    `medians ms: tap>first word ${ms(s.interim)}, tap>matching city ${ms(s.valid)}, tap>final ${ms(s.final)}, speech end>final ${ms(s.speechToFinal)}`,
-    "turns (#n rules list test sounds mode need | ms after tap: start audio speech speechend first-word city final end | verdict | heard):",
+    `medians ms: tap>first word ${ms(s.interim)}, tap>matching answer ${ms(s.valid)}, tap>final ${ms(s.final)}, speech end>final ${ms(s.speechToFinal)}`,
+    "turns (#n rules category list test sounds mode need | ms after tap: start audio speech speechend first-word answer final end | verdict | heard):",
     ...state.turns.map(turnLine),
   ];
   return lines.join("\n");
@@ -734,13 +884,14 @@ function turnLine(t) {
     t.verdict === "none"
       ? "NONE"
       : m?.ok
-        ? `RIGHT ${m.kind} ${m.said} ${m.place.country} (heard "${m.heard}", by ${t.decidedBy})`
+        ? `RIGHT ${m.kind}${m.plural ? "-plural" : ""} ${m.said} ${m.place.country ?? (m.place.group.replace(/ /g, "-") || "-")} (heard "${m.heard}", by ${t.decidedBy})`
         : `WRONG ${m?.reason ?? "?"}${m?.place ? ` ${m.said}` : ""} (heard "${m?.heard ?? ""}", by ${t.decidedBy})`;
   const heard = t.alternatives.length ? t.alternatives.map((x) => `${x.transcript}=${x.confidence ? x.confidence.toFixed(2) : 0}`).join(" / ") : t.firstInterim ? `interim:${t.firstInterim}` : "-";
   const finalDiff = t.decidedBy === "interim" && t.finalMatch && t.finalMatch.said !== m?.said ? ` final-differs:${t.finalMatch.ok ? t.finalMatch.said : t.finalMatch.reason}` : "";
   const early = t.earlyWould ? `early-would:${t.earlyWould.said}@${ms(a.early)}` : "";
-  const flags = [t.error && `err:${t.error}`, t.misheard && "MISHEARD", t.appeal && `APPEAL:${t.appeal}`, t.auto && "auto", early, `n-interim:${t.interimCount}`].filter(Boolean).join(" ");
-  return `#${t.n} ${m?.rules ?? RULES_VERSION} ${t.hard ? "hard" : "known"} t${t.scenario} snd:${t.sounds ? "on" : "off"} ${t.handsFree ? "hf" : "tap"} ${t.early ? "early" : "final"} ${t.lang} need:${t.required || "-"} | ${[a.start, a.audiostart, a.speechstart, a.speechend, a.interim, a.valid, a.final, a.end].map(ms).join(" ")} | ${verdict}${finalDiff} | ${heard} | ${flags}`;
+  const deadEnd = t.next?.skipped.length ? `dead-end:${t.next.skipped.join("")}>${t.next.letter || "any"}` : "";
+  const flags = [t.error && `err:${t.error}`, t.misheard && "MISHEARD", t.appeal && `APPEAL:${t.appeal}`, t.auto && "auto", early, deadEnd, `n-interim:${t.interimCount}`].filter(Boolean).join(" ");
+  return `#${t.n} ${m?.rules ?? RULES_VERSION} ${t.category} ${t.hard ? "hard" : "known"} t${t.scenario} snd:${t.sounds ? "on" : "off"} ${t.handsFree ? "hf" : "tap"} ${t.early ? "early" : "final"} ${t.lang} need:${t.required || "-"} | ${[a.start, a.audiostart, a.speechstart, a.speechend, a.interim, a.valid, a.final, a.end].map(ms).join(" ")} | ${verdict}${finalDiff} | ${heard} | ${flags}`;
 }
 
 async function copyResults() {
@@ -824,15 +975,13 @@ function init() {
   });
   navigator.mediaDevices?.addEventListener?.("devicechange", refreshMics);
   document.addEventListener("keydown", onKey);
-  $("newGame").addEventListener("click", () => {
-    Object.assign(state, { chain: [], used: new Set(), usedNames: new Set(), required: "", potato: 0 });
-    $("heard").textContent = " ";
-    $("verdict").textContent = " ";
-    renderAppeal(null);
-    renderGame();
-  });
+  $("newGame").addEventListener("click", newGame);
+  $("category").replaceChildren(...CATEGORY_IDS.map((id) => new Option(CATEGORIES[id].label, id)));
+  $("category").addEventListener("change", () => chooseCategory($("category").value));
+  $("hard").addEventListener("change", renderDeadNote);
   for (const btn of document.querySelectorAll("#checklist button")) btn.addEventListener("click", () => setScenario(Number(btn.dataset.scenario)));
   setScenario(1);
+  useCategory(state.category);
   if (navigator.permissions?.query) {
     navigator.permissions
       .query({ name: "microphone" })

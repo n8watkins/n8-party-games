@@ -1,0 +1,34 @@
+# English names GeoNames gives a country that nobody says for it today in a game: old names of
+# a different state or of a part of it, nicknames and descriptions. Left out of countries.json.
+# (Old names still said for the same country, such as Burma, Swaziland and Holland, are kept.)
+# One per line; read by tools/make-categories.py.
+Arabia Felix / Arabia eudaímōn
+Belgian Congo
+Bohemia
+Chinese Taiwan
+Democratic Cambodia
+Democratic Kampuchea
+Empire of Iran
+Falkland Islands Dependencies
+Great Socialist People’s Libyan Arab Jamahiriya
+Ire
+Libyan Arab Jamahiriyah
+Malta Island
+Moroccan Sahara
+Naija
+Northern Rhodesia
+oPT
+occupied Palestinian Territory
+Socialist People’s Libyan Arab Jamahiriya
+Southern Rhodesia
+Spanish Guinea
+Spanish Haiti
+Spanish Sahara
+Spanish State
+Spanish Western Sahara
+Taiwan Province
+Taiwan R.O.C.
+United Mexican States
+United States of Venezuela
+Vatican Hill
+West Germany

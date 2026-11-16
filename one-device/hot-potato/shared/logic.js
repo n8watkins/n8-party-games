@@ -1,8 +1,20 @@
-// The pure parts of the Hot Potato hearing test: normalising what was heard, the last-letter
-// rule, and matching what the recogniser returned against the city list. No DOM, no browser
-// APIs, so it runs the same in the page and in the unit tests (lab/hot-potato/test).
+// The pure parts of Hot Potato's hearing: normalising what was heard, the last-letter rule, and
+// matching what the recogniser returned against a category's list (cities, countries, animals,
+// food and drink, any word; categories.js says how each list differs). No DOM, no browser APIs,
+// so it runs the same in the game (one-device/hot-potato), the hearing test (lab/hot-potato)
+// and their unit tests. Both pages import this one file; neither keeps a copy.
 //
-// Matching rules, version m2 (each is said in plain words in index.html and README.md):
+// Matching rules, version m3: the rules of m2 below, said for cities, hold for every category,
+// with three additions (each is said in plain words in index.html and README.md):
+//  - Categories: the list is the chosen category's; "a city" reads "an animal" and so on. Rule 3's
+//    ordinary-word test and rule 6's "not an ordinary word" apply to cities only, since animals,
+//    foods and words are ordinary words themselves.
+//  - Plurals: in categories that allow them, "tomatoes" is tomato and "wolves" is wolf, and the
+//    chain goes on from the entry (tomato needs an O).
+//  - Dead ends: when fewer than DEAD_END_BELOW entries not yet said start with the last letter,
+//    the chain goes on from the letter before it (monkey needs an E among the animals).
+//
+// Matching rules, version m2:
 //  1. The whole phrase decides: after accents, case, punctuation and a few filler words ("um",
 //     "how about") are dropped, what was heard must equal a name of the place. "Leopold" is not
 //     Léo, "Edmonton" is not Edmond.
@@ -24,7 +36,9 @@
 //     well-known city, no longer name in the list starts with it, and it stays the same for a
 //     moment; otherwise the final result decides.
 
-export const RULES_VERSION = "m2";
+import { CATEGORIES } from "./categories.js";
+
+export const RULES_VERSION = "m3";
 
 /** Letters that NFD does not split into a base letter and a mark. */
 const FOLD = { ß: "ss", æ: "ae", œ: "oe", ø: "o", ł: "l", đ: "d", ð: "d", þ: "th", ı: "i", ħ: "h" };
@@ -147,55 +161,130 @@ export function trimFillers(text) {
 }
 
 /**
- * Turns the shipped JSON into an index. cities.json is {countries, regions, rows: [[name,
- * ascii|0, alts|0, abbrs|0, country, population, why|0, region number|0]]}, biggest first
- * (a region number counts from 1 into `regions`); words.json is
- * {words, names}. Each place gets an id (its row number); every name, ASCII name, English
- * alternate name and abbreviation is a key. A place is well known (in the default list) when it
- * has a "why".
+ * The rows of a category's JSON, read into one shape: {name, names (every spoken form, the
+ * name first), abbrs, known, and what the page says about it}.
+ *  - "cities" (cities.json): {countries, regions, rows: [[name, ascii|0, alts|0, abbrs|0,
+ *    country, population, why|0, region number|0]]}, biggest first (a region number counts from
+ *    1 into `regions`). Well known when it has a "why".
+ *  - "entries" (countries, animals, food): {groups, rows: [[name, alts|0, abbrs|0, known 1|0,
+ *    group number|0]]}, best known first.
+ *  - "words" (words.json): {words}, most frequent first; every word of two letters or more.
  */
-export function buildIndex(doc, wordsDoc = { words: [], names: [] }) {
-  const ordinary = new Set(wordsDoc.words ?? []);
-  const names = new Set(wordsDoc.names ?? []);
+function readRows(doc, format) {
+  if (format === "words") {
+    return (doc.words ?? []).filter((w) => w.length > 1).map((w) => ({ name: w, names: [w], abbrs: [], known: true, group: "" }));
+  }
+  if (format === "entries") {
+    const groups = doc.groups ?? [];
+    return doc.rows.map(([name, alts, abbrs, known, group]) => ({ name, names: [name, ...(alts || [])], abbrs: abbrs || [], known: Boolean(known), group: (group && groups[group - 1]) || "" }));
+  }
   const countries = doc.countries ?? {};
   const regions = doc.regions ?? [];
+  return doc.rows.map(([name, ascii, alts, abbrs, country, population, why, region]) => ({
+    name,
+    names: [name, ...(ascii ? [ascii] : []), ...(alts || [])],
+    abbrs: abbrs || [],
+    known: Boolean(why),
+    country,
+    countryName: countries[country] ?? country,
+    population,
+    why: why || "",
+    region: (region && regions[region - 1]) || "",
+  }));
+}
+
+/**
+ * Turns a category's shipped JSON (and words.json, {words, names}) into an index. Each entry
+ * gets an id (its row number); every name, ASCII name, other name and abbreviation is a key
+ * (an abbreviation also without its dots: "U.S." is "us"). An entry is well known (in the default
+ * list) or hard mode only. `category` is one of CATEGORIES (cities when left out).
+ */
+export function buildIndex(doc, wordsDoc = { words: [], names: [] }, category = CATEGORIES.cities) {
+  const ordinary = new Set(wordsDoc.words ?? []);
+  const names = new Set(wordsDoc.names ?? []);
   const places = [];
   const byKey = new Map();
   const byLetter = new Map();
   const keySet = { known: new Set(), all: new Set() };
+  // Which entries can be played after each letter, well known and all: for the dead-end rule.
+  const startIds = { known: new Map(), all: new Map() };
+  const starts = (letter, id, known) => {
+    if (!/[a-z]/.test(letter)) return;
+    for (const [list, on] of [[startIds.all, true], [startIds.known, known]]) {
+      if (!on) continue;
+      if (!list.has(letter)) list.set(letter, new Set());
+      list.get(letter).add(id);
+    }
+  };
   const add = (key, entry) => {
     if (!key) return;
     const list = byKey.get(key);
     if (!list) byKey.set(key, [entry]);
     else if (!list.some((e) => e.id === entry.id)) list.push(entry);
   };
-  doc.rows.forEach(([name, ascii, alts, abbrs, country, population, why, region], id) => {
-    const known = Boolean(why);
-    const place = { id, name, country, countryName: countries[country] ?? country, population, why: why || "", region: (region && regions[region - 1]) || "", known };
+  readRows(doc, category.format).forEach((row, id) => {
+    const { names: spoken, abbrs, ...place } = row;
+    place.id = id;
     places.push(place);
-    const all = [name, ...(ascii ? [ascii] : []), ...(alts || [])];
-    for (const n of all) {
+    const known = place.known;
+    for (const n of spoken) {
       const key = normalize(n);
       if (!key) continue;
       const word = isPlainWords(key, ordinary);
       add(key, { id, via: n, abbr: false, word });
       keySet.all.add(key);
       if (known) keySet.known.add(key);
+      starts(firstLetter(n), id, known);
       const letter = key.charAt(0);
-      // Sound-alikes are only ever looked for among well-known places whose name is not a word.
+      // Sound-alikes are only ever looked for among well-known entries whose name is not a word.
       if (!known || word || !/[a-z]/.test(letter)) continue;
       if (!byLetter.has(letter)) byLetter.set(letter, []);
       byLetter.get(letter).push({ id, via: n, abbr: false, compact: letters(n), sound: soundKey(n) });
     }
-    for (const a of abbrs || []) {
-      const key = normalize(a);
-      add(key, { id, via: a, abbr: true, word: isPlainWords(key, ordinary) });
-      keySet.all.add(key);
-      if (known) keySet.known.add(key);
+    for (const a of abbrs) {
+      for (const key of new Set([normalize(a), letters(a)])) {
+        add(key, { id, via: a, abbr: true, word: isPlainWords(key, ordinary) });
+        keySet.all.add(key);
+        if (known) keySet.known.add(key);
+      }
     }
   });
   const sortedKeys = { known: [...keySet.known].sort(), all: [...keySet.all].sort() };
-  return { places, byKey, byLetter, ordinary, names, sortedKeys, knownCount: places.filter((p) => p.known).length };
+  return { category, places, byKey, byLetter, ordinary, names, sortedKeys, startIds, knownCount: places.filter((p) => p.known).length };
+}
+
+/** Plurals that do not end in a plain "s" or "es". */
+const IRREGULAR = {
+  mice: "mouse", lice: "louse", geese: "goose", oxen: "ox", teeth: "tooth", feet: "foot", children: "child",
+  people: "person", cacti: "cactus", octopi: "octopus", fungi: "fungus", larvae: "larva", dice: "die",
+};
+
+/**
+ * The singular forms a plural phrase might be, most likely first, changing its last word only:
+ * "lions" -> lion, "cookies" -> cookie, "tomatoes" -> tomato, "berries" -> berry, "wolves" ->
+ * wolf, "polar bears" -> polar bear, "mice" -> mouse. The caller keeps the first that is on the
+ * list, so "cookies" is cookie, not cooky.
+ */
+export function singulars(key) {
+  const words = key.split(" ");
+  const last = words.at(-1) ?? "";
+  const head = words.slice(0, -1);
+  const out = [];
+  const add = (w) => {
+    if (w.length > 1 && w !== last && !out.includes(w)) out.push(w);
+  };
+  if (IRREGULAR[last]) add(IRREGULAR[last]);
+  if (last.length > 3 && last.endsWith("s") && !last.endsWith("ss")) {
+    add(last.slice(0, -1));
+    if (last.endsWith("es")) add(last.slice(0, -2));
+    if (last.endsWith("ies")) add(`${last.slice(0, -3)}y`);
+    if (last.endsWith("ves")) {
+      add(`${last.slice(0, -3)}f`);
+      add(`${last.slice(0, -3)}fe`);
+    }
+  }
+  if (last.endsWith("men") && last.length > 4) add(`${last.slice(0, -3)}man`);
+  return out.map((w) => [...head, w].join(" "));
 }
 
 /** True when every word of a normalised phrase is in the set. */
@@ -305,9 +394,9 @@ export function matchHeard(index, alternatives, { required = "", used = new Set(
       echo = true;
       continue;
     }
-    const entries = index.byKey.get(alt.key);
-    if (!entries) continue;
-    const sorted = [...entries].sort((a, b) => a.id - b.id);
+    const found = lookup(index, alt.key);
+    if (!found) continue;
+    const sorted = [...found.entries].sort((a, b) => a.id - b.id);
     const listed = sorted.filter(inList);
     if (!listed.length) {
       hardOnly ??= { entry: sorted[0], alt };
@@ -315,7 +404,7 @@ export function matchHeard(index, alternatives, { required = "", used = new Set(
     }
     const fits = listed.filter((e) => !required || firstLetter(said(e)) === required);
     const fresh = fits.find((e) => !isUsed(e));
-    if (fresh) return result(rank === 0 ? "exact" : "alternative", fresh, alt);
+    if (fresh) return result(rank === 0 ? "exact" : "alternative", fresh, alt, found.plural ? { plural: true } : {});
     if (fits.length) usedHit ??= { entry: fits[0], alt };
     else wrongLetter ??= { entry: listed[0], alt };
   }
@@ -358,6 +447,57 @@ export function matchHeard(index, alternatives, { required = "", used = new Set(
   return fail("not-a-city", null);
 }
 
+/**
+ * The entries a whole heard phrase names: the phrase as it is, or, in a category that allows
+ * plurals, the first of its singular forms on the list. Returns {entries, plural} or null.
+ */
+function lookup(index, key) {
+  const direct = index.byKey.get(key);
+  if (direct) return { entries: direct, plural: false };
+  if (!index.category?.plurals) return null;
+  for (const s of singulars(key)) {
+    const entries = index.byKey.get(s);
+    if (entries) return { entries, plural: true };
+  }
+  return null;
+}
+
+/** Fewer entries than this left to start with a letter make it a dead end. */
+export const DEAD_END_BELOW = 3;
+
+/** How many entries in the list (well known, or all in hard mode) start with a letter, not counting those already said. */
+export function entriesLeft(index, letter, used = new Set(), hard = false) {
+  const ids = (hard ? index.startIds.all : index.startIds.known).get(letter);
+  if (!ids) return 0;
+  let n = 0;
+  for (const id of ids) if (!used.has(id)) n++;
+  return n;
+}
+
+/**
+ * The letter the next answer must start with, after `said`: its last letter, unless fewer than
+ * DEAD_END_BELOW entries not yet said start with that letter (a dead end), when the chain goes
+ * on from the letter before it, and so on ("monkey" needs an E among the animals, where only
+ * the yak starts with Y). Returns {letter, skipped}: the letters passed over, last first; letter
+ * is "" (any letter) when every letter of the name is a dead end.
+ */
+export function nextLetter(index, said, { used = new Set(), hard = false } = {}) {
+  const word = letters(said);
+  const skipped = [];
+  for (let i = word.length - 1; i >= 0; i--) {
+    const c = word[i];
+    if (skipped.includes(c)) continue;
+    if (entriesLeft(index, c, used, hard) >= DEAD_END_BELOW) return { letter: c, skipped };
+    skipped.push(c);
+  }
+  return { letter: "", skipped };
+}
+
+/** The letters that are dead ends in a fresh game: fewer than DEAD_END_BELOW entries start with them. */
+export function deadLetters(index, hard = false) {
+  return [..."abcdefghijklmnopqrstuvwxyz"].filter((c) => entriesLeft(index, c, new Set(), hard) < DEAD_END_BELOW);
+}
+
 /** True when some other name in the list (well known, or all in hard mode) starts with this key. */
 export function longerNameStartsWith(index, key, hard = false) {
   const keys = hard ? index.sortedKeys.all : index.sortedKeys.known;
@@ -392,9 +532,10 @@ export function earlyMatch(index, interimTranscripts, opts = {}) {
     return k.length > key.length && k.startsWith(key);
   })) return { ok: false, why: "a longer guess starts with it" };
   const m = matchHeard(index, [{ transcript: key, confidence: 0 }], { ...opts, hard: false });
-  if (!m.ok || m.kind !== "exact") return { ok: false, why: "not exactly a well-known city" };
-  if (m.wordName) return { ok: false, why: "also an ordinary word" };
-  if (longerNameStartsWith(index, key, Boolean(opts.hard))) return { ok: false, why: "a longer city name starts with it" };
+  const one = index.category?.one ?? "city";
+  if (!m.ok || m.kind !== "exact" || m.plural) return { ok: false, why: `not exactly a well-known ${one}` };
+  if (m.wordName && index.category?.wordNames !== false) return { ok: false, why: "also an ordinary word" };
+  if (longerNameStartsWith(index, key, Boolean(opts.hard))) return { ok: false, why: `a longer ${one} name starts with it` };
   return m;
 }
 

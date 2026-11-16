@@ -269,6 +269,11 @@ kbd {
   background: var(--card);
 }
 .switch small { color: var(--muted); font-size: 0.85em; }
+.switch:has(input:disabled) { cursor: default; color: var(--muted); }
+.category { display: grid; gap: 4px; min-width: 0; }
+.category .pick span { font-weight: 600; }
+.category .pick select { font-weight: 600; }
+.dead { padding: 0 4px; font-size: 0.85rem; }
 .mic { display: grid; gap: 4px; }
 .mic .hint { padding: 0 4px; }
 .rules { margin: 0; padding-left: 1.1em; display: grid; gap: 6px; font-size: 0.9rem; color: var(--muted); }
@@ -292,5 +297,16 @@ button:focus-visible, select:focus-visible, input:focus-visible { outline: 3px s
   .need { font-size: 1.15rem; }
   .heard { font-size: 1.6rem; }
   .turn { min-height: 60px; }
-  .play { position: static; }
+  .play { position: static; gap: 8px; }
+  .category .pick { min-height: 44px; padding: 4px 4px 4px 12px; }
+  .category .pick select { min-height: 34px; }
+  /* Room for the turn button on a phone held sideways: no space kept for an appeal not shown. */
+  .appeal-slot:empty { min-height: 0; }
+  .potato { margin: 0; }
+  h1 { font-size: 1.1rem; }
+}
+/* A short phone screen: the category row stays small, so the turn button is in reach. */
+@media (max-height: 600px) {
+  .category .pick { min-height: 48px; padding: 4px 4px 4px 12px; }
+  .category .pick select { min-height: 38px; }
 }

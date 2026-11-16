@@ -97,7 +97,8 @@ async function quietBooks() {
     await sleep(REPORT_EVERY_MS + 5_000);
     const now = await books();
     if (now.dayUsed === seen.dayUsed) return;
-    console.log(`     the books moved by ${(now.dayUsed - seen.dayUsed).toFixed(2)} GB-seconds meanwhile: another room is awake on this server`);
+    // Two significant figures: a room barely awake moves them by thousandths, which toFixed(2) showed as 0.00.
+    console.log(`     the books moved by ${(now.dayUsed - seen.dayUsed).toPrecision(2)} GB-seconds meanwhile: another room is awake on this server`);
     seen = now;
   }
   throw new Error("other rooms keep this server's room budget moving, so what this run's rooms cost cannot be told apart: use a server of its own with an empty persist folder (wrangler dev --persist-to <empty folder>)");
@@ -425,6 +426,9 @@ try {
   await walk(lone, loneWatch, 0, light());
   const loneStart = await loneUntil((v) => v.phase === "playing", 16000);
   const loneFrame = await gameFrame(lone);
+  // Held now, while the frame is surely there: on a slow runner the late screen below can take
+  // the rest of the round to join, and the frame is gone once the round ends.
+  await holdContext(lone);
   const loneSees = await loneFrame.evaluate(() => ({ mine: window.__cab.session.mySeat, stalls: window.__cab.views.length, seats: window.__cab.session.seats.length, rivals: document.getElementById("rivals").hidden, startAt: window.__cab.session.startAt }));
   check(loneStart.game.id === "cork-and-bell" && loneSees.seats === 1, "alone in its light, the count runs and a round starts for the one seat");
   check(loneSees.mine === 0 && loneSees.stalls === 1 && loneSees.rivals, "the party of one has a stall to itself, with no rivals to pick");
@@ -438,7 +442,6 @@ try {
   const lateSees = await lateFrame.evaluate(() => ({ mine: window.__cab.session.mySeat, stalls: window.__cab.views.length, t: window.__cab.session.time(), tally: !document.getElementById("tally").hidden }));
   check(lateSees.mine === -1 && lateSees.stalls === 1 && lateSees.t > -3.5 && lateSees.tally, `a big screen that joins once the round has begun is shown that stall and its score (${lateSees.t < 0 ? "in the count-in" : Math.round(lateSees.t) + " seconds in"})`);
   if (!slow) await shot(late, "59-screen-cork-and-bell-alone");
-  await holdContext(lone);
   console.log("     waiting for the round played alone to end...");
   const loneEnd = await loneUntil((v) => v.phase === "lobby" && v.last?.game === "cork-and-bell", 150000);
   clearInterval(loneWatch.timer);
@@ -533,4 +536,6 @@ try {
   await browser.close();
 }
 console.log(problems.length ? `\n${problems.length} problem(s):\n- ` + problems.join("\n- ") : "\nAll good. Stills are in " + out);
-process.exit(problems.length ? 1 : 0);
+// Exit once everything printed has left: process.exit drops what is still queued for a pipe (the
+// pre-deploy gate reads this output through one), and the list of problems is printed last.
+process.stdout.write("", () => process.stderr.write("", () => process.exit(problems.length ? 1 : 0)));
