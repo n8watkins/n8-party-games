@@ -13,8 +13,10 @@ This repository is three things: the party kit, the party room (the lobby), and 
 
 - [`party-kit/`](party-kit/README.md) - the rooms: PINs, seats, reconnects, bots that take over a dropped seat, and a budget that caps how much hosted time rooms may use. It runs on Cloudflare Workers and Durable Objects. Games take it from here as a dependency.
 - [`lobby/`](lobby/README.md) - the party room: one room where up to four players vote for the next game by standing in its light, play it, and come back with points. A first playable version.
-- [`games.js`](games.js), [`worker.js`](worker.js), [`site/`](site/index.html) and [`scripts/`](scripts/build-public.mjs) - the party site: one Worker that serves a plain front page, the party room and every hosted game beside the kit.
-- [`one-device/`](one-device/hot-potato/README.md) - games played on one phone or browser passed around the group, with no server: Hot Potato, a spoken word chain, at `/one-device/hot-potato/` (not linked from the front page yet).
+- [`games.js`](games.js), [`worker.js`](worker.js), [`site/`](site/index.html) and [`scripts/`](scripts/build-public.mjs) - the party site: one Worker that serves the front page, the party room and every hosted game beside the kit.
+  The front page asks "How do you want to play?" and opens three doors: In the room (the Floor), Round the table (the Table, started at `/table/`) and Pass one device.
+  What it calls playable comes from the production wall (`lobby/wall.js`), which the build copies to `/home-wall.js`; `site/test/home.test.js` keeps the two in step.
+- [`one-device/`](one-device/hot-potato/README.md) - games played on one phone or browser passed around the group, with no server: Hot Potato, a spoken word chain, at `/one-device/hot-potato/`, behind the front page's Pass one device door.
 - [`landing/`](landing/public/index.html) - a new front page that is waiting for approval. Only the local build serves it, at `/preview/landing/`; its pictures are made by the scripts in `landing/tools/`.
 - [`party-kit/GAME-CONTRACT.md`](party-kit/GAME-CONTRACT.md) - what a game must export for the site to host it.
 - [`DEPLOY.md`](DEPLOY.md) - the checklist for every deploy.
@@ -93,6 +95,8 @@ This project is not affiliated with Nick Saraev or endorsed by him.
 The code is under the [MIT License](LICENSE).
 Each game carries its own license and the licenses of what it includes.
 Nick Saraev's prompts, and any wording taken from them, are his and not under the MIT License, including the four prompts in `credits/nick-saraev/` (see [Credit](#credit)).
+
+The front page's two fonts (`site/fonts/`, Baloo 2 and Nunito) are not under the MIT License: they are under the SIL Open Font License 1.1, whose text is beside each of them.
 
 The party room's sounds (`lobby/public/sounds/*.mp3`) are not under the MIT License.
 Every one of them was made from a recording released under Creative Commons Zero (CC0 1.0, public domain).

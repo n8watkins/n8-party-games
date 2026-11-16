@@ -487,8 +487,10 @@ $("joinForm").addEventListener("submit", async (e) => {
 document.addEventListener("click", (e) => {
   const j = e.target.closest("[data-join]");
   if (!j) return;
+  // From the phone's sheet, the sheet closes and focus later goes back to the game's tile.
+  const inSheet = document.body.dataset.sheet === "open" && detail.contains(j);
   closeSheet({ refocus: false });
-  openJoin(j.isConnected ? j : null);
+  openJoin(inSheet ? lastTile : j);
 });
 document.addEventListener("pointerdown", (e) => {
   if (!joinPop.hidden && !joinPop.contains(e.target) && !e.target.closest("#joinOpen, [data-join]")) closeJoin({ refocus: false });
