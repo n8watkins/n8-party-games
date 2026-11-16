@@ -309,7 +309,7 @@ const layoutFaults = (page, turn) =>
       if (el.scrollWidth > el.clientWidth + 1 && getComputedStyle(el).overflow !== "visible") bad.push(`cut short: ${name(el)} (${el.scrollWidth} > ${el.clientWidth})`);
     }
     // Nothing over anything.
-    const parts = [...document.querySelectorAll(`${scope} :is(button, input, .status, .tag, .holder, .up, .after, .heard, .keys, .dead, .lastword .lbl, .need .lbl, .cat, .life, .lifelbl, .fuse, .logo, .lede, .chips, .stepper, .note, .chain, .flabel)`)].filter((el) => shown(el) && getComputedStyle(el).position !== "absolute");
+    const parts = [...document.querySelectorAll(`${scope} :is(button, input, .status, .tag, .holder, .up, .after, .heard, .keys, .dead, .lastword .lbl, .need .lbl, .cat, .life, .lifelbl, .fuse, .logo, .lede, .chips, .stepper, .note, .chain, .flabel)`)].filter((el) => shown(el) && !el.closest(".sr") && getComputedStyle(el).position !== "absolute");
     for (let i = 0; i < parts.length; i++)
       for (let j = i + 1; j < parts.length; j++) {
         if (parts[i].contains(parts[j]) || parts[j].contains(parts[i])) continue;
@@ -325,32 +325,77 @@ const layoutFaults = (page, turn) =>
       const r = el.getBoundingClientRect();
       if (Math.min(r.width, r.height) < 40) bad.push(`small control: ${name(el)} ${Math.round(r.width)}x${Math.round(r.height)}`);
     }
-    // The potato fills its box: the rig is at least half the box's smaller side, and inside it.
-    const pot = document.getElementById("pot").getBoundingClientRect();
-    const rig = document.querySelector('#pot [data-part="tray"], #pot [data-part="base"]') ?? document.querySelector("#pot svg");
-    const rr = rig.getBoundingClientRect();
-    if (rr.width < 0.5 * Math.min(pot.width, pot.height) - 1) bad.push(`the potato is small for its box (${Math.round(rr.width)} in ${Math.round(pot.width)}x${Math.round(pot.height)})`);
-    if (rr.left < pot.left - 1 || rr.right > pot.right + 1 || rr.top < pot.top - 1 || rr.bottom > pot.bottom + 1) bad.push("the potato's tray is outside its box");
+    // The potato is the biggest thing on the screen. His rig's box (all that is drawn: potato,
+    // clamps, antennas, tubes, tray) at the calm stage takes at least: 85% of the width on an
+    // upright phone (where the width is the limit), 48% of the height on a tablet upright and on a
+    // wide screen, and 28% of the height on a phone on its side (the fallback).
+    const drawn = (el) => {
+      for (let a = el; a && a.tagName !== "svg"; a = a.parentElement) {
+        const cs = getComputedStyle(a);
+        if (Number(cs.opacity) < 0.01 || cs.display === "none") return false;
+      }
+      const r = el.getBoundingClientRect();
+      return r.width >= 1 || r.height >= 1;
+    };
+    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+    for (const el of document.querySelectorAll("#pot [data-part]")) {
+      if (el.tagName === "g" || el.closest('[data-part="boom"]') || !drawn(el)) continue;
+      const r = el.getBoundingClientRect();
+      x0 = Math.min(x0, r.left); y0 = Math.min(y0, r.top); x1 = Math.max(x1, r.right); y1 = Math.max(y1, r.bottom);
+    }
+    const layout = W < H ? (W < 600 ? "phone" : "tablet") : H < 500 ? "sideways" : "wide";
+    const rig = { w: (x1 - x0) / W, h: (y1 - y0) / H, layout };
+    const g = window.__hotPotato.round();
+    if (turn && !paused && g && g.stage === 0) {
+      // (A tall portrait screen is limited by its width, as a phone is: the full width then does.)
+      const want = { phone: 0.85, tablet: 0.48, wide: 0.48, sideways: 0.28 }[layout];
+      const ok = layout === "phone" ? rig.w >= want : rig.h >= want || (layout === "tablet" && rig.w >= 0.85);
+      if (!ok) bad.push(`the potato is small for the screen (rig ${Math.round(rig.w * 100)}% of the width, ${Math.round(rig.h * 100)}% of the height on a ${layout})`);
+    }
+    // He himself (body, face, sprouts), the bulbs and the tray's lights stay on screen at every
+    // stage; only the rig's outer parts (tubes, clamp ends, tray corners) may run off the sides.
+    for (const el of document.querySelectorAll('#pot [data-part="spud"] [data-part], #pot [data-part^="bulb"], #pot [data-part^="light"]')) {
+      if (el.tagName === "g" || !drawn(el)) continue;
+      const r = el.getBoundingClientRect();
+      if (r.left < -1 || r.top < -1 || r.right > W + 1 || r.bottom > H + 1) bad.push(`off the screen: ${el.dataset.part}`);
+    }
     const size = (el) => (el && shown(el) ? parseFloat(getComputedStyle(el).fontSize) : 0);
-    const out = { letter: 0, word: 0 };
+    const out = { word: 0, rig };
     if (turn && !paused) {
-      const letter = document.querySelector("#g-tag:not(.any) #g-letter");
-      out.letter = size(letter);
+      // The word to follow is the biggest text in the strip and readable: at least 6% of the
+      // screen's shorter side and 24 px.
       out.word = size(document.getElementById("g-after"));
-      // The last word and the next letter are the biggest words on the screen, the letter above all.
-      const others = [...document.querySelectorAll(".gi :is(.holder, .holder b, .up, .up b, .cat, .lbl, .status, .heard, .cap-t, .lifelbl, .dead, .keys, button, input)")].filter(shown);
-      const biggest = Math.max(...others.map(size));
-      if (letter && out.letter <= Math.max(biggest, out.word)) bad.push(`the letter (${out.letter}px) is not the biggest (others up to ${Math.max(biggest, out.word)}px)`);
-      if (out.word && out.word < biggest) bad.push(`the last word (${out.word}px) is smaller than other text (${biggest}px)`);
-      // Big for the screen: the letter at least 16% of the shorter side (22% where there is room),
-      // the last word at least 7%.
-      const short = Math.min(W, H);
-      const room = Math.min(W, H) >= 600;
-      if (letter && out.letter < short * (room ? 0.22 : 0.16)) bad.push(`the letter is small for the screen (${out.letter}px on ${W}x${H})`);
-      if (out.word && out.word < short * 0.07) bad.push(`the last word is small for the screen (${out.word}px on ${W}x${H})`);
+      const others = [...document.querySelectorAll(".bot :is(.up, .up b, .status, .heard, .cap-t, .dead, .keys, button, input)")].filter(shown);
+      const biggest = Math.max(0, ...others.map(size));
+      if (out.word && out.word < biggest) bad.push(`the word (${out.word}px) is smaller than other text in the strip (${biggest}px)`);
+      if (out.word && out.word < Math.max(24, Math.min(W, H) * 0.06)) bad.push(`the word is small for the screen (${out.word}px on ${W}x${H})`);
     }
     return { bad, ...out };
   }, turn);
+
+/**
+ * In a normal listening turn the strip holds only its three things (whose turn, the microphone, the
+ * word to follow, with what is heard in its reserved line and the keys where there is a keyboard),
+ * and there is no way to type: no typing control shown, focusable or in the accessibility tree.
+ */
+const onlyThree = async (page) => {
+  const extra = await page.evaluate(() =>
+    [...document.querySelectorAll(".bot-turn *")]
+      .filter((el) => el.getClientRects().length && !el.closest(".sr") && getComputedStyle(el).visibility !== "hidden")
+      .filter((el) => !el.matches(".ask") && !el.closest(".up, .spot, .lastword, .heard, .keys, .status.quiet, .say"))
+      .map((el) => el.id || el.className),
+  );
+  const typing = await page.evaluate(() => ({
+    type: Boolean(document.getElementById("g-type")),
+    box: (() => {
+      const el = document.getElementById("g-word");
+      el.focus();
+      return document.activeElement === el || el.getClientRects().length > 0;
+    })(),
+  }));
+  const tree = await page.locator("body").ariaSnapshot();
+  return { extra, typing: typing.type || typing.box || /textbox|Your word/i.test(tree) };
+};
 
 const PHONES = ["320x568", "360x640", "390x844", "430x932", "568x320", "667x375", "844x390", "932x430", "768x1024", "1024x768", "820x1180"];
 const DESKTOPS = ["1280x720", "1366x768", "1440x900", "1920x1080", "2560x1080", "1080x1920"];
@@ -373,13 +418,15 @@ for (const [kind, sizes] of [["touch", PHONES], ["desktop", DESKTOPS]]) {
   /** Walks every size on the screen as it is now and checks it. */
   const walk = async (what, turn = true) => {
     const keep = await round(page);
+    const t0 = Date.now();
     for (const s of sizes) {
       await page.setViewportSize(dims(s));
       await page.evaluate(() => new Promise((ok) => requestAnimationFrame(() => requestAnimationFrame(ok))));
-      const { bad, letter, word } = await layoutFaults(page, turn);
+      const { bad, word, rig } = await layoutFaults(page, turn);
       check(bad.length === 0, `${s} ${what}: fits ${bad.slice(0, 4).join(" | ")}`);
-      if (turn && letter) (sizes_[s] ??= []).push(`${what} letter ${letter} word ${word}`);
+      (sizes_[s] ??= []).push(`${what}: rig ${Math.round(rig.w * 100)}% w ${Math.round(rig.h * 100)}% h${word ? `, word ${Math.round(word)}px` : ""}`);
     }
+    if (Date.now() - t0 > 4000) console.log(`     (the ${what} walk took ${Date.now() - t0} ms)`);
     const now = await round(page);
     if (keep) check(now.phase === keep.phase && now.turns === keep.turns && now.stage === keep.stage && now.holder === keep.holder, `${kind} ${what}: resizing does not touch the round (${keep.phase} turn ${keep.turns}, then ${now.phase} turn ${now.turns})`);
     await page.setViewportSize(first);
@@ -392,6 +439,8 @@ for (const [kind, sizes] of [["touch", PHONES], ["desktop", DESKTOPS]]) {
   await page.click("#g-go");
   await page.waitForFunction(() => /Los/.test(document.getElementById("g-heard").textContent));
   const fuseBefore = (await round(page)).fuse;
+  const three = await onlyThree(page);
+  check(three.extra.length === 0 && !three.typing, `${kind}: listening, the strip holds only whose turn, the microphone and the word (and what is heard), with no way to type (${three.extra.join(", ")}${three.typing ? " a typing control" : ""})`);
   await walk("listening");
   const fuseAfter = await round(page);
   check(fuseAfter.phase === "listen" && fuseAfter.lit && fuseAfter.fuse < fuseBefore, `${kind}: through every resize the turn kept listening and the fuse kept burning (${Math.round(fuseBefore)} then ${Math.round(fuseAfter.fuse)} ms)`);
@@ -401,41 +450,33 @@ for (const [kind, sizes] of [["touch", PHONES], ["desktop", DESKTOPS]]) {
   await page.waitForFunction(() => !document.getElementById("game").dataset.react, null, { timeout: 5000 });
   check(await page.isVisible("#g-appeal"), `${kind}: the refusal offers its appeal`);
   await walk("verdict");
-  // A typed turn.
-  await waitReady(page);
-  await page.click("#g-go");
-  await page.waitForSelector("#g-type:not([hidden])");
-  await page.click("#g-type");
-  await page.fill("#g-word", "Lisbon");
-  await walk("typed");
   await page.keyboard.press("Escape");
   await page.waitForSelector("#g-paused:not([hidden])");
   await walk("paused");
   await page.click("#p-resume");
-  await page.keyboard.press("Enter");
-  await waitPhase(page, "ready");
-  // The last stage, listening.
-  while ((await round(page)).stage < 4) {
-    await waitReady(page);
-    await page.click("#g-go");
-    await page.waitForSelector("#g-typed:not([hidden])");
-    await page.fill("#g-word", "table");
-    await page.keyboard.press("Enter");
-    await page.waitForFunction(() => window.__hotPotato.round().phase !== "listen");
-  }
+  // The last stage, listening (its fuse is 6 seconds: the walk takes about two).
+  while ((await round(page)).stage < 4) await say(page, word("table"));
   await waitReady(page);
+  await page.evaluate(() => window.__turns.push([[200, "interim", "Mad"], [8000, "final", [["Zzzz", 0.9]]]]));
   await page.click("#g-go");
-  await page.waitForSelector("#g-typed:not([hidden])");
+  await page.waitForFunction(() => window.__hotPotato.round().lit);
+  await page.waitForTimeout(1200);
   await walk("last stage");
-  await page.fill("#g-word", "zzzz");
-  await page.keyboard.press("Enter");
-  await waitPhase(page, "doom");
+  await waitPhase(page, "doom", 15000);
   await waitPhase(page, "burst", 5000);
   await page.waitForTimeout(900);
   await walk("burst", false);
   await waitPhase(page, "over", 6000);
   await page.waitForTimeout(1500);
   await walk("end", false);
+  // Where listening cannot work (here the microphone is refused): a typed turn.
+  await page.click("#e-again");
+  await waitReady(page);
+  await page.evaluate(() => window.__turns.push([[30, "error", "not-allowed"]]));
+  await page.click("#g-go");
+  await page.waitForSelector("#g-typed:not([hidden])");
+  await page.fill("#g-word", "Lisbon");
+  await walk("typed");
   for (const [s, list] of Object.entries(sizes_)) console.log(`     ${s}: ${list.join("; ")}`);
   check(errors.length === 0, `${kind} layout walk: no console errors ${errors.join(" | ")}`);
   await context.close();
@@ -456,17 +497,19 @@ for (const [kind, from, to] of [["phone turned", "390x844", "844x390"], ["phone 
   const starts = await page.evaluate(() => window.__starts);
   await page.setViewportSize(dims(to));
   await page.evaluate(() => new Promise((ok) => requestAnimationFrame(() => requestAnimationFrame(ok))));
+  // The drawing's scale follows its new box: his frame (253 by 278 units, style.css) as large as fits.
   const fit = await page.evaluate(() => {
     const pot = document.getElementById("pot").getBoundingClientRect();
     const svg = document.querySelector("#pot svg").getBoundingClientRect();
-    return { pot: [pot.width, pot.height], svg: [svg.width, svg.height], inside: svg.left >= pot.left - 1 && svg.right <= pot.right + 1 && svg.top >= pot.top - 1 && svg.bottom <= pot.bottom + 1 };
+    const s = Math.min((pot.width - 4) / 253, (pot.height - 4) / 278);
+    return { pot: [pot.width, pot.height], svg: [svg.width, svg.height], want: 292 * s };
   });
   const { bad } = await layoutFaults(page, true);
   await page.waitForTimeout(400);
   const b = await round(page);
   check(b.phase === "listen" && b.turns === a.turns && b.lit && b.fuse < a.fuse && (await page.evaluate(() => window.__starts)) === starts, `${kind} (${from} to ${to}) mid-turn: still the same listening turn, the fuse still burning (${Math.round(a.fuse)} then ${Math.round(b.fuse)} ms), listening not restarted`);
   // (layoutFaults also checks that the drawing fills its new box.)
-  check(fit.inside && Math.abs(fit.svg[1] - fit.pot[1]) < 2, `${kind}: the potato refits its new box (${fit.svg.map(Math.round).join("x")} in ${fit.pot.map(Math.round).join("x")})`);
+  check(Math.abs(fit.svg[1] - fit.want) < 2, `${kind}: the potato refits its new box (${fit.svg.map(Math.round).join("x")}, want ${Math.round(fit.want)} high, in ${fit.pot.map(Math.round).join("x")})`);
   check(bad.length === 0, `${kind}: the new layout fits ${bad.slice(0, 4).join(" | ")}`);
   await page.waitForFunction(() => window.__hotPotato.round().phase !== "listen", null, { timeout: 15000 });
   check((await round(page)).chain.includes("elephant"), `${kind}: the word said across the change counts`);
@@ -610,7 +653,7 @@ for (const [name, viewport] of SIZES) {
     const out = { screen: [], spud: [], boxes: new Set() };
     for (let i = 0; i < 24; i++) {
       await new Promise((ok) => requestAnimationFrame(ok));
-      for (const sel of [".game", ".gi", ".top", ".bot", ".pot", "#pot svg", ".head", ".bar", ".ask", ".tag"]) {
+      for (const sel of [".game", ".gi", ".top", ".bot", ".pot", "#pot svg", ".up", ".bar", ".ask", ".tag"]) {
         const el = document.querySelector(sel);
         const r = el.getBoundingClientRect();
         // Its place, size and transform (the slanted type keeps its fixed slant) never change.
@@ -793,6 +836,18 @@ for (const [name, viewport] of SIZES) {
   await waitPhase(page, "ready");
   r = await round(page);
   check(!r.last.ok && !(await page.isVisible("#g-appeal")) && r.chain.join("|") === "Paris", `"???" is refused with no appeal, and the chain keeps only real words (${r.chain.join(", ")})`);
+  // The round can be finished by typing alone.
+  const typeMiss = async () => {
+    await waitReady(page);
+    await page.tap("#g-go");
+    await page.waitForSelector("#g-typed:not([hidden])");
+    await page.fill("#g-word", "table");
+    await page.keyboard.press("Enter");
+    await page.waitForFunction(() => window.__hotPotato.round().phase !== "listen");
+  };
+  while ((await round(page)).phase === "ready") await typeMiss();
+  await waitPhase(page, "over", 10000);
+  check((await page.getAttribute("#game", "data-screen")) === "end", "a whole round is played to the end by typing");
   check(errors.length === 0, `typed: no console errors ${errors.join(" | ")}`);
   await context.close();
 }
@@ -810,6 +865,21 @@ for (const [name, viewport] of SIZES) {
   await page.keyboard.press("Enter");
   await waitPhase(page, "ready");
   check((await round(page)).last.ok, "and the typed word counts");
+  // The rest of the round is typed, without asking for the microphone again, to the end.
+  const starts = await page.evaluate(() => window.__starts);
+  while ((await round(page)).phase === "ready") {
+    await waitReady(page);
+    await page.tap("#g-go");
+    await page.waitForSelector("#g-typed:not([hidden])");
+    await page.fill("#g-word", "table");
+    await page.keyboard.press("Enter");
+    await page.waitForFunction(() => window.__hotPotato.round().phase !== "listen");
+  }
+  await waitPhase(page, "over", 10000);
+  check((await page.evaluate(() => window.__starts)) === starts, "a blocked microphone: the round is finished by typing, and listening is not tried again in it");
+  await page.click("#e-setup");
+  await page.click("#s-start");
+  await waitReady(page);
   await page.click("#g-pause");
   await page.click("#p-quit");
   check(/microphone is blocked/.test(await page.textContent("#s-note")), "the start screen says the microphone is blocked, and how to allow it");
@@ -817,21 +887,23 @@ for (const [name, viewport] of SIZES) {
   await context.close();
 }
 
-// 7. "Type it instead" while listening, storage refused, and reduced motion.
+// 7. Listening that fails (no connection to the speech service): typing takes over; with storage
+//    refused and reduced motion.
 {
   const { context, page, errors } = await open({ width: 390, height: 844 }, [fake, noStorage], { reducedMotion: "reduce" });
   await start(page, "food", 2);
   await waitReady(page);
+  await page.evaluate(() => window.__turns.push([[30, "error", "network"]]));
   await page.tap("#g-go");
-  await page.waitForSelector("#g-type:not([hidden])");
-  await page.tap("#g-type");
+  await page.waitForSelector("#g-typed:not([hidden])");
+  check(await page.evaluate(() => document.activeElement?.id === "g-word"), "listening failed: the word box appears by itself and has the keyboard");
   await page.fill("#g-word", "tomatoes");
   await page.keyboard.press("Enter");
   await waitPhase(page, "ready");
   const r = await round(page);
-  check(r.last.ok && r.need === "o", "Type it instead: tomatoes typed is a tomato, next an O");
+  check(r.last.ok && r.need === "o", "typed tomatoes is a tomato, next an O");
   check(r.chain.length === 1, "storage refused: the game still plays");
-  // Typing stays chosen for the rest of this round.
+  // Typing stays for the rest of this round.
   for (let i = 0; i < 3; i++) {
     await waitReady(page);
     await page.tap("#g-go");
@@ -1000,14 +1072,17 @@ for (const [w, h] of [[568, 320], [667, 375], [740, 340], [844, 390]]) {
   await context.close();
 }
 
-// 13. The burst and the last stage stay inside the screen, and the flash is a light one.
-for (const viewport of [{ width: 390, height: 844 }, { width: 568, height: 320 }, { width: 844, height: 390 }]) {
+// 13. At the last stage and through the burst, he stays inside the screen, and the flash is a light
+//     one. He is framed big (style.css): he himself (body, face, sprouts), the bulbs, the tray's
+//     lights and the burst's splat must stay on screen; the rig's outer parts (tubes, clamp ends,
+//     tray corners) and the flying chunks may run off the sides.
+for (const viewport of [{ width: 390, height: 844 }, { width: 320, height: 568 }, { width: 568, height: 320 }, { width: 844, height: 390 }, { width: 1280, height: 720 }]) {
   const name = `${viewport.width}x${viewport.height}`;
   const { context, page, errors } = await open(viewport);
   await start(page, "cities", 2);
-  for (let i = 0; i < 4; i++) await say(page, word("table"), "tap");
+  for (let i = 0; i < 4; i++) await say(page, word("table"), viewport.width < 600 || viewport.height < 500 ? "tap" : "click");
   await still(page, `${name}-stage-4`);
-  /** Every drawn part of the potato and its rig, outside the screen, over a second of frames. */
+  /** Every drawn part of him (and the splat), outside the screen, over a second of frames. */
   const outside = () =>
     page.evaluate(async () => {
       const out = new Set();
@@ -1015,7 +1090,7 @@ for (const viewport of [{ width: 390, height: 844 }, { width: 568, height: 320 }
       for (let i = 0; i < 60; i++) {
         await new Promise((ok) => requestAnimationFrame(ok));
         flash = Math.max(flash, Number(getComputedStyle(document.querySelector(".ground .flash")).opacity));
-        for (const el of document.querySelectorAll("#pot [data-part]")) {
+        for (const el of document.querySelectorAll('#pot [data-part="spud"] [data-part], #pot [data-part^="bulb"], #pot [data-part^="alarm"], #pot [data-part^="light"], #pot [data-part="splat"] [data-part]')) {
           if (el.closest('[opacity="0"]') || el.tagName === "g" || el.tagName === "text") continue;
           const r = el.getBoundingClientRect();
           if (!r.width && !r.height) continue;
@@ -1026,16 +1101,16 @@ for (const viewport of [{ width: 390, height: 844 }, { width: 568, height: 320 }
     });
   // The last stage, its most stressed: listening with the fuse half gone.
   await waitReady(page);
-  await page.tap("#g-go");
+  await page.click("#g-go");
   await page.waitForFunction(() => window.__hotPotato.round().lit);
   await page.waitForTimeout(3000);
   const stressed = await outside();
-  check(stressed.out.length === 0, `${name}: at the last stage, shaking, every part of the potato and its rig is inside the screen ${stressed.out.slice(0, 4).join(" | ")}`);
+  check(stressed.out.length === 0, `${name}: at the last stage, shaking, he (body, face, sprouts), the bulbs and the tray's lights are inside the screen ${stressed.out.slice(0, 4).join(" | ")}`);
   await page.evaluate(() => window.__turns.push([[100, "final", [["Zzzz", 0.9]]]]));
   await waitPhase(page, "doom", 15000).catch(() => {});
   await waitPhase(page, "burst", 15000);
   const burst = await outside();
-  check(burst.out.length === 0, `${name}: through the burst, the clamps, the splat and the chunks stay inside the screen ${burst.out.slice(0, 4).join(" | ")}`);
+  check(burst.out.length === 0, `${name}: through the burst, the splat stays inside the screen ${burst.out.slice(0, 4).join(" | ")}`);
   check(burst.flash <= 0.45, `${name}: the burst's flash is a light one, never a blank screen (at most ${burst.flash.toFixed(2)} white)`);
   check(errors.length === 0, `${name} burst: no console errors ${errors.join(" | ")}`);
   await context.close();
