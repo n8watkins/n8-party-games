@@ -21,12 +21,13 @@ import { chosenLook, hardware3D, openRoomView, preferFlat } from "./room-view.js
 import { ScreenFit, allowUpright, fitVisible } from "./screen-fit.js";
 import { SlowWatch } from "./slow-room.js";
 import { IMPACT_MS } from "./shared/bump.js";
-import { camera } from "./shared/camera.js";
+import { FRAME, PHONE_FRAME, camera } from "./shared/camera.js";
+import { clearOfCard, tagsTop } from "./card-clear.js";
 import { Pilot } from "./shared/pilot.js";
 import { isRoom, roomName } from "./shared/rooms.js";
 import { stageKey, stageStale } from "./shared/stage.js";
 import { playerLine, statusLine } from "./shared/status.js";
-import { posAt } from "./shared/world.js";
+import { JUMP_HEIGHT, posAt } from "./shared/world.js";
 
 const params = new URLSearchParams(location.search);
 const app = document.getElementById("app");
@@ -128,7 +129,7 @@ function teardown() {
   door = null;
   stage?.unmount();
   stage = null;
-  app.classList.remove("in-game");
+  app.classList.remove("in-game", "staged");
   document.documentElement.classList.remove("upright");
   for (const part of [menu, count, step, touch, fit, roomSounds]) part?.destroy();
   menu = count = step = touch = fit = roomSounds = null;
@@ -365,7 +366,7 @@ function boardLine(now) {
   const line = playerLine(room, live, link.you.seat, closingLeft);
   // While players are chosen on spots a light is not a vote: the line says which player this is.
   if (room.phase === "settings" && room.choosing?.spots) return `${line.voted ? `You play as ${line.vote}` : "You are not on a spot"}. ${line.rest}.`;
-  return `Your vote: ${line.vote}. ${line.rest}.`;
+  return `${line.label}: ${line.vote}. ${line.rest}.`;
 }
 
 // ---------------------------------------------------------------- what the room says
@@ -625,7 +626,9 @@ function startStage(snapshot) {
       if (mine.gone || !module?.mount) return;
       stageBox.hidden = false;
       mine.view = module.mount(stageBox, ctx);
-      // A view that covers everything: the room's bars are put away and the room is not drawn under it.
+      // Any view of a game: the room's bar and its buttons do nothing for the game, so they make
+      // way for it. A view that covers everything: the room is not drawn under it either.
+      app.classList.add("staged");
       app.classList.toggle("in-game", !!mine.view.full);
       for (const [method, args] of mine.waiting.splice(0)) mine.view[method](...args);
     })
@@ -635,7 +638,7 @@ function startStage(snapshot) {
 function endStage() {
   stage?.unmount();
   stage = null;
-  app.classList.remove("in-game");
+  app.classList.remove("in-game", "staged");
   if (stageBox) stageBox.hidden = true;
   if (document.documentElement.classList.contains("upright")) allowUpright(false);
 }
@@ -816,7 +819,12 @@ function frame(t) {
   focus += (mine - focus) * Math.min(1, dt * 7);
   // While a count or a coin toss is on, a phone pulls back to the whole room: that is where it happens.
   const drama = room.phase === "lobby" && (room.vote.count || room.vote.toss);
-  const aim = camera({ w: innerWidth, h: innerHeight, bar: hud.barHeight(), mode: isPlayer() && !drama ? zoom : "room", focusX: focus, phone: phone(), boxes: room.boxes.length });
+  const bar = hud.barHeight();
+  let aim = camera({ w: innerWidth, h: innerHeight, bar, mode: isPlayer() && !drama ? zoom : "room", focusX: focus, phone: phone(), boxes: room.boxes.length });
+  // While the spot card lies over the top of a phone's screen, the room is framed so that no name
+  // tag, stacked or mid-jump, goes under it (card-clear.js).
+  const cardBottom = phone() ? step?.cardBottom() : null;
+  if (cardBottom != null && view) aim = clearOfCard(aim, { cardBottom, top: drawnTagsTop(), w: innerWidth, h: innerHeight, bar, jump: JUMP_HEIGHT, bottom: PHONE_FRAME.bottom, room: FRAME });
   // The view glides from one framing to the next, except when the window itself changes shape.
   const size = `${innerWidth}x${innerHeight}`;
   if (!view || size !== viewSize) view = aim;
@@ -839,6 +847,18 @@ function frame(t) {
   }
   countLeft = left ?? Infinity;
   roomSounds?.frame(piecesNow(now), room.boxes.length, now);
+}
+
+/** The highest any piece's name tag can be, in world units, from the tags as last drawn (card-clear.js). */
+function drawnTagsTop() {
+  const tags = [];
+  for (const p of scene?.pieces?.values() ?? []) {
+    const el = p.tag?.el ?? p.tag;
+    if (!el?.getBoundingClientRect || p.leaving) continue;
+    const r = el.getBoundingClientRect();
+    tags.push({ top: r.top, height: r.height, up: p.up ?? 0 });
+  }
+  return tagsTop(tags, { y: view.y, scale: innerWidth / view.width });
 }
 
 /** When the count last ran out, and how much it had left a frame ago. */

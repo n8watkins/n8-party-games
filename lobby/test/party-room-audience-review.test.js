@@ -198,14 +198,14 @@ describe("what the pages say during a spot step", () => {
       { place: "soon-0", seat: 1 },
     ]);
     const vote = stepVote({ 0: "turns", 1: "soon-0", 2: null, 3: null });
-    expect(playerLine(room, vote, 1)).toEqual({ vote: "Player 2", voted: true, rest: "Ann starts the game" });
-    expect(playerLine(room, vote, 0)).toEqual({ vote: "Player 1", voted: true, rest: "You start the game" });
-    expect(playerLine(room, vote, 2)).toMatchObject({ vote: "Not yet", voted: false });
+    expect(playerLine(room, vote, 1)).toEqual({ label: "You are", vote: "Player 2", voted: true, rest: "Ann starts the game" });
+    expect(playerLine(room, vote, 0)).toEqual({ label: "You are", vote: "Player 1", voted: true, rest: "You start the game" });
+    expect(playerLine(room, vote, 2)).toMatchObject({ label: "You are", vote: "watching", voted: false });
     // Standing in a spot someone else holds is not playing.
-    expect(playerLine(room, stepVote({ 0: "turns", 1: "soon-0", 2: "soon-0" }), 2)).toMatchObject({ vote: "Not yet", voted: false });
+    expect(playerLine(room, stepVote({ 0: "turns", 1: "soon-0", 2: "soon-0" }), 2)).toMatchObject({ vote: "watching", voted: false });
     expect(statusLine(room, vote)).toEqual({ chip: "WHO PLAYS", main: "Stand in a lit spot to play Who Am I?", sub: "Ann starts it once every spot is taken.", waiting: [] });
-    // With settings as well, the big screen still says settings are being chosen.
-    expect(statusLine(stepRoom(room.choosing.spots, [{ key: "pace", label: "Pace", options: [] }]), vote).main).toBe("Choosing settings for Who Am I?");
+    // With settings as well, the big screen still says how to take a spot first, and who chooses the settings.
+    expect(statusLine(stepRoom(room.choosing.spots, [{ key: "pace", label: "Pace", options: [] }]), vote)).toEqual({ chip: "WHO PLAYS", main: "Stand in a lit spot to play Who Am I?", sub: "Ann is choosing the settings.", waiting: [] });
   });
 
   it("says on the card that an open spot sends everyone back when time runs out, and leaves an open select alone when only the spots change", async () => {
@@ -215,7 +215,7 @@ describe("what the pages say during a spot step", () => {
       { place: "soon-0", seat: null },
     ]).choosing;
     const full = { ...open, spots: [{ place: "turns", seat: 0 }, { place: "soon-0", seat: 3 }] };
-    expect(timeLine("Ann is choosing.", open.spots, 90_000)).toBe("Ann is choosing. Back to the room in 1:30 unless every spot is taken.");
+    expect(timeLine("Ann is choosing.", open.spots, 90_000)).toBe("Ann is choosing. Back to the room in 1:30 if a spot is still open.");
     expect(timeLine("Ann is choosing.", full.spots, 90_000)).toBe("Ann is choosing. Starts by itself in 1:30.");
     expect(timeLine("Ann is choosing.", null, 5_000)).toBe("Ann is choosing. Starts by itself in 0:05.");
     // Who stands on the spots is not part of what rebuilds the card.

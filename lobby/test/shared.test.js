@@ -322,8 +322,8 @@ describe("the words under the room", () => {
   });
 
   it("tells a player their own vote and who everyone is waiting for", () => {
-    expect(playerLine(base, vote({ standing: { 0: "coin-flip", 1: null }, waiting: [1] }), 0)).toEqual({ vote: "Coin Flip", voted: true, rest: "Waiting for Tom" });
-    expect(playerLine(base, vote({ standing: { 0: "coin-flip", 1: null }, waiting: [1] }), 1)).toEqual({ vote: "Not yet", voted: false, rest: "Everyone is waiting for you" });
+    expect(playerLine(base, vote({ standing: { 0: "coin-flip", 1: null }, waiting: [1] }), 0)).toEqual({ label: "Your vote", vote: "Coin Flip", voted: true, rest: "Waiting for Tom" });
+    expect(playerLine(base, vote({ standing: { 0: "coin-flip", 1: null }, waiting: [1] }), 1)).toEqual({ label: "Your vote", vote: "Not yet", voted: false, rest: "Everyone is waiting for you" });
     expect(playerLine(base, vote(), 0).rest).toBe("2 here, phones only");
     expect(playerLine({ ...base, screens: 1 }, vote({ leaders: ["coin-flip"], count: { endsIn: 2500 } }), 0).rest).toBe("Coin Flip starts in 3");
   });
@@ -334,6 +334,18 @@ describe("the words under the room", () => {
     expect(statusLine(choosing(-1), vote()).sub).toBe("The room's screen is choosing.");
     expect(playerLine(choosing(0), vote(), 0).rest).toBe("You choose the settings");
     expect(playerLine(choosing(0), vote(), 1).rest).toBe("Mabel is choosing settings");
+  });
+
+  it("says nothing about votes once the vote is over: the game being set up, then the one being played", () => {
+    const choosing = { ...base, phase: "settings", choosing: { id: "who-am-i", name: "Who Am I?", by: 0, fields: [], picks: {}, seats: [0, 1], endsIn: 60_000, of: 90_000 } };
+    // The vote from before the step still stands in the room view: it is not shown.
+    const old = vote({ standing: { 0: "coin-flip", 1: null } });
+    expect(playerLine(choosing, old, 1)).toMatchObject({ label: "Up next", vote: "Who Am I?", voted: true });
+    const playing = { ...base, phase: "playing", game: { id: "turns", name: "Turn Test", seats: [0], audience: true } };
+    expect(playerLine(playing, old, 0)).toEqual({ label: "Now", vote: "Turn Test", voted: true, rest: "2 here, phones only" });
+    expect(playerLine(playing, old, 1)).toEqual({ label: "Now", vote: "Turn Test", voted: true, rest: "You are watching" });
+    // A game with no audience: everyone in the room is in it.
+    expect(playerLine({ ...playing, game: { id: "cork-and-bell", name: "Cork & Bell" } }, old, 1)).toMatchObject({ label: "Now", vote: "Cork & Bell" });
   });
 });
 
