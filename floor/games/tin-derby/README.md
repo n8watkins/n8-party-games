@@ -1,10 +1,10 @@
-# Tin Derby: the race rules
+# Tin Derby
 
 Wind-up tin cars race two laps round a breakfast table.
 Up to four players, each on their own phone, in the party room's Floor; house cars fill the empty seats and take over a phone that drops.
 
-This folder is the part with no taste in it: the rules a party room runs, the one data file of numbers, the house cars' driver, and the tests.
-There is no page here yet, and the game is not on the wall or in `games.js`.
+This folder holds the rules a party room runs, the one data file of numbers, the house cars' driver, the page that shows a race in the party room, and the tests.
+It hangs on the Floor's wall (`games.js`, `lobby/wall.js`) in the place its coming-soon box had.
 
 | File | What it is |
 | --- | --- |
@@ -15,8 +15,9 @@ There is no page here yet, and the game is not on the wall or in `games.js`.
 | `shared/house.js` | The house cars' driver |
 | `shared/dmath.js` | sin, cos, atan2 built from exact operations only |
 | `shared/replica.js` | A page's copy of the race: feed it snapshots and events, ask it for the race now |
-| `tools/` | Scripted players, whole races, a made-up network, the measurements, the parity check against the preview |
-| `test/` | 130 tests: every rule, whole races, balance, determinism, the room, a short smoke |
+| `page/` | The page a party room shows (below, "In the party room") |
+| `tools/` | Scripted players, whole races, a made-up network, the measurements, the parity check against the preview, the cost in workerd |
+| `test/` | 134 unit tests: every rule, whole races, balance, determinism, the room, the party room's own rules, a short smoke; and `e2e-room.mjs`, races in the real party room with real browsers |
 
 ## The structure, and why
 
@@ -143,6 +144,45 @@ The kettle, the toaster, the egg, the syrup and the lazy Susan are not in the sn
 - `app.js`: its local race (`game.create`, `game.input`, `game.tick`) becomes the replica. Events come from `replica.events(list)` instead of `game.tick`. `state.auto[seat]` is `car.auto`. Its solo and attract races can keep running the rules locally: `rules.createRace({ seats, delay: 0, endless })`, `rules.takeInput`, `rules.advance(state, rules.stepOf(state, now))`, events in `state.ev`.
 - `spillAt(u, lat, state)` is now `spillAt(u, lat, tau)` with `tau = state.n / 120`.
 
+## In the party room
+
+The party room mounts `page/party-view.js` (the manifest's `lobby.view`) when the vote's count ends.
+As Cork & Bell does, it puts the race page (`page/index.html`) in a frame of the same origin, so taking it away frees everything: listeners, timers, sound and the WebGL context.
+The page finds the room's `you`, `snapshot`, `send` and `now` on its frame element (`frameElement.partyHost`) and keeps a replica of the race (`page/main.js`).
+
+- **A player's phone** shows its own car from behind with round five's chase camera, strip, spring, thumbs (slide to steer, it goes by itself, Brake, Drift, Use) and keys.
+  Its own inputs go into the replica at once (`replica.predict(now)`), so steering answers before the room has heard it.
+- **The big screen** shows the whole table with round five's wide camera (close shots of a fall and the winner), a name over each car and a strip along the bottom: the leader's lap, every car along the line, and the places.
+- **Anyone else** (a phone that joined in the middle of a race) watches the big screen's picture and is told it races in the next one.
+- **The count-in** is the 3, 2, 1 and GO of the race itself (three seconds); a page that comes up later joins the race where it is.
+- **The end**: once every player is home (and the house cars have had their few seconds) the room ends the game, puts the places on the Tonight board and shows its card; the page is taken away.
+- **A dropped phone**: the room's `bot` hands its car to the house (the car paces itself), and back when the phone returns; the returning page starts its replica again from the full snapshot the room sends it, and says "the house is driving your car" meanwhile.
+- **A reload** comes back to the same car from the room's full snapshot.
+- **Kept honest**: at every snapshot that is of the same step as its replica (once a second), the page compares the two by `rules.fingerprint`; on any difference, or when the numbered events show it missed one, it starts again from the snapshot.
+  A page more than two seconds behind the room's clock (it was asleep) draws the room's word and waits for the next snapshot rather than running the race forward in one frame.
+- **Round five's files**: `art.js`, `table.js` and `sound.js` as they were; `view.js` with the drift renames and `me` (whose warning rings grow with distance); each with an import line from `env.js` and an export line.
+  three.js is round five's 0.149.0, served from `page/vendor/`, since the site's Content-Security-Policy allows scripts from the site only; for the same reason the page's fonts fall back to the system's (Arial Black, Arial Narrow) and nothing in it uses a style attribute in markup.
+
+Test switches, on the room page's address: `derby-auto=1` (the house's driver holds this phone's hands, through the same path as a thumb) and `derby-lag=<ms>` (inputs held back before they are sent).
+The room page's own `lag=<ms>` delays that phone's socket both ways on a local server.
+
+### Measured in the party room
+
+On the owner's PC on 2026-11-16 (a busy machine: load 11 to 25 on 14 threads), `wrangler dev --local` (workerd), browsers on the graphics card.
+
+| What | Figure |
+| --- | --- |
+| The room in workerd, one race with four cars and one player relaying inputs (`tools/workerd-cost.mjs`) | 1.74 s of CPU over a 68 s race: 0.85 ms a tick, 2.6% of one core, everything the local Worker process did included (the room's sockets and messages, the runtime, the local inspector) |
+| The rules alone in Node (`tools/measure.mjs`, below) | 0.09 ms a tick |
+| Down to one phone, one player | 3.8 kB a second (3,798 in the browser run, 3,703 on a socket, 11 messages a second) |
+| Down to one phone, four players | 5.2 kB a second |
+| A frame's prediction on a phone page | 0.6 ms on average, 17 to 23 ms at worst (a loaded machine) |
+| 40 ms each way (the room's simulated latency) | the phone's own car: exactly where the room put it (190 steps compared); rivals exactly; no input late (275 sent) |
+| 200 ms each way | own car 0.038 car lengths off on average, 0.28 at most (364 steps); rivals 0.0005 on average, 0.047 at most; every one of 593 inputs late, by 4.2 steps (35 ms) on average |
+
+What the 200 ms run means for steering: the phone turns the car the frame the thumb moves, as at 40 ms; the room takes each input 35 ms later than the phone did, so the car is pulled back by a few hundredths of a length, at most a quarter of a length on a hard turn.
+The room runs 0.15 s behind its clock (`NET.DELAY`), so up to about 150 ms one way nothing is late at all.
+
 ## Measured
 
 `node floor/games/tin-derby/tools/measure.mjs`, Node 24 on the owner's PC while it was busy (load 14 on 8 cores); CPU time, not wall time.
@@ -167,16 +207,20 @@ On a made-up network (`tools/net.mjs`), what a phone shows against what the room
 | 40 ms (in time) | exactly right, every frame | 0.001 car lengths on average, 0.09 at most |
 | 200 ms (late) | 0.05 on average, 0.64 at most | 0.03 on average, 1.2 at most |
 
-Not measured: the Workers runtime itself (it is the same V8 as Node), a real phone, a real network.
+Not measured: a real phone, a real network (the party room's figures are above).
 
-Balance, 120 seeded races a style on keys (`node tools/race.mjs all 120`), places 1st to 4th: plain 107 / 5 / 8 / 0, first-timer 15 / 25 / 78 / 2, hands off 0 / 0 / 117 / 3.
+Balance, 120 seeded races a style on keys (`node tools/race.mjs all 120`), places 1st to 4th, with the loop closed (below): plain 95 / 10 / 15 / 0, first-timer 15 / 19 / 85 / 1, hands off 0 / 0 / 116 / 4; every race finished, no car outside a wall.
+Before the loop was closed: 107 / 5 / 8 / 0, 15 / 25 / 78 / 2, 0 / 0 / 117 / 3.
 The preview's reviewed copy gave 111 / 6 / 3 / 0, 23 / 23 / 70 / 4 and 0 / 0 / 115 / 5; the differences are the exact maths and the distance rule below.
 The tests check 16 races a style each run.
 
 ## What differs from round five as reviewed
 
-Numbers: none changed.
-`data/tune.js` is the reviewed copy's `tune.js` (Gus's pace 0.78), with one new block, `NET`, for the room: `DELAY` 0.15, `AHEAD` 0.1, `STEER_STEPS` 16, `SEND_EVERY` 0.066, `QUEUE` 32, `BEAT` 6, `CATCH_UP` 480.
+Numbers: two changed, to close the loop.
+The west straight is 10, not 12: the bank is 28 across (radius 14) and the far end was 30 (9 + 12 + 9), so the last corner ended 2 lengths outside the start of the home straight, and in 20 races 137 of 142 crossings moved a car 2 across the road at the seam (5 put it against the wall).
+The syrup bottle is at 292, not 294, so it stays at the same point of the shortened corner.
+`test/course.test.js` checks the loop closes and that nobody is moved at the seam.
+Otherwise `data/tune.js` is the reviewed copy's `tune.js` (Gus's pace 0.78), with one new block, `NET`, for the room: `DELAY` 0.15, `AHEAD` 0.1, `STEER_STEPS` 16, `SEND_EVERY` 0.066, `QUEUE` 32, `BEAT` 6, `CATCH_UP` 480.
 `tools/parity.mjs <the preview's folder>` runs the preview's `sim.js` beside these rules and compares every car at every frame: with the engine's maths and the rules below switched off they agree exactly (100,000 frames).
 
 Rules that differ, on purpose:
@@ -191,7 +235,6 @@ Rules that differ, on purpose:
 
 ## Carried from round five, not changed here
 
-- **The loop does not close.** The bank is 28 across and the far end 30 (9 + 12 + 9), so the last corner ends 2 lengths outside the start of the home straight. In 20 races, 137 of 142 crossings moved the car 2 across the road at the seam, and 5 put it against the wall. Making the west straight 10 (`["S", 10, { tag: "west" }]`) closes it. A test marked as a known failure (`test/course.test.js`) will say when it is fixed.
 - **Salt and tea do almost nothing at speed.** A slide lets the car's motion follow its nose at 2.0 rad/s (`SLICK_GRIP`), and a car at racing speed cannot turn faster than 1.4 to 1.6.
 - **The ghost fades through a post only sometimes**: only when the step that first touches it lands more than 0.05 inside.
 - **Driving up any step of 0.3 or more pops the car about 1.2 into the air.**
@@ -199,15 +242,17 @@ Rules that differ, on purpose:
 
 ## What the kit lacks
 
-- **The racer.** The party room knows each player's character (`members[seat].character`) but does not pass it to `game.create`, so every player is a pawn and the traits go to the house cars. `create` already reads `seats[i].character`; the room needs one more field in its seat rows (`lobby/server/lobby-core.js`).
+- **The racer** is no longer missing: the party room passes each seat's `character` to `game.create` (`lobby/server/lobby-core.js`), so each player races as the piece they chose (`test/lobby.test.js`).
 - **Nothing tells a ticking game that a seat dropped**; it only sees `bot` being called. That is enough, and is what this game uses.
 - **`events(list)` in a mounted view carries no clock.** Not needed here, since the room says how far it has got in an event of its own.
 
 ## Moving it to its own repository
 
 The contract means a game to be its own package, as Cork & Bell is.
-This folder is shaped for that: it imports nothing outside itself (the tests import the kit's `RoomCore` by path, which becomes `n8-party-games/kit/core`), and it has its own `package.json` with `"."` as `party.js`.
-The move: copy the folder to a new repository, add the kit as a development dependency, a `vitest.config.js`, a `worker.js` like Cork & Bell's for its own site, and CI; then add it to this site's `devDependencies` and `games.js`, and remove `floor/games/**` from this repository's test list.
+This folder is shaped for that: its rules and page import nothing outside it, and it has its own `package.json` with `"."` as `party.js`.
+The site already takes it as a package: `"tin-derby": "file:floor/games/tin-derby"` in `devDependencies`, and `games.js` imports `tin-derby`.
+Only the tests reach outside: `room.test.js` takes the kit's `RoomCore` by path (it becomes `n8-party-games/kit/core`), and `lobby.test.js` and `e2e-room.mjs` drive this site's party room, so they would stay here.
+The move: copy the rest to a new repository, add the kit as a development dependency, a `vitest.config.js`, a `worker.js` like Cork & Bell's for its own site, and CI; then point the `devDependencies` entry at it.
 
 ## Running things
 
@@ -217,4 +262,7 @@ node floor/games/tin-derby/tools/race.mjs all 120      # the balance sweep
 node floor/games/tin-derby/tools/measure.mjs           # the measurements above
 node floor/games/tin-derby/tools/fingerprints.mjs --write   # after a meant change to rules or numbers
 node floor/games/tin-derby/tools/parity.mjs /path/to/preview
+npm run test:tin-derby -- --base=http://localhost:8791   # races in the party room, real browsers (about 6 minutes)
+node floor/games/tin-derby/test/e2e-room.mjs --only=lag --base=...   # the 40 and 200 ms runs above
+node floor/games/tin-derby/tools/workerd-cost.mjs --base=... --pid=<workerd pid>   # the cost in workerd above
 ```

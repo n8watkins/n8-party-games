@@ -27,7 +27,8 @@ const el = (tag, cls, html) => { const e = document.createElement(tag); if (cls)
 const dot = (colour) => { const i = document.createElement("i"); i.style.setProperty("--c", colour); return i; };
 const ORD = ["1st", "2nd", "3rd", "4th"];
 const params = new URLSearchParams(location.search);
-const buzz = (p) => { try { if (navigator.vibrate) navigator.vibrate(p); } catch (e) { /* no haptics here */ } };
+// Only once someone has touched this page: before that the browser refuses (and says so in the console).
+const buzz = (p) => { try { if (navigator.vibrate && navigator.userActivation?.hasBeenActive) navigator.vibrate(p); } catch (e) { /* no haptics here */ } };
 const finePointer = (() => { try { return matchMedia("(hover: hover) and (pointer: fine)").matches; } catch (e) { return false; } })();
 const NAMES = { pawn: "Pawn", ghost: "Ghost", slime: "Slime", robot: "Robot" };
 

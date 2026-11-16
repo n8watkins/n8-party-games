@@ -18,11 +18,12 @@ import { BTN } from "../shared/house.js";
 const args = process.argv.slice(2);
 const opt = (k, d) => (args.find((a) => a.startsWith("--" + k + "=")) ?? "--" + k + "=" + d).split("=").slice(1).join("=");
 const base = opt("base", "http://127.0.0.1:8791");
-const pid = Number(opt("pid", "0"));
+// wrangler dev runs two workerd processes (the one listening on the port, and the one running the Worker): pass both.
+const pids = opt("pid", "").split(",").map(Number).filter(Boolean);
 const idleS = Number(opt("idle", "20"));
-if (!pid) throw new Error("--pid=<the workerd process serving --base> is needed");
+if (!pids.length) throw new Error("--pid=<the workerd processes of --base, comma-separated> is needed");
 const HZ = 100; // clock ticks a second in /proc (USER_HZ)
-const cpu = () => { const f = readFileSync(`/proc/${pid}/stat`, "utf8").split(") ")[1].split(" "); return (Number(f[11]) + Number(f[12])) / HZ; };
+const cpu = () => pids.reduce((sum, pid) => { const f = readFileSync(`/proc/${pid}/stat`, "utf8").split(") ")[1].split(" "); return sum + (Number(f[11]) + Number(f[12])) / HZ; }, 0);
 
 const { call, connect } = partyApi(base);
 // Idle first: what the process spends with nothing to do (other rooms' alarms, the runtime's own work).
