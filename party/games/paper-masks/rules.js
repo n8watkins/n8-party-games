@@ -28,7 +28,8 @@ export const GHOST = "ghost";
 export const GHOST_MASK = "blank";
 /** The seat id the host (the room) sends its own moves as: tick, join, leave, host. */
 export const SYSTEM = "system";
-export const ROUND_CHOICES = Object.freeze([3, 4, 5, 7, "everyone"]);
+export const ROUND_CHOICES = Object.freeze([3, 5, 7, "everyone"]);
+export const DEFAULT_ROUNDS = 5;
 export const PACK_CHOICES = Object.freeze(["mixed", ...PACKS.map((p) => p.id)]);
 
 /** Timers in milliseconds. `soft` deadlines nudge; `hard` deadlines act so a round never stalls. */
@@ -50,7 +51,7 @@ const NOTES_KEPT = 12;
 
 const MESSAGES = {
   bad_seats: "A game needs 3 to 8 different seats.",
-  bad_rounds: "Rounds must be 3, 4, 5, 7 or everyone.",
+  bad_rounds: "Rounds must be 3, 5, 7 or everyone.",
   bad_pack: "That pack does not exist.",
   bad_option: "That option is not one the game knows.",
   bad_host: "The host must be one of the seats.",
@@ -66,6 +67,7 @@ const MESSAGES = {
   empty: "An answer needs at least one letter or number.",
   not_current: "That is not the answer being guessed now.",
   own_card: "This one is yours.",
+  not_yours: "Only this answer's author can do that.",
   not_a_choice: "That name is not one of the choices.",
   name_used: "You have already used that name this round.",
   waiting_for_guesses: "Not everyone has guessed yet.",
@@ -117,11 +119,17 @@ function shuffle(state, list) {
   return list;
 }
 
-function freshId(state, taken) {
-  for (;;) {
-    const id = Math.floor(rand(state) * 2 ** 32)
-      .toString(36)
-      .padStart(7, "0");
+/**
+ * A card's id: a hash of the match's id key (two 32-bit values derived from the seed, separately
+ * from the generator), the round and the card's position. It never touches `state.rng`, so the
+ * ids say nothing about the generator's later draws (the ghost choice, later shuffles), and they
+ * do not depend on who wrote a card or when.
+ */
+function cardId(state, round, index, taken) {
+  const [a, b] = state.idKey;
+  for (let salt = 0; ; salt++) {
+    const base = `${a}:${b}:${round}:${index}:${salt}`;
+    const id = hashSeed(`${base}:hi`).toString(36).padStart(7, "0") + hashSeed(`${base}:lo`).toString(36).padStart(7, "0");
     if (!taken.has(id)) return id;
   }
 }
@@ -130,11 +138,11 @@ function freshId(state, taken) {
 // Options
 
 /** Checks and fills in the host's options; returns the clean options or a refusal. */
-export function cleanOptions(options = {}, playerCount = MIN_PLAYERS) {
+export function cleanOptions(options = {}) {
   if (!options || typeof options !== "object") return refuse("bad_option");
   const known = new Set(["rounds", "pack", "family", "callMode", "host"]);
   for (const key of Object.keys(options)) if (!known.has(key)) return refuse("bad_option");
-  const rounds = options.rounds ?? (playerCount >= 7 ? 4 : 5);
+  const rounds = options.rounds ?? DEFAULT_ROUNDS;
   if (!ROUND_CHOICES.includes(rounds)) return refuse("bad_rounds");
   const pack = options.pack ?? "mixed";
   if (!PACK_CHOICES.includes(pack)) return refuse("bad_pack");
@@ -155,7 +163,7 @@ export function cleanOptions(options = {}, playerCount = MIN_PLAYERS) {
 export function create(seats, options = {}, seed = 0, now = 0) {
   if (!Array.isArray(seats) || seats.length < MIN_PLAYERS || seats.length > MAX_PLAYERS) return refuse("bad_seats");
   if (!seats.every((s) => Number.isInteger(s) && s >= 0) || new Set(seats).size !== seats.length) return refuse("bad_seats");
-  const opts = cleanOptions(options, seats.length);
+  const opts = cleanOptions(options);
   if (isRefusal(opts)) return opts;
   const order = [...seats].sort((a, b) => a - b);
   const host = options.host ?? order[0];
@@ -165,6 +173,7 @@ export function create(seats, options = {}, seed = 0, now = 0) {
     game: GAME_ID,
     v: 1,
     rng: hashSeed(seed) || 1,
+    idKey: [hashSeed(`paper-masks/card-ids/a/${seed}`), hashSeed(`paper-masks/card-ids/b/${seed}`)],
     now,
     options: opts,
     host,
@@ -282,6 +291,7 @@ function startRound(state, now) {
     cards: [],
     pos: -1,
     guesses: {},
+    decoys: {},
     auto: {},
     revealed: [],
     asks: [],
@@ -311,8 +321,8 @@ function closeWriting(state, now, by) {
   entries.sort((a, b) => cmp(matchKey(a.text), matchKey(b.text)) || cmp(a.text, b.text));
   shuffle(state, entries);
   const taken = new Set();
-  r.cards = entries.map((e) => {
-    const id = freshId(state, taken);
+  r.cards = entries.map((e, index) => {
+    const id = cardId(state, r.n, index, taken);
     taken.add(id);
     return { id, text: e.text, author: e.author, match: matchKey(e.text), skipped: false };
   });
@@ -381,11 +391,19 @@ function availableFor(state, seat, card) {
   return chips.filter((c) => !used.includes(c));
 }
 
-/** On the last answer only one name is left, so it is filled in (off for the round after a skip). */
+/**
+ * On the last answer only one name is left, so it is filled in (off for the round after a skip).
+ * Only on the last answer: filling in anyone earlier would single out the last answer's author,
+ * the one guesser left with a single name at the second-to-last answer. On the last answer every
+ * guesser who has placed every other name is filled in at the same moment, and the author's decoy
+ * tap is filled in with them, so the tap count jumps all at once and points at nobody.
+ */
 function autoFill(state) {
   const r = state.round;
   if (r.skippedAny) return;
   const card = currentCard(state);
+  const visible = visibleCards(r);
+  if (card !== visible[visible.length - 1]) return;
   const guessers = [...r.roster.filter((s) => isActive(state, s)), ...state.watchers.map((w) => w.seat)];
   for (const seat of guessers) {
     if (seat === card.author) continue;
@@ -397,37 +415,35 @@ function autoFill(state) {
       r.auto[key(seat)] = { ...(r.auto[key(seat)] ?? {}), [card.id]: true };
     }
   }
-}
-
-/** Players who must guess this card for Next to light up: everyone in the round but its author. */
-function guessersOf(state, card) {
-  return state.round.roster.filter((s) => isActive(state, s) && s !== card.author);
-}
-
-function allGuessed(state, card) {
-  return guessersOf(state, card).every((s) => card.id in guessesOf(state, s));
+  if (inRound(state, card.author)) r.decoys[card.id] = true;
 }
 
 /**
- * The public "has guessed" ticks for a card. The author has nothing to tap; so that the ticks
- * never give them away, the author's tick appears when everyone else's has.
+ * Whether a player in the round has tapped for this card: a guess, or, for its author, the decoy
+ * tap their page sends from the "keep a straight face" screen. Both count the same in public.
  */
-function publicTicks(state, card) {
-  const all = allGuessed(state, card);
-  const ticks = {};
-  for (const s of state.round.roster) {
-    if (!isActive(state, s)) continue;
-    ticks[key(s)] = s === card.author ? all : card.id in guessesOf(state, s);
-  }
-  return ticks;
+function hasTapped(state, card, seat) {
+  return seat === card.author ? !!state.round.decoys[card.id] : card.id in guessesOf(state, seat);
+}
+
+/** The players whose tap the public count waits for: everyone still here in the round, author included. */
+function tappersOf(state) {
+  return state.round.roster.filter((s) => isActive(state, s));
+}
+
+/** How many of them have tapped. The only public fact about guessing: never which seats. */
+function tapsIn(state, card) {
+  return tappersOf(state).filter((s) => hasTapped(state, card, s)).length;
+}
+
+function allTapped(state, card) {
+  return tappersOf(state).every((s) => hasTapped(state, card, s));
 }
 
 function closeGuessStep(state, now, by) {
   const card = currentCard(state);
-  const ticks = publicTicks(state, card);
-  const missing = Object.keys(ticks)
-    .filter((s) => !ticks[s])
-    .map(Number);
+  // a count, never seats: a list of who had not tapped could include the author
+  const missing = tappersOf(state).length - tapsIn(state, card);
   if (by !== "reader") note(state, "guessing_closed", { how: by, missing });
   advanceCard(state, now);
 }
@@ -476,8 +492,8 @@ function scoreRound(state) {
         row(c.author).fooled++;
       }
     }
-    const due = cards.filter((c) => c.author !== g).length;
-    if (r.roster.includes(g) && due > 0 && placed === due && right === due) row(g).perfect = true;
+    // rules, section 5: a perfect sheet is "every answer you placed was right"
+    if (r.roster.includes(g) && placed > 0 && right === placed) row(g).perfect = true;
   }
 
   for (const [s, p] of Object.entries(points)) {
@@ -583,11 +599,25 @@ const MOVES = {
     if (r.auto[key(seat)]) delete r.auto[key(seat)][card.id];
   },
 
-  /** The reader moves on once everyone has guessed. */
+  /**
+   * The author's decoy tap on their own card. The author's page shows "This one is yours. Keep a
+   * straight face." with something to tap, and sends this when it is tapped, so the author taps
+   * like everyone else and the public count cannot tell them apart. Sending it again changes nothing.
+   */
+  decoy(state, seat, move) {
+    if (state.phase !== "guessing") return refuse("not_now");
+    if (!inRound(state, seat)) return refuse("not_playing");
+    const card = currentCard(state);
+    if (move.card !== card.id) return refuse("not_current");
+    if (seat !== card.author) return refuse("not_yours");
+    state.round.decoys[card.id] = true;
+  },
+
+  /** The reader moves on once everyone has tapped (the author's decoy included). */
   next(state, seat, move, now) {
     if (state.phase !== "guessing") return refuse("not_now");
     if (seat !== state.round.reader) return refuse("not_reader");
-    if (!allGuessed(state, currentCard(state))) return refuse("waiting_for_guesses");
+    if (!allTapped(state, currentCard(state))) return refuse("waiting_for_guesses");
     closeGuessStep(state, now, "reader");
   },
 
@@ -656,6 +686,7 @@ const MOVES = {
     r.asks = r.asks.filter((id) => id !== card.id);
     for (const g of Object.values(r.guesses)) delete g[card.id];
     for (const a of Object.values(r.auto)) delete a[card.id];
+    delete r.decoys[card.id];
     note(state, "skipped", { card: card.id });
     if (state.phase === "guessing") advanceCard(state, now);
   },
@@ -818,7 +849,8 @@ export function view(state, seat) {
     const cards = visibleCards(r);
     const index = cards.indexOf(card);
     const mayGuess = role !== "screen" && card.author !== seat && canGuess(state, seat);
-    const ticks = publicTicks(state, card);
+    const due = tappersOf(state).length;
+    const tapped = tapsIn(state, card);
     out.step = {
       card: cardText(card),
       index,
@@ -831,8 +863,12 @@ export function view(state, seat) {
       guess: mayGuess ? (viewerGuesses[card.id] ?? null) : null,
       auto: mayGuess ? !!r.auto[key(seat)]?.[card.id] : false,
       eachNameOnce: !r.skippedAny,
-      guessed: ticks,
-      everyoneGuessed: Object.values(ticks).every(Boolean),
+      // your own tap is in (your guess, or your decoy on your own card)
+      tapped: writer ? hasTapped(state, card, seat) : role === "watcher" ? card.id in viewerGuesses : false,
+      // public: only how many of the round's players have tapped, never which
+      taps: tapped,
+      tapsDue: due,
+      everyoneGuessed: tapped === due,
       sheet: cards.slice(0, index).map((c) => ({ ...cardText(c), guess: viewerGuesses[c.id] ?? null })),
       talkingOrder: state.options.callMode ? talkingOrder(state, index) : null,
     };

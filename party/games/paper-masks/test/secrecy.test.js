@@ -7,7 +7,7 @@ import { GHOST, SYSTEM, view } from "../rules.js";
 import { answerFor, mixedPick, Table } from "./table.js";
 
 const seatsOf = (n) => Array.from({ length: n }, (_, i) => i);
-const SECRET_KEYS = new Set(["rng", "seed", "deck", "deckPos", "ghostPool", "answers", "author", "authors", "match", "masksFree", "assignedReader", "hasRead"]);
+const SECRET_KEYS = new Set(["rng", "idKey", "decoys", "seed", "deck", "deckPos", "ghostPool", "answers", "author", "authors", "match", "masksFree", "assignedReader", "hasRead"]);
 // (a view's own `step.auto` is a yes/no about the viewer's own guess, not the state's map of them)
 
 function walk(value, visit, path = []) {
@@ -65,16 +65,18 @@ function checkView(state, viewer, texts) {
     expect(v.step.yours, where).toBe(card.author === viewer);
   }
 
-  // Rule 9: own guesses only, and only yes/no ticks for others; ticks never single out the author
+  // Rule 9 (as changed, see the README): own guesses only; about the others, only a count of taps
+  // in, the author's decoy tap counted like a guess, and nothing keyed by seat
   if (state.phase === "guessing") {
-    const ticks = Object.values(v.step.guessed);
     const card = r.cards[r.pos];
-    if (state.players.some((p) => p.seat === card.author && !p.left)) {
-      const others = Object.entries(v.step.guessed).filter(([s]) => Number(s) !== card.author);
-      expect(v.step.guessed[card.author], where).toBe(others.every(([, t]) => t));
-    }
-    ticks.forEach((t) => expect(typeof t).toBe("boolean"));
+    const active = r.roster.filter((s) => state.players.some((p) => p.seat === s && !p.left));
+    const tapped = active.filter((s) => (s === card.author ? !!r.decoys[card.id] : card.id in (r.guesses[s] ?? {})));
+    expect(v.step.taps, where).toBe(tapped.length);
+    expect(v.step.tapsDue, where).toBe(active.length);
+    expect(v.step.everyoneGuessed, where).toBe(tapped.length === active.length);
+    expect(v.step, where).not.toHaveProperty("guessed");
   }
+  for (const n of v.notes) expect(Array.isArray(n.missing) && n.k === "guessing_closed", where).toBe(false);
 
   // Rule 4: during writing, a yes/no per player and nothing else about the others
   if (state.phase === "writing") {
@@ -137,7 +139,7 @@ describe("secrecy: every view of every viewer after every move", () => {
     checkedMatch(seatsOf(5), { rounds: 3, callMode: true }, "call");
   });
   it("with skips, a player leaving and a late joiner", () => {
-    checkedMatch(seatsOf(6), { rounds: 4 }, "skips", { skip: true, leave: true, join: true });
+    checkedMatch(seatsOf(6), { rounds: 5 }, "skips", { skip: true, leave: true, join: true });
   });
   it("with timeouts at every step", () => {
     const t = new Table(seatsOf(4), { rounds: 3 }, "slow");
@@ -158,7 +160,7 @@ describe("secrecy: every view of every viewer after every move", () => {
  * guessing step. With the host skipping every card by A or B as it comes up, the two matches stay
  * identical to every other viewer to the very end: a skipped card's author is never sent.
  */
-function swapRun(n, seed, A, B, { skipAB }) {
+function swapRun(n, seed, A, B, { skipAB, abTap = false }) {
   const tables = [0, 1].map(() => new Table(seatsOf(n), { rounds: 3 }, seed));
   const textOf = (k) => (seat, round) => {
     const s = k === 1 && seat === A ? B : k === 1 && seat === B ? A : seat;
@@ -201,6 +203,18 @@ function swapRun(n, seed, A, B, { skipAB }) {
           if (v.step.chips.length && v.step.guess === null) t.do(seat, { t: "guess", card: v.step.card.id, who: v.step.available[0] });
         });
       }
+      // A and B tap too: on a card by one of them, its author sends the decoy and the other
+      // guesses, so in one match it is A who decoys and in the other B. Nobody else can tell.
+      if (abTap) {
+        for (const seat of [A, B]) {
+          both((t) => {
+            const v = t.view(seat);
+            if (v.step.tapped) return;
+            if (v.step.yours) t.do(seat, { t: "decoy", card: v.step.card.id });
+            else if (v.step.available.length) t.do(seat, { t: "guess", card: v.step.card.id, who: v.step.available[0] });
+          });
+        }
+      }
       both((t) => t.do(t.state.host, { t: "endStep" }));
     } else if (t0.phase === "reveal") both((t) => t.do(t.r.reader, { t: "reveal" }));
     else if (t0.phase === "summary") both((t) => t.do(t.state.host, { t: "nextRound" }));
@@ -217,6 +231,9 @@ describe("secrecy: swapping two authors changes nothing anyone else can see", ()
   ]) {
     it(`${n} seats, seats ${A} and ${B} swap, until their cards are revealed`, () => {
       for (const seed of ["s1", "s2", "s3"]) expect(swapRun(n, seed, A, B, { skipAB: false })).toBeGreaterThan(10);
+    });
+    it(`${n} seats, seats ${A} and ${B} swap and tap (decoy on their own card): identical until revealed`, () => {
+      for (const seed of ["s1", "s2", "s3"]) expect(swapRun(n, seed, A, B, { skipAB: false, abTap: true })).toBeGreaterThan(10);
     });
     it(`${n} seats, seats ${A} and ${B} swap and their cards are skipped: identical to the end`, () => {
       for (const seed of ["s1", "s2"]) expect(swapRun(n, seed, A, B, { skipAB: true })).toBeGreaterThan(10);

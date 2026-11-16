@@ -64,11 +64,16 @@ export class Table {
 
   /**
    * Every seat that may guess the current card and has not, guesses: `pick(seat, view, table)`
-   * returns a chip, or undefined to take the first one available.
+   * returns a chip, or undefined to take the first one available. The card's author sends its
+   * decoy tap, as its page would.
    */
   guessAll(pick = () => undefined, only = null) {
     for (const seat of only ?? this.guessers()) {
       const v = this.view(seat);
+      if (v.step.yours && !v.step.tapped) {
+        this.do(seat, { t: "decoy", card: v.step.card.id });
+        continue;
+      }
       if (!v.step.chips.length || v.step.guess !== null) continue;
       const who = pick(seat, v, this) ?? v.step.available[0];
       this.do(seat, { t: "guess", card: v.step.card.id, who });

@@ -34,6 +34,7 @@ describe("create refuses", () => {
     ["bad_seats", [0, 1, -2], {}],
     ["bad_seats", "0,1,2", {}],
     ["bad_rounds", [0, 1, 2], { rounds: 6 }],
+    ["bad_rounds", [0, 1, 2], { rounds: 4 }],
     ["bad_pack", [0, 1, 2], { pack: "nope" }],
     ["bad_option", [0, 1, 2], { colour: "red" }],
     ["bad_option", [0, 1, 2], { family: "yes" }],
@@ -44,7 +45,7 @@ describe("create refuses", () => {
   });
 
   it("accepts every listed option", () => {
-    for (const rounds of [3, 4, 5, 7, "everyone"]) expect(isRefusal(create([0, 1, 2], { rounds }, 1))).toBe(false);
+    for (const rounds of [3, 5, 7, "everyone"]) expect(isRefusal(create([0, 1, 2], { rounds }, 1))).toBe(false);
     for (const pack of ["mixed", "this-week", "explain-yourself", "tiny-confessions", "the-group", "if-we"]) {
       expect(isRefusal(create([0, 1, 2], { pack, family: true, callMode: true }, 1))).toBe(false);
     }

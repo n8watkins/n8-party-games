@@ -19,16 +19,18 @@ function referenceScores(round) {
   for (const s of round.roster) {
     const mine = round.guesses[s] ?? {};
     let right = 0;
+    let placed = 0;
     const due = cards.filter((c) => c.author !== s);
     for (const c of due) {
       if (!(c.id in mine)) continue;
+      placed++;
       const group = cards.filter((d) => key(d.text) === key(c.text)).map((d) => d.author);
       if (group.includes(mine[c.id])) {
         add(s, "correct");
         right++;
       } else if (c.author !== GHOST) add(c.author, "fooled");
     }
-    if (due.length && right === due.length) out[s].perfect = true;
+    if (placed && right === placed) out[s].perfect = true; // every answer you placed was right
   }
   return out;
 }
@@ -69,7 +71,7 @@ describe("whole matches", () => {
         t.do(t.state.host, { t: "nextRound" });
       }
       expect(done(t.state)).toBe(true);
-      const rounds = n >= 7 ? 4 : 5;
+      const rounds = 5;
       expect(prompts.length).toBe(rounds);
       expect(new Set(prompts).size).toBe(rounds);
       expect(readers).toEqual(seatsOf(rounds).map((i) => i % n));
@@ -105,8 +107,8 @@ describe("whole matches", () => {
     expect(readers).toEqual([2, 5, 7, 9]);
   });
 
-  it("defaults to 4 rounds at 7 or 8 players and 5 otherwise; the host reads first", () => {
-    expect(create(seatsOf(7), {}, 1).options.rounds).toBe(4);
+  it("defaults to 5 rounds at any size; the host reads first", () => {
+    expect(create(seatsOf(7), {}, 1).options.rounds).toBe(5);
     expect(create(seatsOf(6), {}, 1).options.rounds).toBe(5);
     const s = create([4, 1, 6], { host: 6 }, 1);
     expect(s.round.reader).toBe(6);
@@ -236,7 +238,7 @@ describe("the ghost (3 players) and identical answers", () => {
 });
 
 describe("guessing rules", () => {
-  it("each name once, and the last one is filled in", () => {
+  it("each name once, and on the last card the last name is filled in", () => {
     const t = new Table(seatsOf(5), {}, 31);
     t.writeAll();
     t.do(t.r.reader, { t: "startGuessing" });
@@ -245,10 +247,9 @@ describe("guessing rules", () => {
       const v = t.view(2);
       if (!v.step.yours) {
         seen.push(v.step.available.length);
-        if (v.step.available.length === 1) {
-          expect(v.step.auto).toBe(true);
-          expect(v.step.guess).toBe(v.step.available[0]);
-        }
+        const last = v.step.index === v.step.of - 1;
+        expect(v.step.auto).toBe(last);
+        if (last) expect(v.step.guess).toBe(v.step.available[0]);
       }
       t.guessAll();
       t.do(t.r.reader, { t: "next" });
@@ -372,7 +373,7 @@ describe("time: a round never stalls", () => {
     expect(t.state.notes.some((x) => x.k === "reading_closed")).toBe(true);
   });
 
-  it("guessing: a missing guess times out with a note naming everyone without a tick", () => {
+  it("guessing: a missing guess times out with a note counting the missing taps", () => {
     const t = new Table(seatsOf(4), {}, 1);
     t.writeAll();
     t.do(t.r.reader, { t: "startGuessing" });
@@ -385,8 +386,8 @@ describe("time: a round never stalls", () => {
     const n = t.state.notes.at(-1);
     expect(n.k).toBe("guessing_closed");
     expect(n.how).toBe("time");
-    // the author has no tick either while someone is missing, so the note does not give them away
-    expect(n.missing.sort()).toEqual([silent, card.author].sort());
+    // a count, never seats: the author sent its decoy, one guesser stayed silent
+    expect(n.missing).toBe(1);
     expect(t.r.pos).toBeGreaterThan(0);
   });
 
