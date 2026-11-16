@@ -49,6 +49,7 @@ import { DEFAULT_ROOM, ROOM_COOLDOWN_MS, isRoom, roomLocked } from "../shared/ro
 import { record } from "../shared/tonight.js";
 import { DURING_PLAY, cooldownLeft as emoteLeft, mayEmote, relayEmote, waitMessage } from "../../party-kit/client/emotes.js";
 import { POSITION_SLACK, clampX, lightAt, posAt, spawnX } from "../shared/world.js";
+import { DEFAULT_MODE, MODE_COOLDOWN_MS, isMode, modeLocked, modeNote } from "../shared/mode.js";
 
 export const MAX_PLAYERS = 4;
 /** A room is closed this long after it was made, whatever is going on: a party, not a tenancy. */
@@ -154,6 +155,14 @@ export class LobbyCore {
      * first connected player picks for it (pickerToken).
      */
     this.hostToken = null;
+    /**
+     * Which waiting room the party is in (lobby/shared/mode.js): the character room ("party-games")
+     * or the plain one ("turn-based"). The host switches it (setMode); in turn-based mode the
+     * pieces do not walk, so there is no vote.
+     */
+    this.mode = DEFAULT_MODE;
+    /** When the mode was last switched: the next switch waits MODE_COOLDOWN_MS. */
+    this.modeAt = -Infinity;
   }
 
   // ---------------------------------------------------------------- coming and going
@@ -383,6 +392,41 @@ export class LobbyCore {
     return { ok: true, room: id, by: this.identify(token).seat };
   }
 
+  // ---------------------------------------------------------------- the two waiting rooms
+
+  /**
+   * The host moves the whole party to the other waiting room (lobby/shared/mode.js). The same
+   * rule as setRoom says who may: the host, or whoever holds the controls while the host is away.
+   * Refused during a count or a coin toss, the settings step or a game, and again within a few
+   * seconds. On a switch the vote starts over: every piece is back by the door, and the room
+   * rests a moment before a count may run. Returns {ok, mode, by} or {ok: false, why}.
+   */
+  setMode(token, v, now) {
+    if (!isMode(v)) return { ok: false, why: "That is not a waiting room." };
+    if (!token || (token !== this.pickerToken() && token !== this.hostToken)) return { ok: false, why: "Only the one who started the party can switch rooms." };
+    const phase = this.activity.kind === "game" ? "playing" : this.activity.kind;
+    const locked = modeLocked({ phase, vote: { count: this.count, toss: this.toss } });
+    if (locked) return { ok: false, why: locked };
+    if (v === this.mode) return { ok: false, why: "The party is in that room already." };
+    if (now - this.modeAt < MODE_COOLDOWN_MS) return { ok: false, why: "Wait a moment before switching again." };
+    const who = this.identify(token);
+    this.mode = v;
+    this.modeAt = now;
+    this.count = null;
+    this.toss = null;
+    this.respawn(now);
+    this.holdUntil = now + SETTLE_MS;
+    this.lastActive = now;
+    const name = who.role === "screen" ? "The room's screen" : this.members[who.seat].name;
+    this.notes.push({ k: "mode", mode: v, seat: who.seat, text: modeNote(name, v) });
+    return { ok: true, mode: v, by: who.seat };
+  }
+
+  /** Whether the party is in the plain waiting room: nothing walks and nothing is voted for there. */
+  plainRoom() {
+    return this.mode === "turn-based";
+  }
+
   remove(m, why) {
     if (m.points > 0) {
       this.remembered.set(m.name.toLowerCase(), m.points);
@@ -477,7 +521,7 @@ export class LobbyCore {
    */
   bump(seat, now) {
     const m = this.members[seat];
-    if (!m || this.activity.kind !== "lobby" || !mayBump(m, now).ok) return null;
+    if (!m || this.activity.kind !== "lobby" || this.plainRoom() || !mayBump(m, now).ok) return null;
     m.bumpAt = now;
     this.lastActive = now;
     // A piece on the floor, or just up from it, cannot be knocked: nobody is kept down.
@@ -501,7 +545,7 @@ export class LobbyCore {
   /** For a bump the room refused: how long until that piece may bump, as the message for its page. */
   bumpWait(seat, now) {
     const m = this.members[seat];
-    if (!m || this.activity.kind !== "lobby") return null;
+    if (!m || this.activity.kind !== "lobby" || this.plainRoom()) return null;
     return { t: "cd", in: Math.round(mayBump(m, now).wait) };
   }
 
@@ -534,9 +578,11 @@ export class LobbyCore {
 
   /**
    * Whether the pieces walk: in the lobby, and while a game's players are chosen on its spots
-   * (the spots are lights, and standing in one is the choice). Bumping stays the lobby's.
+   * (the spots are lights, and standing in one is the choice). Bumping stays the lobby's. Never
+   * in the plain waiting room (plainRoom): it has no pieces.
    */
   piecesWalk() {
+    if (this.plainRoom()) return false;
     return this.activity.kind === "lobby" || this.choosingSpots();
   }
 
@@ -586,7 +632,8 @@ export class LobbyCore {
     if (this.activity.kind === "lobby" && !this.toss) {
       const standing = this.standing(now);
       const voters = this.connected();
-      const ready = voters.length > 0 && voters.every((m) => standing[m.seat]) && now >= this.holdUntil && !this.closing;
+      // The plain waiting room has no vote: a count never starts there.
+      const ready = !this.plainRoom() && voters.length > 0 && voters.every((m) => standing[m.seat]) && now >= this.holdUntil && !this.closing;
       if (ready && !this.count) this.count = { endsAt: now + COUNT_MS };
       else if (!ready && this.count) this.count = null;
     }
@@ -844,6 +891,8 @@ export class LobbyCore {
    */
   spotsFor(id) {
     const box = this.boxOf(id);
+    // The plain waiting room has no lights to stand on.
+    if (this.plainRoom()) return null;
     if (!needsSpots({ audience: box?.audience, seats: box?.max }, this.connected().length)) return null;
     const places = spotLights(this.boxes, id, box.max);
     return places ? openSpots(places) : null;
@@ -1530,6 +1579,8 @@ export class LobbyCore {
       // The room the party is in, and who picks it (lobby/shared/rooms.js).
       room: this.room,
       picker: this.pickerView(),
+      // Which waiting room the party is in (lobby/shared/mode.js): a page showing the other one moves.
+      mode: this.mode,
     };
   }
 
@@ -1611,6 +1662,8 @@ export class LobbyCore {
       lastActive: this.lastActive,
       emptySince: this.emptySince,
       room: this.room,
+      mode: this.mode,
+      modeAt: this.modeAt,
       hostToken: this.hostToken,
       lastAnswers: this.lastAnswers,
       choosing: this.activity.kind === "settings" ? { ...this.activity } : null,
@@ -1702,6 +1755,9 @@ export class LobbyCore {
     // counted from then and not from every time the room wakes up.
     room.emptySince = data.emptySince ?? now;
     room.room = isRoom(data.room) ? data.room : DEFAULT_ROOM;
+    // A room saved before the two waiting rooms is the character room.
+    room.mode = isMode(data.mode) ? data.mode : DEFAULT_MODE;
+    room.modeAt = typeof data.modeAt === "number" ? data.modeAt : -Infinity;
     room.hostToken = data.hostToken ?? null;
     room.lastAnswers = data.lastAnswers ?? null;
     room.carries = data.carries ?? {};

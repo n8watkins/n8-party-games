@@ -138,7 +138,8 @@ export function createLobbyRoom(wallFor) {
       const v = this.core.view(Date.now());
       const players = v.members.filter(Boolean).map((m) => m.name);
       // `screen`: the room's one screen is taken, so the way in does not offer to be it.
-      return { code: v.code, game: "party", phase: v.phase, players, full: players.length >= v.members.length, screen: this.core.screenHeld(Date.now()) };
+      // `mode`: which waiting room the party is in, so a way in can say so before joining.
+      return { code: v.code, game: "party", phase: v.phase, players, full: players.length >= v.members.length, screen: this.core.screenHeld(Date.now()), mode: v.mode };
     }
 
     async join({ nickname, as }) {
@@ -347,6 +348,9 @@ export function createLobbyRoom(wallFor) {
           // The settings step after the vote: only the party's host may change them, start the
           // game or go back to the room; anyone else is refused, to that page only.
           return void this.settings(entry, msg, now).catch((err) => console.error("party room: the settings step failed", err));
+        case "mode":
+          // The host moves the party to the other waiting room (lobby/shared/mode.js).
+          return void this.switchMode(entry, msg, now).catch((err) => console.error("party room: switching rooms failed", err));
         case "pick": {
           // The party moves to another room: one stored value and one relayed message. Refused
           // (to that page only) when it is not the host's tap or not the moment.
@@ -395,6 +399,22 @@ export function createLobbyRoom(wallFor) {
       if (!may.ok) return no(may);
       await this.launch(may.id, true);
       this.bill(now, 2); // this message's work, and the budget check
+    }
+
+    /**
+     * The host's switch between the two waiting rooms. A refusal goes to the sender alone
+     * (`mode-no {why, v}`, with the mode the party is still in). A switch is saved before anyone
+     * hears of it, so a page that moves and reconnects at once, or a room that restarts in
+     * between, never finds the party back in the room it left. Then everyone gets the note and
+     * the room view, and every page whose mode is not the party's moves itself.
+     */
+    async switchMode(entry, msg, now) {
+      const core = this.core;
+      const done = core.setMode(entry.token, msg.v, now);
+      if (!done.ok) return this.send(entry, { t: "mode-no", why: done.why, v: core.mode });
+      await this.save();
+      if (this.core !== core) return;
+      this.changed(now);
     }
 
     /**
