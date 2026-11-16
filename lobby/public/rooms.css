@@ -49,10 +49,11 @@
   width: 44px;
 }
 /* During a game the room cannot be changed, so Rooms goes. A game that covers the room has the
-   corner to itself and its door button: its own sound switch takes the mute's place (the door
-   button's sheet still holds the room's sound). */
+   corner to itself and its door button: its own sound switch takes the place of the mute and of
+   full screen (the door button's sheet still holds the room's sound and full screen). */
 #app.staged .rooms-btn,
-#app.in-game .sound-btn {
+#app.in-game .sound-btn,
+#app.in-game .full-btn {
   display: none;
 }
 .rooms-btn.locked {
