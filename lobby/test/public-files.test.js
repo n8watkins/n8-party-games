@@ -3,12 +3,20 @@
 // one, and no file it copies imports one. Paper Masks' questions.js (its ghost answers) lives in
 // party/games, with every Table game's rules.
 import { readdirSync, readFileSync, statSync } from "node:fs";
-import { join, relative, resolve, sep } from "node:path";
+import { dirname, join, relative, resolve, sep } from "node:path";
 import { describe, expect, it } from "vitest";
 import { SERVED, SERVER_ONLY, SOURCES } from "../../scripts/build-public.mjs";
 
 const ROOT = resolve(import.meta.dirname, "..", "..");
 const inside = (path, folder) => path === folder || path.startsWith(folder + sep);
+
+/** Every module specifier a file imports: static imports, bare `import "x"`, re-exports and import(). */
+function importsOf(text) {
+  const code = text.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:"'`\\])\/\/.*$/gm, "$1");
+  const found = [];
+  for (const m of code.matchAll(/\b(?:import|export)\s*(?:[\w*{}\s,$]+?\s*from\s*)?["']([^"']+)["']|\bimport\s*\(\s*["']([^"']+)["']\s*\)/g)) found.push(m[1] ?? m[2]);
+  return found;
+}
 
 function files(path) {
   if (!statSync(path).isDirectory()) return [path];
@@ -40,7 +48,31 @@ describe("what the site serves", () => {
       // An import of server code by its path in the repository (served pages import by site
       // address; /party/games/... on the site is party/public/games, the views).
       if (/(?:\bfrom|\bimport)\s*\(?\s*["'][^"']*(?:\.\.\/party\/games\/|lobby\/server\/|questions\.js|\/wall\.js|\.\.\/games\.js)/.test(text)) bad.push(relative(ROOT, file));
+      // A relative import, however many ../ it takes, resolved against the file's own folder.
+      for (const spec of importsOf(text)) {
+        if (!spec.startsWith("./") && !spec.startsWith("../")) continue;
+        const target = resolve(dirname(file), spec);
+        const folder = SERVER_ONLY.find((f) => inside(target, f));
+        if (folder) bad.push(`${relative(ROOT, file)} imports ${spec} (server-only ${relative(ROOT, folder)})`);
+      }
     }
     expect(bad).toEqual([]);
+  });
+});
+
+describe("the served-files import check", () => {
+  it("finds every kind of import specifier, and none in a comment", () => {
+    const text = [
+      `import a from "./a.js";`,
+      `import { b, c } from '../b.js';`,
+      `import "../side.js";`,
+      `export { d } from "./d.js";`,
+      `export * from "./e.js";`,
+      `const f = await import("./f.js");`,
+      `import {\n  g,\n} from "./g.js";`,
+      `// import "./h.js";`,
+      `/* import "./i.js"; */`,
+    ].join("\n");
+    expect(importsOf(text)).toEqual(["./a.js", "../b.js", "../side.js", "./d.js", "./e.js", "./f.js", "./g.js"]);
   });
 });
