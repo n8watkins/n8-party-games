@@ -29,7 +29,8 @@ import { EMOTES, EMOTE_COOLDOWN_MS } from "../../party-kit/client/emotes.js";
 import { ghostRigById } from "../public/characters/ghost-rig.js";
 import { ROBOT_RIG } from "../public/characters/robot.js";
 import { SLIME_RIG } from "../public/characters/slime.js";
-import { CHARACTERS, LOOK_COOLDOWN_MS } from "../shared/characters.js";
+import { CHARACTERS, COLOUR_PRESETS, LOOK_COOLDOWN_MS } from "../shared/characters.js";
+import { isRed, meanColour, paintBox } from "./pixels.mjs";
 import { boxCentre } from "../shared/world.js";
 import { gpu, launchBrowser } from "./browser.mjs";
 import { partyApi, sleep } from "./client.mjs";
@@ -374,6 +375,26 @@ try {
         const got = ok ? null : await pieceOn(cy, ada.seat);
         check(ok, `${character}: ${e.name}: "${rig.word}" over its head, ${rig.take === "none" ? "no hands" : `${n} hand${n > 1 ? "s" : ""} ${character === "slime" ? "on goo" : "on jointed arms"}`}, never a pawn's stick arm${ok ? "" : ` (saw ${JSON.stringify(got)})`}`);
         if (["popcorn", "trophy", "steam", "tomato"].includes(e.id)) await shot(cy, look, `05-${character}-${e.id}`);
+      }
+    }
+
+    // ================================================================ a fuming robot, by its pixels
+    if (look !== "flat") {
+      section(`${look}: a fuming robot's paint is red in every colour, read off the pixels`);
+      for (const { hex, name } of COLOUR_PRESETS) {
+        await sleep(Math.max(LOOK_COOLDOWN_MS, EMOTE_COOLDOWN_MS) + 200);
+        from = ada.seen.length;
+        ada.send({ t: "look", c: "robot", v: hex });
+        await ada.wait((m) => m.room?.members[ada.seat]?.character === "robot" && m.room.members[ada.seat].colour === hex, 5000, from);
+        await cy.waitForFunction(([s, hex]) => window.__room3d.pieces.get(s)?.kind.id === "robot" && window.__room3d.pieces.get(s).member.colour === hex, [ada.seat, hex], { timeout: 4000 });
+        await sleep(EMOTE_COOLDOWN_MS + 200);
+        ada.send({ t: "e", e: "steam" });
+        // At its reddest: the paint tinted all the way the emote takes it.
+        const reddest = await cy.waitForFunction((s) => (window.__room3d.pieces.get(s)?.body.mat.userData.tint?.value.w ?? 0) > 0.75, ada.seat, { timeout: 4000, polling: 16 }).then(() => true, () => false);
+        const box = await paintBox(cy, ada.seat);
+        const seen = await meanColour(cy, box);
+        if (shots) await cy.screenshot({ path: `${shots}/${look}-robot-fuming-${hex.slice(1)}.png`, clip: { x: box.x - 60, y: box.y - 110, width: 130, height: 150 } });
+        check(reddest && isRed(seen), `${name} (${hex}): fuming, its paint shows red (${JSON.stringify(seen)}), not its colour times red`);
       }
     }
 

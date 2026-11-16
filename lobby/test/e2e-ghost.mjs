@@ -11,13 +11,23 @@
 //                   and solid again as a ghost
 //   a reload        a page reloaded in the middle of a scare draws it as a scare (wide eyes), not
 //                   a knock; a ghost's page reloaded mid-fade still spooks for the rest of its fade
-import { LOOK_COOLDOWN_MS } from "../shared/characters.js";
+//   every body      a slime and a robot are scared (they kick a faded ghost) and spooked (a faded
+//                   ghost drifts through them), drawn wide-eyed and pale in the flat look and in
+//                   3D, and a page of either look reloaded mid-scare draws the scare
+//
+//   --shots=DIR     stills of each fright, in each look
+import { mkdirSync } from "node:fs";
+import { COLOUR_PRESETS, LOOK_COOLDOWN_MS } from "../shared/characters.js";
+import { SCARE_MS } from "../shared/ghost.js";
+import { apart, meanColour, paintBox } from "./pixels.mjs";
 import { launchBrowser } from "./browser.mjs";
 import { partyApi, sleep } from "./client.mjs";
 
 const args = process.argv.slice(2);
 const opt = (k, d) => (args.find((a) => a.startsWith("--" + k + "=")) ?? "--" + k + "=" + d).split("=").slice(1).join("=");
 const base = opt("base", "http://localhost:8791");
+const shots = opt("shots", "");
+if (shots) mkdirSync(shots, { recursive: true });
 const { api, call, connect } = partyApi(base);
 const problems = [];
 const check = (ok, what) => {
@@ -25,6 +35,8 @@ const check = (ok, what) => {
   if (!ok) problems.push(what);
 };
 const section = (name) => console.log("\n     -- " + name);
+/** The pale a fright tints a piece toward (look3d/pieces.js, PALE), as a page shows it. */
+const PALE_RGB = { r: 0xee, g: 0xf3, b: 0xfb };
 
 /**
  * Read in each page: what it sent the room (window.__out: fades, boos and looks), a way to send
@@ -35,6 +47,8 @@ function pageHelpers() {
   const send = WebSocket.prototype.send;
   WebSocket.prototype.send = function (data) {
     window.__ws = this;
+    // When this page first spoke to the room (its hello): for a page that must arrive in the middle of something.
+    window.__firstSend ??= Date.now();
     try {
       const m = JSON.parse(data);
       if (m && (m.t === "boo" || m.t === "fade" || m.t === "look")) window.__out.push({ ...m, at: performance.now() });
@@ -46,7 +60,35 @@ function pageHelpers() {
   window.__send = (m) => window.__ws.send(JSON.stringify(m));
   const g = (seat) => document.querySelector(`svg.scene g[data-seat="${seat}"]`);
   window.fadedOn = (seat) => Number(g(seat)?.getAttribute("data-faded") ?? 0);
-  window.scaredOn = (seat) => Number(g(seat)?.getAttribute("data-scared") ?? 0);
+  // How frightened a seat's piece is drawn, in either look: how wide its eyes (0 to 1) and how pale.
+  window.frightOn = (seat) => {
+    const room = window.__room3d;
+    if (room) {
+      const p = room.pieces.get(seat);
+      if (!p) return { scared: 0, pale: 0, character: null };
+      const tint = p.body.mat?.userData?.tint?.value;
+      return { scared: p.fright ? (p.body.scaredK ?? 0) : 0, pale: p.body.pale ?? 0, paint: tint ? tint.w : null, character: p.kind.id };
+    }
+    const el = g(seat);
+    const sat = /saturate\(([\d.]+)\)/.exec(el?.style.filter ?? "");
+    return { scared: Number(el?.getAttribute("data-scared") ?? 0), pale: sat ? (1 - Number(sat[1])) / 0.55 : 0, character: el?.dataset.character ?? null };
+  };
+  window.scaredOn = (seat) => window.frightOn(seat).scared;
+  // Keeps, for `ms`, the most frightened a seat's piece was drawn, in window.__fright.
+  window.watchFright = (seat, ms) => {
+    const most = (window.__fright = { scared: 0, pale: 0, paint: 0, character: null, frames: 0 });
+    const until = performance.now() + ms;
+    const look = () => {
+      most.frames++;
+      const f = window.frightOn(seat);
+      most.scared = Math.max(most.scared, f.scared);
+      most.pale = Math.max(most.pale, f.pale);
+      most.paint = Math.max(most.paint, f.paint ?? 0);
+      most.character = f.character;
+      if (performance.now() < until) requestAnimationFrame(look);
+    };
+    requestAnimationFrame(look);
+  };
 }
 
 const browser = await launchBrowser({ args: ["--autoplay-policy=user-gesture-required", "--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--ignore-gpu-blocklist"] });
@@ -61,14 +103,16 @@ try {
     page.on("console", (m) => m.type() === "error" && errors.push(`${name}: ${m.text()}`));
     return page;
   }
-  const drawn = (page) => page.waitForSelector("svg.scene g[data-seat]", { timeout: 20000 });
-  async function join(name, pin) {
+  // The 3D look is asked for with gl=any: this browser may draw in software, which a page only accepts when told to.
+  const drawn = (page, look = "flat") =>
+    look === "flat" ? page.waitForSelector("svg.scene g[data-seat]", { timeout: 20000 }) : page.waitForFunction(() => window.__room3d?.pieces?.size > 0, null, { timeout: 40000 });
+  async function join(name, pin, look = "flat") {
     const page = await open(name);
-    await page.goto(`${base}/lobby/?join=${pin}&look=flat`);
+    await page.goto(`${base}/lobby/?join=${pin}&${look === "flat" ? "look=flat" : `look=${look}&gl=any`}`);
     await page.waitForSelector(".door-title");
     await page.fill("input[name=nickname]", name);
     await page.click("text=Join the party");
-    await drawn(page).catch(async (err) => {
+    await drawn(page, look).catch(async (err) => {
       console.log(`     (${name}'s page instead says: ${(await page.locator("body").innerText()).replace(/\s+/g, " ").slice(0, 300)})`);
       throw err;
     });
@@ -211,6 +255,168 @@ try {
   await step(eve, E, at[E].x + 30);
   const late = await ada.wait((m) => m.t === "spook" && m.s === E, 1500, from).catch(() => null);
   check(late?.to === A, `walking through Ada after the reload, Eve's ghost spooks her (${JSON.stringify(late && { to: late.to })})`);
+
+  // ================================================================ every body
+  section("a slime and a robot are scared and spooked, drawn so in the flat look and in 3D");
+  // The room is full (four), so Eve's phone, her ghost's, turns to the 3D look: Cy's stays flat.
+  await eve.goto(`${base}/lobby/?look=3d&gl=any`);
+  await drawn(eve, "3d");
+  /** Waits until Ada is up, not safe and not lately spooked, by the room's word. */
+  const calmAgain = async () => {
+    for (let i = 0; i < 60 && ((await where())[A].safe > 0 || (await where())[A].spooked > 0); i++) await sleep(200);
+  };
+  /** Watches Ada's piece on the flat page (Cy) and the 3D one (Eve) through a fright, with a still of each at its height. */
+  const watched = async (character, what, act) => {
+    for (const page of [cy, eve]) await page.evaluate((s) => window.watchFright(s, 2400), A);
+    const done = await act();
+    await sleep(420);
+    if (shots) {
+      await cy.screenshot({ path: `${shots}/flat-${character}-${what}.png` });
+      await eve.screenshot({ path: `${shots}/3d-${character}-${what}.png` });
+    }
+    await sleep(2100);
+    const [flat, deep] = [await cy.evaluate(() => window.__fright), await eve.evaluate(() => window.__fright)];
+    check(flat.character === character && flat.scared > 0.9 && flat.pale > 0.5, `flat: Ada's ${character} goes wide-eyed and pale when ${what} (${JSON.stringify(flat)})`);
+    check(deep.character === character && deep.scared > 0.9 && deep.pale > 0.5 && (character !== "robot" || deep.paint > 0.4), `3D: and so it does on Eve's phone (${JSON.stringify(deep)})`);
+    return done;
+  };
+  for (const character of ["slime", "robot"]) {
+    await calmAgain();
+    from = ada.seen.length;
+    ada.send({ t: "look", c: character });
+    await ada.wait((m) => m.room?.members[A]?.character === character, 4000, from);
+    await sleep(LOOK_COOLDOWN_MS);
+
+    // Scared: Ada, facing Bea's faded ghost, kicks it.
+    await ready(B);
+    at = await where();
+    ada.goto(at[B].x - 60);
+    ada.send({ t: "m", x: at[B].x - 60, d: 1, r: ada.rev });
+    ada.send({ t: "m", x: at[B].x - 60, d: 0, r: ada.rev });
+    await sleep(300);
+    check(!!(await fade(bea, B)), `Bea fades (Ada is a ${character})`);
+    const kick = await watched(character, "scared", async () => {
+      const mark = ada.seen.length;
+      ada.send({ t: "b" });
+      return ada.wait((m) => m.t === "b" && m.s === A, 2000, mark).catch(() => null);
+    });
+    check(kick?.sc === B, `Ada's ${character} kicked Bea's faded ghost and was scared (${JSON.stringify(kick && { to: kick.to, sc: kick.sc })})`);
+
+    // Spooked: Eve's faded ghost drifts through Ada.
+    await ready(E);
+    await calmAgain();
+    at = await where();
+    ada.goto(at[E].x + 30);
+    await sleep(300);
+    check(!!(await fade(eve, E)), `Eve fades (Ada is a ${character})`);
+    const spook = await watched(character, "spooked", async () => {
+      const mark = ada.seen.length;
+      await step(eve, E, at[E].x + 30);
+      return ada.wait((m) => m.t === "spook" && m.s === E, 1500, mark).catch(() => null);
+    });
+    check(spook?.to === A, `Eve's faded ghost spooked Ada's ${character} (${JSON.stringify(spook && { to: spook.to })})`);
+  }
+
+  section("a page of either look reloaded mid-scare draws a scared slime and robot");
+  for (const character of ["robot", "slime"]) {
+    await calmAgain();
+    if ((await where())[A].character !== character) {
+      from = ada.seen.length;
+      ada.send({ t: "look", c: character });
+      await ada.wait((m) => m.room?.members[A]?.character === character, 4000, from);
+      await sleep(LOOK_COOLDOWN_MS);
+    }
+    // The page is reloaded, and Ada kicks `lead` ms later: a 3D page takes about a second to come
+    // back, longer than a flat one, and the scare is over in about one and a half. What is judged
+    // is a page whose first word to the room came after the kick (it arrived in the middle); a
+    // page that was back before the kick is tried again with a shorter lead.
+    for (const [page, look, firstLead] of [[cy, "flat", 0], [eve, "3d", 450]]) {
+      let lead = firstLead;
+      let seen = null;
+      for (let attempt = 0; attempt < 4 && !(seen?.after && seen.inTime); attempt++) {
+        // Back before the kick: a shorter lead. Back after the scare was over: a longer one.
+        if (seen && !seen.after) lead = Math.floor(lead / 2);
+        else if (seen && !seen.inTime) lead += seen.back - (SCARE_MS - 700);
+        await ready(B);
+        await calmAgain();
+        at = await where();
+        ada.goto(at[B].x - 60);
+        ada.send({ t: "m", x: at[B].x - 60, d: 1, r: ada.rev });
+        ada.send({ t: "m", x: at[B].x - 60, d: 0, r: ada.rev });
+        await sleep(300);
+        check(!!(await fade(bea, B)), `Bea fades (Ada is a ${character})`);
+        // The room's own address, as a reload does, with the look asked for again.
+        const going = page.goto(`${base}/lobby/?${look === "flat" ? "look=flat" : "look=3d&gl=any"}`);
+        await sleep(lead);
+        from = ada.seen.length;
+        const kickAt = Date.now();
+        ada.send({ t: "b" });
+        const scared = await ada.wait((m) => m.t === "b" && m.s === A, 2000, from).catch(() => null);
+        await going;
+        await drawn(page, look);
+        // Watched from the first frame it draws: how wide its eyes got, and in how many frames.
+        await page.evaluate((s) => window.watchFright(s, 1500), A);
+        const back = Date.now() - kickAt;
+        const after = (await page.evaluate(() => window.__firstSend)) > kickAt;
+        await sleep(1600);
+        const shown = await page.evaluate(() => window.__fright);
+        const wide = shown.scared > 0.5;
+        // The page drew in time to see the scare: its first frame came before the scared piece was up again.
+        const inTime = back < SCARE_MS - 250;
+        seen = { scared, after, inTime, wide, shown, back };
+        if (after && shots) await page.screenshot({ path: `${shots}/${look}-${character}-reloaded-mid-scare.png` });
+        await sleep(1500);
+      }
+      const { scared, after, inTime, wide, shown, back } = seen;
+      check(scared?.sc === B, `Ada's ${character} kicked Bea's faded ghost (${JSON.stringify(scared && { to: scared.to, sc: scared.sc })})`);
+      const missed = !after ? "; it was back before the kick every time" : !inTime ? `; it never drew within the ${SCARE_MS} ms scare, so nothing was judged` : "";
+      check(after && inTime && wide && shown.character === character, `${look}: a page that arrived in the middle of the scare (drawn ${back} ms after the kick${missed}) draws Ada's ${character} scared (wide eyes), not knocked (${JSON.stringify(shown)})`);
+    }
+  }
+
+  section("3D: a scared robot's paint goes pale in every colour, by its pixels");
+  for (const [i, { hex, name }] of COLOUR_PRESETS.entries()) {
+    await calmAgain();
+    from = ada.seen.length;
+    ada.send({ t: "look", c: "robot", v: hex });
+    await ada.wait((m) => m.room?.members[A]?.character === "robot" && m.room.members[A].colour === hex, 4000, from);
+    await sleep(LOOK_COOLDOWN_MS);
+    // The two ghosts take turns, so one's fade recharges while the other's is used. A picture
+    // that a busy machine took after the freeze (the robot had scurried off) is taken again,
+    // once: the colour it read was not the robot's.
+    let result = null;
+    for (let attempt = 0; attempt < 2 && !result?.still; attempt++) {
+      const [ghost, G] = (i + attempt) % 2 ? [eve, E] : [bea, B];
+      await ready(G);
+      await calmAgain();
+      at = await where();
+      const x = at[G].x - 60;
+      ada.goto(x);
+      ada.send({ t: "m", x, d: 1, r: ada.rev });
+      ada.send({ t: "m", x, d: 0, r: ada.rev });
+      // Standing there on Eve's phone (it eases to where the room says), and seen before the fright.
+      await eve.waitForFunction(([s, x]) => Math.abs((window.__room3d.pieces.get(s)?.rx ?? -1e9) - x) < 1, [A, x], { timeout: 4000, polling: 50 }).catch(() => null);
+      await sleep(250);
+      // Its left side: the ghost it kicks stands up to its right.
+      const before = await meanColour(eve, await paintBox(eve, A, -1));
+      if (!(await fade(ghost, G))) check(false, `the ghost fades for ${name}`);
+      from = ada.seen.length;
+      ada.send({ t: "b" });
+      const kick = await ada.wait((m) => m.t === "b" && m.s === A, 2000, from).catch(() => null);
+      // Frozen at its palest: wide-eyed and still.
+      const frozen = await eve.waitForFunction((s) => window.frightOn(s).pale > 0.95 && window.frightOn(s).scared > 0.95, A, { timeout: 2000, polling: 16 }).then(() => true, () => false);
+      const box = await paintBox(eve, A, -1);
+      const pale = await meanColour(eve, box);
+      // Still frozen as the picture was taken (it scurries off after), so the box was still on it.
+      const still = await eve.evaluate((s) => window.frightOn(s).pale > 0.95, A);
+      if (shots && still) await eve.screenshot({ path: `${shots}/3d-robot-pale-${hex.slice(1)}.png`, clip: { x: box.x - 60, y: box.y - 110, width: 130, height: 150 } });
+      result = { G, kick, frozen, still, before, pale, attempt };
+    }
+    const { G, kick, frozen, still, before, pale, attempt } = result;
+    const was = apart(before, PALE_RGB);
+    const now = apart(pale, PALE_RGB);
+    check(kick?.sc === G && frozen && still && (now <= 0.8 * was || now < 30), `${name} (${hex}): scared, its paint goes toward the pale (${JSON.stringify(before)} to ${JSON.stringify(pale)}: ${was} to ${now} from it${attempt ? "; the first picture missed the freeze" : ""}${still ? "" : "; it had moved off by the picture"})`);
+  }
 
   section("the pages");
   check(sockets.every((c) => c.ws.readyState === 1), "no socket was closed");

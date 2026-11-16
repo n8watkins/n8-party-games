@@ -6,7 +6,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import * as THREE from "three";
 import { paintTintOf } from "../public/look3d/body-kit.js";
-import { PALE, startFright, startKnock } from "../public/look3d/pieces.js";
+import { PALE, resumeKnock, startFright, startKnock } from "../public/look3d/pieces.js";
 import { RobotHands, bakeRobot, dressRobot, emoteRobot, fadeRobot, makeRobot, poseRobot } from "../public/look3d/robot.js";
 import { bakeSlime, dressSlime, makeSlime, poseSlime } from "../public/look3d/slime.js";
 import { ROBOT_RIG } from "../public/characters/robot.js";
@@ -84,6 +84,21 @@ describe("a ghost's fright, in the 3D and baked looks", () => {
       expect(b.scaredK).toBe(0);
     });
   }
+});
+
+describe("a page that arrives in the middle of a scare, in the 3D look", () => {
+  it("draws a robot and a slime scared from its first frame (the room's word: down and safe)", () => {
+    for (const [make, dress, pose] of [[makeRobot, dressRobot, poseRobot], [makeSlime, dressSlime, poseSlime]]) {
+      const b = make(null);
+      dress(b, BLUE, true);
+      const p = piece();
+      // 500 ms into a scare: what the room tells a page that has just come (lobby-room.js: down, safe and the fright's kind).
+      resumeKnock(p, p.rx, 1000, 3000, 5000, "scare");
+      pose(b, p, 5000, 1 / 60, quiet);
+      expect(b.scaredK).toBeGreaterThan(0.9);
+      expect(b.pale).toBeGreaterThan(0.9);
+    }
+  });
 });
 
 describe("a fuming robot, in the 3D look", () => {
