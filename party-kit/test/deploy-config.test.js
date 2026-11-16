@@ -1,11 +1,12 @@
 // The deploy settings: the production Worker (the top level of wrangler.jsonc) keeps every test
 // switch off and the room budget at 10%; the local environment keeps the switches tests rely on;
 // and the public folder holds only what a browser loads.
-import { readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { unstable_readConfig } from "wrangler";
-import { describe, expect, it } from "vitest";
-import { OUT, SERVED, build } from "../../scripts/build-public.mjs";
+import { afterAll, describe, expect, it } from "vitest";
+import { OUT as DIST, SERVED, build } from "../../scripts/build-public.mjs";
 import { headersFile } from "../build/public.mjs";
 
 const read = (env) => unstable_readConfig({ config: "wrangler.jsonc", env });
@@ -59,7 +60,19 @@ describe("the local configuration", () => {
 });
 
 describe("the public folder", () => {
-  const files = build();
+  // Built into a folder of the test's own, never dist/public: a local Worker may be serving that
+  // one right now (the pre-deploy gate starts its Workers right after these tests), and its
+  // folder holds the preview pages that this build, like production's, leaves out.
+  const OUT = mkdtempSync(join(tmpdir(), "party-public-"));
+  afterAll(() => rmSync(OUT, { recursive: true, force: true }));
+  const files = build(OUT);
+
+  it("builds into the folder it is given, leaving the served dist/public alone", () => {
+    expect(OUT).not.toBe(DIST);
+    expect(DIST.endsWith(join("dist", "public"))).toBe(true);
+    expect(statSync(join(OUT, "_headers")).isFile()).toBe(true);
+    expect(files.length).toBeGreaterThan(10);
+  });
 
   it("holds only files under the allowlist, and no dotfiles, notes or server code", () => {
     expect(files.length).toBeGreaterThan(10);

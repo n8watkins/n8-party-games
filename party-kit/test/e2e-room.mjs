@@ -240,4 +240,6 @@ check((await fetch(api + "/scores/no-such-game")).status === 404, "score board: 
 A.ws.close();
 B2.ws.close();
 console.log(problems.length ? "FAILED: " + problems.length : "PASSED");
-process.exit(problems.length ? 1 : 0);
+// Exit once everything printed has left: process.exit drops what is still queued for a pipe (the
+// pre-deploy gate reads this output through one), and the verdict is printed last.
+process.stdout.write("", () => process.stderr.write("", () => process.exit(problems.length ? 1 : 0)));
