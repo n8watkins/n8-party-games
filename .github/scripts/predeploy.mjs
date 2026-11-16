@@ -175,11 +175,13 @@ function startWorker(port, { persist = null, quiet = false } = {}) {
   let log = "";
   // Wrangler's own word that it listens on this port: a server something else started there
   // also answers the config request, and must not pass for this one.
+  // Colour codes are taken out first: with colour on (as on GitHub's runners) wrangler colours
+  // the address, "Ready on \x1b[32mhttp://localhost:8853\x1b[39m".
   const readyLine = new RegExp(`Ready on https?://[^\\s]*:${port}\\b`);
   let said = false;
   const keep = (to) => (d) => {
     log = (log + d).slice(-20000);
-    said ||= readyLine.test(log);
+    said ||= readyLine.test(log.replace(/\x1b\[[0-9;]*m/g, ""));
     if (!quiet) to.write(d);
   };
   child.stdout.on("data", keep(process.stdout));
