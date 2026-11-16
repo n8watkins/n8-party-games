@@ -10,7 +10,7 @@
 // Run it against a built site (npm run dev, or wrangler dev on your own port), through
 // `devguard slot --`.
 import { mkdirSync } from "node:fs";
-import { chromium } from "playwright";
+import { launchBrowser } from "../../../lobby/test/browser.mjs";
 import { FACES, HEATS, REACTIONS } from "../public/specimen-draw.js";
 
 const arg = (name, fallback) => process.argv.find((a) => a.startsWith(`--${name}=`))?.slice(name.length + 3) ?? fallback;
@@ -146,7 +146,9 @@ const noStorage = () => {
   });
 };
 
-const browser = await chromium.launch({ headless: true, args: ["--mute-audio", "--autoplay-policy=no-user-gesture-required"] });
+// Headless and muted; on the graphics card with TEST_GPU=1 (lobby/test/browser.mjs), as the gate's
+// other browser steps.
+const browser = await launchBrowser({ args: ["--autoplay-policy=no-user-gesture-required"] });
 const PIXEL = "Mozilla/5.0 (Linux; Android 15; Pixel 9) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/157.0.0.0 Mobile Safari/537.36";
 
 async function open(viewport, inits = [fake], { phone = viewport.width < 600 || viewport.height < 500, reducedMotion = "no-preference", context: given, hash = "" } = {}) {
@@ -277,6 +279,7 @@ const overlaps = (page) =>
 const SIZES = [
   ["390x844", { width: 390, height: 844 }],
   ["320x568", { width: 320, height: 568 }],
+  ["568x320", { width: 568, height: 320 }],
   ["844x390", { width: 844, height: 390 }],
   ["1280x720", { width: 1280, height: 720 }],
 ];
@@ -396,25 +399,36 @@ for (const [name, viewport] of SIZES) {
   const mid = await round(page);
   check(mid.fuse < mid.fuseMax - 900 && mid.phase === "listen", `the fuse burns while listening (${Math.round(mid.fuse)} of ${mid.fuseMax} ms)`);
   await page.locator(".game").screenshot({ path: `${SHOTS}/390-listening-stage-3.png` });
-  // Never a shake: the screen and the potato's box never move; the potato only scales about where
-  // it sits, skews a little and rocks a degree or so.
+  // Stressed, the potato trembles inside its rig, but the screen, the layout, the text and the
+  // potato's box never move.
   const motion = await page.evaluate(async () => {
-    const out = { screen: [], spud: [] };
+    const out = { screen: [], spud: [], boxes: new Set() };
     for (let i = 0; i < 24; i++) {
       await new Promise((ok) => requestAnimationFrame(ok));
+      for (const sel of [".game", ".gi", ".top", ".bot", ".pot", "#pot svg", ".head", ".bar", ".ask", ".tag"]) {
+        const el = document.querySelector(sel);
+        const r = el.getBoundingClientRect();
+        // Its place, size and transform (the slanted type keeps its fixed slant) never change.
+        out.boxes.add(`${sel} ${r.left.toFixed(1)},${r.top.toFixed(1)},${r.width.toFixed(1)},${r.height.toFixed(1)} ${getComputedStyle(el).transform}`);
+      }
       for (const sel of [".game", ".gi", ".pot", "#pot svg"]) {
         const t = getComputedStyle(document.querySelector(sel)).transform;
         if (t !== "none") out.screen.push(`${sel} ${t}`);
       }
       out.spud.push(document.querySelector('#pot [data-part="spud"]')?.getAttribute("transform") ?? "");
     }
-    return out;
+    return { screen: out.screen, spud: out.spud, boxes: out.boxes.size };
   });
-  const poses = motion.spud.map((s) => s.match(/^translate\(120 196\.8\) rotate\((-?[\d.]+)\) skewX\((-?[\d.]+)\) scale\(([\d.]+) ([\d.]+)\) translate\(-120 -196\.8\)$/));
-  check(motion.screen.length === 0, `the screen and the potato's box never move (${motion.screen.slice(0, 2).join(" | ")})`);
-  check(poses.every((m) => m && Math.abs(+m[1]) <= 2 && Math.abs(+m[2]) <= 10 && +m[3] > 0.5 && +m[3] < 1.4 && +m[4] > 0.5 && +m[4] < 1.4) && new Set(motion.spud).size > 1, `the potato breathes and throbs about where it sits, with no shake (${motion.spud[0]})`);
+  const poses = motion.spud.map((s) => s.match(/^translate\((-?[\d.]+) (-?[\d.]+)\) rotate\((-?[\d.]+) 0 -74\) skewX\((-?[\d.]+)\) scale\(([\d.]+) ([\d.]+)\) translate\(-120 -196\.8\)$/));
+  check(motion.screen.length === 0 && motion.boxes === 10, `the screen, the layout and the potato's box never move (${motion.screen.slice(0, 2).join(" | ")}; ${motion.boxes} boxes for 10 elements)`);
+  check(poses.every((m) => m && Math.abs(+m[1] - 120) <= 5 && Math.abs(+m[2] - 196.8) <= 3 && Math.abs(+m[3]) <= 4 && +m[5] > 0.5 && +m[5] < 1.4 && +m[6] > 0.5 && +m[6] < 1.4) && new Set(motion.spud).size > 1, `the potato trembles in place, inside its rig (${motion.spud[0]})`);
   const listening = await page.evaluate(() => window.__hotPotato.art.look());
   check(FACES.strain.some((x) => x.id === listening.face), `listening at the strain stage it keeps a strain face (${listening.face})`);
+  // The stress within the stage climbs while the fuse burns, and the fuse warms with it.
+  const stressNow = await page.evaluate(() => ({ s: window.__hotPotato.art.look().stress, css: Number(getComputedStyle(document.getElementById("game")).getPropertyValue("--stress")) }));
+  await page.waitForTimeout(1500);
+  const stressLater = await page.evaluate(() => ({ s: window.__hotPotato.art.look().stress, css: Number(getComputedStyle(document.getElementById("game")).getPropertyValue("--stress")) }));
+  check(stressLater.s > stressNow.s + 0.1 && stressLater.css > stressNow.css, `a slow turn gets the potato more stressed, and the fuse and the life at risk show it (${stressNow.s.toFixed(2)} then ${stressLater.s.toFixed(2)}; --stress ${stressNow.css} then ${stressLater.css})`);
   await page.waitForFunction(() => window.__hotPotato.round().phase !== "listen", null, { timeout: 15000 });
   r = await round(page);
   const took = Date.now() - fuseStart;
@@ -677,6 +691,148 @@ for (const broken of ["silent", "abort-at-once", "start-then-abort"]) {
   check(parts.every((p) => p === parts[0]) && parts[0].split(",").length > 40, `#plain: every stage draws the same parts (${parts.map((p) => p.split(",").length).join(", ")})`);
   await page.screenshot({ path: `${SHOTS}/390-plain.png` });
   check(errors.length === 0, `#plain: no console errors ${errors.join(" | ")}`);
+  await context.close();
+}
+
+// 10. The start screen's note (cannot listen, microphone blocked) on sideways phones: everything
+//     inside the screen and nothing over anything, the title included.
+const startFits = (page) =>
+  page.evaluate(() => {
+    const els = [...document.querySelectorAll(".v-start .logo, .v-start .kicker, #s-cats .chip, #s-minus, #s-plus, #s-n, #s-sound, #s-buzz, #s-note, #s-start")].filter((e) => e.getClientRects().length && !e.closest("[hidden]"));
+    const bad = [];
+    for (const e of els) {
+      const r = e.getBoundingClientRect();
+      if (r.top < -0.5 || r.bottom > innerHeight + 0.5 || r.left < -0.5 || r.right > innerWidth + 0.5) bad.push(`outside: ${e.id || e.className}`);
+    }
+    for (let i = 0; i < els.length; i++)
+      for (let j = i + 1; j < els.length; j++) {
+        const a = els[i].getBoundingClientRect();
+        const b = els[j].getBoundingClientRect();
+        if (Math.min(a.right, b.right) - Math.max(a.left, b.left) > 1 && Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top) > 1) bad.push(`${els[i].id || els[i].className} over ${els[j].id || els[j].className}`);
+      }
+    return bad;
+  });
+const IPHONE = "Mozilla/5.0 (iPhone; CPU iPhone OS 19_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/19.0 Mobile/15E148 Safari/604.1";
+for (const [w, h] of [[568, 320], [667, 375], [740, 340], [844, 390]]) {
+  const viewport = { width: w, height: h };
+  const { context, page, errors } = await open(viewport, [fake, noSpeech]);
+  await page.evaluate(() => document.fonts.ready);
+  const bad = await startFits(page);
+  check(/cannot listen/.test(await page.textContent("#s-note")) && bad.length === 0, `${w}x${h}: the start screen fits with "cannot listen" ${bad.join(" | ")}`);
+  await page.screenshot({ path: `${SHOTS}/${w}x${h}-start-note.png` });
+  check(errors.length === 0, `${w}x${h} start note: no console errors ${errors.join(" | ")}`);
+  await context.close();
+  // The longest note: the microphone blocked, on an iPhone (it says how to allow it in Settings).
+  const ctx = await browser.newContext({ viewport, deviceScaleFactor: 2, hasTouch: true, isMobile: true, userAgent: IPHONE });
+  const blocked = await open(viewport, [fake], { context: ctx });
+  await start(blocked.page, "cities", 2);
+  await waitReady(blocked.page);
+  await blocked.page.evaluate(() => window.__turns.push([[30, "error", "not-allowed"]]));
+  await blocked.page.tap("#g-go");
+  await blocked.page.waitForSelector("#g-typed:not([hidden])");
+  await blocked.page.tap("#g-pause");
+  await blocked.page.tap("#p-quit");
+  const bad2 = await startFits(blocked.page);
+  check(/microphone is blocked/.test(await blocked.page.textContent("#s-note")) && bad2.length === 0, `${w}x${h}: the start screen fits with "microphone is blocked" ${bad2.join(" | ")}`);
+  await blocked.page.screenshot({ path: `${SHOTS}/${w}x${h}-start-blocked.png` });
+  await ctx.close();
+}
+
+// 11. A typed turn at 320 wide: the word box and "Say it" both inside the screen.
+{
+  const { context, page, errors } = await open({ width: 320, height: 568 }, [fake, noSpeech]);
+  await start(page, "cities", 2);
+  await waitReady(page);
+  await page.tap("#g-go");
+  await page.waitForSelector("#g-typed:not([hidden])");
+  const off = await offscreen(page);
+  const send = await page.evaluate(() => Math.round(document.getElementById("g-send").getBoundingClientRect().right));
+  check(off.length === 0 && send <= 320 - 8, `320x568 typed turn: "Say it" fits (its right edge at ${send}px) ${off.join(" | ")}`);
+  await page.screenshot({ path: `${SHOTS}/320x568-typed-turn.png` });
+  check(errors.length === 0, `320 typed: no console errors ${errors.join(" | ")}`);
+  await context.close();
+}
+
+// 12. A verdict: the appeal stays clearly visible all through it; a pause and Go on within the
+//     settling moment after it put the keyboard on something visible and enabled, then on the go
+//     button once it can be pressed.
+{
+  const { context, page, errors } = await open({ width: 1280, height: 720 });
+  await start(page, "cities", 3);
+  await say(page, word("Leopold", 0.4));
+  const seen = [];
+  for (let i = 0; i < 6; i++) {
+    seen.push(await page.evaluate(() => {
+      let o = 1;
+      for (let el = document.getElementById("g-appeal"); el; el = el.parentElement) o *= Number(getComputedStyle(el).opacity);
+      return o;
+    }));
+    await page.waitForTimeout(200);
+  }
+  check(seen.every((o) => o >= 0.95), `the appeal is clearly visible all through the verdict (${seen.map((o) => o.toFixed(2)).join(", ")})`);
+  /** Pauses and goes on at once (Escape twice) with the keyboard on nothing in particular; says where it went. */
+  const pauseAndGoOn = async () => {
+    await page.evaluate(() => document.activeElement?.blur());
+    await page.keyboard.press("Escape");
+    await page.keyboard.press("Escape");
+    return page.evaluate(() => {
+      const el = document.activeElement;
+      const shown = Boolean(el) && el !== document.body && el.getClientRects().length > 0 && !el.closest("[hidden]") && !el.disabled && getComputedStyle(el).visibility !== "hidden";
+      return { id: el?.id || el?.className || el?.tagName, shown, settling: !window.__hotPotato.round().paused && document.getElementById("g-go").disabled };
+    });
+  };
+  // Straight after a refusal: the appeal takes it.
+  await say(page, word("Lisbonn", 0.4));
+  const a = await pauseAndGoOn();
+  check(a.shown && a.settling && a.id === "g-appeal", `going on straight after a verdict puts the keyboard on the appeal, not a hidden button (${a.id}${a.settling ? ", go still settling" : ""})`);
+  // Straight after a refusal with no appeal ("???"): the screen holds it, then the go button takes it.
+  await say(page, [[100, "final", [["???", 0.9]]]]);
+  const b = await pauseAndGoOn();
+  await page.waitForTimeout(800);
+  const then = await page.evaluate(() => document.activeElement?.id);
+  check(b.shown && b.settling && b.id === "gi" && then === "g-go", `with no appeal, the keyboard waits on the screen and then takes the go button (${b.id}, then ${then})`);
+  check(errors.length === 0, `verdict and pause: no console errors ${errors.join(" | ")}`);
+  await context.close();
+}
+
+// 13. The burst and the last stage stay inside the screen, and the flash is a light one.
+for (const viewport of [{ width: 390, height: 844 }, { width: 568, height: 320 }, { width: 844, height: 390 }]) {
+  const name = `${viewport.width}x${viewport.height}`;
+  const { context, page, errors } = await open(viewport);
+  await start(page, "cities", 2);
+  for (let i = 0; i < 4; i++) await say(page, word("table"), "tap");
+  await still(page, `${name}-stage-4`);
+  /** Every drawn part of the potato and its rig, outside the screen, over a second of frames. */
+  const outside = () =>
+    page.evaluate(async () => {
+      const out = new Set();
+      let flash = 0;
+      for (let i = 0; i < 60; i++) {
+        await new Promise((ok) => requestAnimationFrame(ok));
+        flash = Math.max(flash, Number(getComputedStyle(document.querySelector(".ground .flash")).opacity));
+        for (const el of document.querySelectorAll("#pot [data-part]")) {
+          if (el.closest('[opacity="0"]') || el.tagName === "g" || el.tagName === "text") continue;
+          const r = el.getBoundingClientRect();
+          if (!r.width && !r.height) continue;
+          if (r.left < -1 || r.top < -1 || r.right > innerWidth + 1 || r.bottom > innerHeight + 1) out.add(`${el.dataset.part} ${Math.round(r.left)},${Math.round(r.top)},${Math.round(r.right)},${Math.round(r.bottom)}`);
+        }
+      }
+      return { out: [...out], flash };
+    });
+  // The last stage, its most stressed: listening with the fuse half gone.
+  await waitReady(page);
+  await page.tap("#g-go");
+  await page.waitForFunction(() => window.__hotPotato.round().lit);
+  await page.waitForTimeout(3000);
+  const stressed = await outside();
+  check(stressed.out.length === 0, `${name}: at the last stage, shaking, every part of the potato and its rig is inside the screen ${stressed.out.slice(0, 4).join(" | ")}`);
+  await page.evaluate(() => window.__turns.push([[100, "final", [["Zzzz", 0.9]]]]));
+  await waitPhase(page, "doom", 15000).catch(() => {});
+  await waitPhase(page, "burst", 15000);
+  const burst = await outside();
+  check(burst.out.length === 0, `${name}: through the burst, the clamps, the splat and the chunks stay inside the screen ${burst.out.slice(0, 4).join(" | ")}`);
+  check(burst.flash <= 0.45, `${name}: the burst's flash is a light one, never a blank screen (at most ${burst.flash.toFixed(2)} white)`);
+  check(errors.length === 0, `${name} burst: no console errors ${errors.join(" | ")}`);
   await context.close();
 }
 

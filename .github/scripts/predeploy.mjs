@@ -1,5 +1,6 @@
 // The full gate that runs once before a deploy, on the combined result: unit tests, then the
-// end-to-end scripts that need a local Worker.
+// end-to-end scripts that need a local Worker (the room, the party room, Cork & Bell, Hot Potato
+// and Hot Potato's hearing test).
 //
 //   npm run predeploy                 (locally, from the owner's PC)
 //   .github/workflows/predeploy-gate.yml   (the same script, on a GitHub-hosted runner)
@@ -9,7 +10,7 @@
 // alone runs the gate without deploying. In an emergency, and only on the owner's word,
 // `npx wrangler deploy --env=''` deploys without the gate.
 //
-// Needs `npm ci` first, and Playwright's Chromium for the Cork & Bell step
+// Needs `npm ci` first, and Playwright's Chromium for the browser steps
 // (`npx playwright install chromium`). The Windows-Chrome playtest (`npm run playtest:battle`)
 // and the production-settings check in DEPLOY.md stay manual: they need the owner's PC and a
 // second server.
@@ -21,7 +22,7 @@
 //   browser draws in software, which loads the CPU, so nothing else runs beside it.
 // - Side by side, with TEST_GPU=1 (the browser draws on the graphics card, see
 //   lobby/test/browser.mjs, and takes little CPU): every step gets a local Worker of its own, on
-//   its own port (PREDEPLOY_PORT, +2, +3; a free one if that is taken) with its own empty
+//   its own port (PREDEPLOY_PORT, +2, +3, +4, +5; a free one if that is taken) with its own empty
 //   storage folder, because test:cork reads the server-wide room budget and must be alone on
 //   its server, and test:room writes to a score board. The unit tests run first, alone; then
 //   the Workers start one at a time (each start-up rebuilds dist/public, which they all serve),
@@ -57,6 +58,8 @@ const STEPS = [
   ["room, over sockets (test:room)", "test:room"],
   ["party room, over sockets (test:lobby)", "test:lobby"],
   ["Cork & Bell in the party room, headless browser (test:cork)", "test:cork"],
+  ["Hot Potato, headless browser (test:hot-potato)", "test:hot-potato"],
+  ["Hot Potato's hearing test, headless browser (test:hearing)", "test:hearing"],
 ];
 
 const gateStarted = Date.now();
@@ -271,7 +274,7 @@ async function sideBySideSteps() {
   // half-built folder.
   const workers = [];
   const begun = Date.now();
-  const offsets = [0, 2, 3];
+  const offsets = [0, 2, 3, 4, 5];
   for (let i = 0; i < STEPS.length; i++) {
     const p = await freePort(port + offsets[i]);
     const persist = mkdtempSync(join(tmpdir(), `predeploy-${p}-`));

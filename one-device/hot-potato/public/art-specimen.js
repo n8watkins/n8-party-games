@@ -2,8 +2,9 @@
 // behind the art interface in art.js. It builds every part once (PARTS) and each frame sets what
 // scene() in specimen-draw.js says; nothing is ever added or removed.
 //
-// It eases toward what it is told (a spring, so it swells past and settles, cartoon style), moves
-// as the picker did (breathing, a twitch, a throb), and between turns blinks, glances at whoever is
+// It eases toward what it is told (a spring, so it swells past and settles, cartoon style), acts
+// as stressed as the stress level says (the LADDER in specimen-draw.js: breathing, blinks, darting
+// eyes, sweat, shivers, a tremble, a hard shake), and between turns blinks, glances at whoever is
 // up and sighs; listening, it looks up and follows the fuse. Its face is one of several for the
 // stage, chosen by the round's seed, changing between turns; a verdict shows a reaction for a
 // moment (right, an appeal, wrong, silence, a repeat, an overturned word), and the last miss
@@ -11,7 +12,11 @@
 // shows its end at once. It is redrawn only while something moves, never while paused.
 
 import {
+  BEADS,
   BODY,
+  FLUNG,
+  LUMPS,
+  TONGUE,
   ALARM,
   BULB,
   CLAMP,
@@ -36,6 +41,9 @@ import {
   composeFace,
   faceById,
   idleAt,
+  LADDER,
+  atLevel,
+  levelOf,
   pick,
   pose,
   reactionKind,
@@ -77,16 +85,20 @@ export const PARTS = [
   ["vines", "g", "spud", { fill: GLOW, ...ink(5) }],
   ["vine0", "polygon", "vines", { points: "96,58 80,22 90,6 100,24 110,56" }],
   ["vine1", "polygon", "vines", { points: "150,58 166,26 160,8 176,22 164,60" }],
-  ["vine2", "polygon", "vines", { points: "48,128 14,112 4,120 18,130 46,144" }],
+  ["vine2", "polygon", "vines", { points: "48,126 28,102 22,88 36,96 46,142" }],
   ["body", "path", "spud", { d: BODY, fill: SKIN }],
   ["inside", "g", "spud", {}],
   ["shade", "polygon", "inside", { points: "170,56 210,100 204,154 160,194 100,198 150,154 174,106", fill: SHADE }],
   ["hilite", "polygon", "inside", { points: "62,90 100,64 88,92", fill: HILITE }],
   ["glowskin", "path", "inside", { d: BODY, fill: GLOW }],
-  ["lumps", "g", "inside", { fill: LUMP, ...ink(4) }],
-  ["lump0", "circle", "lumps", { cx: 66, cy: 152, r: 10 }],
-  ["lump1", "circle", "lumps", { cx: 176, cy: 140, r: 12 }],
-  ["lump2", "circle", "lumps", { cx: 126, cy: 182, r: 9 }],
+  // Glowing spots: a soft halo with a bright core, no outline (they glow; they are not lumps on it).
+  ["lumps", "g", "inside", {}],
+  ...LUMPS.flatMap(([cx, cy, r], i) => [
+    [`lump${i}`, "g", "lumps", {}],
+    [`lumpHalo${i}`, "circle", `lump${i}`, { cx, cy, r: r * 1.7, fill: LUMP, "fill-opacity": 0.35 }],
+    [`lumpMid${i}`, "circle", `lump${i}`, { cx, cy, r, fill: LUMP, "fill-opacity": 0.7 }],
+    [`lumpCore${i}`, "circle", `lump${i}`, { cx, cy, r: r * 0.45, fill: "#effff7" }],
+  ]),
   ["veins", "path", "inside", { d: "M60 80 L76 96 L66 110 L84 122 M190 96 L176 112 L186 126 M110 192 L118 174 L104 164", ...line(5, GLOW) }],
   ["outline", "path", "spud", { d: BODY, fill: "none", ...ink(7) }],
   ["face", "g", "spud", { class: "face" }],
@@ -99,11 +111,12 @@ export const PARTS = [
   ["brow0", "polygon", "face", { fill: INK }],
   ["brow1", "polygon", "face", { fill: INK }],
   ["mouthFill", "path", "face", ink(5)],
+  ["mouthTongue", "path", "face", { fill: TONGUE, ...ink(3.5) }],
   ["mouthDetail", "path", "face", { fill: "#fff" }],
   ["mouthLines", "path", "face", line(3.5)],
   ["mouthLine", "path", "face", line(5.5)],
-  ["sweat0", "polygon", "face", { fill: SWEAT, ...ink(3) }],
-  ["sweat1", "polygon", "face", { fill: SWEAT, ...ink(3) }],
+  ...BEADS.map((_, i) => [`sweat${i}`, "polygon", "face", { fill: SWEAT, ...ink(3) }]),
+  ...FLUNG.map((_, i) => [`fling${i}`, "polygon", "face", { fill: SWEAT, ...ink(2.5) }]),
 
   ["front", "g", null, { class: "rig rig-front" }],
   ["tray", "polygon", "front", { points: "36,198 204,198 224,230 16,230", fill: TRAY, ...ink(5) }],
@@ -172,9 +185,13 @@ export function createSpecimen(host, { seed = 7, reducedMotion = () => false } =
   };
 
   // ---- State ----
-  const target = { stage: 0, growth: 0, strain: 0, fuse: 1, phase: "idle", paused: false };
-  const shown = { growth: 0, strain: 0, vg: 0, vs: 0 };
+  const target = { stage: 0, growth: 0, strain: 0, stress: 0, fuse: 1, phase: "idle", paused: false };
+  const shown = { growth: 0, strain: 0, stress: 0, vg: 0, vs: 0 };
   let clock = 0;
+  // The breathing's and the throb's phases: advanced at the pace the stress level sets, so a change
+  // of pace never makes them jump.
+  let breath = 0;
+  let beatPhase = 0;
   let lastNow = 0;
   let round = 0;
   let beat = 0;
@@ -187,7 +204,7 @@ export function createSpecimen(host, { seed = 7, reducedMotion = () => false } =
   let dirty = true;
   let draws = 0;
   let current = FACES.calm[0];
-  let frozen = null; // for stills: { face, stage }
+  let frozen = null; // for stills: { face, t } (t: the moment to show it moving at, or null for still)
 
   const reduce = () => reducedMotion();
   const heatOf = (stage) => HEATS[Math.max(0, Math.min(4, stage))];
@@ -210,7 +227,7 @@ export function createSpecimen(host, { seed = 7, reducedMotion = () => false } =
 
   function moving() {
     if (target.paused) return false;
-    const easing = Math.abs(target.growth - shown.growth) > 1e-4 || Math.abs(target.strain - shown.strain) > 1e-4 || Math.abs(shown.vg) > 1e-4 || Math.abs(shown.vs) > 1e-4;
+    const easing = Math.abs(target.growth - shown.growth) > 1e-4 || Math.abs(target.strain - shown.strain) > 1e-4 || Math.abs(target.stress - shown.stress) > 1e-4 || Math.abs(shown.vg) > 1e-4 || Math.abs(shown.vs) > 1e-4;
     if (easing) return true;
     if (react && clock - react.at < REACT_S) return true;
     if (burstAt !== null) return !reduce() && clock - burstAt < BURST_S;
@@ -219,20 +236,22 @@ export function createSpecimen(host, { seed = 7, reducedMotion = () => false } =
   }
 
   function draw() {
-    const r = reduce();
-    const still = target.phase === "idle" || target.phase === "burst";
-    const t = clock;
+    const r = reduce() && frozen?.t == null;
+    const held = Boolean(frozen) && frozen.t == null;
+    const still = target.phase === "idle" || target.phase === "burst" || held;
+    const t = frozen?.t ?? clock;
     const stage = Math.max(0, Math.min(4, target.stage));
+    const level = levelOf(shown.growth * 4, shown.stress);
     if (react && react.kind !== "doom" && clock - react.at >= REACT_S) react = null;
     const base = frozen?.face ?? baseFace();
     const reacting = react && (react.kind !== "doom" || target.phase === "doom");
-    const idle = target.phase === "ready" && !r ? idleAt(t, seed) : { blink: false, glance: false, sighFor: 9 };
+    const idle = target.phase === "ready" && !r ? idleAt(t, seed, level) : { blink: false, glance: false, sighFor: 9, dart: 0 };
     const face = frozen
       ? frozen.face
-      : composeFace({ base, reaction: reacting ? react.face : null, stage, phase: target.phase, fuse: target.fuse ?? 1, blink: idle.blink, glance: idle.glance, sigh: stage <= 1 && idle.sighFor > 0.6 && idle.sighFor < 1.4 });
+      : composeFace({ base, reaction: reacting ? react.face : null, stage, phase: target.phase, fuse: target.fuse ?? 1, blink: idle.blink, glance: idle.glance, dart: idle.dart, sigh: stage <= 1 && idle.sighFor > 0.6 && idle.sighFor < 1.4 });
     current = face;
-    const motion = pose({ t, stage, reduce: r, still: still || Boolean(frozen), react: react?.event ?? null, reactFor: react ? clock - react.at : 9, sighFor: stage <= 1 && target.phase === "ready" ? idle.sighFor : 9 });
-    apply(scene({ growth: shown.growth, strain: shown.strain, stage, face, motion, t, burstFor: burstAt === null ? null : clock - burstAt, reduce: r, still: still || Boolean(frozen), seed }));
+    const motion = pose({ t, level, breath: frozen ? null : breath, beat: frozen ? null : beatPhase, reduce: r, still, react: react?.event ?? null, reactFor: react ? clock - react.at : 9, sighFor: stage <= 1 && target.phase === "ready" ? idle.sighFor : 9 });
+    apply(scene({ growth: shown.growth, stress: shown.stress, stage, face, motion, t, burstFor: burstAt === null ? null : clock - burstAt, reduce: r, still, seed }));
   }
 
   function step(now) {
@@ -245,6 +264,7 @@ export function createSpecimen(host, { seed = 7, reducedMotion = () => false } =
       if (reduce()) {
         shown.growth = target.growth;
         shown.strain = target.strain;
+        shown.stress = target.stress;
         shown.vg = shown.vs = 0;
       } else {
         for (const [k, v] of [["growth", "vg"], ["strain", "vs"]]) {
@@ -253,6 +273,12 @@ export function createSpecimen(host, { seed = 7, reducedMotion = () => false } =
           shown[v] += (stiff * (target[k] - shown[k]) - damp * shown[v]) * dt;
           shown[k] += shown[v] * dt;
         }
+        // The stress eases (it rises with the fuse, and settles over about half a second).
+        shown.stress += (target.stress - shown.stress) * Math.min(1, dt * 5);
+        if (Math.abs(target.stress - shown.stress) < 1e-4) shown.stress = target.stress;
+        const level = levelOf(shown.growth * 4, shown.stress);
+        breath = (breath + dt / atLevel(LADDER.breathS, level)) % 1;
+        beatPhase = (beatPhase + dt * atLevel(LADDER.throbHz, level)) % 1;
       }
     }
     const go = moving();
@@ -310,24 +336,27 @@ export function createSpecimen(host, { seed = 7, reducedMotion = () => false } =
         round++;
         beat = 0;
         faceStage = -1;
-        Object.assign(shown, { growth: 0, strain: 0, vg: 0, vs: 0 });
-        Object.assign(target, { growth: 0, strain: 0, stage: 0, fuse: 1 });
+        Object.assign(shown, { growth: 0, strain: 0, stress: 0, vg: 0, vs: 0 });
+        Object.assign(target, { growth: 0, strain: 0, stress: 0, stage: 0, fuse: 1 });
       }
       dirty = true;
       wake();
     },
     /** What is drawn now, for tests and stills. */
     look() {
-      return { growth: shown.growth, strain: shown.strain, burst: burstAt !== null, burstFor: burstAt === null ? 0 : clock - burstAt, draws, running: Boolean(raf), face: current.id, reaction: react?.kind ?? null };
+      return { growth: shown.growth, strain: shown.strain, stress: shown.stress, level: levelOf(shown.growth * 4, shown.stress), burst: burstAt !== null, burstFor: burstAt === null ? 0 : clock - burstAt, draws, running: Boolean(raf), face: current.id, reaction: react?.kind ?? null };
     },
-    /** For the contact sheet only: hold one face at one stage (null lets go). Not part of the seam. */
-    hold(faceId, stage = 0) {
+    /**
+     * For the stills only: hold one face at one stage and stress (null lets go), still, or as it
+     * moves at the moment `t` (seconds) when `t` is given. Not part of the seam.
+     */
+    hold(faceId, stage = 0, { stress = 0, t = null } = {}) {
       const face = faceId ? faceById(faceId) : null;
-      frozen = face ? { face } : null;
+      frozen = face ? { face, t } : null;
       if (face) {
         const g = Math.max(0, Math.min(4, stage)) / 4;
-        Object.assign(target, { stage, growth: g, strain: g * 0.8, phase: "idle" });
-        Object.assign(shown, { growth: g, strain: g * 0.8, vg: 0, vs: 0 });
+        Object.assign(target, { stage, growth: g, stress, strain: g * 0.8 + stress * 0.2, phase: t == null ? "idle" : "listen" });
+        Object.assign(shown, { growth: g, stress, strain: g * 0.8 + stress * 0.2, vg: 0, vs: 0 });
       }
       dirty = true;
       wake();

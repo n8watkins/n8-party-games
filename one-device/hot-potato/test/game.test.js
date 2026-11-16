@@ -11,6 +11,9 @@ import {
   LAST_STAGE,
   LIGHTS,
   SETTLE_MS,
+  STRESS_AFTER_MISSES,
+  STRESS_FROM_FUSE,
+  STRESS_RELIEF,
   appeal,
   artState,
   canAppeal,
@@ -375,9 +378,77 @@ describe("pausing", () => {
 });
 
 describe("what the art is told", () => {
-  it("only the stage, growth, strain, fuse, light colour and phase", () => {
+  it("only the stage, growth, stress, strain, fuse, light colour and phase", () => {
     const g = newRound({ index: cities, players: 2 });
-    expect(Object.keys(artState(g)).sort()).toEqual(["fuse", "growth", "light", "paused", "phase", "stage", "strain"]);
+    expect(Object.keys(artState(g)).sort()).toEqual(["fuse", "growth", "light", "paused", "phase", "stage", "strain", "stress"]);
+  });
+
+  it("gets more stressed as a turn's fuse burns, within the stage, and never changes the rules", () => {
+    const g = newRound({ index: cities, players: 2 });
+    expect(artState(g).stress).toBe(0);
+    go(g);
+    const seen = [];
+    for (let i = 0; i < 10; i++) {
+      seen.push(artState(g).stress);
+      if (i < 9) tick(g, g.fuseMax / 10);
+    }
+    // It climbs steadily all the way through the turn: at least three steps a player can see.
+    for (let i = 1; i < seen.length; i++) expect(seen[i]).toBeGreaterThan(seen[i - 1]);
+    expect(seen[0]).toBe(0);
+    expect(seen.at(-1)).toBeGreaterThan(0.75);
+    expect(new Set(seen.map((s) => Math.floor(s * 3))).size).toBeGreaterThanOrEqual(3);
+    // Stress is never 1 before a life is lost: the next stage is a clear jump.
+    expect(Math.max(...seen)).toBeLessThan(STRESS_FROM_FUSE + 1e-9);
+    expect(g.stage).toBe(0);
+    expect(g.phase).toBe("listen");
+  });
+
+  it("calms a notch after a right answer, and starts each stage higher after misses in a row", () => {
+    const g = newRound({ index: cities, players: 2 });
+    // A miss: the next stage at its baseline.
+    silence(g);
+    expect(g.stage).toBe(1);
+    expect(artState(g).stress).toBe(STRESS_AFTER_MISSES[0]);
+    // Another in a row: that stage starts more stressed.
+    silence(g);
+    expect(g.stage).toBe(2);
+    expect(artState(g).stress).toBe(STRESS_AFTER_MISSES[1]);
+    silence(g);
+    expect(artState(g).stress).toBe(STRESS_AFTER_MISSES[2]);
+    // Halfway down the fuse, then a right answer: calmer than during the turn, and calmer than
+    // before the turn too (the baseline relaxes).
+    const before = artState(g).stress;
+    go(g);
+    tick(g, g.fuseMax / 2);
+    const during = artState(g).stress;
+    expect(during).toBeGreaterThan(before);
+    hear(g, said("Madrid"));
+    expect(g.last.ok).toBe(true);
+    const after = artState(g).stress;
+    expect(after).toBeLessThan(during);
+    expect(after).toBeCloseTo(Math.max(0, before - STRESS_RELIEF), 9);
+    // The stage (the lives) did not change: stress is for the art only.
+    expect(g.stage).toBe(3);
+    // A miss after a right answer starts the streak again.
+    silence(g);
+    expect(g.stage).toBe(4);
+    expect(artState(g).stress).toBe(STRESS_AFTER_MISSES[0]);
+    // The last miss: as stressed as it gets.
+    silence(g);
+    expect(g.phase).toBe("doom");
+    expect(artState(g).stress).toBe(1);
+  });
+
+  it("calms when the group calls a refusal right", () => {
+    const g = newRound({ index: cities, players: 2 });
+    silence(g);
+    play(g, "Leopold the third");
+    expect(g.stage).toBe(2);
+    const tense = artState(g).stress;
+    expect(tense).toBe(STRESS_AFTER_MISSES[1]);
+    expect(appeal(g)).toBe(true);
+    expect(g.stage).toBe(1);
+    expect(artState(g).stress).toBeLessThan(tense);
   });
 
   it("tells the fuse only while it burns", () => {

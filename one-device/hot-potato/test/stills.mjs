@@ -61,6 +61,7 @@ const browser = await chromium.launch({ headless: true, args: ["--mute-audio"] }
 const SIZES = [
   ["390x844", { width: 390, height: 844 }],
   ["320x568", { width: 320, height: 568 }],
+  ["568x320", { width: 568, height: 320 }],
   ["844x390", { width: 844, height: 390 }],
   ["1280x720", { width: 1280, height: 720 }],
 ].filter(([n]) => !ONLY || ONLY.split(",").includes(n));
@@ -159,7 +160,95 @@ for (const [name, viewport] of SIZES) {
   await page.waitForTimeout(1200);
   await shot("23-end");
   await context.close();
+
+  // A browser that cannot listen: the start screen's note, and a typed turn.
+  const typedContext = await browser.newContext({ viewport, deviceScaleFactor: 2, hasTouch: phone, isMobile: phone });
+  const typedPage = await typedContext.newPage();
+  await typedPage.addInitScript(() => {
+    Object.defineProperty(window, "SpeechRecognition", { value: undefined, configurable: true });
+    Object.defineProperty(window, "webkitSpeechRecognition", { value: undefined, configurable: true });
+  });
+  await typedPage.goto(`${BASE}/one-device/hot-potato/${HASH}`);
+  await typedPage.waitForSelector("#s-cats [data-cat]");
+  await typedPage.evaluate(() => document.fonts.ready);
+  await typedPage.screenshot({ path: `${OUT}/${name}-00b-start-note.png` });
+  await typedPage.click("#s-start");
+  await ready(typedPage);
+  await typedPage.click("#g-go");
+  await typedPage.waitForSelector("#g-typed:not([hidden])");
+  await typedPage.fill("#g-word", "Lisbon");
+  await typedPage.screenshot({ path: `${OUT}/${name}-02b-typed-turn.png` });
+  await typedContext.close();
 }
+
+/**
+ * A sheet of potatoes, each held at a stage, a stress and a moment: `rows` is [label, cells], a
+ * cell [caption, stage, stress, t]. Saved as `file`.
+ */
+async function sheet(file, rows, { size = 170 } = {}) {
+  // Wide enough for the longest row: a sheet wider than the window is cut off.
+  const width = 150 + Math.max(...rows.map(([, cells]) => cells.length)) * (size + 6);
+  const context = await browser.newContext({ viewport: { width: Math.max(1000, width), height: 1000 }, deviceScaleFactor: 1 });
+  const page = await context.newPage();
+  await page.goto(`${BASE}/one-device/hot-potato/`);
+  await page.evaluate(() => document.fonts.ready);
+  await page.evaluate(
+    async ({ rows, size }) => {
+      const { createSpecimen } = await import("./art-specimen.js");
+      const { FACES, HEATS } = await import("./specimen-draw.js");
+      const BG = ["#2c2768", "#2a3f7a", "#1d6670", "#5b4a7a", "#9a1f5e"];
+      document.body.innerHTML = "";
+      document.body.style.cssText = "margin:0;background:#14112e;color:#fff;font:13px Anton, sans-serif;overflow:auto;height:auto";
+      document.documentElement.style.cssText = "overflow:auto;height:auto";
+      const sheet = document.createElement("div");
+      sheet.id = "sheet";
+      sheet.style.cssText = "display:grid;gap:8px;padding:12px;width:max-content";
+      for (const [label, cells] of rows) {
+        const row = document.createElement("div");
+        row.style.cssText = "display:flex;gap:6px;align-items:stretch";
+        const h = document.createElement("div");
+        h.textContent = label;
+        h.style.cssText = "width:110px;display:grid;place-items:center;text-align:center;font-size:16px;letter-spacing:.06em;color:#ffd23f;text-transform:uppercase";
+        row.appendChild(h);
+        for (const [caption, stage, stress, t] of cells) {
+          const cell = document.createElement("div");
+          cell.style.cssText = `width:${size}px;background:${BG[stage]};display:grid;grid-template-rows:${size}px auto;justify-items:center;padding-bottom:4px`;
+          const host = document.createElement("div");
+          host.style.cssText = `position:relative;width:${size}px;height:${size}px`;
+          cell.appendChild(host);
+          const cap = document.createElement("div");
+          cap.textContent = caption;
+          cap.style.cssText = "letter-spacing:.05em;text-transform:uppercase";
+          cell.appendChild(cap);
+          row.appendChild(cell);
+          const art = createSpecimen(host, { seed: 7 });
+          art.hold(FACES[HEATS[stage]][0].id, stage, { stress, t });
+        }
+        sheet.appendChild(row);
+      }
+      document.body.appendChild(sheet);
+      await new Promise((ok) => requestAnimationFrame(() => requestAnimationFrame(ok)));
+    },
+    { rows, size },
+  );
+  await page.locator("#sheet").screenshot({ path: `${OUT}/${file}` });
+  await context.close();
+}
+
+// The stress within each stage: four steps from the stage's calmest to its most stressed (a
+// moment of its motion, the same moment in each).
+const HEAT_NAMES = ["calm", "warm", "hot", "strain", "critical"];
+await sheet(
+  "stress-steps.png",
+  HEAT_NAMES.map((heat, stage) => [heat, [0, 0.33, 0.66, 1].map((s) => [`stress ${s}`, stage, s, 1.37])]),
+);
+// The motion at each stage, half stressed: 12 frames over one second, to judge without video.
+await sheet(
+  "motion-frames.png",
+  // (From 2.05 s: the moment a hot potato's nervous shiver comes.)
+  HEAT_NAMES.map((heat, stage) => [heat, Array.from({ length: 12 }, (_, i) => [`${Math.round((i / 12) * 1000)} ms`, stage, 0.5, 2.05 + i / 12])]),
+  { size: 150 },
+);
 
 // The contact sheet: every face, each at the stage it belongs to.
 {
