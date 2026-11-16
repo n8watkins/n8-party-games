@@ -40,9 +40,10 @@ export function spriteSheet() {
     g.beginPath();
     g.arc(cx + r * 0.32, cy + r * 0.38, r * 0.24, 0, Math.PI * 2);
     g.fill();
-    g.fillStyle = "rgba(255,255,255,.9)";
+    // The highlight a little softer and smaller than the preview's, which read as a pearl at low pixel density.
+    g.fillStyle = "rgba(255,255,255,.62)";
     g.beginPath();
-    g.arc(cx - r * 0.34, cy - r * 0.4, r * 0.3, 0, Math.PI * 2);
+    g.arc(cx - r * 0.34, cy - r * 0.4, r * 0.24, 0, Math.PI * 2);
     g.fill();
   }
   // The ring of a splash, radius 56.

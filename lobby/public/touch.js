@@ -9,7 +9,7 @@
 // or stops a piece: a card opened from a poster closes by itself, and walking closes it.
 import { h, icon } from "./dom.js";
 import { BADGES, playersLabel } from "./shared/vote.js";
-import { boxCentre, boxWidth } from "./shared/world.js";
+import { wallFor } from "./shared/rooms.js";
 
 /** Where things are on the wall, in world units (lobby/public/scene.js draws them there). */
 const JOIN_SIGN = { x: 62, y: 133, w: 212, h: 314 };
@@ -51,7 +51,9 @@ export class TouchSpots {
   /** Builds a spot for everything that can be touched in this room. */
   build(room) {
     for (const s of this.spots) s.el.remove();
-    const n = room.boxes.length;
+    // Where the room hangs its boxes (shared/rooms.js): the same in every drawing of it.
+    const wall = wallFor(room.room, room.boxes.length);
+    this.wallKey = wall.xs.join();
     // The board opens itself in both drawings; its spot is only the mark (and the press), so the
     // board keeps its own button, its keyboard handling and its place in the tab order.
     const board = this.spot("", BOARD, null, "board");
@@ -59,8 +61,8 @@ export class TouchSpots {
       board,
       this.spot("Show the code large", JOIN_SIGN, () => this.codeSheet(), "sign"),
       ...room.boxes.map((box, i) => {
-        const w = boxWidth(n);
-        const spot = this.spot(`About ${box.name}`, { x: boxCentre(i, n) - w / 2, y: POSTER.top, w, h: POSTER.bottom - POSTER.top }, () => this.poster(box), "poster");
+        const w = wall.box;
+        const spot = this.spot(`About ${box.name}`, { x: wall.xs[i] - w / 2, y: POSTER.top, w, h: POSTER.bottom - POSTER.top }, () => this.poster(box), "poster");
         spot.box = box;
         spot.i = i;
         return spot;

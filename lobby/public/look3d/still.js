@@ -3,7 +3,7 @@
 // looked at before it is live, and how frame time is measured without a server in the way.
 //
 //   still.html?room=<skin>           any skin in skins.js, live or concept
-//     &shot=vote|count|toss|off|empty|live  the moment (default vote: four pieces mid-vote; live: the
+//     &shot=vote|count|toss|off|empty|live|ends  the moment (ends: two in the first box's light, two in the last's) (default vote: four pieces mid-vote; live: the
 //                                    wall as it hangs today, with the games that are not built yet dark)
 //     &look=baked                    the baked look (../baked/room-baked.js) on today's wall of five boxes
 //     &look=real                     the room made real (./rendered/: room=ship or room=bar), on the same wall; &rung=, &ladder=off as in the room
@@ -23,7 +23,7 @@
 import { Hud } from "../hud.js";
 import { camera } from "../shared/camera.js";
 import { boxFromManifest } from "../shared/vote.js";
-import { boxCentre, lightHalf } from "../shared/world.js";
+import { hangsOwnBoxes, wallFor } from "../shared/rooms.js";
 import { Room3D } from "./room3d.js";
 
 const query = new URLSearchParams(location.search);
@@ -43,17 +43,23 @@ const baked = query.get("look") === "baked";
 // &look=real: the room made of rendered layers (./rendered/), the Star Lounge, on the same wall of five (&rung= picks its step down).
 const real = query.get("look") === "real";
 // The baked and rendered looks are shown on today's wall of five boxes (&boxes=6 adds the local test game's box).
-if (baked || real) BOXES.push(boxFromManifest({ id: "fox-trouble", name: "Fox Trouble", blurb: "Solve the room together, cause trouble", players: { min: 2, max: 4 }, devices: { phone: true, desktop: false } }));
+if (baked || real || query.get("boxes") === "5") BOXES.push(boxFromManifest({ id: "fox-trouble", name: "Fox Trouble", blurb: "Solve the room together, cause trouble", players: { min: 2, max: 4 }, devices: { phone: true, desktop: false } }));
 if (baked && query.get("boxes") === "6") BOXES.splice(1, 0, boxFromManifest({ id: "coin-flip", name: "Coin Flip", blurb: "Test game: luck picks the order", players: { min: 1, max: 4 }, devices: { phone: true, desktop: true } }));
 const N = BOXES.length;
-const light = (i, off = 0) => Math.round(boxCentre(i, N) + off);
+// The room's wall (shared/rooms.js): where it hangs its boxes and its pools lie.
+const WALL = wallFor(query.get("room") ?? "bar", N);
+const OWN = hangsOwnBoxes(query.get("room") ?? "bar", N);
+/** A place in box i's light, `off` from its middle (kept inside a narrow pool). */
+const light = (i, off = 0) => Math.round(WALL.xs[i] + Math.sign(off) * Math.min(Math.abs(off), WALL.half - 10));
+/** A place in the dark, `off` past the right edge of box i's light (in the gap before the next, on a narrow wall). */
+const past = (i, off) => Math.round(WALL.xs[i] + WALL.half + (OWN ? (WALL.slot - 2 * WALL.half) / 2 : off));
 /** Where the room's feature is (look3d/space.js, boardX), in world units. */
 const FEATURE = 1722;
 const SEATS = [
   { name: "Mabel", colour: "#c8382c", x: light(0, -64), points: 5, face: 1 },
   { name: "Fitch", colour: "#2f6f8f", x: light(0, 62), points: 2, face: -1 },
   { name: "Dolly", colour: "#d9a02a", x: light(2, 8), points: 7, face: -1 },
-  { name: "Tom", colour: "#3f7a4a", x: light(2, lightHalf(N) + 52), points: 4, face: 1 },
+  { name: "Tom", colour: "#3f7a4a", x: past(2, 52), points: 4, face: 1 },
 ];
 if (show) {
   // Tom has wandered over to the room's feature, and Fitch has followed him there.
@@ -86,8 +92,14 @@ function fixture() {
   } else if (shot === "live") {
     for (const id of ["tin-derby", "flood", "fox-trouble"]) if (id in lights) lights[id] = "Coming soon";
     members[2].x = light(1, 10);
-    members[3].x = light(1, lightHalf(N) + 70);
+    members[3].x = past(1, 70);
     standing[2] = "who-am-i";
+  } else if (shot === "ends") {
+    // Both ends of the wall: two in the first box's light, two in the last's.
+    const last = N - 1;
+    [members[0].x, members[1].x, members[2].x, members[3].x] = [light(0, -36), light(0, 34), light(last, -34), light(last, 36)];
+    const [a, b] = [BOXES[0].id, BOXES[last].id];
+    Object.assign(vote, { standing: { 0: a, 1: a, 2: b, 3: b }, waiting: [], leaders: [a, b] });
   } else if (shot === "empty") {
     members.length = 0;
     for (const b of BOXES) lights[b.id] = b.min > 1 ? `Needs ${b.min} players` : "Needs a player";

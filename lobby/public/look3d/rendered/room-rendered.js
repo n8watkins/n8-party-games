@@ -35,7 +35,6 @@
 // On a device that cannot keep up it comes down its ladder (rendered/ladder.js) and at the
 // bottom draws itself as the 3D look draws the room, in place, without the page swapping views.
 // A wall with a different number of boxes than its picture is drawn by the 3D look as it stands.
-import { boxCentre } from "../../shared/world.js";
 import { Reflection } from "../characters.js";
 import { boxArt } from "../paint.js";
 import { Room3D } from "../room3d.js";
@@ -213,7 +212,7 @@ export class RoomRendered extends Room3D {
   /** One game box: its poster in the picture's frame, a gold edge and glow for the box that leads, and its lamp. */
   box(box, i, L) {
     if (this.plain) return super.box(box, i, L);
-    const b = { box, i, cx: boxCentre(i, L.n), level: 0, aim: 0, gold: 0, goldAim: 0, shown: -1 };
+    const b = { box, i, cx: L.wall.xs[i], level: 0, aim: 0, gold: 0, goldAim: 0, shown: -1 };
     b.pool = new THREE.Vector4(walkX(b.cx), SPACE.walkZ, (this.half + 12) * PX, 0);
     const at = (b.at = this.posterAt(i, L));
     const g = new THREE.Group();

@@ -14,7 +14,7 @@
 //
 // The poses are offsets and angles in world units and degrees, so any drawing (the SVG room of
 // today, a 3D room later) can show them: lobby/public/bump-draw.js is the thin part that does.
-import { ROOM, boxCentre, clampX, lightHalf } from "./world.js";
+import { ROOM, clampX, wallOf } from "./world.js";
 
 /** How far in front of a piece a bump reaches (a piece just behind its back counts too). */
 export const BUMP_REACH = 130;
@@ -109,16 +109,18 @@ export function bumpTarget(x, face, others) {
  * [[from, to]], left to right.
  */
 export function landingGround(n, lit = null) {
-  const half = lightHalf(n);
+  // `n` is the wall (shared/world.js) or how many boxes hang evenly on it.
+  const w = wallOf(n);
+  const half = w.half;
   // Between two lights there may be less dark than twice the margin: then it is the middle of it.
-  const gap = n > 1 ? boxCentre(1, n) - boxCentre(0, n) - 2 * half : Infinity;
+  const gap = w.n > 1 ? w.slot - 2 * half : Infinity;
   const margin = Math.min(KNOCK_CLEAR, gap / 2);
   const on = lit ? new Set(lit) : null;
   const ground = [];
   let from = ROOM.minX;
-  for (let i = 0; i < n; i++) {
+  for (let i = 0; i < w.n; i++) {
     if (on && !on.has(i)) continue;
-    const centre = boxCentre(i, n);
+    const centre = w.xs[i];
     ground.push([from, centre - half - margin]);
     from = centre + half + margin;
   }

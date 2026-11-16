@@ -20,6 +20,7 @@
 import { set, s } from "./dom.js";
 import { Scene } from "./scene.js";
 import { rememberReal, renderedFor } from "./look3d/rendered/switch.js";
+import { hangsOwnBoxes } from "./shared/rooms.js";
 
 /**
  * What main.js asks of a drawing.
@@ -170,7 +171,11 @@ export async function openRoomView(root, opts) {
       console.warn("The rendered room could not start, so the room is drawn in 3D.", err);
     }
   }
-  if (opts.look === "3d" && opts.baked && BAKED_ROOMS.includes(opts.skin || "bar")) {
+  // A baked plate is rendered for an evenly spaced wall: a wall the room hangs elsewhere (the bar's
+  // five boxes, in its painting's frames: shared/rooms.js) is drawn by the 3D look, so every look
+  // has its pools where the room counts the vote.
+  const even = Number.isInteger(opts.boxes) && !hangsOwnBoxes(opts.skin || "bar", opts.boxes);
+  if (opts.look === "3d" && opts.baked && even && BAKED_ROOMS.includes(opts.skin || "bar")) {
     try {
       const { RoomBaked } = await import("./baked/room-baked.js");
       return await RoomBaked.open(root, opts);

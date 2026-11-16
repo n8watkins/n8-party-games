@@ -125,7 +125,10 @@ It shares every part of `public/look3d/rendered/` with the Star Lounge, and its 
   Lightning comes now and then, about once a minute: one soft cold glow over the street and by the windows, never a flicker.
   The umbrella is a real one, built and lit: its canopy leads and its handle trails, it rides the gust (faster and higher, then slower), bobs, sways and turns over lazily once or twice about its shaft.
 
-The pools of light are where the room's numbers put them (the same for every look), which is wider apart than the painted frames; each lamp hangs over its pool near the eye, and a poster warms round its frame when someone stands in its light.
+The bar hangs its boxes in its painting's five frames, closer together than the even wall, and the room counts the vote there: a room may say where its boxes hang (`shared/rooms.js`, `boxes`, read through `wallFor`), and the room's rules (who stands in which light, where a piece arrives, where a knock lands) and every look of that room (flat, 3D, made real) go by it.
+Every other room, and the bar's local wall of six, keep the even wall.
+The baked bar's plate is of the even wall, so on the bar's wall of five the 3D bar draws the room instead.
+Each of the bar's lamps hangs over its pool near the eye, and a poster warms round its frame when someone stands in its light.
 
 Its depth: the eye moves sideways as the view slides (a phone's "Closer", an upright phone following its piece) and sees through the same window on the walking line, so the pieces, their tags and the pools stay exactly where the room's numbers put them, while the wall slides a little behind them, the street and the rain slide further behind the glass, and the stools, plant, candles and chair in front slide the other way; the pieces walk behind those at either end.
 A big screen's whole room does not move, so there it is the painting with the pieces standing in it, lit warm by the lamps, with their shadows and their reflections in the boards.

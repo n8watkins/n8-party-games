@@ -445,21 +445,28 @@ async function main() {
   const painted = await sharp(wall, { raw: { width: W, height: H, channels: 3 } }).resize(AT.w, AT.h, { kernel: "lanczos3" }).raw().toBuffer();
   // What carries on past the edges is the painting's edge, smeared and blurred: in colour for the
   // floor, greyed for the ceiling and the two ends (so the ivy and the street's lights do not run on).
-  // The ends are the painting's own edge mirrored (so a wall carries on as a wall), the ceiling and floor its edge drawn on.
-  const extend = async (img, mode) => {
+  // The ends carry on as the room's own dark wood (the frame by the door at the left, the post
+  // beside the right window), not as the windows at the painting's edges, which read as a dark
+  // box on a phone showing the room's right end beside its corner buttons. The ceiling and the
+  // floor are the painting's edge drawn on.
+  const POSTS = { left: Math.round(62 * S), right: Math.round(1678 * S) };
+  const extend = async (img) => {
     const buf = await img.raw().toBuffer();
-    const sides = await sharp(buf, { raw: { width: AT.w, height: AT.h, channels: 3 } })
-      .extend({ left: AT.x, right: BW - AT.x - AT.w, top: 0, bottom: 0, extendWith: mode })
-      .raw()
-      .toBuffer();
+    const sides = Buffer.alloc(BW * AT.h * 3);
+    for (let y = 0; y < AT.h; y++)
+      for (let x = 0; x < BW; x++) {
+        const px = x - AT.x;
+        const from = px < 0 ? POSTS.left : px >= AT.w ? POSTS.right : px;
+        buf.copy(sides, (y * BW + x) * 3, (y * AT.w + from) * 3, (y * AT.w + from) * 3 + 3);
+      }
     return sharp(sides, { raw: { width: BW, height: AT.h, channels: 3 } })
       .extend({ top: AT.y, bottom: BH - AT.y - AT.h, left: 0, right: 0, extendWith: "copy" })
       .blur(18)
       .raw()
       .toBuffer();
   };
-  const around = await extend(sharp(painted, { raw: { width: AT.w, height: AT.h, channels: 3 } }), "mirror");
-  const grey = await extend(sharp(painted, { raw: { width: AT.w, height: AT.h, channels: 3 } }).modulate({ saturation: 0.45, brightness: 0.85 }), "mirror");
+  const around = await extend(sharp(painted, { raw: { width: AT.w, height: AT.h, channels: 3 } }));
+  const grey = await extend(sharp(painted, { raw: { width: AT.w, height: AT.h, channels: 3 } }).modulate({ saturation: 0.6, brightness: 0.85 }));
   const base = Buffer.alloc(BW * BH * 3);
   const FEATHER = 28;
   // Toward either end of the painting a soft shade, so the room carries on past it into the dark without an edge.
@@ -472,8 +479,8 @@ async function main() {
       const up = py < 0 ? -py : 0;
       const down = py >= AT.h ? py - AT.h + 1 : 0;
       // Past the painting: the ceiling darkens fast (the lamps hang in it), the floor and the ends more slowly.
-      const k = Math.exp(-up / 60) * Math.exp(-down / 150) * Math.exp(-dx / 45);
-      const dim = (0.08 + 0.92 * k) * (dx ? 0.62 : 1);
+      const k = Math.exp(-up / 60) * Math.exp(-down / 150) * Math.exp(-dx / 220);
+      const dim = (0.08 + 0.92 * k) * (dx ? 0.7 : 1);
       const far = (c) => (down && !dx ? around[j + c] : grey[j + c]) * dim * (up ? 0.4 : 1);
       if (!dx && !up && !down) {
         // Inside, the last few pixels at the bottom and the two ends blend into what carries on.
@@ -483,7 +490,7 @@ async function main() {
         const side = Math.min(px, AT.w - 1 - px) < AT.h - 1 - py;
         // At the top the painting's beam and the ivy hanging from it fade into the dark ceiling the lamps hang in.
         const end = Math.min(px, AT.w - 1 - px);
-        const top = (py < 48 ? 0.4 + 0.6 * ease(py / 48) : 1) * (end < END ? 0.62 + 0.38 * ease(end / END) : 1);
+        const top = (py < 48 ? 0.4 + 0.6 * ease(py / 48) : 1) * (end < END ? 0.7 + 0.3 * ease(end / END) : 1);
         for (let c = 0; c < 3; c++) base[j + c] = Math.round((painted[i + c] * t + (side ? grey[j + c] : around[j + c]) * (1 - t)) * top);
         continue;
       }

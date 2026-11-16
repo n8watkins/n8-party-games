@@ -14,7 +14,8 @@
 //     nothing moves, and not at all while the page is hidden (the page's frame loop stops).
 import { IMPACT_MS, cooldownFraction } from "../shared/bump.js";
 import { COUNT_MS } from "../shared/vote.js";
-import { ROOM, boxCentre, lightHalf, posAt } from "../shared/world.js";
+import { wallFor } from "../shared/rooms.js";
+import { ROOM, posAt } from "../shared/world.js";
 import { Expressions } from "../emotes/play.js";
 import { EmoteFigure, Sticker } from "../emotes/svg.js";
 import { tagLevels } from "../tag-levels.js";
@@ -262,8 +263,9 @@ export class Room3D {
   /** Builds everything that does not move, for this room's boxes. */
   build(room) {
     this.clear(this.stuff);
-    const L = (this.L = layout(room.boxes.length));
-    this.half = lightHalf(L.n);
+    // The room's wall (shared/rooms.js): where its boxes hang and its pools lie, as the room decides the vote by it.
+    const L = (this.L = layout(wallFor(room.room ?? this.skin.id, room.boxes.length)));
+    this.half = L.wall.half;
     this.shell(L);
     this.doorway(L);
     this.bulbs();
@@ -492,7 +494,7 @@ export class Room3D {
   box(box, i, L) {
     const skin = this.skin;
     const add = (mesh) => (this.stuff.add(mesh), mesh);
-    const b = { box, i, cx: boxCentre(i, L.n), level: 0, aim: 0, gold: 0, goldAim: 0, shown: -1, lead: null };
+    const b = { box, i, cx: L.wall.xs[i], level: 0, aim: 0, gold: 0, goldAim: 0, shown: -1, lead: null };
     const x = walkX(b.cx);
     const z = SPACE.walkZ;
     const radius = (this.half + 12) * PX;

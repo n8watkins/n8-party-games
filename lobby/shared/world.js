@@ -45,22 +45,43 @@ export function lightHalf(n) {
   return Math.min(118, ((ROOM.boxesRight - ROOM.boxesLeft) / n) * 0.4);
 }
 
-/** Which light an x stands in: the box's index, or -1 for the dark. */
-export function lightAt(x, n) {
-  const half = lightHalf(n);
-  for (let i = 0; i < n; i++) if (Math.abs(x - boxCentre(i, n)) <= half) return i;
+/**
+ * A wall: where its `n` boxes hang, which is also where their pools of light lie on the floor
+ * (`xs`, the middle of each, world units), how far apart they are at the least (`slot`), how wide
+ * a box is (`box`) and half the width of a pool (`half`). Most rooms space their boxes evenly
+ * between ROOM.boxesLeft and ROOM.boxesRight (evenWall); a room whose picture has the boxes
+ * somewhere else says where (shared/rooms.js, wallFor), and every rule and every drawing of that
+ * room reads its wall, so a piece in a pool votes for the box over it in every look.
+ */
+export function evenWall(n) {
+  return { n, xs: Array.from({ length: n }, (_, i) => boxCentre(i, n)), slot: (ROOM.boxesRight - ROOM.boxesLeft) / n, box: boxWidth(n), half: lightHalf(n) };
+}
+
+/** A wall whose boxes hang at `xs` (world units, left to right): its boxes and pools as wide as their spacing allows, by the even wall's rules. */
+export function placedWall(xs) {
+  const slot = Math.min(...xs.slice(1).map((x, i) => x - xs[i]), ROOM.boxesRight - ROOM.boxesLeft);
+  return { n: xs.length, xs: [...xs], slot, box: slot - 36, half: Math.min(118, slot * 0.4) };
+}
+
+/** A wall from either a wall or a number of boxes (an even wall). */
+export const wallOf = (wall) => (typeof wall === "number" ? evenWall(wall) : wall);
+
+/** Which light an x stands in on a wall (or an even wall of that many boxes): the box's index, or -1 for the dark. */
+export function lightAt(x, wall) {
+  const w = wallOf(wall);
+  for (let i = 0; i < w.n; i++) if (Math.abs(x - w.xs[i]) <= w.half) return i;
   return -1;
 }
 
 /**
  * Where the room puts a seat's piece (on arriving, and after a game): always in the dark, and
  * apart from the others. The first two stand by the door; the rest stand in the dark gaps
- * between the pools of light further along the wall of `n` boxes.
+ * between the pools of light further along the wall (or an even wall of that many boxes).
  */
-export function spawnX(seat, n) {
+export function spawnX(seat, wall) {
   if (seat < 2) return 150 + seat * 100;
-  const slot = (ROOM.boxesRight - ROOM.boxesLeft) / n;
-  return Math.round(ROOM.boxesLeft + slot * Math.min(seat - 1, n - 1));
+  const w = wallOf(wall);
+  return Math.round(w.xs[Math.min(seat - 1, w.n - 1)] - w.slot / 2);
 }
 
 /**

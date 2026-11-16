@@ -15,7 +15,8 @@ import { IMPACT_MS } from "./shared/bump.js";
 import { tagLevels } from "./tag-levels.js";
 import { standings } from "./shared/tonight.js";
 import { BADGES, COUNT_MS, playersLabel } from "./shared/vote.js";
-import { ROOM, boxCentre, boxWidth, jumpHeight, lightHalf, posAt } from "./shared/world.js";
+import { wallFor } from "./shared/rooms.js";
+import { ROOM, jumpHeight, posAt } from "./shared/world.js";
 
 const GREY = "#9b948b";
 const BADGE_COLOURS = { any: ["#3db8ff", "#06263a"], phones: ["#b79cf7", "#24124d"], screen: ["#ffc93c", "#3a2a00"] };
@@ -54,7 +55,9 @@ export class Scene {
     this.pieces.clear();
     const n = room.boxes.length;
     this.n = n;
-    this.half = lightHalf(n);
+    // The room's wall (shared/rooms.js): where its boxes hang and its pools lie, as the room decides the vote by it.
+    this.wall = wallFor(room.room, n);
+    this.half = this.wall.half;
     svg.append(this.defs());
     svg.append(this.backdrop());
     this.layers = { lamps: s("g"), wall: s("g"), cones: s("g"), pools: s("g"), shadows: s("g"), pieces: s("g"), emotes: s("g"), tags: s("g"), stickers: s("g"), over: s("g") };
@@ -63,7 +66,7 @@ export class Scene {
     this.joinSign(room);
     this.door();
     this.board();
-    this.signs = this.planSigns(room.boxes, boxWidth(n));
+    this.signs = this.planSigns(room.boxes, this.wall.box);
     this.boxes = room.boxes.map((box, i) => this.box(box, i, n));
     this.overlay();
     this.bumpLayer();
@@ -180,8 +183,8 @@ export class Scene {
 
   /** One game box: lamp, cone of light, poster, sign and the pool on the floor. */
   box(box, i, n) {
-    const cx = boxCentre(i, n);
-    const w = boxWidth(n);
+    const cx = this.wall.xs[i];
+    const w = this.wall.box;
     const x = cx - w / 2;
     const half = this.half;
     const compact = this.opts.compact;

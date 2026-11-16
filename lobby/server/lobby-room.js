@@ -358,6 +358,8 @@ export function createLobbyRoom(wallFor) {
           if (!picked.ok) return this.send(entry, { t: "pick-no", why: picked.why, v: core.room });
           this.broadcast({ t: "pick", v: picked.room, by: picked.by });
           void this.save();
+          // A room may hang its boxes in other places (shared/rooms.js, wallFor): who stands in a light may have changed.
+          this.settle(now);
           return;
         }
         case "look": {

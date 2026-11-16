@@ -45,7 +45,7 @@ import { viewerFor } from "../../party-kit/src/core/views.js";
 import { IDLE_SHUTDOWN_MS, NAME_MAX, SEAT_COLOURS, STALE_ROOM_MS, cleanName, randomToken } from "../../party-kit/src/core/room-core.js";
 import { AWAY_MS, COUNT_MS, SETTLE_MS, TOSS_MS, leaders, pointsForPlace, spotLights, standingsFromRows, tally, whyNot } from "../shared/vote.js";
 import { bumpTarget, cooldownLeft, isDown, isSafe, knockLanding, knocked, mayBump } from "../shared/bump.js";
-import { DEFAULT_ROOM, ROOM_COOLDOWN_MS, isRoom, roomLocked } from "../shared/rooms.js";
+import { DEFAULT_ROOM, ROOM_COOLDOWN_MS, isRoom, roomLocked, wallFor } from "../shared/rooms.js";
 import { DEFAULT_CHARACTER, LOOK_COOLDOWN_MS, LOOK_SLACK_MS, characterOr, cleanColour, readLook } from "../shared/characters.js";
 import { record } from "../shared/tonight.js";
 import { DURING_PLAY, cooldownLeft as emoteLeft, mayEmote, relayEmote, waitMessage } from "../../party-kit/client/emotes.js";
@@ -211,7 +211,7 @@ export class LobbyCore {
       character: DEFAULT_CHARACTER,
       connected: false,
       droppedAt: now, // not connected yet: the socket follows the join
-      x: spawnX(seat, this.boxes.length),
+      x: spawnX(seat, this.wall),
       d: 0,
       t: now,
       face: 1,
@@ -407,6 +407,14 @@ export class LobbyCore {
   }
 
   /**
+   * The wall of the party's room (shared/rooms.js, wallFor): where its boxes hang and its pools of
+   * light lie. Who stands in which light, where pieces arrive and where a knock lands all go by it.
+   */
+  get wall() {
+    return wallFor(this.room, this.boxes.length);
+  }
+
+  /**
    * The party moves to another room. Only the host's taps apply, never during a count, a coin
    * toss or a game, and not again within a few seconds. Returns {ok, room, by} or {ok: false, why}.
    */
@@ -582,7 +590,7 @@ export class LobbyCore {
     // Thrown into the dark: clear of every light that is on (one that is off is dark already).
     const lights = this.lights();
     const lit = this.boxes.map((box, i) => (lights[box.id] === null ? i : -1)).filter((i) => i >= 0);
-    o.x = knockLanding(posAt(o, now), m.face, this.boxes.length, lit);
+    o.x = knockLanding(posAt(o, now), m.face, this.wall, lit);
     o.d = 0;
     o.t = now;
     o.rev += 1;
@@ -680,9 +688,10 @@ export class LobbyCore {
   /** {seat: the box whose light that piece stands in, or null for the dark}. A switched-off light is the dark. */
   standing(now) {
     const lights = this.lights();
+    const wall = this.wall;
     const out = {};
     for (const m of this.present()) {
-      const box = this.boxes[lightAt(posAt(m, now), this.boxes.length)];
+      const box = this.boxes[lightAt(posAt(m, now), wall)];
       out[m.seat] = box && lights[box.id] === null ? box.id : null;
     }
     return out;
@@ -861,7 +870,7 @@ export class LobbyCore {
   sendAway(id, now) {
     const box = this.boxes.find((b) => b.id === id);
     for (const m of this.present()) {
-      m.x = spawnX(m.seat, this.boxes.length);
+      m.x = spawnX(m.seat, this.wall);
       m.d = 0;
       m.t = now;
       m.rev += 1;
@@ -1061,7 +1070,7 @@ export class LobbyCore {
   /** Every piece back by the door, standing still, moved by the room (so each page takes its place). */
   respawn(now) {
     for (const m of this.present()) {
-      m.x = spawnX(m.seat, this.boxes.length);
+      m.x = spawnX(m.seat, this.wall);
       m.d = 0;
       m.t = now;
       m.rev += 1;
@@ -1615,7 +1624,7 @@ export class LobbyCore {
     this.keepCarry(game, a, ending);
     this.activity = { kind: "lobby" };
     for (const m of this.present()) {
-      m.x = spawnX(m.seat, this.boxes.length);
+      m.x = spawnX(m.seat, this.wall);
       m.d = 0;
       m.t = now;
       m.rev += 1;

@@ -224,8 +224,13 @@ export class RoomBar extends RoomRendered {
     const brass = new THREE.MeshLambertMaterial({ color: 0x8a6a32, toneMapped: false });
     hang(new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.06, 0.08, 16), brass), bottom + 0.34);
     const cordLength = pivot.position.y - (bottom + 0.38);
-    const cord = hang(new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, cordLength, 6), new THREE.MeshBasicMaterial({ color: 0x24160c })), bottom + 0.38 + cordLength / 2);
+    // (Brass-brown, so it shows against the dark ceiling and the shade does not seem to float.)
+    const cord = hang(new THREE.Mesh(new THREE.CylinderGeometry(0.014, 0.014, cordLength, 6), new THREE.MeshBasicMaterial({ color: 0x6a4a2a, toneMapped: false })), bottom + 0.38 + cordLength / 2);
     cord.renderOrder = 6;
+    // The lamp's light thrown up on the dark ceiling above it, faintly: the ceiling reads as a ceiling.
+    const wash = hang(new THREE.Mesh(new THREE.PlaneGeometry(3.2, 2.2), new THREE.MeshBasicMaterial({ map: this.glow, color: 0xffc888, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false })), bottom + 0.75);
+    wash.position.z = -0.6;
+    wash.renderOrder = 4;
     // Its glow round the hem.
     const halo = hang(new THREE.Mesh(new THREE.PlaneGeometry(1.5, 1.1), new THREE.MeshBasicMaterial({ map: this.glow, color: 0xffd9a0, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false })), bottom + 0.05);
     halo.position.z = 0.05;
@@ -241,7 +246,7 @@ export class RoomBar extends RoomRendered {
     beam.position.set(x, bottom / 2, z);
     beam.renderOrder = 5;
     this.stuff.add(spot, spot.target, beam);
-    this.lamps.push({ b, x, pivot, glass, halo, spot, beam, drop: pivot.position.y - bottom });
+    this.lamps.push({ b, x, pivot, glass, halo, wash, spot, beam, drop: pivot.position.y - bottom });
     return pivot;
   }
 
@@ -414,6 +419,7 @@ export class RoomBar extends RoomRendered {
       // The glass glows by itself as the lamp comes on; the box that leads warms toward gold.
       lamp.glass.color.setRGB(1, 0.94, 0.8).multiplyScalar(0.42 + 0.62 * glow + 0.12 * Math.min(level, 1.3)).lerp(GOLD, b.gold * 0.35);
       lamp.halo.material.opacity = (0.12 + 0.3 * glow + 0.25 * Math.min(level, 1.3)) * (1 + 0.3 * b.gold);
+      lamp.wash.material.opacity = 0.05 + 0.1 * glow + 0.08 * Math.min(level, 1.3);
       lamp.spot.intensity = 5 * k;
       lamp.spot.position.x = lamp.x - Math.sin(swing) * lamp.drop;
       lamp.beam.material.uniforms.uStrength.value = (0.07 * glow + 0.08 * level) * 1.5;

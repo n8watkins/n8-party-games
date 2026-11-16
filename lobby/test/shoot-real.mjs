@@ -22,7 +22,7 @@
 import { mkdirSync } from "node:fs";
 import { resolve } from "node:path";
 import { chromium } from "playwright";
-import { boxCentre, lightHalf } from "../shared/world.js";
+import { wallFor } from "../shared/rooms.js";
 import { RENDERED } from "../public/look3d/rendered/switch.js";
 import { partyApi, sleep } from "./client.mjs";
 
@@ -141,8 +141,12 @@ try {
   const kinds = await screen.evaluate(() => [...window.__room3d.pieces.values()].map((p) => `${p.member.name} ${p.kind.id} ${p.member.colour}`).sort());
   check(kinds.length === 4 && kinds.filter((k) => k.includes("ghost")).length === 2, "the room draws each character in its colour: " + kinds.join(", "));
 
-  const light = (i, off = 0) => Math.round(boxCentre(i, N) + off);
-  const dark = (i) => Math.round(boxCentre(i, N) + lightHalf(N) + 30);
+  // The room's wall (shared/rooms.js): where it hangs its boxes and its pools lie (the bar's are under its painted frames).
+  const WALL = wallFor(roomId, N);
+  /** A place in box i's light, `off` from its middle, kept inside a narrow pool. */
+  const light = (i, off = 0) => Math.round(WALL.xs[i] + Math.sign(off) * Math.min(Math.abs(off), WALL.half - 10));
+  /** A place in the dark past box i's light. */
+  const dark = (i) => Math.round(WALL.xs[i] + WALL.half + 30);
   const key = async (k, ms) => {
     await phone.keyboard.down(k);
     await sleep(ms);
@@ -160,7 +164,7 @@ try {
   const [CORK, WHO] = [boxes.indexOf("Cork & Bell"), boxes.indexOf("Who Am I?")];
   mabel.goto(light(CORK, -60));
   fitch.goto(light(CORK, 62));
-  tom.goto(dark(WHO) + 60);
+  tom.goto(dark(N - 1) + 50);
   await walkTo(light(CORK, 4));
   await sleep(2500);
   const lit = await screen.evaluate(() => window.__room3d.boxes.map((b) => +b.level.toFixed(2)));
@@ -181,6 +185,17 @@ try {
       });
     });
     check(off.length === 5 && Math.max(...off) < 12, `each poster's touch spot is over its painted frame (worst ${Math.max(...off).toFixed(1)} px off its poster's middle)`);
+    // The bar hangs its boxes in its painting's frames, and the room counts the vote there: each pool is under its poster.
+    const under = await screen.evaluate(() => {
+      const v = window.__room3d;
+      const V = v.camera.position.constructor;
+      return v.boxes.map((b) => {
+        const poster = new V(b.at.x, b.at.y, b.at.z).project(v.camera).x;
+        const pool = new V(b.pool.x, 0, b.pool.y).project(v.camera).x;
+        return Math.abs(poster - pool) * v.el.clientWidth * 0.5;
+      });
+    });
+    check(Math.max(...under) < 6, `each pool of light is under its painted poster (worst ${Math.max(...under).toFixed(1)} px apart across)`);
   }
 
   // The same moments at each phone size, and the big screen.

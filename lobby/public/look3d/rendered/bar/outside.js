@@ -586,8 +586,9 @@ export function createOutside({ plate, streets, rnd = Math.random }) {
     w.fading = w.fading.filter((f) => f.a > 0);
   }
   function drawGlass(w) {
-    // Drawn a little larger than life at phone size, so they read (the preview's rule).
-    const G = 1.15 + state.small * 1.9;
+    // Drawn a little larger than life at phone size, so they read (the preview's rule, grown less:
+    // at the preview's nearly three times they read as pearls at low pixel density).
+    const G = 1.15 + state.small * 1.1;
     const minR = 1.3 / state.k;
     const at = (x, y) => [w.x + x, w.y + y];
     for (const f of [...w.fading, ...w.runners.map((d) => ({ trail: d.trail, a: 1, w: d.rd }))]) {
