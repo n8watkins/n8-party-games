@@ -1,5 +1,5 @@
-// Moving a tab between the party's two waiting rooms (lobby/shared/mode.js): the character room
-// at /lobby/ and the plain one at /party/. Both pages use this, the same way.
+// Moving a tab between the party's two waiting rooms (lobby/shared/mode.js): the Floor (the
+// character room) at /lobby/ and the Table (the plain one) at /party/. Both pages use this.
 //
 // The rule is state, not an event: whenever the room's view says the party is in the other room
 // (the hello after a reconnect, a room view after a switch, a page loaded mid-switch), the page
@@ -66,7 +66,7 @@ export function watchMode(link, mine, { parent = document.body } = {}) {
       const text = note && Date.now() - note.at < NOTE_MS ? note.text : "";
       if (hopNow(to, { storage: storage(), text })) return;
       // Hopped a moment ago already: this tab stays until someone taps.
-      words.textContent = `The party is in ${name}`;
+      words.textContent = `The party moved to ${name}`;
       const go = h("a", "hop-link", "Tap to go to the party", cover);
       go.href = to;
     }, COVER_MS);

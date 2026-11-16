@@ -3,11 +3,11 @@
 //   node lobby/test/e2e-two-rooms.mjs [--base=http://localhost:8791] [--out=lobby/test/shots/two-rooms]
 //
 // Ann starts a party on a phone held sideways, Bo joins on an upright phone and a laptop joins as
-// the big screen, all in the character room (/lobby/). Ann opens Rooms and moves the party to
-// Turn-based: every page covers itself for a moment and becomes the plain waiting room (/party/),
-// seated as before. Cy joins on a small phone while the party is there and lands there. Bo's tap
-// on the switch is refused with the reason. Ann switches back: everyone is in the character room
-// again. Along the way: stills at 390x844, 844x390, 320x568 and 1280x720, the plain room never
+// the big screen, all on the Floor (/lobby/). Ann opens Rooms and moves the party to the Table:
+// every page covers itself for a moment and becomes the Table (/party/), seated as before. Cy
+// joins on a small phone while the party is there and lands there. Bo's tap on the switch is
+// refused with the reason. Ann switches back: everyone is on the Floor again. Along the way:
+// stills at 390x844, 844x390, 320x568 and 1280x720, the Table never
 // loads three.js, no page scrolls sideways, every tap target is at least 44 pixels, and no page
 // logs an error.
 import { mkdirSync } from "node:fs";
@@ -104,13 +104,13 @@ try {
   await shot(ann, "10-lobby-rooms-host-844x390");
   const item = await ann.locator(".mode-choice").boundingBox();
   const sheet = await ann.locator(".sheet.picker").boundingBox();
-  check(item.height >= 44 && item.y + item.height <= 390, `the host's "Move the party to Turn-based" is in the picker, on screen, ${Math.round(item.height)} pixels tall`);
+  check(item.height >= 44 && item.y + item.height <= 390, `the host's "Move the party to the Table" is in the picker, on screen, ${Math.round(item.height)} pixels tall`);
   check(sheet.y >= 0, "the picker fits the sideways phone");
   const boBefore = await bo.evaluate(() => JSON.parse(sessionStorage.getItem("party-kit:session:/api/lobby")).token);
   await ann.click(".mode-choice");
   await ann.waitForSelector(".hop-cover", { timeout: 3000 });
   await shot(ann, "11-switch-cover-844x390");
-  check((await ann.locator(".hop-words").textContent()) === "Moving to Turn-based", "Ann's page says: Moving to Turn-based");
+  check((await ann.locator(".hop-words").textContent()) === "Moving to the Table", "Ann's page says: Moving to the Table");
   await Promise.all([landed(ann, "/party/"), landed(bo, "/party/"), landed(tv, "/party/")]);
   check(true, "every page moved itself to the plain waiting room: both phones and the big screen");
   const boAfter = await bo.evaluate(() => JSON.parse(sessionStorage.getItem("party-kit:session:/api/lobby")).token);

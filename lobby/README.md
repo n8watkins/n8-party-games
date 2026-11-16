@@ -224,6 +224,23 @@ The cooldown is shown twice: a ring sweeping round the bump button, which is dim
 The rules, timings, states (winding, striking, recovering; standing, hit, flying, down, rising, safe) and poses are `shared/bump.js`: plain numbers with tests, no drawing.
 `public/bump-draw.js` is the thin part that turns them into SVG, and is the only part a room drawn another way would replace.
 
+## The Floor and the Table
+
+One party has two waiting rooms, and the host moves everyone between them.
+The Floor is this room, with the pieces, where everyone plays at once, at `/lobby/`.
+The Table is a plain waiting room with no characters, where the party sits, talks and takes turns, at `/party/` (`../party/public/`).
+Both are the same party: the same room object, the same code, the same seats and the same Tonight board.
+
+- The room keeps one stored value, `mode`: `"party-games"` (the Floor, the default) or `"turn-based"` (the Table). These values are on the wire and in storage; the names people read live only in `shared/mode.js` (`MODE_NAME`).
+- The host (the device that made the party, or whoever holds the controls while it is away, by the same rule as the room picker) sends `{t: "mode", v}`. The room refuses it during a count or a coin toss, the settings step, a game, and within four seconds of the last switch, with `{t: "mode-no", why, v}` to that page only.
+- A switch is saved before anyone hears of it. Then everyone gets a note ("Ann moved the party to the Table") and the room view with the new `mode`. The vote starts over: every piece is back by the door, with the usual rest before a count.
+- At the Table nothing walks, bumps or counts (`LobbyCore.plainRoom`), so no vote can start there. Seats, drops, the seat hold and the host's handover work as on the Floor.
+- Each page moves itself when the room's mode is not its own (`public/hop.js`). It is a rule about state, not an event: a hello after a reconnect, a page loaded mid-switch and a phone that was asleep all land in the right room the next time they hear the room. The page shows "Moving to the Table" for a moment and replaces itself with the other page, which resumes the same seat from the session in the tab. A tab hops at most once in three seconds (`HOP_GAP_MS`); a hop it may not make yet leaves a link to tap, so two pages can never bounce a tab between them.
+- The Floor's way to the Table is "Move the party to the Table" under the rooms in Rooms, for the host only. The Table has a switch at the top for both rooms; everyone sees it, only the host's taps do anything.
+- The Table loads no three.js and nothing of the Floor's drawing. It shows the code and QR code, who is here (the host marked, a dropped phone grey), the switch, and that Table games are coming. The big screen gets a wide layout with the switch in the bar, sized to need no scrolling.
+- A room saved before this restores on the Floor. The join link and the QR code still lead to `/lobby/?join=`, whose door seats a newcomer and sends them on to the Table when the party is there.
+- `npm test` covers the rules (`test/mode.test.js`) and the switch on the real room class (`test/party-room-mode.test.js`). `npm run test:mode` switches two players and a screen both ways over real sockets, with a reconnect in the middle and a newcomer at the Table. `npm run test:two-rooms` does it in real pages (headless and muted) and takes stills at 390x844, 844x390, 320x568 and 1280x720.
+
 ## Outside games
 
 An outside game is not on the kit: it has a site and rooms of its own.

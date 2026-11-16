@@ -1,6 +1,7 @@
 // One party, two waiting rooms. A party is in one of two modes, kept with the room on the server
-// and sent in the room view (`room.mode`): the side-view room with characters ("Party games", at
-// /lobby/) or a plain waiting room with no characters ("Turn-based", at /party/). The host
+// and sent in the room view (`room.mode`): the side-view room with characters (the Floor, mode
+// "party-games", at /lobby/) or a plain waiting room with no characters (the Table, mode
+// "turn-based", at /party/). The host
 // switches the whole party between them; each page that hears a mode that is not its own moves
 // itself to the other page, which resumes the same seat from the same saved session.
 //
@@ -20,8 +21,15 @@ export const isMode = (v) => typeof v === "string" && MODES.includes(v);
 /** The page that shows each mode. */
 export const MODE_PAGE = { "party-games": "/lobby/", "turn-based": "/party/" };
 
-/** Each mode's name, as the switch and the notes say it. */
-export const MODE_NAME = { "party-games": "Party games", "turn-based": "Turn-based" };
+/**
+ * Each mode's name, as people read it (the owner's names): the Floor, where everyone plays at
+ * once, and the Table, where the party sits, talks and takes turns. The one place they are
+ * written: the mode values above are what is stored and sent, and never change with the names.
+ */
+export const MODE_NAME = { "party-games": "the Floor", "turn-based": "the Table" };
+
+/** A mode's name at the start of a line or on a button: "The Table". */
+export const modeTitle = (mode) => MODE_NAME[mode].replace(/^the /, "The ");
 
 /** How long after one switch the party may be switched again: a double tap cannot bounce everyone twice. */
 export const MODE_COOLDOWN_MS = ROOM_COOLDOWN_MS;
@@ -72,8 +80,8 @@ export function readHop(storage) {
 
 /**
  * Moves this tab to `path`, unless it hopped a moment ago (the loop guard): then returns false
- * and the page offers a link. `text` is said on the page it arrives at ("Ann moved the party to
- * Turn-based"). Replaced, not added: the back button does not lead into the room just left.
+ * and the page offers a link. `text` is said on the page it arrives at ("Ann moved the party
+ * here"). Replaced, not added: the back button does not lead into the room just left.
  */
 export function hopNow(path, { storage, now = Date.now(), text = "", go = (to) => location.replace(to) } = {}) {
   if (!mayHop(readHop(storage), now)) return false;

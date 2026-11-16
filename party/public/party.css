@@ -77,7 +77,7 @@ p {
   display: flex;
   align-items: center;
   gap: 8px;
-  font-weight: 700;
+  font: 700 22px/1.1 var(--display);
   color: var(--gold);
   white-space: nowrap;
 }
@@ -579,7 +579,7 @@ p {
     flex: 0 1 auto;
   }
   .as-screen .brand {
-    font-size: 20px;
+    font-size: 28px;
   }
   .as-screen .grid {
     gap: 18px;

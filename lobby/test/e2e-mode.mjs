@@ -65,7 +65,7 @@ A.c.send({ t: "mode", v: "turn-based" });
 const heard = await Promise.all([A.c.wait(roomIn("turn-based"), 8000, since.a), B.c.wait(roomIn("turn-based"), 8000, since.b), T.c.wait(roomIn("turn-based"), 8000, since.t)]);
 check(heard.length === 3, "Ann switches: both phones and the screen hear the room in turn-based");
 const note = B.c.seen.slice(since.b).find((m) => m.t === "note" && m.k === "mode");
-check(note?.text === "Ann moved the party to Turn-based", `with a note: "${note?.text}"`);
+check(note?.text === "Ann moved the party to the Table", `with a note: "${note?.text}"`);
 // A double tap: the second is refused, and nobody bounces.
 A.c.send({ t: "mode", v: "party-games" });
 const again = await A.c.wait((m) => m.t === "mode-no", 8000, since.a);

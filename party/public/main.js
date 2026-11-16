@@ -1,27 +1,28 @@
-// The plain waiting room (/party/): the party's second waiting room, with no characters.
+// The Table (/party/): the party's plain waiting room, with no characters, where the party sits,
+// talks and takes turns.
 //
-// The same party as the character room (/lobby/): the same room on the server, the same socket,
-// the same seat, resumed from the session the character room saved in this tab. The host
-// switches the whole party between the two rooms (lobby/shared/mode.js); a page whose room the
-// party is not in moves itself to the other one (lobby/public/hop.js).
+// The same party as the Floor (/lobby/, the character room): the same room on the server, the
+// same socket, the same seat, resumed from the session the Floor saved in this tab. The host
+// switches the whole party between the two rooms (lobby/shared/mode.js, where their names are);
+// a page whose room the party is not in moves itself to the other one (lobby/public/hop.js).
 //
 // What is here: the party's code and QR code, who is here (the host marked, a dropped phone
-// grey), the switch between the two rooms (the host's taps only), and a word that turn-based
-// games are coming. It loads nothing of the character room's drawing: no three.js, no pieces.
+// grey), the switch between the two rooms (the host's taps only), and a word that Table games
+// are coming. It loads nothing of the Floor's drawing: no three.js, no pieces.
 // The big screen (`as=screen`, or a wide window) gets a wide layout of the same.
 import { PartyClient } from "/party-kit/client/party-client.js";
 import { KEEP_ALIVE_MS, watchConnection } from "/lobby/connection.js";
 import { h, icon } from "/lobby/dom.js";
 import { farewellKind, goFront } from "/lobby/farewell.js";
 import { watchMode } from "/lobby/hop.js";
-import { MODES, MODE_NAME, modeLocked } from "/lobby/shared/mode.js";
+import { MODES, MODE_NAME, modeLocked, modeTitle } from "/lobby/shared/mode.js";
 
 const app = document.getElementById("app");
 const link = new PartyClient({ api: "/api/lobby", quietPing: { text: "ping", everyMs: KEEP_ALIVE_MS } });
 const isPlayer = () => link.you?.role === "player";
 // A locked phone closes its socket and opens it again when it is shown (connection.js).
 watchConnection(link, { player: () => isPlayer() });
-// The party is in the character room: this page moves there (hop.js). Added before the page's own room handler.
+// The party is on the Floor: this page moves there (hop.js). Added before the page's own room handler.
 const modeHop = watchMode(link, "turn-based");
 
 /** A switch this device asked for and the room has not answered yet: given up after this long. */
@@ -49,9 +50,10 @@ function build() {
   const screen = link.you?.role === "screen";
   if (wide()) document.documentElement.classList.add("as-screen");
   const top = h("header", "top", "", app);
-  const brand = h("p", "brand", "", top);
+  // The room's own name is the page's heading.
+  const brand = h("h1", "brand", "", top);
   h("span", "brand-mark", "", brand);
-  h("span", "", "n8 Party", brand);
+  h("span", "", modeTitle("turn-based"), brand);
   const status = h("p", "status", "", top);
   status.setAttribute("role", "status");
   const leave = h("button", "leave", "", top);
@@ -71,7 +73,7 @@ function build() {
   toggle.setAttribute("role", "radiogroup");
   toggle.setAttribute("aria-label", "Which waiting room the party is in");
   const options = MODES.map((mode) => {
-    const option = h("button", "switch-option", MODE_NAME[mode], toggle);
+    const option = h("button", "switch-option", modeTitle(mode), toggle);
     option.type = "button";
     option.setAttribute("role", "radio");
     option.dataset.mode = mode;
@@ -106,8 +108,8 @@ function build() {
 
   // What this room is for, so far.
   const soon = h("section", "panel soon", "", grid);
-  h("h2", "", "Turn-based games are coming", soon);
-  h("p", "", "Games you play in turns, each on your own phone, will be chosen here. Until then the party can wait here, or go back to Party games.", soon);
+  h("h2", "", `${modeTitle("turn-based").replace(/^The /, "")} games are coming`, soon);
+  h("p", "", `Games you play in turns, each on your own phone, will be chosen here. Until then the party can wait here, or go back to ${MODE_NAME["party-games"]}.`, soon);
 
   const notes = h("div", "notes", "", app);
   notes.setAttribute("aria-live", "polite");
@@ -149,7 +151,7 @@ function update() {
     option.classList.toggle("going", going);
     option.setAttribute("aria-checked", String(here));
     option.setAttribute("aria-disabled", String(!host || here));
-    option.textContent = going ? "Moving..." : MODE_NAME[option.dataset.mode];
+    option.textContent = going ? "Moving..." : modeTitle(option.dataset.mode);
   }
   ui.options[0].parentElement.classList.toggle("locked", !host);
   const name = holder();
@@ -336,7 +338,7 @@ function noParty() {
   h("span", "brand-mark", "", brand);
   h("span", "", "n8 Party", brand);
   h("h1", "", "This is a party's waiting room", box);
-  h("p", "", "Start a party, or join one with its code, and you will land here when the party is in Turn-based.", box);
+  h("p", "", `Start a party, or join one with its code, and you will land here when the party is at ${MODE_NAME["turn-based"]}.`, box);
   const go = h("a", "button", "Start or join a party", box);
   go.href = "/";
 }

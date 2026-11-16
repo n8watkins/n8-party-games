@@ -13,8 +13,8 @@
 // pictures so they cover less of the wall. The first time a host is in a room, a small bubble
 // under Rooms says what it is.
 //
-// Under the rooms, for the host only: "Move the party to Turn-based", which takes everyone to the
-// plain waiting room with no characters (lobby/shared/mode.js). It is refused at the same moments
+// Under the rooms, for the host only: "Move the party to the Table", which takes everyone to the
+// plain waiting room with no characters (the Table, lobby/shared/mode.js). It is refused at the same moments
 // as a change of room, and while a game's settings are chosen; the picker says why.
 import { h, icon } from "./dom.js";
 import { ROOMS, ROOM_COOLDOWN_MS, roomLocked, roomName } from "./shared/rooms.js";
@@ -138,11 +138,11 @@ export class RoomMenu {
     h("span", "choice-icon", "", btn).append(icon(PLAIN_ICON, 22));
     const words = h("span", "choice-words", "", btn);
     this.toPlainTitle = h("strong", "", `Move the party to ${MODE_NAME[PLAIN]}`, words);
-    h("span", "", "A plain waiting room with no characters. Everyone moves with you.", words);
+    h("span", "", "Sit, talk and take turns, with no characters. Everyone moves with you.", words);
     btn.addEventListener("click", () => this.switchMode());
   }
 
-  /** The host tapped "Move the party to Turn-based". */
+  /** The host tapped "Move the party to the Table". */
   switchMode() {
     const room = this.room;
     if (!room || this.going) return;

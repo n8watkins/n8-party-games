@@ -6,7 +6,7 @@ import { describe, expect, it } from "vitest";
 import { game as coinFlip, manifest as coinFlipManifest } from "../games/coin-flip.js";
 import { LobbyCore } from "../server/lobby-core.js";
 import { COUNT_MS, SETTLE_MS, boxFromManifest } from "../shared/vote.js";
-import { DEFAULT_MODE, HOP_GAP_MS, HOP_KEY, MODES, MODE_COOLDOWN_MS, MODE_NAME, MODE_PAGE, arrived, hopNow, hopTarget, isMode, mayHop, modeLocked, modeOf, readHop } from "../shared/mode.js";
+import { DEFAULT_MODE, HOP_GAP_MS, HOP_KEY, MODES, MODE_COOLDOWN_MS, MODE_NAME, MODE_PAGE, arrived, hopNow, hopTarget, isMode, mayHop, modeLocked, modeOf, modeTitle, readHop } from "../shared/mode.js";
 import { POSITION_SLACK, boxCentre, spawnX } from "../shared/world.js";
 
 const duo = { id: "duo", name: "Duo", players: { min: 1, max: 4 }, devices: { phone: true, desktop: true } };
@@ -59,9 +59,9 @@ describe("the party's mode", () => {
     const { core, ann } = party();
     expect(core.setMode(ann.token, "turn-based", 2000)).toEqual({ ok: true, mode: "turn-based", by: 0 });
     expect(core.view(2000).mode).toBe("turn-based");
-    expect(core.drainNotes()).toEqual([{ k: "mode", mode: "turn-based", seat: 0, name: "Ann", text: "Ann moved the party to Turn-based" }]);
+    expect(core.drainNotes()).toEqual([{ k: "mode", mode: "turn-based", seat: 0, name: "Ann", text: "Ann moved the party to the Table" }]);
     expect(core.setMode(ann.token, "party-games", 2000 + MODE_COOLDOWN_MS)).toMatchObject({ ok: true, mode: "party-games" });
-    expect(core.drainNotes()[0].text).toBe("Ann moved the party to Party games");
+    expect(core.drainNotes()[0].text).toBe("Ann moved the party to the Floor");
   });
 
   it("is not switched by anyone else while the host is here", () => {
@@ -90,7 +90,7 @@ describe("the party's mode", () => {
     const ann = seated(core, "Ann");
     expect(core.pickerToken()).toBe(ann.token);
     expect(core.setMode(screen.token, "turn-based", 2000)).toEqual({ ok: true, mode: "turn-based", by: -1 });
-    expect(core.drainNotes()[0].text).toBe("The room's screen moved the party to Turn-based");
+    expect(core.drainNotes()[0].text).toBe("The room's screen moved the party to the Table");
     expect(core.setMode(ann.token, "party-games", 2000 + MODE_COOLDOWN_MS).ok).toBe(true);
   });
 
@@ -244,7 +244,10 @@ describe("the pages' rules (lobby/shared/mode.js)", () => {
     expect(MODES).toEqual(["party-games", "turn-based"]);
     expect(DEFAULT_MODE).toBe("party-games");
     expect(MODE_PAGE).toEqual({ "party-games": "/lobby/", "turn-based": "/party/" });
-    expect(MODE_NAME).toEqual({ "party-games": "Party games", "turn-based": "Turn-based" });
+    // The names people read (the owner's): the values on the wire and in storage never change with them.
+    expect(MODE_NAME).toEqual({ "party-games": "the Floor", "turn-based": "the Table" });
+    expect(modeTitle("party-games")).toBe("The Floor");
+    expect(modeTitle("turn-based")).toBe("The Table");
     expect(isMode("turn-based")).toBe(true);
     expect(isMode("TURN-BASED")).toBe(false);
     expect(isMode({})).toBe(false);
@@ -270,8 +273,8 @@ describe("the pages' rules (lobby/shared/mode.js)", () => {
     const s = store();
     const went = [];
     const go = (to) => went.push(to);
-    expect(hopNow("/party/", { storage: s, now: 10_000, text: "Ann moved the party to Turn-based", go })).toBe(true);
-    expect(JSON.parse(s.data.get(HOP_KEY))).toEqual({ at: 10_000, to: "/party/", text: "Ann moved the party to Turn-based" });
+    expect(hopNow("/party/", { storage: s, now: 10_000, text: "Ann moved the party to the Table", go })).toBe(true);
+    expect(JSON.parse(s.data.get(HOP_KEY))).toEqual({ at: 10_000, to: "/party/", text: "Ann moved the party to the Table" });
     expect(hopNow("/lobby/", { storage: s, now: 10_000 + HOP_GAP_MS - 1, go })).toBe(false);
     expect(hopNow("/lobby/", { storage: s, now: 10_000 + HOP_GAP_MS, go })).toBe(true);
     expect(went).toEqual(["/party/", "/lobby/"]);
@@ -291,9 +294,9 @@ describe("the pages' rules (lobby/shared/mode.js)", () => {
 
   it("says once, on the page it arrived at, why the tab moved, and keeps the guard's time", () => {
     const s = store();
-    hopNow("/party/", { storage: s, now: 10_000, text: "Ann moved the party to Turn-based", go: () => {} });
+    hopNow("/party/", { storage: s, now: 10_000, text: "Ann moved the party to the Table", go: () => {} });
     expect(arrived(s, "/lobby/", 10_500)).toBe("");
-    expect(arrived(s, "/party/", 10_500)).toBe("Ann moved the party to Turn-based");
+    expect(arrived(s, "/party/", 10_500)).toBe("Ann moved the party to the Table");
     expect(arrived(s, "/party/", 10_600)).toBe("");
     expect(readHop(s).at).toBe(10_000);
     // A note left long ago is not said.
