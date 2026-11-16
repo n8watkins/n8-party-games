@@ -43,7 +43,7 @@ describe("the one list of characters", () => {
   it("gives every definition every part the draw sites ask for", () => {
     for (const def of Object.values(CHARACTER_DRAWINGS)) {
       for (const part of ["byId", "mirror", "top"]) expect(typeof def.emotes[part], `${def.id}.emotes.${part}`).toBe("function");
-      for (const part of ["make", "dress", "frame", "dizzy", "blink", "emote", "still", "portrait"]) expect(typeof def.flat[part], `${def.id}.flat.${part}`).toBe("function");
+      for (const part of ["make", "dress", "frame", "dizzy", "blink", "scared", "emote", "still", "portrait"]) expect(typeof def.flat[part], `${def.id}.flat.${part}`).toBe("function");
       expect(finite(def.flat.tall) && finite(def.flat.rest), def.id).toBe(true);
       expect(def.flat.shadow.rx, def.id).toBeGreaterThan(0);
       expect(["stick", "ghost"], def.id).toContain(def.flat.figure.limbs);
