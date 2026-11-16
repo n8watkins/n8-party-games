@@ -148,38 +148,44 @@ describe("the ghost's rules, as numbers", () => {
 
   it("never spooks a piece further than SPOOK_MOST, well under a kick, from anywhere in any room (the worst case was 214)", () => {
     expect(SPOOK_MOST).toBeLessThanOrEqual(KNOCK_DISTANCE * 0.75);
+    // Tens of thousands of spots: the faults are gathered and checked once (an expect per spot is slow on a busy machine).
     let worst = 0;
+    const faults = [];
     for (let n = 1; n <= 8; n++) {
       // Every light on, none on, and each one alone.
       const lits = [null, [], ...Array.from({ length: n }, (_, i) => [i])];
+      const half = lightHalf(n);
       for (const lit of lits) {
-        const on = lit ?? Array.from({ length: n }, (_, i) => i);
-        const dark = (x) => on.every((i) => Math.abs(x - boxCentre(i, n)) > lightHalf(n));
+        const centres = (lit ?? Array.from({ length: n }, (_, i) => i)).map((i) => boxCentre(i, n));
+        const dark = (x) => centres.every((c) => Math.abs(x - c) > half);
         for (let x = ROOM.minX; x <= ROOM.maxX; x += 3) {
           for (const dir of [-1, 1]) {
             const spook = knockLanding(x, dir, n, lit, SPOOK_LANDING);
             const kick = knockLanding(x, dir, n, lit);
             const went = Math.abs(spook - x);
             worst = Math.max(worst, went);
-            const where = `n=${n} lit=${JSON.stringify(lit)} x=${x} dir=${dir}`;
+            const fault = (why) => faults.push(`n=${n} lit=${JSON.stringify(lit)} x=${x} dir=${dir}: ${why}`);
             // In bounds, the way it was sent (or nowhere, against a wall), never further than a kick.
-            expect(spook, where).toBeGreaterThanOrEqual(ROOM.minX);
-            expect(spook, where).toBeLessThanOrEqual(ROOM.maxX);
-            expect((spook - x) * dir, where).toBeGreaterThanOrEqual(0);
-            expect(went, where).toBeLessThanOrEqual(SPOOK_MOST);
-            expect(went, where).toBeLessThanOrEqual(Math.abs(kick - x));
-            // Fair: in the dark whenever there is dark within its reach that way.
+            if (spook < ROOM.minX || spook > ROOM.maxX) fault(`out of bounds at ${spook}`);
+            if ((spook - x) * dir < 0) fault(`went the wrong way, to ${spook}`);
+            if (went > SPOOK_MOST) fault(`went ${went}`);
+            if (went > Math.abs(kick - x)) fault(`went ${went}, a kick ${Math.abs(kick - x)}`);
+            // Fair: in the dark whenever there is dark within its reach that way (clear of the
+            // light by more than a unit: it never lands teetering on its very edge).
             if (!dark(spook)) {
-              // (Clear of the light by more than a unit: it never lands teetering on its very edge.)
               for (let d = 0; d <= SPOOK_MOST - 2; d += 2) {
                 const y = x + dir * d;
-                if (y >= ROOM.minX && y <= ROOM.maxX) expect(dark(y), `${where}: dark at ${y}, landed in a light at ${spook}`).toBe(false);
+                if (y >= ROOM.minX && y <= ROOM.maxX && dark(y)) {
+                  fault(`dark at ${y}, landed in a light at ${spook}`);
+                  break;
+                }
               }
             }
           }
         }
       }
     }
+    expect(faults.slice(0, 5)).toEqual([]);
     expect(worst).toBeLessThanOrEqual(SPOOK_MOST);
   });
 });
