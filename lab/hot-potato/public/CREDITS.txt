@@ -1,0 +1,14 @@
+cities.json: city names from GeoNames
+
+Source: https://download.geonames.org/export/dump/cities15000.zip
+        (populated places over 15,000 people, and capitals)
+        and https://download.geonames.org/export/dump/alternateNamesV2.zip
+        (English alternate names and abbreviations, such as "New York" and "NYC")
+Fetched: 2026-11-15
+Licence: Creative Commons Attribution 4.0, https://creativecommons.org/licenses/by/4.0/
+Credit: GeoNames, https://www.geonames.org/
+
+Changed from the source: only the name, ASCII name, up to five English alternate names,
+up to two abbreviations, country code and population are kept; city sections (PPLX) and
+abandoned or destroyed places are left out; sorted by population, biggest first.
+Rebuilt with lab/hot-potato/tools/make-cities.py in the n8-party-games repository.
