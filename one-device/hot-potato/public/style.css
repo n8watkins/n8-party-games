@@ -316,7 +316,7 @@ legend { padding: 0; }
   .lastword { grid-area: word; }
   .up { grid-area: up; justify-content: flex-start; transform-origin: 0 100%; }
   /* The reserved line takes the pair's width, never widens it. */
-  .say { grid-area: say; contain: inline-size; }
+  .say { grid-area: say; contain: inline-size; justify-self: stretch; }
   .acts { grid-column: 1 / -1; justify-self: center; }
   .keys { position: absolute; right: 0; bottom: 0; }
   .after { font-size: min(var(--u) * 3, calc((100cqi - var(--d) * 1.4 - var(--u) * 1.4) * 0.92 / (max(var(--n), 5) * 0.47))); }

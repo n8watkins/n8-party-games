@@ -369,6 +369,13 @@ const layoutFaults = (page, turn) =>
       const biggest = Math.max(0, ...others.map(size));
       if (out.word && out.word < biggest) bad.push(`the word (${out.word}px) is smaller than other text in the strip (${biggest}px)`);
       if (out.word && out.word < Math.max(24, Math.min(W, H) * 0.06)) bad.push(`the word is small for the screen (${out.word}px on ${W}x${H})`);
+      // What is heard, and the verdict's reason, are shown in full when there are any.
+      for (const id of ["g-heard", "g-status"]) {
+        const el = document.getElementById(id);
+        if (!el.textContent.trim() || el.classList.contains("quiet")) continue;
+        const r = el.getBoundingClientRect();
+        if (r.width < 20 || r.height < 10 || el.scrollWidth > el.clientWidth + 1) bad.push(`${id} is not shown in full (${Math.round(r.width)}x${Math.round(r.height)})`);
+      }
     }
     return { bad, ...out };
   }, turn);
