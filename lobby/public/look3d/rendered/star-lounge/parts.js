@@ -71,12 +71,12 @@ export function buildLamp(i, { plate, sheet, radial, colour, exposure, add, dept
  * `swing` its angle on its cord. Sets everything of it but its share of the room's picture,
  * which the caller sets (it is one uniform of the room picture: shell.uGain).
  */
-export function setLamp(lamp, { glow, k, level, swing, spot = 5 }) {
+export function setLamp(lamp, { glow, k, level, swing, spot = 5, beam = 1 }) {
   lamp.pivot.rotation.z = swing;
   lamp.card.mat.uniforms.uOwn.value = lamp.card.c.ownGain * (0.06 + k) * 0.7;
   lamp.spot.intensity = spot * k;
   lamp.spot.position.x = lamp.x - Math.sin(swing) * (SPACE.h - SPACE.lampY);
-  lamp.beam.material.uniforms.uStrength.value = 0.07 * glow + 0.08 * level;
+  lamp.beam.material.uniforms.uStrength.value = (0.07 * glow + 0.08 * level) * beam;
   lamp.beam.visible = level > 0.002;
   lamp.beam.rotation.z = swing * 0.5;
   lamp.halo.material.opacity = 0.1 + (0.28 + 0.4 * Math.min(level, 1.3)) * glow;

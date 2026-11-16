@@ -167,8 +167,10 @@ export class RoomStarLounge extends RoomRendered {
       const glow = Math.min(1, level * 8);
       const k = 0.3 * glow + 0.7 * level;
       const swing = lamp.pivot.rotation.z;
-      setLamp(lamp, { glow, k, level, swing });
-      u.uGain.value[b.i] = this.plate.lights[`lamp${b.i}`].gain * 1.6 * (0.15 * glow + 0.95 * level);
+      // The beam a little stronger than the preview's: in the room it says which light is on, from across the room.
+      setLamp(lamp, { glow, k, level, swing, beam: 1.8 });
+      // A lamp that is on with nobody under it (the room's 0.16) lights its pool faintly; each piece under it brightens it.
+      u.uGain.value[b.i] = this.plate.lights[`lamp${b.i}`].gain * 2 * (0.15 * glow + 0.95 * level);
       u.uSway.value[b.i] = -swing * 0.035;
       // The box that leads: its lamp's light goes the room's colour.
       u.uTint.value[b.i].setRGB(1.3, 1.08, 0.86).lerp(TEAL, b.gold * 0.7);

@@ -27,6 +27,10 @@ const SIZES = [
   { name: "phone 844x390 @2x closer", viewport: { width: 844, height: 390 }, deviceScaleFactor: 2, hasTouch: true, isMobile: true, query: "as=player&zoom=closer" },
   { name: "phone 844x390 @2x whole room", viewport: { width: 844, height: 390 }, deviceScaleFactor: 2, hasTouch: true, isMobile: true, query: "as=player&zoom=room" },
   { name: "big screen 1280x720", viewport: { width: 1280, height: 720 }, deviceScaleFactor: 1, query: "" },
+  // Far more pixels than any device has, so that the graphics card sets the pace and not the script: the only way a
+  // desktop card says anything about what each pixel costs. The room caps its own pixels (MAX_PIXELS), so this is
+  // its biggest picture, about 2560 x 1440. Read the frame times against each other, not as a phone's.
+  { name: "stress 3840x2160 @2x, whole room", viewport: { width: 3840, height: 2160 }, deviceScaleFactor: 2, query: "as=player&zoom=room" },
 ].filter((s) => !only || s.name.includes(only));
 const RUNGS = [
   { name: "3d star-lounge (today)", query: "room=ship" },

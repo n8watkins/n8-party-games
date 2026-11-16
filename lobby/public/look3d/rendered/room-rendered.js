@@ -172,6 +172,20 @@ export class RoomRendered extends Room3D {
     b.glowMesh.visible = false;
     g.add(b.goldMesh, b.glowMesh);
     this.stuff.add(g);
+    // On the floor: the pool's edge, faint even when its lamp is out so it still reads as a place
+    // to stand (as in the 3D look), and a soft wash inside it while the lamp is on. The picture
+    // has the lamp's own light on the floor; these make the place to vote plain at a glance.
+    const x = walkX(b.cx);
+    const radius = (this.half + 12) * PX;
+    b.ring = new THREE.Mesh(new THREE.RingGeometry(radius - 0.018, radius + 0.018, 72), new THREE.MeshBasicMaterial({ color: this.skin.light, transparent: true, opacity: 0.05, blending: THREE.AdditiveBlending, depthWrite: false }));
+    b.ring.rotation.x = -Math.PI / 2;
+    b.ring.position.set(x, 0.006, SPACE.walkZ);
+    b.wash = new THREE.Mesh(new THREE.PlaneGeometry(radius * 2.3, radius * 2.3), new THREE.MeshBasicMaterial({ map: this.glow, color: this.skin.light, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false }));
+    b.wash.rotation.x = -Math.PI / 2;
+    b.wash.position.set(x, 0.004, SPACE.walkZ);
+    b.ringLight = new THREE.Color(this.skin.light);
+    b.ringGold = new THREE.Color(this.skin.accent);
+    this.stuff.add(b.ring, b.wash);
     // The lamp is the room's own; the room's life swings the group it gives back.
     b.lamp = { swing: this.lamp(b, i) };
     return b;
@@ -182,9 +196,15 @@ export class RoomRendered extends Room3D {
     if (this.plain) return super.light(b);
     const glowing = Math.min(1, b.level * 8);
     b.art.color.setScalar(0.34 + 0.56 * glowing + 0.22 * b.gold);
-    b.goldFace.opacity = b.gold;
+    // The screen's edge: the room's colour while its lamp is on, brighter for the box that leads.
+    b.goldFace.opacity = Math.max(b.gold, 0.45 * glowing);
     b.glowMesh.material.opacity = 0.5 * b.gold;
-    b.goldMesh.visible = b.glowMesh.visible = b.gold > 0.003;
+    b.goldMesh.visible = b.goldFace.opacity > 0.003;
+    b.glowMesh.visible = b.gold > 0.003;
+    b.ring.material.color.copy(b.ringLight).lerp(b.ringGold, b.gold);
+    b.ring.material.opacity = Math.max(0.05 + 0.11 * glowing + 0.34 * Math.min(b.level, 1.2), b.gold);
+    b.wash.material.opacity = 0.16 * Math.min(b.level, 1.3);
+    b.wash.visible = b.level > 0.002;
   }
 
   // ---------------------------------------------------------------- the pieces, in the picture

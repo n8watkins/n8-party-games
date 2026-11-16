@@ -407,7 +407,8 @@ export function createOutside({ cfg, tex, weather = true }) {
   ring.renderOrder = -96;
   scene.add(ring);
   const M = cfg.moon;
-  const moon = new THREE.Mesh(new THREE.SphereGeometry(M.radius, 192, 96), ballMaterial(tex.moon, grain, sun, M, { air: 0 }));
+  // (The moon is a few dozen pixels across on any screen: a quarter of the planet's triangles each way is plenty.)
+  const moon = new THREE.Mesh(new THREE.SphereGeometry(M.radius, 64, 32), ballMaterial(tex.moon, grain, sun, M, { air: 0 }));
   moon.position.set(...M.centre);
   moon.renderOrder = -97;
   scene.add(moon);

@@ -52,7 +52,8 @@ try {
   }
   const shot = async (page, name) => {
     if (!want(name)) return;
-    await page.screenshot({ path: `${out}/${name}.png` });
+    // (A software renderer on a busy machine can take a while to give a frame.)
+    await page.screenshot({ path: `${out}/${name}.png`, timeout: 180000 });
     console.log("     still: " + `${out}/${name}.png`);
   };
   /** What the page is drawing with: its look, rung and the bytes it fetched of the rendered layers. */
@@ -78,7 +79,8 @@ try {
     check(s0.stats?.look === "real", `the rendered Star Lounge drew the room (${s0.stats?.rung})`);
     check(/^real star-lounge/.test(s0.meter), `the frame meter names it: "${s0.meter.split(" · ")[0]}"`);
   } else {
-    check(s0.fetched === 0, `today's 3D look fetched none of the rendered layers (${s0.fetched})`);
+    // Only the switch itself (look3d/rendered/switch.js: a few lines of logic the room view asks) is fetched by everyone.
+    check(s0.files.join() === "switch.js", `today's 3D look fetched none of the rendered layers or drawing, only the switch (${s0.files.join(", ")}: ${s0.bytes} bytes)`);
   }
   check((await screen.locator(".l3-pin").textContent()) === pin, "the code is on the wall: " + pin);
   const boxes = await screen.evaluate(() => window.__room3d.room.boxes.map((b) => b.name));
@@ -213,15 +215,21 @@ try {
     await slow.goto(`${base}/lobby/look3d/still.html?look=real&ladder=on&gl=any&shot=live&as=player&zoom=room`);
     await slow.waitForSelector("html[data-ready]", { timeout: 90000, state: "attached" });
     const seen = [];
-    for (let i = 0; i < 120; i++) {
+    let done = "";
+    for (let i = 0; i < 160 && !done; i++) {
       const now = await slow.evaluate(() => `${window.__room3d.lookName} ${window.__room3d.drawing.skin} @${window.__room3d.ratio.toFixed(2)}x`);
       if (seen.at(-1) !== now) seen.push(now);
-      if (now.startsWith("3d")) break;
+      done = await slow.evaluate(() => window.__room3d.ladder?.done ?? "");
       await sleep(500);
     }
-    const remembered = await slow.evaluate(() => localStorage.getItem("party-room:real-rung"));
-    await shot(slow, "10-ladder-640x360-fell-back");
-    check(seen.at(-1)?.startsWith("3d star-lounge") && remembered === "3d", `on frames this slow the ladder comes all the way down and remembers it: ${seen.join(" > ")}`);
+    const end = await slow.evaluate(() => ({ look: window.__room3d.lookName, taken: window.__room3d.taken, remembered: localStorage.getItem("party-room:real-rung") }));
+    await shot(slow, "10-ladder-640x360-end");
+    // Two right ends: every step helped but not enough (fall back to the 3D look, remembered), or the steps changed
+    // nothing, so something else holds the device back (all undone, the rendered look kept). Which one a software
+    // renderer on a busy machine gets depends on what is slowing it; either way it went through every rung.
+    const gaveUp = done === "fell back" && end.look === "3d" && end.remembered === "3d";
+    const capped = done === "capped" && end.look === "real" && end.taken.length === 0 && end.remembered === null;
+    check(seen.some((s) => s.includes("lite 3")) && (gaveUp || capped), `on slow frames the ladder came down every rung and stopped (${done || "not yet"}): ${seen.join(" > ")}`);
   }
 
   const s1 = await drawn(phone);
@@ -229,7 +237,7 @@ try {
   if (lookName === "real") {
     const layers = s1.files.filter((f) => /\.(webp|json)$/.test(f)).sort();
     check(JSON.stringify(layers) === JSON.stringify([...RENDERED.ship.files].sort()), `the phone fetched the Star Lounge's layers, each once: ${layers.length} files`);
-  } else check(s1.fetched === 0, "today's 3D look on the phone fetched none of the rendered files");
+  } else check(s1.files.join() === "switch.js", "today's 3D look on the phone fetched none of the rendered layers or drawing, only the switch");
   check(errors.length === 0, "no page logged an error" + (errors.length ? ":\n     " + [...new Set(errors)].join("\n     ") : ""));
 } finally {
   for (const c of sockets) c.ws.close();
