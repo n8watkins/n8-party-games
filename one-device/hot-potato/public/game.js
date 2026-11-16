@@ -365,7 +365,8 @@ export const livesLeft = (g) => Math.max(0, LIVES - g.stage);
  * Everything the potato's look needs, and nothing else: the seam between the rules and the
  * drawing (see art.js). `growth` is how far along it is, 0 healthy to 1 about to burst, from the
  * stage; `strain` adds the pressure of a burning fuse on top, so it swells a little as time runs
- * out and settles back after an answer; `light` is the plate light's colour.
+ * out and settles back after an answer; `fuse` is the fuse left while it burns (1 otherwise), which
+ * the Specimen's eyes follow; `light` is the plate light's colour.
  */
 export function artState(g) {
   const burst = g.phase === "burst" || g.phase === "over";
@@ -377,6 +378,7 @@ export function artState(g) {
     stage,
     growth,
     strain,
+    fuse: g.phase === "listen" && g.lit ? fuseShare(g) : 1,
     light: LIGHTS[Math.min(stage, LIGHTS.length - 1)],
     phase: burst ? "burst" : g.phase,
     paused: g.paused,

@@ -124,7 +124,41 @@ let lastFrame = 0;
 const setScreen = (s) => {
   screen = s;
   game.dataset.screen = s;
+  if (s !== "turn") clearReact();
+  renderHeat();
 };
+
+/** The ground heats with the potato: calm, warm, hot, strain, critical, then boom once it burst. */
+const HEATS = ["calm", "warm", "hot", "strain", "critical", "boom"];
+function renderHeat() {
+  let heat = "calm";
+  if (screen === "end") heat = "boom";
+  else if (screen === "turn" && g) heat = g.phase === "burst" || g.phase === "over" ? "boom" : HEATS[Math.min(4, g.stage)];
+  if (game.dataset.heat !== heat) game.dataset.heat = heat;
+}
+
+// ---- A verdict, big for a moment (the status line keeps it in words) ---------------------------
+
+let reactTimer = 0;
+function showReact(kind, head, line) {
+  clearReact();
+  $(`r-${kind}-head`).textContent = head;
+  $(`r-${kind}`).textContent = line;
+  void game.offsetWidth; // start the animation again
+  game.dataset.react = kind;
+  reactTimer = setTimeout(clearReact, 1250);
+}
+function clearReact() {
+  clearTimeout(reactTimer);
+  delete game.dataset.react;
+}
+/** The big words for a refusal: what kind of miss it was, and why, unless the headline says it all. */
+function missWords(v, overturned = false) {
+  if (overturned) return ["Overturned!", "That was wrong"];
+  if (v?.reason === "slow") return ["Too slow!", ""];
+  if (v?.reason === "used" || v?.reason === "echo") return ["Again?", v.why];
+  return ["Nope!", v?.why ?? ""];
+}
 
 function buzz(pattern) {
   if (!setup.buzz || !canBuzz) return;
@@ -468,25 +502,33 @@ function afterEvents() {
       buzz(0);
       sfx("bell");
       art.play("right");
+      showReact("right", "Yes!", ev.word);
       stampLetter();
     } else if (ev.type === "worse") {
       listener?.abort();
       buzz(0);
       sfx("knocks");
-      art.play("worse");
+      const overturned = ev.why === "Overturned";
+      art.play("worse", { why: overturned ? "overturned" : g.last?.reason });
+      showReact("wrong", ...missWords(g.last, overturned));
     } else if (ev.type === "doom") {
       listener?.abort();
       buzz(0);
       sfx("knocks");
+      art.play("doom", { why: g.last?.reason });
+      showReact("wrong", ...missWords(g.last));
     } else if (ev.type === "appeal") {
       if (ev.now === "right") {
         sfx("bell");
-        art.play("right");
+        art.play("right", { appeal: true });
+        showReact("right", "Fair enough!", g.chain.at(-1)?.said ?? "");
         stampLetter();
       }
     } else if (ev.type === "grace") listener?.finish();
     else if (ev.type === "burst") {
       listener?.abort();
+      clearReact();
+      $("r-boom").textContent = playerName(g.burstOn);
       sfx("crack");
       buzz(BUZZ.shudder);
       art.play("burst");
@@ -521,26 +563,60 @@ function render() {
   }
   const cat = g.category;
   const left = livesLeft(g);
-  game.style.setProperty("--lamp", artState(g).light);
+  renderHeat();
   game.dataset.phase = g.phase;
   game.dataset.lit = g.phase === "listen" && g.lit ? "yes" : "no";
+  game.dataset.typing = typing() ? "yes" : "no";
+  $("g-cat").textContent = cat.label;
   const life = $("g-life");
   life.querySelectorAll("i").forEach((el, i) => el.classList.toggle("on", i < left));
   life.setAttribute("aria-label", `${left} ${left === 1 ? "life" : "lives"} left`);
-  $("g-left").textContent = left === 0 ? "No lives left" : left === 1 ? "Last life" : `${left} lives`;
-  const holder = g.phase === "doom" || g.phase === "burst" ? g.last?.by ?? g.holder : g.holder;
-  $("g-holder").textContent = playerName(holder);
+  $("g-left").textContent = left === 0 ? "No lives" : left === 1 ? "Last life" : `${left} lives`;
+  const holding = g.phase === "doom" || g.phase === "burst" || g.phase === "over";
+  $("g-holder").textContent = playerName(holding ? (g.last?.by ?? g.holder) : g.holder);
+  $("g-holder").nextElementSibling.textContent = holding ? "is holding it" : "is up";
   const tag = $("g-tag");
   tag.classList.toggle("any", !g.need);
   $("g-letter").textContent = g.need ? showLetter(g.need) : "Any";
   tag.setAttribute("aria-label", g.need ? `Starts with ${showLetter(g.need)}` : "Any letter");
-  const last = g.chain.at(-1);
-  const dead = g.skipped.length ? ` <span class="dead">${g.skipped.map(showLetter).join(", ")} ${g.skipped.length === 1 ? "is a dead end" : "are dead ends"}</span>` : "";
-  $("g-after").innerHTML = `${esc(cat.label)}: ${last ? `after <q>${esc(last.said)}</q>${dead}` : `any ${esc(cat.one)} to start`}`;
+  $("g-need").textContent = g.need ? `${cat.a} starting with` : "Start with";
+  renderLastWord();
+  $("g-listen-text").textContent = g.lit ? "Say it now" : "Starting";
   game.style.setProperty("--f", `${(fuseShare(g) * 100).toFixed(2)}%`);
   $("g-fuse").classList.toggle("low", g.phase === "listen" && g.lit && g.fuse < 3000);
   renderStatus();
   renderActs();
+}
+
+/** The last word, big, with the letter the next word needs boxed (dead ends skipped back past). */
+function renderLastWord() {
+  const cat = g.category;
+  const last = g.chain.at(-1);
+  const box = $("g-after");
+  $("g-after-lbl").textContent = last ? "Last word" : "First word";
+  box.classList.toggle("first", !last);
+  if (!last) {
+    const text = `Any ${cat.one}`;
+    box.textContent = text;
+    box.style.setProperty("--n", String(text.length));
+  } else {
+    const w = last.said;
+    let at = -1;
+    for (let i = w.length - 1; i >= 0; i--) {
+      const c = w[i].normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+      if (!/[a-z]/.test(c)) continue;
+      if (c === g.need) {
+        at = i;
+        break;
+      }
+      if (!g.skipped.includes(c)) break;
+    }
+    box.innerHTML = at < 0 ? esc(w) : `${esc(w.slice(0, at))}<b>${esc(w[at])}</b>${esc(w.slice(at + 1))}`;
+    box.style.setProperty("--n", String(w.length));
+  }
+  const dead = $("g-dead");
+  dead.hidden = !g.skipped.length;
+  dead.textContent = g.skipped.length ? `${g.skipped.map(showLetter).join(", ")} ${g.skipped.length === 1 ? "is a dead end" : "are dead ends"}, so ${showLetter(g.need) || "any letter"}` : "";
 }
 
 function wanted() {
@@ -575,7 +651,9 @@ function renderStatus() {
     } else if (first) html = `<span>${esc(playerName(g.holder))} starts: say ${wanted()}.</span>`;
   } else if (g.phase === "listen") {
     if (!typing()) {
-      html = `<span class="mic${g.lit ? "" : " wait"}" aria-hidden="true"><i></i><i></i><i></i><i></i></span><span>${g.lit ? `Say ${wanted()}` : "Starting the microphone"}</span>`;
+      // The microphone and the letter say it on screen; the words are for screen readers.
+      html = g.lit ? `<span>Say ${wanted()}</span>` : "<span>Starting the microphone</span>";
+      if (g.lit) cls = "quiet";
       shown = heardNow;
       part = true;
     } else html = `<span>${turnNote ? `${esc(turnNote)} ` : ""}Type ${wanted()}</span>`;
@@ -654,7 +732,7 @@ function frame(now) {
     art.set(artState(g));
   } else if (screen === "start") {
     // On the start screen it rests, healthy and still: nothing is redrawn until a round starts.
-    art.set({ stage: 0, growth: 0, strain: 0, light: LIGHTS[0], phase: "idle", paused: false });
+    art.set({ stage: 0, growth: 0, strain: 0, fuse: 1, light: LIGHTS[0], phase: "idle", paused: false });
   }
   requestAnimationFrame(frame);
 }

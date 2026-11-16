@@ -375,9 +375,20 @@ describe("pausing", () => {
 });
 
 describe("what the art is told", () => {
-  it("only the stage, growth, strain, light colour and phase", () => {
+  it("only the stage, growth, strain, fuse, light colour and phase", () => {
     const g = newRound({ index: cities, players: 2 });
-    expect(Object.keys(artState(g)).sort()).toEqual(["growth", "light", "paused", "phase", "stage", "strain"]);
+    expect(Object.keys(artState(g)).sort()).toEqual(["fuse", "growth", "light", "paused", "phase", "stage", "strain"]);
+  });
+
+  it("tells the fuse only while it burns", () => {
+    const g = newRound({ index: cities, players: 2 });
+    expect(artState(g).fuse).toBe(1);
+    tick(g, SETTLE_MS);
+    startTurn(g);
+    expect(artState(g).fuse).toBe(1);
+    lightFuse(g);
+    tick(g, g.fuseMax / 4);
+    expect(artState(g).fuse).toBeCloseTo(0.75, 5);
   });
 
   it("grows a step every miss, strains as the fuse burns, and goes dark when it bursts", () => {
