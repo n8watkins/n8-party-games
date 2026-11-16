@@ -14,11 +14,17 @@
 // 8853), so it does not touch a dev server that is already running. The Windows-Chrome playtest
 // (`npm run playtest:battle`) and the production-settings check in DEPLOY.md stay manual: they
 // need the owner's PC and a second server.
+//
+// The scripts get this process's environment unchanged, so TEST_GPU=1 (the browser step draws
+// on the graphics card, see lobby/test/browser.mjs) and TEST_NO_GPU=1 reach them as they were
+// set. GitHub's runners have no card and set neither.
 import { spawn } from "node:child_process";
 
 const port = process.env.PREDEPLOY_PORT ?? "8853";
 const base = `http://localhost:${port}`;
 const npm = process.platform === "win32" ? "npm.cmd" : "npm";
+const card = process.env.TEST_NO_GPU === "1" ? "off (TEST_NO_GPU=1)" : process.env.TEST_GPU === "1" ? "on (TEST_GPU=1)" : "off";
+console.log(`Browser steps on the graphics card: ${card}`);
 
 const run = (cmd, args, opts = {}) =>
   new Promise((resolve) => {
