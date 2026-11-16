@@ -276,8 +276,9 @@ export function emoteSlime(b, pose, now, seat) {
   b.tilt.rotation.z -= body.rot * RAD;
   b.want = pose.ghost;
   if (body.tint > 0) {
-    b.mat.color.lerp(FUMING, body.tint * 0.85);
-    b.mat.emissive.lerp(FUMING, body.tint * 0.7);
+    // Jelly lets the red right through: redder than paint goes.
+    b.mat.color.lerp(FUMING, body.tint);
+    b.mat.emissive.lerp(FUMING, body.tint).multiplyScalar(1 - 0.35 * body.tint);
   }
   if (b.dizzy) return;
   const f = pose.face;

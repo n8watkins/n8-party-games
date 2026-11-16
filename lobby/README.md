@@ -329,7 +329,7 @@ There is no soundboard: the owner dropped it on 2026-11-13 ("just emotes").
 ## Characters
 
 A player's piece is a character in a colour, and each player chooses both.
-There are two characters: the pawn, which everyone starts as, and the ghost.
+There are four characters: the pawn, which everyone starts as, the ghost, the slime and the robot.
 A phone's bar holds a round chip with the player's own piece on it, after the walking buttons (on an upright phone, at the left of the line of words); it opens "Your piece", with the characters, ten preset colours and the device's own colour picker for any other.
 The corner at the top keeps only the room's own three buttons, so it covers no more of the posters than before.
 
@@ -366,11 +366,11 @@ The page's definition (`public/characters/pawn.js` is the one to copy):
 
 - `emotes`: `byId(id)` gives an emote as `pose(t, calm, reach)`, in the terms of `public/emotes/rig.js`; `mirror(pose)`; `top(pose)`, how high a pose reaches, for the word over the head.
   Every character does the kit's fourteen emotes, with the pawn's lengths and words, so each recording fits them all.
-- `flat`: `make()` returns its body, with `inner` as the group an emote leans; `dress(body, colour, connected)`; `frame(body, {now, dt, face, seat, calm, grounded})`, which returns how far off the floor it holds itself; `dizzy(body, on)`; `blink(body, opacity)`; `emote(body, pose, bodyTransform)`; `still(colour)` and `portrait(colour)` for small pictures.
+- `flat`: `make()` returns its body, with `inner` as the group an emote leans; `dress(body, colour, connected)`; `frame(body, {now, dt, face, seat, calm, grounded, walking, x, voting})`, which returns how far off the floor it holds itself (`walking`, `x` and `voting`, whether it stands in a game's light, are for characters that show them: the slime's creep, the robot's wheels and lamp); `dizzy(body, on)`; `blink(body, opacity)`; `emote(body, pose, bodyTransform)`; `still(colour)` and `portrait(colour)` for small pictures.
   Its numbers are `tall` (the top of its head against a standing pawn's), `rest`, `shadow` and `glides`.
-  `figure` tells the emote drawing (`public/emotes/svg.js`) what turns red when it fumes, where its face sits and how its hands are joined on.
+  `figure` tells the emote drawing (`public/emotes/svg.js`) what turns red when it fumes, where its face sits (`face`: `dy`, `turn`, `scale`) and in what ink (`ink`, `skin`), and how its hands are joined on (`limbs`: `"stick"`, `"ghost"`, `"goo"` or `"rod"`).
 
-The 3D look's definition (`public/look3d/pieces.js` is the pawn's, `public/look3d/ghost.js` the ghost's):
+The 3D look's definition (`public/look3d/pieces.js` is the pawn's, `public/look3d/ghost.js` the ghost's, `slime.js` and `robot.js` the others', with the small parts those two share in `body-kit.js`):
 
 - `make(radial)` returns a body with the handles every character has: `group`, `tilt`, `turn`, `mat`, `blob`, `ring`, `colour`, `lit`, `fade`, `air`, `dizzy` and `skin`.
   The body is kept on the piece's record as `p.body`, and its definition as `p.kind`.
@@ -387,7 +387,8 @@ The 3D look's definition (`public/look3d/pieces.js` is the pawn's, `public/look3
 What a piece is doing is the same for every character and is decided elsewhere: where it is, a jump, and a bump as a pose (`shared/bump.js`, read through `bumpPose` in `public/look3d/pieces.js` and `BumpDraw.pose` in `public/bump-draw.js`).
 A character decides only how that looks.
 
-To add a third character: write its emote rig, its flat drawing and its model, and add it to the three lists.
+To add another character: write its emote rig, its flat drawing and its model, and add it to the three lists.
+A body without a pawn's shoulders can take the ghost's emotes fitted to it (`bodyRig` in `public/characters/body-rig.js`) instead of a rig of its own, as the slime and the robot do.
 The picker, the room's check, the wheel's pictures and every draw site pick it up from there.
 
 ### The ghost
@@ -409,9 +410,32 @@ Its emotes are in `public/characters/ghost-rig.js`, with the fits the owner chos
 Not built yet, and where each goes:
 
 - The ghost's own move (fade, the scare, boo with its cap).
-  `CHARACTERS[].move` is `"kick"` for both characters until then, so a ghost bumps as a pawn does.
+  `CHARACTERS[].move` is `"kick"` for every character until then, so a ghost bumps as a pawn does.
   The model already draws a faded ghost: set `piece.faded` on the piece's record (`fadeK` in `public/look3d/ghost.js`); the flat drawing needs the same.
 - Squeezed-shut eyes for every knocked piece: `flat.dizzy` in `public/characters/pawn.js` and the crosses in `public/look3d/pieces.js`.
+
+### The slime and the robot
+
+Both are the landing scene's, which the owner approved in the character previews (`landing/tools/scene/scene.js`, `makeSkin`, on the branch `chore/blender-on-gpu`), drawn in the room's own style: the same shapes and proportions, the player's colour on what the landing scene paints.
+
+The slime is a soft dome that sags outward at its foot, two drips at the foot, a wet highlight, and two big eyes low on its front.
+It is a shade lighter than the player's colour with a darker rim and a gloss streak, front and back (the Tin Derby reviewer's fix for a dome that read as nothing from behind), so it reads on a light wall and a dark floor alike.
+It has no feet: it creeps, squashing and stretching as it goes, its top drags behind when it sets off, runs on and wobbles back when it stops, it flattens when it is knocked over and its eyes squeeze shut (swirls in the flat look).
+Its hands are joined on with arms of its own goo, in the body's own material in the 3D looks, so they are lit and reddened as it is.
+Fuming turns it red and swells it.
+
+The robot is a dark base on wheels, a body and a head in the player's colour, a dark visor with two light eyes, a steel neck, a round plate on its chest, dark arms with steel hands at its sides, and a mast with a lamp on top.
+Its head is at a pawn's height; the mast stands above it, so its name tag sits higher.
+It rolls: the base stays level and its wheels turn (flat look), the rest hums along with a small bob and leans into where it goes, its head lags its body and its mast lags its head, so both run on and wobble back when it stops, jumps or is hit.
+The lamp is dim until it stands in a game's light (its vote), when it lights with a quick double flash and its eyes squint with pleasure; knocked over, the lamp flashes red and its eyes are crosses.
+Its emote face lights up in its visor; its hands are steel, on jointed arms of dark metal that reach out of its shoulders (they telescope), and its own arms are put away meanwhile.
+
+Their emotes are the ghost's (`public/characters/ghost-rig.js`), fitted to each body by its landmarks (`public/characters/body-rig.js`): heights are carried between the floor, the mouth and the top of the head, one for one in a band about the mouth so a finger on the lips stays on the lips; widths are scaled inside the body and shifted outside it; each arm is worked out again from the body's own shoulder; and what is on the floor (a splat, confetti landing) stays where it was.
+The ids, words, lengths and moments are the ghost's, so the pawn's, and every recording fits.
+A joined arm takes the ghost's "wisp" variant of a pose (a hand on the hip in Red card and the tomato), because a hand that has an arm reads where a floating one would not.
+
+What they cost against the pawn and the ghost is in "What it costs", below.
+Not built yet: their own moves (the slime's harden and absorb, the robot's hook and stilt legs); `move` is `"kick"` until then.
 
 ## Sound
 

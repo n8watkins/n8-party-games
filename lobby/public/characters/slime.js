@@ -26,7 +26,7 @@ export const SLIME = {
   half: 52,
   root: { x: 46, y: -36 },
   hover: 0,
-  hand: 1.25,
+  hand: 1.12,
   lift: 0.8,
   puff: 1.4,
   sag: 0.22,

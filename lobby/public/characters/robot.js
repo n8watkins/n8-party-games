@@ -48,6 +48,8 @@ export const ROBOT_RIG = rig;
 /** How far the top of its lamp is above a standing pawn's head (room units). */
 const ABOVE_PAWN = -(ROBOT.mastTop - 0.055 * RU) - 141;
 
+let made = 0;
+
 const box = (cx, cy, w, h, r, attrs) => s("rect", { x: cx - w / 2, y: cy - h / 2, width: w, height: h, rx: r, ...attrs });
 
 function shapes(colour, connected = true) {
@@ -76,7 +78,12 @@ function shapes(colour, connected = true) {
   a.visor = box(0, ROBOT.visorY + 1, 0.4 * u, 0.25 * u, 9, { fill: VISOR, stroke: DARK_EDGE, "stroke-width": 1.4 });
   a.visorGlint = s("path", { d: `M${-0.16 * u},${ROBOT.visorY - 11} h${0.1 * u}`, stroke: "#fff", "stroke-width": 2, "stroke-linecap": "round", opacity: 0.35 });
   a.mast = s("rect", { x: -2.2, y: ROBOT.mastTop, width: 4.4, height: -ROBOT.mastTop - 0.97 * u + 2, fill: STEEL, stroke: DARK_EDGE, "stroke-width": 1 });
-  a.glow = s("circle", { cx: 0, cy: ROBOT.mastTop, r: 17, fill: LAMP, opacity: 0 });
+  // The lamp's glow: soft, fading to nothing at its edge.
+  const id = `robot-glow-${++made}`;
+  a.glowIn = s("stop", { offset: "0%", "stop-color": LAMP, "stop-opacity": 0.9 });
+  a.glowOut = s("stop", { offset: "100%", "stop-color": LAMP, "stop-opacity": 0 });
+  a.glowGrad = s("radialGradient", { id }, a.glowIn, a.glowOut);
+  a.glow = s("circle", { cx: 0, cy: ROBOT.mastTop, r: 20, fill: `url(#${id})`, opacity: 0 });
   a.lamp = s("circle", { cx: 0, cy: ROBOT.mastTop, r: 0.055 * u * 1.15, stroke: DARK_EDGE, "stroke-width": 1.4 });
   tint(a, colour, connected);
   return a;
@@ -134,8 +141,8 @@ export const robot = {
     make() {
       const p = shapes("#888888");
       const a = { ...p, face: face(), colour: "#888888", lean: 0, leanV: 0, nod: 0, nodV: 0, mastA: 0, mastV: 0, voting: false, pleasedAt: -Infinity, rolled: 0, lastX: null, lampK: 0, arms: 1 };
-      a.headG = s("g", {}, a.neck, a.mast, a.glow, a.lamp, a.head, a.headHi, a.visor, a.visorGlint, a.face.g);
-      a.mastG = s("g", {}, a.mast, a.glow, a.lamp);
+      a.headG = s("g", {}, a.neck, a.head, a.headHi, a.visor, a.visorGlint, a.face.g);
+      a.mastG = s("g", {}, a.glowGrad, a.mast, a.glow, a.lamp);
       a.headG.prepend(a.mastG);
       a.upper = s("g", {}, a.armsL, a.armsR, a.torso, a.torsoHi, a.plate, a.headG);
       a.inner = s("g", {}, a.base, a.upper);
@@ -173,7 +180,11 @@ export const robot = {
       const alarm = !!a.dizzy;
       const k = alarm ? (calm ? 1 : 0.5 + 0.5 * Math.abs(Math.sin(now / 60))) : (0.35 + 0.65 * a.lampK) * flash;
       set(a.lamp, { fill: alarm ? ALARM : shade(LAMP, -0.5 * (1 - k)) });
-      set(a.glow, { fill: alarm ? ALARM : LAMP, opacity: (alarm ? 0.4 * k : 0.38 * a.lampK * flash).toFixed(2) });
+      if (alarm !== a.alarm) {
+        a.alarm = alarm;
+        for (const stop of [a.glowIn, a.glowOut]) set(stop, { "stop-color": alarm ? ALARM : LAMP });
+      }
+      set(a.glow, { opacity: (alarm ? 0.7 * k : 0.75 * a.lampK * flash).toFixed(2) });
       const pleased = since < PLEASED_MS + 400 && !alarm;
       if (!alarm) {
         set(a.face.happy, { display: pleased ? null : "none" });
