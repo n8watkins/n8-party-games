@@ -228,8 +228,11 @@ function update() {
   if (key !== ui.shown) {
     ui.shown = key;
     ui.list.textContent = "";
-    // Every seat, taken or free, so the list shows how many more can join.
-    for (const m of room.members) ui.list.append(m ? personRow(m) : freeRow());
+    // Everyone here, in seat order, then one row for the places still free, so the list shows how
+    // many more can join without a column of empty rows (the Table has eight).
+    for (const m of members) ui.list.append(personRow(m));
+    const free = room.members.length - members.length;
+    if (free > 0) ui.list.append(freeRow(free));
     if (room.screens > 0 || room.picker?.seat === -1) ui.list.append(screenRow());
     ui.count.textContent = `${members.length} of ${room.members.length}`;
   }
@@ -257,10 +260,10 @@ function personRow(m) {
   return li;
 }
 
-function freeRow() {
+function freeRow(n) {
   const li = h("li", "person free");
   h("span", "dot", "", li);
-  h("span", "person-name", "A free seat", h("span", "person-words", "", li));
+  h("span", "person-name", n === 1 ? "One more can join" : `${n} more can join`, h("span", "person-words", "", li));
   return li;
 }
 

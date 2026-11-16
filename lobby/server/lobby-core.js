@@ -46,14 +46,23 @@ import { IDLE_SHUTDOWN_MS, NAME_MAX, SEAT_COLOURS, STALE_ROOM_MS, cleanName, ran
 import { AWAY_MS, COUNT_MS, SETTLE_MS, TOSS_MS, leaders, pointsForPlace, spotLights, standingsFromRows, tally, whyNot } from "../shared/vote.js";
 import { bumpTarget, cooldownLeft, isDown, isSafe, knockLanding, knocked, mayBump } from "../shared/bump.js";
 import { DEFAULT_ROOM, ROOM_COOLDOWN_MS, isRoom, roomLocked } from "../shared/rooms.js";
-import { DEFAULT_CHARACTER, LOOK_COOLDOWN_MS, LOOK_SLACK_MS, characterOr, cleanColour, readLook } from "../shared/characters.js";
+import { COLOUR_PRESETS, DEFAULT_CHARACTER, LOOK_COOLDOWN_MS, LOOK_SLACK_MS, characterOr, cleanColour, readLook } from "../shared/characters.js";
 import { record } from "../shared/tonight.js";
 import { DURING_PLAY, cooldownLeft as emoteLeft, mayEmote, relayEmote, waitMessage } from "../../party-kit/client/emotes.js";
 import { POSITION_SLACK, clampX, lightAt, posAt, spawnX } from "../shared/world.js";
 import { DEFAULT_MODE, MODE_COOLDOWN_MS, isMode, modeLocked, modeNote } from "../shared/mode.js";
 import { PLAY_BEAT_MS, tableWhyNot } from "../shared/table.js";
 
+/** The Floor's places: four pieces in the character room. */
 export const MAX_PLAYERS = 4;
+/**
+ * The Table's places: it has no pieces to fit in a room, and its games take bigger groups (Paper
+ * Masks is for three to eight). Seats 0 to 3 are the Floor's: a party of more than four cannot
+ * move to the Floor (setMode), and one of four or fewer is seated in the Floor's places on the way.
+ */
+export const TABLE_MAX_PLAYERS = 8;
+/** Each seat's first colour: the kit's four, then the next four of the picker's presets. */
+export const seatColour = (seat) => SEAT_COLOURS[seat] ?? COLOUR_PRESETS[seat]?.hex ?? SEAT_COLOURS[seat % SEAT_COLOURS.length];
 /** A room is closed this long after it was made, whatever is going on: a party, not a tenancy. */
 export const MAX_ROOM_LIFE_MS = 4 * 60 * 60_000;
 /** When the hosting allowance is spent, open rooms are told and close this much later. */
@@ -119,6 +128,7 @@ export class LobbyCore {
     this.code = code;
     this.pin = null;
     /** @type {Array<null | object>} */
+    // One place per seat of the room the party is in (capacity): four on the Floor, more at the Table (fitMembers).
     this.members = new Array(MAX_PLAYERS).fill(null);
     /** The room's screen: it shows the room and holds no seat. There is one at most. token -> {connected, droppedAt} */
     this.screens = new Map();
@@ -206,11 +216,14 @@ export class LobbyCore {
     // While a game is on, a seat somebody left in the middle of it is still the game's (a
     // ticking game's stand-in is playing it): a newcomer is never given that seat. The same holds
     // for the seats a settings step was opened for: whoever joins during it watches the game.
-    const inPlay = this.activity.kind === "game" || this.activity.kind === "settings" ? this.activity.seats : [];
-    const free = (i) => this.members[i] === null && !inPlay.includes(i);
+    // A seat that left a Table game for good stays the game's too, until it ends (gone).
+    const inPlay = this.activity.kind === "game" || this.activity.kind === "settings" ? [...this.activity.seats, ...(this.activity.gone ?? [])] : [];
+    // The Floor has four places, the Table more (capacity).
+    const cap = this.capacity();
+    const free = (i) => i < cap && this.members[i] === null && !inPlay.includes(i);
     const seat = wantSeat >= 0 && free(wantSeat) ? wantSeat : this.members.findIndex((m, i) => free(i));
-    if (seat === -1 && this.members.includes(null)) return fail("room_full", "A game is on and its seats are taken. Join when it ends.");
-    if (seat === -1) return fail("room_full", "This party is full: four players at most.");
+    if (seat === -1 && this.members.slice(0, cap).includes(null)) return fail("room_full", "A game is on and its seats are taken. Join when it ends.");
+    if (seat === -1) return fail("room_full", cap === MAX_PLAYERS ? "This party is full: four players at most." : `This party is full: ${cap} players at most.`);
     const taken = new Set(this.present().map((m) => m.name.toLowerCase()));
     let unique = name;
     for (let n = 2; taken.has(unique.toLowerCase()); n++) unique = `${name.slice(0, NAME_MAX - 2)} ${n}`;
@@ -220,7 +233,7 @@ export class LobbyCore {
       seat,
       token,
       name: unique,
-      colour: SEAT_COLOURS[seat],
+      colour: seatColour(seat),
       character: DEFAULT_CHARACTER,
       connected: false,
       droppedAt: now, // not connected yet: the socket follows the join
@@ -458,9 +471,15 @@ export class LobbyCore {
     if (locked) return { ok: false, why: locked };
     if (v === this.mode) return { ok: false, why: "The party is in that room already." };
     if (now - this.modeAt < MODE_COOLDOWN_MS) return { ok: false, why: "Wait a moment before switching again." };
+    // The Floor has four places. More people than that stay at the Table.
+    if (v === "party-games" && this.present().length > MAX_PLAYERS) return { ok: false, why: `The Floor has room for ${MAX_PLAYERS}, and ${this.present().length} are here. It can go there when fewer are.` };
     const who = this.identify(token);
     const before = { mode: this.mode, modeAt: this.modeAt };
+    // Anyone sitting beyond the Floor's four places takes a free one of them on the way (their
+    // pages are told to reconnect: lobby-room.js, switchMode, `moved`).
+    const moves = v === "party-games" ? this.seatOnFloor() : [];
     this.mode = v;
+    this.fitMembers();
     this.modeAt = now;
     this.count = null;
     this.toss = null;
@@ -469,9 +488,49 @@ export class LobbyCore {
     this.lastActive = now;
     // Until the switch is saved (modeSaved) or taken back (undoMode), no game is picked at the Table.
     this.switching = true;
-    const name = who.role === "screen" ? "The room's screen" : this.members[who.seat].name;
-    this.notes.push({ k: "mode", mode: v, seat: who.seat, name, text: modeNote(name, v) });
-    return { ok: true, mode: v, by: who.seat, was: { mode: before.mode, modeAt: before.modeAt } };
+    // Who switched, by the seat they sit in now (they may have just moved into the Floor's places).
+    const by = this.identify(token).seat;
+    const name = who.role === "screen" ? "The room's screen" : this.members[by].name;
+    this.notes.push({ k: "mode", mode: v, seat: by, name, text: modeNote(name, v) });
+    if (!moves.length) return { ok: true, mode: v, by, was: { mode: before.mode, modeAt: before.modeAt } };
+    return { ok: true, mode: v, by, moved: moves.map((m) => m.token), was: { mode: before.mode, modeAt: before.modeAt, moves } };
+  }
+
+  /** The places list is as long as the room the party is in has places: grown with free ones, or cut (only free ones: seatOnFloor). */
+  fitMembers() {
+    const cap = this.capacity();
+    while (this.members.length < cap) this.members.push(null);
+    if (this.members.slice(cap).every((m) => m === null)) this.members.length = cap;
+  }
+
+  /** How many places the party has in the room it is in: four on the Floor, more at the Table. */
+  capacity() {
+    return this.plainRoom() ? TABLE_MAX_PLAYERS : MAX_PLAYERS;
+  }
+
+  /**
+   * Moves everyone sitting beyond the Floor's four places into a free one of them (there is room:
+   * setMode checked). A seat whose colour was its seat's own takes the new seat's. Returns the
+   * moves, [{token, from, to}], so a switch that cannot be saved puts them back (undoMode).
+   */
+  seatOnFloor() {
+    const moves = [];
+    for (let from = MAX_PLAYERS; from < this.members.length; from++) {
+      const m = this.members[from];
+      if (!m) continue;
+      const to = this.members.findIndex((x, i) => i < MAX_PLAYERS && x === null);
+      this.moveSeat(m, to);
+      moves.push({ token: m.token, from, to });
+    }
+    return moves;
+  }
+
+  moveSeat(m, to) {
+    const from = m.seat;
+    this.members[from] = null;
+    this.members[to] = m;
+    if (m.colour === seatColour(from)) m.colour = seatColour(to);
+    m.seat = to;
   }
 
   /**
@@ -481,6 +540,11 @@ export class LobbyCore {
    */
   undoMode(was) {
     this.mode = was.mode;
+    this.fitMembers();
+    for (const move of [...(was.moves ?? [])].reverse()) {
+      const m = this.members[move.to];
+      if (m?.token === move.token && this.members[move.from] === null) this.moveSeat(m, move.from);
+    }
     this.modeAt = was.modeAt;
     this.notes = this.notes.filter((note) => note.k !== "mode");
     this.switching = false;
@@ -1036,6 +1100,10 @@ export class LobbyCore {
       if (this.closing) at = Math.min(at, this.closing.at);
       const grace = graceOf(this.turnGame(), TURN_GRACE_MS);
       for (const seat of this.activity.seats) at = Math.min(at, graceEndsAt(this.members[seat], grace) ?? Infinity);
+      // A game told who hosts hears when the host's controls pass on: when a dropped host's grace ends.
+      const host = this.identify(this.hostToken);
+      const m = host?.role === "player" ? this.members[host.seat] : null;
+      if (typeof this.turnGame().host === "function" && m && !m.connected && m.droppedAt + HOST_GRACE_MS > now) at = Math.min(at, m.droppedAt + HOST_GRACE_MS);
     }
     return at === Infinity ? null : Math.max(at, now + 20);
   }
@@ -1310,9 +1378,29 @@ export class LobbyCore {
     // Who was in the party when the match began: the party the settings step was opened for, or
     // the party now when the game starts straight from the vote (lateJoiner).
     const party = this.activity.kind === "settings" ? (this.activity.party ?? null) : this.partyTokens();
-    const state = game.create(context);
+    // The host's seat (-1 for the room's screen), for a game that has a host of its own (a Table game's rules).
+    const host = this.pickerView(now)?.seat ?? -1;
+    if (typeof game.host === "function") context.host = host;
+    let state;
+    try {
+      state = game.create(context);
+    } catch (err) {
+      // A game that refuses to start (a Table game's rules refusing these seats) starts nothing.
+      console.error(`party room: ${id} could not start`, err);
+      this.round -= 1;
+      if (this.activity.kind === "settings") this.toLobby(now);
+      this.notes.push({ k: "cancelled", text: `${this.nameOf(id)} could not start.` });
+      return fail("bad_game", `${id} could not start: ${err?.message ?? err}`);
+    }
     this.activity = { kind: "game", id, state, startedAt: now, ticks: 0, seats: seats.map((s) => s.seat), party };
     if (isTurnBased(game)) {
+      // The host's seat as the game was last told it (a game with a `host` hook hears of a change: turnUpkeep).
+      this.activity.host = host;
+      // Seats that left this game for good while it goes on without them (a game with a `leave`
+      // hook), and members told they joined it late (a `join` hook) or that it would not take:
+      // nobody new sits in a gone seat until the game ends (join).
+      this.activity.gone = [];
+      this.activity.declined = [];
       // What the game has been told of each seat: it starts with every seat here, as the vote
       // had them, and hears at once of one that is not (before anyone sees the first snapshot).
       this.activity.told = Object.fromEntries(seats.map((s) => [s.seat, { connected: true, away: false }]));
@@ -1554,16 +1642,86 @@ export class LobbyCore {
     // The room's four hours, or a budget close, end the game whatever it is doing.
     const ending = this.roomEnding(now);
     if (ending) return this.stopGame(game, ending, now);
+    const a = this.activity;
     const grace = graceOf(game, TURN_GRACE_MS);
-    for (const seat of this.activity.seats) {
+    const events = [];
+    let changed = false;
+    for (const seat of [...a.seats]) {
       const why = goneWhy(this.members[seat], now, grace);
-      if (why) return this.abandonGame(game, seat, why, now);
+      if (!why) continue;
+      // A game without a `leave` hook ends when a seat is gone for good (abandon). One with it is
+      // told (a Table game's `{t: "leave", seat}`) and goes on without that seat, or ends by itself.
+      if (typeof game.leave !== "function") return this.abandonGame(game, seat, why, now);
+      const out = this.callHook(game, "leave", seat, now);
+      if (out.error) return this.stopGame(game, "error", now);
+      a.seats = a.seats.filter((s) => s !== seat);
+      (a.gone ??= []).push(seat);
+      delete a.told[seat];
+      changed = true;
+      events.push(...out.events);
+      if (game.isOver(a.state)) return { ok: true, ...this.turnOut(game, events, now) };
     }
+    // Someone in the party who is not in the game (they joined it late, or were not here when it
+    // began): a game with a `join` hook is told (a Table game's `{t: "join", seat}`), and from then
+    // on that seat is the game's, to see and send what the game allows. One it turns down watches
+    // as the big screen does, and is not asked again during this game.
+    if (typeof game.join === "function") {
+      for (const m of this.connected()) {
+        if (a.seats.includes(m.seat) || a.gone?.includes(m.seat) || a.declined?.includes(m.seat)) continue;
+        const out = this.callHook(game, "join", m.seat, now);
+        if (out.error) return this.stopGame(game, "error", now);
+        if (!out.ok) {
+          (a.declined ??= []).push(m.seat);
+          continue;
+        }
+        a.seats.push(m.seat);
+        a.told[m.seat] = reportOf(m);
+        a.names[m.seat] = m.name;
+        changed = true;
+        events.push(...out.events);
+      }
+    }
+    // The host's controls moved to another player (the host left, or is away past the grace): a
+    // game with a `host` hook is told (a Table game's `{t: "host", seat}`).
+    if (typeof game.host === "function") {
+      const seat = this.pickerView(now)?.seat ?? -1;
+      if (seat !== a.host && a.seats.includes(seat)) {
+        const out = this.callHook(game, "host", seat, now);
+        if (out.error) return this.stopGame(game, "error", now);
+        a.host = seat;
+        changed = true;
+        events.push(...out.events);
+      }
+    }
+    if (changed && game.isOver(a.state)) return { ok: true, ...this.turnOut(game, events, now) };
     const told = this.tellPresence(game, now);
     if (told.error) return this.stopGame(game, "error", now);
-    if (told.changed) return { ok: true, ...this.turnOut(game, told.events, now) };
+    if (told.changed || changed) {
+      delete a.stuck;
+      // `room`: the game's seats changed (a join or a leave), which every page reads in the room view.
+      return { ok: true, room: changed, ...this.turnOut(game, [...events, ...told.events], now) };
+    }
     // Only what the game was told changed: saved, so a wake does not tell it again; nothing is sent.
     return told.told ? { ok: true, quiet: true } : null;
+  }
+
+  /**
+   * Calls one of a turn-based game's room hooks (`join`, `leave`, `host`) for a seat. It returns
+   * `false` or `{ok: false}` to turn it down, and otherwise nothing, `true`, a list of events or
+   * `{events}`. Returns {ok, events, error}: `error` when the hook threw (the game then ends).
+   */
+  callHook(game, name, seat, now) {
+    const a = this.activity;
+    let returned;
+    try {
+      returned = game[name](a.state, seat, now);
+    } catch (err) {
+      console.error(`party room: ${a.id} ${name}() failed; the game ends with no points`, err);
+      return { ok: false, events: [], error: err };
+    }
+    if (returned === false || returned?.ok === false) return { ok: false, events: [], error: null };
+    const events = Array.isArray(returned) ? returned : Array.isArray(returned?.events) ? returned.events : [];
+    return { ok: true, events, error: null };
   }
 
   /**
@@ -1616,7 +1774,7 @@ export class LobbyCore {
             : `This party is closing, so ${gameName} ended.`;
     const seat = by?.seat ?? -1;
     const name = by?.name ?? null;
-    this.notes.push({ k: "ended", why, seat, name, colour: seat >= 0 ? SEAT_COLOURS[seat] : null, text });
+    this.notes.push({ k: "ended", why, seat, name, colour: seat >= 0 ? seatColour(seat) : null, text });
     const out = { ok: true, events: [], snapshot: why === "error" ? null : (viewer) => game.snapshot(a.state, now, viewer), viewerOf: (who) => this.viewerOf(who, a), ended: null };
     out.ended = this.finishGame(now, { standings: [], result: null, early: { seat, name, why, text } });
     return out;
@@ -1665,7 +1823,7 @@ export class LobbyCore {
       const name = this.members[seat]?.name ?? a.names?.[seat] ?? "A player";
       const gameName = this.nameOf(a.id);
       const text = why === "left" ? `${name} left the party, so ${gameName} ended.` : `${name} did not come back, so ${gameName} ended.`;
-      this.notes.push({ k: "ended", why, seat, name, colour: SEAT_COLOURS[seat], text });
+      this.notes.push({ k: "ended", why, seat, name, colour: seatColour(seat), text });
       early = { seat, name, why, text };
     }
     out.ended = this.finishGame(now, { standings: outcome.standings, result: outcome.result, early });
@@ -1727,7 +1885,7 @@ export class LobbyCore {
       const points = pointsForPlace(place);
       if (m) m.points += points;
       else this.rememberPoints(name, points);
-      const row = { seat, name, colour: m?.colour ?? SEAT_COLOURS[seat], place, points };
+      const row = { seat, name, colour: m?.colour ?? seatColour(seat), place, points };
       // A game that keeps score says so in its result rows: the card shows it beside the place.
       const score = Array.isArray(result) ? result.find((r) => r?.seat === seat)?.score : undefined;
       if (typeof score === "number") row.score = score;
@@ -1904,8 +2062,8 @@ export class LobbyCore {
   savedGame() {
     const game = this.turnGame();
     if (!game) return null;
-    const { id, state, startedAt, ticks, seats, told, names, answers, stuck, party } = this.activity;
-    return { id, startedAt, ticks, seats, told, names, answers, stuck, party, state: saveState(game, state) };
+    const { id, state, startedAt, ticks, seats, told, names, answers, stuck, party, host, gone, declined } = this.activity;
+    return { id, startedAt, ticks, seats, told, names, answers, stuck, party, host, gone, declined, state: saveState(game, state) };
   }
 
   /**
@@ -1926,6 +2084,11 @@ export class LobbyCore {
       this.activity = { kind: "game", id: saved.id, state, startedAt: saved.startedAt, ticks: saved.ticks ?? 0, seats: [...saved.seats], told, names: { ...saved.names }, answers: saved.answers ?? {} };
       if (typeof saved.stuck === "number") this.activity.stuck = saved.stuck;
       this.activity.party = partyOf(saved.party);
+      // The room hooks' memory (turnUpkeep): who the game knows as host, and the seats gone or turned down.
+      const seatList = (list) => (Array.isArray(list) ? list.filter(Number.isInteger) : []);
+      this.activity.host = Number.isInteger(saved.host) ? saved.host : -1;
+      this.activity.gone = seatList(saved.gone);
+      this.activity.declined = seatList(saved.declined);
     } catch (err) {
       console.error("party room: a saved game could not be restored", err);
       this.activity = { kind: "lobby" };
@@ -1960,7 +2123,7 @@ export class LobbyCore {
     room.pin = data.pin;
     // Nobody is connected until their socket is seen again; a piece left mid-stride stands still.
     // A member saved before characters is a pawn in its seat's colour; a character or colour this room does not know is read the same way.
-    room.members = data.members.map((m) => (m ? { ...m, character: characterOr(m.character), colour: cleanColour(m.colour) ?? SEAT_COLOURS[m.seat], x: m.d ? posAt(m, now) : m.x, d: 0, t: now, connected: false, away: false, droppedAt: m.droppedAt ?? now, bumpAt: -Infinity } : null));
+    room.members = data.members.slice(0, TABLE_MAX_PLAYERS).map((m) => (m ? { ...m, character: characterOr(m.character), colour: cleanColour(m.colour) ?? seatColour(m.seat), x: m.d ? posAt(m, now) : m.x, d: 0, t: now, connected: false, away: false, droppedAt: m.droppedAt ?? now, bumpAt: -Infinity } : null));
     // One screen at most. A screen that had dropped before the room slept keeps the moment it
     // dropped, so its grace runs on through the sleep; one that was connected is seen again by
     // its socket (resume). A room saved before screens had a grace kept bare tokens.
@@ -1987,6 +2150,8 @@ export class LobbyCore {
     // A room saved before the two waiting rooms is the character room.
     room.mode = isMode(data.mode) ? data.mode : DEFAULT_MODE;
     room.modeAt = typeof data.modeAt === "number" ? data.modeAt : -Infinity;
+    // As many places as that room has (a Table party saved before it had eight comes back with eight).
+    room.fitMembers();
     room.hostToken = data.hostToken ?? null;
     room.lastAnswers = data.lastAnswers ?? null;
     room.carries = data.carries ?? {};

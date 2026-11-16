@@ -146,7 +146,8 @@ try {
   await ann.setViewportSize({ width: 844, height: 390 });
   const names = await bo.locator(".person:not(.free) .person-name").allTextContents();
   check(names.join() === "Ann,Bo,The big screen", `who is here, in seat order, then the screen: ${names.join(", ")}`);
-  check((await bo.locator(".person.free").count()) === 2, "and the two free seats");
+  const free = await bo.locator(".person.free .person-name").allTextContents();
+  check(free.join() === "6 more can join", `and how many more can join the Table's eight places: "${free.join()}"`);
   check((await bo.locator(".person .tag.host").count()) === 1 && (await bo.locator(".person").first().locator(".tag.host").count()) === 1, "Ann's row is marked Host");
   check((await bo.locator(".digits").textContent()) === pin && (await tv.locator(".digits").textContent()) === pin, "the code, large, on the phone and the screen");
   check(await tv.evaluate(() => document.documentElement.classList.contains("as-screen")), "the big screen has the wide layout");

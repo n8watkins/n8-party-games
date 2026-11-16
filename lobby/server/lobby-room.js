@@ -444,17 +444,35 @@ export function createLobbyRoom(wallFor) {
       const core = this.core;
       const done = core.setMode(entry.token, msg.v, now);
       if (!done.ok) return this.send(entry, { t: "mode-no", why: done.why, v: core.mode });
+      // Anyone moved into the Floor's four places: their sockets speak for the new seat at once
+      // (every page then moves to the Floor and hears its seat in the hello).
+      this.reseat(done.moved);
       try {
         await this.save();
       } catch (err) {
         console.error("party room: a switch could not be saved; it is taken back", err);
         if (this.core !== core) return;
         core.undoMode(done.was);
+        this.reseat(done.moved);
         return this.send(entry, { t: "mode-no", why: "The switch did not go through. Try again.", v: core.mode });
       }
       if (this.core !== core) return;
       core.modeSaved();
       this.changed(now);
+    }
+
+    /** The sockets of these tokens take the seat the room now has for them (a member moved seat). */
+    reseat(tokens = []) {
+      if (!tokens?.length) return;
+      for (const entry of this.sockets.values()) {
+        if (!tokens.includes(entry.token)) continue;
+        const who = this.core.identify(entry.token);
+        if (!who) continue;
+        entry.seat = who.seat;
+        entry.kept.seat = who.seat;
+        entry.kept.piece = this.core.pieceOf(who.seat);
+        entry.ws.serializeAttachment(entry.kept);
+      }
     }
 
     /**
@@ -549,6 +567,9 @@ export function createLobbyRoom(wallFor) {
           this.arm(now);
           return out;
         }
+        // Who plays changed (a late joiner taken in, a seat that left): the room view says so first,
+        // so a page knows it plays before its view of the game arrives.
+        if (out.room && !out.ended) this.broadcastRoom(now);
         this.deliverTurn(out, now);
         return out;
       } catch (err) {

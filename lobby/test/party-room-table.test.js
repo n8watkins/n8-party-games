@@ -1,16 +1,20 @@
 // The Table's games on the real party room class: the list that follows the party's size, the
 // host's pick (`play`) with its starting beat, the races between a pick, a switch and a start,
-// the game played in turns with a secret per seat, reconnects, late joiners, a host who leaves
-// mid-game, the host ending it (`stop`), and everyone back at the Table with the result.
-// Count to ten (party/games/count-to-ten) is the game: the one a real Table game copies.
+// the game played in turns with a secret per seat, reconnects, late joiners taken in as watchers
+// (`join`), a seat gone for good while the game goes on (`leave`), a new host (`host`), the host
+// ending it (`stop`), everyone back at the Table with the result, the Table's eight places, and
+// the secret seed each match gets. Count to ten (party/games/count-to-ten) is the game: it keeps
+// the same rules shape as Paper Masks and runs through the same adapter (party/games/table-game.js).
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { dropFakeRuntime, fakeCtx, fakeEnv, settle, useFakeRuntime } from "./fake-room.js";
 import { from } from "./turn-game.js";
-import { TEST_WALL } from "../wall.js";
+import { TEST_WALL, buildTurnWall } from "../wall.js";
 import { PLAY_BEAT_MS, tableWhyNot, tablePlayers, tableEntry } from "../shared/table.js";
 import { MODE_COOLDOWN_MS } from "../shared/mode.js";
-import { DROP_FADE_MS, HOST_GRACE_MS, TURN_GRACE_MS } from "../server/lobby-core.js";
+import { DROP_FADE_MS, HOST_GRACE_MS, MAX_PLAYERS, TABLE_MAX_PLAYERS, TURN_GRACE_MS, seatColour } from "../server/lobby-core.js";
 import { TARGET, TURN_MS } from "../../party/games/count-to-ten/index.js";
+import * as rules from "../../party/games/count-to-ten/rules.js";
+import { tableGame } from "../../party/games/table-game.js";
 
 vi.mock("cloudflare:workers", () => ({
   DurableObject: class {
@@ -24,11 +28,13 @@ vi.mock("cloudflare:workers", () => ({
 const { createLobbyRoom } = await import("../server/lobby-room.js");
 
 const GAME = "count-to-ten";
-const NAMES = ["Ann", "Bo", "Cy", "Di"];
+const NAMES = ["Ann", "Bo", "Cy", "Di", "Ed", "Flo", "Gus", "Hal"];
+const key = (seat) => NAMES[seat].toLowerCase();
 
 /**
  * A party of `players` (Ann is the host) and, with `screen`, a big screen, all connected, moved
- * to the Table. Returns ways to say things and to restart the room, as fake-room's openRoom does.
+ * to the Table first so it may be larger than the Floor's four. Returns ways to say things and to
+ * restart the room, as fake-room's openRoom does.
  */
 async function table({ players = 3, screen = true, env = fakeEnv(), wall = TEST_WALL } = {}) {
   const Room = createLobbyRoom(() => wall);
@@ -46,14 +52,19 @@ async function table({ players = 3, screen = true, env = fakeEnv(), wall = TEST_
   };
   const tokens = {};
   const ws = {};
-  const first = await ctx.room.create({ code: "BCDFGH", nickname: NAMES[0], as: "player" });
-  tokens.ann = first.token;
-  for (const name of NAMES.slice(1, players)) tokens[name.toLowerCase()] = (await ctx.room.join({ nickname: name, as: "player" })).token;
-  if (screen) tokens.screen = (await ctx.room.join({ as: "screen" })).token;
-  for (const [who, token] of Object.entries(tokens)) ws[who] = await connect(token);
+  tokens.ann = (await ctx.room.create({ code: "BCDFGH", nickname: "Ann", as: "player" })).token;
+  ws.ann = await connect(tokens.ann);
   say(ws.ann, { t: "mode", v: "turn-based" });
   await settle();
   expect(ctx.room.core.mode).toBe("turn-based");
+  for (const name of NAMES.slice(1, players)) {
+    tokens[name.toLowerCase()] = (await ctx.room.join({ nickname: name, as: "player" })).token;
+    ws[name.toLowerCase()] = await connect(tokens[name.toLowerCase()]);
+  }
+  if (screen) {
+    tokens.screen = (await ctx.room.join({ as: "screen" })).token;
+    ws.screen = await connect(tokens.screen);
+  }
   const sleepAndWake = async () => {
     ctx.room.stopTimer();
     ctx.room = new Room(ctx, env);
@@ -63,26 +74,24 @@ async function table({ players = 3, screen = true, env = fakeEnv(), wall = TEST_
 }
 
 /** The host picks the game and the beat runs out: the game is on. */
-async function play(r, id = GAME) {
-  r.say(r.ws.ann, { t: "play", id });
+async function play(r, id = GAME, by = "ann") {
+  r.say(r.ws[by], { t: "play", id });
   await settle();
   await vi.advanceTimersByTimeAsync(PLAY_BEAT_MS + 50);
   expect(r.core().activity.kind).toBe("game");
 }
 
-/** The socket of whoever's turn it is, and that seat. */
+/** Whose turn it is: the seat, and its socket. */
 function turnOf(r) {
   const state = r.core().activity.state;
   const seat = state.order[state.turn];
-  const who = NAMES[seat].toLowerCase();
-  return { seat, who, ws: r.ws[who] };
+  return { seat, ws: r.ws[key(seat)] };
 }
 
 let ids = 0;
-/** Whoever's turn it is adds `add`, with an answered input. */
-async function press(r, add = 2) {
-  const { ws } = turnOf(r);
-  r.say(ws, { t: "in", d: { add }, id: ++ids });
+/** Whoever's turn it is adds `n`, with an answered input. */
+async function press(r, n = 2) {
+  r.say(turnOf(r).ws, { t: "in", d: { t: "add", n }, id: ++ids });
   await settle();
 }
 
@@ -103,7 +112,7 @@ describe("the Table's list", () => {
     const r = await table({ players: 2 });
     const list = r.core().view(Date.now()).table;
     expect(list.map((e) => [e.id, e.min, e.max, e.soon, e.test, e.why])).toEqual([
-      [GAME, 2, 4, false, true, null],
+      [GAME, 2, 8, false, true, null],
       ["paper-masks", 3, 8, true, false, "Coming soon"],
       ["who-am-i", 2, 2, true, false, "Coming soon"],
     ]);
@@ -125,8 +134,7 @@ describe("the Table's list", () => {
     expect(floor).not.toHaveProperty("starting");
   });
 
-  it("refuses at Worker load a Table game that is not turn-based, has settings, or has no view", async () => {
-    const { buildTurnWall } = await import("../wall.js");
+  it("refuses at Worker load a Table game that is not turn-based, has settings, or has no view", () => {
     const manifest = { id: "t", name: "T", path: "/t/", players: { min: 2, max: 2 }, table: { view: "v.js" } };
     const game = { tickHz: 0 };
     expect(() => buildTurnWall([{ manifest, game: { tickHz: 30 } }])).toThrow(/not turn-based/);
@@ -216,7 +224,7 @@ describe("the starting beat, and the races around it", () => {
     expect(r.core().starting).toBeNull();
   });
 
-  it("refuses a switch, a second pick and a room pick during the beat, and again while the game is on", async () => {
+  it("refuses a switch and a second pick during the beat, and again while the game is on", async () => {
     const r = await table({ players: 2 });
     await vi.advanceTimersByTimeAsync(MODE_COOLDOWN_MS);
     r.say(r.ws.ann, { t: "play", id: GAME });
@@ -242,10 +250,7 @@ describe("the starting beat, and the races around it", () => {
     expect(r.core().mode).toBe("turn-based");
   });
 
-  it("refuses a pick while a switch is being saved, and the party lands at the Table with nothing started", async () => {
-    // The host switches to the Table and picks at once: the pick reaches the room while the switch
-    // waits on storage, with the room already at the Table in memory. It is refused, so a switch
-    // that then fails to save and is taken back cannot leave a Table game starting on the Floor.
+  it("refuses a pick while a switch is being saved, so a switch taken back cannot leave a Table game starting on the Floor", async () => {
     const r = await table({ players: 2 });
     await vi.advanceTimersByTimeAsync(MODE_COOLDOWN_MS);
     r.say(r.ws.ann, { t: "mode", v: "party-games" });
@@ -286,7 +291,6 @@ describe("the starting beat, and the races around it", () => {
     expect(r.core().starting).toBeNull();
     expect(since(r.ws.ann).find((m) => m.t === "note" && m.k === "cancelled")).toMatchObject({ text: "Count to ten did not start: needs 2 or more." });
     expect(lastRoom(since(r.ws.ann)).starting).toBeNull();
-    // And the host may switch rooms again.
     await vi.advanceTimersByTimeAsync(MODE_COOLDOWN_MS);
     r.say(r.ws.ann, { t: "mode", v: "party-games" });
     await settle();
@@ -301,10 +305,7 @@ describe("the starting beat, and the races around it", () => {
     await vi.advanceTimersByTimeAsync(PLAY_BEAT_MS + 50);
     expect(r.core().activity.kind).toBe("lobby");
     expect(r.core().starting).toBeNull();
-    r.say(r.ws.ann, { t: "play", id: GAME });
-    await settle();
-    await vi.advanceTimersByTimeAsync(PLAY_BEAT_MS + 50);
-    expect(r.core().activity.kind).toBe("game");
+    await play(r);
   });
 });
 
@@ -315,17 +316,12 @@ describe("a Table game, played to the end", () => {
     await play(r);
     const secrets = secretsOf(r);
     expect(new Set(Object.values(secrets)).size).toBe(3);
-    // Each phone's first snapshot holds its own word.
-    for (const [seat, who] of [
-      [0, "ann"],
-      [1, "bo"],
-      [2, "cy"],
-    ]) {
-      const start = since(r.ws[who]).find((m) => m.t === "start");
-      expect(start.s).toMatchObject({ you: seat, secret: secrets[seat], count: 0, target: TARGET });
+    for (const seat of [0, 1, 2]) {
+      const start = since(r.ws[key(seat)]).find((m) => m.t === "start");
+      expect(start.s).toMatchObject({ you: { seat, role: "player" }, secret: secrets[seat], count: 0, target: TARGET });
     }
+    expect(since(r.ws.screen).find((m) => m.t === "start").s).toMatchObject({ you: { seat: -1, role: "screen" } });
     expect(since(r.ws.screen).find((m) => m.t === "start").s).not.toHaveProperty("secret");
-    // Play: everyone adds two until it reaches ten, every input answered.
     const acks = [];
     while (r.core().activity.kind === "game") {
       const { ws } = turnOf(r);
@@ -334,25 +330,18 @@ describe("a Table game, played to the end", () => {
       acks.push(...ws.messages().slice(before).filter((m) => m.t === "ack"));
     }
     expect(acks).toHaveLength(TARGET / 2);
-    // Back at the Table, with the result: the winner placed first.
     const end = since(r.ws.bo).find((m) => m.t === "end");
-    expect(end.room.mode).toBe("turn-based");
-    expect(end.room.phase).toBe("lobby");
+    expect(end.room).toMatchObject({ mode: "turn-based", phase: "lobby" });
     expect(end.room.table.length).toBeGreaterThan(0);
     expect(end.result).toMatchObject({ count: TARGET });
     expect(end.last.rows[0]).toMatchObject({ seat: end.result.winnerSeat, place: 1, points: 3 });
     expect(end.last.rows).toHaveLength(3);
     expect(r.core().members[end.result.winnerSeat].points).toBe(3);
     // No socket ever heard a word that was not its own.
-    for (const [seat, who] of [
-      [0, "ann"],
-      [1, "bo"],
-      [2, "cy"],
-    ]) {
-      for (const [other, word] of Object.entries(secrets)) if (Number(other) !== seat) expect(r.ws[who].text()).not.toContain(`"${word}"`);
+    for (const seat of [0, 1, 2]) {
+      for (const [other, word] of Object.entries(secrets)) if (Number(other) !== seat) expect(r.ws[key(seat)].text()).not.toContain(`"${word}"`);
     }
     for (const word of Object.values(secrets)) expect(r.ws.screen.text()).not.toContain(`"${word}"`);
-    // The host may pick the next game at once: the starting beat is the only wait.
     r.say(r.ws.ann, { t: "play", id: GAME });
     await settle();
     expect(r.core().starting).toBe(GAME);
@@ -362,42 +351,48 @@ describe("a Table game, played to the end", () => {
     const r = await table({ players: 2 });
     await play(r);
     const { seat } = turnOf(r);
-    const other = NAMES[1 - seat].toLowerCase();
+    const other = key(1 - seat);
     const since = from(r.ws.ann, r.ws.bo);
-    r.say(r.ws[other], { t: "in", d: { add: 1 }, id: "x1" });
+    r.say(r.ws[other], { t: "in", d: { t: "add", n: 1 }, id: "x1" });
     await settle();
     expect(since(r.ws[other]).at(-1)).toEqual({ t: "error", id: "x1", error: "not_your_turn", message: "It is not your turn." });
-    expect(since(r.ws[NAMES[seat].toLowerCase()])).toEqual([]);
+    expect(since(r.ws[key(seat)])).toEqual([]);
     expect(r.core().activity.state.count).toBe(0);
   });
 
-  it("passes a turn not taken in time, so nobody's silence holds the game up", async () => {
+  it("refuses the room's own moves from a player", async () => {
+    const r = await table({ players: 2 });
+    await play(r);
+    r.say(r.ws.bo, { t: "in", d: { t: "tick" }, id: 1 });
+    r.say(r.ws.bo, { t: "in", d: { t: "leave", seat: 0 }, id: 2 });
+    await settle();
+    expect(r.ws.bo.messages().filter((m) => m.t === "error").map((m) => m.error)).toEqual(["not_system", "not_system"]);
+    expect(r.core().activity.seats).toEqual([0, 1]);
+  });
+
+  it("passes a turn not taken in time on the room's alarm, so nobody's silence holds the game up", async () => {
     const r = await table({ players: 2 });
     await play(r);
     const { seat } = turnOf(r);
-    const since = from(r.ws.ann);
+    // The deadline is the room's alarm (a Durable Object alarm), not a timer in memory.
+    expect(r.ctx.alarm.at).toBe(r.core().activity.state.deadline);
+    expect(r.ctx.room.timer).toBeNull();
     await vi.advanceTimersByTimeAsync(TURN_MS + 50);
     expect(turnOf(r).seat).toBe(1 - seat);
-    expect(since(r.ws.ann).filter((m) => m.t === "ev").flatMap((m) => m.ev)).toContainEqual({ k: "timed_out", seat });
+    expect(r.core().activity.state.log.at(-1)).toMatchObject({ seat, timedOut: true });
   });
 
-  it("skips a dropped phone's turns, and gives a reconnecting phone its own view back", async () => {
+  it("gives a reconnecting phone its own view back", async () => {
     const r = await table({ players: 3 });
     await play(r);
     const word = secretsOf(r)[1];
-    // Make it Bo's turn, then Bo's phone drops: the turn passes on at once.
-    while (turnOf(r).seat !== 1) await press(r, 1);
     r.ctx.room.webSocketClose(r.ws.bo, 1001, "");
     await settle();
-    expect(turnOf(r).seat).not.toBe(1);
-    expect(r.core().activity.state.missing).toEqual([1]);
-    // Bo reloads: the hello, then the game as Bo may see it, with Bo's own word.
     r.ws.bo = await r.connect(r.tokens.bo);
     const got = r.ws.bo.messages();
     expect(got[0]).toMatchObject({ t: "hello", you: { role: "player", seat: 1 } });
     expect(got[0].room.game).toMatchObject({ id: GAME, seats: [0, 1, 2] });
-    expect(got.find((m) => m.t === "snap" && m.full).s).toMatchObject({ you: 1, secret: word });
-    expect(r.core().activity.state.missing).toEqual([]);
+    expect(got.find((m) => m.t === "snap" && m.full).s).toMatchObject({ you: { seat: 1, role: "player" }, secret: word });
   });
 
   it("survives a restart mid-game, every seat and word as it was", async () => {
@@ -406,66 +401,86 @@ describe("a Table game, played to the end", () => {
     await press(r, 2);
     const before = structuredClone(r.core().activity.state);
     await r.sleepAndWake();
-    expect(r.core().activity).toMatchObject({ kind: "game", id: GAME, seats: [0, 1] });
+    expect(r.core().activity).toMatchObject({ kind: "game", id: GAME, seats: [0, 1], host: 0, gone: [], declined: [] });
     expect(r.core().activity.state.secrets).toEqual(before.secrets);
-    expect(r.core().activity.state.count).toBe(2);
     await press(r, 2);
     expect(r.core().activity.state.count).toBe(4);
   });
 
-  it("lets a phone that joins mid-game wait at the Table: it sees the game is on, gets no word, and cannot play", async () => {
+  it("takes in a phone that joins mid-game as a watcher (the game's `join`): it sees the game, gets no word, and cannot play", async () => {
     const r = await table({ players: 2 });
     await play(r);
     const cy = await r.ctx.room.join({ nickname: "Cy", as: "player" });
     r.ws.cy = await r.connect(cy.token);
-    const got = r.ws.cy.messages();
-    const hello = got.find((m) => m.t === "hello");
-    expect(hello.you).toEqual({ role: "player", seat: 2 });
-    expect(hello.room).toMatchObject({ phase: "playing", game: { id: GAME, seats: [0, 1] } });
-    const snap = got.find((m) => m.t === "snap");
-    expect(snap.s).not.toHaveProperty("secret");
-    expect(snap.s).not.toHaveProperty("you");
-    for (const word of Object.values(secretsOf(r))) expect(r.ws.cy.text()).not.toContain(`"${word}"`);
-    r.say(r.ws.cy, { t: "in", d: { add: 1 }, id: 1 });
     await settle();
-    expect(r.ws.cy.messages().at(-1)).toMatchObject({ t: "error", id: 1, error: "not_in_game" });
+    expect(r.core().activity.state.watchers).toEqual([2]);
+    expect(r.core().activity.seats).toEqual([0, 1, 2]);
+    const got = r.ws.cy.messages();
+    // The room view says Cy is in the game before Cy's view of it comes.
+    const seated = got.findIndex((m) => m.t === "room" && m.room.game?.seats?.includes(2));
+    const watching = got.findIndex((m) => m.t === "snap" && m.s.you.role === "watcher");
+    expect(seated).toBeGreaterThan(-1);
+    expect(watching).toBeGreaterThan(seated);
+    for (const word of Object.values(secretsOf(r))) expect(r.ws.cy.text()).not.toContain(`"${word}"`);
+    r.say(r.ws.cy, { t: "in", d: { t: "add", n: 1 }, id: 1 });
+    await settle();
+    expect(r.ws.cy.messages().at(-1)).toMatchObject({ t: "error", id: 1, error: "not_playing" });
     // When the game ends Cy is at the Table with everyone, and plays the next one.
     while (r.core().activity.kind === "game") await press(r, 2);
-    r.say(r.ws.ann, { t: "play", id: GAME });
-    await settle();
-    await vi.advanceTimersByTimeAsync(PLAY_BEAT_MS + 50);
+    expect(r.core().last.rows.map((row) => row.seat).sort()).toEqual([0, 1]);
+    await play(r);
     expect(r.core().activity.seats).toEqual([0, 1, 2]);
   });
 
-  it("ends when the host leaves mid-game; the next player is host and can pick the next game", async () => {
+  it("goes on without a seat gone for good (the game's `leave`), tells it the new host, and ends by itself", async () => {
     const r = await table({ players: 3 });
     await play(r);
     const since = from(r.ws.bo);
     r.say(r.ws.ann, { t: "leave" });
     await settle();
-    const got = since(r.ws.bo);
-    expect(got.find((m) => m.t === "note" && m.k === "ended")).toMatchObject({ text: "Ann left the party, so Count to ten ended." });
-    const end = got.find((m) => m.t === "end");
-    expect(end.last.early).toMatchObject({ why: "left", name: "Ann" });
-    expect(end.room.mode).toBe("turn-based");
-    expect(end.room.picker).toEqual({ seat: 1 });
-    r.say(r.ws.bo, { t: "play", id: GAME });
-    await settle();
-    await vi.advanceTimersByTimeAsync(PLAY_BEAT_MS + 50);
-    expect(r.core().activity).toMatchObject({ kind: "game", seats: [1, 2] });
-  });
-
-  it("ends when a dropped phone does not come back within the grace", async () => {
-    const r = await table({ players: 2 });
-    await play(r);
-    r.ctx.room.webSocketClose(r.ws.bo, 1001, "");
+    // Ann left: the game goes on with Bo and Cy, Ann's seat kept out of the party until it ends.
+    expect(r.core().activity).toMatchObject({ kind: "game", seats: [1, 2], gone: [0], host: 1 });
+    expect(r.core().activity.state).toMatchObject({ order: [1, 2], host: 1 });
+    expect(r.core().activity.state.secrets).not.toHaveProperty("0");
+    expect(lastRoom(since(r.ws.bo)).game.seats).toEqual([1, 2]);
+    const di = await r.ctx.room.join({ nickname: "Di", as: "player" });
+    expect(di.seat).toBe(3);
+    // Bo is the host now, and can end it; instead Cy's phone drops past the grace and Bo is left alone.
+    r.ctx.room.webSocketClose(r.ws.cy, 1001, "");
     await settle();
     await vi.advanceTimersByTimeAsync(TURN_GRACE_MS + 100);
     expect(r.core().activity.kind).toBe("lobby");
-    expect(r.core().last.early).toMatchObject({ why: "gone", name: "Bo" });
-    // Back at the Table, Bo's seat fades by the lobby's own rule.
+    expect(r.core().last).toMatchObject({ name: "Count to ten", rows: [{ seat: 1, place: 1, points: 3 }] });
+    expect(r.core().last).not.toHaveProperty("early");
     await vi.advanceTimersByTimeAsync(DROP_FADE_MS + 100);
-    expect(r.core().members[1]).toBeNull();
+    expect(r.core().members[2]).toBeNull();
+  });
+
+  it("tells the game when the host's controls pass on while the host's phone is gone", async () => {
+    const r = await table({ players: 3, screen: false });
+    await play(r);
+    r.ctx.room.webSocketClose(r.ws.ann, 1001, "");
+    await settle();
+    expect(r.core().activity.state.host).toBe(0);
+    // The host's grace ends with no other event: the room wakes for it.
+    await vi.advanceTimersByTimeAsync(HOST_GRACE_MS + 50);
+    expect(r.core().activity.state.host).toBe(1);
+    expect(r.core().activity.host).toBe(1);
+  });
+
+  it("gives each match a fresh secret seed, never one worked out from the room's", async () => {
+    const seen = [];
+    const spy = { ...rules, create: (seats, options, seed, now) => (seen.push(seed), rules.create(seats, options, seed, now)) };
+    const turn = buildTurnWall([]);
+    turn.games.set(GAME, tableGame(spy));
+    const wall = { ...TEST_WALL, games: new Map([...TEST_WALL.games, ...turn.games]) };
+    const r = await table({ players: 2, wall });
+    await play(r);
+    while (r.core().activity.kind === "game") await press(r, 2);
+    await play(r);
+    expect(seen).toHaveLength(2);
+    expect(seen[0]).not.toBe(seen[1]);
+    for (const [i, seed] of seen.entries()) expect(seed).not.toBe(r.core().roundSeed(i + 1));
   });
 });
 
@@ -488,9 +503,7 @@ describe("the host ends a Table game", () => {
       expect(end.last).toMatchObject({ name: "Count to ten", rows: [], early: { why: "host", name: "Ann", seat: 0 } });
       expect(end.room).toMatchObject({ phase: "lobby", mode: "turn-based" });
     }
-    // Saved: a restart finds the party at the Table, with no game.
     expect(r.ctx.store.get("lobby").game).toBeNull();
-    expect(r.core().members.map((m) => m?.points ?? null)).toEqual([0, 0, null, null]);
   });
 
   it("is refused when no game is on", async () => {
@@ -498,5 +511,76 @@ describe("the host ends a Table game", () => {
     r.say(r.ws.ann, { t: "stop" });
     await settle();
     expect(r.ws.ann.messages().at(-1)).toEqual({ t: "stop-no", error: "not_playing", message: "No game at the Table is being played." });
+  });
+});
+
+describe("the Table's eight places", () => {
+  it("seats up to eight at the Table, each with a colour of its own, and turns the ninth away", async () => {
+    const r = await table({ players: TABLE_MAX_PLAYERS, screen: false });
+    expect(r.core().view(Date.now()).members.map((m) => m.name)).toEqual(NAMES);
+    expect(new Set(r.core().members.map((m) => m.colour)).size).toBe(TABLE_MAX_PLAYERS);
+    expect(r.core().members.map((m) => m.colour)).toEqual(NAMES.map((_, seat) => seatColour(seat)));
+    expect(await r.ctx.room.join({ nickname: "Ivy", as: "player" })).toMatchObject({ ok: false, error: "room_full", message: "This party is full: 8 players at most." });
+    expect((await r.ctx.room.preview()).full).toBe(true);
+    // All eight play the game.
+    await play(r);
+    expect(r.core().activity.seats).toEqual([0, 1, 2, 3, 4, 5, 6, 7]);
+  });
+
+  it("keeps the Floor at four: a party of more cannot move there", async () => {
+    const r = await table({ players: 5, screen: false });
+    await vi.advanceTimersByTimeAsync(MODE_COOLDOWN_MS);
+    r.say(r.ws.ann, { t: "mode", v: "party-games" });
+    await settle();
+    expect(r.ws.ann.messages().at(-1)).toEqual({ t: "mode-no", why: "The Floor has room for 4, and 5 are here. It can go there when fewer are.", v: "turn-based" });
+    // On the Floor the party has four places, and a fifth is turned away.
+    const floor = await table({ players: 4, screen: false });
+    await vi.advanceTimersByTimeAsync(MODE_COOLDOWN_MS);
+    floor.say(floor.ws.ann, { t: "mode", v: "party-games" });
+    await settle();
+    expect(floor.core().view(Date.now()).members).toHaveLength(MAX_PLAYERS);
+    expect(await floor.ctx.room.join({ nickname: "Ed", as: "player" })).toMatchObject({ ok: false, message: "This party is full: four players at most." });
+  });
+
+  it("seats someone beyond the Floor's four in a free place of them on the way, and their socket speaks for that seat", async () => {
+    const r = await table({ players: 6, screen: false });
+    r.say(r.ws.bo, { t: "leave" });
+    r.say(r.ws.cy, { t: "leave" });
+    await settle();
+    expect(r.core().members.map((m) => m?.name ?? null)).toEqual(["Ann", null, null, "Di", "Ed", "Flo", null, null]);
+    await vi.advanceTimersByTimeAsync(MODE_COOLDOWN_MS);
+    r.say(r.ws.ann, { t: "mode", v: "party-games" });
+    await settle();
+    expect(r.core().mode).toBe("party-games");
+    expect(r.core().members.map((m) => m?.name ?? null)).toEqual(["Ann", "Ed", "Flo", "Di"]);
+    expect(r.core().members[1].colour).toBe(seatColour(1));
+    // Ed's socket now plays seat 1: a look he chooses is his own.
+    r.say(r.ws.ed, { t: "look", c: "ghost" });
+    await settle();
+    expect(r.core().members[1].character).toBe("ghost");
+    expect(r.ws.ed.attachment.seat).toBe(1);
+  });
+
+  it("takes the seats back with a switch that could not be saved", async () => {
+    const r = await table({ players: 5, screen: false });
+    r.say(r.ws.bo, { t: "leave" });
+    await settle();
+    await vi.advanceTimersByTimeAsync(MODE_COOLDOWN_MS);
+    const put = r.ctx.storage.put;
+    r.ctx.storage.put = async (k, v) => (v.mode === "party-games" ? Promise.reject(new Error("down")) : put(k, v));
+    r.say(r.ws.ann, { t: "mode", v: "party-games" });
+    await settle();
+    expect(r.core().mode).toBe("turn-based");
+    expect(r.core().members.map((m) => m?.name ?? null)).toEqual(["Ann", null, "Cy", "Di", "Ed", null, null, null]);
+    expect(r.ws.ed.attachment.seat).toBe(4);
+  });
+
+  it("restores a Table party saved before it had eight places with eight", async () => {
+    const r = await table({ players: 2, screen: false });
+    const saved = r.ctx.store.get("lobby");
+    r.ctx.store.set("lobby", { ...saved, members: saved.members.slice(0, MAX_PLAYERS) });
+    await r.sleepAndWake();
+    expect(r.core().members).toHaveLength(TABLE_MAX_PLAYERS);
+    expect(r.core().members.filter(Boolean).map((m) => m.name)).toEqual(["Ann", "Bo"]);
   });
 });

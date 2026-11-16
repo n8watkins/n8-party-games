@@ -23,7 +23,8 @@ export function mount(container, { room, you, snapshot, send, inputId, now }) {
   container.append(sheet);
   const root = el("section", "ctt", "", container);
   root.setAttribute("aria-label", "Count to ten");
-  const player = you?.role === "player";
+  // Who this page is in the game, as the game's own view says (a player, a watcher, or a screen).
+  let player = false;
   const nameOf = (seat) => room.members[seat]?.name ?? `Seat ${seat + 1}`;
   const colourOf = (seat) => room.members[seat]?.colour ?? "#8f8170";
 
@@ -42,11 +43,9 @@ export function mount(container, { room, you, snapshot, send, inputId, now }) {
     b.addEventListener("click", () => press(add));
     return b;
   });
-  buttons.hidden = !player;
   const said = el("p", "ctt-said", "", root);
   said.setAttribute("role", "status");
   const secret = el("p", "ctt-secret", "", root);
-  secret.hidden = !player;
   const log = el("ol", "ctt-log", "", root);
   log.setAttribute("aria-label", "The last presses");
 
@@ -59,7 +58,7 @@ export function mount(container, { room, you, snapshot, send, inputId, now }) {
     busy = true;
     draw();
     try {
-      await send({ add }, { id: inputId() });
+      await send({ t: "add", n: add }, { id: inputId() });
       said.textContent = "";
     } catch (err) {
       said.textContent = err?.message ?? "That did not go through. Try again.";
@@ -80,6 +79,9 @@ export function mount(container, { room, you, snapshot, send, inputId, now }) {
 
   function draw() {
     if (!state) return;
+    player = state.you?.role === "player";
+    buttons.hidden = !player;
+    secret.hidden = state.you?.role === "screen";
     const mine = player && state.turn === you.seat;
     const over = state.winner !== null;
     head.textContent = over ? `${nameOf(state.winner)} said ten` : mine ? "Your turn" : `${nameOf(state.turn)}'s turn`;
@@ -88,22 +90,18 @@ export function mount(container, { room, you, snapshot, send, inputId, now }) {
     big.textContent = String(state.count);
     of.textContent = `of ${state.target}. Add one or two; whoever says ${state.target} wins.`;
     for (const b of adds) b.disabled = !mine || over || busy;
+    secret.textContent = "";
     if (player) {
-      secret.textContent = "";
       el("span", "", "Your secret word ", secret);
       el("strong", "", state.secret ?? "?", secret);
       el("span", "", " (only you can see it)", secret);
-    }
+    } else if (state.you?.role === "watcher") secret.textContent = "You joined during this game: you are watching it, and can play the next one.";
     log.textContent = "";
     for (const p of [...state.log].reverse()) {
-      const li = el("li", "", "", log);
+      const li = el("li", p.timedOut ? "ctt-missing" : "", "", log);
       const dot = el("span", "ctt-dot", "", li);
       dot.style.background = colourOf(p.seat);
-      el("span", "", `${nameOf(p.seat)} added ${p.add}: ${p.count}`, li);
-    }
-    if (state.missing.length) {
-      const li = el("li", "ctt-missing", `Skipping ${state.missing.map(nameOf).join(" and ")} until they are back`, log);
-      log.prepend(li);
+      el("span", "", p.timedOut ? `${nameOf(p.seat)} ran out of time` : `${nameOf(p.seat)} added ${p.add}: ${p.count}`, li);
     }
     tickClock();
   }
@@ -118,10 +116,8 @@ export function mount(container, { room, you, snapshot, send, inputId, now }) {
   timer = setInterval(tickClock, 200);
   return {
     snapshot: (s) => take(s),
-    events(ev) {
-      const out = ev.find((e) => e.k === "timed_out");
-      if (out) said.textContent = `${nameOf(out.seat)} ran out of time`;
-    },
+    // A Table game's rules say everything in their view; there are no events to show.
+    events() {},
     unmount() {
       clearInterval(timer);
       root.remove();
