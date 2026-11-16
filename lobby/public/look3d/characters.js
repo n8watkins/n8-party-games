@@ -93,6 +93,8 @@ export class Reflection extends THREE.Group {
   update(shade, strength) {
     const b = this.body;
     const off = Math.max(0, 1 - b.group.position.y * 0.9);
+    // A room may ask before the scene has placed the body this frame: it is placed now.
+    b.group.updateMatrixWorld(true);
     for (const [src, mesh] of this.pairs) {
       mesh.visible = src.visible;
       mesh.matrixWorld.multiplyMatrices(FLIP, src.matrixWorld);

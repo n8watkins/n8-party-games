@@ -64,6 +64,7 @@ describe("the one list of characters", () => {
     expect(sites.length).toBeGreaterThan(20);
     expect(sites).toContain("../public/look3d/room3d.js");
     expect(sites).toContain("../public/baked/room-baked.js");
+    expect(sites).toContain("../public/look3d/rendered/room-rendered.js");
     for (const file of sites) expect(paintReads(read(file)), file).toEqual([]);
   });
 
