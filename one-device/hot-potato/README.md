@@ -64,6 +64,24 @@ The ground heats with the potato: navy, blue, teal, purple, then magenta with a 
 The pulse stays soft enough that every word keeps 4.5:1 at its brightest; the lives are solid blocks, and lost ones empty outlines, so they read by shape as well as colour (`test/contrast.test.js` checks both against `style.css`).
 Sideways on a small phone the start screen puts the title over the potato and the setup down the right, so a note (this browser cannot listen, the microphone is blocked) still fits.
 
+### The layouts
+
+The same screens, in the same order, on a phone or a computer, laid out for the screen they are on (container queries on the screen in `style.css`, "The layouts"):
+
+| Layout | When | How |
+| --- | --- | --- |
+| Phone upright | narrower than 600, taller than wide | who is up beside the category at the top, the potato in the middle, the turn under it |
+| Phone sideways | wider than tall, under 500 high | the potato on the left; on the right the top bar, then the turn centred: the last word, the microphone beside the letter, the verdict, the buttons |
+| Roomy upright | 600 wide or more, taller than wide (tablets, a portrait monitor) | as on a phone, but the turn is one centred group led by who is up, and everything scales with the screen |
+| Roomy wide | wider than tall, 500 high or more (tablets sideways, laptops, desktops, TVs, ultrawide) | the potato on the left (about 45%); on the right the category with sound and pause, the lives and the fuse as one long bar, then one centred group: who is up, the last word, the microphone beside the giant letter, what is heard, the verdict, the buttons, the keys |
+
+Type is fluid (clamp) between a readable floor and a ceiling, so the last word and the letter stay the biggest words on any screen; on a 1080-high screen the letter is 324 px.
+An ultrawide screen keeps the 16:9 proportions, centred on the band.
+On the wide layout the start and end screens are one group centred on the height, with no gap between the pitch and the categories; a long chain scrolls in its own box.
+The keys (Space or Enter starts a turn, Esc pauses) show wherever the main pointer is a mouse or trackpad; Buzz shows only on a touch device that can vibrate (desktop Chrome has the call but nothing to vibrate).
+A typed word takes the keyboard at once, and Enter sends it.
+Resizing a window or turning a phone re-lays the same screen: the turn, the fuse and the listening go on, and the potato's drawing refits its new box.
+
 ## The potato
 
 The Specimen is the picker's drawing, ported: an angular, faceted tan potato with a face, held in a lab rig (two antennas with bulbs, a test tube each side, two clamp arms and a tray with four lights).
@@ -114,7 +132,11 @@ It picks the Specimen, or the plain potato with `#plain` in the address; another
 
 - `npm test` runs `test/game.test.js` (the rules against the real lists, and the stress they hand the art), `test/specimen.test.js` (the Specimen against the owner's rules: the same parts at every stage, faces that follow the state and are never scary, the stress ladder rising at every step with no tremble when calm and nothing moving with reduced motion, everything inside its drawing, a drawing loop that stops), `test/contrast.test.js` (the colours in `style.css`) and `test/potato.test.js` (the plain potato's geometry).
 - `npm run test:hot-potato -- --base=http://localhost:PORT` (`node one-device/hot-potato/test/e2e-game.mjs`) plays the game in a headless, muted Chromium (on the graphics card with `TEST_GPU=1`) against a built site served on that port (run it through `devguard slot --`), with a scripted fake recogniser: whole rounds to the burst in cities (by taps, on a phone) and animals (by keys, on a desktop), the typed fallback (and that it fits at 320 wide), a blocked microphone, three broken recognisers (one that never starts, one that ends at once, one that starts and aborts), pause (and that it holds the keyboard, and where the keyboard goes when it ends straight after a verdict) and a hidden page, the appeal in full view through a verdict, what is remembered, storage refused, reduced motion, that the potato is not redrawn when nothing moves, its faces and reactions, that the stress climbs during a slow turn, that the screen and the layout never move while the potato shakes, that the last stage and the burst stay inside the screen with a light flash, the start screen's notes on sideways phones (568x320, 667x375, 740x340, 844x390), one pass with `#plain`, and the layout at 390x844, 320x568, 568x320, 844x390 and 1280x720.
+  It begins with the layout walk: every key screen (start, ready, listening, a verdict with its appeal, a typed turn, the pause, the last stage, the burst, the end) at 17 sizes (320x568, 360x640, 390x844, 430x932, 568x320, 667x375, 844x390, 932x430, 768x1024, 1024x768 and 820x1180 by touch; 1280x720, 1366x768, 1440x900, 1920x1080, 2560x1080 and 1080x1920 by mouse), resized in place without touching the round: nothing outside the screen, cut short, overlapping or scrolling, every control at least 40 px, the potato filling its box, and the last word and the letter the biggest words (the letter at least 16% of the shorter side, 22% from 600 up; the word at least 7%).
+  Then a phone turned both ways and a window resized and maximised in the middle of a listening turn: the same turn, the fuse burning, listening not restarted, the potato refitted, the word counted.
+  `--only=layout` runs just that part (about a minute).
   It saves stills of every stage of the potato at 390x844 and 1280x720 in `--shots` (default `/tmp/claude-hot-potato-game/shots`).
+- `node one-device/hot-potato/test/screens.mjs --base=http://localhost:PORT` saves stills of the key screens at all 17 sizes in `--out` (default `/tmp/claude-hp-game/responsive-stills`; `--sizes=390x844,1280x720` for a few).
 - `node one-device/hot-potato/test/stills.mjs --base=http://localhost:PORT` saves stills of every screen at 390x844, 320x568, 568x320, 844x390 and 1280x720 (and of the start screen's note and a typed turn), the faces' contact sheet, each stage's stress steps and twelve frames of each stage's motion, in `--out` (default `/tmp/claude-hp-game/specimen-stills`).
 - `npm run test:hearing -- --base=http://localhost:PORT` runs the hearing test's browser test; its unit tests (`lab/hot-potato/README.md`) cover the matcher and the lists.
 - Both browser tests are steps of the predeploy gate (`npm run predeploy`, see `AGENTS.md`).
