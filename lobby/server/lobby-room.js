@@ -437,15 +437,18 @@ export function createLobbyRoom(wallFor) {
       if (entry.kept.away === away) return;
       entry.kept.away = away;
       entry.ws.serializeAttachment(entry.kept);
-      if (!this.syncAway(entry.token)) return;
+      if (!this.syncAway(entry.token, now)) return;
       this.broadcastRoom(now);
+      // In a turn-based game the seat's grace now runs (or stops): its end is a wake-up, so a
+      // hidden page is given up on at the limit even when nothing else happens in the room.
+      this.arm(now);
       void this.upkeep(now);
     }
 
     /** Works out whether a token is away from all its open sockets. Returns whether that changed. */
-    syncAway(token) {
+    syncAway(token, now = Date.now()) {
       const mine = [...this.sockets.values()].filter((e) => e.token === token).map((e) => ({ away: !!e.kept.away }));
-      return this.core?.setAway(token, allAway(mine)) ?? false;
+      return this.core?.setAway(token, allAway(mine), now) ?? false;
     }
 
     /**
