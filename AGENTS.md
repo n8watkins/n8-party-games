@@ -67,6 +67,15 @@ Stay inside the files your brief names.
 `party-kit/src/core/room-core.js` and `lobby/server/lobby-core.js` are shared ground: lanes take turns there.
 Generated files and `CHANGELOG.md` are never edited by hand.
 
+### The character interface
+
+A piece is a character, and no draw site names one: each asks the character's definition.
+A character is one entry in each of three lists, which a test keeps the same: `lobby/shared/characters.js` (the room's), `lobby/public/characters/index.js` (its emotes and flat drawing) and `lobby/public/look3d/characters.js` (its model, for the 3D and baked looks).
+A lane that adds a character adds a definition; it does not edit `scene.js`, `bump-draw.js`, `room3d.js` or `room-baked.js`.
+A lane that draws rooms reads a piece through the handles every model has, and never reaches into one character's parts: not a body's `mat` or `colour` (a ghost's are its white sheet), and a test scans every page file for it.
+A rendered room gives a body its finish with the character's own `bake` and its floor reflection with `Reflection`, as `room-baked.js` does.
+The interface, part by part, is in `lobby/README.md`, "Characters".
+
 ## Where things live
 
 - `party-kit/`: the room kit (server core, client, tests, `GAME-CONTRACT.md`).

@@ -326,6 +326,93 @@ There is no soundboard: the owner dropped it on 2026-11-13 ("just emotes").
   An emote the room refuses with more than half a second left counts against the socket's rate limit: a real page never sends during its own cooldown, so a script that hammers the button is closed within about two seconds, having had one or two through.
 - While a game is played the game decides (`manifest.lobby.emotes` and `.emoteSounds` in `party-kit/GAME-CONTRACT.md`): by default emotes yes, their sounds no.
 
+## Characters
+
+A player's piece is a character in a colour, and each player chooses both.
+There are two characters: the pawn, which everyone starts as, and the ghost.
+A phone's bar holds a round chip with the player's own piece on it, after the walking buttons (on an upright phone, at the left of the line of words); it opens "Your piece", with the characters, ten preset colours and the device's own colour picker for any other.
+The corner at the top keeps only the room's own three buttons, so it covers no more of the posters than before.
+
+### The choice
+
+- The choice is the room's to keep (`shared/characters.js`, `LobbyCore.setLook`): each member carries `character` and `colour`, and the room view shows them to every page.
+- A page asks with `{t: "look", c: "ghost", v: "#8a5bc4"}`, either part or both.
+  The room answers with the room view, with `{t: "look-ok", c, v}` to that page when the piece already is that, or with `{t: "look-no", why, c, v}` to that page only (and `wait`, the cooldown left, when it came too soon).
+- An unknown character or anything but a six-digit colour is refused and changes nothing.
+  A colour too dark to see in a dark room is lifted toward white (`cleanColour`).
+- Two players may choose the same character in the same colour.
+- It cannot be changed while a game is on, nor twice within a second: each change is one room view to everybody and one write of the room to storage.
+  A phone holds back a tap made inside that second and sends it when the second is over.
+  The room measures the second at arrival and allows `LOOK_SLACK_MS` (250 ms) for the network; a choice it still finds too soon is sent once more by the phone when the time left is over, so normal tapping never shows a cooldown message.
+  One that comes far too soon counts against the socket's rate limit, as an emote does.
+- It is kept through a dropped phone and through a sleep of the room, because it is on the member.
+  The last choice made on a device is kept on it, and asked for again in the next party; a phone that comes in during a game asks for it when the lobby is back.
+- It is lobby state, not game state: a game is handed each seat's colour when it starts and may ignore the character.
+- The lobby and the Tonight board use the chosen colour; inside Cork & Bell a stall keeps its seat's colour for now, because the game paints its own seats.
+
+### The interface
+
+No draw site names a character, or reaches into a character's paint.
+Each asks a definition, and a test (`test/characters.test.js`) fails if one names a character again, or if any file of the page outside the definitions reads a body's `mat` or `colour`.
+A character is one entry in each of three lists, which a test keeps the same:
+
+| List | File | What it holds |
+| --- | --- | --- |
+| The room's | `shared/characters.js`, `CHARACTERS` | `id`, `name`, and `move`: what its action button does |
+| The page's | `public/characters/index.js`, `CHARACTER_DRAWINGS` | its emotes and its flat drawing |
+| The 3D look's | `public/look3d/characters.js`, `CHARACTER_MODELS` | its model, for the 3D and the baked look |
+
+The page's definition (`public/characters/pawn.js` is the one to copy):
+
+- `emotes`: `byId(id)` gives an emote as `pose(t, calm, reach)`, in the terms of `public/emotes/rig.js`; `mirror(pose)`; `top(pose)`, how high a pose reaches, for the word over the head.
+  Every character does the kit's fourteen emotes, with the pawn's lengths and words, so each recording fits them all.
+- `flat`: `make()` returns its body, with `inner` as the group an emote leans; `dress(body, colour, connected)`; `frame(body, {now, dt, face, seat, calm, grounded})`, which returns how far off the floor it holds itself; `dizzy(body, on)`; `blink(body, opacity)`; `emote(body, pose, bodyTransform)`; `still(colour)` and `portrait(colour)` for small pictures.
+  Its numbers are `tall` (the top of its head against a standing pawn's), `rest`, `shadow` and `glides`.
+  `figure` tells the emote drawing (`public/emotes/svg.js`) what turns red when it fumes, where its face sits and how its hands are joined on.
+
+The 3D look's definition (`public/look3d/pieces.js` is the pawn's, `public/look3d/ghost.js` the ghost's):
+
+- `make(radial)` returns a body with the handles every character has: `group`, `tilt`, `turn`, `mat`, `blob`, `ring`, `colour`, `lit`, `fade`, `air`, `dizzy` and `skin`.
+  The body is kept on the piece's record as `p.body`, and its definition as `p.kind`.
+  A room reads `group`, `tilt`, `blob`, `ring`, `fade`, `air` and `dizzy`; `mat` and `colour` are the character's own (a ghost's are its white sheet: the player's colour is its hem).
+  `skin` is the meshes of its own surface, for `Reflection` (`public/look3d/characters.js`), which stands any character on its head in a shiny floor in its own colours.
+- `dress(body, hex, connected)`, `fade(body, left)` and `dispose(body)`.
+- `pose(body, piece, now, dt, how)` stands it where its piece is and returns `{up, moving, shock, burst, dust, state}`.
+  `up` is how far the top of its head is above a standing pawn's, so name tags and words are placed the same way for every character.
+  `moving` is whether the room must draw every frame for it.
+- `emote(body, pose, now, seat)` lays an emote's pose over it, and `hands(body, colour)` returns its hands as `{set(pose, now), dispose()}`.
+- `bake(body)` is the baked look's finish: its true colour under real light.
+  A room gives it each frame after `pose` and before `emote` (`finish` in `room3d.js`), so an emote's red stays on top.
+
+What a piece is doing is the same for every character and is decided elsewhere: where it is, a jump, and a bump as a pose (`shared/bump.js`, read through `bumpPose` in `public/look3d/pieces.js` and `BumpDraw.pose` in `public/bump-draw.js`).
+A character decides only how that looks.
+
+To add a third character: write its emote rig, its flat drawing and its model, and add it to the three lists.
+The picker, the room's check, the wheel's pictures and every draw site pick it up from there.
+
+### The ghost
+
+A white sheet with a hem dipped in the player's colour, scalloped along its edge, and two nub arms.
+It hangs above the floor and bobs, its hem trails behind it, and it squeezes its eyes shut when it is knocked over, where the pawn gets crosses.
+In the 3D and baked looks the sheet keeps its own white under any room's light: it takes only how bright the light is, never its hue, part of it glows by itself, and a cool rim outlines it (`SHEET_LIGHT` in `public/look3d/ghost.js`).
+It hangs a little higher there than in the flat drawing, over one soft shadow, so the air under it shows from the whole room.
+Its idle hover, bob and breath are laid on outside its springs, so an idle ghost is never "moving" (`STILL`; `test/ghost-model.test.js`).
+Its emotes are in `public/characters/ghost-rig.js`, with the fits the owner chose from a preview on 2026-11-15:
+
+- Floating hands in the player's colour ("Hands", the default) for popcorn, slow clap, point and laugh, red card, hurry up, thumbs up, confetti, boo, shh and the tomato.
+- Wisps of the sheet reaching out to the hands ("Wisps") for GG, lighter up and Huh?.
+- Fuming has no hands: the sheet turns red, swells and bounces.
+- Point and laugh's pointing hand drags a short cuff of the sheet, so it reads as the ghost's own.
+- Its hands are two fifths larger than a pawn's (`GHOST.hand`) and held close to the sheet, so they read at phone size.
+- On a very pale colour the hands get a dark outline, because they would be lost against the white sheet.
+
+Not built yet, and where each goes:
+
+- The ghost's own move (fade, the scare, boo with its cap).
+  `CHARACTERS[].move` is `"kick"` for both characters until then, so a ghost bumps as a pawn does.
+  The model already draws a faded ghost: set `piece.faded` on the piece's record (`fadeK` in `public/look3d/ghost.js`); the flat drawing needs the same.
+- Squeezed-shut eyes for every knocked piece: `flat.dizzy` in `public/characters/pawn.js` and the crosses in `public/look3d/pieces.js`.
+
 ## Sound
 
 Every sound is a short CC0 recording in `public/sounds/`, with where each came from in `public/sounds/CREDITS.txt` and the full source records in `preview/recordings/sources.json` (`preview/recordings/ship.mjs` remakes the files).
@@ -483,6 +570,9 @@ A lobby nobody touches costs nothing: no timer, no messages, nothing counted, an
 
 - `npm test` runs the unit tests with the kit's: the room's rules (`test/lobby-core.test.js`), the shared logic, the awake meter and the socket rate limit (`test/shared.test.js`), the bump (`test/bump.test.js`), the Tonight board (`test/tonight.test.js`) and the way in (`test/entry.test.js`).
 - `npm run test:emotes` (with `npm run dev` running) puts emotes and sound through real pages and sockets in one room (headless and muted): the room relaying each once and enforcing the cooldown, a hammering script closed, emotes during a game, the wheel (tap, pick, number keys, the ring, the six kept on the device), the piece performing it with its word, an emote's sound on the phones with no big screen and on the screen only with one, nothing fetched before sound is allowed, nothing played before a tap and nothing late after it, a muted player, the one-tap mute, a phone hearing its own steps and jump, and a shared sound (someone joining) coming from the screen and not the phones. `npm test` covers the rules with a fake clock (`test/emotes.test.js`, `party-kit/test/sounds.test.js`), and every pose, the mirror, the aim, the tomato and the sound files with their credits (`test/emote-rig.test.js`).
+- `npm run test:characters` (with `npm run dev` running) goes through choosing a character and a colour in real pages, once in each look (flat, 3D, baked; headless and muted): a phone picks the ghost and a colour from "Your piece", a second phone sees it, a ghost does each of the fourteen emotes with the hands the owner chose, a bumped ghost squeezes its eyes shut, the choice survives a reconnect and comes back in a new party, two players pick the same, and a bad choice is refused.
+  `--looks=flat,3d,baked` picks the looks, `--shots=DIR` saves pictures for a person to look at, and `--measure` prints what four ghosts cost against four pawns in the 3D look.
+  `npm test` covers the choice with a fake clock and on the real room class (`test/party-room-characters.test.js`), and the interface and the ghost's poses (`test/characters.test.js`).
 - `node lobby/test/shoot-emotes.mjs [--look=3d|flat] [--room=bar]` takes a still of every emote at its best moment on a big screen and on a phone held sideways at the closer view, and checks that each one's word is over the right piece, in view, and large enough to read on the phone.
 - `npm run test:feel` (with `npm run dev` running) goes through how the room feels in real pages and over sockets: the way in on a phone and on a wide screen, one screen per room and its grace, the four buttons, the cooldown ring and the room enforcing it, the bump frame by frame, that nobody can be kept on the floor, the board opening and closing with the vote carrying on, and that a bump sets no timer. It takes stills of each, the bump's with the page's clock held still.
 - `npm run test:lobby` (with `npm run dev` running) puts four socket players through an evening (when the coin toss picks Cork & Bell, a whole round of it over sockets, which makes the run a minute and a half longer), sends a party of two off to an outside game, then checks that a lobby nobody touches goes silent: no messages, no timer, nothing added to the budget.

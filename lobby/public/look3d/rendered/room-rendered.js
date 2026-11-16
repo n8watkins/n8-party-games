@@ -21,6 +21,7 @@
 // bottom draws itself as the 3D look draws the room, in place, without the page swapping views.
 // A wall with a different number of boxes than its picture is drawn by the 3D look as it stands.
 import { boxCentre } from "../../shared/world.js";
+import { Reflection } from "../characters.js";
 import { boxArt } from "../paint.js";
 import { Room3D } from "../room3d.js";
 import { FRAME, PX, SPACE, walkX } from "../space.js";
@@ -237,59 +238,35 @@ export class RoomRendered extends Room3D {
   }
 
   /**
-   * Just before each picture is drawn, after the 3D look has posed every piece: its true colour
-   * (the light does the dimming here, not the paint), a shadow that leans away from the nearest
-   * lit lamp, and its reflection in the floor.
+   * The 3D look dims the paint outside a pool and makes it glow inside one, because it has no
+   * real light. Here there is light: each character gives its body its true colour and a shinier
+   * finish (look3d/characters.js, `bake`), after it is posed and before an emote lays its red on.
+   */
+  finish(p) {
+    if (!this.plain) p.kind.bake(p.body);
+  }
+
+  /**
+   * Just before each picture is drawn, after the 3D look has posed every piece: a shadow that
+   * leans away from the nearest lit lamp, and its reflection in the floor, as its character makes it.
    */
   dressPieces() {
     const seen = new Set();
     for (const p of this.pieces.values()) {
-      const pawn = p.pawn;
-      seen.add(pawn);
-      if (!pawn.rendered) {
-        pawn.rendered = true;
-        pawn.mat.roughness = 0.3;
-        pawn.mat.clearcoat = 1;
-        pawn.mat.clearcoatRoughness = 0.12;
-        pawn.mat.envMapIntensity = 1;
-      }
-      // The 3D look dims the paint outside a pool and makes it glow inside one, because it has no real light. Here there is light.
-      const flicker = Math.max(0, pawn.mat.emissiveIntensity - (0.09 + 0.27 * pawn.lit) - 0.01);
-      pawn.mat.color.copy(pawn.colour);
-      pawn.mat.emissiveIntensity = 0.03 + flicker * 0.6;
+      const body = p.body;
+      seen.add(body);
       const lamp = this.lampOver(p.rx);
       const away = lamp.lit > 0 ? Math.max(-1, Math.min(1, (p.rx - lamp.x) / (this.half + 60))) : 0;
-      pawn.blob.position.x += away * 0.2;
-      pawn.blob.scale.multiplyScalar(1.3);
-      pawn.blob.scale.x *= 1 + Math.abs(away) * 0.6;
-      pawn.blob.material.opacity = Math.min(1, pawn.blob.material.opacity * (0.75 + 0.8 * lamp.lit));
-      let r = pawn.reflection;
-      if (!r) {
-        // Only the body is mirrored: a floor this soft does not hold a pair of eyes.
-        r = pawn.reflection = pawn.group.clone();
-        r.traverse((o) => {
-          if (!o.isMesh) return;
-          o.visible = o.material === pawn.mat;
-          if (!o.visible) return;
-          o.material = new THREE.MeshBasicMaterial({ transparent: true, depthWrite: false, side: THREE.DoubleSide });
-          o.renderOrder = -2;
-        });
-        this.mirror.add(r);
-      }
-      const [tilt, mt] = [pawn.group.children[0], r.children[0]];
-      const [turn, mturn] = [tilt.children[0], mt.children[0]];
-      r.position.set(pawn.group.position.x, -pawn.group.position.y, pawn.group.position.z);
-      r.scale.set(1, -1, 1);
-      mt.rotation.copy(tilt.rotation);
-      mt.scale.copy(tilt.scale);
-      mturn.rotation.copy(turn.rotation);
-      const body = mturn.children[0];
-      body.material.color.copy(pawn.mat.color).multiplyScalar(0.4 + 0.6 * lamp.lit);
-      body.material.opacity = (0.16 + 0.2 * lamp.lit) * (pawn.fade ?? 1) * Math.max(0, 1 - pawn.group.position.y * 0.9);
+      body.blob.position.x += away * 0.2;
+      body.blob.scale.multiplyScalar(1.3);
+      body.blob.scale.x *= 1 + Math.abs(away) * 0.6;
+      body.blob.material.opacity = Math.min(1, body.blob.material.opacity * (0.75 + 0.8 * lamp.lit));
+      if (!body.reflection) this.mirror.add((body.reflection = new Reflection(body)));
+      body.reflection.update(0.4 + 0.6 * lamp.lit, 0.16 + 0.2 * lamp.lit);
     }
     for (const r of [...this.mirror.children]) {
-      if ([...seen].some((pawn) => pawn.reflection === r)) continue;
-      r.traverse((o) => o.isMesh && o.visible && o.material.dispose());
+      if ([...seen].some((body) => body.reflection === r)) continue;
+      r.dispose();
       this.mirror.remove(r);
     }
   }
@@ -341,7 +318,10 @@ export class RoomRendered extends Room3D {
     // The pieces are made afresh, so none of them keeps the rendered room's paint.
     for (const p of this.pieces.values()) this.removePiece(p);
     this.pieces.clear();
-    for (const r of [...this.mirror.children]) this.mirror.remove(r);
+    for (const r of [...this.mirror.children]) {
+      r.dispose();
+      this.mirror.remove(r);
+    }
     this.slow = { ms: 16, frames: 0, tried: null, locked: false };
     const room = this.room;
     if (room) {
@@ -391,7 +371,7 @@ export class RoomRendered extends Room3D {
 
   destroy() {
     this.note?.remove();
-    this.mirror.traverse((o) => o.isMesh && o.visible && o.material.dispose());
+    for (const r of this.mirror.children) r.dispose();
     this.envMap?.dispose();
     this.glow?.dispose();
     for (const t of [this.base, this.lights, this.sheet, this.env]) t?.dispose();

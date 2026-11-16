@@ -4,20 +4,26 @@
 // drawing: its x comes from the player's Pilot or from the room (lobby/shared), and so do the
 // moments "jumped", "bumped" and "was hit". This file only turns those into a pose: it leans
 // into a walk, rocks from foot to foot, stretches in the air and squashes on landing.
+//
+// The pawn is one of the characters (./characters.js lists them; lobby/README.md, "Characters",
+// is the interface). What every character shares is here too: the size of a piece, the bump as a
+// pose (bumpPose) and the moments the room view writes on a piece's record (startAttack,
+// startKnock, resumeKnock).
 import * as THREE from "./three.js";
 import { PX, SPACE, walkX } from "./space.js";
 import { IMMUNE_MS, IMPACT_MS, PIECE_HEAD, PIECE_PIVOT, STUN_MS, attackPose, impactPoint, knockPose } from "../shared/bump.js";
 import { JUMP_MS, WALK_SPEED, jumpHeight } from "../shared/world.js";
 
 /** How big a piece is beside the room. */
-const SIZE = 0.78;
-/** A pawn's height in world units, for placing its name tag. */
+export const SIZE = 0.78;
+/** A pawn's height in world units: the height name tags and stickers are placed by, whatever the character. */
 export const PAWN_HEIGHT = (1.115 * SIZE) / PX;
 const GREY = new THREE.Color("#8a8d94");
 const SOOT = new THREE.Color("#1c1512");
+const FUMING = new THREE.Color("#ff2a14");
 /** How long the startled hop of a piece that a room effect made jump lasts, and how high it goes (world units). */
-const HOP_MS = 420;
-const HOP_HEIGHT = 46;
+export const HOP_MS = 420;
+export const HOP_HEIGHT = 46;
 
 function merged(parts) {
   const pos = [];
@@ -88,7 +94,8 @@ export function makePawn(radial) {
   const glints = new THREE.Mesh(SHAPES.glints, glintMat);
   const crosses = new THREE.Mesh(SHAPES.crosses, eyeMat);
   crosses.visible = false;
-  turn.add(new THREE.Mesh(SHAPES.body, mat), eyes, glints, crosses);
+  const skin = new THREE.Mesh(SHAPES.body, mat);
+  turn.add(skin, eyes, glints, crosses);
   const tilt = new THREE.Group();
   tilt.add(turn);
   const group = new THREE.Group();
@@ -105,7 +112,7 @@ export function makePawn(radial) {
   ring.rotation.x = -Math.PI / 2;
   ring.renderOrder = 2;
   ring.visible = false;
-  return { group, tilt, turn, mat, blob, ring, eyes, glints, crosses, colour: new THREE.Color(), sq: 1, sqV: 0, lean: 0, leanV: 0, yaw: 0, stride: 0, lit: 0, prevX: null, air: false, fade: 1 };
+  return { group, tilt, turn, mat, blob, ring, skin: [skin], eyes, glints, crosses, colour: new THREE.Color(), sq: 1, sqV: 0, lean: 0, leanV: 0, yaw: 0, stride: 0, lit: 0, prevX: null, air: false, fade: 1 };
 }
 
 /** Colours a pawn for its seat, or grey for a player who has dropped and is expected back. */
@@ -310,4 +317,38 @@ export function fadePawn(pawn, left) {
     mesh.material.transparent = true;
     mesh.material.opacity = left * 0.8;
   }
+}
+
+/**
+ * An emote's pose on the pawn for this frame, after posePawn: the body lifted, nudged and leaned
+ * about its foot, on top of whatever the walk and the bump did, and the red of fuming.
+ * `metres` is model metres per rig unit.
+ */
+export function emotePawn(pawn, pose, metres) {
+  const b = pose.body;
+  pawn.group.position.x += b.dx * metres;
+  pawn.group.position.y += b.lift * metres;
+  pawn.tilt.rotation.z -= (b.rot * Math.PI) / 180;
+  if (b.tint > 0) {
+    pawn.mat.color.lerp(FUMING, b.tint * 0.8);
+    pawn.mat.emissive.lerp(FUMING, b.tint * 0.6);
+  }
+}
+
+/**
+ * The baked look has real light, so the paint is not dimmed outside a pool or made to glow
+ * inside one: the pawn in its true colour, shinier, keeping only the flicker of a piece that
+ * cannot be knocked again yet.
+ */
+export function bakePawn(pawn) {
+  if (!pawn.baked) {
+    pawn.baked = true;
+    pawn.mat.roughness = 0.3;
+    pawn.mat.clearcoat = 1;
+    pawn.mat.clearcoatRoughness = 0.12;
+    pawn.mat.envMapIntensity = 1;
+  }
+  const flicker = Math.max(0, pawn.mat.emissiveIntensity - (0.09 + 0.27 * pawn.lit) - 0.01);
+  pawn.mat.color.copy(pawn.colour);
+  pawn.mat.emissiveIntensity = 0.035 + flicker * 0.6;
 }

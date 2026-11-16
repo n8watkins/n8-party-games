@@ -207,7 +207,7 @@ export class Words {
 
   dressTag(tag, m) {
     const own = m.seat === this.opts.own;
-    const look = `${m.name}/${m.connected}/${own}/${this.opts.compact}`;
+    const look = `${m.name}/${m.connected}/${own}/${this.opts.compact}/${m.colour}`;
     if (tag.look === look) return;
     tag.look = look;
     tag.text.textContent = own ? "You" : m.connected ? m.name : `${m.name} - reconnecting...`;

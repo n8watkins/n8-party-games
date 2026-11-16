@@ -7,10 +7,12 @@
 // movement looks smooth whatever the network does.
 import { drawArt } from "./art.js";
 import { BumpDraw, poseTransform } from "./bump-draw.js";
+import { drawingOf } from "./characters/index.js";
 import { fit, label, s, set, shade } from "./dom.js";
-import { Expressions, poseTop } from "./emotes/play.js";
+import { Expressions } from "./emotes/play.js";
 import { EmoteFigure, Sticker, bodyTransform } from "./emotes/svg.js";
 import { IMPACT_MS } from "./shared/bump.js";
+import { tagLevels } from "./tag-levels.js";
 import { standings } from "./shared/tonight.js";
 import { BADGES, COUNT_MS, playersLabel } from "./shared/vote.js";
 import { ROOM, boxCentre, boxWidth, jumpHeight, lightHalf, posAt } from "./shared/world.js";
@@ -333,6 +335,8 @@ export class Scene {
       if (m.d) p.face = m.d;
       if (p.rev !== m.rev) p.rx = m.x; // the room put it somewhere: no sliding across the floor
       p.rev = m.rev;
+      // The player chose another character: the same piece, where it stands, with a new body.
+      if (p.kind !== drawingOf(m.character)) this.recast(p, m);
       this.bumps.resume(p, m.x, m.down ?? 0, m.safe ?? 0, now);
       this.dress(p, m);
     }
@@ -429,18 +433,12 @@ export class Scene {
 
   // ---------------------------------------------------------------- pieces
 
-  /** A pawn in a seat's colour, with a shadow and a name tag. */
+  /** A player's piece: its character in its colour, with a shadow and a name tag. */
   piece(m) {
-    const p = { seat: m.seat, rx: m.x, net: { x: m.x, d: m.d, t: 0 }, face: 1, rev: m.rev, jumpAt: -Infinity, attack: null, knock: null, leaving: 0, level: 0, look: "" };
+    const p = { seat: m.seat, rx: m.x, net: { x: m.x, d: m.d, t: 0 }, face: 1, rev: m.rev, jumpAt: -Infinity, attack: null, knock: null, leaving: 0, level: 0, look: "", rise: 0, up: 0 };
     p.shadow = s("ellipse", { cy: ROOM.floorY + 5, rx: 40, ry: 9, fill: "#000", opacity: 0.42 });
-    p.base = s("ellipse", { cx: 0, cy: -8, rx: 39, ry: 11.5 });
-    p.body = s("path", { d: "M-32,-10 C-31,-36 -15,-54 -13.5,-84 L13.5,-84 C15,-54 31,-36 32,-10 Z" });
-    p.collar = s("ellipse", { cx: 0, cy: -84, rx: 22, ry: 8 });
-    p.head = s("circle", { cx: 0, cy: -113, r: 28 });
-    p.eyes = s("g", {}, s("ellipse", { cx: -9, cy: -113, rx: 3.8, ry: 5.6, fill: "#1a1210" }), s("ellipse", { cx: 9, cy: -113, rx: 3.8, ry: 5.6, fill: "#1a1210" }), s("circle", { cx: -8, cy: -115.5, r: 1.3, fill: "#fff" }), s("circle", { cx: 10, cy: -115.5, r: 1.3, fill: "#fff" }));
-    // The pawn itself, in a group of its own that an emote can lean and lift (emotes/svg.js draws over it).
-    p.inner = s("g", {}, p.base, p.body, p.collar, p.head, s("ellipse", { cx: -10, cy: -125, rx: 9, ry: 6, fill: "#fff", opacity: 0.26 }), p.eyes);
-    p.g = s("g", { "data-seat": m.seat }, p.inner);
+    p.g = s("g", { "data-seat": m.seat });
+    this.cast(p, m);
     p.colour = m.colour;
     p.emote = null;
     p.tagBack = s("rect", { rx: (this.tagSize + 14) / 2, "stroke-width": 1.5 });
@@ -454,17 +452,43 @@ export class Scene {
     return p;
   }
 
+  /**
+   * Gives a piece the body of its player's character (characters/index.js): the one place the
+   * flat room makes a body. `p.kind` is the character's definition, `p.actor` what it made, and
+   * `p.inner` the group an emote leans and lifts (emotes/svg.js draws over it).
+   */
+  cast(p, m) {
+    p.kind = drawingOf(m.character);
+    p.actor = p.kind.flat.make();
+    p.inner = p.actor.inner;
+    p.g.replaceChildren(p.inner);
+    set(p.g, { "data-character": p.kind.id });
+    p.look = "";
+    p.dizzy = p.blinking = false;
+  }
+
+  /** A piece changes character where it stands: whatever it was doing with its hands ends. */
+  recast(p, m) {
+    p.emote?.remove();
+    p.emote = null;
+    p.sticker?.show(null);
+    this.expressions.stop(p.seat);
+    this.cast(p, m);
+  }
+
   /** Colours and names a piece for how its player is doing: here, or dropped and expected back. */
   dress(p, m) {
     const own = m.seat === this.opts.own;
-    const look = `${m.name}/${m.connected}/${own}`;
+    const look = `${m.name}/${m.connected}/${own}/${m.colour}`;
     if (p.look === look) return;
     p.look = look;
-    const colour = m.connected ? shade(m.colour, 0.16) : GREY;
-    set(p.base, { fill: m.connected ? shade(m.colour, -0.28) : "#6f6a63" });
-    set(p.body, { fill: colour });
-    set(p.collar, { fill: m.connected ? shade(m.colour, 0.3) : "#b5afa6" });
-    set(p.head, { fill: colour });
+    p.kind.flat.dress(p.actor, m.colour, m.connected);
+    if (p.colour !== m.colour) {
+      // An emote in the middle of a change of colour is drawn again in the new one.
+      p.emote?.remove();
+      p.emote = null;
+      p.colour = m.colour;
+    }
     set(p.g, { opacity: m.connected ? 1 : 0.85 });
     p.tagText.textContent = own ? "You" : m.connected ? m.name : `${m.name} - reconnecting...`;
     set(p.tagText, { fill: own ? "#1e1410" : "#fbf3e2", "font-style": m.connected ? null : "italic" });
@@ -497,37 +521,38 @@ export class Scene {
 
   /** Someone sent an emote: it starts over their piece now, in place of any they were doing. */
   onExpress(msg, now) {
-    const where = [...this.pieces.values()].filter((p) => !p.leaving).map((p) => ({ seat: p.seat, x: p.rx, face: p.face }));
+    const where = [...this.pieces.values()].filter((p) => !p.leaving).map((p) => ({ seat: p.seat, x: p.rx, face: p.face, character: p.kind.id }));
     this.expressions.start(msg.s, msg.e, now, where);
   }
 
   /** Draws a piece's emote for this frame, or puts its last one away. */
-  express(p, now) {
+  express(p, now, bounds = null) {
     const e = this.expressions.pose(p.seat, now, (seat) => this.pieces.get(seat)?.rx, !!this.calmQuery?.matches);
     if (!e) {
-      if (p.emote) {
-        p.emote.remove();
+      if (p.emoting) {
+        p.emoting = false;
+        p.emote?.remove();
         p.emote = null;
-        p.sticker.show(null);
-        set(p.inner, { transform: null });
-        set(p.eyes, { display: null });
+        p.sticker?.show(null);
+        p.kind.flat.emote(p.actor, null, bodyTransform);
       }
       return;
     }
     if (!p.emote) {
-      p.emote = new EmoteFigure(p.colour);
+      p.emote = new EmoteFigure(p.colour, { character: p.kind.id });
       p.inner.append(p.emote.body);
       this.layers.emotes.append(p.emote.stage);
       p.sticker ??= new Sticker(this.layers.stickers);
     }
-    set(p.inner, { transform: bodyTransform(e.pose.body) });
-    set(p.eyes, { display: "none" });
+    p.emoting = true;
+    // The character lays the pose over its own body (its lean, its swell) and hides what the emote draws in its place.
+    p.kind.flat.emote(p.actor, e.pose, bodyTransform);
     set(p.emote.stage, { transform: `translate(${p.rx.toFixed(1)}, ${ROOM.floorY})` });
     p.emote.draw(e.pose, e.toward);
     // The word over the head, clear of the name tag and of whatever the emote holds up; as easy to read as the tag, and larger on a screen read from across the room.
     const tagTop = ROOM.floorY - 156 - p.up - p.level * (this.tagSize + 20) - (this.tagSize + 14);
-    const y = Math.min(tagTop - 4, ROOM.floorY - p.up + poseTop(e.pose));
-    p.sticker.show(e.word, p.rx + e.pose.body.dx, y, (this.tagSize / 21) * (this.opts.compact ? 1 : 1.25), e.pop);
+    const y = Math.min(tagTop - 4, ROOM.floorY - p.rise + e.top);
+    p.sticker.show(e.word, p.rx + e.pose.body.dx, y, (this.tagSize / 21) * (this.opts.compact ? 1 : 1.25), e.pop, bounds);
   }
 
   /** Someone moved: where they are and which way they walk, as of now. */
@@ -614,33 +639,35 @@ export class Scene {
         if (Math.abs(target - p.rx) < 0.3) p.rx = target;
         walking = p.net.d !== 0 && target > ROOM.minX && target < ROOM.maxX;
       }
+      const flat = p.kind.flat;
       const up = jumpHeight(now - p.jumpAt);
-      const bob = walking && !up ? Math.abs(Math.sin(now / 95)) * 5 : 0;
+      // A piece with feet hops from one to the other as it walks; one that glides does not.
+      const bob = walking && !up && !flat.glides ? Math.abs(Math.sin(now / 95)) * 5 : 0;
       // Winding up, striking, thrown, lying or getting up: the bump's pose, on top of the walk.
       const pose = this.bumps.pose(p, now);
       if (pose.x !== null) p.rx = pose.x;
-      set(p.g, { transform: poseTransform(p.rx, ROOM.floorY - up - bob, pose) });
-      set(p.eyes, { transform: `translate(${p.face * 5}, 0)` });
+      // The character's own way of holding itself: where it looks, and how far off the floor it hangs (a pawn stands).
+      const hover = flat.frame(p.actor, { now, dt, face: p.face, seat, calm: !!this.calmQuery?.matches, grounded: pose.dizzy });
+      set(p.g, { transform: poseTransform(p.rx, ROOM.floorY - up - bob - hover, pose) });
       this.bumps.dress(p, pose, now);
       const air = up + Math.max(0, pose.lift);
-      const squeeze = 1 - Math.min(0.45, air / 260);
-      set(p.shadow, { cx: (p.rx + pose.dx).toFixed(1), rx: (40 * squeeze).toFixed(1), ry: (9 * squeeze).toFixed(1) });
-      p.up = air + bob;
+      const squeeze = 1 - Math.min(0.45, (air + hover) / 260);
+      set(p.shadow, { cx: (p.rx + pose.dx).toFixed(1), rx: (flat.shadow.rx * squeeze).toFixed(1), ry: (flat.shadow.ry * squeeze).toFixed(1) });
+      // `rise`: how far its foot is off the floor; `up`: how far the top of its head is above a standing pawn's, for the name tag.
+      p.rise = air + bob + hover;
+      p.up = p.rise + flat.tall;
       ordered.push(p);
     }
     const mine = own ? this.pieces.get(this.opts.own) : null;
     if (mine) this.bumps.cooldown(mine.rx, own.cooling(now), now);
     this.bumps.frame(now);
     // Name tags that would sit on top of each other step up instead.
-    ordered.sort((a, b) => a.rx - b.rx);
-    let prev = null;
+    tagLevels(ordered, (p) => p.tagW, (p) => p.up, () => this.tagSize + 20);
+    const bounds = view ? { left: view.x, right: view.x + view.width } : null;
     for (const p of ordered) {
-      const want = prev && p.rx - prev.rx < (p.tagW + prev.tagW) / 2 + 8 ? (prev.want + 1) % 4 : 0;
-      p.want = want;
-      p.level += (want - p.level) * Math.min(1, dt * 12);
+      p.level += (p.want - p.level) * Math.min(1, dt * 12);
       set(p.tag, { transform: `translate(${p.rx.toFixed(1)}, ${(ROOM.floorY - 156 - p.up - p.level * (this.tagSize + 20)).toFixed(1)})` });
-      this.express(p, now);
-      prev = p;
+      this.express(p, now, bounds);
     }
     this.paint(now);
     this.drawCount(now, view);

@@ -199,7 +199,7 @@ try {
       for (const p of window.__room3d.pieces.values()) {
         if (p.attack) window.__states.add("attacking");
         if (p.knock) window.__states.add("knocked");
-        if (p.pawn.dizzy) window.__states.add("dizzy");
+        if (p.body.dizzy) window.__states.add("dizzy");
       }
       if ((window.__looks = (window.__looks ?? 0) + 1) < 2000) requestAnimationFrame(look);
     };
