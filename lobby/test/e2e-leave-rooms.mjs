@@ -96,7 +96,9 @@ try {
   await shot(host, "01-laptop-corner-with-words");
   await sleep(9500);
   check((await host.locator(".corner.folded").count()) === 1, "and folds to its pictures a few seconds later");
-  const flatLoads = await host.evaluate(() => performance.getEntriesByType("resource").filter((r) => /look3d|three\.module/.test(r.name)).length);
+  // The 3D look's drawing code only: room-view.js imports look3d/rendered/switch.js, plain logic
+  // that decides which look a device gets and draws nothing, so the flat room fetches it too.
+  const flatLoads = await host.evaluate(() => performance.getEntriesByType("resource").filter((r) => /three\.module|\/look3d\/(?!rendered\/switch\.js)/.test(r.name)).length);
   check(flatLoads === 0 && (await host.locator("svg.scene").count()) === 1, `(${flatLoads} 3D files, ${await host.locator("svg.scene").count()} flat scene) a device without hardware 3D draws the flat room and fetches none of the 3D look`);
 
   const watcher = connect(await call("POST", "/join/" + pin, { nickname: "Wes" }));
