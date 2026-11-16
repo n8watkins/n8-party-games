@@ -1,0 +1,26 @@
+# The pre-deploy gate: the full suite, run once on the combined result before a deploy, by hand
+# (Actions tab, "Run workflow") or called from another workflow. Same script as `npm run predeploy`.
+# Left out because they cannot run on a hosted runner: the Windows-Chrome playtest and the
+# production-settings check from DEPLOY.md (see the header of .github/scripts/predeploy.mjs).
+name: predeploy-gate
+
+on:
+  workflow_dispatch:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: npm run predeploy
