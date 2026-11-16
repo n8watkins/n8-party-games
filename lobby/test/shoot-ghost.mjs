@@ -28,7 +28,17 @@ const base = opt("base", "http://localhost:8791");
 const out = resolve(opt("out", "lobby/test/shots/ghost"));
 const looks = opt("looks", "flat,3d").split(",");
 mkdirSync(out, { recursive: true });
-const { call, connect } = partyApi(base);
+const { api, call, connect } = partyApi(base);
+
+/** Puts a socket player's piece at x, starting from where the room says it is now. */
+async function place(c, x) {
+  const room = (await (await fetch(`${api}/debug/${c.room.code}`)).json()).room;
+  const me = room.view.members[c.seat];
+  c.x = me.x;
+  c.rev = me.rev;
+  c.goto(x);
+  await sleep(250);
+}
 const problems = [];
 const check = (ok, what) => {
   console.log((ok ? "ok   " : "FAIL ") + what);
@@ -78,10 +88,11 @@ try {
 
   for (const look of looks) {
     console.log(`\n     -- the ${look} look`);
-    const query = look === "3d" ? "look=3d&gl=any" : "look=flat";
-    const drawn = look === "3d" ? ".look3d canvas" : "svg.scene text";
+    // "real": the Star Lounge made of rendered layers (look3d/rendered/), the 3D look's own pieces over it; "baked": the bar's baked drawing.
+    const query = { "3d": "look=3d&gl=any", real: "look=real&gl=any", baked: "look=baked&gl=any" }[look] ?? "look=flat";
+    const drawn = look === "flat" ? "svg.scene text" : ".look3d canvas";
     const screen = await open(`${look} screen`, { width: 1280, height: 720 });
-    await screen.goto(`${base}/lobby/?start&${query}`);
+    await screen.goto(`${base}/lobby/?start&${query}${look === "real" ? "&room=ship" : ""}`);
     await screen.click("text=Use this as the room's screen");
     await screen.click("text=Show the room here");
     await screen.waitForSelector(drawn, { timeout: 60000 });
@@ -111,7 +122,9 @@ try {
     await phone.keyboard.down("ArrowRight");
     await sleep(Math.max(80, ((mid - 150 - gus.room.members[B].x) / 430) * 1000));
     await phone.keyboard.up("ArrowRight");
-    await sleep(look === "3d" ? 2500 : 900);
+    await sleep(look !== "flat" ? 2500 : 900);
+    const drawer = await screen.evaluate(() => window.__room3d?.constructor?.name ?? "flat");
+    console.log(`     the screen draws the room with: ${drawer}`);
 
     for (const [page, device] of [
       [screen, "screen"],
@@ -124,15 +137,17 @@ try {
           await page.clock.runFor(Math.max(0, Math.round(ms - at)));
           at = Math.round(ms);
           // A software-drawn 3D frame can lag a step behind the clock: one more frame.
-          if (look === "3d") await page.clock.runFor(17).then(() => (at += 17));
+          if (look !== "flat") await page.clock.runFor(17).then(() => (at += 17));
           const file = `${out}/${look}-${device}-${story}-${name}.png`;
-          await page.screenshot({ path: file });
+          await page.screenshot({ path: file, timeout: 120000 });
           files.push(file);
         }
         strip(files, `${out}/strip-${look}-${device}-${story}.png`);
       };
-      // The scare: Cy right of Gus, facing him, close enough to kick.
-      cy.goto(mid + 70);
+      // The scare: Gus in the light, Ada well away, Cy right of Gus, facing him, close enough to kick.
+      await place(gus, mid);
+      await place(ada, mid + 420);
+      await place(cy, mid + 70);
       cy.send({ t: "m", x: cy.x, d: -1, r: cy.rev });
       cy.send({ t: "m", x: cy.x, d: 0, r: cy.rev });
       await sleep(1200);
@@ -154,15 +169,17 @@ try {
       await gus.wait((m) => (m.t === "fade" && m.s === gus.seat) || m.t === "fade-no", 3000, mark).catch(() => null);
       cy.send({ t: "b" });
       const blow = await gus.wait((m) => m.t === "b" && m.s === cy.seat, 3000, mark).catch(() => null);
-      check(blow?.sc === gus.seat, `${look} ${device}: Cy's kick goes through, and Cy is scared off (${JSON.stringify(gus.seen.slice(mark).filter((m) => m.t !== "m").map((m) => m.t + (m.why ? ":" + m.why : "")))})`);
+      check(blow?.sc === gus.seat, `${look} ${device}: Cy's kick goes through, and Cy is scared off (${JSON.stringify(blow)}; the room had ${JSON.stringify((await (await fetch(`${api}/debug/${gus.room.code}`)).json()).room.view.members.filter(Boolean).map((m) => [m.name, m.x, m.faded ?? 0, m.safe]))})`);
       await sleep(250);
       await shoot("2-scare", SCARE);
       await page.clock.resume();
 
       // Boo: once the fade is ready again, Gus fades and drifts through Ada.
       await sleep(FADE_COOLDOWN_MS + 300);
-      gus.goto(mid);
-      ada.goto(mid + 30);
+      // Cy at the far wall, in the dark: with everyone in a light the count would run, and a ghost cannot fade during it.
+      await place(gus, mid);
+      await place(cy, 1880);
+      await place(ada, mid + 30);
       await sleep(900);
       await page.clock.install();
       await page.clock.pauseAt(new Date(Date.now() + 400));
@@ -179,21 +196,22 @@ try {
       await page.clock.resume();
       // Everyone back for the next device: Ada and Cy where they were, and the cooldowns over.
       await sleep(FADE_COOLDOWN_MS + 300);
-      ada.goto(mid + 420);
-      cy.goto(mid + 260);
+      await place(ada, mid + 420);
+      await place(cy, mid + 260);
       // A 3D page drawn in software takes the whole machine for every frame: the next device gets its stills only once this one is gone.
-      if (look === "3d" && device === "screen") await page.context().close();
+      if (look !== "flat" && device === "screen") await page.context().close();
     }
 
     // Gwen's own phone: her ghost faded, as she sees it. Ada leaves to make room (four players at most).
     ada.send({ t: "leave" });
     await sleep(800);
     const gwen = await join("Gwen", { width: 390, height: 844 });
-    await gwen.locator(".look-btn").click();
-    await gwen.locator('.look-card[data-character="ghost"]').click();
-    await gwen.locator(".look-sheet >> text=Done").click();
+    // A software-drawn 3D page on a busy machine can take a while to settle its bar.
+    await gwen.locator(".look-btn").click({ timeout: 90000 });
+    await gwen.locator('.look-card[data-character="ghost"]').click({ timeout: 90000 });
+    await gwen.locator(".look-sheet >> text=Done").click({ timeout: 90000 });
     await gus.wait((m) => m.room?.members.some((x) => x?.name === "Gwen" && x.character === "ghost"), 4000, 0);
-    await sleep(look === "3d" ? 2000 : 600);
+    await sleep(look !== "flat" ? 2000 : 600);
     await gwen.keyboard.press("KeyX");
     await sleep(800);
     await gwen.screenshot({ path: `${out}/${look}-phone-4-own-fade.png` });
@@ -204,7 +222,7 @@ try {
     check(!errors.length, `no page reported an error in the ${look} look` + (errors.length ? ": " + errors.slice(0, 3).join(" | ") : ""));
     errors.length = 0;
     for (const c of [gus, cy, ada]) c.ws.close();
-    if (look !== "3d") await screen.context().close();
+    if (look === "flat") await screen.context().close();
     await phone.context().close();
   }
 } catch (err) {
