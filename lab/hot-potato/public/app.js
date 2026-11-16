@@ -2,17 +2,22 @@
 // click or the keyboard (or again by itself in hands-free mode). Each turn's timings, guesses
 // and verdict are logged on the page and in the "Copy results" report. Nothing is stored or sent
 // anywhere by this page.
-import { CATEGORIES, CATEGORY_IDS, DEFAULT_CATEGORY } from "./categories.js";
+//
+// The matcher and the lists are the game's (one-device/hot-potato/shared), served at
+// /one-device/hot-potato/shared/: this page and the game use the one copy.
+import { CATEGORIES, CATEGORY_IDS, DEFAULT_CATEGORY, dataUrl } from "/one-device/hot-potato/shared/categories.js";
 import { deviceInfo, micKind } from "./device.js";
-import { DEAD_END_BELOW, EARLY_STABLE_MS, RULES_VERSION, buildIndex, deadLetters, earlyMatch, matchHeard, median, nextLetter, normalize } from "./logic.js";
+import { DEAD_END_BELOW, EARLY_STABLE_MS, RULES_VERSION, buildIndex, deadLetters, earlyMatch, matchHeard, median, nextLetter, normalize } from "/one-device/hot-potato/shared/logic.js";
+import { suggestions } from "/one-device/hot-potato/shared/suggest.js";
 
 const $ = (id) => document.getElementById(id);
 const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition || null;
 const ua = navigator.userAgent;
 const MAX_ALTERNATIVES = 10;
 const POTATO_MAX = 10;
-const REPORT_VERSION = "v3";
+const REPORT_VERSION = "v4";
 const CATEGORY_KEY = "hot-potato-category";
+const SUGGEST_KEY = "hot-potato-suggest";
 
 const device = deviceInfo(ua, navigator.userAgentData, navigator.maxTouchPoints || 0);
 const touchFirst = device.kind !== "desktop";
@@ -35,6 +40,23 @@ function saveCategory(id) {
   }
 }
 
+/** Whether this device shows suggestions (on unless it was turned off here). */
+function savedSuggest() {
+  try {
+    return localStorage.getItem(SUGGEST_KEY) !== "off";
+  } catch {
+    return true;
+  }
+}
+
+function saveSuggest(on) {
+  try {
+    localStorage.setItem(SUGGEST_KEY, on ? "on" : "off");
+  } catch {
+    // Storage refused: the switch lasts this visit only.
+  }
+}
+
 const state = {
   category: savedCategory(),
   index: null, // the chosen category's index, once loaded
@@ -43,6 +65,9 @@ const state = {
   usedNames: new Set(),
   required: "",
   skipped: [], // dead-end letters the chain stepped back over after the last answer
+  shown: [], // the suggestions on screen now, [{id, name}]
+  suggestPage: 0, // how many times "more" was pressed for this letter
+  suggestFor: "", // the game position the suggestions were picked for
   potato: 0,
   turns: [],
   scenario: 1,
@@ -61,7 +86,7 @@ const cat = () => CATEGORIES[state.category];
 const files = new Map();
 const getJSON = (name) => {
   if (!files.has(name)) {
-    const p = fetch(name).then((r) => {
+    const p = fetch(dataUrl(name)).then((r) => {
       if (!r.ok) throw new Error(`${name}: HTTP ${r.status}`);
       return r.json();
     });
@@ -297,7 +322,10 @@ function newTurn(auto) {
     sounds: $("sounds").checked,
     handsFree: $("handsFree").checked,
     early: $("early").checked,
-    hard: $("hard").checked,
+    wide: $("wide").checked,
+    // The suggestions seen for this turn (more are added if "more" is pressed while it listens),
+    // or null when they are hidden.
+    suggested: $("suggest").checked ? [...state.shown] : null,
     auto,
     required: state.required,
     rules: snapshot(),
@@ -331,7 +359,7 @@ const snapshot = () => ({
   used: new Set(state.used),
   usedNames: new Set(state.usedNames),
   previous: state.chain.at(-1) ?? "",
-  hard: $("hard").checked,
+  wide: $("wide").checked,
 });
 
 function check(turn, alternatives) {
@@ -465,7 +493,7 @@ function decide(turn, m, by) {
     state.chain.push(m.said);
     state.used.add(m.place.id);
     state.usedNames.add(normalize(m.said));
-    turn.next = nextLetter(turn.index, m.said, { used: state.used, hard: turn.hard });
+    turn.next = nextLetter(turn.index, m.said, { used: state.used, wide: turn.wide });
     state.required = turn.next.letter;
     state.skipped = turn.next.skipped;
     state.potato = Math.min(POTATO_MAX, state.potato + 1);
@@ -608,10 +636,10 @@ export function verdictText(turn) {
       return `No: heard "${m.heard}", an ordinary word, not ${category.a}`;
     case "name":
       return `No: heard "${m.heard}", a name, not ${category.a}`;
-    case "hard-only":
+    case "lesser-known":
       return category.format === "cities"
-        ? `No: ${near} is only in hard mode (a town of ${population(m.place.population)} not on the well-known list)`
-        : `No: ${near} is only in hard mode (not on the well-known list)`;
+        ? `No: ${near} is a lesser-known town of ${population(m.place.population)}, not on the well-known list (taken with "${wideLabel(category)}" on)`
+        : `No: ${near} is lesser known, not on the well-known list (taken with "${wideLabel(category)}" on)`;
     case "wrong-letter":
       return `No: ${near} starts with ${m.said.charAt(0).toUpperCase()}, not ${turn.required.toUpperCase()}`;
     case "used":
@@ -682,17 +710,61 @@ function renderGame() {
   $("chainLine").textContent = parts.join(" · ");
   $("potato").style.setProperty("--level", String(state.potato));
   $("potato").dataset.level = String(state.potato);
+  renderSuggestions();
 }
 
-/** The category picker, the hard-mode switch and the dead-end note, for the chosen category. */
+/**
+ * Three or four well-known answers for the letter needed, not yet said ("Try: Tokyo · Toronto
+ * ..."), for a player who does not know many. Plain text: tapping one does nothing, since this is
+ * a hearing test and the point is to say it. "more" shows the next few.
+ */
+function renderSuggestions() {
+  const on = $("suggest").checked;
+  const at = `${state.category} ${state.required} ${state.chain.length}`;
+  if (at !== state.suggestFor) {
+    state.suggestFor = at;
+    state.suggestPage = 0;
+  }
+  const pick = (page) => (on && state.index ? suggestions(state.index, { letter: state.required, used: state.used, usedNames: state.usedNames, page }) : []);
+  const shown = pick(state.suggestPage);
+  state.shown = shown;
+  $("suggestions").hidden = !shown.length;
+  $("suggestList").replaceChildren(...shown.flatMap((s, i) => (i ? [document.createTextNode(" · "), el("span", "suggestion", s.name)] : [el("span", "suggestion", s.name)])));
+  // "more" only when there are others to show.
+  const next = pick(state.suggestPage + 1);
+  $("suggestMore").hidden = next.every((s) => shown.some((x) => x.id === s.id));
+  const turn = state.live?.turn;
+  if (turn?.suggested) for (const s of shown) if (!turn.suggested.some((x) => x.id === s.id)) turn.suggested.push(s);
+}
+
+/** True when a turn's answer was one of the suggestions it showed: the entry, or a guess that is one of their names. */
+function readSuggestion(turn) {
+  const m = turn.match;
+  if (!m || !turn.suggested?.length) return false;
+  if (m.ok && turn.suggested.some((s) => s.id === m.place.id)) return true;
+  const names = new Set(turn.suggested.map((s) => normalize(s.name)));
+  return turn.alternatives.some((a) => names.has(normalize(a.transcript)));
+}
+
+/** The report's token for suggestions: "sugg:read", "sugg:own", "sugg:hidden", or "" when nothing was heard. */
+function suggestionToken(turn) {
+  if (!turn.match) return "";
+  if (!turn.suggested) return "sugg:hidden";
+  return readSuggestion(turn) ? "sugg:read" : "sugg:own";
+}
+
+/** The name of the switch that accepts the wider list: "Also allow lesser-known cities". */
+const wideLabel = (c) => `Also allow lesser-known ${c.plural}`;
+
+/** The category picker, the lesser-known switch and the dead-end note, for the chosen category. */
 function renderCategory() {
   const c = cat();
   $("category").value = state.category;
-  const hard = $("hard");
-  hard.disabled = !c.hard;
-  if (!c.hard) hard.checked = false;
-  $("hardText").textContent = c.hard ? `Hard mode: ${c.hard}` : `Hard mode: none for ${c.plural}`;
-  $("hardNote").textContent = c.hard ? `(off: ${c.hardOff})` : "(every one is on the list)";
+  const wide = $("wide");
+  wide.disabled = !c.wide;
+  if (!c.wide) wide.checked = false;
+  $("wideText").textContent = c.wide ? `${wideLabel(c)}: ${c.wide}` : `${wideLabel(c)}: there are none`;
+  $("wideNote").textContent = c.wide ? `(accepts more answers; off: ${c.wideOff})` : "(every one is already on the list)";
   renderDeadNote();
 }
 
@@ -704,7 +776,7 @@ function renderDeadNote() {
     note.hidden = true;
     return;
   }
-  const dead = deadLetters(idx, $("hard").checked);
+  const dead = deadLetters(idx, $("wide").checked);
   const c = cat();
   note.textContent = dead.length
     ? `Dead ends: ${upper(dead)} (fewer than ${DEAD_END_BELOW} ${c.plural} start with ${dead.length > 1 ? "them" : "it"}). After one, go on from the letter before.`
@@ -748,6 +820,7 @@ function summary() {
     appealReal: count((x) => x.appeal === "real"),
     appealWrong: count((x) => x.appeal === "wrong"),
     errors: count((x) => x.error),
+    fromSuggestions: count(readSuggestion),
     earlyWould: earlyTurns.length,
     earlyDiffers: earlyTurns.filter((x) => x.finalMatch && (!x.finalMatch.ok || x.finalMatch.place.id !== x.earlyWould.place.id)).length,
     interim: pick("interim"),
@@ -767,6 +840,7 @@ function renderSummary() {
     ["It misheard me", s.misheard],
     ["You said: that was a real one", s.appealReal],
     ["You said: that was wrong", s.appealWrong],
+    ["Read from the suggestions", s.fromSuggestions],
     ["Early answers it would take", s.earlyWould],
     ["Early answers unlike the final", s.earlyDiffers],
     ["Median: start to first word", s.interim === null ? "-" : `${s.interim} ms`],
@@ -812,7 +886,8 @@ function renderLog() {
     const extra = [turnCategory(turn).label];
     if (turn.required) extra.push(`needed ${turn.required.toUpperCase()}`);
     if (turn.next?.skipped.length) extra.push(`${upper(turn.next.skipped)}: dead end, next ${turn.next.letter ? turn.next.letter.toUpperCase() : "any letter"}`);
-    extra.push(turn.hard ? "hard mode" : "well-known list", `test ${turn.scenario}`, turn.sounds ? "sounds on" : "sounds off");
+    extra.push(turn.wide ? "lesser-known allowed" : "well-known list", `test ${turn.scenario}`, turn.sounds ? "sounds on" : "sounds off");
+    if (readSuggestion(turn)) extra.push("read from the suggestions");
     if (turn.auto) extra.push("hands-free");
     if (turn.error) extra.push(`error: ${turn.error}`);
     if (turn.finalMatch && turn.match && turn.decidedBy === "interim" && turn.finalMatch.said !== turn.match.said) {
@@ -844,7 +919,7 @@ function renderCaps() {
     `on device or server: ${state.turns.at(-1)?.onDevice || state.notes.onDevice || "not known until the first turn"}`,
     `vibration: ${state.notes.vibrate || ("vibrate" in navigator ? "not tried yet" : "not supported")}`,
     `screen awake: ${state.notes.wakeLock || ("wakeLock" in navigator ? "not tried yet" : "not supported")}`,
-    `${cat().one} list: ${idx ? `${idx.knownCount.toLocaleString("en-US")} well known${cat().hard ? `, ${idx.places.length.toLocaleString("en-US")} in hard mode` : ""}` : "loading"}`,
+    `${cat().one} list: ${idx ? `${idx.knownCount.toLocaleString("en-US")} well known${cat().wide ? `, ${idx.places.length.toLocaleString("en-US")} with lesser-known ones` : ""}` : "loading"}`,
   ];
   $("caps").textContent = parts.join(" · ");
 }
@@ -861,12 +936,12 @@ export function reportText() {
     `recognition: ${Recognition ? (window.SpeechRecognition ? "SpeechRecognition" : "webkitSpeechRecognition") : "none"}; on-device: ${state.turns.at(-1)?.onDevice || "-"}; ${state.notes.onDevice || ""}`.trim(),
     `microphone: ${micInReport()}`,
     `vibration: ${state.notes.vibrate || "-"}; wake lock: ${state.notes.wakeLock || "-"}; window ${window.innerWidth}x${window.innerHeight}`,
-    `settings now: category=${state.category} lang=${$("lang").value} sounds=${on($("sounds"))} handsfree=${on($("handsFree"))} early=${on($("early"))} hard=${on($("hard"))} maxAlternatives=${MAX_ALTERNATIVES}`,
+    `settings now: category=${state.category} lang=${$("lang").value} sounds=${on($("sounds"))} handsfree=${on($("handsFree"))} early=${on($("early"))} wide=${on($("wide"))} suggestions=${on($("suggest"))} maxAlternatives=${MAX_ALTERNATIVES}`,
     `checklist done: ${ticks}`,
-    `summary: turns ${s.turns}, right ${s.right}, wrong ${s.wrong}, nothing heard ${s.none}, misheard ${s.misheard}, sound-alike ${s.soundAlike}, appeals real ${s.appealReal} wrong ${s.appealWrong}, errors ${s.errors}`,
+    `summary: turns ${s.turns}, right ${s.right}, wrong ${s.wrong}, nothing heard ${s.none}, misheard ${s.misheard}, sound-alike ${s.soundAlike}, appeals real ${s.appealReal} wrong ${s.appealWrong}, errors ${s.errors}, read from suggestions ${s.fromSuggestions}`,
     `early answer: would have taken ${s.earlyWould}, ${s.earlyDiffers} differing from the final`,
     `medians ms: tap>first word ${ms(s.interim)}, tap>matching answer ${ms(s.valid)}, tap>final ${ms(s.final)}, speech end>final ${ms(s.speechToFinal)}`,
-    "turns (#n rules category list test sounds mode need | ms after tap: start audio speech speechend first-word answer final end | verdict | heard):",
+    "turns (#n rules category list(known|wide) test sounds mode need | ms after tap: start audio speech speechend first-word answer final end | verdict | heard | flags, sugg:read|own|hidden):",
     ...state.turns.map(turnLine),
   ];
   return lines.join("\n");
@@ -887,8 +962,8 @@ function turnLine(t) {
   const finalDiff = t.decidedBy === "interim" && t.finalMatch && t.finalMatch.said !== m?.said ? ` final-differs:${t.finalMatch.ok ? t.finalMatch.said : t.finalMatch.reason}` : "";
   const early = t.earlyWould ? `early-would:${t.earlyWould.said}@${ms(a.early)}` : "";
   const deadEnd = t.next?.skipped.length ? `dead-end:${t.next.skipped.join("")}>${t.next.letter || "any"}` : "";
-  const flags = [t.error && `err:${t.error}`, t.misheard && "MISHEARD", t.appeal && `APPEAL:${t.appeal}`, t.auto && "auto", early, deadEnd, `n-interim:${t.interimCount}`].filter(Boolean).join(" ");
-  return `#${t.n} ${m?.rules ?? RULES_VERSION} ${t.category} ${t.hard ? "hard" : "known"} t${t.scenario} snd:${t.sounds ? "on" : "off"} ${t.handsFree ? "hf" : "tap"} ${t.early ? "early" : "final"} ${t.lang} need:${t.required || "-"} | ${[a.start, a.audiostart, a.speechstart, a.speechend, a.interim, a.valid, a.final, a.end].map(ms).join(" ")} | ${verdict}${finalDiff} | ${heard} | ${flags}`;
+  const flags = [t.error && `err:${t.error}`, t.misheard && "MISHEARD", t.appeal && `APPEAL:${t.appeal}`, t.auto && "auto", early, deadEnd, `n-interim:${t.interimCount}`, suggestionToken(t)].filter(Boolean).join(" ");
+  return `#${t.n} ${m?.rules ?? RULES_VERSION} ${t.category} ${t.wide ? "wide" : "known"} t${t.scenario} snd:${t.sounds ? "on" : "off"} ${t.handsFree ? "hf" : "tap"} ${t.early ? "early" : "final"} ${t.lang} need:${t.required || "-"} | ${[a.start, a.audiostart, a.speechstart, a.speechend, a.interim, a.valid, a.final, a.end].map(ms).join(" ")} | ${verdict}${finalDiff} | ${heard} | ${flags}`;
 }
 
 async function copyResults() {
@@ -975,7 +1050,16 @@ function init() {
   $("newGame").addEventListener("click", newGame);
   $("category").replaceChildren(...CATEGORY_IDS.map((id) => new Option(CATEGORIES[id].label, id)));
   $("category").addEventListener("change", () => chooseCategory($("category").value));
-  $("hard").addEventListener("change", renderDeadNote);
+  $("wide").addEventListener("change", renderDeadNote);
+  $("suggest").checked = savedSuggest();
+  $("suggest").addEventListener("change", () => {
+    saveSuggest($("suggest").checked);
+    renderSuggestions();
+  });
+  $("suggestMore").addEventListener("click", () => {
+    state.suggestPage++;
+    renderSuggestions();
+  });
   for (const btn of document.querySelectorAll("#checklist button")) btn.addEventListener("click", () => setScenario(Number(btn.dataset.scenario)));
   setScenario(1);
   useCategory(state.category);

@@ -1,6 +1,6 @@
-"""Builds the Hot Potato category lists other than cities: public/countries.json,
-public/animals.json and public/food.json. (Cities come from tools/make-cities.py; the "Anything"
-category uses public/words.json as it is.)
+"""Builds the Hot Potato category lists other than cities, in one-device/hot-potato/shared:
+countries.json, animals.json and food.json. (Cities come from tools/make-cities.py; the "Anything"
+category uses words.json as it is.)
 
 Download, in an empty folder of their own:
   https://github.com/globalwordnet/english-wordnet/releases/download/2025-edition/english-wordnet-2025.xml.gz
@@ -11,10 +11,10 @@ Download, in an empty folder of their own:
   https://download.geonames.org/export/dump/alternateNamesV2.zip -> alternateNamesV2.txt
       (GeoNames, CC BY 4.0: the countries and their English names)
 
-Then: python3 -I lab/hot-potato/tools/make-categories.py <download folder> lab/hot-potato/tools lab/hot-potato/public <date fetched>
+Then: python3 -I lab/hot-potato/tools/make-categories.py <download folder> lab/hot-potato/tools one-device/hot-potato/shared <date fetched>
 
 Each output is {category, source, fetched, fields, groups, rows}; a row is
-[name, other names|0, abbreviations|0, well known (1) or hard mode only (0), group number|0],
+[name, other names|0, abbreviations|0, well known (1) or lesser known (0), group number|0],
 best known first. Hand lists in tools/ (one entry per line, "#" starts a comment):
   animals-drop.txt, food-drop.txt   names WordNet files under animals or food whose everyday
                                     meaning is something else ("queen", "frank"): left out;
@@ -27,7 +27,8 @@ best known first. Hand lists in tools/ (one entry per line, "#" starts a comment
 Well known, for animals and food: a one-word name among the SINGLE_RANK most frequent subtitle
 words whose animal or food sense is one of its first SENSE_LIMIT noun senses in WordNet, or a name
 on the add list (every well-known name of two or three words, such as "polar bear", is there).
-Every other WordNet name of an animal, a food or a drink is hard mode only.
+Every other WordNet name of an animal, a food or a drink is lesser known: only in the wider list
+("Also allow lesser-known ones").
 """
 import collections
 import gzip
@@ -215,7 +216,7 @@ def write(key, rows, groups, source, fields_note):
         "category": key,
         "source": source,
         "fetched": fetched,
-        "fields": ["name", "other names (0: none)", "abbreviations (0: none)", "well known (1) or hard mode only (0)", f"group (its number in groups, counting from 1; 0: {fields_note})"],
+        "fields": ["name", "other names (0: none)", "abbreviations (0: none)", "well known (1) or lesser known, only in the wider list (0)", f"group (its number in groups, counting from 1; 0: {fields_note})"],
         "groups": groups,
         "rows": rows,
     }

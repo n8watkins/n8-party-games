@@ -3,11 +3,11 @@
 // dead-end letters, and copied reports of every version read back.
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { CATEGORIES, CATEGORY_IDS } from "../public/categories.js";
-import { DEAD_END_BELOW, buildIndex, deadLetters, earlyMatch, entriesLeft, matchHeard, nextLetter, singulars } from "../public/logic.js";
+import { CATEGORIES, CATEGORY_IDS } from "../../../one-device/hot-potato/shared/categories.js";
+import { DEAD_END_BELOW, buildIndex, deadLetters, earlyMatch, entriesLeft, matchHeard, nextLetter, singulars } from "../../../one-device/hot-potato/shared/logic.js";
 import { parseReport } from "./report.js";
 
-const load = (name) => JSON.parse(readFileSync(new URL(`../public/${name}`, import.meta.url), "utf8"));
+const load = (name) => JSON.parse(readFileSync(new URL(`../../../one-device/hot-potato/shared/${name}`, import.meta.url), "utf8"));
 const words = load("words.json");
 const index = Object.fromEntries(CATEGORY_IDS.map((id) => [id, buildIndex(load(CATEGORIES[id].file), words, CATEGORIES[id])]));
 const heard = (...transcripts) => transcripts.map((transcript, i) => ({ transcript, confidence: 0.9 - i * 0.1 }));
@@ -57,11 +57,11 @@ describe("the lists", () => {
     expect(match("animals", "swift").place.group).toBe("bird");
   });
 
-  it("leaves rare entries to hard mode, and other meanings of a word out", () => {
-    expect(match("animals", "axolotl").reason).toBe("hard-only");
-    expect(match("animals", "axolotl", { hard: true }).ok).toBe(true);
+  it("leaves rare entries to the lesser-known list, and other meanings of a word out", () => {
+    expect(match("animals", "axolotl").reason).toBe("lesser-known");
+    expect(match("animals", "axolotl", { wide: true }).ok).toBe(true);
     expect(match("animals", "queen").ok).toBe(false); // WordNet's queen bee or cat: dropped by hand
-    expect(match("animals", "queen", { hard: true }).ok).toBe(false);
+    expect(match("animals", "queen", { wide: true }).ok).toBe(false);
     expect(match("food", "frank").ok).toBe(false);
     expect(match("food", "dinner").ok).toBe(false); // a meal, not a thing to eat
     expect(match("countries", "West Germany").ok).toBe(false);
@@ -160,7 +160,7 @@ describe("dead ends", () => {
     expect(deadLetters(index.animals)).toEqual(["u", "x", "y", "z"]);
     expect(deadLetters(index.food)).toEqual(["u", "x", "z"]);
     expect(deadLetters(index.anything)).toEqual(["x"]);
-    // Hard mode has more entries, so fewer dead ends.
+    // With lesser-known entries allowed there are more entries, so fewer dead ends.
     expect(deadLetters(index.animals, true)).toEqual(["x"]);
   });
 
@@ -194,12 +194,27 @@ describe("copied reports of every version", () => {
     '#2 m3 countries known t1 snd:on tap final en-US need:o | 5 20 60 640 260 - 760 780 | RIGHT exact Mexico North-America (heard "mexico", by final) | Mexico=0.9 | dead-end:o>c n-interim:1',
   ].join("\n");
 
+  const v4 = [
+    "Hot Potato hearing test, v4 (matching rules m3)",
+    '#1 m3 cities known t1 snd:on tap final en-US need:- | 5 20 60 640 260 760 760 780 | RIGHT exact Tokyo JP (heard "tokyo", by final) | Tokyo=0.93 | n-interim:1 sugg:read',
+    '#2 m3 cities wide t1 snd:on tap final en-US need:o | 5 20 60 640 260 760 760 780 | RIGHT exact Orange US (heard "orange", by final) | Orange=0.78 | n-interim:1 sugg:own',
+    '#3 m3 cities known t1 snd:on tap final en-US need:e | 5 20 60 640 260 760 760 780 | RIGHT exact Edmonton CA (heard "edmonton", by final) | Edmonton=0.9 | n-interim:1 sugg:hidden',
+  ].join("\n");
+
   it("reads v2 turns as cities and v3 turns with their category", () => {
     const a = parseReport(v2);
-    expect(a.map((t) => [t.category, t.hard, t.need])).toEqual([["cities", false, ""], ["cities", true, "s"]]);
+    expect(a.map((t) => [t.category, t.wide, t.need])).toEqual([["cities", false, ""], ["cities", true, "s"]]);
     expect(a[0].alternatives[0]).toEqual({ transcript: "Los Angeles", confidence: 0.93 });
     const b = parseReport(v3);
     expect(b.map((t) => [t.category, t.need])).toEqual([["animals", ""], ["countries", "o"]]);
+  });
+
+  it("reads the wider list as 'hard' before v4 and 'wide' from v4, and the suggestion token", () => {
+    expect(parseReport(v4).map((t) => [t.wide, t.suggestion])).toEqual([[false, "read"], [true, "own"], [false, "hidden"]]);
+    expect(parseReport(v3).map((t) => t.suggestion)).toEqual(["", ""]);
+    // An old "hard" turn replays with lesser-known entries allowed, as it was played.
+    const [, old] = parseReport(v2.replace("salmon=0.48 / Salman=0.48", "Orange=0.78").replace("need:s", "need:o"));
+    expect(matchHeard(index.cities, old.alternatives, { required: old.need, wide: old.wide })).toMatchObject({ ok: true, said: "Orange" });
   });
 
   it("replays a v3 turn against its own category", () => {

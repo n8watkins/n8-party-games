@@ -1,10 +1,14 @@
 // The Hot Potato categories: what each list is, where its data lives, and the few ways the one
-// matcher (logic.js) treats it differently. Pure data, shared by the page and the unit tests.
+// matcher (logic.js) treats it differently. Pure data, shared by the game (one-device/hot-potato),
+// the hearing test (lab/hot-potato) and their unit tests. The lists sit beside this file, and
+// the site serves this folder at /one-device/hot-potato/shared/.
 //
 //  - file, format: the list's JSON (built by tools/) and how its rows read ("cities" for
 //    tools/make-cities.py, "entries" for tools/make-categories.py, "words" for words.json).
 //  - one, a, plural: how the page names an entry ("a city", "cities").
-//  - hard: what hard mode adds, or null when the list has no hard-mode part.
+//  - wide: what the wider list ("Also allow lesser-known ones", off by default) adds on top of
+//    the well-known list, or null when the category has only one list. The wider list accepts
+//    MORE answers, so it makes the game easier, not harder. wideOff: what is accepted without it.
 //  - plurals: "tomatoes" is heard as tomato, "wolves" as wolf (the chain goes on from the entry).
 //  - wordNames: a name that is also an ordinary word is told apart from the word ("Orange, the
 //    city, not the word") and never answered early from an interim result. Only for cities: in
@@ -18,8 +22,8 @@ export const CATEGORIES = {
     one: "city",
     a: "a city",
     plural: "cities",
-    hard: "any town over 15,000 people",
-    hardOff: "well-known places only",
+    wide: "every town over 15,000 people",
+    wideOff: "well-known cities only",
     plurals: false,
     wordNames: true,
   },
@@ -30,7 +34,7 @@ export const CATEGORIES = {
     one: "country",
     a: "a country",
     plural: "countries",
-    hard: null,
+    wide: null,
     plurals: false,
     wordNames: false,
   },
@@ -41,8 +45,8 @@ export const CATEGORIES = {
     one: "animal",
     a: "an animal",
     plural: "animals",
-    hard: "rare animals too, every one WordNet names",
-    hardOff: "well-known animals only",
+    wide: "rarer animals too, every one WordNet names",
+    wideOff: "well-known animals only",
     plurals: true,
     wordNames: false,
   },
@@ -53,8 +57,8 @@ export const CATEGORIES = {
     one: "food or drink",
     a: "a food or drink",
     plural: "foods and drinks",
-    hard: "rare foods and drinks too, every one WordNet names",
-    hardOff: "well-known ones only",
+    wide: "rarer foods and drinks too, every one WordNet names",
+    wideOff: "well-known ones only",
     plurals: true,
     wordNames: false,
   },
@@ -65,7 +69,7 @@ export const CATEGORIES = {
     one: "word",
     a: "an ordinary word",
     plural: "words",
-    hard: null,
+    wide: null,
     plurals: true,
     wordNames: false,
   },
@@ -73,3 +77,6 @@ export const CATEGORIES = {
 
 export const CATEGORY_IDS = Object.keys(CATEGORIES);
 export const DEFAULT_CATEGORY = "cities";
+
+/** Where a list (cities.json, words.json ...) is: beside this file, for every page that imports it. */
+export const dataUrl = (file) => new URL(file, import.meta.url).href;

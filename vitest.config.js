@@ -3,22 +3,30 @@ import { fileURLToPath } from "node:url";
 import { defineConfig } from "vitest/config";
 
 const kit = (path) => fileURLToPath(new URL(`./party-kit/${path}`, import.meta.url));
-const lobbyPublic = fileURLToPath(new URL("./lobby/public/", import.meta.url));
-const lobbyShared = fileURLToPath(new URL("./lobby/shared/", import.meta.url));
+const here = (path) => fileURLToPath(new URL(path, import.meta.url));
 
 /**
- * The party room's page imports the plain logic it shares with the room as "shared/...", next to
- * itself: the site serves lobby/shared at lobby/shared (scripts/build-public.mjs), so a page
- * module under lobby/public finds it there. Tests read the same files from where they are kept.
+ * A page folder and the shared folder the site serves under it as "shared/" (scripts/build-public.mjs):
+ * the party room (lobby/public with lobby/shared at lobby/shared) and Hot Potato
+ * (one-device/hot-potato/public with its shared matcher and lists at one-device/hot-potato/shared).
+ * A page module imports "./shared/..." next to itself; tests read the same files from where they are kept.
  */
+const SERVED_SHARED = [
+  [here("./lobby/public/"), here("./lobby/shared/")],
+  [here("./one-device/hot-potato/public/"), here("./one-device/hot-potato/shared/")],
+];
 const servedShared = {
-  name: "lobby-served-shared",
+  name: "served-shared",
   enforce: "pre",
   resolveId(source, importer) {
-    if (!importer || !source.startsWith(".") || !importer.startsWith(lobbyPublic)) return null;
-    const target = resolve(dirname(importer), source);
-    const under = `${lobbyPublic}shared/`;
-    return target.startsWith(under) ? lobbyShared + target.slice(under.length) : null;
+    if (!importer || !source.startsWith(".")) return null;
+    for (const [pub, shared] of SERVED_SHARED) {
+      if (!importer.startsWith(pub)) continue;
+      const target = resolve(dirname(importer), source);
+      const under = `${pub}shared/`;
+      return target.startsWith(under) ? shared + target.slice(under.length) : null;
+    }
+    return null;
   },
 };
 
@@ -36,5 +44,5 @@ export default defineConfig({
       { find: /^\/cork-and-bell\/game\/vendor\/three\.module\.js$/, replacement: "three" },
     ],
   },
-  test: { include: ["party-kit/test/**/*.test.js", "lobby/test/**/*.test.js", "lab/**/*.test.js"], environment: "node" },
+  test: { include: ["party-kit/test/**/*.test.js", "lobby/test/**/*.test.js", "lab/**/*.test.js", "one-device/**/*.test.js"], environment: "node" },
 });
