@@ -12,8 +12,13 @@
 // Both buttons say what they do while the room is new to this device, then fold to their
 // pictures so they cover less of the wall. The first time a host is in a room, a small bubble
 // under Rooms says what it is.
+//
+// Under the rooms, for the host only: "Move the party to the Table", which takes everyone to the
+// plain waiting room with no characters (the Table, lobby/shared/mode.js). It is refused at the same moments
+// as a change of room, and while a game's settings are chosen; the picker says why.
 import { h, icon } from "./dom.js";
 import { ROOMS, ROOM_COOLDOWN_MS, roomLocked, roomName } from "./shared/rooms.js";
+import { MODE_NAME, modeLocked } from "./shared/mode.js";
 
 /** How long the buttons keep their words after the room opens on this device. */
 const WORDS_MS = 9000;
@@ -21,6 +26,10 @@ const WORDS_MS = 9000;
 const PICK_WAIT_MS = 4000;
 const HINT_KEY = "party-room:rooms-hint";
 const ROOMS_ICON = ["M4 5h16v14H4z", "M4 15l5-5 4 4 3-3 4 4", "M15.5 8.5h.01"];
+/** The plain waiting room: a list. */
+const PLAIN_ICON = ["M8 6h12", "M8 12h12", "M8 18h12", "M4 6h.01", "M4 12h.01", "M4 18h.01"];
+/** The mode the host's item moves the party to. */
+const PLAIN = "turn-based";
 
 export class RoomMenu {
   /**
@@ -61,6 +70,9 @@ export class RoomMenu {
 
   /** The first time a host is in a room: one small bubble under Rooms, for a few seconds. */
   hint() {
+    // A page that has just moved here from the plain waiting room (hop.js): the host may only be
+    // between pages, so whoever holds the controls for that moment is not shown the hint.
+    if (this.opts.quiet) return;
     try {
       if (localStorage.getItem(HINT_KEY) === "1") return;
       localStorage.setItem(HINT_KEY, "1");
@@ -103,7 +115,10 @@ export class RoomMenu {
       card.addEventListener("click", () => this.pick(r.id, card));
       return card;
     });
-    const done = h("button", "plain", "Done", box);
+    // The foot: the host's way to the plain waiting room, and Done (side by side on a sideways phone).
+    const foot = h("div", "picker-foot", "", box);
+    this.modeButton(foot);
+    const done = h("button", "plain", "Done", foot);
     done.type = "button";
     done.addEventListener("click", () => this.close());
     back.addEventListener("click", (e) => {
@@ -113,7 +128,47 @@ export class RoomMenu {
     this.update(this.room);
     // While the room is resting after a change, the words count down.
     this.ticker = setInterval(() => this.update(this.room), 500);
-    done.focus();
+    // Focused without scrolling: a picker taller than the screen opens at its top, with its title in view.
+    done.focus({ preventScroll: true });
+  }
+
+  /** The host's way to the plain waiting room, under the rooms. */
+  modeButton(box) {
+    const btn = (this.toPlain = h("button", "choice mode-choice", "", box));
+    btn.type = "button";
+    h("span", "choice-icon", "", btn).append(icon(PLAIN_ICON, 22));
+    const words = h("span", "choice-words", "", btn);
+    this.toPlainTitle = h("strong", "", `Move the party to ${MODE_NAME[PLAIN]}`, words);
+    h("span", "", "Sit, talk and take turns, with no characters. Everyone moves with you.", words);
+    btn.addEventListener("click", () => this.switchMode());
+  }
+
+  /** The host tapped "Move the party to the Table". */
+  switchMode() {
+    const room = this.room;
+    if (!room || this.going) return;
+    const why = this.mine(room) ? modeLocked(room) : "Only the one who started the party can switch rooms.";
+    if (why) return this.nudge(why);
+    this.going = PLAIN;
+    this.toPlain.classList.add("going");
+    this.toPlainTitle.textContent = "Moving everyone...";
+    this.sheet.classList.add("waiting");
+    this.opts.onMode?.(PLAIN);
+    // On a yes the page moves (hop.js); no answer at all means the connection is down.
+    this.goingTimer = setTimeout(() => this.modeRefused("The room did not answer. Check the connection and try again."), PICK_WAIT_MS);
+  }
+
+  /** The room said no to this device's switch. */
+  modeRefused(why) {
+    clearTimeout(this.goingTimer);
+    this.going = null;
+    if (!this.sheet) return;
+    this.sheet.classList.remove("waiting");
+    this.toPlain.classList.remove("going");
+    this.toPlainTitle.textContent = `Move the party to ${MODE_NAME[PLAIN]}`;
+    this.key = "";
+    this.update(this.room);
+    this.nudge(why);
   }
 
   close() {
@@ -195,6 +250,11 @@ export class RoomMenu {
     if (!this.sheet) return;
     const mine = this.mine(room);
     const why = this.whyNot(room);
+    // Only the host sees the way to the plain waiting room; it looks off when it cannot be used now.
+    this.toPlain.hidden = !mine;
+    const off = !!modeLocked(room);
+    this.toPlain.classList.toggle("off", off);
+    this.toPlain.setAttribute("aria-disabled", String(off));
     const key = JSON.stringify([room.room, why, mine]);
     if (key === this.key) return;
     this.key = key;
