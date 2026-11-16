@@ -1,6 +1,6 @@
 // End to end, in real pages (headless and muted): Paper Masks at the Table.
 //
-//   node party/games/paper-masks/test/e2e-paper-masks.mjs [--base=http://localhost:8791] [--out=/tmp/claude-paper-masks-table/stills] [--only=1,2,3]
+//   node party/games/paper-masks/test/e2e-paper-masks.mjs [--base=http://localhost:8791] [--out=<folder for stills>] [--only=1,2,3]
 //
 // One party plays three whole matches through real browsers, with the big screen watching:
 //   1. three players (Ann, Bo, Cy): the game writes a fourth answer ("The game" chip);
@@ -18,7 +18,8 @@
 // sends its decoy tap only when it is clicked: never on arrival, never by itself.
 // Captioned stills of every phase go to --out, with index.html listing them.
 import { mkdirSync, writeFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
 import { launchBrowser } from "../../../../lobby/test/browser.mjs";
 import { QUESTIONS } from "../questions.js";
 import { tidyAnswer } from "../text.js";
@@ -26,7 +27,7 @@ import { tidyAnswer } from "../text.js";
 const args = process.argv.slice(2);
 const opt = (k, d) => (args.find((a) => a.startsWith("--" + k + "=")) ?? "--" + k + "=" + d).split("=").slice(1).join("=");
 const base = opt("base", "http://localhost:8791");
-const out = resolve(opt("out", "/tmp/claude-paper-masks-table/stills"));
+const out = resolve(opt("out", join(tmpdir(), "paper-masks-stills")));
 const only = new Set(opt("only", "1,2,3").split(",").map(Number));
 mkdirSync(out, { recursive: true });
 

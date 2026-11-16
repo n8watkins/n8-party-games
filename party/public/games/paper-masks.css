@@ -1401,15 +1401,15 @@
     zoom: 0.7;
   }
   .pm-unmask {
-    --uh: calc(var(--u) * 26);
-    --fw: calc(var(--u) * 56);
+    --uh: calc(var(--u) * 24);
+    --fw: calc(var(--u) * 52);
     width: calc(var(--u) * 54);
   }
   .pm-body > .pm-ask {
     grid-column: 1 / -1;
   }
   .pm-unmask .big {
-    width: calc(var(--u) * 40);
+    width: calc(var(--u) * 36);
   }
   .pm-unmask.win .big {
     width: calc(var(--u) * 38);
