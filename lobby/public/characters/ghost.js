@@ -52,7 +52,7 @@ function face() {
   const glint = (cx) => s("circle", { cx: cx + 1.2, cy: GHOST.eyeY - 3, r: 1.5, fill: "#fff" });
   const open = s("g", {}, eye(-10), eye(10), glint(-10), glint(10));
   // Squeezed shut: what a knocked ghost's eyes do (it never gets crosses).
-  const shut = s("path", { d: `M-15,${GHOST.eyeY - 2} l5.5,3.5 l-5.5,3.5 M15,${GHOST.eyeY - 2} l-5.5,3.5 l5.5,3.5`, stroke: INK, "stroke-width": 3.2, "stroke-linecap": "round", "stroke-linejoin": "round", fill: "none", display: "none" });
+  const shut = s("path", { d: `M-15,${GHOST.eyeY - 2} l5.5,3.5 l-5.5,3.5 M15,${GHOST.eyeY - 2} l-5.5,3.5 l5.5,3.5`, stroke: INK, "stroke-width": 3.2, "stroke-linecap": "round", "stroke-linejoin": "round", fill: "none", display: "none", class: "ghost-shut" });
   const mouth = s("ellipse", { cx: 0, cy: GHOST.mouthY, rx: 4, ry: 5.2, fill: INK });
   return { g: s("g", {}, open, shut, mouth), open, shut };
 }

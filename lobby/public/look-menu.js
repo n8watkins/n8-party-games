@@ -10,7 +10,8 @@ import { h } from "./dom.js";
 import { characterPortrait } from "./emotes/svg.js";
 import { CHARACTERS, COLOUR_PRESETS, LOOK_COOLDOWN_MS, characterOr, cleanColour } from "./shared/characters.js";
 
-const SAVED_KEY = "party-room:look";
+// ("party-room:look" is taken: it is which drawing of the room this device asked for, room-view.js.)
+const SAVED_KEY = "party-room:piece";
 /** A choice the room has not answered in this long is given up (the connection is down). */
 const WAIT_MS = 4000;
 
@@ -26,7 +27,8 @@ function saved() {
 export class LookMenu {
   /**
    * @param {HTMLElement} corner  the room's corner of buttons (room-menu.js); this one goes before Rooms
-   * @param {{seat: number, send: (look: {c?: string, v?: string}) => void}} opts
+   * @param {{seat: number, send: (look: {c?: string, v?: string}) => void, onChange?: (now: {character: string, colour: string}) => void}} opts
+   *   send: asks the room; onChange: the room has the player's piece as something new
    */
   constructor(corner, opts) {
     this.opts = opts;
@@ -191,7 +193,10 @@ export class LookMenu {
     if (key === this.key) return;
     const changed = !this.key.startsWith(`${now.character}/${now.colour}/`);
     this.key = key;
-    if (changed) this.face.replaceChildren(characterPortrait(now.character, now.colour, 34));
+    if (changed) {
+      this.face.replaceChildren(characterPortrait(now.character, now.colour, 34));
+      this.opts.onChange?.(now);
+    }
     if (!this.sheet) return;
     if (changed) {
       // The room answered: the choice is on.

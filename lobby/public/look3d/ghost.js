@@ -31,6 +31,8 @@ const BELOW_PAWN = PAWN_HEIGHT - GHOST_HEIGHT;
 const MU = PX / SIZE;
 const SEG = 28;
 const RAD = Math.PI / 180;
+/** How much the sheet glows by itself in the dark (the emissive strength of its materials). */
+const GLOW = 0.16;
 
 const INK = 0x0a0d18;
 const WHITE = new THREE.Color(0xffffff);
@@ -308,8 +310,12 @@ export function poseGhost(g, piece, now, dt, how) {
     g.trX = X;
     g.trY = rise;
   }
-  [g.trX, g.trV] = spring(g.trX, g.trV, X, 85, 9.5, step);
-  [g.trY, g.trYV] = spring(g.trY, g.trYV, rise, 120, 9, step);
+  // In as many small steps as the frame was long (four at most): on a device that draws slowly the hem would otherwise catch up in slow motion.
+  for (let left = Math.min(dt, 4 / 30); left > 1e-4; left -= 1 / 30) {
+    const h = Math.min(left, 1 / 30);
+    [g.trX, g.trV] = spring(g.trX, g.trV, X, 85, 9.5, h);
+    [g.trY, g.trYV] = spring(g.trY, g.trYV, rise, 120, 9, h);
+  }
   const dX = clamp((g.trX - X) * MU, -0.23, 0.23);
   const dY = clamp((g.trY - rise) * MU, -0.12, 0.1);
 
@@ -396,13 +402,14 @@ export function poseGhost(g, piece, now, dt, how) {
   g.lit += (how.lit - g.lit) * Math.min(1, step * 8);
   const lit = g.lit * (1 - 0.35 * fl);
   const char = piece.fx?.char ?? 0;
-  const k = mix(0.5 + 0.5 * lit, 1, fl) * (g.connected ? 1 : 0.8);
+  // A white sheet dimmed as far as a pawn's paint is turns to mud: it keeps more of its white in the dark, and glows a little, as a ghost may.
+  const k = mix(0.74 + 0.26 * lit, 1, fl) * (g.connected ? 1 : 0.72);
   g.opacity = clamp(1 - 0.5 * fl, 0.2, 1) * (g.fade < 1 ? g.fade * 0.8 : 1);
   const clear = g.opacity < 0.985;
   for (const m of [g.mat, g.softMat]) {
     m.color.copy(WHITE).multiplyScalar(k).lerp(SOOT, char * 0.82);
     m.emissive.copy(m === g.mat ? g.glow : g.hem).lerp(SOOT, char);
-    m.emissiveIntensity = 0.05 + 0.14 * lit + 1.1 * fl;
+    m.emissiveIntensity = (g.connected ? GLOW : 0.04) + 0.14 * lit + 1.1 * fl;
     if (m.transparent !== clear) {
       m.transparent = clear;
       m.needsUpdate = true;
@@ -472,7 +479,7 @@ export function bakeGhost(g) {
       m.envMapIntensity = 1;
     }
   }
-  const flicker = Math.max(0, g.mat.emissiveIntensity - (0.05 + 0.14 * g.lit) - 0.01);
+  const flicker = Math.max(0, g.mat.emissiveIntensity - (GLOW + 0.14 * g.lit) - 0.01);
   for (const m of [g.mat, g.softMat]) {
     m.color.copy(WHITE).multiplyScalar(g.connected ? 1 : 0.8);
     m.emissiveIntensity = 0.03;
@@ -556,10 +563,9 @@ export class GhostHands {
     this.arms.set({ hands });
     // An outline of the same thickness all round, whatever shape the hand's part has been given.
     for (const [m, hull] of this.hulls) hull.scale.set(1 + OUTLINE / Math.abs(m.scale.x), 1 + OUTLINE / Math.abs(m.scale.y), 1 + OUTLINE / Math.abs(m.scale.z));
-    const lit = 0.5 + 0.5 * g.lit;
-    this.wispMat.color.setScalar(lit);
+    this.wispMat.color.setScalar(0.74 + 0.26 * g.lit);
     this.wispMat.emissive.copy(g.glow);
-    this.wispMat.emissiveIntensity = 0.05 + 0.14 * g.lit;
+    this.wispMat.emissiveIntensity = GLOW + 0.14 * g.lit;
     for (let i = 0; i < 2; i++) {
       const h = hands[i];
       const join = h && h.s > 0.05 ? joinOf(pose, h) : null;

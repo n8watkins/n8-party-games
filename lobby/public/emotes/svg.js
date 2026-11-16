@@ -118,10 +118,10 @@ function shapeFace(f, face) {
  * round: a toy's hands, not a person's.
  */
 function makeLimb(parent, colour, ghostly = false) {
-  const g = el("g", {}, parent);
+  const g = el("g", { class: "emote-limb" }, parent);
   // A pawn's arm is a stick in its colour; a ghost's is a wisp of its sheet (a filled shape), when it has one at all.
   const arm = ghostly
-    ? el("path", { fill: SHEET, stroke: shade(colour, 0.1), "stroke-width": 1.4, "stroke-linejoin": "round" }, g)
+    ? el("path", { class: "emote-wisp", fill: SHEET, stroke: shade(colour, 0.1), "stroke-width": 1.4, "stroke-linejoin": "round" }, g)
     : el("path", { fill: "none", stroke: shade(colour, -0.05), "stroke-width": 8, "stroke-linecap": "round", "stroke-linejoin": "round" }, g);
   const handG = el("g", {}, g);
   // Against a white sheet a very pale hand is lost: it gets a dark outline.
