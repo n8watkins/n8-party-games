@@ -98,8 +98,10 @@ try {
     await screen.waitForSelector(drawn, { timeout: 60000 });
     await screen.waitForSelector(".code-digits");
     const pin = (await screen.locator(".code-digits").textContent()).trim();
-    const join = async (name, viewport) => {
+    const join = async (name, viewport, piece = null) => {
       const page = await open(`${look} ${name}`, viewport, { hasTouch: true });
+      // The piece last chosen on this device (look-menu.js) comes back by itself in a new party.
+      if (piece) await page.addInitScript((p) => localStorage.setItem("party-room:piece", JSON.stringify(p)), piece);
       await page.goto(`${base}/lobby/?join=${pin}&${query}`);
       await page.fill("input[name=nickname]", name);
       await page.click("text=Join the party");
@@ -152,7 +154,7 @@ try {
       cy.send({ t: "m", x: cy.x, d: 0, r: cy.rev });
       await sleep(1200);
       await page.clock.install();
-      await page.clock.pauseAt(new Date(Date.now() + 400));
+      await page.clock.pauseAt(new Date((await page.evaluate(() => Date.now())) + 400));
       let mark = gus.seen.length;
       gus.send({ t: "fade" });
       check(!!(await gus.wait((m) => m.t === "fade" && m.s === gus.seat, 3000, mark).catch(() => null)), `${look} ${device}: Gus fades`);
@@ -163,7 +165,7 @@ try {
       // than the fade lasts, so the fade above is long over by now).
       await sleep(FADE_COOLDOWN_MS + 300);
       await page.clock.install();
-      await page.clock.pauseAt(new Date(Date.now() + 400));
+      await page.clock.pauseAt(new Date((await page.evaluate(() => Date.now())) + 400));
       mark = gus.seen.length;
       gus.send({ t: "fade" });
       await gus.wait((m) => (m.t === "fade" && m.s === gus.seat) || m.t === "fade-no", 3000, mark).catch(() => null);
@@ -182,7 +184,7 @@ try {
       await place(ada, mid + 30);
       await sleep(900);
       await page.clock.install();
-      await page.clock.pauseAt(new Date(Date.now() + 400));
+      await page.clock.pauseAt(new Date((await page.evaluate(() => Date.now())) + 400));
       mark = gus.seen.length;
       gus.send({ t: "fade" });
       await gus.wait((m) => m.t === "fade" && m.s === gus.seat, 3000, mark).catch(() => null);
@@ -205,12 +207,8 @@ try {
     // Gwen's own phone: her ghost faded, as she sees it. Ada leaves to make room (four players at most).
     ada.send({ t: "leave" });
     await sleep(800);
-    const gwen = await join("Gwen", { width: 390, height: 844 });
-    // A software-drawn 3D page on a busy machine can take a while to settle its bar.
-    await gwen.locator(".look-btn").click({ timeout: 90000 });
-    await gwen.locator('.look-card[data-character="ghost"]').click({ timeout: 90000 });
-    await gwen.locator(".look-sheet >> text=Done").click({ timeout: 90000 });
-    await gus.wait((m) => m.room?.members.some((x) => x?.name === "Gwen" && x.character === "ghost"), 4000, 0);
+    const gwen = await join("Gwen", { width: 390, height: 844 }, { c: "ghost" });
+    await gus.wait((m) => m.room?.members.some((x) => x?.name === "Gwen" && x.character === "ghost"), 15000, 0);
     await sleep(look !== "flat" ? 2000 : 600);
     await gwen.keyboard.press("KeyX");
     await sleep(800);
