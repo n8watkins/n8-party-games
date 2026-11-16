@@ -132,7 +132,20 @@ try {
 
     // ================================================================ a second page
     section(`${look}: the second phone sees her as a ghost`);
-    await cy.waitForFunction((seat) => (window.__room3d ? window.__room3d.pieces.get(seat)?.kind.id : document.querySelector(`svg.scene g[data-seat="${seat}"]`)?.dataset.character) === "ghost", B, { timeout: 5000 }).catch(() => {});
+    // The ghost and the violet are two room views a second apart (the second tap waits out the
+    // cooldown), and a page drawing 3D in software may be a frame or two behind: wait for both,
+    // not only the first, before reading what Cy's phone draws.
+    await cy
+      .waitForFunction(
+        ([seat, colour]) => {
+          const p = window.__room3d?.pieces.get(seat);
+          if (window.__room3d) return p?.kind.id === "ghost" && p.member?.colour === colour;
+          return document.querySelector(`svg.scene g[data-seat="${seat}"]`)?.dataset.character === "ghost";
+        },
+        [B, VIOLET],
+        { timeout: 8000 },
+      )
+      .catch(() => {});
     const seenB = await pieceOn(cy, B);
     check(seenB?.character === "ghost" && (seenB.colour === null || seenB.colour === VIOLET), `on Cy's phone Bea's piece is a ghost${seenB?.colour ? " in " + seenB.colour : ""}`);
     check((await pieceOn(cy, ada.seat))?.character === "pawn" && (await pieceOn(cy, C))?.character === "pawn", "and Ada's and his own are still pawns");
