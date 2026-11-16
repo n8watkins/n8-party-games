@@ -25,7 +25,7 @@ Make each window short and wide to see what a sideways phone sees, or use the br
 5. Stand both pieces in Coin Flip's light: "Starts in 10" counts down, the game plays, and both are back by the door with points on the Tonight board.
 6. Click the Tonight board on the wall to open it large; click anywhere, press Escape or go back to close it.
 7. Stand one piece in each lit light for a tie and its coin toss.
-8. Stand both pieces in Cork & Bell's light: the battle starts for the two of you inside the room, each window shows its own stall (a third window as the room's screen shows both), and ninety seconds later both are back by the door with the scores on a card and points on the Tonight board. One piece alone in that light gets a round to itself.
+8. Stand both pieces in Cork & Bell's light: the battle starts for the two of you inside the room, each window shows its own stall (a third window as the room's screen shows both), and when the round is over (at ninety seconds, or sooner once both of you have spent all your corks) both are back by the door with the scores on a card and points on the Tonight board. One piece alone in that light gets a round to itself.
 9. Stand both pieces in Who Am I?'s light: "Opens in 10" counts down, a card says where everyone is going, and both windows go to its own site.
 10. Close one window to see the piece turn grey at once, and fade twelve seconds later.
 
@@ -249,10 +249,10 @@ Cork & Bell is its own repository and package (`games.js`), and it is the first 
 - **The start.** When it wins the count or the toss, the room calls its `game.create` with the party's seats, names and colours, and ticks it at its own thirty times a second. There is no waiting room and no ready step.
 - **On a player's device.** The room's page fetches the view the game's manifest names (`/cork-and-bell/game/party-view.js`) and mounts it over the room: the player's own stall, full screen, with the rivals' tokens to pick a target. The game's files are fetched ahead while the count is still running.
 - **On the big screen.** A spectator view: every stall in the round side by side, with names and scores, as the game's own shared screen shows a battle. Someone who joins the party in the middle of a round sees the same until it ends.
-- **A party of one** gets a round to itself, the same ninety seconds with nobody to send attacks to. It is first of one, so it puts three points on the Tonight board.
+- **A party of one** gets a round to itself, the same round of up to ninety seconds with nobody to send attacks to, over as soon as its one stall has spent its corks. It is first of one, so it puts three points on the Tonight board.
 - **The room's own things** on top of the game are the door button (already drawn for a phone held sideways: "Leave the party" works mid-round), the notes ("Tom left") and the word about the connection. The room's bars are put away and the room is not drawn under the game.
 - **A phone that drops** has its stall played by the game's stand-in until it is back; a reload in the middle comes back to the same stall with its score.
-- **The end.** After ninety seconds (or when only one stall still has corks) the game is taken away, everyone is back by the door, and the room's card shows who came where with the scores: 3, 2 and 1 points for the Tonight board, equal scores sharing a place.
+- **The end.** After ninety seconds (or sooner, once every stall is out of corks and the last cork has landed) the game is taken away, everyone is back by the door, and the room's card shows who came where with the scores: 3, 2 and 1 points for the Tonight board, equal scores sharing a place.
 - **Nothing is left behind.** The game runs in a frame of its own page, so its listeners, timers, sound and WebGL context go when the frame goes; the view also lets the WebGL context and the sound go at once. `npm run test:cork` checks it on every device.
 
 The game's own page at `/cork-and-bell/` is unchanged: solo with the high score board, and battles in rooms of its own.
@@ -310,7 +310,7 @@ None of it sends a message or sets a timer in the room: every sound comes from s
 - A party's code, seats and points do not carry over to an outside game's site.
 - No piece skins, no abilities, no chat bubbles, no walking through the door, no "host starts" setting. The flat drawing has one room, whichever the party picks.
 - No buzz on phones whose browser has none (Safari on an iPhone).
-- "Back to the room" in the middle of a game: a round runs its ninety seconds, and a player can still leave the party.
+- "Back to the room" in the middle of a game: a round runs until the game calls time (at ninety seconds, or once every stall has spent its corks), and a player can still leave the party.
 - In the room Cork & Bell has no high score entry, no rematch button and no end card of its own: the room's card shows the scores, and the vote is the rematch. The high score board stays on the game's own page.
 
 ## How it stays cheap
@@ -365,8 +365,9 @@ The second column is a keen party that starts a vote every half minute, measured
 An outside game winning the vote costs one wake-up and no duration: nothing is played in the room.
 
 **A round of Cork & Bell is what a party room costs.**
-The room is awake for all of a round, as the game's own room is: 94.6 seconds (the count-in, ninety seconds and the hold at the end), which is 12.1 GB-seconds, whether one plays or four.
-`npm run test:cork` reads the same figure from the books for a battle of three and for a round played alone.
+The room is awake for all of a round, as the game's own room is: at most 94.6 seconds (the count-in, up to ninety seconds and the hold at the end), which is at most 12.1 GB-seconds, whether one plays or four.
+A round is shorter only when every stall has spent its corks before the time call.
+`npm run test:cork` reads each round's figure from the books, for a battle of three that runs its full time and for a round played alone, and checks it against how long the round lasted.
 The 10% of a month (40,000 GB-seconds) is about 3,300 rounds, and a day's tenth of that (4,000) about 330 rounds across every party room there is.
 Everything between rounds costs next to nothing by comparison, so an evening costs its rounds: a party that plays six rounds in an hour uses about 73 GB-seconds, and the 10% buys about 550 such hours a month.
 The third column is the ceiling: a party that votes again the moment each round ends.
