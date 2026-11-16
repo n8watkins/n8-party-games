@@ -8,6 +8,7 @@
 //   handsoff: holds Up and nothing else, ever.
 //   left, right: the plain player, but always through the left (or right) gap of every shaker.
 //   clean:    the plain player, giving every spill a wide berth.
+//   zigzag, zagzig: the plain player, weaving the shakers right-left-right, or left-right-left.
 // Like the rules, a driver draws its chance from a seed and uses only exact maths, so a scripted race is the
 // same race on every engine.
 import { atan2, cos, sin, wrapA } from "../shared/dmath.js";
@@ -48,12 +49,15 @@ export function decide(rules, m, c0, t, others = [], state = null) {
   if (!sloppy) for (const p of T.PADS) { const d = wrapS(p.u - u); if (d > 1 && d < 15) lane = p.lat; }
   // A forced side: through that gap of every shaker, whatever is in it.
   if (forced) for (const s of SHAKERS) { const d = wrapS(s.u - u); if (d > -1.5 && d < 4 + Math.max(0, c.v) * 0.9) lane = forced * (s.r + 1.85); }
+  // "zigzag" takes the shakers right, left, right; "zagzig" left, right, left.
+  const zz = m.style === "zigzag" ? 1 : m.style === "zagzig" ? -1 : 0;
+  if (zz) SHAKERS.forEach((s, k) => { const d = wrapS(s.u - u); if (d > -1.5 && d < 4 + Math.max(0, c.v) * 0.9) lane = zz * (k % 2 ? -1 : 1) * (s.r + 1.85); });
   // Sweets: an ordinary player with nothing in hand lines up with the nearest one.
   if (!sloppy && !c.item) for (const b of T.BOXES) { const d = wrapS(b.u - u); if (d > 1 && d < 12) { let best = b.lats[0]; for (const l of b.lats) if (Math.abs(l - lane) < Math.abs(best - lane)) best = l; lane = best; } }
   if (u > T.EDGE.u0 - 4 && u < T.EDGE.u1 + 2) lane = Math.max(lane, sloppy ? -1.6 : -0.8);
   // What stands in the way: a first-timer sees it later, and now and then not at all (this lap).
   const span = Math.max(T.HALF, halfAt(lu)) - 0.7;
-  const list = blockers(state, BL).filter((b) => (!sloppy || hash(m.seed * 13 + Math.floor((c.s || 0) / LEN), Math.round(b[0] * 10)) > 0.15) && !(forced && b[3] === "spill"));
+  const list = blockers(state, BL).filter((b) => (!sloppy || hash(m.seed * 13 + Math.floor((c.s || 0) / LEN), Math.round(b[0] * 10)) > 0.15) && !((forced || zz) && b[3] === "spill"));
   // The clean driver gives every spill (and the syrup) a wide berth: a spill's band grows by 0.8 each side and is seen further off.
   if (clean) for (const b of list) if (b[3] === "spill" || b[3] === "syrup" || b[3] === "butter") { b[1] -= 0.8; b[2] += 0.8; b[4] += 4; }
   lane = clearLane(list, u, lane, sloppy ? 1.2 + Math.max(0, c.v) * 0.45 : 1.5 + Math.max(0, c.v) * 0.8, span, sloppy ? 0.4 : 0.7);

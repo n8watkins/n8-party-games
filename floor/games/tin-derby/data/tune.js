@@ -4,7 +4,7 @@
 // It is plain data (test/data.test.js checks it survives JSON), frozen so nothing can change it while
 // a race runs. To try other numbers, build the rules from a changed copy: makeRules(retune({ ASSIST: 0 })).
 //
-// The numbers are round five's (the owner's preview of 2026-11-15), unchanged, plus one new block, NET,
+// The numbers are round five's as reviewed (the preview's reviewed copy, 2026-11-16), unchanged, plus one new block, NET,
 // for what a room needs and a solo page does not. README.md lists every difference from round five.
 //
 // Lengths are in car lengths (one tin car is 1 long), times in seconds, speeds in car
@@ -185,7 +185,9 @@ const DATA = {
     // lastAim/lastPush: on the last lap it races to finish just ahead of the leading player, pushing at full strength when
     // behind, so a car nobody steers never places in the top two; a decent driver still beats it.
     pip: { pace: 0.945, lane: -0.5, wander: 0.25, bridge: 1, pads: 0.85, aim: -6, lastAim: 4, lastPush: true },
-    gus: { pace: 0.84, lane: 0.6, wander: 0.5, bridge: 0, pads: 0.5, aim: -18, lastFree: true }, // the slow one: a casual lap beats him
+    // Round five's review: Gus was 0.84. At 0.78 a clumsy keyboard player at heavy lag is 4th in 18% of races, not 46%
+    // (240 seeded races each), and a car nobody steers still never gets into the top two more often than before.
+    gus: { pace: 0.78, lane: 0.6, wander: 0.5, bridge: 0, pads: 0.5, aim: -18, lastFree: true }, // the slow one: a casual lap beats him
     dot: { pace: 0.94, lane: 0.0, wander: 0.35, bridge: 0, pads: 0.75, aim: 1, lastAim: 2, lastPush: true },
   },
   YIELD: 3.0, YIELD_W: 1.45, // a house car with a player this close behind and faster moves this far out of the player's line

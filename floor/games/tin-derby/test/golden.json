@@ -1,0 +1,10 @@
+{
+  "plain, seed 1": "d7189a075962d125 4297 [{\"seat\":0,\"place\":1,\"time\":63.595}]",
+  "sloppy ghost, seed 2": "d35483b53c1cc7d5 4286 [{\"seat\":0,\"place\":1,\"time\":64.07}]",
+  "hands off, seed 3": "4316c04ffeb7d9d8 4486 [{\"seat\":0,\"place\":1,\"time\":69.946}]",
+  "thumb robot, seed 4": "5f791586b72922e2 3742 [{\"seat\":0,\"place\":1,\"time\":54.356}]",
+  "two players, seed 5": "4243e3dda95f9d2b 4360 [{\"seat\":0,\"place\":1,\"time\":57.029},{\"seat\":1,\"place\":2,\"time\":64.655}]",
+  "three players, seed 6": "4c820adde88f282e 4303 [{\"seat\":1,\"place\":1,\"time\":57.25},{\"seat\":0,\"place\":2,\"time\":68.349},{\"seat\":2,\"place\":3,\"time\":68.7}]",
+  "four players, seed 7": "811821d98b7d81de 4491 [{\"seat\":1,\"place\":1,\"time\":59.666},{\"seat\":0,\"place\":2,\"time\":61.604},{\"seat\":3,\"place\":3,\"time\":65.303},{\"seat\":2,\"place\":4,\"time\":71.826}]",
+  "four players, seed 4000000000": "1728685aa3490764 4141 [{\"seat\":0,\"place\":1,\"time\":56.555},{\"seat\":3,\"place\":2,\"time\":60.918},{\"seat\":1,\"place\":3,\"time\":62.63},{\"seat\":2,\"place\":4,\"time\":66.007}]"
+}

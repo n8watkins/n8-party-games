@@ -15,9 +15,10 @@
 // its own inputs the room's answer already holds.
 //
 // What the room sends everyone (game.tick): only what a page cannot work out for itself.
-//   { k: "i", n, c, s, b, q? }  car c's input (steer s, buttons b) takes effect at step n
-//   { k: "a", n, c, on }        from step n, car c is driven by the house (its phone dropped), or handed back
-//   { k: "n", n }               the room has run up to step n: nothing new will take effect at or before it
+//   { k: "i", n, c, j, s, b, q? }  car c's input (steer s, buttons b) takes effect at step n
+//   { k: "a", n, c, j, on }        from step n, car c is driven by the house (its phone dropped), or handed back
+//   { k: "n", n }                  the room has run up to step n: nothing new will take effect at or before it
+// (j counts what the room has told about car c: 1, 2, 3 ...; q is the page's own number for its input.)
 // Everything else that happens (a bump, a spin, a lap, the finish) each page gets from running the same
 // steps; state.ev holds those events for whoever ran them.
 import * as dmath from "./dmath.js";
@@ -92,8 +93,9 @@ export function makeRules(T = TUNE, { math: M = dmath, preview: PREVIEW = false 
       toastWarn: -1, kettleWarn: -1, eggWarn: -1, syrupWarn: -1,
       // Inputs and hand-overs waiting for their step: [step, car, 0, on] or [step, car, 1, steer, buttons], in the order they take effect.
       queue: [],
-      // What the room has heard from each car's page: the highest input number read, the last input taken, and its step.
-      room: { q: [0, 0, 0, 0], sent: [[0, 0], [0, 0], [0, 0], [0, 0]], lastN: [0, 0, 0, 0] },
+      // What the room has heard from each car's page: the highest input number read (q), the last input taken (sent) and its
+      // step (lastN); and how many things it has told everyone about each car (count).
+      room: { q: [0, 0, 0, 0], sent: [[0, 0], [0, 0], [0, 0], [0, 0]], lastN: [0, 0, 0, 0], count: [0, 0, 0, 0] },
     });
   }
   /** Adds what a race keeps beside its saved state: this tick's events, the room's own notes, the checks' tallies. */
@@ -173,17 +175,34 @@ export function makeRules(T = TUNE, { math: M = dmath, preview: PREVIEW = false 
     const n = Math.max(next, R.lastN[i], Math.min(latest, inp.at === null ? next : stepOf(state, inp.at) + 1));
     R.lastN[i] = n; R.sent[i] = [inp.st, inp.b];
     enqueue(state, [n, i, 1, inp.st, inp.b]);
-    state.net.push(inp.q ? { k: "i", n, c: i, s: inp.st, b: inp.b, q: inp.q } : { k: "i", n, c: i, s: inp.st, b: inp.b });
+    const e = { k: "i", n, c: i, j: ++R.count[i], s: inp.st, b: inp.b };
+    if (inp.q) e.q = inp.q;
+    state.net.push(e);
     return n;
   }
-  /** A page hears what the room told everyone (game.tick's events) and keeps its copy of the race in step. */
+  /** The room hands a seat to the house (its phone dropped) or back, from the next step, and everyone is told. */
+  function handOver(state, c, on) {
+    const R = state.room;
+    enqueue(state, [state.n + 1, c.i, 0, on ? 1 : 0]);
+    if (!on) R.sent[c.i] = [0, BTN.GO];
+    state.net.push({ k: "a", n: state.n + 1, c: c.i, j: ++R.count[c.i], on: on ? 1 : 0 });
+  }
+  /**
+   * A page hears what the room told everyone (game.tick's events) and keeps its copy of the race in step.
+   * The room numbers what it tells about each car (j: 1, 2, 3 ...), and a snapshot says how far it had counted, so
+   * something a snapshot already held is not taken twice (a socket that opens between two ticks gets a snapshot
+   * holding an input whose event is still to come).
+   */
   function hear(state, e) {
     const R = state.room;
+    if (e.k !== "i" && e.k !== "a") return;
+    if (e.j <= R.count[e.c]) return;
+    R.count[e.c] = e.j;
     if (e.k === "i") {
       enqueue(state, [e.n, e.c, 1, e.s, e.b]);
       R.lastN[e.c] = e.n; R.sent[e.c] = [e.s, e.b];
       if (e.q > R.q[e.c]) R.q[e.c] = e.q;
-    } else if (e.k === "a") {
+    } else {
       enqueue(state, [e.n, e.c, 0, e.on]);
       if (!e.on) R.sent[e.c] = [0, BTN.GO];
     }
@@ -754,7 +773,7 @@ export function makeRules(T = TUNE, { math: M = dmath, preview: PREVIEW = false 
       order: src.order.slice(), cherries: src.cherries.map((c) => ({ ...c })), cherryN: src.cherryN, drops: src.drops.map((d) => ({ ...d })), dropN: src.dropN,
       boxT: src.boxT.map((row) => row.slice()), toastWarn: src.toastWarn, kettleWarn: src.kettleWarn, eggWarn: src.eggWarn, syrupWarn: src.syrupWarn,
       queue: src.queue.map((e) => e.slice()),
-      room: { q: src.room.q.slice(), sent: src.room.sent.map((s) => s.slice()), lastN: src.room.lastN.slice() },
+      room: { q: src.room.q.slice(), sent: src.room.sent.map((s) => s.slice()), lastN: src.room.lastN.slice(), count: src.room.count.slice() },
     };
   }
   /** The whole race as plain JSON: enough to carry on from, in the room or on a page. Shares nothing with `state`.
@@ -811,9 +830,7 @@ export function makeRules(T = TUNE, { math: M = dmath, preview: PREVIEW = false 
         H.mark[c.i] = false;
         if (on === H.want[c.i] || state.over) continue;
         H.want[c.i] = on;
-        enqueue(state, [state.n + 1, c.i, 0, on ? 1 : 0]);
-        if (!on) state.room.sent[c.i] = [0, BTN.GO];
-        state.net.push({ k: "a", n: state.n + 1, c: c.i, on: on ? 1 : 0 });
+        handOver(state, c, on);
       }
       const before = state.n;
       advance(state, Math.min(stepOf(state, now - state.delay), state.n + NET.CATCH_UP));

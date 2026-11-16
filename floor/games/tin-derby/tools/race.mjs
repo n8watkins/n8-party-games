@@ -3,7 +3,6 @@
 //   node floor/games/tin-derby/tools/race.mjs [plain|sloppy|handsoff|all] [races=40] [seed0=1] [humans=1]
 // Every frame it also checks every car is inside the walls (except off the open edge), is facing the way the
 // road runs, and is making ground.
-import { fileURLToPath } from "node:url";
 import { wrapA } from "../shared/dmath.js";
 import { rules as RULES } from "../shared/rules.js";
 import { makePlayer } from "./drivers.mjs";
@@ -85,7 +84,8 @@ export function tally(rules, style, races, seed0 = 1, more = {}) {
   };
 }
 
-if (process.argv[1] === fileURLToPath(import.meta.url)) {
+// (No Node import above, so a page can load this file too, to check itself against test/golden.json.)
+if (typeof process !== "undefined" && process.argv && process.argv[1] && import.meta.url === new URL(process.argv[1], "file://").href) {
   const [which = "all", nArg = "40", s0 = "1", nHumans = "1"] = process.argv.slice(2);
   const styles = which === "all" ? ["plain", "sloppy", "handsoff"] : [which];
   const sum = (rows, key) => { const o = {}; for (const r of rows) for (const [k, v] of Object.entries(r[key])) o[k] = (o[k] || 0) + v; return Object.entries(o).map(([k, v]) => `${k} ${v}`).join(", ") || "none"; };
