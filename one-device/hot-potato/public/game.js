@@ -59,6 +59,7 @@ export function newRound({ index, players, first = 0 }) {
     fuseMax: FUSE_SECONDS[0] * 1000,
     fuse: FUSE_SECONDS[0] * 1000,
     speaking: false,
+    lit: false,
     graceLeft: 0,
     doomLeft: 0,
     burstLeft: 0,
@@ -98,10 +99,23 @@ export function startTurn(g) {
   g.fuseMax = fuseFor(g.stage);
   g.fuse = g.fuseMax;
   g.graceLeft = 0;
+  g.lit = false;
+  g.speaking = false;
   g.turns++;
   g.last = null;
   emit(g, "listen", { holder: g.holder, stage: g.stage });
   return true;
+}
+
+/**
+ * The fuse is lit: the microphone is on (or the answer is typed). Until then it does not burn, so
+ * the browser asking for the microphone, or starting up, costs nobody any time.
+ */
+export function lightFuse(g) {
+  if (g.phase === "listen" && !g.lit) {
+    g.lit = true;
+    emit(g, "lit");
+  }
 }
 
 /** Someone has started speaking: if the fuse runs out now, the recogniser gets GRACE_MS to finish. */
@@ -303,6 +317,7 @@ export function tick(g, ms) {
   if (g.paused || !(ms > 0)) return;
   g.time += ms;
   if (g.phase === "listen") {
+    if (!g.lit) return;
     if (g.graceLeft > 0) {
       g.graceLeft -= ms;
       if (g.graceLeft <= 0) timeUp(g);
@@ -310,12 +325,22 @@ export function tick(g, ms) {
     }
     g.fuse = Math.max(0, g.fuse - ms);
     if (g.fuse <= 0) {
-      if (g.speaking) g.graceLeft = GRACE_MS;
-      else timeUp(g);
+      if (g.speaking) {
+        g.graceLeft = GRACE_MS;
+        emit(g, "grace");
+      } else timeUp(g);
     }
   } else if (g.phase === "doom") {
     g.doomLeft -= ms;
-    if (g.doomLeft <= 0) burst(g, g.last?.by ?? g.holder);
+    if (g.doomLeft <= 0) {
+      const over = -g.doomLeft;
+      burst(g, g.last?.by ?? g.holder);
+      // The time past the doom counts toward the burst.
+      if (over > 0) {
+        g.time -= over;
+        tick(g, over);
+      }
+    }
   } else if (g.phase === "burst") {
     g.burstLeft -= ms;
     if (g.burstLeft <= 0) {

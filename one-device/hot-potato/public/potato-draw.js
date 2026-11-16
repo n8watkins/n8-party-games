@@ -35,7 +35,7 @@ export const FLOOR_Y = FRAME.bottom - FRAME.band; // 369
 /** The stand: a wire cradle on a small base plate. Its feet and base never move. */
 export const STAND = { cx: 200, half: 92, rodY: 334, footY: FLOOR_Y - 8, baseHalf: 118, baseH: 10 };
 /** Where the tether from the plate plugs into the stand's base plate. */
-export const TETHER_SOCKET = { x: STAND.cx + 104, y: FLOOR_Y - STAND.baseH - 2 };
+export const TETHER_SOCKET = { x: STAND.cx + 56, y: FLOOR_Y - STAND.baseH - 2 };
 
 /** The healthy body's half width and half height. */
 const RX0 = 94;
@@ -130,7 +130,7 @@ function rodY(x, growth) {
 }
 
 /** Cable lengths are set at growth 0 and never change: a cable can only go from slack to taut. */
-const SLACK = { plug: 1.32, tether: 1.08 };
+const SLACK = { plug: 1.32, tether: 1.18 };
 
 /**
  * The whole drawing at one moment. `growth` and `strain` 0 to 1; `pulse` the breathing (a small
@@ -253,7 +253,14 @@ export function cable(from, to, length) {
   const sag = Math.sqrt((3 * d * extra) / 8);
   const mx = (from[0] + to[0]) / 2;
   const my = (from[1] + to[1]) / 2;
-  return { from, to, control: [mx, my + 2 * sag], sag, over: Math.max(0, d / length - 1), length };
+  // It bows across its own line, toward the ground (a cable hanging straight down bows aside).
+  let px = -(to[1] - from[1]) / d;
+  let py = (to[0] - from[0]) / d;
+  if (py < 0 || (Math.abs(py) < 1e-9 && px < 0)) {
+    px = -px;
+    py = -py;
+  }
+  return { from, to, control: [mx + px * 2 * sag, my + py * 2 * sag], sag, over: Math.max(0, d / length - 1), length };
 }
 
 /**
@@ -356,8 +363,9 @@ export function burstShape(spec, t) {
       y = floor;
       landed = true;
     }
-    const minX = FRAME.left + FRAME.band + size;
-    const maxX = FRAME.right - FRAME.band - size;
+    // Clear of the frame's chamfered corners.
+    const minX = FRAME.left + FRAME.chamfer + size;
+    const maxX = FRAME.right - FRAME.chamfer - size;
     // The time it lands: from then it stays where it fell.
     const tl = (-vy + Math.sqrt(vy * vy + 2 * gravity * (floor - cy))) / gravity;
     if (landed) x = cx + vx * tl;

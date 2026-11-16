@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#14100d">
+  <meta name="color-scheme" content="dark">
+  <meta name="description" content="Hot Potato: a word chain by voice around one phone. Say a word in the category that starts with the last letter of the one before, and keep the potato alive.">
+  <title>Hot Potato</title>
+  <link rel="icon" href="/icons/icon-192.png">
+  <link rel="preload" href="fonts/lilita-one-latin-400-normal.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="style.css">
+  <script type="module" src="app.js"></script>
+</head>
+<body>
+<div class="game" id="game" data-screen="start" data-phase="idle">
+  <div class="gi">
+    <!-- Top: the title, the round's state, or who it burst on -->
+    <div class="top">
+      <div class="v v-start">
+        <p class="kicker"><a href="/" class="home">n8games</a> · one device</p>
+        <h1 class="logo">Hot Potato</h1>
+        <p class="lede">Keep the potato alive. Say a word in the category that starts with the last letter of the word before, then pass it on.</p>
+      </div>
+      <div class="v v-turn turnhead">
+        <div class="bar">
+          <span class="life" id="g-life" role="img" aria-label="5 lives left"><i></i><i></i><i></i><i></i><i></i></span>
+          <span class="lifelbl" id="g-left">5 lives</span>
+          <button type="button" class="ibtn" id="g-sound" aria-pressed="false" aria-label="Sound">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z"/><path class="on" d="M15.5 9a4.2 4.2 0 0 1 0 6M18 6.5a7.6 7.6 0 0 1 0 11"/><path class="off" d="M16 9.5l5 5M21 9.5l-5 5"/></svg>
+          </button>
+          <button type="button" class="ibtn" id="g-pause" aria-label="Pause" aria-keyshortcuts="Escape">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 5.5v13M15 5.5v13"/></svg>
+          </button>
+        </div>
+        <p class="holder"><b id="g-holder">Player 1</b><span class="sub">is holding it</span></p>
+        <p class="after" id="g-after">Cities: any city to start</p>
+        <div class="tag" id="g-tag" role="img" aria-label="Any letter"><span id="g-letter">Any</span></div>
+        <div class="fuse" id="g-fuse" aria-hidden="true">
+          <div class="wire"><div class="track"><i class="ash"></i><i class="cable"></i><i class="spark"></i></div></div>
+        </div>
+      </div>
+      <div class="v v-end">
+        <p class="kicker">It burst on</p>
+        <h1 class="logo" id="e-who">Player 1</h1>
+        <p class="lede" id="e-stats"></p>
+      </div>
+    </div>
+
+    <!-- The potato (drawn by art.js) -->
+    <div class="pot" id="pot"></div>
+
+    <!-- Bottom: the setup, the turn's controls, or the chain -->
+    <div class="bot">
+      <form class="v v-start setup" id="setup">
+        <fieldset class="field">
+          <legend class="flabel">Category</legend>
+          <div class="chips" id="s-cats"></div>
+        </fieldset>
+        <div class="setrow">
+          <div class="field">
+            <span class="flabel" id="s-players">Players</span>
+            <div class="stepper" role="group" aria-labelledby="s-players">
+              <button type="button" class="cap" id="s-minus" aria-label="One player fewer">−</button>
+              <output id="s-n" aria-live="polite">4</output>
+              <button type="button" class="cap" id="s-plus" aria-label="One more player">+</button>
+            </div>
+          </div>
+          <div class="field toggles">
+            <span class="flabel">Feel</span>
+            <div class="tg">
+              <button type="button" class="cap tog" id="s-sound" aria-pressed="false">Sound</button>
+              <button type="button" class="cap tog" id="s-buzz" aria-pressed="true">Buzz</button>
+            </div>
+          </div>
+        </div>
+        <p class="note" id="s-note" hidden></p>
+        <button type="submit" class="go" id="s-start"><span class="plate">Start</span></button>
+      </form>
+
+      <div class="v v-turn bot-turn">
+        <p class="status" id="g-status" aria-live="polite"></p>
+        <p class="heard" id="g-heard" aria-live="polite"></p>
+        <div class="acts">
+          <button type="button" class="cap appeal" id="g-appeal" hidden>That was right</button>
+          <button type="button" class="go" id="g-go" aria-keyshortcuts="Space Enter"><span class="plate" id="g-go-text">Start</span></button>
+          <form class="typed" id="g-typed" hidden autocomplete="off">
+            <label class="sr" for="g-word">Your word</label>
+            <input id="g-word" name="word" type="text" inputmode="text" autocapitalize="words" autocomplete="off" spellcheck="false" enterkeyhint="send" placeholder="Type your word">
+            <button type="submit" class="cap" id="g-send">Say it</button>
+          </form>
+          <button type="button" class="cap ghost" id="g-type" hidden>Type it instead</button>
+        </div>
+      </div>
+
+      <div class="v v-end bot-end">
+        <ol class="chain" id="e-chain" aria-label="The chain of words"></ol>
+        <div class="endbtns">
+          <button type="button" class="go" id="e-again"><span class="plate">Play again</span></button>
+          <button type="button" class="cap" id="e-setup">Change setup</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="paused" id="g-paused" hidden>
+    <div class="pbox" role="dialog" aria-modal="true" aria-labelledby="p-title">
+      <h2 id="p-title">Paused</h2>
+      <p class="pnote">The fuse waits until you go on.</p>
+      <button type="button" class="go" id="p-resume"><span class="plate">Go on</span></button>
+      <div class="tg">
+        <button type="button" class="cap tog" id="p-sound" aria-pressed="false">Sound</button>
+        <button type="button" class="cap tog" id="p-buzz" aria-pressed="true">Buzz</button>
+      </div>
+      <button type="button" class="cap ghost" id="p-quit">End this round</button>
+    </div>
+  </div>
+</div>
+</body>
+</html>

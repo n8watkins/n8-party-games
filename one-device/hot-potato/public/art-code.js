@@ -137,13 +137,23 @@ export function createCodePotato(host, { seed = 7, reducedMotion = () => false }
   const tether = el(svg, "path", { fill: "none", stroke: "#4b78c2", "stroke-width": "5", "stroke-linecap": "round" });
 
   // Steam puffs (getting worse) and the burst.
+  // Steam: three clouds, each three overlapping billows drawn as one shape (an ink layer under a
+  // white layer), rising one after another from different places.
   const steam = el(svg, "g", { class: "steam" });
-  const puffs = Array.from({ length: 9 }, () => el(steam, "circle", { fill: "#f4efe6", stroke: INK, "stroke-width": "3.5" }));
+  const steamInk = el(steam, "g", { fill: INK });
+  const steamFill = el(steam, "g", { fill: "#f4efe6" });
+  const puffs = Array.from({ length: 9 }, () => ({ ink: el(steamInk, "circle"), fill: el(steamFill, "circle") }));
+  const BILLOWS = [
+    [-0.7, 0.15, 0.75],
+    [0.55, 0.05, 0.85],
+    [0, -0.45, 1],
+  ];
   const boom = el(svg, "g", { class: "boom" });
   const flash = el(boom, "circle", { cx: 200, cy: 200, fill: "#fff6d6" });
-  const splatOuter = el(boom, "polygon", { fill: INK });
-  const splatMid = el(boom, "polygon", { fill: CIRCUIT });
-  const splatCore = el(boom, "polygon", { fill: "#ffd23f", stroke: INK, "stroke-width": "5", "stroke-linejoin": "round" });
+  const splat = el(boom, "g");
+  const splatOuter = el(splat, "polygon", { fill: INK });
+  const splatMid = el(splat, "polygon", { fill: CIRCUIT });
+  const splatCore = el(splat, "polygon", { fill: "#ffd23f", stroke: INK, "stroke-width": "5", "stroke-linejoin": "round" });
   const pile = el(boom, "path", { fill: "#f3dc9a", stroke: INK, "stroke-width": "6", "stroke-linejoin": "round" });
   const pileFlecks = el(boom, "path", { fill: "none", stroke: SKIN_SHADE, "stroke-width": "4", "stroke-linecap": "round" });
   const fallenPlate = el(boom, "g");
@@ -286,20 +296,26 @@ export function createCodePotato(host, { seed = 7, reducedMotion = () => false }
     set(wash, { cx: f(shape.plate.x), cy: f(shape.plate.y), r: f(95 + 40 * flare), opacity: f(0.08 + 0.08 * blink + 0.15 * flare) });
     // Steam, when it gets worse.
     const st2 = t - steamAt;
-    if (!reduce && st2 >= 0 && st2 < 1.2) {
+    if (!reduce && st2 >= 0 && st2 < 1.5) {
       const top = shape.box.top;
+      // From the left plug, the top right and the plate's edge, each a moment after the last.
       const sources = [
-        [shape.cx - shape.rx * 0.45, top + shape.ry * 0.25],
-        [shape.cx + shape.rx * 0.3, top + shape.ry * 0.12],
-        [shape.cables[0].plug[0] - 8, shape.cables[0].plug[1] - 10],
+        [shape.cables[0].plug[0] - 6, shape.cables[0].plug[1] - 16, 0, -1],
+        [shape.cx + shape.rx * 0.32, top + shape.ry * 0.18, 0.14, 1],
+        [shape.plate.x + shape.plate.w / 2, shape.plate.y - shape.plate.h / 2, 0.28, 1],
       ];
       puffs.forEach((p, i) => {
-        const [sx, sy] = sources[i % 3];
-        const k = clamp01((st2 - (i / 3 | 0) * 0.08) / 1.1);
-        const drift = (i % 3) - 1;
-        set(p, { cx: f(sx + drift * 10 * k + ((i / 3) | 0) * 6), cy: f(sy - 10 - 70 * k - ((i / 3) | 0) * 8), r: f(5 + 15 * Math.sqrt(k)), opacity: f(k > 0 ? (1 - k) * 0.95 : 0) });
+        const [sx, sy, delay, lean] = sources[(i / 3) | 0];
+        const [bx, by, bs] = BILLOWS[i % 3];
+        const k = clamp01((st2 - delay) / 1.1);
+        const r = (11 + 15 * Math.sqrt(k)) * bs;
+        const cx = sx + lean * 26 * k + bx * r;
+        const cy = sy - 12 - 74 * k + by * r;
+        const show = k > 0 && k < 1;
+        set(p.ink, { cx: f(cx), cy: f(cy), r: f(show ? r + 3.5 : 0) });
+        set(p.fill, { cx: f(cx), cy: f(cy), r: f(show ? r : 0) });
       });
-      set(steam, { visibility: "visible" });
+      set(steam, { visibility: "visible", opacity: f(clamp01(1.25 - st2 / 1.2)) });
     } else set(steam, { visibility: "hidden" });
   }
 
@@ -319,9 +335,10 @@ export function createCodePotato(host, { seed = 7, reducedMotion = () => false }
     set(legsInk, { d: legPath });
     set(legs, { d: legPath });
     set(flash, { r: f(b.flash.r), opacity: f(b.flash.opacity) });
-    set(splatOuter, { points: scaled(SPLAT[0], b.splat.scale, 200, 205), opacity: f(b.splat.opacity) });
-    set(splatMid, { points: scaled(SPLAT[1], b.splat.scale, 200, 205), opacity: f(b.splat.opacity) });
-    set(splatCore, { points: scaled(SPLAT[2], b.splat.scale, 200, 205), opacity: f(b.splat.opacity) });
+    set(splat, { opacity: f(b.splat.opacity) });
+    set(splatOuter, { points: scaled(SPLAT[0], b.splat.scale, 200, 205) });
+    set(splatMid, { points: scaled(SPLAT[1], b.splat.scale, 200, 205) });
+    set(splatCore, { points: scaled(SPLAT[2], b.splat.scale, 200, 205) });
     set(pile, { d: smoothPath(b.pile), opacity: f(b.pileShown) });
     const fl = [];
     for (let i = 0; i < 7; i++) {
