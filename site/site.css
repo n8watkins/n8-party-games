@@ -1294,6 +1294,10 @@ body[data-sheet="open"] .detail {
   .sheet-back {
     display: none;
   }
+  /* On a TV the card's picture stays a picture, not the whole screen, so the steps and the button show. */
+  .d-art {
+    max-height: 34vh;
+  }
 }
 
 /* ---------- Made in the open: the one quiet explaining strip ---------- */
