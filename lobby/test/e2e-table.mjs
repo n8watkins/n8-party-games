@@ -6,9 +6,10 @@
 // test game shows only on Ann's page, whose address has #dev. Ann picks Count to ten: every page
 // sees it starting, then becomes the game. They play it in turns; Bo's page reloads mid-game and
 // comes back to the game with his own secret word. Nobody's page ever shows another's word. When
-// someone says ten, all three are back at the Table with the result. Along the way: stills at
-// 390x844, nothing scrolls sideways, every tap target is at least 44 pixels, and no page logs an
-// error.
+// someone says ten, all three are back at the Table with the result. Then five more join (eight
+// of eight): the big screen fits everyone with nothing to scroll at 1280x720 and 1920x1080 and
+// shows no code, and an upright phone lists the games above who is here. Along the way: stills,
+// nothing scrolls sideways, every tap target is at least 44 pixels, and no page logs an error.
 import { mkdirSync } from "node:fs";
 import { resolve } from "node:path";
 import { chromium } from "playwright";
