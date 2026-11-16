@@ -23,14 +23,23 @@
 //   lobby/test/browser.mjs, and takes little CPU): every step gets a local Worker of its own, on
 //   its own port (PREDEPLOY_PORT, +2, +3; a free one if that is taken) with its own empty
 //   storage folder, because test:cork reads the server-wide room budget and must be alone on
-//   its server, and test:room writes to a score board. Each step's output is kept and printed
-//   whole when the step ends; the first failure stops the others. PREDEPLOY_SEQUENTIAL=1 keeps
-//   the steps one after another on the card too.
+//   its server, and test:room writes to a score board. The unit tests run first, alone; then
+//   the Workers start one at a time (each start-up rebuilds dist/public, which they all serve),
+//   then the steps run together. Each step's output is kept and printed whole when the step
+//   ends; the first failure stops the others. PREDEPLOY_SEQUENTIAL=1 keeps the steps one after
+//   another on the card too.
+//
+// One gate at a time on this machine: a gate holds the flock on
+// $TMPDIR/n8-party-games-predeploy.lock while it runs, and a second one waits for it and says
+// so, instead of both choosing the same free port or the same 8853. A Worker counts as up only
+// when its own wrangler has said "Ready on" its port, so a server something else started on that
+// port (between the gate's check and wrangler's bind) makes the gate fail, never test the wrong
+// server.
 //
 // The scripts get this process's environment unchanged, so TEST_GPU=1 and TEST_NO_GPU=1 reach
 // them as they were set. GitHub's runners have no card and set neither.
 import { spawn } from "node:child_process";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -73,6 +82,84 @@ const run = (cmd, args) =>
   });
 
 /**
+ * Holds the machine-wide gate lock for the life of this process, waiting (and saying so) while
+ * another gate holds it. The lock is a kernel flock held by a small child (flock ... cat) that
+ * reads this process's stdin pipe, so it is released however this process ends. Without flock
+ * (not on Linux) the gate runs without it and says so.
+ */
+async function holdGateLock() {
+  const file = join(tmpdir(), "n8-party-games-predeploy.lock");
+  const take = (wait) =>
+    new Promise((resolve) => {
+      const args = [...(wait ? [] : ["-n"]), file, "sh", "-c", "echo held; exec cat >/dev/null"];
+      const holder = spawn("flock", args, { stdio: ["pipe", "pipe", "ignore"] });
+      holder.stdin.on("error", () => {});
+      const gone = () => holder.exitCode === null && holder.signalCode === null && holder.kill();
+      process.on("exit", gone); // a gate given up while waiting leaves no waiting flock behind
+      holder.stdout.once("data", () => {
+        process.off("exit", gone);
+        holder.unref();
+        holder.stdin.unref?.();
+        holder.stdout.unref?.();
+        resolve("held");
+      });
+      holder.once("exit", () => {
+        process.off("exit", gone);
+        resolve("taken");
+      });
+      holder.once("error", (e) => resolve(e.code === "ENOENT" ? "no flock" : "taken"));
+    });
+  let got = await take(false);
+  if (got === "taken") {
+    let who = "";
+    try {
+      who = readFileSync(file, "utf8").trim();
+    } catch {}
+    console.log(`Another pre-deploy gate is running on this machine${who ? ` (${who})` : ""}; waiting for it to finish (Ctrl-C gives up).`);
+    const t = Date.now();
+    got = await take(true);
+    if (got === "held") console.log(`The other gate has finished; this one starts after waiting ${seconds(t)} s.`);
+  }
+  if (got === "no flock") return console.log("(no flock on this machine: nothing stops a second gate from running at the same time)");
+  if (got !== "held") throw new Error("could not take the gate lock " + file);
+  try {
+    writeFileSync(file, `process ${process.pid} in ${process.cwd()}, since ${new Date().toISOString()}\n`);
+  } catch {}
+}
+
+/** Whether anything of the process group `pgid` is still running. */
+function groupAlive(pgid) {
+  try {
+    process.kill(-pgid, 0);
+    return true;
+  } catch (e) {
+    return e.code === "EPERM";
+  }
+}
+
+/**
+ * Stops a whole process group: a SIGTERM first, then a SIGKILL for whatever is left after
+ * `grace` ms. Resolves once nothing of the group is left (or two seconds after the SIGKILL).
+ * The group is signalled even when its leader has exited, so a child it left behind (wrangler's
+ * workerd, a test script's browser) is stopped too.
+ */
+async function stopGroup(pgid, grace = 5000) {
+  const waitGone = async (ms) => {
+    for (const until = Date.now() + ms; groupAlive(pgid) && Date.now() < until; ) await new Promise((r) => setTimeout(r, 100));
+  };
+  if (!groupAlive(pgid)) return;
+  try {
+    process.kill(-pgid, "SIGTERM");
+  } catch {}
+  await waitGone(grace);
+  if (groupAlive(pgid))
+    try {
+      process.kill(-pgid, "SIGKILL");
+    } catch {}
+  await waitGone(2000);
+}
+
+/**
  * A local Worker on `port`, in its own process group so it can be stopped whole. With
  * `persist`, its Durable Objects live in that folder instead of the repo's .wrangler/state.
  * With `quiet`, its output is kept (the last lines) instead of printed.
@@ -81,38 +168,37 @@ function startWorker(port, { persist = null, quiet = false } = {}) {
   const args = ["wrangler", "dev", "--local", "--env", "local", "--port", String(port)];
   if (persist) args.push("--persist-to", persist);
   const child = spawn("npx", args, {
-    stdio: ["ignore", quiet ? "pipe" : "inherit", quiet ? "pipe" : "inherit"],
+    stdio: ["ignore", "pipe", "pipe"],
     detached: true,
     env: { ...process.env, WRANGLER_SEND_METRICS: "false", CI: "1" },
   });
   let log = "";
-  const keep = (d) => (log = (log + d).slice(-20000));
-  child.stdout?.on("data", keep);
-  child.stderr?.on("data", keep);
+  // Wrangler's own word that it listens on this port: a server something else started there
+  // also answers the config request, and must not pass for this one.
+  const readyLine = new RegExp(`Ready on https?://[^\\s]*:${port}\\b`);
+  let said = false;
+  const keep = (to) => (d) => {
+    log = (log + d).slice(-20000);
+    said ||= readyLine.test(log);
+    if (!quiet) to.write(d);
+  };
+  child.stdout.on("data", keep(process.stdout));
+  child.stderr.on("data", keep(process.stderr));
   let died = false;
-  const exited = new Promise((resolve) => child.on("exit", () => ((died = true), resolve())));
+  child.on("exit", () => (died = true));
   const base = `http://localhost:${port}`;
   return {
     base,
-    get died() {
-      return died;
-    },
     log: () => log,
     async ready() {
       for (let i = 0; i < 180 && !died; i++) {
-        if (await fetch(base + "/api/party/config").then((r) => r.ok, () => false)) return true;
+        if (said && (await fetch(base + "/api/party/config").then((r) => r.ok, () => false))) return !died;
         await new Promise((r) => setTimeout(r, 1000));
       }
       return false;
     },
-    /** Stops the whole process group; resolves once it has gone (or after five seconds). */
-    stop() {
-      if (died) return Promise.resolve();
-      try {
-        process.kill(-child.pid, "SIGTERM");
-      } catch {}
-      return Promise.race([exited, new Promise((r) => setTimeout(r, 5000).unref())]);
-    },
+    /** Stops the whole process group, workerd included, even once npx itself has exited. */
+    stop: () => stopGroup(child.pid),
   };
 }
 
@@ -171,36 +257,35 @@ async function oneAfterAnother() {
 
 /** Side by side, each step against a local Worker of its own (TEST_GPU=1 only). */
 async function sideBySideSteps() {
-  // The Workers start while the unit tests run. One at a time: each runs the site's build
-  // (scripts/build-public.mjs), which empties dist/public and fills it again, so two starting
-  // at once could serve a half-built folder.
-  const workers = [];
-  const starting = (async () => {
-    const offsets = [0, 2, 3];
-    for (let i = 0; i < STEPS.length; i++) {
-      const p = await freePort(port + offsets[i]);
-      const persist = mkdtempSync(join(tmpdir(), `predeploy-${p}-`));
-      const worker = startWorker(p, { persist, quiet: true });
-      cleanups.push(async () => {
-        await worker.stop();
-        rmSync(persist, { recursive: true, force: true });
-      });
-      workers.push(worker);
-      if (!(await worker.ready())) return `the local Worker did not come up on ${worker.base}:\n${worker.log().split("\n").slice(-20).join("\n")}`;
-    }
-    return null;
-  })();
-
+  // The unit tests first, alone: they are timed (card-slots.test.js) and must not share the CPU
+  // with three Worker start-ups, and nothing a test does should ever meet a Worker's build.
   const started = Date.now();
   const code = await run(npm, ["test"]);
   results.push({ name: "unit tests (npm test)", status: code === 0 ? "ok" : "FAIL", seconds: seconds(started) });
-  const startError = await starting;
   if (code !== 0) return;
-  if (startError) {
-    console.log(startError);
-    results.push({ name: "start local Workers", status: "FAIL", seconds: 0 });
-    return;
+
+  // Then the Workers, one at a time: each runs the site's build (scripts/build-public.mjs),
+  // which empties dist/public and fills it again, so two starting at once could serve a
+  // half-built folder.
+  const workers = [];
+  const begun = Date.now();
+  const offsets = [0, 2, 3];
+  for (let i = 0; i < STEPS.length; i++) {
+    const p = await freePort(port + offsets[i]);
+    const persist = mkdtempSync(join(tmpdir(), `predeploy-${p}-`));
+    const worker = startWorker(p, { persist, quiet: true });
+    cleanups.push(async () => {
+      await worker.stop();
+      rmSync(persist, { recursive: true, force: true });
+    });
+    workers.push(worker);
+    if (!(await worker.ready())) {
+      console.log(`The local Worker did not come up on ${worker.base}:\n${worker.log().split("\n").slice(-20).join("\n")}`);
+      results.push({ name: "start local Workers", status: "FAIL", seconds: seconds(begun) });
+      return;
+    }
   }
+  results.push({ name: "start local Workers", status: "ok", seconds: seconds(begun) });
 
   console.log("\nStarted side by side:");
   STEPS.forEach(([name], i) => console.log(`  ${name} against ${workers[i].base}`));
@@ -219,7 +304,12 @@ async function sideBySideSteps() {
     child.stderr.on("data", keep);
     const step = { name, child, stopped: false };
     step.done = new Promise((resolve) => {
+      let ended = false;
+      let drainLimit = null;
       const finish = (code) => {
+        if (ended) return;
+        ended = true;
+        clearTimeout(drainLimit);
         const status = step.stopped ? "stopped" : code === 0 ? "ok" : "FAIL";
         const r = { name, status, seconds: seconds(t) };
         results.push(r);
@@ -235,7 +325,14 @@ async function sideBySideSteps() {
         }
         resolve();
       };
-      child.on("exit", (code) => finish(code ?? 1));
+      // The output is printed once both pipes have drained ("close"), not at "exit": the e2e
+      // scripts print their list of problems last, and those lines may still be in the pipe
+      // when the process exits. A process the step left running that holds the pipes open
+      // could delay "close" for good, so five seconds after the exit the step ends anyway.
+      child.on("close", (code) => finish(code ?? 1));
+      child.on("exit", (code) => {
+        drainLimit = setTimeout(() => finish(code ?? 1), 5000);
+      });
       child.on("error", () => finish(1));
     });
     cleanups.push(() => stopStep(step));
@@ -255,32 +352,13 @@ async function sideBySideSteps() {
  * Resolves once nothing of the group is left.
  */
 async function stopStep(step) {
-  const group = -step.child.pid;
-  const alive = () => {
-    try {
-      process.kill(group, 0);
-      return true;
-    } catch {
-      return false;
-    }
-  };
-  if (!alive()) return;
+  if (!groupAlive(step.child.pid)) return;
   if (step.child.exitCode === null && step.child.signalCode === null) step.stopped = true;
-  const waitGone = async (ms) => {
-    for (const until = Date.now() + ms; alive() && Date.now() < until; ) await new Promise((r) => setTimeout(r, 100));
-  };
-  try {
-    process.kill(group, "SIGTERM");
-  } catch {}
-  await waitGone(5000);
-  if (alive())
-    try {
-      process.kill(group, "SIGKILL");
-    } catch {}
-  await waitGone(2000);
+  await stopGroup(step.child.pid);
 }
 
 try {
+  await holdGateLock();
   await (sideBySide ? sideBySideSteps() : oneAfterAnother());
 } finally {
   await cleanUp();

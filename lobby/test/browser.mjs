@@ -107,9 +107,11 @@ export const DEFAULT_CARD_SLOTS = 4;
  * first GPU browser and keeps it until it exits; others wait their turn, first come first
  * served, and say how many are ahead of them. The lock is a kernel flock held by a small child
  * (flock ... cat) that reads this process's stdin pipe: when this process ends, however it ends,
- * the pipe closes and the lock is released. Other GPU work can wait for, or hold, a slot:
- *   flock /tmp/test-gpu-1.lock <command>
- * and gpu-run's heavy jobs (renders, models) hold every slot, so no test draws beside them.
+ * the pipe closes and the lock is released.
+ *
+ * A plain `flock /tmp/test-gpu-1.lock <command>` holds one slot of the four, not the card: up to
+ * three tests still draw beside it. Work that needs the card to itself (a render, an image or
+ * language model) runs through `gpu-run --kind blender|image|model`, which holds every slot.
  */
 const LOCK_DIR = process.env.TEST_GPU_LOCK_DIR || "/tmp"; // another folder only for the helper's own tests
 let cardHeld = null;
