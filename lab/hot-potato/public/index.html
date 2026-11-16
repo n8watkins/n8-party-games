@@ -14,8 +14,13 @@
     <section class="play" aria-label="Play">
       <header class="top">
         <h1>Hot Potato hearing test</h1>
-        <p class="sub">Can this device hear a city well enough to play? Say a city; the next one starts with its last letter.</p>
+        <p class="sub">Can this device hear the words well enough to play? Say one from the category; the next one starts with its last letter.</p>
       </header>
+
+      <div class="category">
+        <label class="pick"><span>Category</span><select id="category"></select></label>
+        <p id="deadNote" class="hint dead" hidden></p>
+      </div>
 
       <div id="noRecognition" class="notice bad" hidden>
         <strong>This browser has no speech recognition.</strong>
@@ -31,7 +36,7 @@
       </div>
 
       <div class="chain">
-        <p id="need" class="need">Say any city to start</p>
+        <p id="need" class="need">&nbsp;</p>
         <p id="chainLine" class="chainline"></p>
       </div>
 
@@ -49,8 +54,8 @@
       <div class="settings">
         <label class="switch"><input id="handsFree" type="checkbox"><span>Hands-free: listen again after each answer</span></label>
         <label class="switch"><input id="sounds" type="checkbox" checked><span>Sounds (ding and buzz)</span></label>
-        <label class="switch"><input id="hard" type="checkbox"><span>Hard mode: any town over 15,000 people <small>(off: well-known places only)</small></span></label>
-        <label class="switch"><input id="early" type="checkbox"><span>Answer early: take a well-known city before the final result <small>(off: wait for the final result, which is more reliable)</small></span></label>
+        <label class="switch"><input id="hard" type="checkbox"><span><span id="hardText">Hard mode</span> <small id="hardNote"></small></span></label>
+        <label class="switch"><input id="early" type="checkbox"><span>Answer early: take a well-known answer before the final result <small>(off: wait for the final result, which is more reliable)</small></span></label>
         <label class="pick"><span>Language</span>
           <select id="lang">
             <option value="en-US">English (US)</option>
@@ -71,7 +76,7 @@
         <h2>Five minutes: four things to try</h2>
         <p class="hint">Pick the one you are doing now, so each turn is tagged with it. Tick it when done.</p>
         <ol id="checklist" class="checklist">
-          <li><input type="checkbox" aria-label="Done"><button type="button" data-scenario="1">Quiet room, close to the microphone, ten cities <span class="count"></span></button></li>
+          <li><input type="checkbox" aria-label="Done"><button type="button" data-scenario="1">Quiet room, close to the microphone, ten answers <span class="count"></span></button></li>
           <li><input type="checkbox" aria-label="Done"><button type="button" data-scenario="2">Further away: across the desk or the table, or passing the device around <span class="count"></span></button></li>
           <li><input type="checkbox" aria-label="Done"><button type="button" data-scenario="3">Same, with music or chatter <span class="count"></span></button></li>
           <li><input type="checkbox" aria-label="Done"><button type="button" data-scenario="4">Sounds on, then sounds off (the Sounds switch) <span class="count"></span></button></li>
@@ -88,27 +93,30 @@
 
       <div class="card">
         <h2>Turns</h2>
-        <p class="hint">Newest first. "It misheard me" when the words shown are not what you said; "That was a real city" or "That was wrong" when the words were right but the verdict was not.</p>
+        <p class="hint">Newest first. "It misheard me" when the words shown are not what you said; "That was a real ..." or "That was wrong" when the words were right but the verdict was not.</p>
         <ol id="log" class="log"></ol>
       </div>
 
       <div class="card small-print">
-        <h2>How words are checked (rules m2)</h2>
+        <h2>How words are checked (rules m3)</h2>
         <ul class="rules">
-          <li><strong>The whole phrase decides.</strong> After accents, capitals, punctuation and a few fillers ("um", "how about", "please") are dropped, what was heard must be a name of the place, all of it: "Leopold" is not L&eacute;o, "Edmonton" is not Edmond.</li>
+          <li><strong>Categories.</strong> Cities, countries, animals, food and drink, or anything (any ordinary English word). Each has its own list; the rules below are the same for all of them. Changing the category starts a new game.</li>
+          <li><strong>The whole phrase decides.</strong> After accents, capitals, punctuation and a few fillers ("um", "how about", "please") are dropped, what was heard must be a name on the list, all of it: "Leopold" is not L&eacute;o, "Edmonton" is not Edmond, "sea lion" is not lion.</li>
+          <li><strong>Plurals count</strong> for animals, food and drink, and words: "tomatoes" is tomato and "wolves" is wolf. The page says which entry it took, and the chain goes on from that entry (tomato needs an O).</li>
           <li><strong>Only believable guesses count.</strong> The recogniser offers several guesses with how sure it is of each. A guess counts if it is at least half as sure as the best one, or is another spelling of a counted guess that sounds the same.</li>
-          <li><strong>Well-known places by default.</strong> Capitals, US, Canadian and Australian state capitals, cities of 100,000 people or more, and a hand list of famous small towns (Venice, Aspen, Cannes). A city whose name is also an ordinary word (Orange, Surprise) needs 250,000 people, a capital or the hand list (Nice, Bath, Cork). Hard mode adds every town over 15,000.</li>
-          <li><strong>Sound-alike only mends spelling.</strong> It fixes the recogniser's spelling of a well-known city ("Sidnee" is Sydney), never a different word: not when the best guess is an ordinary word or a common name ("salmon" is a fish, not Salmas), not for a city named after a word, and only with the same first letter, the same consonants and one letter off (two vowels for longer names).</li>
-          <li><strong>Two places, one name:</strong> the bigger one is named, and the others are mentioned.</li>
-          <li><strong>The final result decides,</strong> about as soon as you stop speaking. With "Answer early" on, an interim result is taken only when it is exactly a well-known city, no longer name starts with it ("Edmond" could still become Edmonton), and it stays the same for 0.3 seconds.</li>
-          <li><strong>The chain:</strong> only the letters A to Z count, so S&atilde;o Paulo runs from S to O and New York ends with K. The chain goes on from the name you said ("NYC" plays as New York City). A place, or a name, said once this game cannot be said again.</li>
+          <li><strong>Well-known entries by default.</strong> Cities: capitals, US, Canadian and Australian state capitals, cities of 100,000 people or more, and a hand list of famous small towns (Venice, Aspen, Cannes); a city whose name is also an ordinary word (Orange, Surprise) needs 250,000 people, a capital or the hand list. Animals, food and drink: the common ones (lion, polar bear, tomato, iced tea). Countries: every country and territory, and England, Scotland, Wales and Northern Ireland. Hard mode adds every town over 15,000, or every animal, food and drink in WordNet.</li>
+          <li><strong>Sound-alike only mends spelling.</strong> It fixes the recogniser's spelling of a well-known name ("Sidnee" is Sydney), never a different word: not when the best guess is an ordinary word or a common name ("salmon" is a fish, not Salmas), not for a name that is itself a word, and only with the same first letter, the same consonants and one letter off (two vowels for longer names). Animals and foods are ordinary words, so it rarely applies there.</li>
+          <li><strong>Two entries, one name:</strong> the bigger or better-known one is named, and the others are mentioned.</li>
+          <li><strong>The final result decides,</strong> about as soon as you stop speaking. With "Answer early" on, an interim result is taken only when it is exactly a well-known name, no longer name starts with it ("Edmond" could still become Edmonton, "cat" catfish), and it stays the same for 0.3 seconds; for cities, never a name that is also an ordinary word.</li>
+          <li><strong>The chain:</strong> only the letters A to Z count, so S&atilde;o Paulo runs from S to O and New York ends with K. The chain goes on from the name you said ("NYC" plays as New York City). A name, or the thing it names, said once this game cannot be said again.</li>
+          <li><strong>Dead ends:</strong> when fewer than three entries not yet said start with the last letter, the chain goes on from the letter before it. Few animals start with Y, so after monkey the next animal starts with E; few countries start with O, so after Mexico the next starts with C. The page names the dead ends of the chosen category.</li>
         </ul>
         <h2>Privacy</h2>
         <p>The microphone is used only while a turn is listening. This page stores and sends nothing. The browser's speech recognition may send the audio to its maker's servers (Google in Chrome, Microsoft in Edge, Apple in Safari) to turn it into text. The report names the kind of device and microphone, never the device's own name.</p>
         <p id="caps" class="caps"></p>
       </div>
 
-      <footer class="credit">City names from <a href="https://www.geonames.org/" rel="noopener">GeoNames</a> (CC BY 4.0); word lists from FrequencyWords (CC BY-SA 4.0), SCOWL and the US Census (<a href="CREDITS.txt">details</a>). A throwaway test page.</footer>
+      <footer class="credit">City and country names from <a href="https://www.geonames.org/" rel="noopener">GeoNames</a> (CC BY 4.0); animals, food and drink from <a href="https://en-word.net/" rel="noopener">Open English WordNet</a> (CC BY 4.0); word lists from FrequencyWords (CC BY-SA 4.0), SCOWL and the US Census (<a href="CREDITS.txt">details</a>). A throwaway test page.</footer>
     </section>
   </main>
 </body>

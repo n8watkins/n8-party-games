@@ -269,6 +269,11 @@ kbd {
   background: var(--card);
 }
 .switch small { color: var(--muted); font-size: 0.85em; }
+.switch:has(input:disabled) { cursor: default; color: var(--muted); }
+.category { display: grid; gap: 4px; min-width: 0; }
+.category .pick span { font-weight: 600; }
+.category .pick select { font-weight: 600; }
+.dead { padding: 0 4px; }
 .mic { display: grid; gap: 4px; }
 .mic .hint { padding: 0 4px; }
 .rules { margin: 0; padding-left: 1.1em; display: grid; gap: 6px; font-size: 0.9rem; color: var(--muted); }

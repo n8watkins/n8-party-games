@@ -123,10 +123,13 @@ def pick(name, under):
 def wordnet_category(key, roots, stops, groups, drop, add, lexfile):
     tree = below(roots, set(stops))
     # An add-list name WordNet files elsewhere in the same lexicographer file ("milk shake" under
-    # a serving of drink, "olive oil" under oils) brings its own synset in.
-    for n in add:
+    # a serving of drink, "olive oil" under oils) brings its own synset in; "name|lexfile" names
+    # another file ("nut|noun.plant": WordNet's nuts are plant parts).
+    wanted = [a.split("|") + [lexfile] for a in add]
+    for n, lex, *_ in wanted:
         if not any(sid in tree for sid in senses.get(n, [])):
-            tree.update(sid for sid in senses.get(n, []) if synsets.get(sid, {}).get("lex") == lexfile)
+            tree.update(sid for sid in senses.get(n, []) if synsets.get(sid, {}).get("lex") == lex)
+    add = [a.split("|")[0] for a in add]
     # Each synset's group: the first group in the list whose head is above it, so a drink made
     # from tea leaves is a drink, not a seasoning.
     labels = list(dict.fromkeys(label for label, _ in groups))
@@ -299,8 +302,8 @@ for line in open(os.path.join(src, "alternateNamesV2.txt"), encoding="utf-8"):
     if not letters(name) or "(" in name or "," in name:
         continue
     # Formal names ("Republic of Turkey", "Union of Burma") are not what anyone says in a game,
-    # and would make R and K look like easy letters.
-    if f[2] == "en" and FORMAL.search(name) or name in country_drop:
+    # and would make R and K look like easy letters. "Czech Republic" is said, and stays.
+    if f[2] == "en" and FORMAL.search(name) and " of " in name or name in country_drop:
         continue
     c = by_id[f[1]]
     if f[2] == "abbr":

@@ -1,12 +1,14 @@
 # Well-known foods and drinks the frequency rule misses: single words whose food sense comes
 # late in WordNet ("date" is first a day there), and well-known names of two or three words.
-# Every name here must be a WordNet food or drink name.
+# Every name here must be a WordNet food or drink name; "name|lexfile" takes a name WordNet files
+# elsewhere ("nut" is a plant part there).
 # One per line; read by tools/make-categories.py.
 
 date
 lamb
 lime
 mushroom
+nut|noun.plant
 olive
 peanut
 pepper
