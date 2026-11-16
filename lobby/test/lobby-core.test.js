@@ -595,6 +595,111 @@ describe("a decided match and a player who leaves before the card", () => {
   });
 });
 
+describe("a hidden page's grace in a turn-based game (the owner's rule: hide and you lose)", () => {
+  const whoAmI = { id: "turns", name: "Who Am I?", players: { min: 2, max: 2 }, devices: { phone: true } };
+  const GRACE = 60_000;
+  const config = (game) => ({ boxes: [boxFromManifest(whoAmI)], games: new Map([["turns", game]]) });
+
+  function matchOf() {
+    const game = turnGame({ firstTo: 3, presence: true, fields: { reconnectGraceMs: GRACE } });
+    const core = new LobbyCore({ ...config(game), seed: 1, code: "BCDFGH", now: 1000 });
+    const tokens = ["Ann", "Bo"].map((n) => seated(core, n).token);
+    expect(core.startGame("turns", 2000)).toMatchObject({ ok: true });
+    core.drainNotes();
+    return { core, game, tokens };
+  }
+
+  it("away on his own turn: the grace end is the room's next wake-up, and at it the match ends with the one who stayed first", () => {
+    const { core, tokens } = matchOf();
+    expect(core.playTurn(0, { say: "?", point: true }, 3000)).toMatchObject({ ok: true });
+    expect(core.setAway(tokens[1], true, 4000)).toBe(true);
+    core.turnUpkeep(4000);
+    expect(core.nextWake(4000)).toBe(4000 + GRACE);
+    expect(core.view(4000).members[1]).toMatchObject({ away: true, awayIn: GRACE });
+    expect(core.view(34_000).members[1].awayIn).toBe(30_000);
+    expect(core.turnUpkeep(4000 + GRACE - 1)).toBeNull();
+    const out = core.turnUpkeep(4000 + GRACE);
+    expect(out.ended.last.rows).toEqual([expect.objectContaining({ seat: 0, name: "Ann", place: 1, points: 3 })]);
+    expect(out.ended.last.early).toMatchObject({ seat: 1, why: "gone", text: "Bo did not come back, so Who Am I? ended." });
+  });
+
+  it("keeps the clock through a sleep: woken, the seat runs out when it would have, not a grace after the wake", () => {
+    const { core, game, tokens } = matchOf();
+    core.setAway(tokens[1], true, 4000);
+    core.turnUpkeep(4000);
+    const woken = LobbyCore.restore(config(game), structuredClone(core.serialize()), 30_000);
+    // The sockets come through the sleep, and Bo's says it is still hidden.
+    for (const token of tokens) woken.resume(token, null);
+    woken.setAway(tokens[1], true, 30_000);
+    expect(woken.turnUpkeep(30_000)).toBeNull();
+    expect(woken.nextWake(30_000)).toBe(4000 + GRACE);
+    expect(woken.view(30_000).members[1].awayIn).toBe(4000 + GRACE - 30_000);
+    expect(woken.turnUpkeep(4000 + GRACE).ended.last.early).toMatchObject({ seat: 1, why: "gone" });
+  });
+
+  it("a socket that did not come through the sleep starts its clock at the wake, as a drop did before", () => {
+    const { core, game, tokens } = matchOf();
+    const woken = LobbyCore.restore(config(game), structuredClone(core.serialize()), 30_000);
+    woken.resume(tokens[0], null);
+    woken.turnUpkeep(30_000);
+    expect(woken.nextWake(30_000)).toBe(30_000 + GRACE);
+  });
+
+  it("a match saved before there were clocks starts them at the first look", () => {
+    const { core, game, tokens } = matchOf();
+    const saved = structuredClone(core.serialize());
+    delete saved.game.clocks;
+    const woken = LobbyCore.restore(config(game), saved, 30_000);
+    for (const token of tokens) woken.resume(token, null);
+    woken.setAway(tokens[1], true, 31_000);
+    expect(woken.view(31_000).members[1].awayIn).toBe(GRACE);
+    expect(woken.turnUpkeep(31_000 + GRACE).ended.last.early).toMatchObject({ seat: 1, why: "gone" });
+  });
+
+  it("a move that changes the game gives the whole grace back, even to a player who was away a moment ago", () => {
+    const { core, tokens } = matchOf();
+    expect(core.playTurn(0, { say: "?" }, 3000)).toMatchObject({ ok: true });
+    core.setAway(tokens[1], true, 4000);
+    core.setAway(tokens[1], false, 54_000);
+    expect(core.playTurn(1, { say: "Am I a bird?" }, 54_000)).toMatchObject({ ok: true, answer: { ok: true } });
+    core.setAway(tokens[1], true, 54_000);
+    expect(core.view(54_000).members[1].awayIn).toBe(GRACE);
+  });
+
+  it("an ok answer that changes nothing (an old command sent again under a fresh id) gives no grace back, so a hidden player cannot stall with it", () => {
+    const { core, game, tokens } = matchOf();
+    // As Who Am I?'s engine does with a commandId it has seen: `ok`, and nothing changes.
+    const input = game.input;
+    game.input = (state, seat, data, now) => (data?.again ? { ok: true, events: [] } : input(state, seat, data, now));
+    core.setAway(tokens[1], true, 4000);
+    core.setAway(tokens[1], false, 54_000);
+    expect(core.playTurn(1, { again: true }, 54_000, "fresh-1")).toMatchObject({ ok: true, answer: { ok: true } });
+    core.setAway(tokens[1], true, 54_000);
+    // 50 s used: 10 s left, not a fresh minute.
+    expect(core.view(54_000).members[1].awayIn).toBe(10_000);
+    expect(core.turnUpkeep(64_000).ended.last.early).toMatchObject({ seat: 1, why: "gone" });
+  });
+
+  it("changes nothing in a real-time game: a hidden page starts no clock and is shown with no time", () => {
+    const core = room();
+    const tokens = ["Ann", "Bo"].map((n) => seated(core, n).token);
+    expect(core.startGame("coin-flip", 2000)).toMatchObject({ ok: true });
+    expect(core.turnGame()).toBeNull();
+    const before = core.nextWake(2500);
+    expect(core.setAway(tokens[1], true, 2500)).toBe(true);
+    expect(core.activity.clocks).toBeUndefined();
+    expect(core.view(2500).members[1]).not.toHaveProperty("awayIn");
+    expect(core.nextWake(2500)).toBe(before);
+  });
+
+  it("nothing in the lobby either", () => {
+    const core = room();
+    const { token } = seated(core, "Ann");
+    core.setAway(token, true, 2000);
+    expect(core.view(2000).members[0]).not.toHaveProperty("awayIn");
+  });
+});
+
 describe("Cork & Bell through the seam", () => {
   const manifest = cork.manifest;
   /** The site's own wall entry for the hosted game, with the game itself. */

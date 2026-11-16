@@ -6,7 +6,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { PartyClient } from "../../party-kit/client/party-client.js";
 import { FakeWebSocket } from "../../party-kit/test/fake-browser-socket.js";
-import { ConnectionWatch, DEAD_AFTER_MS, KEEP_ALIVE_MS, awayLine, turnBased, whenHidden } from "../public/connection.js";
+import { ConnectionWatch, DEAD_AFTER_MS, KEEP_ALIVE_MS, awayLeft, awayLine, awayParts, clockText, turnBased, whenHidden } from "../public/connection.js";
 
 const lobby = { phase: "lobby", game: null, members: [] };
 const turns = { phase: "playing", game: { id: "who-am-i", name: "Who Am I?", round: 1, turns: true }, members: [] };
@@ -271,5 +271,41 @@ describe("awayLine", () => {
     expect(awayLine(["Bo"])).toBe("Bo is away");
     expect(awayLine(["Bo", "Cy"])).toBe("Bo and Cy are away");
     expect(awayLine(["Ann", "Bo", "Cy"])).toBe("Ann, Bo and Cy are away");
+  });
+
+  it("with the room's time left, says what happens then", () => {
+    expect(awayLine(["Bo"], 45_000)).toBe("Bo is away: back within 0:45 or the match ends");
+    expect(awayLine(["Bo", "Cy"], 60_000)).toBe("Bo and Cy are away: back within 1:00 or the match ends");
+    expect(awayLine(["Bo"], null)).toBe("Bo is away");
+    // The page lays it out on two lines.
+    expect(awayParts(["Bo"], 45_000)).toEqual({ who: "Bo is away", left: "back within 0:45 or the match ends" });
+    expect(awayParts(["Bo"])).toEqual({ who: "Bo is away", left: "" });
+    expect(awayParts([], 1000)).toEqual({ who: "", left: "" });
+  });
+});
+
+describe("the time left on the away note", () => {
+  it("is shown to the second, rounded up, and never below 0:00", () => {
+    expect(clockText(60_000)).toBe("1:00");
+    expect(clockText(44_001)).toBe("0:45");
+    expect(clockText(9_000)).toBe("0:09");
+    expect(clockText(0)).toBe("0:00");
+    expect(clockText(-5_000)).toBe("0:00");
+  });
+
+  it("counts down from when the room view came, from the first of them to run out", () => {
+    const members = [{ awayIn: 30_000 }, { awayIn: 12_000 }, {}];
+    expect(awayLeft(members, 1000, 1000)).toBe(12_000);
+    expect(awayLeft(members, 1000, 6000)).toBe(7_000);
+    expect(awayLeft(members, 1000, 60_000)).toBe(0);
+    // An endless grace sends no time: the note says only who is away.
+    expect(awayLeft([{ away: true }], 0, 0)).toBeNull();
+  });
+
+  it("lists a seat whose phone dropped mid-match with the hidden ones: the room gave it a time", async () => {
+    const { awayOthers } = await import("../public/connection.js");
+    const room = { game: { id: "turns", turns: true }, members: [{ seat: 0, name: "Ann", connected: true }, { seat: 1, name: "Bo", connected: false, awayIn: 30_000 }, { seat: 2, name: "Cy", connected: false }] };
+    expect(awayOthers(room, { role: "player", seat: 0 }).map((m) => m.name)).toEqual(["Bo"]);
+    expect(awayOthers(room, { role: "player", seat: 1 })).toEqual([]);
   });
 });

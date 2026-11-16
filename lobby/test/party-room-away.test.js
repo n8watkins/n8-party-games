@@ -1,7 +1,8 @@
 // A page hidden during a turn-based game keeps its socket and says it is away (connection.js). Its
 // browser then slows or stops the keep-alive, so the socket goes silent. Proved on the real party
 // room class: an away socket of a seat in the game is not reaped as silent before the game's
-// grace, its grace does not run while it is away, and the game goes on when the page is back.
+// grace, the game goes on when the page is back within it, and the seat is gone at the grace
+// whether its socket was reaped or not (the clock itself: party-room-away-forfeits.test.js).
 // A silent socket that is not away is still reaped after SILENT_MS, as before.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { TURN_GRACE_MS } from "../server/lobby-core.js";
@@ -51,7 +52,7 @@ beforeEach(useFakeRuntime);
 afterEach(dropFakeRuntime);
 
 describe("an away socket in a turn-based game", () => {
-  it("is not reaped as silent before the game's grace, and its grace does not run while it is away", async () => {
+  it("is not reaped as silent before the game's grace, and back before the grace is up, the game goes on", async () => {
     const game = turnGame();
     const { ctx, say, ws, quiet } = await startedWithQuiet(game);
     // Bo's phone is locked: the page says away, then its keep-alive stops.
@@ -83,12 +84,9 @@ describe("an away socket in a turn-based game", () => {
     expect(ws.bo.closed).toBeNull();
   });
 
-  it.each([
-    ["just after the grace", 1_000],
-    ["long after the grace", 120_000],
-  ])("silent for longer than the game's grace, reaped %s: one grace from its last sign of life, so the seat is gone at once", async (_, late) => {
+  it("silent and away for the whole grace: the seat is gone at the grace, on the room's own wake-up, with no poke and no reap", async () => {
     const grace = 60_000;
-    // No turn timer, so nothing but the poke wakes the room.
+    // No turn timer, so nothing but the grace's own alarm wakes the room.
     const game = turnGame({ fields: { reconnectGraceMs: grace, nextDeadline: () => null } });
     const { ctx, say, ws, quiet } = await startedWithQuiet(game);
     say(ws.bo, { t: "away" });
@@ -99,33 +97,24 @@ describe("an away socket in a turn-based game", () => {
     await poke(say, ws);
     expect(ws.bo.closed).toBeNull();
     expect(ctx.room.core.activity.kind).toBe("game");
-    await wait(6_000 + late);
-    const reapedAt = Date.now();
-    await poke(say, ws);
-    expect(ws.bo.closed).toMatchObject({ code: 1001, reason: "silent" });
-    // The drop is dated from the last sign of life, never later: not a second grace.
-    expect(ctx.room.core.members[1]).toMatchObject({ connected: false, droppedAt: lastHeard });
-    expect(reapedAt - lastHeard).toBeGreaterThanOrEqual(grace);
+    await vi.advanceTimersByTimeAsync(lastHeard + grace - Date.now() - 1);
+    expect(ctx.room.core.activity.kind).toBe("game");
+    await vi.advanceTimersByTimeAsync(1);
     expect(ctx.room.core.activity.kind).toBe("lobby");
     const note = ws.ann.messages().find((m) => m.t === "note" && m.k === "ended");
     expect(note).toMatchObject({ why: "gone", seat: 1 });
   });
 
-  it("the reviewer's case, with presence and the default grace: an away phone that goes silent ends the game when it is reaped, not at the stale limit", async () => {
+  it("the reviewer's case, with presence and the default grace: an away phone that goes silent ends the game at the grace, not at the stale limit", async () => {
     const game = turnGame({ presence: true });
     const { ctx, say, ws, quiet } = await startedWithQuiet(game);
     say(ws.ann, { t: "away" });
     await settle();
-    const lastHeard = Date.now();
     quiet.add(ws.ann);
     expect(ctx.room.core.activity.state.paused).not.toBeNull();
     await wait(TURN_GRACE_MS);
-    // Bo taps (out of turn: a quiet refusal), and the room looks for silent sockets.
-    say(ws.bo, { t: "in", d: { say: "Is it me?" }, id: "b1" });
-    await settle();
-    expect(ws.ann.closed).toMatchObject({ code: 1001, reason: "silent" });
-    expect(ctx.room.core.members[0].droppedAt).toBe(lastHeard);
     expect(ctx.room.core.activity.kind).toBe("lobby");
+    expect(ws.bo.messages().find((m) => m.t === "note" && m.k === "ended")).toMatchObject({ why: "gone", seat: 0 });
   });
 });
 

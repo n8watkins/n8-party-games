@@ -173,7 +173,7 @@ describe("a dropped phone in a turn-based game", () => {
 });
 
 describe("a page hidden with its socket open", () => {
-  it("is away: the game hears it, the room view shows it, and it never runs the grace down", async () => {
+  it("is away: the game hears it, and the room view shows it with the time the seat has left (party-room-away-forfeits has the clock)", async () => {
     const game = turnGame({ presence: true });
     const { ctx, connect, say, ws, tokens } = await started(game);
     const since = from(ws.bo, ws.screen);
@@ -183,8 +183,9 @@ describe("a page hidden with its socket open", () => {
     expect(ctx.room.core.activity.state.paused).not.toBeNull();
     for (const w of [ws.bo, ws.screen]) {
       const room = since(w).find((m) => m.t === "room").room;
-      expect(room.members[0]).toMatchObject({ connected: true, away: true });
+      expect(room.members[0]).toMatchObject({ connected: true, away: true, awayIn: TURN_GRACE_MS });
       expect(room.members[1]).not.toHaveProperty("away");
+      expect(room.members[1]).not.toHaveProperty("awayIn");
       expect(snapsOf(since(w)).at(-1)).toMatchObject({ paused: true, missing: [0] });
     }
     // Saying it again changes nothing and sends nothing.
@@ -200,8 +201,8 @@ describe("a page hidden with its socket open", () => {
     await lose(ctx, tab);
     expect(game.calls.presence.at(-1)).toMatchObject({ seat: 0, connected: true, away: true });
 
-    // Away for far longer than any grace: still Ann's seat, still the game.
-    await vi.advanceTimersByTimeAsync(TURN_GRACE_MS * 3);
+    // Away for most of the grace: still Ann's seat, still the game.
+    await vi.advanceTimersByTimeAsync(TURN_GRACE_MS - 10_000);
     expect(ctx.room.core.activity.kind).toBe("game");
     expect(ctx.room.core.members[0]).toMatchObject({ connected: true, away: true });
 

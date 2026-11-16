@@ -4,7 +4,24 @@
 import { describe, expect, it } from "vitest";
 import * as cork from "cork-and-bell";
 import { game as coinFlip } from "../../lobby/games/coin-flip.js";
-import { abandonOutcome, allAway, goneWhy, graceEndsAt, graceOf, lifetimesOf, presenceOutcome, presenceProblems, presenceSignal, reportOf, sameReport } from "../src/core/presence.js";
+import {
+  abandonOutcome,
+  absenceClock,
+  allAway,
+  clockEndsAt,
+  goneWhy,
+  graceEndsAt,
+  graceOf,
+  graceUsed,
+  isClock,
+  lifetimesOf,
+  presenceOutcome,
+  presenceProblems,
+  presenceSignal,
+  reportOf,
+  sameReport,
+  trackAbsence,
+} from "../src/core/presence.js";
 import { gameProblems } from "../src/core/turns.js";
 
 describe("what a page says", () => {
@@ -42,13 +59,80 @@ describe("when a seat is gone for good", () => {
     expect(goneWhy(dropped(0), 999, 1000)).toBeNull();
     expect(goneWhy(dropped(0), 1000, 1000)).toBe("gone");
     expect(goneWhy(dropped(0), 1e15, Infinity)).toBeNull();
-    // A phone that is here, or here and away, is never gone.
+    // Without a clock (a room class that keeps none) a phone that is here, away or not, is never gone.
     expect(goneWhy({ connected: true, droppedAt: null }, 1e15, 0)).toBeNull();
     expect(goneWhy({ connected: true, away: true, droppedAt: null }, 1e15, 0)).toBeNull();
     expect(graceEndsAt(dropped(500), 1000)).toBe(1500);
     expect(graceEndsAt(dropped(500), Infinity)).toBeNull();
     expect(graceEndsAt({ connected: true, droppedAt: null }, 1000)).toBeNull();
     expect(graceEndsAt(null, 1000)).toBeNull();
+  });
+
+  it("with a clock, is when the seat has been missing (dropped or away) for the whole grace", () => {
+    const away = { connected: true, away: true, droppedAt: null };
+    const clock = trackAbsence(absenceClock(), true, 1000);
+    expect(goneWhy(away, 60_999, 60_000, clock)).toBeNull();
+    expect(goneWhy(away, 61_000, 60_000, clock)).toBe("gone");
+    expect(graceEndsAt(away, 60_000, clock)).toBe(61_000);
+    // An endless grace never ends; a seat that is here has no end; one that left is gone whatever its clock says.
+    expect(goneWhy(away, 1e15, Infinity, clock)).toBeNull();
+    expect(graceEndsAt(away, Infinity, clock)).toBeNull();
+    const here = trackAbsence(clock, false, 2000);
+    expect(goneWhy({ connected: true, droppedAt: null }, 1e15, 60_000, here)).toBeNull();
+    expect(goneWhy(null, 0, 60_000, clock)).toBe("left");
+  });
+});
+
+describe("a seat's grace clock", () => {
+  const GRACE = 60_000;
+  it("runs while the seat is missing and stops when it is back, keeping what it used", () => {
+    let c = absenceClock();
+    expect(clockEndsAt(c, GRACE)).toBeNull();
+    c = trackAbsence(c, true, 10_000);
+    expect(clockEndsAt(c, GRACE)).toBe(70_000);
+    expect(graceUsed(c, 40_000)).toBe(30_000);
+    // Told again that it is missing: the same clock, not a fresh one.
+    expect(trackAbsence(c, true, 50_000)).toBe(c);
+    c = trackAbsence(c, false, 69_000);
+    expect(clockEndsAt(c, GRACE)).toBeNull();
+    expect(graceUsed(c, 69_000)).toBe(59_000);
+  });
+
+  it("winds back up while the seat is back at the speed it ran, so blinking in and out does not start it over", () => {
+    // Hidden 50 s, shown 2 s, hidden again: 8 s left, plus the 2 s it won back.
+    let c = trackAbsence(absenceClock(), true, 0);
+    c = trackAbsence(c, false, 50_000);
+    c = trackAbsence(c, true, 52_000);
+    expect(clockEndsAt(c, GRACE)).toBe(52_000 + 12_000);
+    // Hidden a second, shown a tenth of one, again and again: the grace still runs out, within 80 seconds.
+    let d = trackAbsence(absenceClock(), true, 0);
+    let t = 0;
+    while (clockEndsAt(d, GRACE) > t + 1000) {
+      t += 1000;
+      d = trackAbsence(d, false, t);
+      t += 100;
+      d = trackAbsence(d, true, t);
+    }
+    expect(t).toBeGreaterThan(GRACE);
+    expect(t).toBeLessThan(80_000);
+    // Back for as long as it was missing: the whole grace again.
+    let e = trackAbsence(absenceClock(), true, 0);
+    e = trackAbsence(e, false, 40_000);
+    e = trackAbsence(e, true, 80_000);
+    expect(clockEndsAt(e, GRACE)).toBe(80_000 + GRACE);
+  });
+
+  it("starts from when a phone dropped, never before its own last change, and a fresh clock has the whole grace", () => {
+    expect(trackAbsence(absenceClock(), true, 5000, 2000).since).toBe(2000);
+    const back = trackAbsence(trackAbsence(absenceClock(), true, 0), false, 3000);
+    expect(trackAbsence(back, true, 5000, 1000).since).toBe(3000);
+    expect(clockEndsAt(trackAbsence(absenceClock(9000), true, 9000), GRACE)).toBe(9000 + GRACE);
+  });
+
+  it("reads back from storage only in its own shape", () => {
+    expect(isClock(absenceClock())).toBe(true);
+    expect(isClock(trackAbsence(absenceClock(), true, 1))).toBe(true);
+    for (const bad of [null, {}, { since: "now", used: 0, at: 0 }, { since: null, used: 0 }]) expect(isClock(bad)).toBe(false);
   });
 
   it("takes the game's grace, or the room's when the game chooses none", () => {
