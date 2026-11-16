@@ -1034,9 +1034,14 @@ export class Room3D {
     // Draw every frame while anything moves; every other frame for ambient life alone; a third as often when the room is still.
     if (this.idle > 2 && this.idle % (lively ? 2 : 3)) return;
     const t0 = performance.now();
-    this.renderer.render(this.scene, this.camera);
+    this.draw();
     this.drawn.cpu += performance.now() - t0;
     this.drawn.frames++;
+  }
+
+  /** Draws the picture. A room made of rendered layers draws what is outside first (rendered/room-rendered.js). */
+  draw() {
+    this.renderer.render(this.scene, this.camera);
   }
 
   /** Sets a box's lamp, beam, pool edge, picture and frame for its level of light (0 is off). */

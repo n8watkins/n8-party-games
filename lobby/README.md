@@ -84,6 +84,33 @@ To make a plate again: `landing/tools/blender/plate.sh 5` (about 45 minutes of r
 The raw renders are not committed.
 When a game is added to the wall, its plate must be rendered before the baked bar shows that wall.
 
+### The Star Lounge made real (rooms made of rendered layers)
+
+To see it, open the room with `?look=real`, for example `http://localhost:8791/lobby/?start&look=real&room=ship` (the party's room must be the Star Lounge).
+The switch is remembered on that device, as the others are; any other `?look=` switches it off.
+A device with it on gets the rendered Star Lounge whenever the party's room is the Star Lounge, and the 3D look's own drawing for every other room.
+A device that has not switched it on downloads none of it (only `look3d/rendered/switch.js`, a few lines of logic, is part of every page).
+Its picture is of the production wall of five boxes: on another wall (the local test wall of six) the 3D look draws the room and nothing of it is fetched.
+If its layers have not all arrived within 5.5 seconds, the 3D look draws the room instead, so a slow connection does not hold the room dark; what arrives later is given back unused.
+
+It is the method a second rendered room (the bar, remade) will copy, so it is split in two:
+
+- **`public/look3d/rendered/`, any rendered room.** `plate.js` loads a plate and builds its picture as one shader (the base, plus each light's tile with one number), cut to the glass, and draws what is outside first and the room over it, so nothing outside can ever show over a wall, a post, the door or a sign. `room-rendered.js` is the 3D look with its walls swapped for that picture (`RoomRendered extends Room3D`): the posters in the picture's frames, the pools and lit screens of the vote, the pieces lit by the room and reflected in its floor, and everything that is data (pieces, tags, signs, the join code and QR, the Tonight board, emotes, bumps, the count, the toss) called and not copied. `ladder.js` is how it comes down on a slow device. `switch.js` says which rooms have one and whether this device asked.
+- **`public/look3d/rendered/star-lounge/`, only the Star Lounge.** `room.js` (its lamps that swing, its chart table, its sky on the room's clock, its steps down), `outside.js` (the planet, its storms, the moon, stars, and what passes), `parts.js` (lamps, chart, blinking lights, rods and shines), `sky.js` (the timetable: one thing at a time, 20 to 45 seconds of empty sky) and `layers/` (the rendered pictures and `plate.json`, about 840 KB). Its numbers are the Blender scene's own file, `tools/blender/star-lounge.json`, served beside the layers by `scripts/build-public.mjs`.
+
+The preview page (`preview/star-lounge`) imports the same modules, so the room and the preview cannot drift apart.
+The sky runs on the room's own clock, seeded by the room's code, and each thing passes when it was due, not when a screen noticed: so every screen in a room sees the same rocket at the same moment, whether it came late, was hidden or was away in a game.
+The passing things make the room's existing sounds: `rocket.pass` and `star.fall`; the chart table makes `holo.spin` when it is knocked.
+
+On a device that cannot keep up it comes down a ladder, and the frame meter (`?meter=1`) names the rung: `real star-lounge`, `real star-lounge lite 1` to `lite 3`, or `3d star-lounge`.
+First it draws fewer pixels, by the 3D look's own rule (a fifth at a time down to 0.75, undone if it did not help).
+Then its own steps, cheapest last: the planet's weather off (storms, torn cloud edges, belt streaks), the planet's surface at half size, and everything outside drawn at half resolution.
+A device whose largest picture is under 4096 pixels starts with the smaller planet.
+Still slow after the last step, it draws today's 3D Star Lounge in place, says so in one short note that can be closed, and remembers that on the device (until `?look=real` is asked again), so it does not climb back and slow down again; the "Simpler room" check then carries on from there.
+If none of its steps made frames faster and frames sit at 30 a second (a phone in a battery saver), it undoes them, keeps the rendered room and remembers the device as capped, so later visits do not try again; a phone slow at any other pace falls back.
+For a test, `?rung=0` to `?rung=3` or `?rung=3d` forces a rung and is never remembered; `?ladder=off` holds it there.
+`lobby/test/shoot-real.mjs` takes the stills (and `--look=3d` the same moments in today's look), `lobby/test/measure-real.mjs` times each rung.
+
 ### The party's room
 
 The 3D look has seven rooms: the bar (where a party starts), the star lounge (`ship`), the arcade, the campfire (`camp`), the rooftop (`roof`), the studio (`navy`) and the pier fair (`fair`).
@@ -428,6 +455,7 @@ A lobby nobody touches costs nothing: no timer, no messages, nothing counted, an
 | `public/baked/` | The baked bar: `room-baked.js`, and the bar's packed plates in `bar/<boxes>/` (each `plate.json` says what it covers). |
 | `tools/pack-baked.mjs` | Packs the rendered plate for the baked bar. |
 | `public/look3d/` | The 3D drawing: the scene (`room3d.js`), the words over it (`words.js`), the pieces (`pieces.js`), the rooms as skins (`skins.js`), a posed room (`still.html`) and the rooms page (`rooms/`). |
+| `public/look3d/rendered/` | Rooms made of rendered layers, behind `?look=real`: what any such room shares (`plate.js`, `room-rendered.js`, `ladder.js`, `switch.js`) and the Star Lounge's own (`star-lounge/`, with its rendered `layers/`). |
 | `test/` | Unit tests, the socket test, the browser run and the cost measurement. |
 
 `shared/` is plain logic used by both the room and the page, and it is served to the browser; `server/` and `test/` never are.

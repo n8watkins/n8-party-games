@@ -25,6 +25,8 @@ export class SlowWatch {
     this.wanted = wanted;
     this.on = false;
     this.el = null;
+    // A rendered room that gave up on this device draws itself as the 3D look, in place: the room settles again from there.
+    globalThis.addEventListener?.("party-room:look-changed", () => this.on && Object.assign(this, { since: performance.now(), avg: 16, slowSince: null }));
   }
 
   /** A room view went up: watch it if it is the 3D one. `simpler` switches this device to the flat room. */

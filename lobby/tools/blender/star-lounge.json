@@ -9,7 +9,7 @@
     "ring": [1.32, 2.15],
     "turnSeconds": 95
   },
-  "moon": { "centre": [-12.9, -3.6, -42.5], "radius": 1.05, "turnSeconds": 60 },
+  "moon": { "centre": [23.25, 9.43, -60], "radius": 1.05, "turnSeconds": 60, "where": "High in the window over the Tonight board (wall x 6.0 m, y 5.55 m), where no lamp hangs and no name tag goes: before, it sat low in the first bay, where the tags stack." },
   "sun": [-0.5, 0.75, 0.43],
   "lampColour": [0.82, 0.92, 1.0],
   "accent": [0.35, 0.8, 1.0],

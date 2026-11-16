@@ -9,13 +9,17 @@
 //          picture with the pieces live over it. A preview, switched on for a device with
 //          ?look=baked (and off again with ?look=3d); see openRoomView for how it would
 //          become the bar's own drawing.
-//   flat   scene.js, one SVG of plain shapes. The fallback, and what ?look=flat asks for
+//          And a room made of rendered layers, look3d/rendered/: today the Star Lounge, with its
+//          universe drawn outside the window. Switched on for a device with ?look=real (any other
+//          ?look= switches it off); see look3d/rendered/switch.js.
+//   flat  scene.js, one SVG of plain shapes. The fallback, and what ?look=flat asks for
 //          (remembered on that device until ?look=3d).
 //
 // To retire the flat drawing: delete scene.js, art.js and FlatRoomView below, and make "3d" the
 // default in chosenLook. To retire the preview instead: delete look3d/ and this file's 3D half.
 import { set, s } from "./dom.js";
 import { Scene } from "./scene.js";
+import { rememberReal, renderedFor } from "./look3d/rendered/switch.js";
 
 /**
  * What main.js asks of a drawing.
@@ -80,6 +84,8 @@ export function chosenLook(params) {
     // ?look=baked switches the bar's baked drawing on for this device; any other ?look= switches it off.
     remember(BAKED_KEY, params.get("look") === "baked" ? "on" : null);
   }
+  // ?look=real switches the rendered rooms (look3d/rendered/switch.js) on for this device, the same way.
+  rememberReal(params);
   if (params.has("room")) remember(SKIN_KEY, params.get("room"));
   // To make the baked drawing the bar's own for everyone: `baked: recall(BAKED_KEY) !== "off"`
   // here, and let ?look=3d remember "off".
@@ -156,6 +162,14 @@ const BAKED_ROOMS = ["bar"];
  * @returns {Promise<RoomView>}
  */
 export async function openRoomView(root, opts) {
+  const rendered = renderedFor({ look: opts.look, skin: opts.skin || "bar", boxes: opts.boxes });
+  if (rendered) {
+    try {
+      return await (await rendered.load()).open(root, opts);
+    } catch (err) {
+      console.warn("The rendered room could not start, so the room is drawn in 3D.", err);
+    }
+  }
   if (opts.look === "3d" && opts.baked && BAKED_ROOMS.includes(opts.skin || "bar")) {
     try {
       const { RoomBaked } = await import("./baked/room-baked.js");
