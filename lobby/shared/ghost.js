@@ -47,6 +47,23 @@ export const SPOOK_MS = SCARE_START_MS + SPOOK_RUN_MS;
 /** A piece cannot be spooked again this soon, by any ghost. */
 export const SPOOK_AGAIN_MS = 6000;
 
+/**
+ * How faded a faded ghost is drawn, 0 (solid) to 1: 1 for everyone else, less on its own
+ * player's phone, so they can always find themselves. Everyone else still sees its outline, its
+ * face and its name tag, so the room's lights and spots still read.
+ */
+export const OWN_FADED = 0.5;
+
+/** How long the ghost's own boo lasts on its body when it scares or spooks someone (it swells, its eyes and mouth go wide). */
+export const BOO_MS = 520;
+
+/** How far into its boo a ghost is, 0 to 1, `ms` after it began: up quickly, held, and down. */
+export function booAmount(ms) {
+  if (!(ms >= 0 && ms < BOO_MS)) return 0;
+  const u = ms / BOO_MS;
+  return Math.sin(Math.min(1, u * 2.2) * Math.PI * 0.5) * (1 - Math.max(0, (u - 0.5) * 2) ** 2);
+}
+
 /** How hard each reaction is drawn: the scare is "big and clear", the spook a smaller version of it. */
 export const SCARE_HOP = 40;
 export const SPOOK_HOP = 26;

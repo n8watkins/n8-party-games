@@ -13,6 +13,7 @@
 //     fixed number of pixels; it steps down if frames are slow, draws a third as often when
 //     nothing moves, and not at all while the page is hidden (the page's frame loop stops).
 import { IMPACT_MS, cooldownFraction } from "../shared/bump.js";
+import { OWN_FADED } from "../shared/ghost.js";
 import { COUNT_MS } from "../shared/vote.js";
 import { ROOM, boxCentre, lightHalf, posAt } from "../shared/world.js";
 import { Expressions } from "../emotes/play.js";
@@ -22,7 +23,7 @@ import { modelOf } from "./characters.js";
 import { RIG_UNIT } from "./emote-arms.js";
 import { Life } from "./life.js";
 import { ART_IMAGES, boxArt, boxSide, canvasOf } from "./paint.js";
-import { PAWN_HEIGHT, resumeKnock, startAttack, startKnock } from "./pieces.js";
+import { PAWN_HEIGHT, resumeKnock, startAttack, startFright, startKnock } from "./pieces.js";
 import { SKINS, liveSkin } from "./skins.js";
 import { CAM, D_WALL, FEET_Y, FRAME, PX, SPACE, U, layout, place, walkX, wallX, wallY } from "./space.js";
 import * as THREE from "./three.js";
@@ -643,6 +644,8 @@ export class Room3D {
       p.member = m;
       // On the floor or just up from it already (this page arrived in the middle of a bump).
       resumeKnock(p, m.x, m.down ?? 0, m.safe ?? 0, now);
+      // A ghost that is faded (shared/ghost.js), for a page that arrives in the middle.
+      if (m.faded > 0) p.fadeUntil = now + m.faded;
     }
     for (const [seat, p] of this.pieces) {
       if (!seen.has(seat) && !p.leaving) p.leaving = now;
@@ -743,10 +746,38 @@ export class Room3D {
       hit.rev = msg.rev;
       startKnock(hit, msg.x, began);
     }
+    // The kick went through a faded ghost (`sc`, shared/ghost.js): the kicker is scared off to
+    // where the room put it, and the ghost says boo as the kick passes through. Nothing jolts.
+    if (msg.sc !== undefined && by) {
+      by.net = { x: msg.x, d: 0, t: now };
+      by.rev = msg.rev;
+      startFright(by, msg.x, began, "scare");
+      const ghost = this.pieces.get(msg.sc);
+      if (ghost) ghost.booAt = began + IMPACT_MS;
+    }
     // If it happened by the room's feature, the feature is knocked too (look3d/life.js).
     // Where they are is taken from what the room said, not from where this device has drawn them
     // so far, so that a slow screen and a fast one agree.
     this.life?.onBump(by ? (msg.s === this.opts.own ? by.rx : posAt(by.net, now)) : null, hit ? msg.x : null);
+  }
+
+  /** A ghost faded for `msg.for` milliseconds (0: it is solid again). */
+  onFade(msg, now) {
+    const p = this.pieces.get(msg.s);
+    if (p) p.fadeUntil = msg.for > 0 ? now + msg.for : 0;
+    this.idle = 0;
+  }
+
+  /** A faded ghost drifted through a piece (boo): the piece is spooked to where the room put it. */
+  onSpook(msg, now) {
+    const ghost = this.pieces.get(msg.s);
+    if (ghost) ghost.booAt = now;
+    const p = this.pieces.get(msg.to);
+    if (!p) return;
+    p.net = { x: msg.x, d: 0, t: now };
+    p.rev = msg.rev;
+    startFright(p, msg.x, now, "spook");
+    this.idle = 0;
   }
 
   /** Where a blow lands: a burst of sparks, a flash, and a jolt of the picture. The place is {x, y} in world units. */
@@ -803,7 +834,7 @@ export class Room3D {
     }
     const ring = this.coolRing;
     ring.visible = true;
-    ring.geometry = this.coolArcs[cooling ? Math.round(cooldownFraction(left) * 24) : 24];
+    ring.geometry = this.coolArcs[cooling ? Math.round((own.coolShare?.(now) ?? cooldownFraction(left)) * 24) : 24];
     ring.position.set(walkX(mine.rx), 0.014, SPACE.walkZ);
     ring.scale.setScalar(cooling ? 1 : 1 + flash * 0.4);
     ring.material.opacity = cooling ? 0.9 : 1 - flash;
@@ -1017,6 +1048,8 @@ export class Room3D {
         if (Math.abs(target - p.rx) < 0.3) p.rx = target;
         walking = (p.net.d !== 0 && target > ROOM.minX && target < ROOM.maxX) || Math.abs(target - p.rx) > 6;
       }
+      // A faded ghost (shared/ghost.js): its own player sees it more clearly than everyone else does.
+      p.faded = now < (p.fadeUntil ?? 0) ? (seat === this.opts.own ? OWN_FADED : 1) : 0;
       const pose = p.kind.pose(p.body, p, now, dt, { walking, lit: this.lightAt(p.rx), calm });
       // A look with its own finish (the baked look's real light) gives it here, before an emote lays its red on top.
       this.finish(p);

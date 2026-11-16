@@ -22,7 +22,10 @@ import { RoomSounds, defineRoomSounds, emoteSound } from "./room-sounds.js";
 import { chosenLook, hardware3D, openRoomView, preferFlat } from "./room-view.js";
 import { ScreenFit, allowUpright, fitVisible } from "./screen-fit.js";
 import { SlowWatch } from "./slow-room.js";
-import { IMPACT_MS } from "./shared/bump.js";
+import { BUMP_COOLDOWN_MS, IMPACT_MS } from "./shared/bump.js";
+import { FADE_COOLDOWN_MS, FADE_MS, SCARE_MS, SPOOK_MS, SPOOK_REACH } from "./shared/ghost.js";
+import { moveOf } from "./shared/characters.js";
+import { defineGhostSounds } from "./ghost-sounds.js";
 import { FRAME, PHONE_FRAME, camera } from "./shared/camera.js";
 import { clearOfCard, tagsTop } from "./card-clear.js";
 import { Pilot } from "./shared/pilot.js";
@@ -349,7 +352,7 @@ async function quick3D() {
 /** A stand-in for the room view while the next one loads: it hears everything and draws nothing. */
 function pause(own) {
   const nothing = () => {};
-  return { paused: true, look: "", build: nothing, setRoom: nothing, setVote: nothing, onMove: nothing, onBump: nothing, onExpress: nothing, ownJump: nothing, ownBump: nothing, ownX: () => own, setCompact: nothing, frame: nothing, destroy: nothing };
+  return { paused: true, look: "", build: nothing, setRoom: nothing, setVote: nothing, onMove: nothing, onBump: nothing, onFade: nothing, onSpook: nothing, onExpress: nothing, ownJump: nothing, ownBump: nothing, ownX: () => own, setCompact: nothing, frame: nothing, destroy: nothing };
 }
 
 /** "Simpler room": this device draws the flat room from now on, and remembers it. */
@@ -428,6 +431,7 @@ function apply(next) {
       // A page that arrives in the middle (a reload) takes the room's word on its bump.
       if (me.down > 0) pilot.knock(me.x, me.rev, voteAt, me.down);
       pilot.cool(me.cool ?? 0, voteAt);
+      pilot.fadeCool(me.fadeCool ?? 0, voteAt);
     } else if (pilot.rev !== me.rev) pilot.place(me.x, me.rev, voteAt);
     tellLit(voteAt);
   }
@@ -473,14 +477,51 @@ link.on("message", (msg) => {
       break;
     case "b":
       if (msg.to >= 0) lastMoves.set(msg.to, { x: msg.x, d: 0, t: now });
+      // A kick into a faded ghost (`sc`): the kicker is scared off to where the room put it (shared/ghost.js).
+      if (msg.sc !== undefined) lastMoves.set(msg.s, { x: msg.x, d: 0, t: now });
       scene.onBump(msg, now);
       stirAt = now;
       // Knocked: the piece lies where the room threw it, and has nothing to say until it is up.
       if (pilot && msg.to === link.you.seat) pilot.knock(msg.x, msg.rev, now);
+      // Scared: the same, for as long as the start, the freeze and the scurry take.
+      if (pilot && msg.sc !== undefined && msg.s === link.you.seat) pilot.knock(msg.x, msg.rev, now, SCARE_MS);
       feelBump(msg);
       // The swing (the viewer's own was heard when the button went down), and the blow when it lands.
       if (msg.s !== link.you.seat || !isPlayer()) roomSounds?.swung(msg.s);
       if (msg.to >= 0) setTimeout(() => roomSounds?.struck(msg.s, msg.to), IMPACT_MS);
+      // The kick passes through the ghost, and the ghost says boo: feedback for both of them.
+      if (msg.sc !== undefined) setTimeout(() => ghostSound("ghost-boo", msg.sc === link.you.seat ? msg.sc : msg.s), IMPACT_MS);
+      break;
+    case "fade":
+      // A ghost faded (shared/ghost.js): see-through, untouchable and without a vote for msg.for.
+      stirAt = now;
+      scene.onFade(msg, now);
+      if (msg.s !== link.you.seat || !isPlayer()) ghostSound("ghost-fade", msg.s);
+      else ownFadedUntil = now + msg.for;
+      break;
+    case "fade-no":
+      // The room turned down this device's fade: its word on the cooldown replaces this page's
+      // guess, the fade this page began at once is taken back, and the reason is said as a note
+      // (as a refused choice of piece is), unless it only came a moment early.
+      pilot?.fadeCool(msg.wait ?? 0, now);
+      ownFadedUntil = -Infinity;
+      if (isPlayer()) scene.onFade({ s: link.you.seat, for: 0 }, now);
+      if (!(msg.wait > 0 && msg.wait < 400)) hud?.note(msg.why);
+      break;
+    case "spook":
+      // A faded ghost drifted through a piece and spooked it out of place (boo).
+      lastMoves.set(msg.to, { x: msg.x, d: 0, t: now });
+      scene.onSpook(msg, now);
+      stirAt = now;
+      if (pilot && msg.to === link.you.seat) {
+        pilot.knock(msg.x, msg.rev, now, SPOOK_MS);
+        buzz(40);
+      }
+      ghostSound("ghost-boo", msg.to === link.you.seat ? msg.to : msg.s);
+      break;
+    case "boo-no":
+      // The room did not find this ghost close enough to that piece (or it was spooked a moment
+      // ago): nothing happened, and there is nothing to say. The ghost was only drifting by.
       break;
     case "cd":
       // The room refused a bump: its word on how long is left replaces this page's guess.
@@ -773,13 +814,63 @@ function jump() {
   }
 }
 
-/** The wind-up starts the moment the button goes down; the room decides whether the blow lands. */
+/** What the player's own character's move button does (shared/characters.js): "kick" or "fade". */
+const ownMove = () => moveOf(room?.members[link.you?.seat]?.character);
+
+/**
+ * The move button. A kick: the wind-up starts the moment the button goes down; the room decides
+ * whether the blow lands. A fade (a ghost's move): it fades on this phone at once, and the room
+ * says so to everybody, or takes it back (fade-no).
+ */
 function bump() {
   const now = performance.now();
+  if (ownMove() === "fade") return fadeNow(now);
   if (canMove() && room.phase === "lobby" && pilot.bump(now)) {
     scene.ownBump(now);
     roomSounds?.swung(link.you.seat);
   }
+}
+
+/** Seats this fade has already said it drifted through: each is told to the room once (boo). */
+let booSent = new Set();
+/** Until when this player's own ghost is faded, by this page's clock. */
+let ownFadedUntil = -Infinity;
+
+function fadeNow(now) {
+  if (!canMove() || room.phase !== "lobby") return;
+  // The room refuses a fade during the count or the toss (shared/ghost.js): said here at once, and nothing is sent.
+  if (room.vote.count || room.vote.toss) return void hud?.note(room.vote.count ? "Not during the count." : "Not during the coin toss.");
+  if (!pilot.fade(now)) return;
+  booSent = new Set();
+  ownFadedUntil = now + FADE_MS;
+  scene.onFade({ s: link.you.seat, for: FADE_MS }, now);
+  ghostSound("ghost-fade", link.you.seat);
+}
+
+/**
+ * Boo, on this player's own faded ghost: drifting through another piece, it tells the room once
+ * per piece per fade, and the room judges it (spook or boo-no). Looked at only while the ghost is
+ * faded and walking: nothing at all otherwise.
+ */
+function drift(now) {
+  if (now >= ownFadedUntil || !pilot || pilot.d === 0 || pilot.down(now)) return;
+  const x = pilot.x;
+  for (const other of piecesNow(now)) {
+    if (other.seat === link.you.seat || booSent.has(other.seat) || Math.abs(other.x - x) > SPOOK_REACH) continue;
+    // A ghost does not spook a ghost: not asked.
+    if (moveOf(room.members[other.seat]?.character) === "fade") continue;
+    booSent.add(other.seat);
+    link.send({ t: "boo", to: other.seat });
+  }
+}
+
+/**
+ * The ghost's own sounds (ghost-sounds.js), made on this device the first time a ghost does
+ * anything: a party with no ghost never builds them. Played as the room's sounds are (room-sounds.js).
+ */
+function ghostSound(name, seat) {
+  defineGhostSounds();
+  roomSounds?.play(name, seat, { gain: 0.8 });
 }
 
 const WALK_KEYS = { ArrowLeft: -1, a: -1, A: -1, ArrowRight: 1, d: 1, D: 1 };
@@ -854,7 +945,11 @@ function frame(t) {
     // if the key is still held, and one that may not move stands still.
     pilot.steer(wanted(), now);
     pilot.step(now);
-    hud.pad?.show({ cooling: pilot.cooling(now), down: pilot.down(now) });
+    // The move button is the player's character's own: the kick, or a ghost's fade.
+    pilot.move = ownMove();
+    hud.pad?.setMove(pilot.move);
+    hud.pad?.show({ cooling: pilot.cooling(now), down: pilot.down(now), of: pilot.move === "fade" ? FADE_COOLDOWN_MS : BUMP_COOLDOWN_MS });
+    if (pilot.move === "fade") drift(now);
   }
   if (hud.wheel) {
     const wait = emoteWait(now);
