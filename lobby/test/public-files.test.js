@@ -7,8 +7,10 @@ import { dirname, join, relative, resolve, sep } from "node:path";
 import { describe, expect, it } from "vitest";
 import { SERVED, SERVER_ONLY, SOURCES, gameEntries } from "../../scripts/build-public.mjs";
 import { GAMES } from "../../games.js";
-import { TEST_WALL } from "../wall.js";
+import { TEST_WALL, buildTurnWall } from "../wall.js";
 import * as countToTen from "../../party/games/count-to-ten/index.js";
+import * as paperMasksRules from "../../party/games/paper-masks/rules.js";
+import { tableGame } from "../../party/games/table-game.js";
 
 const ROOT = resolve(import.meta.dirname, "..", "..");
 const inside = (path, folder) => path === folder || path.startsWith(folder + sep);
@@ -66,9 +68,16 @@ describe("what the site serves", () => {
 describe("a Table game that lives in this repository (party/games/<id>)", () => {
   it("needs no package of its own: its view is one of the party's pages, so the build copies nothing for it", () => {
     expect(gameEntries(countToTen)).toEqual([]);
-    // Shaped as Paper Masks will be (party/games/paper-masks, in TURN_GAMES), with no package.
-    const inRepo = { manifest: { id: "paper-masks-like", path: "/party/", public: [], table: { view: "games/paper-masks-like.js" } } };
-    expect(gameEntries(inRepo)).toEqual([]);
+  });
+
+  it("takes Paper Masks from party/games/paper-masks as it will be listed: no package, server-only rules, on the Table's list", () => {
+    // The entry TURN_GAMES will hold once Paper Masks has its view (not on the wall yet).
+    const paperMasks = { manifest: { id: "paper-masks", name: "Paper Masks", path: "/party/", players: { min: paperMasksRules.MIN_PLAYERS, max: paperMasksRules.MAX_PLAYERS }, public: [], table: { view: "games/paper-masks.js" } }, game: tableGame(paperMasksRules) };
+    expect(gameEntries(paperMasks)).toEqual([]);
+    expect(SERVER_ONLY.some((f) => inside(resolve(ROOT, "party", "games", "paper-masks", "rules.js"), f))).toBe(true);
+    const turn = buildTurnWall([paperMasks]);
+    expect(turn.table.filter((e) => e.id === "paper-masks")).toEqual([expect.objectContaining({ soon: false, view: "/party/games/paper-masks.js" })]);
+    expect(turn.games.get("paper-masks").tickHz).toBe(0);
   });
 
   it("is refused, with what to do, when it lists public files without being a package", () => {
