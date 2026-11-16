@@ -29,7 +29,7 @@ Everything else is already in the repository.
 ## Deploying
 
 6. Wrangler must be logged in to the owner's account: `npx wrangler whoami` should name account `b2c564cf83cb9184dd6d7cc4ff8b38bf`. **Owner:** if it is not, run `npx wrangler login`.
-7. Run `npm run deploy`, which deploys the top level (`wrangler deploy --env=''`) and never the local environment. It runs any new Durable Object migrations by itself (the first deploy ran `v1` to `v3`; the first deploy with the party room runs `v4`, the `LobbyRoom` class); nothing is created by hand.
+7. Run `npm run deploy`. npm runs the script `predeploy` before it, so the full gate (unit tests, `test:room`, `test:lobby`, `test:cork`) runs first by itself and the deploy stops if it fails; do not run `npm run predeploy` first, which would run the gate twice. `npm run predeploy` alone runs the gate without deploying. In an emergency, and only on the owner's word, `npx wrangler deploy --env=''` deploys without the gate. The deploy itself is `wrangler deploy --env=''`, which deploys the top level (`wrangler deploy --env=''`) and never the local environment. It runs any new Durable Object migrations by itself (the first deploy ran `v1` to `v3`; the first deploy with the party room runs `v4`, the `LobbyRoom` class); nothing is created by hand.
 8. A deploy while a round is on lets that room finish on the old code for up to five minutes, so deploy when nobody is mid-round if you can.
 
 ## Check it after a deploy
@@ -75,6 +75,70 @@ Optional: until both keys exist, rooms are made without it and the rate limits a
 
 31. Play a solo round, chalk up three letters, and confirm the chalk board on the left wall shows them; the `ScoreBoard` namespace's Metrics tab should show one short blip per score and nothing in between.
 32. To wipe the board, delete the `scores:cork-and-bell` object's storage from the dashboard (Durable Objects, `ScoreBoard`, the object, Storage); the house's scores show again.
+
+## Rolling back
+
+A rollback puts the Worker's code, bindings and static assets back to an earlier version at 100% of traffic.
+It is a deploy: do it only when the owner says so.
+It does not touch Durable Object data, and it does not change the repository, so `main` still holds the bad change (see the last step).
+
+### The commands
+
+Run them from the repository with `npm ci` done and Wrangler logged in as in step 6.
+They are the commands of Wrangler 4 and the Cloudflare page "Rollbacks" (https://developers.cloudflare.com/workers/versions-and-deployments/rollbacks/).
+
+1. `npx wrangler deployments status --env=''` shows what is live now and the version ID.
+2. `npx wrangler deployments list --env=''` shows the last 10 deployments, newest first, and `npx wrangler versions list --env=''` shows the last 10 versions with their IDs, dates and messages.
+   Pick the last version that was good.
+   Cloudflare keeps only the 100 most recent versions.
+3. `npx wrangler rollback <VERSION_ID> --env='' --message "why"` makes that version live.
+   Without an ID it asks you to choose from a list.
+   `--yes` skips the confirmation.
+   It first checks that the rollback is allowed (see below) and refuses if it is not.
+4. A room that is awake keeps running its old code until its code update happens: by default Durable Objects pick up new code on a "deferred" schedule of at most 300 seconds (the same five minutes as step 8).
+   Add `--durable-objects-code-update-mode immediate` to switch them at once, which resets rooms that are awake and drops their players.
+   Use it only when waiting is worse than a reset, for example a security fix.
+5. Check it like a deploy: steps 9 to 12 under "Check it after a deploy", plus `npx wrangler deployments status --env=''`.
+6. Fix `main`: open a pull request that reverts the bad change, and merge it on the owner's word.
+   Until then, `npm run deploy` from `main` would put the bad version back.
+
+The dashboard does the same under the Worker's Deployments tab.
+
+### When a Durable Object migration is in between
+
+`wrangler.jsonc` has four migrations, each one adding a class: `v1` (`PartyRoom`, `PinDirectory`, `RateLimiter`), `v2` (`RoomBudget`), `v3` (`ScoreBoard`), `v4` (`LobbyRoom`, the party room).
+Cloudflare treats a migration as one atomic change to the account.
+It refuses a rollback to any version from before a migration that has happened since: "You cannot roll back to a previous version of your Worker if ... a Durable Object class lifecycle change ... has occurred between the version in the active deployment and the version selected."
+
+What that means here, stated plainly:
+
+- Safe: a rollback between two versions that both already have `v4` (every ordinary change since the party room deployed), as long as no later migration has been deployed since.
+  This is the case for almost every rollback.
+  It is a code-and-assets swap, and the rooms' stored data stays where it is.
+- Not possible: a rollback to a version from before `v4`, that is, to the site before the party room existed, once `v4` is live.
+  The same holds for `v1` to `v3` and anything older than the first deploy of 2026-11-12.
+  Wrangler will refuse; do not try to get round it.
+- Not possible: a rollback across any migration added in the future (a `v5`).
+  Before deploying a version that adds a migration, know that there is no way back past it, and deploy it on its own, with no other change in the same deploy, so that a problem can be told apart from it.
+  Cloudflare also does not allow such a version to be uploaded as a gradual deployment; it goes out with `npm run deploy`.
+- Not undone by a rollback in any case: data.
+  A rollback restores code, not storage.
+  If the newer code wrote rows or object state in a shape the older code cannot read (the `RoomBudget`, `ScoreBoard`, `PinDirectory` and the rooms' own storage), the older code runs against that newer data.
+  Nothing in this repository has been tested for that, so after any rollback check the budget and the score board (steps 12 and 17) and expect rooms that were open to be unreliable.
+- Never use a migration to undo a migration: deleting a class (`deleted_classes`) permanently deletes every object of that class and its stored data.
+  If a new class was a mistake, ship a version that stops using it and leave the class in place.
+
+When the rollback is refused or is not enough, go forward: fix the problem in a pull request and deploy that, as a normal deploy (`npm run deploy` runs the gate first).
+
+### Other things a rollback does not undo
+
+- Secrets (`TURNSTILE_SECRET_KEY`) belong to a version: Cloudflare's changelog says a rollback through its API asks for confirmation when the secret's value differs from the one the version had; read what Wrangler prints and do not force it without the owner.
+  Check step 9 afterwards (`turnstileSiteKey`).
+- Plain settings in `wrangler.jsonc` (`PARTY_ROOM_BUDGET_SHARE` and the others) come back as the old version had them, which may be a different room allowance than today's.
+  Read the old values with `npx wrangler versions view <VERSION_ID> --env=''` before rolling back if that matters.
+- Pages already open in browsers may ask for the newer version's static files for a while; Cloudflare's page "Version skew and static assets" covers this.
+  A reload fixes it.
+- The Workers Logs and the metrics keep running as before, so use them to confirm the old code is serving.
 
 ## Do not
 
