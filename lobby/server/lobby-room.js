@@ -325,9 +325,14 @@ export function createLobbyRoom(wallFor) {
           }
           this.broadcast(hit);
           if (hit.to >= 0) for (const other of this.sockets.values()) if (other.seat === hit.to) this.keep(other);
+          // A kick into a faded ghost scared the kicker off (lobby/shared/ghost.js): the room moved the kicker.
+          if (hit.sc !== undefined) this.keep(entry);
           this.settle(now);
           return;
         }
+        case "fade":
+        case "boo":
+          return this.ghostMove(ws, entry, msg, now);
         case "e":
           return this.emote(ws, entry, msg, now);
         case "away":
@@ -388,7 +393,11 @@ export function createLobbyRoom(wallFor) {
             return;
           }
           if (!chose.changed) return this.send(entry, { t: "look-ok", c: m.character, v: m.colour });
+          // A ghost that became something else mid-fade is solid at once: every page stops
+          // drawing it faded, and the vote is looked at again (it may stand in a light).
+          if (chose.unfaded) this.broadcast({ t: "fade", s: entry.seat, for: 0 });
           this.broadcastRoom(now);
+          this.settle(now);
           void this.save();
           return;
         }
@@ -532,6 +541,31 @@ export function createLobbyRoom(wallFor) {
       if (out.relay) return this.broadcast(out.relay, entry);
       this.send(entry, out.refused);
       if (tooEager(out.wait) && strike(entry.bucket, SOCKET_RATE, EAGER_STRIKE) === "close") this.kick(ws, entry);
+    }
+
+    /**
+     * The ghost's move (lobby/shared/ghost.js): `{t: "fade"}` fades the sender's ghost, and
+     * `{t: "boo", to}` is a faded ghost saying it drifted through the piece in seat `to`. The room
+     * judges each at once and tells everybody (`fade`, `spook`), or refuses it to that page only,
+     * the way a choice of piece is refused: `{t: "fade-no", why, wait}` (the cooldown or the
+     * time on the floor still to wait, when waiting will do) and `{t: "boo-no", why, to}`. Nothing
+     * is saved; the vote is looked at again (a faded ghost has none, a spooked piece has left its
+     * light). A refusal no real page would have asked for (`bad`: lobby/shared/ghost.js says
+     * which) counts against the socket's rate limit, as an emote far too soon does, so a script
+     * cannot keep a room busy with them; an honest boo that came a moment late costs nothing.
+     */
+    ghostMove(ws, entry, msg, now) {
+      if (entry.role !== "player") return;
+      const core = this.core;
+      const out = msg.t === "fade" ? core.fade(entry.seat, now) : core.boo(entry.seat, msg.to, now);
+      if (!out.ok) {
+        this.send(entry, msg.t === "fade" ? { t: "fade-no", why: out.why, ...(out.wait ? { wait: Math.ceil(out.wait) } : {}) } : { t: "boo-no", why: out.why, to: Number.isInteger(msg.to) ? msg.to : null });
+        if (out.bad && strike(entry.bucket, SOCKET_RATE, EAGER_STRIKE) === "close") this.kick(ws, entry);
+        return;
+      }
+      this.broadcast(out.relay);
+      if (out.relay.t === "spook") for (const other of this.sockets.values()) if (other.seat === out.relay.to) this.keep(other);
+      this.settle(now);
     }
 
     /**

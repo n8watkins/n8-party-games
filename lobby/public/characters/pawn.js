@@ -58,8 +58,20 @@ export const pawn = {
     },
     /** Every frame. Returns how far off the floor it holds itself (the pawn stands: nothing). */
     frame(a, { face }) {
-      set(a.eyes, { transform: `translate(${face * 5}, 0)` });
+      const k = a.scaredK ?? 0;
+      // Wide with a fright (scared): the eyes grow, and small pupils sit in whites.
+      set(a.eyes, { transform: k > 0 ? `translate(${face * 5}, 0) translate(0,-113) scale(${(1 + 0.3 * k).toFixed(3)}) translate(0,113)` : `translate(${face * 5}, 0)` });
       return 0;
+    },
+    /** Frightened by a ghost (0 to 1): its eyes go wide, with whites round them. */
+    scared(a, k) {
+      a.scaredK = k;
+      if (!a.whites && k > 0) {
+        const white = (cx) => s("ellipse", { cx, cy: -113, rx: 5.8, ry: 7.6, fill: "#fff", stroke: "#1a1210", "stroke-width": 1.4 });
+        a.whites = s("g", { class: "pawn-wide" }, white(-9), white(9));
+        a.eyes.prepend(a.whites);
+      }
+      if (a.whites) set(a.whites, { display: k > 0.3 ? null : "none" });
     },
     /** Two little crosses for eyes: a piece that has just been knocked over. */
     dizzy(a, on) {

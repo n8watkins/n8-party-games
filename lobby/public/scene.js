@@ -12,6 +12,7 @@ import { fit, label, s, set, shade } from "./dom.js";
 import { Expressions } from "./emotes/play.js";
 import { EmoteFigure, Sticker, bodyTransform } from "./emotes/svg.js";
 import { IMPACT_MS } from "./shared/bump.js";
+import { OWN_FADED } from "./shared/ghost.js";
 import { tagLevels } from "./tag-levels.js";
 import { standings } from "./shared/tonight.js";
 import { BADGES, COUNT_MS, playersLabel } from "./shared/vote.js";
@@ -337,7 +338,12 @@ export class Scene {
       p.rev = m.rev;
       // The player chose another character: the same piece, where it stands, with a new body.
       if (p.kind !== drawingOf(m.character)) this.recast(p, m);
-      this.bumps.resume(p, m.x, m.down ?? 0, m.safe ?? 0, now);
+      this.bumps.resume(p, m.x, m.down ?? 0, m.safe ?? 0, now, m.fright);
+      // A ghost that is faded (shared/ghost.js), for a page that arrives in the middle; the room's
+      // word that it is solid too (a fade this page missed the end of). The viewer's own fade is
+      // drawn the moment its button goes down, before the room has said so: left as it is.
+      if (m.faded > 0) p.fadeUntil = now + m.faded;
+      else if (m.seat !== this.opts.own) p.fadeUntil = 0;
       this.dress(p, m);
     }
     for (const [seat, p] of this.pieces) {
@@ -586,6 +592,32 @@ export class Scene {
       hit.rev = msg.rev;
       this.bumps.knock(hit, msg.x, began);
     }
+    // The kick went through a faded ghost (`sc`, shared/ghost.js): the kicker is scared off to
+    // where the room put it, and the ghost says boo as the kick passes through.
+    if (msg.sc !== undefined && by) {
+      by.net = { x: msg.x, d: 0, t: now };
+      by.rev = msg.rev;
+      this.bumps.fright(by, msg.x, began, "scare");
+      const ghost = this.pieces.get(msg.sc);
+      if (ghost) ghost.booAt = began + IMPACT_MS;
+    }
+  }
+
+  /** A ghost faded for `msg.for` milliseconds (0: it is solid again). */
+  onFade(msg, now) {
+    const p = this.pieces.get(msg.s);
+    if (p) p.fadeUntil = msg.for > 0 ? now + msg.for : 0;
+  }
+
+  /** A faded ghost drifted through a piece (boo): the piece is spooked to where the room put it. */
+  onSpook(msg, now) {
+    const ghost = this.pieces.get(msg.s);
+    if (ghost) ghost.booAt = now;
+    const p = this.pieces.get(msg.to);
+    if (!p) return;
+    p.net = { x: msg.x, d: 0, t: now };
+    p.rev = msg.rev;
+    this.bumps.fright(p, msg.x, now, "spook");
   }
 
   /** The viewer's own piece jumped (its Pilot says so; nothing comes back from the room). */
@@ -646,8 +678,14 @@ export class Scene {
       // Winding up, striking, thrown, lying or getting up: the bump's pose, on top of the walk.
       const pose = this.bumps.pose(p, now);
       if (pose.x !== null) p.rx = pose.x;
+      // A faded ghost (shared/ghost.js): its own player sees it more clearly than everyone else does.
+      const faded = now < (p.fadeUntil ?? 0) ? (seat === this.opts.own ? OWN_FADED : 1) : 0;
+      if (faded !== (p.fadedShown ?? 0)) {
+        p.fadedShown = faded;
+        set(p.g, { "data-faded": faded || null });
+      }
       // The character's own way of holding itself: where it looks, and how far off the floor it hangs (a pawn stands).
-      const hover = flat.frame(p.actor, { now, dt, face: p.face, seat, calm: !!this.calmQuery?.matches, grounded: pose.dizzy });
+      const hover = flat.frame(p.actor, { now, dt, face: p.face, seat, calm: !!this.calmQuery?.matches, grounded: pose.dizzy, faded, booAt: p.booAt ?? -Infinity });
       set(p.g, { transform: poseTransform(p.rx, ROOM.floorY - up - bob - hover, pose) });
       this.bumps.dress(p, pose, now);
       const air = up + Math.max(0, pose.lift);
@@ -659,7 +697,7 @@ export class Scene {
       ordered.push(p);
     }
     const mine = own ? this.pieces.get(this.opts.own) : null;
-    if (mine) this.bumps.cooldown(mine.rx, own.cooling(now), now);
+    if (mine) this.bumps.cooldown(mine.rx, own.cooling(now), now, own.coolShare?.(now));
     this.bumps.frame(now);
     // Name tags that would sit on top of each other step up instead.
     tagLevels(ordered, (p) => p.tagW, (p) => p.up, () => this.tagSize + 20);
