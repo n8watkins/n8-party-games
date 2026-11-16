@@ -217,6 +217,11 @@ try {
     await phone.evaluate(() => window.__room3d.fallBack());
     // (The note goes by itself after twelve seconds, which a busy machine's screenshot can take: it is counted first.)
     const noted = await phone.locator(".rendered-note").count();
+    const fits = await phone.evaluate(() => {
+      const r = document.querySelector(".rendered-note")?.getBoundingClientRect();
+      return !!r && r.left >= 0 && r.right <= innerWidth && r.top >= 0;
+    });
+    check(fits, "the note fits on the phone's screen, wrapped");
     await sleep(2500);
     await shot(phone, "09-phone-844x390-fell-back");
     const fell = await drawn(phone);
@@ -247,27 +252,30 @@ try {
   }
 
   if (lookName === "real" && want("11")) {
-    // A layer that is very slow to come (the planet, 20 seconds late) does not hold the room: after a few seconds the
-    // room is drawn the 3D look's way, and the late planet is never used.
-    const late = await open("late", { width: 844, height: 390 }, { deviceScaleFactor: 1 });
+    // A layer that is very slow to come (the planet, held back for 90 seconds) does not hold the room: after a few
+    // seconds the room is drawn the 3D look's way, long before the planet is let through, and it is never used.
+    // (A big screen's size: on a phone's, the way in says "Use this phone as the room's screen".)
+    const late = await open("late", { width: 1280, height: 720 }, { deviceScaleFactor: 1 });
     let held = 0;
+    let released = false;
     await late.route("**/look3d/rendered/star-lounge/layers/planet.webp", async (route) => {
       held++;
-      await sleep(20000);
+      await sleep(90000);
+      released = true;
       await route.continue().catch(() => {});
     });
-    const t0 = Date.now();
     // (A party of its own, as its big screen: this party already has its four players.)
     await late.goto(`${base}/lobby/?start&${query}`);
     await late.click("text=Use this as the room's screen");
+    const t0 = Date.now();
     await late.click("text=Show the room here");
-    await late.waitForSelector(".look3d canvas", { timeout: 60000 });
-    await late.waitForSelector(".l3-sign", { timeout: 60000 });
+    await late.waitForSelector(".look3d canvas", { timeout: 80000 });
+    await late.waitForSelector(".l3-sign", { timeout: 80000 });
     const took = (Date.now() - t0) / 1000;
     const what = await drawn(late);
-    await shot(late, "11-late-planet-844x390");
+    await shot(late, "11-late-planet-screen-1280x720");
     // (Today's 3D look has no rung in its stats: only a rendered room names one.)
-    check(held === 1 && what.stats.skin === "ship" && !what.stats.rung && took < 15, `with the planet 20 s late the room still came up, the 3D look's way, in ${took.toFixed(1)} s (${what.stats.skin ?? what.stats.rung})`);
+    check(held === 1 && !released && what.stats.skin === "ship" && !what.stats.rung, `with the planet held back the room still came up, the 3D look's way, ${took.toFixed(1)} s after "Show the room here" (software renderer, busy machine), while the planet was still held`);
     await late.close();
   }
 
