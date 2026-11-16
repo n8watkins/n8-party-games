@@ -2,7 +2,7 @@
 
 An unlisted, throwaway test page at `/lab/hot-potato/` that answers one question: can a browser's own speech recognition hear spoken words well enough, and fast enough, for the Hot Potato word-chain game?
 It works the same in a desktop browser with a laptop, desk or headset microphone and on a phone.
-The page sends nothing; it keeps only the chosen category, in this browser's own storage; the browser's speech service may send the audio to its maker.
+The page sends nothing; it keeps only the chosen category and the suggestions switch, in this browser's own storage; the browser's speech service may send the audio to its maker.
 
 ## Files
 
@@ -21,7 +21,8 @@ This page imports them from there; nothing is copied.
 - `tools/famous-places.txt`: famous places kept in the default list by hand.
 - `tools/replay-report.mjs`: replays a copied report through the current matcher, each turn in its own category.
 - `tools/letter-report.mjs`: how many entries start and end with each letter, per category, and the dead ends.
-- `test/logic.test.js`, `test/categories.test.js`, `test/device.test.js`: unit tests (part of `npm test`).
+- `shared/suggest.js`: the suggestions this page shows (the game does not use it).
+- `test/logic.test.js`, `test/categories.test.js`, `test/suggest.test.js`, `test/device.test.js`: unit tests (part of `npm test`).
 - `test/fixtures/hearing-report-1.txt`: the owner's first real run (v1, desktop Chrome on Windows, 20 turns).
 - `test/e2e-hearing.mjs`: the page in a headless, muted Chromium with a scripted fake recogniser.
 
@@ -30,13 +31,27 @@ This page imports them from there; nothing is copied.
 The category picker sits above the game; the choice is remembered on this device, and changing it starts a new game (the log is kept, and each turn names its category).
 A category's list is loaded only when it is first chosen.
 
-| Category | Well known (default) | With hard mode | Source | Size |
+| Category | Well known (default) | With "Also allow lesser-known ones" | Source | Size |
 |---|---|---|---|---|
-| Cities | 5,987 | 31,782 | GeoNames | 1.3 MB |
-| Countries | 254 (no hard mode) | - | GeoNames, plus England, Scotland, Wales and Northern Ireland | 8 KB |
-| Animals | 452 | 3,636 | Open English WordNet | 114 KB |
-| Food and drink | 505 | 2,312 | Open English WordNet | 65 KB |
-| Anything | 29,998 (no hard mode) | - | `words.json` (FrequencyWords and SCOWL) | 395 KB (always loaded) |
+| Cities | 5,987 | 31,782 (every town over 15,000 people) | GeoNames | 1.3 MB |
+| Countries | 254 (no lesser-known ones) | - | GeoNames, plus England, Scotland, Wales and Northern Ireland | 8 KB |
+| Animals | 452 | 3,636 (rarer animals) | Open English WordNet | 114 KB |
+| Food and drink | 505 | 2,312 (rarer foods and drinks) | Open English WordNet | 65 KB |
+| Anything | 29,998 (no lesser-known ones) | - | `words.json` (FrequencyWords and SCOWL) | 395 KB (always loaded) |
+
+"Also allow lesser-known ones" is a switch, off by default, that accepts more answers, so it makes the game easier, not harder.
+Until 2026-11-16 it was called "hard mode", which said the opposite of what it does; reports from before then (v1 to v3) mark its turns `hard`, and `test/report.js` still reads them.
+In the code it is the `wide` option of `matchHeard`, `nextLetter`, `deadLetters` and `entriesLeft`, the `wide` field of a category, and the refusal reason `lesser-known`.
+The game (`one-device/hot-potato`) has no such switch and always plays the well-known list.
+
+### Suggestions
+
+To help a player who does not know many cities, the page shows three or four answers for the letter needed ("Try: Tokyo · Toronto · Tehran · more"), from the well-known list, never one already said this game.
+Cities are ranked by fame (population, with capitals and big cities of English-speaking countries first), other categories by how common the word is; "more" shows the next few.
+Tapping a suggestion does nothing: this is a hearing test, so the player says it.
+A switch hides them (on by default, remembered on this device).
+Each turn line in the report ends with `sugg:read` when the answer was one of the suggestions shown, `sugg:own` when it was not, or `sugg:hidden` when they were off.
+The game does not show suggestions; there they would be cheating.
 
 Countries are the countries and territories of ISO 3166 by their common English names ("Holland", "Burma", "Czech Republic", "USA", "America"), without formal names ("Republic of Turkey") or names of former states.
 Animals, food and drink are the nouns WordNet files under animals (not humans) and under food, drink and edible nuts.
@@ -68,7 +83,7 @@ From `node lab/hot-potato/tools/letter-report.mjs` (entries per starting letter 
   15 countries end in O (Mexico, Morocco, Congo ...) and 12 in Y (Germany, Italy ...): after Mexico the next country starts with C, after Germany with N, after Iraq with A.
 - **Animals:** U, X, Y and Z (the yak is the only well-known Y, the zebra the only Z).
   32 well-known animals end in Y (monkey, turkey, donkey, pony ...), 5 in X (fox, ox, lynx, red fox, Arctic fox), 2 in U (emu, nandu) and 1 in Z (spitz): after monkey the next animal starts with E, after fox with O.
-  In hard mode only X is a dead end.
+  With lesser-known animals allowed, only X is a dead end.
 - **Food and drink:** U, X and Z; 2 end in U (tofu, tiramisu) and 1 in X (lox).
   Y has 4 (yogurt, yam, yolk, and swede by its other name yellow turnip), so it holds until two of them are said, then becomes a dead end too.
   35 well-known foods end in Y (candy, curry, jelly ...).
@@ -91,8 +106,8 @@ The m2 rules, as written for cities.
 3. **Two lists, well-known places by default.**
    The default list holds national capitals, US, Canadian and Australian state capitals, cities of 100,000 people or more, and the hand list in `tools/famous-places.txt` (Venice, Aspen, Cannes, Montpelier).
    A city whose name is also an ordinary English word (Orange, Surprise, Independence) needs 250,000 people, a capital or the hand list (Nice, Bath, Cork, Mobile, Split).
-   Hard mode (a switch, off by default) adds every town over 15,000.
-   A city heard exactly that is only in the full list is refused in the default list with "only in hard mode".
+   "Also allow lesser-known cities" (a switch, off by default) adds every town over 15,000, so it accepts more.
+   A city heard exactly that is only in the wider list is refused in the default list as lesser known: `No: Orange (United States) is a lesser-known town of 141k, not on the well-known list (taken with "Also allow lesser-known cities" on)`.
 4. **Sound-alike only mends the recogniser's spelling of a well-known city, never a different word.**
    It is tried only when the recogniser's best guess is not an ordinary English word or a common first or family name ("salmon", "hello", "apple", "ratchet", "Ralph" are refused as what they are).
    The city must be well known and its name must not itself be an ordinary word.
@@ -141,5 +156,5 @@ Sources and licences are in `one-device/hot-potato/shared/CREDITS.txt`.
 
 ## Tests
 
-- `npm test` runs the unit tests, including the 20 turns of the first report, about 60 well-known cities and 100 ordinary words and names, and (`test/categories.test.js`) the common entries of every category, plurals, the ordinary-word rule per category, the dead ends and reports of every version read back.
-- `node lab/hot-potato/test/e2e-hearing.mjs --base=http://localhost:8875` checks the page in a headless, muted Chromium against a built site served on that port (run it through `devguard slot --`), including a game in each category, the plural and dead-end lines, that only the chosen list is fetched, the remembered choice, and a browser that refuses storage.
+- `npm test` runs the unit tests, including the 20 turns of the first report, about 60 well-known cities and 100 ordinary words and names, and (`test/categories.test.js`) the common entries of every category, plurals, the ordinary-word rule per category, the dead ends and reports of every version read back, and (`test/suggest.test.js`) that every suggestion is a right answer for its letter and category, from the well-known list, never one already said.
+- `node lab/hot-potato/test/e2e-hearing.mjs --base=http://localhost:8875` checks the page in a headless, muted Chromium against a built site served on that port (run it through `devguard slot --`), including a game in each category, the plural and dead-end lines, that only the chosen list is fetched, the remembered choice, and a browser that refuses storage; suggestions shown with the turn button still above the fold at 390x844 and 844x390, "more", a tap on one starting nothing, the switch remembered, and the `sugg:` token on every turn line.
