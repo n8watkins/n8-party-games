@@ -62,10 +62,15 @@ export function clockText(ms) {
  * what happens then: "Bo is away: back within 0:45 or the match ends".
  */
 export function awayLine(names, leftMs = null) {
-  if (!names.length) return "";
-  const who = names.length === 1 ? names[0] : `${names.slice(0, -1).join(", ")} and ${names.at(-1)}`;
-  const line = `${who} ${names.length === 1 ? "is" : "are"} away`;
-  return leftMs === null ? line : `${line}: back within ${clockText(leftMs)} or the match ends`;
+  const { who, left } = awayParts(names, leftMs);
+  return left ? `${who}: ${left}` : who;
+}
+
+/** The away note in its two parts, as the page lays it out on two lines: `who` ("Bo is away") and `left` ("back within 0:45 or the match ends", or ""). */
+export function awayParts(names, leftMs = null) {
+  if (!names.length) return { who: "", left: "" };
+  const list = names.length === 1 ? names[0] : `${names.slice(0, -1).join(", ")} and ${names.at(-1)}`;
+  return { who: `${list} ${names.length === 1 ? "is" : "are"} away`, left: leftMs === null ? "" : `back within ${clockText(leftMs)} or the match ends` };
 }
 
 /**

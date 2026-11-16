@@ -1,7 +1,7 @@
 // Everything laid over the room: the bottom line a big screen shows, a player's buttons and
 // emote wheel, the door button and its sheet (leave, the emote wheel's six, sound), the one-tap
 // mute, notes ("Tom left"), the card after a game, and what to say when the connection is gone. When the room is gone the page goes to the front page (farewell.js).
-import { awayLeft, awayLine, awayOthers } from "./connection.js";
+import { awayLeft, awayOthers, awayParts } from "./connection.js";
 import { Controls } from "./controls.js";
 import { ICONS, h, icon } from "./dom.js";
 import { EmoteWheel, openLoadout } from "./emotes/wheel.js";
@@ -183,16 +183,20 @@ export class Hud {
       this.awaySeenAt = now;
     }
     const away = awayOthers(room, this.opts);
-    const text = awayLine(
+    const { who, left } = awayParts(
       away.map((m) => m.name),
       awayLeft(away, this.awaySeenAt, now),
     );
+    const text = left ? `${who}: ${left}` : who;
     if (text === (this.awayEl?.dataset.text ?? "")) return;
     this.awayEl ??= h("div", "link-state away-mark", "", this.el);
     this.awayEl.dataset.text = text;
     this.awayEl.replaceChildren();
     for (const m of away) h("span", "dot", "", this.awayEl).style.background = m.colour;
-    h("span", "", text, this.awayEl);
+    // Two lines, so the note stays narrow: clear of the corner's buttons and of a game's stage.
+    const words = h("span", "away-words", "", this.awayEl);
+    h("span", "away-who", who, words);
+    if (left) h("span", "away-left", left, words);
     this.awayEl.hidden = !text;
   }
 

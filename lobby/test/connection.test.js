@@ -6,7 +6,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { PartyClient } from "../../party-kit/client/party-client.js";
 import { FakeWebSocket } from "../../party-kit/test/fake-browser-socket.js";
-import { ConnectionWatch, DEAD_AFTER_MS, KEEP_ALIVE_MS, awayLeft, awayLine, clockText, turnBased, whenHidden } from "../public/connection.js";
+import { ConnectionWatch, DEAD_AFTER_MS, KEEP_ALIVE_MS, awayLeft, awayLine, awayParts, clockText, turnBased, whenHidden } from "../public/connection.js";
 
 const lobby = { phase: "lobby", game: null, members: [] };
 const turns = { phase: "playing", game: { id: "who-am-i", name: "Who Am I?", round: 1, turns: true }, members: [] };
@@ -277,6 +277,10 @@ describe("awayLine", () => {
     expect(awayLine(["Bo"], 45_000)).toBe("Bo is away: back within 0:45 or the match ends");
     expect(awayLine(["Bo", "Cy"], 60_000)).toBe("Bo and Cy are away: back within 1:00 or the match ends");
     expect(awayLine(["Bo"], null)).toBe("Bo is away");
+    // The page lays it out on two lines.
+    expect(awayParts(["Bo"], 45_000)).toEqual({ who: "Bo is away", left: "back within 0:45 or the match ends" });
+    expect(awayParts(["Bo"])).toEqual({ who: "Bo is away", left: "" });
+    expect(awayParts([], 1000)).toEqual({ who: "", left: "" });
   });
 });
 
