@@ -320,10 +320,10 @@ describe("many sockets that never say whose they are", () => {
     expect(bo.messages()[0]).toMatchObject({ t: "hello", you: { seat: 1 } });
   });
 
-  /** Bo was in from `home`, and dropped; the room is full of someone else's silent sockets already, from 40 addresses. */
-  async function crowded(home) {
+  /** Bo was in from 203.0.113.7, and dropped; the room is full of someone else's silent sockets already, from 40 addresses. */
+  async function crowded() {
     const r = await openRoom();
-    const first = await r.open("", home);
+    const first = await r.open("", "203.0.113.7");
     r.hello(first, r.bo.token);
     r.ctx.room.webSocketClose(first, 1006, "");
     for (let i = 0; i < MAX_UNKNOWN; i++) await r.open("", `198.51.100.${i % 40}`);
@@ -345,40 +345,50 @@ describe("many sockets that never say whose they are", () => {
   const everywhere = (i) => `2001:db8:${(i >> 8).toString(16)}${(i & 255).toString(16).padStart(2, "0")}::1`;
 
   it.each([8, 40, MAX_UNKNOWN, 1000])(
-    "a phone back on the network it played on is seated though %i silent sockets from addresses of their own arrived during its round trip",
+    "a phone is seated though %i silent sockets from 40 addresses arrived during its round trip",
     async (n) => {
-      const r = await crowded("203.0.113.7");
-      const { waited, heard } = await comesBack(r, "203.0.113.7", n, everywhere);
-      expect(waited).toBeNull();
-      expect(heard).toMatchObject({ t: "hello", you: { seat: 1 } });
+      for (const from of ["203.0.113.7", "192.0.2.50"]) {
+        const r = await crowded();
+        const { waited, heard } = await comesBack(r, from, n, (i) => `198.51.100.${i % 40}`);
+        expect(waited).toBeNull();
+        expect(heard).toMatchObject({ t: "hello", you: { seat: 1 } });
+      }
     },
   );
 
-  it.each([8, 40, MAX_UNKNOWN, 1000])(
-    "a phone on a network the room has never seen is seated though %i silent sockets from 40 addresses arrived during its round trip",
-    async (n) => {
-      const r = await crowded("203.0.113.7");
-      const { waited, heard } = await comesBack(r, "192.0.2.50", n, (i) => `198.51.100.${i % 40}`);
-      expect(waited).toBeNull();
-      expect(heard).toMatchObject({ t: "hello", you: { seat: 1 } });
-    },
-  );
-
-  it("what is left: a phone on a network the room has never seen is pushed out by more addresses than the room lets wait, each opening one socket inside its round trip", async () => {
-    const r = await crowded("203.0.113.7");
-    const { waited } = await comesBack(r, "192.0.2.50", MAX_UNKNOWN + 1, everywhere);
-    expect(waited).toEqual({ code: CLOSE_HELLO_LATE, reason: "crowded" });
-    // One fewer, and it would have stayed.
-    const again = await crowded("203.0.113.7");
-    expect((await comesBack(again, "192.0.2.50", MAX_UNKNOWN - 1, everywhere)).waited).toBeNull();
+  it("someone who joined (as a screen, which always succeeds) and dropped from 63 addresses, and floods from them, keeps no phone out, on a network the room has never seen either", async () => {
+    const r = await openRoom();
+    const hostile = (i) => `198.51.${100 + (i % 63)}.9`;
+    for (let i = 0; i < 63; i++) {
+      const screen = await r.ctx.room.join({ as: "screen" });
+      const ws = await r.open("", hostile(i));
+      r.hello(ws, screen.token);
+      r.ctx.room.webSocketClose(ws, 1006, "");
+    }
+    for (let i = 0; i < MAX_UNKNOWN; i++) await r.open("", hostile(i));
+    const { waited, heard } = await comesBack(r, "192.0.2.50", 1000, hostile);
+    expect(waited).toBeNull();
+    expect(heard).toMatchObject({ t: "hello", you: { seat: 1 } });
   });
 
-  it("the room remembers the networks it let in across a sleep and a restart", async () => {
-    const r = await crowded("203.0.113.7");
-    await r.sleepAndWake();
-    const { waited } = await comesBack(r, "203.0.113.7", 1000, everywhere);
-    expect(waited).toBeNull();
-    expect(r.ctx.store.get("clients")).toEqual(["203.0.113.7"]);
+  it("what is left: a phone is pushed out only when a full room's worth of newer opens, from as many addresses, lands inside its round trip", async () => {
+    // 127 newer opens from 127 addresses of their own: still waiting, and seated.
+    const r = await openRoom();
+    expect((await comesBack(r, "192.0.2.50", MAX_UNKNOWN - 1, everywhere)).heard).toMatchObject({ t: "hello", you: { seat: 1 } });
+    // 128: the room is full of lone sockets, the oldest lone one goes, and that is the phone.
+    const again = await openRoom();
+    expect((await comesBack(again, "192.0.2.50", MAX_UNKNOWN, everywhere)).waited).toEqual({ code: CLOSE_HELLO_LATE, reason: "crowded" });
+  });
+
+  it("no player's address is written down: only a waiting socket carries its key, and seating it drops the key", async () => {
+    const r = await openRoom();
+    const ws = await r.open("", "203.0.113.7");
+    expect(ws.attachment.client).toBe("203.0.113.7");
+    r.hello(ws, r.bo.token);
+    expect(ws.attachment).not.toHaveProperty("client");
+    expect(JSON.stringify(ws.attachment)).not.toContain("203.0.113");
+    for (const value of r.ctx.store.values()) expect(JSON.stringify(value)).not.toContain("203.0.113");
+    expect([...r.ctx.store.keys()]).toEqual(["room"]);
   });
 
   it("one address cannot hold more than its share: its newest pushes out its own oldest, never another's", async () => {

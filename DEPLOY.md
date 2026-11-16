@@ -64,7 +64,10 @@ Nothing needs deleting.
 
 ## To remove after
 
-- **`HONOUR_TOKEN_IN_ADDRESS`** (`party-kit/src/worker/hello-logic.js`, added 2026-11-15): in the first release deployed more than four hours after the one that ships it, delete the constant and the old-form branch it guards in both rooms (`fetch` in `party-kit/src/worker/room.js` and `lobby/server/lobby-room.js`); a socket with `?token=` is then an ordinary socket that has not said hello. Remove the old-form checks in the tests and end-to-end scripts with it (search for `oldForm` and `?token=`).
+- **`HONOUR_TOKEN_IN_ADDRESS`** (`party-kit/src/worker/hello-logic.js`, added 2026-11-15): in the first release deployed more than four hours after the one that ships it, delete the constant and the seating of the old form it guards in both rooms (`fetch` in `party-kit/src/worker/room.js` and `lobby/server/lobby-room.js`).
+  Keep a one-line branch in its place that closes a `?token=` socket at once with 4003 (`CLOSE_BAD_TOKEN`).
+  Without it such a socket becomes an ordinary one that never says hello: it is closed 4009 at the next sweep, 4009 tells an old tab to try again for ever, and in a room that no longer exists nothing sweeps it at all.
+  Change the old-form checks in the tests and end-to-end scripts to expect that 4003 (search for `oldForm` and `?token=`).
 
 ## Check it after a deploy
 

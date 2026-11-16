@@ -31,12 +31,21 @@ const PING_EVERY_MS = 2000;
 const IDLE_PING_EVERY_MS = 10_000;
 /** How long sendInput waits for the room to answer an input with an id. */
 export const ANSWER_TIMEOUT_MS = 10_000;
+/**
+ * How long to wait before the `retry`th reconnect: a back-off that doubles from 250 ms to four
+ * seconds, jittered between half of it and all of it, so the phones of a household cut off at the
+ * same moment (a deploy that resets a busy room) do not all come back in step.
+ */
+export function reconnectDelay(retry, random = Math.random) {
+  const full = Math.min(4000, 250 * 2 ** Math.min(retry, 4));
+  return full / 2 + random() * (full / 2);
+}
 /** An input id as a key: 7 and "7" are different ids, as they are to the room. */
 const answerKey = (id) => `${typeof id === "number" ? "n" : "s"}:${id}`;
 
 export class PartyClient {
   /**
-   * @param {{base?: string, lag?: number, storage?: Storage | null, api?: string, quietPing?: {text: string, everyMs: number}}} [opts]
+   * @param {{base?: string, lag?: number, storage?: Storage | null, api?: string, quietPing?: {text: string, everyMs: number}, random?: () => number}} [opts]
    *   lag: simulated latency in ms each way (the room must allow it: PARTY_SIM_LATENCY="on").
    *   api: the path of the room API, for a site with a second kind of room ("/api/lobby").
    *   quietPing: outside a round, send this fixed text instead of the clock ping. A room that
@@ -50,6 +59,8 @@ export class PartyClient {
     this.quietPing = opts.quietPing ?? null;
     this.lag = opts.lag ?? 0;
     this.storage = opts.storage === undefined ? safeStorage() : opts.storage;
+    /** The reconnect back-off's jitter (a test gives its own). */
+    this.random = opts.random ?? Math.random;
     this.handlers = new Map();
     this.session = null; // {code, pin, token, seat, role}
     this.room = null;
@@ -229,7 +240,7 @@ export class PartyClient {
           this.retryTimer = null;
           if (this.wantOpen) this.connect();
         },
-        Math.min(4000, 250 * 2 ** Math.min(this.retry, 4)),
+        reconnectDelay(this.retry, this.random),
       );
     };
   }

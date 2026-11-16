@@ -1,7 +1,7 @@
 // The pure part of the socket handshake (hello-logic.js): reading the first message, and the
 // sockets that have not said whose they are yet.
 import { describe, expect, it } from "vitest";
-import { CLOSE_HELLO_LATE, HELLO_MS, KnownClients, MAX_KNOWN_CLIENTS, MAX_TOKEN_LENGTH, MAX_UNKNOWN, MAX_UNKNOWN_PER_CLIENT, UnknownSockets, readHello } from "../src/worker/hello-logic.js";
+import { CLOSE_HELLO_LATE, HELLO_MS, MAX_TOKEN_LENGTH, MAX_UNKNOWN, MAX_UNKNOWN_PER_CLIENT, UnknownSockets, readHello } from "../src/worker/hello-logic.js";
 import { RATE_LIMITS, socketClient } from "../src/worker/limit-logic.js";
 
 const START = 1_700_000_000_000;
@@ -124,40 +124,6 @@ describe("UnknownSockets", () => {
     expect(lone.closed).toBeNull();
   });
 
-  it("when the room is full, a socket from a network the room has never let in gives way before any from one it knows", () => {
-    const known = new KnownClients(["home"]);
-    const unknown = new UnknownSockets((c) => known.has(c));
-    const mine = Array.from({ length: 3 }, () => new Socket());
-    mine.forEach((ws) => unknown.add(ws, START, 0, "home"));
-    const strangers = Array.from({ length: MAX_UNKNOWN - 3 }, () => new Socket());
-    strangers.forEach((ws, i) => unknown.add(ws, START + 1 + i, 0, `c-${i}`));
-    unknown.add(new Socket(), START + 500, 0, "newcomer");
-    // The home network holds the most and waited longest, and still the oldest stranger went.
-    expect(mine.every((ws) => ws.closed === null)).toBe(true);
-    expect(strangers[0].closed).toEqual({ code: CLOSE_HELLO_LATE, reason: "crowded" });
-    // With no stranger left waiting, the known networks share out the room as anyone would.
-    const all = new UnknownSockets(() => true);
-    const greedy = Array.from({ length: 4 }, () => new Socket());
-    greedy.forEach((ws) => all.add(ws, START, 0, "greedy"));
-    for (let i = 0; all.size < MAX_UNKNOWN; i++) all.add(new Socket(), START + 1, 0, `k-${i}`);
-    all.add(new Socket(), START + 2, 0, "late");
-    expect(greedy[0].closed?.reason).toBe("crowded");
-  });
-
-  it("KnownClients keeps what it is given, takes only text, and nothing once full", () => {
-    const known = new KnownClients(["a"]);
-    expect(known.add("a")).toBe(false);
-    expect(known.add("b")).toBe(true);
-    expect(known.add(undefined)).toBe(false);
-    expect(known.add("")).toBe(false);
-    expect(known.list()).toEqual(["a", "b"]);
-    expect(new KnownClients(undefined).list()).toEqual([]);
-    const full = new KnownClients(Array.from({ length: MAX_KNOWN_CLIENTS + 5 }, (_, i) => `n-${i}`));
-    expect(full.list()).toHaveLength(MAX_KNOWN_CLIENTS);
-    expect(full.add("late")).toBe(false);
-    expect(full.has("n-0")).toBe(true);
-  });
-
   it("a room full of fresh silent sockets from 128 addresses, one each, does not keep a phone out: it is let in, and stays until a full room's worth of newer opens land", () => {
     const unknown = new UnknownSockets();
     for (let i = 0; i < MAX_UNKNOWN; i++) unknown.add(new Socket(), START + i, 0, `hostile-${i}`);
@@ -267,23 +233,20 @@ describe("silent sockets from many addresses, against a phone waiting one round 
     });
   }
 
-  it("a phone on a network the room knows is seated against 1,000 addresses, even when someone has filled the room's list of known networks with theirs", () => {
-    // Fewer known networks than sockets may wait: with the room full of known networks' sockets
-    // alone, one of those networks holds two, and gives way before a phone alone on its own.
-    expect(MAX_KNOWN_CLIENTS).toBeLessThan(MAX_UNKNOWN);
-    const known = new KnownClients(["phone", ...Array.from({ length: MAX_KNOWN_CLIENTS - 1 }, (_, i) => `hostile-${i}`)]);
-    expect(known.add("one more")).toBe(false);
-    for (const rtt of [100, 500, 2000]) {
-      const unknown = new UnknownSockets((c) => known.has(c));
+  it("a phone is seated against 64 addresses sending 20 opens a second between them, at every round trip down to 100 ms (the attack that beat the list of known networks)", () => {
+    for (const rtt of [100, 250, 500, 1000, 2000]) {
+      const unknown = new UnknownSockets();
+      // A full room of their sockets first.
+      for (let i = 0; i < MAX_UNKNOWN; i++) unknown.add(new Socket(), START + i * 50, 0, `hostile-${i % 64}`);
       const phone = new Socket();
-      unknown.add(phone, START, 0, "phone");
-      // The known ones and 1,000 strangers, all inside the round trip.
-      for (let i = 0; i < 4000; i++) unknown.add(new Socket(), START + (i * rtt) / 4000, 0, i % 2 ? `hostile-${i % (MAX_KNOWN_CLIENTS - 1)}` : `stranger-${i % 1000}`);
+      const at = START + MAX_UNKNOWN * 50;
+      unknown.add(phone, at, 0, "phone");
+      for (let t = 50; t <= rtt; t += 50) unknown.add(new Socket(), at + t, 0, `hostile-${(t / 50) % 64}`);
       expect(unknown.has(phone), `rtt ${rtt}`).toBe(true);
     }
   });
 
-  it("what is left: a phone on a network the room has never seen, against more addresses than may wait, each opening inside its round trip", () => {
+  it("what is left: a phone against more addresses than may wait, each opening inside its round trip", () => {
     expect(phoneSeated({ clients: MAX_UNKNOWN, rtt: 1000, phase: 0 })).toBe(false);
     expect(phoneSeated({ clients: MAX_UNKNOWN, rtt: 250, phase: 0 })).toBe(true);
   });

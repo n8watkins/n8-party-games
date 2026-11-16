@@ -12,7 +12,7 @@ import { generate } from "lean-qr";
 import { toSvgSource } from "lean-qr/extras/svg";
 import { cleanName } from "../core/room-core.js";
 import { API_HEADERS, CODE_ALPHABET, CODE_LENGTH, OUTDATED_MESSAGE, allowedOrigins, currentPage, error, isCode, isJoinLink, json, originAllowed, readBody } from "./http.js";
-import { MAX_TOKEN_LENGTH, clientOf } from "./hello-logic.js";
+import { MAX_TOKEN_LENGTH } from "./hello-logic.js";
 import { isPin, PIN_DIRECTORY_NAME } from "./pin-logic.js";
 import { allowRequest } from "./rate-limiter.js";
 import { fullMessage, roomBudgetState } from "./room-budget.js";
@@ -126,7 +126,7 @@ async function route(request, env, url, options) {
     }
     for (let attempt = 0; attempt < CODE_ATTEMPTS; attempt++) {
       const code = randomCode();
-      const result = await rooms.getByName(code).create({ code, nickname: body.nickname, as, client: clientOf(request) });
+      const result = await rooms.getByName(code).create({ code, nickname: body.nickname, as });
       if (result.ok) return json(result, 201);
       if (result.error !== "exists") return error(result.error, result.message);
     }
@@ -146,8 +146,7 @@ async function route(request, env, url, options) {
     const body = await readBody(request);
     if (!body) return error("bad_request", "Expected a small JSON body.");
     if (!stub) return error("not_found", "No open room matches that. Check it with the host.");
-    // The client it came from: the room lets its sockets wait ahead of strangers' (hello-logic.js, KnownClients).
-    const result = await stub.join({ nickname: body.nickname, as: body.as === "screen" ? "screen" : "player", client: clientOf(request) });
+    const result = await stub.join({ nickname: body.nickname, as: body.as === "screen" ? "screen" : "player" });
     return result.ok ? json(result) : error(result.error, result.message);
   }
 

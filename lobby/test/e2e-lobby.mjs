@@ -272,22 +272,18 @@ check(!S.seen.slice(mark).some((m) => m.t === "m" || m.t === "b"), "a screen can
   for (const c of idle) c.ws.close();
   await sleep(300);
   check((await inner()).unknown === 0 && A.ws.readyState === 1, "closed, they are forgotten, and nobody in the room was disturbed");
-  // Someone who knows the code opens silent sockets from 150 addresses of their own while Bo's
-  // hello is on its way, more than the room lets wait at once: Bo's phone, on the network it
-  // played on, is still seated, and none of them hears anything.
-  const home = "203.0.113.70";
-  const first = connect(b, { from: home });
-  await first.wait((m) => m.t === "hello", 4000, 0);
-  first.ws.close();
-  const phone = connect(b, { hello: false, from: home });
+  // Someone who knows the code opens 300 silent sockets from 40 addresses of their own while Bo's
+  // hello is on its way, more than the room lets wait at once: Bo's phone is still seated, and
+  // none of them hears anything.
+  const phone = connect(b, { hello: false, from: "203.0.113.70" });
   await phone.opened;
-  const flood = Array.from({ length: 150 }, (_, i) => connect(a, { hello: false, from: `2001:db8:${(100 + i).toString(16)}::1` }));
+  const flood = Array.from({ length: 300 }, (_, i) => connect(a, { hello: false, from: `2001:db8:${(100 + (i % 40)).toString(16)}::1` }));
   await Promise.all(flood.map((c) => c.opened));
   await sleep(250);
   const full = (await inner()).unknown;
   phone.ws.send(JSON.stringify({ t: "hello", token: b.token }));
   const seated = await phone.wait((m) => m.t === "hello", 4000, 0).catch(() => null);
-  check(full === 128 && seated?.you?.seat === b.seat && flood.every((c) => c.seen.length === 0), `a phone whose hello lands after 150 silent sockets from 150 other addresses (${full} waiting, the most there may be) is still seated, and none of them heard anything`);
+  check(full === 128 && seated?.you?.seat === b.seat && flood.every((c) => c.seen.length === 0), `a phone whose hello lands after 300 silent sockets from 40 other addresses (${full} waiting, the most there may be) is still seated, and none of them heard anything`);
   phone.ws.close();
   for (const c of flood) c.ws.close();
   await sleep(300);

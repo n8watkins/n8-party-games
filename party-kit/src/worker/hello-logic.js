@@ -16,12 +16,11 @@
 // by the /48: socketClient in limit-logic.js; the door's limit keeps the /64), and the sockets that wait
 // are shared out by client: a client that opens more than its share pushes out only its own, and
 // when the room as a whole is full the client holding the most gives way. A page alone on its
-// address is never the one pushed out while anyone else holds two.
+// address is never the one pushed out while anyone else holds two, and once every client holds one
+// it goes only when a full room's worth of newer opens has landed inside its round trip.
 //
-// On top of that the room remembers the clients it has let in (made or joined the room through
-// it, or seated a socket from it: KnownClients). When it is full, a socket from a client it has
-// never let in always gives way before one from a client it knows, so a phone coming back on the
-// network it played on is never pushed out by strangers, however many addresses they have.
+// The client lives only on the waiting socket's attachment: it is dropped when the socket is
+// seated, and no player's address is written to the room's storage.
 
 import { socketClient } from "./limit-logic.js";
 
@@ -61,6 +60,11 @@ export const CLOSE_HELLO_LATE = 4009;
  * mark, http.js), was already written down by its first connect, and stays good until its room
  * ends whether or not its page reconnects; refusing it would only cost the phone its seat. Once
  * every room open at the deploy has ended (four hours at most), nothing sends it any more.
+ *
+ * When it is removed, keep a one-line branch in both rooms' fetch that closes a `?token=` socket
+ * at once with 4003 (CLOSE_BAD_TOKEN). Without it such a socket becomes an ordinary one that never
+ * says hello: it is closed 4009 at the next sweep, 4009 tells an old tab to try again for ever, and
+ * in a room that no longer exists nothing sweeps it at all.
  */
 export const HONOUR_TOKEN_IN_ADDRESS = true;
 
@@ -105,11 +109,9 @@ export function seatToken(token) {
  * the hello wakes knowing the socket is still nobody's, and whose client it came from (restore).
  */
 export class UnknownSockets {
-  /** @param {(client: string) => boolean} [isKnown] whether the room has let `client` in before (KnownClients.has) */
-  constructor(isKnown = () => false) {
+  constructor() {
     /** socket -> {unknown: true, at, lag, client} */
     this.waiting = new Map();
-    this.isKnown = isKnown;
   }
 
   get size() {
@@ -142,21 +144,17 @@ export class UnknownSockets {
   }
 
   /**
-   * The room is full and `client` is under its share. The sockets of clients the room has never
-   * let in give way first, and only when none of those is waiting do the known clients' sockets.
-   * Among the ones that give way, the clients holding the most go first (the newcomer counted
-   * with its own), and of those the socket that has waited longest. When every client holds one,
-   * that is the oldest socket of all.
+   * The room is full and `client` is under its share: the clients holding the most give way (the
+   * newcomer counted with its own), and of theirs the socket that has waited longest. When every
+   * client holds one, that is the oldest lone socket of all, and the newcomer is let in: refusing
+   * it instead would let addresses that each hold one fresh silent socket keep a real phone out.
    */
   makeRoom(client) {
-    let pool = [...this.waiting.values()].filter((kept) => !this.isKnown(kept.client));
-    if (!pool.length) pool = [...this.waiting.values()];
     const counts = new Map([[client, 1]]);
-    for (const kept of pool) counts.set(kept.client, (counts.get(kept.client) ?? 0) + 1);
+    for (const kept of this.waiting.values()) counts.set(kept.client, (counts.get(kept.client) ?? 0) + 1);
     let most = 0;
-    for (const kept of pool) most = Math.max(most, counts.get(kept.client));
-    const inPool = new Set(pool);
-    this.closeOldest((kept) => inPool.has(kept) && counts.get(kept.client) === most);
+    for (const kept of this.waiting.values()) most = Math.max(most, counts.get(kept.client));
+    this.closeOldest((kept) => counts.get(kept.client) === most);
   }
 
   /** Closes the socket that has waited longest among those `which` picks (none if it picks none). */
@@ -191,34 +189,5 @@ export class UnknownSockets {
   /** The room closed every socket itself (destroy). */
   forget() {
     this.waiting.clear();
-  }
-}
-
-/** How many clients a room remembers having let in. Once full it takes no more, so nobody can push the real ones out of it. */
-export const MAX_KNOWN_CLIENTS = 64;
-
-/**
- * The clients (socketClient) a room has let in: it was made or joined through them, or it seated a
- * socket from them. The room saves the list with itself (`list`), as it must outlive a sleep and a
- * restart: after a deploy resets a busy room, every phone comes back at once.
- */
-export class KnownClients {
-  constructor(list = []) {
-    this.clients = new Set(Array.isArray(list) ? list.slice(0, MAX_KNOWN_CLIENTS) : []);
-  }
-
-  has(client) {
-    return this.clients.has(client);
-  }
-
-  /** Remembers `client`. Returns true when that changed the list (the room then saves it). */
-  add(client) {
-    if (typeof client !== "string" || !client || this.clients.has(client) || this.clients.size >= MAX_KNOWN_CLIENTS) return false;
-    this.clients.add(client);
-    return true;
-  }
-
-  list() {
-    return [...this.clients];
   }
 }

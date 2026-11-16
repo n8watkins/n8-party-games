@@ -228,7 +228,8 @@ describe("what the room answers", () => {
   });
 
   it("sockets that open and are closed before the room's hello back off more each time, and only the hello starts the count again", () => {
-    const c = client();
+    // The jitter at its longest: each wait is the whole back-off.
+    const c = client({ random: () => 0.9999 });
     c.connect();
     const waits = [];
     for (let i = 0; i < 6; i++) {
@@ -253,5 +254,44 @@ describe("what the room answers", () => {
     const made = FakeWebSocket.made.length;
     vi.advanceTimersByTime(500);
     expect(FakeWebSocket.made.length).toBe(made + 1);
+  });
+
+  it("each wait is jittered between half the back-off and all of it, so phones cut off at the same moment do not come back in step", () => {
+    for (const r of [0, 0.5, 0.9999]) {
+      const share = 0.5 + r / 2;
+      FakeWebSocket.made = [];
+      const c = client({ random: () => r });
+      c.connect();
+      for (const full of [500, 1000, 2000, 4000, 4000]) {
+        const ws = FakeWebSocket.last;
+        ws.open();
+        ws.readyState = 3;
+        ws.onclose({ code: 4009, reason: "crowded" });
+        const made = FakeWebSocket.made.length;
+        const wait = full * share;
+        vi.advanceTimersByTime(Math.floor(wait) - 1);
+        expect(FakeWebSocket.made.length, `${full} ms back-off, ${share}`).toBe(made);
+        vi.advanceTimersByTime(2);
+        expect(FakeWebSocket.made.length, `${full} ms back-off, ${share}`).toBe(made + 1);
+        // Never sooner than half, never later than the whole.
+        expect(wait).toBeGreaterThanOrEqual(full / 2);
+        expect(wait).toBeLessThanOrEqual(full);
+      }
+      c.wantOpen = false;
+    }
+  });
+
+  it("uses Math.random for the jitter unless it is given another source", () => {
+    const spy = vi.spyOn(Math, "random").mockReturnValue(0);
+    const c = client();
+    c.connect();
+    const ws = FakeWebSocket.last;
+    ws.open();
+    ws.readyState = 3;
+    ws.onclose({ code: 4009, reason: "crowded" });
+    vi.advanceTimersByTime(250);
+    expect(FakeWebSocket.made).toHaveLength(2);
+    expect(spy).toHaveBeenCalled();
+    spy.mockRestore();
   });
 });

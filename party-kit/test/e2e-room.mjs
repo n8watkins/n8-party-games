@@ -131,24 +131,19 @@ await sleep(500);
 const stillOpen = idle.filter((s) => s.ws.readyState === 1).length;
 check(stillOpen === 6 && idle.every((s) => s.seen.length === 0), `twelve sockets from one address that say nothing: the room keeps ${stillOpen} (six at most), and tells none of them anything`);
 for (const s of idle) s.ws.close();
-// Someone who knows the code opens silent sockets from 150 addresses of their own while a phone's
-// hello is on its way, more than the room lets wait at once: the phone on the network it played
-// on is still seated.
+// Someone who knows the code opens 300 silent sockets from 40 addresses of their own while a
+// phone's hello is on its way, more than the room lets wait at once: the phone is still seated.
 {
   const cy = await post("/join/" + a.pin, { nickname: "Di" });
   const home = "203.0.113.70";
-  const first = connect(cy, 0, { from: home });
-  await first.wait((m) => m.t === "hello");
-  first.ws.close();
-  await sleep(300);
   const phone = connect(cy, 0, { hello: false, from: home });
   await phone.opened;
-  const flood = Array.from({ length: 150 }, (_, i) => connect(a, 0, { hello: false, from: `2001:db8:${(100 + i).toString(16)}::1` }));
+  const flood = Array.from({ length: 300 }, (_, i) => connect(a, 0, { hello: false, from: `2001:db8:${(100 + (i % 40)).toString(16)}::1` }));
   await Promise.all(flood.map((s) => s.opened));
   await sleep(250);
   phone.send({ t: "hello", token: cy.token });
   const seated = await phone.wait((m) => m.t === "hello", 3000).catch(() => null);
-  check(!!seated && flood.every((s) => s.seen.length === 0), "a phone whose hello lands after 150 silent sockets from 150 other addresses is still seated, and none of them heard anything");
+  check(!!seated && flood.every((s) => s.seen.length === 0), "a phone whose hello lands after 300 silent sockets from 40 other addresses is still seated, and none of them heard anything");
   // Leaving with a second socket of the same seat open: both are closed, not only the one that said so.
   const tab = connect(cy, 0, { from: home });
   await tab.wait((m) => m.t === "hello");

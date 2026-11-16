@@ -213,35 +213,46 @@ describe("silent sockets opened while a phone's hello is on its way", () => {
   const everywhere = (i) => `2001:db8:${(i >> 8).toString(16)}${(i & 255).toString(16).padStart(2, "0")}::1`;
 
   it.each([8, 40, MAX_UNKNOWN, 1000])(
-    "a phone back on the network it played on is seated though %i silent sockets from addresses of their own arrived during its round trip",
+    "a phone is seated though %i silent sockets from 40 addresses arrived during its round trip",
     async (n) => {
-      const r = await crowded("203.0.113.7");
-      const { waited, heard } = await comesBack(r, "203.0.113.7", n, everywhere);
-      expect(waited).toBeNull();
-      expect(heard).toMatchObject({ t: "hello", you: { role: "player", seat: 1 } });
+      for (const from of ["203.0.113.7", "192.0.2.50"]) {
+        const r = await crowded("203.0.113.7");
+        const { waited, heard } = await comesBack(r, from, n, (i) => `198.51.100.${i % 40}`);
+        expect(waited).toBeNull();
+        expect(heard).toMatchObject({ t: "hello", you: { role: "player", seat: 1 } });
+      }
     },
   );
 
-  it.each([8, 40, MAX_UNKNOWN, 1000])(
-    "a phone on a network the party has never seen is seated though %i silent sockets from 40 addresses arrived during its round trip",
-    async (n) => {
-      const r = await crowded("203.0.113.7");
-      const { waited, heard } = await comesBack(r, "192.0.2.50", n, (i) => `198.51.100.${i % 40}`);
-      expect(waited).toBeNull();
-      expect(heard).toMatchObject({ t: "hello", you: { role: "player", seat: 1 } });
-    },
-  );
-
-  it("a phone joined from a network is known there before its first socket", async () => {
-    const r = await party();
-    const cy = await r.ctx.room.join({ nickname: "Cy", as: "player", client: "192.0.2.80" });
-    for (let i = 0; i < MAX_UNKNOWN; i++) await r.open("", `198.51.100.${i % 40}`);
+  it("someone who joined and left from 63 addresses, and floods from them, keeps no phone out, a friend joining later on a new network included", async () => {
+    const r = await party({ players: { min: 2, max: 4 } });
+    const hostile = (i) => `198.51.${100 + (i % 63)}.9`;
+    for (let i = 0; i < 63; i++) {
+      const joined = await r.ctx.room.join({ nickname: `X${i}`, as: "player" });
+      expect(joined.ok).toBe(true);
+      const ws = await r.open("", hostile(i));
+      hello(r, ws, joined.token);
+      await settle();
+      expect(ws.messages()[0]).toMatchObject({ t: "hello" });
+      r.say(ws, { t: "leave" });
+      await settle();
+    }
+    for (let i = 0; i < MAX_UNKNOWN; i++) await r.open("", hostile(i));
+    // A friend joins late, from a network nobody has used here.
+    const cy = await r.ctx.room.join({ nickname: "Cy", as: "player" });
     const phone = await r.open("", "192.0.2.80");
-    for (let i = 0; i < 1000; i++) await r.open("", everywhere(i));
+    for (let i = 0; i < 1000; i++) await r.open("", hostile(i));
     expect(phone.closed).toBeNull();
     hello(r, phone, cy.token);
     await settle();
-    expect(phone.messages()[0]).toMatchObject({ t: "hello", you: { role: "player", seat: 2 } });
+    expect(phone.messages()[0]).toMatchObject({ t: "hello", you: { role: "player" } });
+  });
+
+  it("what is left: a phone is pushed out only when a full room's worth of newer opens, from as many addresses, lands inside its round trip", async () => {
+    const r = await party();
+    expect((await comesBack(r, "192.0.2.50", MAX_UNKNOWN - 1, everywhere)).heard).toMatchObject({ t: "hello", you: { seat: 1 } });
+    const again = await party();
+    expect((await comesBack(again, "192.0.2.50", MAX_UNKNOWN, everywhere)).waited).toEqual({ code: CLOSE_HELLO_LATE, reason: "crowded" });
   });
 
   it("two phones on one carrier /48, two tabs each, coming back at the same moment, are all seated", async () => {
@@ -267,13 +278,16 @@ describe("silent sockets opened while a phone's hello is on its way", () => {
     expect(phone.messages()[0]).toMatchObject({ t: "hello" });
   });
 
-  it("the party remembers the networks it let in across a sleep and a restart, and forgets them when it closes", async () => {
-    const r = await crowded("203.0.113.7");
-    await r.sleepAndWake();
-    expect((await comesBack(r, "203.0.113.7", 1000, everywhere)).waited).toBeNull();
-    expect(r.ctx.store.get("clients")).toContain("203.0.113.7");
-    await r.ctx.room.destroy();
-    expect(r.ctx.store.size).toBe(0);
+  it("no player's address is written down: only a waiting socket carries its key, and seating it drops the key", async () => {
+    const r = await party();
+    const ws = await r.open("", "203.0.113.7");
+    expect(ws.attachment.client).toBe("203.0.113.7");
+    hello(r, ws, r.tokens.bo);
+    await settle();
+    expect(ws.attachment).not.toHaveProperty("client");
+    expect(JSON.stringify(ws.attachment)).not.toContain("203.0.113");
+    for (const value of r.ctx.store.values()) expect(JSON.stringify(value)).not.toContain("203.0.113");
+    expect([...r.ctx.store.keys()]).toEqual(["lobby"]);
   });
 });
 
