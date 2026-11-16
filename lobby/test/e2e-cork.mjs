@@ -425,6 +425,9 @@ try {
   await walk(lone, loneWatch, 0, light());
   const loneStart = await loneUntil((v) => v.phase === "playing", 16000);
   const loneFrame = await gameFrame(lone);
+  // Held now, while the frame is surely there: on a slow runner the late screen below can take
+  // the rest of the round to join, and the frame is gone once the round ends.
+  await holdContext(lone);
   const loneSees = await loneFrame.evaluate(() => ({ mine: window.__cab.session.mySeat, stalls: window.__cab.views.length, seats: window.__cab.session.seats.length, rivals: document.getElementById("rivals").hidden, startAt: window.__cab.session.startAt }));
   check(loneStart.game.id === "cork-and-bell" && loneSees.seats === 1, "alone in its light, the count runs and a round starts for the one seat");
   check(loneSees.mine === 0 && loneSees.stalls === 1 && loneSees.rivals, "the party of one has a stall to itself, with no rivals to pick");
@@ -438,7 +441,6 @@ try {
   const lateSees = await lateFrame.evaluate(() => ({ mine: window.__cab.session.mySeat, stalls: window.__cab.views.length, t: window.__cab.session.time(), tally: !document.getElementById("tally").hidden }));
   check(lateSees.mine === -1 && lateSees.stalls === 1 && lateSees.t > -3.5 && lateSees.tally, `a big screen that joins once the round has begun is shown that stall and its score (${lateSees.t < 0 ? "in the count-in" : Math.round(lateSees.t) + " seconds in"})`);
   if (!slow) await shot(late, "59-screen-cork-and-bell-alone");
-  await holdContext(lone);
   console.log("     waiting for the round played alone to end...");
   const loneEnd = await loneUntil((v) => v.phase === "lobby" && v.last?.game === "cork-and-bell", 150000);
   clearInterval(loneWatch.timer);
