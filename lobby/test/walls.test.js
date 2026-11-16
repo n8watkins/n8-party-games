@@ -6,6 +6,7 @@ import { describe, expect, it } from "vitest";
 import { game as coinFlip, manifest as coinFlipManifest } from "../games/coin-flip.js";
 import { LobbyCore } from "../server/lobby-core.js";
 import { knockLanding, landingGround } from "../shared/bump.js";
+import { SCARE_LANDING, SPOOK_LANDING } from "../shared/ghost.js";
 import { ROOMS, hangsOwnBoxes, wallFor } from "../shared/rooms.js";
 import { boxFromManifest } from "../shared/vote.js";
 import { POSITION_SLACK, ROOM, boxCentre, evenWall, lightAt, lightHalf, spawnX } from "../shared/world.js";
@@ -81,6 +82,32 @@ describe("a room's wall", () => {
         expect(to).toBeGreaterThanOrEqual(ROOM.minX);
         expect(to).toBeLessThanOrEqual(ROOM.maxX);
       }
+  });
+
+  it("lands the ghost's spook and scare on the bar's wall as on any other: never into another light, never further than they reach", () => {
+    for (const reach of [SPOOK_LANDING, SCARE_LANDING])
+      for (const lit of [null, [0, 2, 4]])
+        for (let x = ROOM.minX; x <= ROOM.maxX; x += 7)
+          for (const dir of [-1, 1]) {
+            const from = lightAt(x, BAR);
+            const to = knockLanding(x, dir, BAR, lit, reach);
+            const at = lightAt(to, BAR);
+            const on = (i) => i !== -1 && (!lit || lit.includes(i));
+            // Out of the light it stood in, or (a spook in the middle of a pool wider than it reaches) still in that one: never into another that is on.
+            if (on(at)) expect(at, `x=${x} dir=${dir}`).toBe(from);
+            expect(Math.abs(to - x)).toBeLessThanOrEqual((reach.most ?? Infinity) + 1);
+            expect(to).toBeGreaterThanOrEqual(ROOM.minX);
+            expect(to).toBeLessThanOrEqual(ROOM.maxX);
+          }
+  });
+
+  it("leaves a piece on the edge of the dark, on the bar's wall, when no dark is within its reach that way", () => {
+    // Just right of the second frame's pool, pushed left with a reach too short to cross it: it stays where it is.
+    const x = Math.ceil(BAR.xs[1] + BAR.half + 0.5);
+    expect(lightAt(x, BAR)).toBe(-1);
+    expect(knockLanding(x, -1, BAR, null, { distance: 20, least: 10, most: 20 })).toBe(x);
+    // Inside that pool, with no dark within reach: moved the reach inside it, not out through a neighbour.
+    expect(knockLanding(BAR.xs[1], -1, BAR, null, { distance: 20, least: 10, most: 20 })).toBe(Math.round(BAR.xs[1] - 20));
   });
 
   it("is where the 3D look hangs the boxes and lays the pools", () => {
