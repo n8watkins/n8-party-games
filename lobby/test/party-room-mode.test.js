@@ -52,7 +52,7 @@ describe("switching the party between the two waiting rooms", () => {
     expect(new Set(seenInStore)).toEqual(new Set(["turn-based"]));
     for (const ws of Object.values(r.ws)) {
       const got = since(ws);
-      expect(got.find((m) => m.t === "note")).toEqual({ t: "note", k: "mode", mode: "turn-based", seat: 0, text: "Ann moved the party to Turn-based" });
+      expect(got.find((m) => m.t === "note")).toEqual({ t: "note", k: "mode", mode: "turn-based", seat: 0, name: "Ann", text: "Ann moved the party to Turn-based" });
       expect(lastRoom(got).mode).toBe("turn-based");
       // The note comes before the room view, so a page can carry it to the page it moves to.
       expect(got.findIndex((m) => m.t === "note")).toBeLessThan(got.findIndex((m) => m.t === "room"));

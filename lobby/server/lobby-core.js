@@ -418,7 +418,7 @@ export class LobbyCore {
     this.holdUntil = now + SETTLE_MS;
     this.lastActive = now;
     const name = who.role === "screen" ? "The room's screen" : this.members[who.seat].name;
-    this.notes.push({ k: "mode", mode: v, seat: who.seat, text: modeNote(name, v) });
+    this.notes.push({ k: "mode", mode: v, seat: who.seat, name, text: modeNote(name, v) });
     return { ok: true, mode: v, by: who.seat };
   }
 

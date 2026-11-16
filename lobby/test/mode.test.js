@@ -59,7 +59,7 @@ describe("the party's mode", () => {
     const { core, ann } = party();
     expect(core.setMode(ann.token, "turn-based", 2000)).toEqual({ ok: true, mode: "turn-based", by: 0 });
     expect(core.view(2000).mode).toBe("turn-based");
-    expect(core.drainNotes()).toEqual([{ k: "mode", mode: "turn-based", seat: 0, text: "Ann moved the party to Turn-based" }]);
+    expect(core.drainNotes()).toEqual([{ k: "mode", mode: "turn-based", seat: 0, name: "Ann", text: "Ann moved the party to Turn-based" }]);
     expect(core.setMode(ann.token, "party-games", 2000 + MODE_COOLDOWN_MS)).toMatchObject({ ok: true, mode: "party-games" });
     expect(core.drainNotes()[0].text).toBe("Ann moved the party to Party games");
   });

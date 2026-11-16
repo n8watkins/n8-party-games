@@ -28,8 +28,9 @@ function gameEntries({ manifest }) {
 }
 
 /**
- * The site's own pages: the front page, and the party room (the lobby) with the plain logic
- * its page shares with the room (lobby/shared). The lobby's server code is not among them.
+ * The site's own pages: the front page, the party room (the lobby) with the plain logic its page
+ * shares with the room (lobby/shared), and the party's plain waiting room (party/public). The
+ * lobby's server code is not among them.
  */
 const siteEntries = [
   { from: join(ROOT, "site", "index.html"), to: "index.html" },
@@ -38,6 +39,8 @@ const siteEntries = [
   // The web app manifest and its icons (scripts/make-icons.py draws them): "Add to Home Screen" opens the site full screen.
   { from: join(ROOT, "site", "manifest.webmanifest"), to: "manifest.webmanifest" },
   { from: join(ROOT, "site", "icons"), to: "icons" },
+  // The party's plain waiting room (Turn-based), beside the character room at /lobby/ (lobby/shared/mode.js).
+  { from: join(ROOT, "party", "public"), to: "party" },
   { from: join(ROOT, "lobby", "public"), to: "lobby" },
   { from: join(ROOT, "lobby", "shared"), to: "lobby/shared" },
 ];
