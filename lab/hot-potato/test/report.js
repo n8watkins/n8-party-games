@@ -1,6 +1,6 @@
 // Reads the page's own copied report (v1, v2 or v3) back into turns, so a real run can be
 // replayed through the matcher. Used by logic.test.js and tools/replay-report.mjs.
-import { CATEGORIES } from "../public/categories.js";
+import { CATEGORIES } from "../../../one-device/hot-potato/shared/categories.js";
 
 /**
  * Each turn: {n, category (v3 names it after the rules version; earlier reports are all

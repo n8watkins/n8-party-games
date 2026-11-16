@@ -44,6 +44,10 @@ const siteEntries = [
   { from: join(ROOT, "lobby", "public"), to: "lobby" },
   { from: join(ROOT, "lobby", "shared"), to: "lobby/shared" },
   { from: join(ROOT, "lab", "hot-potato", "public"), to: "lab/hot-potato" }, // unlisted, throwaway: the Hot Potato hearing test
+  // One-device games: one phone or browser passed around the group, no server. Hot Potato's page,
+  // and beside it the matcher and word lists it shares with the hearing test (one copy, two pages).
+  { from: join(ROOT, "one-device", "hot-potato", "public"), to: "one-device/hot-potato" },
+  { from: join(ROOT, "one-device", "hot-potato", "shared"), to: "one-device/hot-potato/shared" },
   // The Star Lounge's numbers, which its Blender scene and its rendered drawing in the room share (one file, not a copy).
   { from: join(ROOT, "lobby", "tools", "blender", "star-lounge.json"), to: "lobby/look3d/rendered/star-lounge/layers/star-lounge.json" },
 ];
@@ -68,8 +72,9 @@ export const SERVED = entries.map((entry) => entry.to);
 export function build(out = OUT) {
   // The party room shows a hosted game by putting the game's own page in a frame, so this site's
   // pages may be framed by this site's pages, and by nobody else.
-  // The Hot Potato hearing test (lab/hot-potato) listens through the microphone; no other page may.
-  return buildPublic({ out, entries, frames: "self", microphone: ["/lab/hot-potato/*"] });
+  // Hot Potato (one-device/hot-potato) and its hearing test (lab/hot-potato) listen through the
+  // microphone; no other page may.
+  return buildPublic({ out, entries, frames: "self", microphone: ["/lab/hot-potato/*", "/one-device/hot-potato/*"] });
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) report(build(), OUT);

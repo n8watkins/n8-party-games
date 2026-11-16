@@ -4,10 +4,10 @@
 //
 //   node lab/hot-potato/tools/letter-report.mjs
 import { readFileSync } from "node:fs";
-import { CATEGORIES } from "../public/categories.js";
-import { DEAD_END_BELOW, buildIndex, deadLetters, entriesLeft, lastLetter } from "../public/logic.js";
+import { CATEGORIES } from "../../../one-device/hot-potato/shared/categories.js";
+import { DEAD_END_BELOW, buildIndex, deadLetters, entriesLeft, lastLetter } from "../../../one-device/hot-potato/shared/logic.js";
 
-const load = (name) => JSON.parse(readFileSync(new URL(`../public/${name}`, import.meta.url), "utf8"));
+const load = (name) => JSON.parse(readFileSync(new URL(`../../../one-device/hot-potato/shared/${name}`, import.meta.url), "utf8"));
 const words = load("words.json");
 const ABC = [..."abcdefghijklmnopqrstuvwxyz"];
 

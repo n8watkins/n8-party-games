@@ -1,4 +1,4 @@
-"""Builds lab/hot-potato/public/words.json: the ordinary English words and common names that the
+"""Builds one-device/hot-potato/shared/words.json: the ordinary English words and common names that the
 matcher must never stretch into a city by sound ("salmon" is a fish, not Salmas).
 
 Download, in an empty folder of their own:

@@ -7,12 +7,17 @@ The page sends nothing; it keeps only the chosen category, in this browser's own
 ## Files
 
 - `public/index.html`, `public/style.css`, `public/app.js`: the page.
-- `public/logic.js`: the pure rules and the matcher (no DOM), shared with the unit tests.
-- `public/categories.js`: the categories, as data: each list's file and format, its words for the page, and the few ways the matcher treats it differently.
 - `public/device.js`: which device and kind of microphone the page is on, for the report.
-- `public/cities.json`: GeoNames places, built by `tools/make-cities.py`.
-- `public/countries.json`, `public/animals.json`, `public/food.json`: built by `tools/make-categories.py` from GeoNames and Open English WordNet, with the hand lists `tools/countries-extra.txt`, `tools/countries-drop.txt`, `tools/animals-add.txt`, `tools/animals-drop.txt`, `tools/food-add.txt` and `tools/food-drop.txt`.
-- `public/words.json`: ordinary English words and common names, built by `tools/make-words.py`; also the "Anything" list.
+
+The matcher and the lists belong to the game and live in `one-device/hot-potato/shared/`, served at `/one-device/hot-potato/shared/`.
+This page imports them from there; nothing is copied.
+
+- `shared/logic.js`: the pure rules and the matcher (no DOM), shared with the game and the unit tests.
+- `shared/categories.js`: the categories, as data: each list's file and format, its words for the page, and the few ways the matcher treats it differently.
+- `shared/cities.json`: GeoNames places, built by `tools/make-cities.py`.
+- `shared/countries.json`, `shared/animals.json`, `shared/food.json`: built by `tools/make-categories.py` from GeoNames and Open English WordNet, with the hand lists `tools/countries-extra.txt`, `tools/countries-drop.txt`, `tools/animals-add.txt`, `tools/animals-drop.txt`, `tools/food-add.txt` and `tools/food-drop.txt`.
+- `shared/words.json`: ordinary English words and common names, built by `tools/make-words.py`; also the "Anything" list.
+- `shared/CREDITS.txt`: sources and licences of the lists.
 - `tools/famous-places.txt`: famous places kept in the default list by hand.
 - `tools/replay-report.mjs`: replays a copied report through the current matcher, each turn in its own category.
 - `tools/letter-report.mjs`: how many entries start and end with each letter, per category, and the dead ends.
@@ -125,14 +130,14 @@ The report names only the kind of microphone (built-in, headset, webcam, USB, ot
 Download the files listed at the top of `tools/make-words.py`, `tools/make-cities.py` and `tools/make-categories.py` into an empty folder of their own, then:
 
 ```sh
-python3 -I lab/hot-potato/tools/make-words.py <en_50k.txt> <scowl final/> <census folder> lab/hot-potato/public/words.json <date>
-python3 -I lab/hot-potato/tools/make-cities.py <geonames folder> lab/hot-potato/public/words.json lab/hot-potato/tools/famous-places.txt lab/hot-potato/public/cities.json <date>
-python3 -I lab/hot-potato/tools/make-categories.py <download folder> lab/hot-potato/tools lab/hot-potato/public <date>
+python3 -I lab/hot-potato/tools/make-words.py <en_50k.txt> <scowl final/> <census folder> one-device/hot-potato/shared/words.json <date>
+python3 -I lab/hot-potato/tools/make-cities.py <geonames folder> one-device/hot-potato/shared/words.json lab/hot-potato/tools/famous-places.txt one-device/hot-potato/shared/cities.json <date>
+python3 -I lab/hot-potato/tools/make-categories.py <download folder> lab/hot-potato/tools one-device/hot-potato/shared <date>
 node lab/hot-potato/tools/letter-report.mjs
 ```
 
 `make-categories.py` prints each list's size and letter counts; `letter-report.mjs` prints the counts the page uses, every name included, and the dead ends.
-Sources and licences are in `public/CREDITS.txt`.
+Sources and licences are in `one-device/hot-potato/shared/CREDITS.txt`.
 
 ## Tests
 

@@ -108,12 +108,13 @@ describe("the public folder", () => {
     expect(headersFile([])).toContain("X-Frame-Options: DENY");
   });
 
-  it("lets only the Hot Potato hearing test use the microphone, and changes nothing else for it", () => {
+  it("lets only Hot Potato and its hearing test use the microphone, and changes nothing else for them", () => {
     const headers = readFileSync(join(OUT, "_headers"), "utf8");
     const rules = headers.split(/\n(?=\/)/);
-    expect(rules).toHaveLength(2);
+    expect(rules).toHaveLength(3);
     expect(rules[0]).toContain("Permissions-Policy: camera=(), microphone=(), geolocation=(), payment=(), usb=()");
-    expect(rules[1]).toBe("/lab/hot-potato/*\n  ! Permissions-Policy\n  Permissions-Policy: camera=(), microphone=(self), geolocation=(), payment=(), usb=()\n");
+    expect(rules[1]).toBe("/lab/hot-potato/*\n  ! Permissions-Policy\n  Permissions-Policy: camera=(), microphone=(self), geolocation=(), payment=(), usb=()");
+    expect(rules[2]).toBe("/one-device/hot-potato/*\n  ! Permissions-Policy\n  Permissions-Policy: camera=(), microphone=(self), geolocation=(), payment=(), usb=()\n");
     expect(headersFile([])).not.toContain("microphone=(self)");
   });
 

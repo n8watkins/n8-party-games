@@ -2,9 +2,12 @@
 // click or the keyboard (or again by itself in hands-free mode). Each turn's timings, guesses
 // and verdict are logged on the page and in the "Copy results" report. Nothing is stored or sent
 // anywhere by this page.
-import { CATEGORIES, CATEGORY_IDS, DEFAULT_CATEGORY } from "./categories.js";
+//
+// The matcher and the lists are the game's (one-device/hot-potato/shared), served at
+// /one-device/hot-potato/shared/: this page and the game use the one copy.
+import { CATEGORIES, CATEGORY_IDS, DEFAULT_CATEGORY, dataUrl } from "/one-device/hot-potato/shared/categories.js";
 import { deviceInfo, micKind } from "./device.js";
-import { DEAD_END_BELOW, EARLY_STABLE_MS, RULES_VERSION, buildIndex, deadLetters, earlyMatch, matchHeard, median, nextLetter, normalize } from "./logic.js";
+import { DEAD_END_BELOW, EARLY_STABLE_MS, RULES_VERSION, buildIndex, deadLetters, earlyMatch, matchHeard, median, nextLetter, normalize } from "/one-device/hot-potato/shared/logic.js";
 
 const $ = (id) => document.getElementById(id);
 const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition || null;
@@ -61,7 +64,7 @@ const cat = () => CATEGORIES[state.category];
 const files = new Map();
 const getJSON = (name) => {
   if (!files.has(name)) {
-    const p = fetch(name).then((r) => {
+    const p = fetch(dataUrl(name)).then((r) => {
       if (!r.ok) throw new Error(`${name}: HTTP ${r.status}`);
       return r.json();
     });
