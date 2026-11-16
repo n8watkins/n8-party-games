@@ -104,7 +104,7 @@ function loadIndex(id) {
 // ---- The page's state ------------------------------------------------------------------------
 
 const game = $("game");
-const art = createPotatoArt($("pot"), { seed: 7, reducedMotion: reduced });
+const art =createPotatoArt($("pot"), { seed: 7, reducedMotion: reduced });
 const sounds = createSounds();
 // Vibration only where it can be felt: a phone or tablet held in the hand (a touch screen as the main
 // pointer). Desktop Chrome has navigator.vibrate too, but nothing to vibrate, so no Buzz there.
@@ -112,7 +112,9 @@ const canBuzz = typeof navigator.vibrate === "function" && touchFirst;
 let g = null; // the round
 let screen = "start";
 let mode = Recognition ? "voice" : "typed"; // how answers are given
-let modeWhy = Recognition ? "" : "none"; // why typing: "none", "blocked", "failed", "chosen"
+// Answers are spoken. Typing is only the fallback where listening cannot work, and never offered
+// otherwise: why typing is "none" (no recognition here), "blocked" or "failed".
+let modeWhy = Recognition ? "" : "none";
 let listener = null;
 let micTimer = 0; // gives up waiting for the microphone (MIC_WAIT_MS)
 let turnTyped = false; // this turn only is typed (the microphone did not come on, or kept stopping)
@@ -288,11 +290,6 @@ async function beginRound() {
   }
   start.disabled = false;
   label.textContent = "Start";
-  // Typing chosen for one round ("Type it instead") goes back to the voice for the next.
-  if (modeWhy === "chosen" && Recognition) {
-    mode = "voice";
-    modeWhy = "";
-  }
   g = newRound({ index, players: setup.players, first: firstNext });
   // The next round starts with the next player along.
   firstNext = (g.holder + 1) % g.players;
@@ -390,7 +387,6 @@ function switchToTyped(why) {
 }
 
 $("g-go").addEventListener("click", goTurn);
-$("g-type").addEventListener("click", () => switchToTyped("chosen"));
 $("g-typed").addEventListener("submit", (e) => {
   e.preventDefault();
   const text = $("g-word").value.trim();
@@ -600,10 +596,6 @@ function render() {
   const holding = g.phase === "doom" || g.phase === "burst" || g.phase === "over";
   const who = playerName(holding ? (g.last?.by ?? g.holder) : g.holder);
   const sub = holding ? "is holding it" : "is up";
-  // Two places, one shown at a time by the layout: beside the category on a phone, at the head of
-  // the turn's group where there is room.
-  $("g-holder").textContent = who;
-  $("g-holder").nextElementSibling.textContent = sub;
   $("g-up-name").textContent = who;
   $("g-up-sub").textContent = sub;
   const tag = $("g-tag");
@@ -713,14 +705,14 @@ function renderActs() {
   go.hidden = !ready;
   go.disabled = !canStart(g);
   const name = playerName(g.holder);
-  $("g-go-text").textContent = `${name}: go`;
+  // Who is up is said just above it; the button says what it does.
+  $("g-go-text").textContent = "Press to talk";
   go.setAttribute("aria-label", `${name}, start your turn${touchFirst ? "" : " (Space or Enter)"}`);
   const ap = $("g-appeal");
   ap.hidden = !canAppeal(g);
   ap.textContent = g.last?.ok ? "That was wrong" : "That was right";
   const typed = g.phase === "listen" && typing();
   $("g-typed").hidden = !typed;
-  $("g-type").hidden = !(g.phase === "listen" && !typing());
 }
 
 function renderEnd() {

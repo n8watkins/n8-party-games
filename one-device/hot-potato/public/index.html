@@ -25,12 +25,10 @@
         <h1 class="logo">Hot <em>Potato</em></h1>
         <p class="lede">Keep the potato alive. Say a word in the category that starts with the last letter of the word before, then pass it on.</p>
       </div>
+      <!-- One slim line along the top: the category, the lives, the fuse, sound and pause. -->
       <div class="v v-turn turnhead">
-        <div class="head">
-          <span class="cat" id="g-cat">Cities</span>
-          <p class="holder"><b id="g-holder">Player 1</b> <span class="sub">is up</span></p>
-        </div>
         <div class="bar">
+          <span class="cat" id="g-cat">Cities</span>
           <span class="life" id="g-life" role="img" aria-label="5 lives left"><i></i><i></i><i></i><i></i><i></i></span>
           <span class="lifelbl" id="g-left">5 lives</span>
           <div class="fuse" id="g-fuse" aria-hidden="true"><div class="track"><i class="cable"></i><i class="spark"></i></div></div>
@@ -80,15 +78,11 @@
         <button type="submit" class="go" id="s-start"><span class="plate">Start</span></button>
       </form>
 
+      <!-- The strip under the potato, centred: whose turn; the microphone beside the word to follow
+           (its letter boxed); then one reserved line for what is heard, or the verdict and its
+           appeal, so nothing moves when they come and go. -->
       <div class="v v-turn bot-turn">
-        <!-- Who is up, at the head of the turn's group where the screen has room (style.css, "Roomy");
-             on a phone it stays beside the category at the top. -->
         <p class="up" id="g-up"><b id="g-up-name">Player 1</b> <span id="g-up-sub">is up</span></p>
-        <div class="lastword">
-          <span class="lbl" id="g-after-lbl">Last word</span>
-          <p class="after" id="g-after"></p>
-          <p class="dead" id="g-dead" hidden></p>
-        </div>
         <div class="ask" id="g-ask">
           <div class="spot">
             <button type="button" class="mic-btn" id="g-go" aria-keyshortcuts="Space Enter">
@@ -96,26 +90,33 @@
               <span class="cap-t" id="g-go-text">Start</span>
             </button>
             <div class="listening" id="g-listening" aria-hidden="true">
-              <span class="ring"></span><span class="ring r2"></span>
-              <span class="disc"><svg viewBox="0 0 48 48"><path class="cup" d="M17 12 L20 6 L28 6 L31 12 L31 24 L28 30 L20 30 L17 24Z"/><path class="ln" d="M10 22 L10 26 L17 37 L31 37 L38 26 L38 22 M24 37 L24 44 M15 44 L33 44"/></svg></span>
+              <span class="disc"><span class="ring"></span><span class="ring r2"></span><svg viewBox="0 0 48 48"><path class="cup" d="M17 12 L20 6 L28 6 L31 12 L31 24 L28 30 L20 30 L17 24Z"/><path class="ln" d="M10 22 L10 26 L17 37 L31 37 L38 26 L38 22 M24 37 L24 44 M15 44 L33 44"/></svg></span>
               <span class="cap-t" id="g-listen-text">Say it now</span>
             </div>
           </div>
-          <div class="need">
+          <div class="lastword">
+            <span class="lbl sr" id="g-after-lbl">Last word</span>
+            <p class="after" id="g-after"></p>
+            <p class="dead" id="g-dead" hidden></p>
+          </div>
+          <!-- The letter the next word needs, for screen readers: on screen it is the boxed letter
+               of the last word. -->
+          <div class="need sr">
             <span class="lbl" id="g-need">Any city to start</span>
             <div class="tag" id="g-tag" role="img" aria-label="Any letter"><span id="g-letter">Any</span></div>
           </div>
         </div>
-        <p class="status" id="g-status" aria-live="polite"></p>
-        <p class="heard" id="g-heard" aria-live="polite"></p>
-        <div class="acts">
+        <div class="say">
+          <p class="status" id="g-status" aria-live="polite"></p>
+          <p class="heard" id="g-heard" aria-live="polite"></p>
           <button type="button" class="cap appeal" id="g-appeal" hidden>That was right</button>
+        </div>
+        <div class="acts">
           <form class="typed" id="g-typed" hidden autocomplete="off">
             <label class="sr" for="g-word">Your word</label>
             <input id="g-word" name="word" type="text" inputmode="text" autocapitalize="words" autocomplete="off" spellcheck="false" enterkeyhint="send" placeholder="Type your word">
             <button type="submit" class="cap" id="g-send">Say it</button>
           </form>
-          <button type="button" class="cap ghost" id="g-type" hidden>Type it instead</button>
         </div>
         <p class="keys" id="g-keys"><kbd>Space</kbd> or <kbd>Enter</kbd> starts a turn · <kbd>Esc</kbd> pauses</p>
       </div>
@@ -136,6 +137,8 @@
     <div class="rv rv-wrong"><svg class="mk" viewBox="0 0 100 100"><path d="M27 27 L73 73 M73 27 L27 73"/></svg><b id="r-wrong-head">Nope!</b><span id="r-wrong"></span></div>
     <div class="rv rv-boom"><b id="r-boom">Player 1</b><span>was holding it</span></div>
   </div>
+
+  <p class="turn-hint" aria-hidden="true">Better upright</p>
 
   <div class="paused" id="g-paused" hidden>
     <div class="pbox" role="dialog" aria-modal="true" aria-labelledby="p-title">
