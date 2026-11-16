@@ -257,11 +257,12 @@ try {
       await route.continue().catch(() => {});
     });
     const t0 = Date.now();
-    await late.goto(`${base}/lobby/?join=${pin}&${query}`);
-    await late.fill("input[name=nickname]", "Slow");
-    await late.click("text=Join the party");
+    // (A party of its own, as its big screen: this party already has its four players.)
+    await late.goto(`${base}/lobby/?start&${query}`);
+    await late.click("text=Use this as the room's screen");
+    await late.click("text=Show the room here");
     await late.waitForSelector(".look3d canvas", { timeout: 60000 });
-    await late.waitForSelector(".l3-tag.you", { timeout: 60000 });
+    await late.waitForSelector(".l3-sign", { timeout: 60000 });
     const took = (Date.now() - t0) / 1000;
     const what = await drawn(late);
     await shot(late, "11-late-planet-844x390");
