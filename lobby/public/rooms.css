@@ -37,9 +37,12 @@
 .corner .door-btn .door-word {
   padding-right: 2px;
 }
+/* Folded, the word keeps no padding either: its overflow is clipped to the padding box, so 2 pixels
+   of padding showed a sliver of its first letter beside the picture. */
 .corner.folded .door-word,
 #app.in-game .door-word {
   max-width: 0;
+  padding-right: 0;
 }
 .corner.folded .door-btn,
 .corner.folded .corner-btn,
