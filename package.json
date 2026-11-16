@@ -66,6 +66,7 @@
     "sharp": "^0.35.5",
     "three": "^0.186.1",
     "vitest": "4.1",
+    "who-am-i": "github:n8watkins/who-am-i#657668ba883ea7fa43f071113183c62b795612fd",
     "wrangler": "^4.157.0"
   },
   "allowScripts": {

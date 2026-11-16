@@ -32,9 +32,7 @@ const check = (ok, what) => {
 };
 
 const N = 6;
-const [CORK, COIN, WHO] = [0, 1, 2];
-/** Where the outside game lives. No test goes there: the browser is handed a stand-in page for the address. */
-const WHO_SITE = "https://whoami.n8builds.dev/";
+const [CORK, WHO, COIN] = [0, 1, 2];
 const light = (i, off = 0) => Math.round(boxCentre(i, N) + off);
 const dark = (i) => Math.round(boxCentre(i, N) + lightHalf(N) + 22);
 
@@ -43,7 +41,6 @@ try {
   const errors = [];
   async function open(name, viewport, extra = {}) {
     const context = await browser.newContext({ viewport, deviceScaleFactor: 1, ...extra });
-    await context.route(WHO_SITE + "**", (route) => route.fulfill({ contentType: "text/html", body: "<!doctype html><title>stand-in</title><p>A stand-in for the outside game's site.</p>" }));
     const page = await context.newPage();
     page.on("pageerror", (e) => errors.push(`${name}: ${e.message}`));
     page.on("console", (m) => m.type() === "error" && errors.push(`${name}: ${m.text()}`));
@@ -306,9 +303,9 @@ try {
   await sleep(300);
   await shot(screen, "33-screen-dolly-left");
 
-  // ---------------------------------------------------------------- an outside game wins the vote
+  // ---------------------------------------------------------------- Who Am I? wins the vote
   // A new party of two, the size Who Am I? takes: a phone held sideways and one held upright,
-  // with a big screen. Winning the vote sends all three to the game's own site.
+  // with a big screen. Winning the vote opens its settings step in the room (no spots for two).
   const screen2 = await open("screen 2", { width: 1920, height: 1080 });
   await screen2.goto(base + "/lobby/?start");
   await screen2.click("text=Use this as the room's screen");
@@ -348,32 +345,25 @@ try {
   await shot(screen2, "34-screen-party-of-two");
   await tidy(screen2, "big screen, party of two");
   const lit = await screen2.evaluate(() => [...document.querySelectorAll("svg.scene text")].filter((t) => !t.closest("[display=none]")).map((t) => t.textContent));
-  check(lit.includes("ON ITS OWN SITE") && lit.filter((t) => t === "Who Am I?").length === 1 && !lit.includes("Needs 2 players"), "Who Am I?'s light is on for two, its poster says it is on its own site, and its name is written once");
+  check(lit.filter((t) => t === "Who Am I?").length === 1 && !lit.includes("Needs 2 players"), "Who Am I?'s light is on for two, and its name is written once");
   await walk(ada, watcher, 0, light(WHO, -40));
   await walk(bea, watcher, 1, light(WHO, 40));
-  await screen2.waitForFunction(() => /opens in/.test(document.querySelector(".status-main")?.textContent ?? ""), null, { timeout: 8000 });
+  await screen2.waitForFunction(() => /starts in/.test(document.querySelector(".status-main")?.textContent ?? ""), null, { timeout: 8000 });
   await sleep(250);
   await shot(screen2, "35-screen-count-who-am-i");
   await shot(ada, "36-phone-count-who-am-i");
-  await tidy(ada, "phone, count for an outside game");
-  check(/Who Am I\? opens in \d+\./.test(await screen2.locator(".status-main").textContent()), "the count says it opens, not starts");
-  for (const page of [screen2, ada, bea]) await page.waitForSelector(".card.away", { timeout: 13000 });
+  await tidy(ada, "phone, count for Who Am I?");
+  check(/Who Am I\? starts in \d+\./.test(await screen2.locator(".status-main").textContent()), "the count says it starts in the room");
+  // The settings step: Ada, the first in, chooses; a party of two has no spots.
+  for (const page of [screen2, ada, bea]) await page.waitForSelector(".settings-card", { timeout: 13000 });
   await sleep(350);
-  await shot(screen2, "37-screen-off-to-who-am-i");
-  await shot(ada, "38-phone-off-to-who-am-i");
-  await shot(bea, "39-upright-off-to-who-am-i");
-  for (const [page, name] of [[screen2, "big screen"], [ada, "phone"], [bea, "upright phone"]]) await tidy(page, name + ", off to an outside game");
-  const said = await ada.locator(".card.away").innerText();
-  check(said.includes("Off to Who Am I?") && said.includes("whoami.n8builds.dev") && said.includes(pin2) && /does not work there/.test(said) && /No Tonight points/.test(said), "the card says where everyone is going, that the code does not carry over, and that nobody scores");
-  check(/Go now \([1-6]\)/.test(said), "and counts down before it goes");
-  // The upright phone chooses to stay: it is still in the room when the others have gone.
-  await bea.click("text=Stay in the room");
-  await Promise.all([screen2, ada].map((page) => page.waitForURL(WHO_SITE + "**", { timeout: 10000 })));
-  check([screen2, ada].every((page) => page.url() === WHO_SITE), "then the big screen and the phone go to " + WHO_SITE);
-  await sleep(1200);
-  check(new URL(bea.url()).pathname === "/lobby/" && (await bea.locator(".card.away").count()) === 0 && (await bea.locator("svg.scene").count()) === 1, "a phone that chose to stay is still in the room after the count");
-  const board2 = watcher.seen.findLast((m) => m.room)?.room;
-  check(board2.tonight.games === 0 && board2.members.filter(Boolean).every((m) => m.points === 0) && !watcher.seen.some((m) => m.t === "start"), "no game started in the room and nobody scored");
+  await shot(screen2, "37-screen-who-am-i-settings");
+  await shot(ada, "38-phone-who-am-i-settings");
+  await shot(bea, "39-upright-who-am-i-settings");
+  for (const [page, name] of [[screen2, "big screen"], [ada, "phone"], [bea, "upright phone"]]) await tidy(page, name + ", Who Am I?'s settings");
+  check((await ada.locator(".settings-card .settings-select").count()) === 8 && (await ada.locator(".spots-card").count()) === 0, "the host's card has Who Am I?'s eight settings and no spots");
+  const start = await ada.locator(".settings-actions .button").boundingBox();
+  check(!!start && start.y + start.height <= 390, "and its Start button is in sight on the phone held sideways");
   clearInterval(watcher.timer);
 
   // ---------------------------------------------------------------- the wall as production hangs it

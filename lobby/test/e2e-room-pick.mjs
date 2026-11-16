@@ -78,7 +78,7 @@ try {
   await watcher.opened;
   await watcher.wait((m) => m.t === "hello", 5000, 0);
   // Coin Flip's light: if the count runs out, the test game is three seconds long.
-  const x = Math.round(boxCentre(1, 6));
+  const x = Math.round(boxCentre(2, 6));
   for (let i = 0; i < 12; i++) {
     const at = watcher.seen.findLast((m) => (m.t === "m" && m.s === 0) || m.room?.members?.[0]);
     const now = at?.room ? at.room.members[0].x : at?.x;

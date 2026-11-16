@@ -26,7 +26,7 @@ import { FRAME, PHONE_FRAME, camera } from "./shared/camera.js";
 import { clearOfCard, tagsTop } from "./card-clear.js";
 import { Pilot } from "./shared/pilot.js";
 import { isRoom, roomName } from "./shared/rooms.js";
-import { stageKey, stageStale } from "./shared/stage.js";
+import { EarlySnapshot, stageKey, stageStale } from "./shared/stage.js";
 import { playerLine, statusLine } from "./shared/status.js";
 import { JUMP_HEIGHT, posAt } from "./shared/world.js";
 
@@ -50,6 +50,8 @@ let room = null;
 let voteAt = 0;
 let stage = null;
 let stageBox = null;
+/** A game's snapshot that came while the room was still being drawn (shared/stage.js). */
+const early = new EarlySnapshot();
 let zoom = "closer";
 let focus = 960;
 let lastFrame = 0;
@@ -147,6 +149,7 @@ function teardown() {
   lastMoves.clear();
   litKey = "";
   held.length = 0;
+  early.take(null);
 }
 
 /** The room answered for the first time: draw it. */
@@ -212,6 +215,9 @@ async function enter() {
   meter?.start(scene);
   zoom = phone() ? "closer" : "room";
   apply(room);
+  // A phone that joined or reloaded mid-match: the game as it may see it came while the room was drawn.
+  const first = early.take(room);
+  if (first) startStage(first);
   if (!lastFrame) requestAnimationFrame(frame);
   // The room is up: now its sounds may be fetched, once sound is allowed.
   roomSounds.warm();
@@ -603,7 +609,8 @@ function viewModule(box) {
 }
 
 function startStage(snapshot) {
-  if (stage || !room?.game || !stageBox) return;
+  if (stage || !room?.game) return;
+  if (!stageBox) return void early.hold(snapshot);
   const box = room.boxes.find((b) => b.id === room.game.id);
   if (!box) return;
   steerNow(0);

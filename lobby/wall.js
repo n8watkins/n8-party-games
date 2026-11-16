@@ -7,7 +7,7 @@
 //                an outside game whose address is its own page on this site.
 //   outside      a game that is not on the kit and plays on a site of its own, with rooms of its
 //                own. It has a `url` instead of a server definition: when it wins the vote every
-//                page goes there. Who Am I? is one.
+//                page goes there. There is none today (Who Am I? was one until it was hosted).
 //   test         Coin Flip, a placeholder that plays through the whole seam. It hangs only where
 //                PARTY_TEST_GAMES is "on" (the local environment and the test runs), never in
 //                production.
@@ -18,12 +18,10 @@ import { boxFromManifest } from "./shared/vote.js";
 
 
 /**
- * Games that play somewhere else. `players` is what the game itself allows: Who Am I? is for
- * exactly two (MAX_PLAYERS in its engine, and it needs both to start).
+ * Games that play somewhere else: {id, name, blurb, players, devices, url}. `players` is what the
+ * game itself allows. Empty since Who Am I? is hosted (games.js); the kind stays for the next one.
  */
-export const OUTSIDE = [
-  { id: "who-am-i", name: "Who Am I?", blurb: "Ask questions, guess your name", players: { min: 2, max: 2 }, devices: { phone: true, desktop: false }, url: "https://whoami.n8builds.dev/" },
-];
+export const OUTSIDE = [];
 
 const COMING_SOON = [
   { id: "tin-derby", name: "Tin Derby", blurb: "Wind up your tin racer and go", players: { min: 2, max: 4 }, devices: { phone: true, desktop: false, sharedScreen: "required" } },

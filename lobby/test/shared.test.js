@@ -111,7 +111,11 @@ describe("which games the party can play", () => {
     expect(WALL.boxes.map((b) => b.id)).toEqual(["cork-and-bell", "who-am-i", "tin-derby", "flood", "fox-trouble"]);
     // Cork & Bell opens inside the room, from the view its own manifest names, and also plays alone.
     expect(WALL.boxes[0]).toMatchObject({ name: "Cork & Bell", blurb: "Pop the targets, ring the bell", badge: "any", min: 1, max: 4, soon: false, url: null, view: "/cork-and-bell/game/party-view.js" });
-    expect(WALL.boxes[1]).toMatchObject({ name: "Who Am I?", badge: "phones", min: 2, max: 2, soon: false, url: "https://whoami.n8builds.dev/" });
+    // Who Am I? is hosted too: two players on spots, the rest of the party watching, upright phones,
+    // its settings chosen after the vote, and its view served from its own package under its path.
+    expect(WALL.boxes[1]).toMatchObject({ name: "Who Am I?", blurb: "Guess the secret identity only your friend can see", badge: "phones", min: 2, max: 2, soon: false, url: null, view: "/who-am-i/party-view/view.js", audience: true, upright: true, settings: true });
+    expect(WALL.fields.get("who-am-i").map((f) => f.key)).toEqual(["packId", "mode", "turnFormat", "questions", "timerSeconds", "hints", "difficulty", "match"]);
+    expect(playersLabel(WALL.boxes[1].min, WALL.boxes[1].max)).toBe("2 players");
     expect(WALL.boxes.filter((b) => b.soon).map((b) => [b.name, b.badge, playersLabel(b.min, b.max)])).toEqual([
       ["Tin Derby", "screen", "2-4 players"],
       ["Flood", "phones", "1-4 players"],
@@ -119,14 +123,17 @@ describe("which games the party can play", () => {
     ]);
     expect(WALL.boxes.some((b) => b.test)).toBe(false);
     for (const b of WALL.boxes) expect(b.blurb.length, b.id).toBeGreaterThan(5);
-    expect([...WALL.games.keys()]).toEqual(["cork-and-bell"]);
+    expect([...WALL.games.keys()]).toEqual(["cork-and-bell", "who-am-i"]);
     expect(WALL.games.get("cork-and-bell").tickHz).toBe(30);
+    expect(WALL.games.get("who-am-i")).toMatchObject({ id: "who-am-i", tickHz: 0, minSeats: 2, maxSeats: 2 });
+    // No game plays on a site of its own any more.
+    expect(WALL.boxes.filter((b) => b.url)).toEqual([]);
   });
 
   it("adds Coin Flip only where the environment switches test games on", () => {
-    expect(TEST_WALL.boxes.map((b) => b.id)).toEqual(["cork-and-bell", "coin-flip", "who-am-i", "tin-derby", "flood", "fox-trouble"]);
-    expect(TEST_WALL.boxes[1]).toMatchObject({ test: true, min: 1, url: null, view: null });
-    expect([...TEST_WALL.games.keys()]).toEqual(["cork-and-bell", "coin-flip"]);
+    expect(TEST_WALL.boxes.map((b) => b.id)).toEqual(["cork-and-bell", "who-am-i", "coin-flip", "tin-derby", "flood", "fox-trouble"]);
+    expect(TEST_WALL.boxes[2]).toMatchObject({ test: true, min: 1, url: null, view: null });
+    expect([...TEST_WALL.games.keys()]).toEqual(["cork-and-bell", "who-am-i", "coin-flip"]);
     expect(wallFor({ PARTY_TEST_GAMES: "on" })).toBe(TEST_WALL);
     expect(wallFor({ PARTY_TEST_GAMES: "off" })).toBe(WALL);
     expect(wallFor({})).toBe(WALL);
@@ -309,9 +316,13 @@ describe("the words under the room", () => {
     const one = statusLine(base, vote({ leaders: ["coin-flip"], count: { endsIn: 3000 }, countLeft: 2100 }));
     expect(one).toMatchObject({ chip: "EVERYONE IS IN A LIGHT", main: "Coin Flip starts in 3.", sub: "Step out of your light to stop the count." });
     expect(statusLine(base, vote({ leaders: ["cork-and-bell", "coin-flip"], count: { endsIn: 900 } })).main).toBe("A tie. The coin toss is in 1.");
-    // An outside game does not start in the room: it opens on its own site.
-    expect(statusLine(base, vote({ leaders: ["who-am-i"], count: { endsIn: 3000 } })).main).toBe("Who Am I? opens in 3.");
-    expect(playerLine(base, vote({ leaders: ["who-am-i"], count: { endsIn: 1200 } }), 0).rest).toBe("Who Am I? opens in 2");
+    // A hosted game starts in the room.
+    expect(statusLine(base, vote({ leaders: ["who-am-i"], count: { endsIn: 3000 } })).main).toBe("Who Am I? starts in 3.");
+    // An outside game does not start in the room: it opens on its own site. None hangs today, so one is made here.
+    const outside = boxFromManifest({ id: "elsewhere", name: "Elsewhere", players: { min: 2, max: 2 }, devices: { phone: true } }, { url: "https://elsewhere.example/" });
+    const withOutside = { ...base, boxes: [...base.boxes, outside] };
+    expect(statusLine(withOutside, vote({ leaders: ["elsewhere"], count: { endsIn: 3000 } })).main).toBe("Elsewhere opens in 3.");
+    expect(playerLine(withOutside, vote({ leaders: ["elsewhere"], count: { endsIn: 1200 } }), 0).rest).toBe("Elsewhere opens in 2");
     expect(statusLine(base, vote({ toss: { between: ["cork-and-bell", "coin-flip"], winner: "coin-flip", endsIn: 100 } }))).toMatchObject({ chip: "TIE", sub: "Cork & Bell and Coin Flip." });
   });
 
