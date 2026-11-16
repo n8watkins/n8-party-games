@@ -1385,8 +1385,15 @@
     grid-template-columns: repeat(2, minmax(0, 1fr));
     column-gap: calc(var(--u) * 3);
   }
+  .pm-fooled.many {
+    row-gap: calc(var(--u) * 1);
+  }
   .pm-fooled.many li {
     font-size: max(13px, calc(var(--u) * 3.2));
+    gap: calc(var(--u) * 1.6);
+  }
+  .pm-fooled.many .pm-mask {
+    width: max(24px, calc(var(--u) * 6.4));
   }
   .pm[data-phase="guessing"] .pm-hero {
     align-items: stretch;

@@ -5,7 +5,7 @@ Everyone answers a prompt about themselves or the group in secret, the reader re
 
 The rules are in `PAPER-MASKS-RULES.md` (ops repo); that file is authoritative.
 Where this module departs from it, the departure is listed under "Departures from the rules" below.
-This folder is the pure rules and content only: no pages, no server wiring.
+This folder is server only: the pure rules and content, the Table's wrapper (`at-table.js`, `index.js`) and the tests; the page is in `party/public/games/` (see "At the Table").
 
 | File | What it is |
 | --- | --- |
@@ -176,6 +176,24 @@ They are written to read the same to American and British players.
 12. **Talking order in call mode** is the round's players in seat order, starting one later for each card.
 13. **End writing / End it now** is accepted from the host at any time; the page shows the button once `overdue` is set.
 14. **Prompt changes after review.** Cut: `confess-13` (a lie to get out of plans) and `group-16` (something one of us always says). Reworded: `confess-10` (what you would miss most if your phone vanished for a week), `confess-16` (something you always carry that nobody would guess), `group-13` (the nickname strangers would give our group), `explain-03` (the strangest thing you have ever found), `confess-06` (no whistling or fitted-sheet examples, which primed the same answer), `ifwe-13` (a café, not a pub). `explain-13` and `explain-14` are now family-safe.
+
+## At the Table: the page and the steps around the rules
+
+`index.js` hangs the game on the Table's list (`TURN_GAMES` in `games.js`), through `at-table.js`, which wraps the rules in two steps of its own:
+
+- **setup**, before the match: the seats are dealt in, and the host picks the rounds (3, 5, 7 or everyone reads once), the pack, family-safe prompts and call mode, then taps Deal the masks (`{ t: "choose", ... }`, `{ t: "begin" }`).
+  The Table has no settings step of its own (a Table game may not have `settings`), so the choices live here.
+  Someone who arrives now is dealt in, up to 8; a seat that goes is dropped, and below 3 the game ends with no points.
+  It begins by itself with the choices as they stand after `SETUP_MS` (180 s).
+- **curtain**, after the rules say `over`: the final standings and the titles stay up until the host taps Back to the Table (`{ t: "close" }`), or `CURTAIN_MS` (120 s).
+  Without it the room would put every page back at the Table the moment the match ended, and nobody would see the final screen.
+
+The match itself is the rules exactly; every move in it is theirs.
+`test/at-table.test.js` covers both steps through the Table's adapter.
+
+The page is `party/public/games/paper-masks.js` and `.css`, with the owner's paintings in `party/public/games/paper-masks/art/` (made by `tools/make-art.mjs`, which snaps and cleans the alpha, resizes in premultiplied form and bleeds the edge colour, so no fringe shows) and two self-hosted OFL fonts.
+It renders everything typed as text only, sends the author's decoy tap only on a real tap, shows the tap count as anonymous dots, marks nothing as the reader's own in the list, and keeps a half-typed answer on the device only.
+`test/e2e-paper-masks.mjs` (`npm run test:paper-masks`, in the pre-deploy gate) plays three whole matches in real browsers and checks every message each page receives, and each page's whole document, against the secrecy rules.
 
 ## For the Table that hosts it
 
