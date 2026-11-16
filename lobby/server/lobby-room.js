@@ -215,7 +215,8 @@ export function createLobbyRoom(wallFor) {
 
       this.send(entry, { t: "hello", you: { role: who.role, seat: who.seat }, room: core.view(now) });
       // Mid-game (a reload, a phone back from a drop, a late joiner): the game as this socket may see it.
-      if (core.activity.kind === "game") this.send(entry, { t: "snap", s: core.snapshotFor(core.viewerOf(entry), now), now, full: true });
+      // A view that throws ends the game (gameBroke); the rest of the seating goes on as ever.
+      if (core.activity.kind === "game") this.sendView(entry, () => ({ t: "snap", s: core.snapshotFor(core.viewerOf(entry), now), now, full: true }));
       // A new socket is a page that is showing; the token is away only if every socket of it is.
       this.syncAway(token);
       this.changed(now);
@@ -356,6 +357,18 @@ export function createLobbyRoom(wallFor) {
         case "mode":
           // The host moves the party to the other waiting room (lobby/shared/mode.js).
           return void this.switchMode(entry, msg, now).catch((err) => console.error("party room: switching rooms failed", err));
+        case "play": {
+          // At the Table the host picks a game from the list: everyone sees it is starting for a
+          // moment (the beat, one wake-up), then the room starts it as it starts any game. A
+          // refusal goes to that page only, `play-no {error, message}`.
+          const may = core.mayPlay(entry.token, msg.id, now);
+          if (!may.ok) return this.send(entry, { t: "play-no", error: may.error, message: may.message });
+          core.beginPlay(may.id, entry.token, now);
+          return this.changed(now);
+        }
+        case "stop":
+          // The host ends the game being played at the Table: everyone is back there, with the card.
+          return void this.stopAtTable(entry, now).catch((err) => console.error("party room: ending a game at the Table failed", err));
         case "pick": {
           // The party moves to another room: one stored value and one relayed message. Refused
           // (to that page only) when it is not the host's tap or not the moment.
@@ -441,16 +454,55 @@ export function createLobbyRoom(wallFor) {
       const core = this.core;
       const done = core.setMode(entry.token, msg.v, now);
       if (!done.ok) return this.send(entry, { t: "mode-no", why: done.why, v: core.mode });
+      // Anyone moved into the Floor's four places: their sockets speak for the new seat at once
+      // (every page then moves to the Floor and hears its seat in the hello).
+      this.reseat(done.moved);
       try {
         await this.save();
       } catch (err) {
         console.error("party room: a switch could not be saved; it is taken back", err);
         if (this.core !== core) return;
         core.undoMode(done.was);
+        this.reseat(done.moved);
         return this.send(entry, { t: "mode-no", why: "The switch did not go through. Try again.", v: core.mode });
       }
       if (this.core !== core) return;
+      core.modeSaved();
       this.changed(now);
+    }
+
+    /** The sockets of these tokens take the seat the room now has for them (a member moved seat). */
+    reseat(tokens = []) {
+      if (!tokens?.length) return;
+      for (const entry of this.sockets.values()) {
+        if (!tokens.includes(entry.token)) continue;
+        const who = this.core.identify(entry.token);
+        if (!who) continue;
+        entry.seat = who.seat;
+        entry.kept.seat = who.seat;
+        entry.kept.piece = this.core.pieceOf(who.seat);
+        entry.ws.serializeAttachment(entry.kept);
+      }
+    }
+
+    /**
+     * The host's "End the game" at the Table. Saved before anyone hears of it, as every change to
+     * a turn-based game is; then everyone gets the note, the last snapshots and `end`. A refusal
+     * goes to the sender alone, `stop-no {error, message}`.
+     */
+    async stopAtTable(entry, now) {
+      const core = this.core;
+      const out = core.endByHost(entry.token, now);
+      if (!out.ok) return this.send(entry, { t: "stop-no", error: out.error, message: out.message });
+      // The game is over in the room's memory whatever the save does: everyone always hears so
+      // (the note, `end` and the room view), even when the save fails or the last view throws.
+      try {
+        await this.save();
+      } catch (err) {
+        console.error("party room: a game the host ended could not be saved", err);
+      }
+      if (this.core !== core) return;
+      this.deliverTurn(out, now);
     }
 
     /**
@@ -462,9 +514,10 @@ export function createLobbyRoom(wallFor) {
       try {
         const budget = await roomBudgetState(this.env).catch(() => "open");
         if (this.core !== core) return;
-        // The vote is the Floor's: a game it chose never starts while the party is at the Table.
-        // (The room refuses a switch while a start is pending, core.starting; this is the last guard.)
-        if (core.plainRoom()) console.error(`party room: ${id} was not started: the party is at the Table`);
+        // The vote is the Floor's and the list is the Table's: a game never starts in the other
+        // waiting room. (The room refuses a switch while a start is pending, core.starting; this is
+        // the last guard.)
+        if (core.plainRoom() !== core.isTableGame(id)) console.error(`party room: ${id} was not started: the party is ${core.plainRoom() ? "at the Table" : "on the Floor"}`);
         else if (budget === "open") await this.startGame(id, chosen);
         else core.refuseStart(Date.now());
       } finally {
@@ -555,6 +608,9 @@ export function createLobbyRoom(wallFor) {
           this.arm(now);
           return out;
         }
+        // Who plays changed (a late joiner taken in, a seat that left): the room view says so first,
+        // so a page knows it plays before its view of the game arrives.
+        if (out.room && !out.ended) this.broadcastRoom(now);
         this.deliverTurn(out, now);
         return out;
       } catch (err) {
@@ -698,7 +754,7 @@ export function createLobbyRoom(wallFor) {
       // refused for the budget), each socket carries its piece as the room now has it, so a sleep
       // does not bring back an older one (resume).
       for (const entry of this.sockets.values()) this.keep(entry);
-      void this.save();
+      void this.save().catch((err) => console.error("party room: the room could not be saved", err));
     }
 
     /**
@@ -794,10 +850,12 @@ export function createLobbyRoom(wallFor) {
         if (this.core !== core || core.activity.kind !== "game") return;
       }
       const room = core.view(now);
-      this.broadcastViews(
+      // A view that throws ends the game at once (gameBroke): there is nothing more to start.
+      const shown = this.broadcastViews(
         (e) => core.viewerOf(e),
         (viewer) => ({ t: "start", room, s: core.snapshotFor(viewer, now), now }),
       );
+      if (!shown) return;
       // What a turn-based game said when it heard who was here at the start (a page already hidden).
       if (started.events?.length) {
         const events = started.events;
@@ -842,7 +900,7 @@ export function createLobbyRoom(wallFor) {
         const viewer = out.viewerOf(entry);
         const events = eventsFor(out.events, viewer);
         if (events.length) this.send(entry, { t: "ev", ev: events, now });
-        if (out.snapshot) this.send(entry, { t: "snap", s: out.snapshot(viewer), now });
+        if (out.snapshot) this.sendView(entry, () => ({ t: "snap", s: out.snapshot(viewer), now }));
         answer(out.answer);
         return out;
       }
@@ -1004,9 +1062,62 @@ export function createLobbyRoom(wallFor) {
      * Sends a message that carries a game's state: `make(viewer)` builds it once for each kind of
      * viewer (`viewerOf` says which a socket is), and each socket gets its own. Messages about the
      * room itself (pieces, votes, emotes, the Tonight board) go out with broadcast().
+     *
+     * Every message is built before any is sent, so a game whose view throws for one viewer sends
+     * nobody anything: the game is put away as broken (gameBroke). Returns whether it was sent.
      */
     broadcastViews(viewerOf, make) {
-      for (const [entry, text] of fanOut(this.sockets.values(), viewerOf, make)) entry.out.push(text);
+      let sends;
+      try {
+        sends = fanOut(this.sockets.values(), viewerOf, make);
+      } catch (err) {
+        this.gameBroke(err);
+        return false;
+      }
+      for (const [entry, text] of sends) entry.out.push(text);
+      return true;
+    }
+
+    /** One socket's view of the game (`make()` builds the message), sent as broadcastViews sends them. */
+    sendView(entry, make) {
+      let message;
+      try {
+        message = make();
+      } catch (err) {
+        this.gameBroke(err);
+        return false;
+      }
+      if (message) this.send(entry, message);
+      return true;
+    }
+
+    /**
+     * The game's view threw (its `snapshot`, a Table game's `view`): nobody can be shown the game,
+     * so it ends now, with no points, as a game whose tick threw does (reason "error"): everyone
+     * gets the note, `end` and the room. Never throws, so it cannot wedge the message, the
+     * reconnect or the alarm it came from. A game already over (its last view threw after it
+     * ended) is left to whoever ended it, which sends `end` itself.
+     */
+    gameBroke(err) {
+      const core = this.core;
+      const id = core?.activity.kind === "game" ? core.activity.id : "a game";
+      console.error(`party room: ${id} could not be shown; the game ends with no points`, err);
+      if (!core) return;
+      const now = Date.now();
+      try {
+        const out = core.breakGame(now);
+        if (!out) return;
+        this.stopTimer();
+        this.tellNotes();
+        this.finish(out.ended, now);
+        this.changed(now);
+        this.flush(now);
+        // Saved after everyone has heard: a room that restarts before the save holds a game whose
+        // view still throws, and the first page to come back ends it the same way.
+        void this.save().catch((e) => console.error("party room: a game ended for an error could not be saved", e));
+      } catch (e) {
+        console.error("party room: ending a game that could not be shown failed", e);
+      }
     }
 
     broadcastRoom(now) {

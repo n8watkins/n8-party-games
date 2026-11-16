@@ -45,8 +45,16 @@ export function doorPlan({ small, starting, as, screenTaken = false }) {
   };
 }
 
-/** The two cards a wide screen is offered: [value, title, text]. */
-export const ROLE_CARDS = [
-  ["player", "Play on this device", "Join as a player, with your own piece."],
-  ["screen", "Use this as the room's screen", "Shows the room and the games for everyone. Nobody plays from it."],
-];
+/**
+ * The two cards a wide screen is offered: [value, title, text]. A party at the Table (mode
+ * "turn-based", lobby/shared/mode.js) has no pieces, so its player card says nothing of one; a new
+ * party, and one whose room is not known yet, starts on the Floor, where each player has a piece.
+ * @param {string | null} [mode]  the room the party being joined is in, when known
+ */
+export function roleCards(mode = null) {
+  const table = mode === "turn-based";
+  return [
+    ["player", "Play on this device", table ? "Join as a player and play the games here." : "Join as a player, with your own piece."],
+    ["screen", "Use this as the room's screen", "Shows the room and the games for everyone. Nobody plays from it."],
+  ];
+}

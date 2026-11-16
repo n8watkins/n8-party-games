@@ -1,0 +1,70 @@
+// The Table's stage: where a Table game's own view is shown while it is played. Small on purpose,
+// and not shared with the Floor's (lobby/public/main.js, startStage), which is bound to its 3D room.
+//
+// A game's view is a module on this site (its entry's `view`) with the shape every game keeps
+// (party-kit/GAME-CONTRACT.md, "In the browser"): mount(container, ctx) returns {snapshot,
+// events, unmount}. The module is fetched when the game starts, so the stage stands in for the
+// view at once and hands on whatever the room says in the meantime.
+import { stageKey } from "/lobby/shared/stage.js";
+
+const modules = new Map();
+
+/** The view module for a Table entry, loaded once. Only ever a module of this site. */
+function viewModule(entry) {
+  if (!entry?.view) return Promise.resolve(null);
+  if (!modules.has(entry.id)) {
+    const address = new URL(entry.view, location.href);
+    modules.set(entry.id, address.origin === location.origin ? import(address.href) : Promise.resolve(null));
+  }
+  return modules.get(entry.id);
+}
+
+/**
+ * Who this device is to the game: a player whose seat is in the game, or someone who watches it
+ * as the big screen does (the room's screen, or a member who is not playing). Worked out as the
+ * room works it out (LobbyCore.viewerOf): the Table has no audience.
+ */
+export function viewerAtTable(you, game) {
+  if (you?.role === "player" && game?.seats?.includes(you.seat)) return { role: "player", seat: you.seat };
+  return { role: "screen", seat: you?.role === "player" ? you.seat : -1 };
+}
+
+/**
+ * Mounts the game the room is playing in `box`. `link` is the PartyClient, `room` the room view.
+ * Returns the stage: {key, snapshot, events, unmount}. `onError` hears a view that could not load.
+ */
+export function mountStage(box, { link, room, snapshot, onError }) {
+  const entry = room.table?.find((e) => e.id === room.game.id) ?? null;
+  const mine = { view: null, waiting: [], gone: false };
+  const pass = (method, args) => (mine.view ? mine.view[method]?.(...args) : mine.waiting.push([method, args]));
+  const ctx = {
+    room,
+    you: viewerAtTable(link.you, room.game),
+    upright: true,
+    snapshot,
+    // send(data, {id}) asks the game for an answer (a promise); inputId() makes an id no other input of this page has used.
+    send: (data, opts) => link.sendInput(data, opts),
+    inputId: () => link.nextInputId(),
+    now: () => link.now(),
+    inset: { top: 0, right: 0 },
+    params: new URLSearchParams(location.search),
+  };
+  viewModule(entry)
+    .then((module) => {
+      if (mine.gone) return;
+      if (!module?.mount) throw new Error(`${room.game.name} has no view for the Table`);
+      mine.view = module.mount(box, ctx);
+      for (const [method, args] of mine.waiting.splice(0)) mine.view[method]?.(...args);
+    })
+    .catch((err) => onError?.(err));
+  return {
+    key: stageKey(room.game),
+    snapshot: (...args) => pass("snapshot", args),
+    events: (...args) => pass("events", args),
+    unmount() {
+      mine.gone = true;
+      mine.view?.unmount?.();
+      box.textContent = "";
+    },
+  };
+}
