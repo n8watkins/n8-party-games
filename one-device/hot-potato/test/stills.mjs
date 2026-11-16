@@ -153,6 +153,8 @@ for (const [name, viewport] of SIZES) {
   await phase(page, "burst");
   await page.waitForTimeout(350);
   await shot("22-burst");
+  await page.waitForTimeout(800);
+  await shot("22b-burst-who");
   await phase(page, "over");
   await page.waitForTimeout(1200);
   await shot("23-end");
@@ -194,7 +196,7 @@ for (const [name, viewport] of SIZES) {
         const frame = document.createElement("div");
         frame.style.cssText = "position:relative;width:200px;height:190px;overflow:hidden";
         const host = document.createElement("div");
-        host.style.cssText = "position:absolute;width:340px;height:340px;left:-70px;top:-92px";
+        host.style.cssText = stage >= 3 ? "position:absolute;width:290px;height:290px;left:-45px;top:-62px" : "position:absolute;width:340px;height:340px;left:-70px;top:-92px";
         frame.appendChild(host);
         cell.appendChild(frame);
         const cap = document.createElement("div");

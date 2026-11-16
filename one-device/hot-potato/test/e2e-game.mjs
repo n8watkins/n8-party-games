@@ -11,6 +11,7 @@
 // `devguard slot --`.
 import { mkdirSync } from "node:fs";
 import { chromium } from "playwright";
+import { FACES, HEATS, REACTIONS } from "../public/specimen-draw.js";
 
 const arg = (name, fallback) => process.argv.find((a) => a.startsWith(`--${name}=`))?.slice(name.length + 3) ?? fallback;
 const BASE = arg("base", "http://localhost:8930");
@@ -148,7 +149,7 @@ const noStorage = () => {
 const browser = await chromium.launch({ headless: true, args: ["--mute-audio", "--autoplay-policy=no-user-gesture-required"] });
 const PIXEL = "Mozilla/5.0 (Linux; Android 15; Pixel 9) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/157.0.0.0 Mobile Safari/537.36";
 
-async function open(viewport, inits = [fake], { phone = viewport.width < 600 || viewport.height < 500, reducedMotion = "no-preference", context: given } = {}) {
+async function open(viewport, inits = [fake], { phone = viewport.width < 600 || viewport.height < 500, reducedMotion = "no-preference", context: given, hash = "" } = {}) {
   const context = given ?? (await browser.newContext({ viewport, deviceScaleFactor: 2, hasTouch: phone, isMobile: phone, reducedMotion, ...(phone ? { userAgent: PIXEL } : {}) }));
   await context.grantPermissions(["microphone"], { origin: BASE });
   const page = await context.newPage();
@@ -156,7 +157,7 @@ async function open(viewport, inits = [fake], { phone = viewport.width < 600 || 
   page.on("console", (m) => m.type() === "error" && errors.push(m.text()));
   page.on("pageerror", (e) => errors.push(e.message));
   for (const init of inits) await page.addInitScript(init);
-  await page.goto(URL);
+  await page.goto(URL + hash);
   await page.waitForSelector("#s-cats [data-cat]");
   return { context, page, errors };
 }
@@ -209,12 +210,23 @@ async function still(page, name) {
 }
 
 /**
- * Which parts of the potato's body are drawn now, by their place among the body's shapes: a path
- * with a line to draw, a shape with a size, neither hidden nor fully transparent. Every stage must
- * draw the same parts: nothing may first appear as it grows.
+ * Which parts of the potato are drawn now. The Specimen (the default): the names of all its parts
+ * (it never adds or removes one), and a mark if its body, outline, eyes or mouth are not showing.
+ * The plain potato (#plain): its body's shapes that are drawn, by their place among them: a path
+ * with a line to draw, a shape with a size, neither hidden nor fully transparent. Either way every
+ * stage must give the same answer: nothing may first appear as it grows.
  */
 const drawnParts = (page) =>
   page.evaluate(() => {
+    const named = [...document.querySelectorAll("#pot [data-part]")];
+    if (named.length) {
+      const shown = (n) => {
+        const el = document.querySelector(`#pot [data-part="${n}"]`);
+        return Boolean(el) && el.getAttribute("opacity") !== "0";
+      };
+      const core = ["spud", "body", "outline", "shade", "hilite"].every(shown) && (shown("eyeW0") || shown("eyeS0")) && (shown("eyeW1") || shown("eyeS1")) && ["mouthLine", "mouthFill"].some(shown);
+      return named.map((el) => el.dataset.part).join(",") + (core ? "" : ",MISSING-BODY-OR-FACE");
+    }
     const shapes = [...document.querySelectorAll("#pot .body path, #pot .body ellipse, #pot .body circle, #pot .body rect, #pot .body polygon")];
     return shapes
       .map((el, i) => {
@@ -333,22 +345,32 @@ for (const [name, viewport] of SIZES) {
 {
   const { context, page, errors } = await open({ width: 390, height: 844 });
   await start(page, "cities", 3);
-  const parts = [await still(page, "potato-stage-0")];
+  const faces = [];
+  const parts = [];
+  const stillAndFace = async (name) => {
+    parts.push(await still(page, name));
+    faces.push(await page.evaluate(() => window.__hotPotato.art.look().face));
+  };
+  await stillAndFace("potato-stage-0");
   let r = await say(page, word("Los Angeles"), "tap");
   check(r.last.ok && r.need === "s" && r.holder === 1, `Los Angeles accepted, the next city needs an S, Player 2 holds it (${JSON.stringify(r.last)})`);
-  check((await page.textContent("#g-letter")) === "S", "the steel tag shows S");
-  check(/^Cities: after Los Angeles$/.test(await page.textContent("#g-after")), `the line under the name says what came before (${await page.textContent("#g-after")})`);
+  const happy = await page.evaluate(() => window.__hotPotato.art.look());
+  check(happy.reaction === "right" && REACTIONS.right.some((x) => x.id === happy.face), `a right word: a happy, relieved face for a moment (${happy.reaction}, ${happy.face})`);
+  check((await page.textContent("#g-letter")) === "S", "the giant letter shows S");
+  check((await page.textContent("#g-after")) === "Los Angeles" && (await page.textContent("#g-after b")) === "s" && (await page.textContent("#g-cat")) === "Cities", `the last word shows what came before, its last letter boxed, under the category (${await page.innerHTML("#g-after")})`);
   r = await say(page, [[250, "interim", "Sid"], [300, "final", [["Sidnee", 0.62], ["Sydney", 0.55]]]], "tap");
   check(r.last.ok && r.chain.at(-1) === "Sydney", "Sydney from the recogniser's second guess");
   r = await say(page, word("salmon"), "tap");
   check(!r.last.ok && r.stage === 1 && r.holder === 0, `salmon refused, it gets worse, and passes to Player 1 (${r.last.why})`);
+  const flinch = await page.evaluate(() => window.__hotPotato.art.look());
+  check(flinch.reaction === "wrong" && REACTIONS.wrong.some((x) => x.id === flinch.face) && (await page.getAttribute("#game", "data-react")) === "wrong", `a wrong word: it flinches, and the screen says Nope (${flinch.reaction}, ${flinch.face})`);
   await page.waitForTimeout(350);
   await page.locator("#pot").screenshot({ path: `${SHOTS}/potato-steam.png` });
   check(/"Salmon" is not a city/.test(await page.textContent("#g-status")), "the verdict says plainly why");
-  parts.push(await still(page, "potato-stage-1"));
+  await stillAndFace("potato-stage-1");
   r = await say(page, word("Paris"), "tap");
   check(!r.last.ok && r.last.reason === "wrong-letter" && r.stage === 2, "Paris on a Y is refused: wrong letter");
-  parts.push(await still(page, "potato-stage-2"));
+  await stillAndFace("potato-stage-2");
   // The appeal: the group says Leopold was right.
   r = await say(page, word("Yokohama"), "tap");
   check(r.last.ok && r.need === "a", "Yokohama accepted");
@@ -364,7 +386,7 @@ for (const [name, viewport] of SIZES) {
   await page.click("#g-appeal");
   r = await round(page);
   check(r.stage === 3 && r.chain.at(-1) !== "Moscow" && r.need === "m", `"that was wrong" takes Moscow back and it gets worse (stage ${r.stage}, need ${r.need})`);
-  parts.push(await still(page, "potato-stage-3"));
+  await stillAndFace("potato-stage-3");
   // Silence: the fuse burns down (9 seconds at stage 3... it is 7 at stage 3).
   const fuseStart = Date.now();
   await waitReady(page);
@@ -374,14 +396,34 @@ for (const [name, viewport] of SIZES) {
   const mid = await round(page);
   check(mid.fuse < mid.fuseMax - 900 && mid.phase === "listen", `the fuse burns while listening (${Math.round(mid.fuse)} of ${mid.fuseMax} ms)`);
   await page.locator(".game").screenshot({ path: `${SHOTS}/390-listening-stage-3.png` });
+  // Never a shake: the screen and the potato's box never move; the potato only scales about where
+  // it sits, skews a little and rocks a degree or so.
+  const motion = await page.evaluate(async () => {
+    const out = { screen: [], spud: [] };
+    for (let i = 0; i < 24; i++) {
+      await new Promise((ok) => requestAnimationFrame(ok));
+      for (const sel of [".game", ".gi", ".pot", "#pot svg"]) {
+        const t = getComputedStyle(document.querySelector(sel)).transform;
+        if (t !== "none") out.screen.push(`${sel} ${t}`);
+      }
+      out.spud.push(document.querySelector('#pot [data-part="spud"]')?.getAttribute("transform") ?? "");
+    }
+    return out;
+  });
+  const poses = motion.spud.map((s) => s.match(/^translate\(120 196\.8\) rotate\((-?[\d.]+)\) skewX\((-?[\d.]+)\) scale\(([\d.]+) ([\d.]+)\) translate\(-120 -196\.8\)$/));
+  check(motion.screen.length === 0, `the screen and the potato's box never move (${motion.screen.slice(0, 2).join(" | ")})`);
+  check(poses.every((m) => m && Math.abs(+m[1]) <= 2 && Math.abs(+m[2]) <= 10 && +m[3] > 0.5 && +m[3] < 1.4 && +m[4] > 0.5 && +m[4] < 1.4) && new Set(motion.spud).size > 1, `the potato breathes and throbs about where it sits, with no shake (${motion.spud[0]})`);
+  const listening = await page.evaluate(() => window.__hotPotato.art.look());
+  check(FACES.strain.some((x) => x.id === listening.face), `listening at the strain stage it keeps a strain face (${listening.face})`);
   await page.waitForFunction(() => window.__hotPotato.round().phase !== "listen", null, { timeout: 15000 });
   r = await round(page);
   const took = Date.now() - fuseStart;
   check(r.last.reason === "slow" && r.stage === 4 && took >= 6500, `silence: too slow after the 7-second fuse (${took} ms), last life`);
   check(/Too slow/.test(await page.textContent("#g-status")), "the verdict says Too slow");
   check(!(await page.isVisible("#g-appeal")), "no appeal for silence");
-  parts.push(await still(page, "potato-stage-4"));
-  check(parts.every((p) => p === parts[0]) && parts[0].split(",").length > 40, `every stage draws the same parts of the potato: nothing first appears as it grows (${parts.map((p) => p.split(",").length).join(", ")} parts)`);
+  await stillAndFace("potato-stage-4");
+  check(parts.every((p) => p === parts[0]) && parts[0].split(",").length > 40 && !parts[0].includes("MISSING"), `every stage draws the same parts of the potato: nothing first appears as it grows (${parts.map((p) => p.split(",").length).join(", ")} parts)`);
+  check(faces.every((f, stage) => FACES[HEATS[stage]].some((x) => x.id === f)), `its face follows the stage, one of the stage's own each time (${faces.join(", ")})`);
   const who = r.holder;
   r = await say(page, word("Hello"), "tap");
   check(r.phase === "doom", "the last miss: it is going to burst");
@@ -419,10 +461,10 @@ for (const [name, viewport] of SIZES) {
   const context = await browser.newContext({ viewport: { width: 1280, height: 720 } });
   const { page, errors } = await open({ width: 1280, height: 720 }, [fake], { context });
   await start(page, "animals", 2);
-  check((await page.textContent("#g-after")) === "Animals: any animal to start", "the line asks for any animal");
+  check((await page.textContent("#g-after")) === "Any animal" && (await page.textContent("#g-need")) === "Start with" && (await page.textContent("#g-letter")) === "Any", "the first turn asks for any animal");
   let r = await say(page, word("monkey"), "Space");
   check(r.last.ok && r.need === "e", "Space starts a turn; after monkey (Y is a dead end) comes an E");
-  check(/Y is a dead end/.test(await page.textContent("#g-after")), "the line says Y is a dead end");
+  check(/Y is a dead end, so E/.test(await page.textContent("#g-dead")) && (await page.innerHTML("#g-after")) === "monk<b>e</b>y", `the last word boxes the E and says Y is a dead end (${await page.innerHTML("#g-after")})`);
   check(/Y is a dead end, so E/.test(await page.textContent("#g-status")), "and so does the verdict");
   r = await say(page, word("eagles"), "Enter");
   check(r.last.ok && r.chain.at(-1) === "eagle" && r.need === "e", "Enter starts a turn; eagles is eagle, and the chain goes on from eagle");
@@ -614,6 +656,27 @@ for (const broken of ["silent", "abort-at-once", "start-then-abort"]) {
   } else check((await round(page)).last?.reason === "slow", `${broken}: the fuse ran out while nobody typed: too slow`);
   await page.screenshot({ path: `${SHOTS}/390-broken-${broken}.png` });
   check(errors.length === 0, `${broken}: no console errors ${errors.join(" | ")}`);
+  await context.close();
+}
+
+// 9. The plain, faceless potato kept for comparison (#plain): it still draws the same parts at
+//    every stage, rests on the start screen, and plays a round on the same screens.
+{
+  const { context, page, errors } = await open({ width: 390, height: 844 }, [fake], { hash: "#plain" });
+  check((await page.locator("#pot [data-part]").count()) === 0 && (await page.locator("#pot .body").count()) === 1, "#plain draws the faceless potato instead of the Specimen");
+  await page.waitForTimeout(500);
+  const idle = await page.evaluate(() => window.__hotPotato.art.look());
+  await page.waitForTimeout(800);
+  check((await page.evaluate(() => window.__hotPotato.art.look().draws)) === idle.draws, "#plain: the start screen does not redraw it");
+  await start(page, "cities", 2);
+  const parts = [await still(page, "plain-stage-0")];
+  for (let i = 1; i <= 2; i++) {
+    await say(page, word("table"), "tap");
+    parts.push(await still(page, `plain-stage-${i}`));
+  }
+  check(parts.every((p) => p === parts[0]) && parts[0].split(",").length > 40, `#plain: every stage draws the same parts (${parts.map((p) => p.split(",").length).join(", ")})`);
+  await page.screenshot({ path: `${SHOTS}/390-plain.png` });
+  check(errors.length === 0, `#plain: no console errors ${errors.join(" | ")}`);
   await context.close();
 }
 
