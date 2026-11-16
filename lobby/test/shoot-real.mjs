@@ -151,6 +151,8 @@ try {
   }
   await phone.setViewportSize({ width: 844, height: 390 });
   await sleep(1200);
+  // (On a very busy machine a socket can fall silent long enough to be let go, and then the three left in the light start Cork & Bell.)
+  check((await screen.evaluate(() => window.__room3d.room.phase)) === "lobby", "the room is still voting after the stills at every size (no game started under them)");
 
   // An emote: Mabel claps slowly, and Tom (in the dark) throws a tomato.
   mabel.send({ t: "e", e: "slowclap" });
