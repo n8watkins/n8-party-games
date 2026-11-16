@@ -111,7 +111,7 @@ p {
   border-radius: 3px;
   background: var(--amber);
 }
-/* Who chooses the room, or for a few seconds what just happened: one line, never two. */
+/* Who hosts, or for a few seconds what just happened: one line, never two. */
 .line {
   min-height: 1.35em;
   padding-left: 25px;
@@ -332,6 +332,11 @@ p {
   font-size: 14px;
   overflow-wrap: anywhere;
 }
+/* Every place taken: no code and no QR code (main.js), only that the party is full. */
+.full-words {
+  font-size: 16px;
+  max-width: 32ch;
+}
 
 /* Who is here: every seat, the free ones drawn as empty places. */
 .list {
@@ -417,15 +422,285 @@ p {
   color: var(--gold);
 }
 
-/* Coming soon. */
-.soon {
+/* ------------------------------------------------------------ the games */
+/* The list follows the party's size: a game it cannot play now is greyed, with the reason. For
+   the host a playable game is a button with "Play" on it; for everyone else a plain row. */
+.game-list {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.game-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 64px;
+  padding: 8px 12px 8px 8px;
+  border: 0;
+  border-radius: 12px;
+  background: var(--panel-2);
+  text-align: left;
+}
+button.game-row {
+  cursor: pointer;
+  box-shadow: inset 0 0 0 1.5px #5a3f22;
+}
+button.game-row:hover {
+  background: #2a1d14;
+}
+.game.off .game-row {
   background: transparent;
+  box-shadow: inset 0 0 0 1px var(--line);
 }
-.soon h2 {
-  font-size: 18px;
+.game-tile {
+  flex: none;
+  width: 48px;
+  height: 48px;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  border-radius: 10px;
+  background: #3a2a1d;
 }
-.soon p {
+.game-tile img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.game-mono {
+  font: 700 24px/1 var(--display);
+  color: var(--gold);
+}
+.game.off .game-tile {
+  opacity: 0.55;
+}
+.game-words {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+.game-name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 700;
+  font-size: 17px;
+  color: var(--ink);
+}
+.game.off .game-name {
+  color: var(--soft);
+}
+.game-meta {
+  color: var(--dim);
+  font-size: 13px;
+  line-height: 1.35;
+}
+.game-why {
+  justify-self: start;
+  margin-top: 4px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: #2c2018;
+  color: var(--soft);
+  font-weight: 800;
+  font-size: 12px;
+  line-height: 1.25;
+}
+.game-go {
+  flex: none;
+  min-width: 56px;
+  padding: 8px 14px;
+  border-radius: 999px;
+  background: var(--amber);
+  color: var(--amber-ink);
+  font-weight: 800;
+  font-size: 14px;
+  text-align: center;
+}
+/* The news under the bar: shown only when it has something. */
+.news {
+  display: grid;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.news:not(:has(> :not([hidden]))) {
+  display: none;
+}
+.staged .news {
+  display: none;
+}
+.tag.test {
+  padding: 2px 7px;
+  background: #23324a;
+  color: #cfe0ff;
+  font-size: 11px;
+}
+.game-none {
+  color: var(--dim);
+}
+
+/* The last game's card: who came where, or why it ended early. Put away with Done. */
+.card {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  border-radius: 12px;
+  background: #2a1d14;
+  box-shadow: inset 0 0 0 1.5px #6b4a26;
+}
+.card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.card-head h3 {
+  margin: 0;
+  min-width: 0;
+  font: 700 18px/1.25 var(--display);
+  color: var(--gold);
+}
+.card-done {
+  flex: none;
+  min-width: 64px;
+  min-height: 44px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 22px;
+  background: var(--panel-2);
+  box-shadow: inset 0 0 0 1px var(--line);
+  color: var(--soft);
+  font-weight: 700;
+  cursor: pointer;
+}
+.card-early {
   font-size: 15px;
+}
+.card-rows {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.card-rows li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 32px;
+}
+.card-place {
+  width: 3ch;
+  color: var(--dim);
+  font-weight: 800;
+  font-size: 13px;
+}
+.card-rows .dot {
+  width: 14px;
+  height: 14px;
+}
+.card-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 700;
+}
+
+/* A game starting (everyone sees it, with a bar running down) or on (for whoever waits here). */
+.banner {
+  display: grid;
+  gap: 6px;
+  padding: 14px;
+  border-radius: 12px;
+  background: #3a2a1d;
+}
+.banner-title {
+  font: 700 20px/1.2 var(--display);
+  color: var(--gold) !important;
+}
+.banner-sub {
+  font-size: 15px;
+}
+.banner-bar {
+  height: 6px;
+  margin-top: 4px;
+  border-radius: 3px;
+  background: #1f1611;
+  overflow: hidden;
+}
+.banner-bar span {
+  display: block;
+  height: 100%;
+  background: var(--amber);
+  transform-origin: left center;
+  animation: beat linear forwards;
+}
+@keyframes beat {
+  from {
+    transform: scaleX(1);
+  }
+  to {
+    transform: scaleX(0);
+  }
+}
+.stop-here {
+  margin-top: 6px;
+  min-height: 44px;
+  padding: 8px 16px;
+  font-size: 15px;
+}
+
+/* ------------------------------------------------------------ the game on the page */
+/* A player's page (and the big screen) while a game is on: the game under the bar, upright. */
+.stage {
+  display: grid;
+  gap: 8px;
+  border-radius: 16px;
+  background: var(--panel);
+  box-shadow: inset 0 0 0 1px var(--line);
+}
+.stage-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 10px 0 16px;
+}
+.stage-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font: 700 18px/1.2 var(--display);
+  color: var(--gold);
+}
+.stop {
+  flex: none;
+  min-height: 44px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 22px;
+  background: var(--panel-2);
+  box-shadow: inset 0 0 0 1px var(--line);
+  color: var(--soft);
+  font-weight: 700;
+  font-size: 14px;
+  cursor: pointer;
+}
+.stop:hover {
+  color: var(--ink);
+}
+.stage-box {
+  min-height: 60vh;
+}
+.staged #app {
+  width: min(100%, 640px);
 }
 
 /* ------------------------------------------------------------ the leave sheet, no party */
@@ -501,7 +776,7 @@ p {
     grid-template-areas:
       "code rooms"
       "code people"
-      "code soon";
+      "code games";
     grid-template-rows: auto auto 1fr;
     align-items: start;
   }
@@ -509,7 +784,7 @@ p {
   .grid:has(> .rooms[hidden]) {
     grid-template-areas:
       "code people"
-      "code soon";
+      "code games";
     grid-template-rows: auto 1fr;
   }
   .rooms {
@@ -528,8 +803,8 @@ p {
   .people {
     grid-area: people;
   }
-  .soon {
-    grid-area: soon;
+  .games {
+    grid-area: games;
   }
   .code-row {
     flex-direction: column;
@@ -581,8 +856,8 @@ p {
     min-height: 46px;
     padding: 6px 12px;
   }
-  .soon p {
-    font-size: 14px;
+  .game-row {
+    min-height: 56px;
   }
 }
 
@@ -593,7 +868,7 @@ p {
   .as-screen .grid:has(> .rooms[hidden]) {
     grid-template-areas:
       "code people"
-      "code soon";
+      "code games";
     grid-template-rows: 1fr auto;
     align-items: stretch;
   }
@@ -608,6 +883,50 @@ p {
     flex-direction: column;
     padding-top: max(20px, env(safe-area-inset-top));
     padding-bottom: max(20px, env(safe-area-inset-bottom));
+  }
+  /* The Table itself (not a game, which has its own view) is exactly one screen high: nobody
+     scrolls a television. The bar across the top, then three columns: the code, who is here,
+     and the games, with the news (the last game's card, a game starting) at the top of the games
+     column, so it never takes height from who is here. Who is here shares out its column's
+     height, so eight players and the screen fit at 1280x720 as at 1920x1080. */
+  html.as-screen:not(.staged) #app {
+    height: 100dvh;
+    display: grid;
+    grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr) minmax(0, 1fr);
+    grid-template-rows: auto auto minmax(0, 1fr);
+    grid-template-areas:
+      "top top top"
+      "code people news"
+      "code people games";
+    column-gap: 18px;
+  }
+  html.as-screen:not(.staged) .top {
+    grid-area: top;
+  }
+  html.as-screen:not(.staged) .news {
+    grid-area: news;
+    margin-bottom: 18px;
+  }
+  html.as-screen:not(.staged) .grid {
+    display: contents;
+  }
+  html.as-screen:not(.staged) .grid > .panel {
+    min-height: 0;
+    overflow: hidden;
+  }
+  .as-screen .people,
+  .as-screen .games {
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+  .as-screen .people .list {
+    min-height: 0;
+    grid-auto-rows: minmax(0, 64px);
+    align-content: start;
+  }
+  .as-screen .game-list {
+    min-height: 0;
+    overflow-y: auto;
+    align-content: start;
   }
   .as-screen .top {
     grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr) auto;
@@ -644,10 +963,14 @@ p {
     padding-left: 25px;
     font-size: 19px;
   }
-  .as-screen .grid {
+  /* Three columns: the code, who is here, and the games, so nothing needs scrolling. */
+  .as-screen .grid,
+  .as-screen .grid:has(> .rooms[hidden]) {
     flex: 1;
     gap: 18px;
-    grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
+    grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr) minmax(0, 1fr);
+    grid-template-areas: "code people games";
+    grid-template-rows: 1fr;
   }
   .as-screen .code {
     position: static;
@@ -676,11 +999,12 @@ p {
     font-size: 20px;
   }
   .as-screen .person {
-    min-height: clamp(48px, 7.5vh, 64px);
-    padding: 6px 16px;
+    min-height: 0;
+    padding: 2px 16px;
   }
   .as-screen .person-name {
-    font-size: 22px;
+    font-size: clamp(19px, 3vh, 22px);
+    line-height: 1.2;
   }
   .as-screen .person.free .person-name {
     font-size: 19px;
@@ -690,6 +1014,12 @@ p {
   .as-screen .tag {
     font-size: 16px;
   }
+  .as-screen .person-sub {
+    line-height: 1.2;
+  }
+  .as-screen .full-words {
+    font-size: 22px;
+  }
   .as-screen .dot {
     width: 22px;
     height: 22px;
@@ -698,8 +1028,11 @@ p {
     min-height: 56px;
     font-size: 19px;
   }
-  .as-screen .soon p {
-    font-size: 18px;
+  .as-screen .game-name {
+    font-size: 21px;
+  }
+  .as-screen .game-meta {
+    font-size: 16px;
   }
 }
 

@@ -10,21 +10,37 @@
 //   node scripts/build-public.mjs --list     build and list every file that will be served
 //   node scripts/build-public.mjs --preview  also build the pages that are not approved yet (below)
 import { createRequire } from "node:module";
-import { dirname, join, resolve } from "node:path";
+import { dirname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { KIT_CLIENT_PATH, buildPublic, kitClientEntry, report } from "../party-kit/build/public.mjs";
-import { GAMES } from "../games.js";
+import { GAMES, TURN_GAMES } from "../games.js";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 export const OUT = join(ROOT, "dist", "public");
 
 const require = createRequire(import.meta.url);
 
-/** One game's public files: from its package's folder to its path on the site. */
-function gameEntries({ manifest }) {
-  const from = dirname(require.resolve(`${manifest.id}/package.json`));
+/**
+ * One game's public files: from its package's folder to its path on the site.
+ *
+ * A Table game may live in this repository instead of a package of its own (party/games/<id>,
+ * as Count to ten does and Paper Masks will): its rules are server-only and its view is one of
+ * the party's own pages (party/public/games), already served with them, so it lists no public
+ * files and has no package to look up. One that lists public files must be a package: they are
+ * copied from the package's folder, never from party/games.
+ */
+export function gameEntries({ manifest }) {
+  const files = manifest.public ?? [];
+  if (!files.length) return [];
+  let pkg;
+  try {
+    pkg = require.resolve(`${manifest.id}/package.json`);
+  } catch {
+    throw new Error(`build-public: ${manifest.id} lists public files but is not a package (add it to devDependencies, or keep its view in party/public/games and list none)`);
+  }
+  const from = dirname(pkg);
   const under = manifest.path.replace(/^\/|\/$/g, "");
-  return manifest.public.map((file) => ({ from: join(from, file.from), to: `${under}/${file.to}` }));
+  return files.map((file) => ({ from: join(from, file.from), to: `${under}/${file.to}` }));
 }
 
 /**
@@ -60,10 +76,25 @@ const siteEntries = [
 const previewEntries = [{ from: join(ROOT, "landing", "public"), to: "preview/landing" }];
 const PREVIEW = process.argv.includes("--preview");
 
-const entries = [kitClientEntry(), ...siteEntries, ...GAMES.flatMap(gameEntries), ...(PREVIEW ? previewEntries : [])];
+// A Table game's public files (its view) come from its package as any hosted game's do.
+const entries = [kitClientEntry(), ...siteEntries, ...[...GAMES, ...TURN_GAMES].flatMap(gameEntries), ...(PREVIEW ? previewEntries : [])];
+
+/**
+ * Folders that hold server code and server-only data, never sent to a page: the room's own code,
+ * and the Table games' rules (party/games: Paper Masks' questions.js holds its ghost answers). The
+ * build refuses to copy anything from inside them, or any folder that holds one of them.
+ */
+export const SERVER_ONLY = [join(ROOT, "lobby", "server"), join(ROOT, "party", "games"), join(ROOT, "worker.js"), join(ROOT, "games.js")];
+const inside = (path, folder) => path === folder || path.startsWith(folder + sep);
+for (const { from } of entries) {
+  const bad = SERVER_ONLY.find((folder) => inside(resolve(from), folder) || inside(folder, resolve(from)));
+  if (bad) throw new Error(`build-public: ${relative(ROOT, from)} would publish server-only ${relative(ROOT, bad)}`);
+}
 
 /** Every site path that is served: the kit's browser files, the site's pages and each game's public files. */
 export const SERVED = entries.map((entry) => entry.to);
+/** Where each served path is copied from. */
+export const SOURCES = entries.map((entry) => entry.from);
 
 /**
  * Builds the public folder into `out`, dist/public unless told otherwise. The unit tests build

@@ -12,9 +12,14 @@
 //                PARTY_TEST_GAMES is "on" (the local environment and the test runs), never in
 //                production.
 //   coming soon  a name and a picture for a game that is not built. Its light stays off.
-import { GAMES } from "../games.js";
+//
+// The Table (the plain waiting room) has a list instead of a wall: buildTurnWall.
+import { GAMES, TURN_GAMES } from "../games.js";
 import * as coinFlip from "./games/coin-flip.js";
+import * as countToTen from "../party/games/count-to-ten/index.js";
+import { isTurnBased } from "../party-kit/src/core/turns.js";
 import { boxFromManifest } from "./shared/vote.js";
+import { tableEntry } from "./shared/table.js";
 
 
 /**
@@ -63,10 +68,54 @@ export function buildWall(hosted, { testGames = false } = {}) {
   return { boxes, games, fields };
 }
 
-/** Production: the hosted games, the outside games and the coming-soon boxes. */
-export const WALL = buildWall(GAMES);
-/** Local play and the tests: the same, with Coin Flip. */
-export const TEST_WALL = buildWall(GAMES, { testGames: true });
+/**
+ * The Table's games that are not built yet: listed, greyed, "Coming soon". Their sizes are the
+ * owner's: Paper Masks for three to eight, Who Am I? for exactly two.
+ */
+export const TABLE_SOON = [
+  { id: "paper-masks", name: "Paper Masks", pitch: "Anonymous answers about you. Guess who wrote what.", players: { min: 3, max: 8 } },
+  { id: "who-am-i", name: "Who Am I?", pitch: "Ask questions, guess who you are", players: { min: 2, max: 2 } },
+];
+
+/**
+ * The Table's list (lobby/shared/table.js) and the server definition of each game on it that can
+ * start: {table, games}. Every Table game is turn-based (`tickHz: 0`), has a view the Table can
+ * mount and no settings step (the Table has no settings form yet); a game that is not is refused
+ * here, when the Worker loads, not when a party picks it.
+ *
+ * Count to ten, the test game, is on the list only where PARTY_TEST_GAMES is "on", as Coin Flip
+ * is on the Floor: in production the room has no such game, so a hand-sent `play` for it is
+ * refused. Where it is on, it is marked `test` and the Table's page shows it only when its
+ * address ends in #dev.
+ * @param {object[]} hosted  the site's Table games (games.js, TURN_GAMES)
+ * @param {{testGames?: boolean}} [opts]  testGames: also list Count to ten
+ */
+export function buildTurnWall(hosted, { testGames = false } = {}) {
+  const table = [];
+  const games = new Map();
+  const add = (game, manifest, extra) => {
+    const why = !game ? "it has no server definition" : !isTurnBased(game) ? "it is not turn-based (tickHz: 0)" : typeof game.settings === "function" || manifest.settings ? "the Table has no settings step yet" : !extra.view ? "it has no view for the Table (manifest.table.view)" : null;
+    if (why) throw new Error(`${manifest.id} cannot hang at the Table: ${why}`);
+    table.push(tableEntry(manifest, extra));
+    games.set(manifest.id, game);
+  };
+  const viewOf = (manifest) => (manifest.table?.view ? manifest.path + manifest.table.view : null);
+  for (const { manifest, game } of hosted) add(game, manifest, { view: viewOf(manifest) });
+  if (testGames) add(countToTen.game, countToTen.manifest, { test: true, view: viewOf(countToTen.manifest) });
+  for (const manifest of TABLE_SOON) if (!games.has(manifest.id)) table.push(tableEntry(manifest, { soon: true }));
+  return { table, games };
+}
+
+/** The Floor's wall and the Table's list in one: the games map holds both (their ids never clash). */
+function bothWalls(floor, turn) {
+  for (const id of turn.games.keys()) if (floor.games.has(id)) throw new Error(`${id} is on both the Floor and the Table`);
+  return { ...floor, games: new Map([...floor.games, ...turn.games]), table: turn.table };
+}
+
+/** Production: the hosted games, the outside games and the coming-soon boxes, and the Table's list. */
+export const WALL = bothWalls(buildWall(GAMES), buildTurnWall(TURN_GAMES));
+/** Local play and the tests: the same, with Coin Flip on the Floor and Count to ten at the Table. */
+export const TEST_WALL = bothWalls(buildWall(GAMES, { testGames: true }), buildTurnWall(TURN_GAMES, { testGames: true }));
 
 /** The wall a Worker's environment asks for. One switch, PARTY_TEST_GAMES, set in wrangler.jsonc. */
 export function wallFor(env) {
