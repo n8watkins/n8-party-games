@@ -26,6 +26,7 @@ import { FRAME, PHONE_FRAME, camera } from "./shared/camera.js";
 import { clearOfCard, tagsTop } from "./card-clear.js";
 import { Pilot } from "./shared/pilot.js";
 import { isRoom, roomName } from "./shared/rooms.js";
+import { watchMode } from "./hop.js";
 import { stageKey, stageStale } from "./shared/stage.js";
 import { playerLine, statusLine } from "./shared/status.js";
 import { JUMP_HEIGHT, posAt } from "./shared/world.js";
@@ -41,6 +42,8 @@ const startRoom = params.has("start") && isRoom(params.get("room")) ? params.get
 const link = new PartyClient({ api: "/api/lobby", quietPing: { text: "ping", everyMs: KEEP_ALIVE_MS }, lag: Number(params.get("lag") ?? 0) });
 // A locked phone, an offline browser and a connection that quietly died are seen at once (connection.js).
 watchConnection(link, { player: () => isPlayer() });
+// One party, two waiting rooms: when the party is in the plain one, this page moves itself there (hop.js).
+const modeHop = watchMode(link, "party-games");
 
 let door = null;
 let scene = null;
@@ -200,7 +203,7 @@ async function enter() {
       away: goAway,
     },
   });
-  menu = new RoomMenu(hud.el, { role: link.you.role, seat: link.you.seat, onPick: (id) => link.send({ t: "pick", v: id }) });
+  menu = new RoomMenu(hud.el, { role: link.you.role, seat: link.you.seat, onPick: (id) => link.send({ t: "pick", v: id }), onMode: (v) => link.send({ t: "mode", v }), quiet: modeHop.came });
   hud.muteButton(menu.corner);
   if (menu.mine(room)) menu.hint();
   count = new CountTick(hud.el, { buzz: isPlayer() ? buzz : null });
@@ -215,6 +218,8 @@ async function enter() {
   if (!lastFrame) requestAnimationFrame(frame);
   // The room is up: now its sounds may be fetched, once sound is allowed.
   roomSounds.warm();
+  // Moved here from the plain waiting room: say who moved the party.
+  if (modeHop.said) hud.note(modeHop.said);
 }
 
 /**
@@ -427,6 +432,8 @@ function tellLit(now) {
 }
 
 link.on("room", (next) => {
+  // The party is in the other waiting room: this page is on its way there, and draws nothing more.
+  if (modeHop.leaving) return;
   if (scene) return apply(next);
   room = next;
   if (pendingRoom) room.room = pendingRoom;
@@ -496,6 +503,11 @@ link.on("message", (msg) => {
     case "pick-no":
       // Said in the picker when it is open, as a note over the room when it is not.
       if (menu?.isOpen) menu.refused(msg.why);
+      else hud?.note(msg.why);
+      break;
+    case "mode-no":
+      // The room did not move the party to the plain waiting room: said the same way.
+      if (menu?.isOpen) menu.modeRefused(msg.why);
       else hud?.note(msg.why);
       break;
     case "note":

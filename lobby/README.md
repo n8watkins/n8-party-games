@@ -25,7 +25,7 @@ Make each window short and wide to see what a sideways phone sees, or use the br
 5. Stand both pieces in Coin Flip's light: "Starts in 10" counts down, the game plays, and both are back by the door with points on the Tonight board.
 6. Click the Tonight board on the wall to open it large; click anywhere, press Escape or go back to close it.
 7. Stand one piece in each lit light for a tie and its coin toss.
-8. Stand both pieces in Cork & Bell's light: the battle starts for the two of you inside the room, each window shows its own stall (a third window as the room's screen shows both), and ninety seconds later both are back by the door with the scores on a card and points on the Tonight board. One piece alone in that light gets a round to itself.
+8. Stand both pieces in Cork & Bell's light: the battle starts for the two of you inside the room, each window shows its own stall (a third window as the room's screen shows both), and when the round is over (at ninety seconds, or sooner once both of you have spent all your corks) both are back by the door with the scores on a card and points on the Tonight board. One piece alone in that light gets a round to itself.
 9. Stand both pieces in Who Am I?'s light: "Opens in 10" counts down, a card says where everyone is going, and both windows go to its own site.
 10. Close one window to see the piece turn grey at once, and fade twelve seconds later.
 
@@ -83,6 +83,33 @@ A device that has not switched it on downloads none of it.
 To make a plate again: `landing/tools/blender/plate.sh 5` (about 45 minutes of rendering, every job under ten), then `node lobby/tools/pack-baked.mjs 5`, which writes `public/baked/bar/5/` and prints the bytes.
 The raw renders are not committed.
 When a game is added to the wall, its plate must be rendered before the baked bar shows that wall.
+
+### The Star Lounge made real (rooms made of rendered layers)
+
+To see it, open the room with `?look=real`, for example `http://localhost:8791/lobby/?start&look=real&room=ship` (the party's room must be the Star Lounge).
+The switch is remembered on that device, as the others are; any other `?look=` switches it off.
+A device with it on gets the rendered Star Lounge whenever the party's room is the Star Lounge, and the 3D look's own drawing for every other room.
+A device that has not switched it on downloads none of it (only `look3d/rendered/switch.js`, a few lines of logic, is part of every page).
+Its picture is of the production wall of five boxes: on another wall (the local test wall of six) the 3D look draws the room and nothing of it is fetched.
+If its layers have not all arrived within 5.5 seconds, the 3D look draws the room instead, so a slow connection does not hold the room dark; what arrives later is given back unused.
+
+It is the method a second rendered room (the bar, remade) will copy, so it is split in two:
+
+- **`public/look3d/rendered/`, any rendered room.** `plate.js` loads a plate and builds its picture as one shader (the base, plus each light's tile with one number), cut to the glass, and draws what is outside first and the room over it, so nothing outside can ever show over a wall, a post, the door or a sign. `room-rendered.js` is the 3D look with its walls swapped for that picture (`RoomRendered extends Room3D`): the posters in the picture's frames, the pools and lit screens of the vote, the pieces lit by the room and reflected in its floor, and everything that is data (pieces, tags, signs, the join code and QR, the Tonight board, emotes, bumps, the count, the toss) called and not copied. `ladder.js` is how it comes down on a slow device. `switch.js` says which rooms have one and whether this device asked.
+- **`public/look3d/rendered/star-lounge/`, only the Star Lounge.** `room.js` (its lamps that swing, its chart table, its sky on the room's clock, its steps down), `outside.js` (the planet, its storms, the moon, stars, and what passes), `parts.js` (lamps, chart, blinking lights, rods and shines), `sky.js` (the timetable: one thing at a time, 20 to 45 seconds of empty sky) and `layers/` (the rendered pictures and `plate.json`, about 840 KB). Its numbers are the Blender scene's own file, `tools/blender/star-lounge.json`, served beside the layers by `scripts/build-public.mjs`.
+
+The preview page (`preview/star-lounge`) imports the same modules, so the room and the preview cannot drift apart.
+The sky runs on the room's own clock, seeded by the room's code, and each thing passes when it was due, not when a screen noticed: so every screen in a room sees the same rocket at the same moment, whether it came late, was hidden or was away in a game.
+The passing things make the room's existing sounds: `rocket.pass` and `star.fall`; the chart table makes `holo.spin` when it is knocked.
+
+On a device that cannot keep up it comes down a ladder, and the frame meter (`?meter=1`) names the rung: `real star-lounge`, `real star-lounge lite 1` to `lite 3`, or `3d star-lounge`.
+First it draws fewer pixels, by the 3D look's own rule (a fifth at a time down to 0.75, undone if it did not help).
+Then its own steps, cheapest last: the planet's weather off (storms, torn cloud edges, belt streaks), the planet's surface at half size, and everything outside drawn at half resolution.
+A device whose largest picture is under 4096 pixels starts with the smaller planet.
+Still slow after the last step, it draws today's 3D Star Lounge in place, says so in one short note that can be closed, and remembers that on the device (until `?look=real` is asked again), so it does not climb back and slow down again; the "Simpler room" check then carries on from there.
+If none of its steps made frames faster and frames sit at 30 a second (a phone in a battery saver), it undoes them, keeps the rendered room and remembers the device as capped, so later visits do not try again; a phone slow at any other pace falls back.
+For a test, `?rung=0` to `?rung=3` or `?rung=3d` forces a rung and is never remembered; `?ladder=off` holds it there.
+`lobby/test/shoot-real.mjs` takes the stills (and `--look=3d` the same moments in today's look), `lobby/test/measure-real.mjs` times each rung.
 
 ### The party's room
 
@@ -224,6 +251,25 @@ The cooldown is shown twice: a ring sweeping round the bump button, which is dim
 The rules, timings, states (winding, striking, recovering; standing, hit, flying, down, rising, safe) and poses are `shared/bump.js`: plain numbers with tests, no drawing.
 `public/bump-draw.js` is the thin part that turns them into SVG, and is the only part a room drawn another way would replace.
 
+## The Floor and the Table
+
+One party has two waiting rooms, and the host moves everyone between them.
+The Floor is this room, with the pieces, where everyone plays at once, at `/lobby/`.
+The Table is a plain waiting room with no characters, where the party sits, talks and takes turns, at `/party/` (`../party/public/`).
+Both are the same party: the same room object, the same code, the same seats and the same Tonight board.
+
+- The room keeps one stored value, `mode`: `"party-games"` (the Floor, the default) or `"turn-based"` (the Table). These values are on the wire and in storage; the names people read live only in `shared/mode.js` (`MODE_NAME`).
+- The host (the device that made the party, or whoever holds the controls while it is away, by the same rule as the room picker) sends `{t: "mode", v}`. The room refuses it during a count or a coin toss, between the end of the vote and the start of its game (`LobbyCore.starting`, while the budget is asked), during the settings step and a game, and within four seconds of the last switch, with `{t: "mode-no", why, v}` to that page only. A room pick is refused in that same gap.
+- A host whose phone dropped less than eight seconds ago (`HOST_GRACE_MS`) still holds the controls: that is a page moving between the two rooms, and nobody else may switch or pick in that moment. After it the first connected player holds them until the host is back, and the host's piece fades and hands the party over for good after twelve seconds, as before.
+- A switch is saved before anyone hears of it; one that cannot be saved is taken back, and the host is told to try again. Then everyone gets a note ("Ann moved the party to the Table") and the room view with the new `mode`. The vote starts over: every piece is back by the door, with the usual rest before a count.
+- At the Table nothing walks, bumps or counts (`LobbyCore.plainRoom`), so no vote can start there; a room pick is refused (nobody sees the room's look there) and emotes are ignored. Seats, drops, the seat hold and the host's handover work as on the Floor.
+- The Table may sit idle for two hours (`TABLE_STALE_MS`) while anyone is connected, where the Floor is put away after twenty minutes. On the Floor every step a piece takes tells the room someone is there; at the Table people sit and talk and nothing they do reaches the room, so the shorter limit would close a party in the middle of a conversation. It adds no wake-up: the room still sleeps, and only its own limit moves.
+- Each page moves itself when the room's mode is not its own (`public/hop.js`). It is a rule about state, not an event: a hello after a reconnect, a page loaded mid-switch and a phone that was asleep all land in the right room the next time they hear the room. The page shows "Moving to the Table" for a moment and replaces itself with the other page, which resumes the same seat from the session in the tab. A tab hops at most once in three seconds (`HOP_GAP_MS`), so two pages can never bounce a tab between them; a hop it may not make yet leaves a link to tap and is tried again by itself once the guard lets it, to wherever the party is then.
+- The Floor's way to the Table is "Move the party to the Table" under the rooms in Rooms, for the host only. At the Table the one who holds the controls has a switch for both rooms at the top; everyone else has a plain line under the heading saying who chooses the room.
+- The Table loads no three.js and nothing of the Floor's drawing. It shows the code and QR code as its hero, who is here (every seat, the host marked, a dropped phone grey, free seats as empty places), and that Table games are coming. Notes ("Cy joined") take the place of the line under the heading for a few seconds, so they never cover anything. The big screen gets a wide layout, with the switch in the bar when it holds the controls, sized to need no scrolling.
+- A room saved before this restores on the Floor. The join link and the QR code still lead to `/lobby/?join=`, whose door seats a newcomer and sends them on to the Table when the party is there.
+- `npm test` covers the rules (`test/mode.test.js`) and the switch on the real room class (`test/party-room-mode.test.js`). `npm run test:mode` switches two players and a screen both ways over real sockets, with a reconnect in the middle and a newcomer at the Table. `npm run test:two-rooms` does it in real pages (headless and muted) and takes stills at 390x844, 844x390, 320x568 and 1280x720.
+
 ## Outside games
 
 An outside game is not on the kit: it has a site and rooms of its own.
@@ -249,10 +295,10 @@ Cork & Bell is its own repository and package (`games.js`), and it is the first 
 - **The start.** When it wins the count or the toss, the room calls its `game.create` with the party's seats, names and colours, and ticks it at its own thirty times a second. There is no waiting room and no ready step.
 - **On a player's device.** The room's page fetches the view the game's manifest names (`/cork-and-bell/game/party-view.js`) and mounts it over the room: the player's own stall, full screen, with the rivals' tokens to pick a target. The game's files are fetched ahead while the count is still running.
 - **On the big screen.** A spectator view: every stall in the round side by side, with names and scores, as the game's own shared screen shows a battle. Someone who joins the party in the middle of a round sees the same until it ends.
-- **A party of one** gets a round to itself, the same ninety seconds with nobody to send attacks to. It is first of one, so it puts three points on the Tonight board.
+- **A party of one** gets a round to itself, the same round of up to ninety seconds with nobody to send attacks to, over as soon as its one stall has spent its corks. It is first of one, so it puts three points on the Tonight board.
 - **The room's own things** on top of the game are the door button (already drawn for a phone held sideways: "Leave the party" works mid-round), the notes ("Tom left") and the word about the connection. The room's bars are put away and the room is not drawn under the game.
 - **A phone that drops** has its stall played by the game's stand-in until it is back; a reload in the middle comes back to the same stall with its score.
-- **The end.** After ninety seconds (or when only one stall still has corks) the game is taken away, everyone is back by the door, and the room's card shows who came where with the scores: 3, 2 and 1 points for the Tonight board, equal scores sharing a place.
+- **The end.** After ninety seconds (or sooner, once every stall is out of corks and the last cork has landed) the game is taken away, everyone is back by the door, and the room's card shows who came where with the scores: 3, 2 and 1 points for the Tonight board, equal scores sharing a place.
 - **Nothing is left behind.** The game runs in a frame of its own page, so its listeners, timers, sound and WebGL context go when the frame goes; the view also lets the WebGL context and the sound go at once. `npm run test:cork` checks it on every device.
 
 The game's own page at `/cork-and-bell/` is unchanged: solo with the high score board, and battles in rooms of its own.
@@ -310,7 +356,7 @@ None of it sends a message or sets a timer in the room: every sound comes from s
 - A party's code, seats and points do not carry over to an outside game's site.
 - No piece skins, no abilities, no chat bubbles, no walking through the door, no "host starts" setting. The flat drawing has one room, whichever the party picks.
 - No buzz on phones whose browser has none (Safari on an iPhone).
-- "Back to the room" in the middle of a game: a round runs its ninety seconds, and a player can still leave the party.
+- "Back to the room" in the middle of a game: a round runs until the game calls time (at ninety seconds, or once every stall has spent its corks), and a player can still leave the party.
 - In the room Cork & Bell has no high score entry, no rematch button and no end card of its own: the room's card shows the scores, and the vote is the rematch. The high score board stays on the game's own page.
 
 ## How it stays cheap
@@ -365,8 +411,9 @@ The second column is a keen party that starts a vote every half minute, measured
 An outside game winning the vote costs one wake-up and no duration: nothing is played in the room.
 
 **A round of Cork & Bell is what a party room costs.**
-The room is awake for all of a round, as the game's own room is: 94.6 seconds (the count-in, ninety seconds and the hold at the end), which is 12.1 GB-seconds, whether one plays or four.
-`npm run test:cork` reads the same figure from the books for a battle of three and for a round played alone.
+The room is awake for all of a round, as the game's own room is: at most 94.6 seconds (the count-in, up to ninety seconds and the hold at the end), which is at most 12.1 GB-seconds, whether one plays or four.
+A round is shorter only when every stall has spent its corks before the time call.
+`npm run test:cork` reads each round's figure from the books, for a battle of three that runs its full time and for a round played alone, and checks it against how long the round lasted.
 The 10% of a month (40,000 GB-seconds) is about 3,300 rounds, and a day's tenth of that (4,000) about 330 rounds across every party room there is.
 Everything between rounds costs next to nothing by comparison, so an evening costs its rounds: a party that plays six rounds in an hour uses about 73 GB-seconds, and the 10% buys about 550 such hours a month.
 The third column is the ceiling: a party that votes again the moment each round ends.
@@ -427,6 +474,7 @@ A lobby nobody touches costs nothing: no timer, no messages, nothing counted, an
 | `public/baked/` | The baked bar: `room-baked.js`, and the bar's packed plates in `bar/<boxes>/` (each `plate.json` says what it covers). |
 | `tools/pack-baked.mjs` | Packs the rendered plate for the baked bar. |
 | `public/look3d/` | The 3D drawing: the scene (`room3d.js`), the words over it (`words.js`), the pieces (`pieces.js`), the rooms as skins (`skins.js`), a posed room (`still.html`) and the rooms page (`rooms/`). |
+| `public/look3d/rendered/` | Rooms made of rendered layers, behind `?look=real`: what any such room shares (`plate.js`, `room-rendered.js`, `ladder.js`, `switch.js`) and the Star Lounge's own (`star-lounge/`, with its rendered `layers/`). |
 | `test/` | Unit tests, the socket test, the browser run and the cost measurement. |
 
 `shared/` is plain logic used by both the room and the page, and it is served to the browser; `server/` and `test/` never are.

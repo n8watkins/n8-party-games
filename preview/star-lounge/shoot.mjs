@@ -24,7 +24,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { chromium } from "playwright";
 import sharp from "sharp";
-import { THINGS, TIMES } from "./src/sky.js";
+import { THINGS, TIMES } from "../../lobby/public/look3d/rendered/star-lounge/sky.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const args = process.argv.slice(2);

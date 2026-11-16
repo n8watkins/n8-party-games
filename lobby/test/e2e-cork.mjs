@@ -9,7 +9,8 @@
 //   node lobby/test/e2e-cork.mjs [--base=http://localhost:8791] [--out=lobby/test/shots] [--win=1]
 //
 // It takes about four minutes: there are two rounds of up to ninety seconds (the game's
-// ROUND_SECONDS). The battle runs its full time, as two of its stalls never spend their corks;
+// ROUND_SECONDS). The battle runs its full time, as a battle ends early only once every
+// stall is out of corks and two of its stalls never spend theirs;
 // the round played alone ends sooner, once its one stall (the game's bot) has spent them. It
 // reads the room budget's books before and after (the local server's debug door), so the run
 // also says what each round cost, and checks that it is what each round lasted.

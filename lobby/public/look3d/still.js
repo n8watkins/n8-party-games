@@ -6,6 +6,7 @@
 //     &shot=vote|count|toss|off|empty|live  the moment (default vote: four pieces mid-vote; live: the
 //                                    wall as it hangs today, with the games that are not built yet dark)
 //     &look=baked                    the baked look (../baked/room-baked.js) on today's wall of five boxes
+//     &look=real                     the Star Lounge made real (./rendered/), on the same wall; &rung=, &ladder=off as in the room
 //     &as=screen|player              the big screen's bottom line, or a player's buttons (seat 2)
 //     &zoom=room|closer              a player's view
 //     &bare=1                        no bottom line or buttons at all
@@ -39,8 +40,10 @@ const BOXES = [
   boxFromManifest({ id: "flood", name: "Flood", blurb: "Climb before the water rises", players: { min: 2, max: 4 }, devices: { phone: true, desktop: false } }),
 ];
 const baked = query.get("look") === "baked";
-// The baked look is shown on today's wall of five boxes (&boxes=6 adds the local test game's box).
-if (baked) BOXES.push(boxFromManifest({ id: "fox-trouble", name: "Fox Trouble", blurb: "Solve the room together, cause trouble", players: { min: 2, max: 4 }, devices: { phone: true, desktop: false } }));
+// &look=real: the room made of rendered layers (./rendered/), the Star Lounge, on the same wall of five (&rung= picks its step down).
+const real = query.get("look") === "real";
+// The baked and rendered looks are shown on today's wall of five boxes (&boxes=6 adds the local test game's box).
+if (baked || real) BOXES.push(boxFromManifest({ id: "fox-trouble", name: "Fox Trouble", blurb: "Solve the room together, cause trouble", players: { min: 2, max: 4 }, devices: { phone: true, desktop: false } }));
 if (baked && query.get("boxes") === "6") BOXES.splice(1, 0, boxFromManifest({ id: "coin-flip", name: "Coin Flip", blurb: "Test game: luck picks the order", players: { min: 1, max: 4 }, devices: { phone: true, desktop: true } }));
 const N = BOXES.length;
 const light = (i, off = 0) => Math.round(boxCentre(i, N) + off);
@@ -98,7 +101,7 @@ function fixture() {
 const app = document.getElementById("app");
 const phone = () => Math.min(innerWidth, innerHeight) < 520;
 const room = fixture();
-const View = baked ? (await import("../baked/room-baked.js")).RoomBaked : Room3D;
+const View = baked ? (await import("../baked/room-baked.js")).RoomBaked : real ? (await import("./rendered/star-lounge/room.js")).RoomStarLounge : Room3D;
 const view3d = await View.open(app, {
   boxes: N,
   concept: true,
