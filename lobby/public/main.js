@@ -209,7 +209,7 @@ async function enter() {
   if (menu.mine(room)) menu.hint();
   // A player's own piece, and the choice of its character and colour; the one last chosen on this device comes back.
   if (isPlayer()) {
-    looks = new LookMenu(menu.corner, {
+    looks = new LookMenu(hud.bar.querySelector(".pad-left"), hud.el, {
       seat: link.you.seat,
       send: (choice) => link.send({ t: "look", ...choice }),
       // The line of words under the room carries a dot in the player's colour: it is written again.

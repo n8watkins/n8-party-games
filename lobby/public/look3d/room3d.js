@@ -17,6 +17,7 @@ import { COUNT_MS } from "../shared/vote.js";
 import { ROOM, boxCentre, lightHalf, posAt } from "../shared/world.js";
 import { Expressions } from "../emotes/play.js";
 import { EmoteFigure, Sticker } from "../emotes/svg.js";
+import { tagLevels } from "../tag-levels.js";
 import { modelOf } from "./characters.js";
 import { RIG_UNIT } from "./emote-arms.js";
 import { Life } from "./life.js";
@@ -635,7 +636,7 @@ export class Room3D {
       const look = `${m.name}/${m.connected}/${m.colour}`;
       if (p.look !== look) {
         p.look = look;
-        p.kind.dress(p.pawn, m.colour, m.connected);
+        p.kind.dress(p.body, m.colour, m.connected);
         // An emote in the middle of a change of colour is drawn again in the new one.
         this.dropEmote(p);
       }
@@ -665,22 +666,30 @@ export class Room3D {
 
   /**
    * Gives a piece the body of its player's character (./characters.js): the one place this look
-   * makes a body. `p.kind` is the character's definition and `p.pawn` the body it made, whatever
-   * the character (the name is from when every piece was a pawn).
+   * makes a body. `p.kind` is the character's definition and `p.body` the body it made. A room
+   * reads a body only through the handles every character has, and asks the definition for the
+   * rest: never its `mat` or `colour` (a ghost's is a white sheet; its player's colour is its hem).
    */
   embody(p, m) {
     p.kind = modelOf(m.character);
-    p.pawn = p.kind.make(this.radial);
-    p.pawn.ring.visible = m.seat === this.opts.own;
-    this.cast.add(p.pawn.group, p.pawn.blob, p.pawn.ring);
+    p.body = p.kind.make(this.radial);
+    p.body.ring.visible = m.seat === this.opts.own;
+    this.cast.add(p.body.group, p.body.blob, p.body.ring);
     p.look = "";
   }
+
+  /**
+   * A body's finish for this look, each frame after it is posed and before its emote: nothing
+   * here (this look's paint is dimmed and lit by pose itself); the baked look gives each
+   * character's own `bake`.
+   */
+  finish() {}
 
   /** Takes a piece's body out of the room, and whatever it was doing with its hands. */
   disembody(p) {
     this.dropEmote(p);
-    this.cast.remove(p.pawn.group, p.pawn.blob, p.pawn.ring);
-    p.kind.dispose(p.pawn);
+    this.cast.remove(p.body.group, p.body.blob, p.body.ring);
+    p.kind.dispose(p.body);
   }
 
   /** A piece changes character where it stands. */
@@ -822,8 +831,8 @@ export class Room3D {
   }
 
   /**
-   * A piece's emote for this frame, after its pawn is posed: the body's lean and lift and the
-   * red of fuming on the pawn, the arms as meshes (emote-arms.js), and the props, effects and
+   * A piece's emote for this frame, after its body is posed: the body's lean and lift and the
+   * red of fuming, the arms as meshes (emote-arms.js), and the props, effects and
    * the word over its head in SVG over the picture (emotes/svg.js), placed the way the name
    * tags are. Returns whether one is on.
    */
@@ -837,19 +846,19 @@ export class Room3D {
     if (!p.emote) {
       const figure = new EmoteFigure(colour, { face: false, limbs: false, character: p.kind.id });
       this.words.emotes.append(figure.stage, figure.body);
-      p.emote = { arms: p.kind.hands(p.pawn, colour), figure };
+      p.emote = { arms: p.kind.hands(p.body, colour), figure };
       p.sticker ??= new Sticker(this.words.stickers);
     }
-    const pawn = p.pawn;
+    const body = p.body;
     // The body, as its character does it: lifted, nudged and leaned on top of whatever the walk and the bump did, red when it fumes; then its hands.
-    p.kind.emote(pawn, e.pose, now, p.seat);
+    p.kind.emote(body, e.pose, now, p.seat);
     p.emote.arms.set(e.pose, now);
     // In SVG: room units become world units at the walking line (S), then screen pixels (k).
     const k = view.scale;
     const S = RIG_UNIT * (PAWN_HEIGHT / 1.115);
-    const gx = 960 + pawn.group.position.x / PX;
-    const gy = FEET_Y - pawn.group.position.y / PX;
-    const spin = (-pawn.tilt.rotation.z * 180) / Math.PI;
+    const gx = 960 + body.group.position.x / PX;
+    const gy = FEET_Y - body.group.position.y / PX;
+    const spin = (-body.tilt.rotation.z * 180) / Math.PI;
     const px = (x, y) => `${((x - view.x) * k).toFixed(1)},${((y - view.y) * k).toFixed(1)}`;
     p.emote.figure.body.setAttribute("transform", `translate(${px(gx, gy)}) rotate(${spin.toFixed(2)}) scale(${(k * S).toFixed(4)})`);
     p.emote.figure.stage.setAttribute("transform", `translate(${px(p.rx, FEET_Y)}) scale(${(k * S).toFixed(4)})`);
@@ -859,7 +868,7 @@ export class Room3D {
     const y = Math.min(tagTop - 6, gy + e.top * S);
     const scale = Math.max(0.62, k * (this.opts.compact ? 1.08 : 1.25));
     const [sx, sy] = px(gx, y).split(",").map(Number);
-    p.sticker.show(e.word, sx, sy, scale, e.pop);
+    p.sticker.show(e.word, sx, sy, scale, e.pop, { left: 0, right: view.width * k });
     return true;
   }
 
@@ -993,7 +1002,7 @@ export class Room3D {
           busy = true;
           continue;
         }
-        p.kind.fade(p.pawn, 1 - gone);
+        p.kind.fade(p.body, 1 - gone);
         alpha = 1 - gone;
         busy = true;
       }
@@ -1008,10 +1017,12 @@ export class Room3D {
         if (Math.abs(target - p.rx) < 0.3) p.rx = target;
         walking = (p.net.d !== 0 && target > ROOM.minX && target < ROOM.maxX) || Math.abs(target - p.rx) > 6;
       }
-      const pose = p.kind.pose(p.pawn, p, now, dt, { walking, lit: this.lightAt(p.rx), calm });
+      const pose = p.kind.pose(p.body, p, now, dt, { walking, lit: this.lightAt(p.rx), calm });
+      // A look with its own finish (the baked look's real light) gives it here, before an emote lays its red on top.
+      this.finish(p);
       if (pose.burst) this.burst(pose.burst, now, calm);
       if (pose.dust !== null) this.dust(pose.dust, now, calm);
-      alive.push({ seat, x: p.rx, up: pose.up, air: p.pawn.air, fx: p.fx });
+      alive.push({ seat, x: p.rx, up: pose.up, air: p.body.air, fx: p.fx });
       if (pose.moving) busy = true;
       p.up = pose.up;
       p.shock = pose.shock;
@@ -1023,16 +1034,12 @@ export class Room3D {
       ordered.push(p);
     }
     // Name tags that would sit on top of each other step up instead.
-    ordered.sort((a, b) => a.rx - b.rx);
-    let prev = null;
+    tagLevels(ordered, (p) => p.tag.w, (p) => p.up, (p) => (p.tag.h || 30) + 6);
     for (const p of ordered) {
-      const want = prev && p.rx - prev.rx < (p.tag.w + prev.tag.w) / 2 + 8 ? (prev.want + 1) % 4 : 0;
-      p.want = want;
-      if (Math.abs(want - p.level) > 0.004) busy = true;
-      p.level += (want - p.level) * Math.min(1, dt * 12);
+      if (Math.abs(p.want - p.level) > 0.004) busy = true;
+      p.level += (p.want - p.level) * Math.min(1, dt * 12);
       this.words.placeTag(p.tag, view, p.rx, p.up, p.level, p.shock, p.alpha);
       if (this.express(p, now, view, calm)) busy = true;
-      prev = p;
     }
 
     // Under the viewer's own piece: how far its bump has recharged.

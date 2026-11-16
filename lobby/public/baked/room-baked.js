@@ -22,6 +22,7 @@
 // device where the plate does not load, gets the 3D look drawn as it is.
 import { boxCentre } from "../shared/world.js";
 import { boxArt, boxSide } from "../look3d/paint.js";
+import { Reflection } from "../look3d/characters.js";
 import { Room3D } from "../look3d/room3d.js";
 import { SKINS } from "../look3d/skins.js";
 import { CAM, D_WALL, FRAME, PX, SPACE, U, walkX, wallX, wallY } from "../look3d/space.js";
@@ -355,56 +356,40 @@ export class RoomBaked extends Room3D {
   }
 
   /**
-   * Called just before each picture is drawn, after look3d has posed every piece: gives each
-   * its true colour (the light does the dimming here, not the paint), leans its shadow away
-   * from the nearest lit lamp, and stands its reflection under it.
+   * look3d dims the paint outside a pool and makes it glow inside one, because it has no real
+   * light. Here there is light: each character gives its body its true colour and a shinier
+   * finish (look3d/characters.js, `bake`), after it is posed and before an emote lays its red on.
+   */
+  finish(p) {
+    if (!this.plain) p.kind.bake(p.body);
+  }
+
+  /**
+   * Called just before each picture is drawn, after look3d has posed every piece: leans each
+   * shadow away from the nearest lit lamp, and stands each piece's reflection under it.
    */
   dressPieces() {
     if (this.plain) return;
     const seen = new Set();
     for (const p of this.pieces.values()) {
-      const pawn = p.pawn;
-      seen.add(pawn);
-      // look3d dims the paint outside a pool and makes it glow inside one, because it has no real light. Here there is light:
-      // each character gives its body its true colour and a shinier finish (look3d/characters.js, `bake`).
-      p.kind.bake(pawn);
+      const body = p.body;
+      seen.add(body);
 
       // The shadow: short and dark right under a lamp, longer and leaning away from it further out, faint in the dark.
       const lamp = this.lampOver(p.rx);
       const away = lamp.lit > 0 ? Math.max(-1, Math.min(1, (p.rx - lamp.x) / (this.half + 60))) : 0;
-      pawn.blob.position.x += away * 0.2;
-      pawn.blob.scale.multiplyScalar(1.3);
-      pawn.blob.scale.x *= 1 + Math.abs(away) * 0.6;
-      pawn.blob.material.opacity = Math.min(1, pawn.blob.material.opacity * (1.0 + 0.8 * lamp.lit));
+      body.blob.position.x += away * 0.2;
+      body.blob.scale.multiplyScalar(1.3);
+      body.blob.scale.x *= 1 + Math.abs(away) * 0.6;
+      body.blob.material.opacity = Math.min(1, body.blob.material.opacity * (1.0 + 0.8 * lamp.lit));
 
-      // The reflection: the same piece, standing on its head under the floor.
-      let r = pawn.reflection;
-      if (!r) {
-        // Only the body is mirrored: a floor this soft does not hold a pair of eyes.
-        r = pawn.reflection = pawn.group.clone();
-        r.traverse((o) => {
-          if (!o.isMesh) return;
-          o.visible = o.material === pawn.mat;
-          if (!o.visible) return;
-          o.material = new THREE.MeshBasicMaterial({ transparent: true, depthWrite: false, side: THREE.DoubleSide });
-          o.renderOrder = -2;
-        });
-        this.mirror.add(r);
-      }
-      const [tilt, mt] = [pawn.group.children[0], r.children[0]];
-      const [turn, mturn] = [tilt.children[0], mt.children[0]];
-      r.position.set(pawn.group.position.x, -pawn.group.position.y, pawn.group.position.z);
-      r.scale.set(1, -1, 1);
-      mt.rotation.copy(tilt.rotation);
-      mt.scale.copy(tilt.scale);
-      mturn.rotation.copy(turn.rotation);
-      const body = mturn.children[0];
-      body.material.color.copy(pawn.mat.color).multiplyScalar(0.35 + 0.65 * lamp.lit);
-      body.material.opacity = (0.1 + 0.16 * lamp.lit) * pawn.fade * Math.max(0, 1 - pawn.group.position.y * 0.9);
+      // The reflection: the same piece, standing on its head under the floor, as its character makes it.
+      if (!body.reflection) this.mirror.add((body.reflection = new Reflection(body)));
+      body.reflection.update(0.35 + 0.65 * lamp.lit, 0.1 + 0.16 * lamp.lit);
     }
     for (const r of [...this.mirror.children]) {
-      if ([...seen].some((pawn) => pawn.reflection === r)) continue;
-      r.traverse((o) => o.isMesh && o.visible && o.material.dispose());
+      if ([...seen].some((body) => body.reflection === r)) continue;
+      r.dispose();
       this.mirror.remove(r);
     }
   }
@@ -415,7 +400,7 @@ export class RoomBaked extends Room3D {
 
   destroy() {
     this.scene.onBeforeRender = () => {};
-    this.mirror.traverse((o) => o.isMesh && o.visible && o.material.dispose());
+    for (const r of this.mirror.children) r.dispose();
     this.envMap?.dispose();
     for (const t of [this.plate?.base, this.plate?.env, this.plate?.juke, ...(this.plate?.lamps ?? [])]) t?.dispose();
     super.destroy();

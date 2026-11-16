@@ -12,6 +12,7 @@ import { fit, label, s, set, shade } from "./dom.js";
 import { Expressions } from "./emotes/play.js";
 import { EmoteFigure, Sticker, bodyTransform } from "./emotes/svg.js";
 import { IMPACT_MS } from "./shared/bump.js";
+import { tagLevels } from "./tag-levels.js";
 import { standings } from "./shared/tonight.js";
 import { BADGES, COUNT_MS, playersLabel } from "./shared/vote.js";
 import { ROOM, boxCentre, boxWidth, jumpHeight, lightHalf, posAt } from "./shared/world.js";
@@ -525,7 +526,7 @@ export class Scene {
   }
 
   /** Draws a piece's emote for this frame, or puts its last one away. */
-  express(p, now) {
+  express(p, now, bounds = null) {
     const e = this.expressions.pose(p.seat, now, (seat) => this.pieces.get(seat)?.rx, !!this.calmQuery?.matches);
     if (!e) {
       if (p.emoting) {
@@ -551,7 +552,7 @@ export class Scene {
     // The word over the head, clear of the name tag and of whatever the emote holds up; as easy to read as the tag, and larger on a screen read from across the room.
     const tagTop = ROOM.floorY - 156 - p.up - p.level * (this.tagSize + 20) - (this.tagSize + 14);
     const y = Math.min(tagTop - 4, ROOM.floorY - p.rise + e.top);
-    p.sticker.show(e.word, p.rx + e.pose.body.dx, y, (this.tagSize / 21) * (this.opts.compact ? 1 : 1.25), e.pop);
+    p.sticker.show(e.word, p.rx + e.pose.body.dx, y, (this.tagSize / 21) * (this.opts.compact ? 1 : 1.25), e.pop, bounds);
   }
 
   /** Someone moved: where they are and which way they walk, as of now. */
@@ -661,15 +662,12 @@ export class Scene {
     if (mine) this.bumps.cooldown(mine.rx, own.cooling(now), now);
     this.bumps.frame(now);
     // Name tags that would sit on top of each other step up instead.
-    ordered.sort((a, b) => a.rx - b.rx);
-    let prev = null;
+    tagLevels(ordered, (p) => p.tagW, (p) => p.up, () => this.tagSize + 20);
+    const bounds = view ? { left: view.x, right: view.x + view.width } : null;
     for (const p of ordered) {
-      const want = prev && p.rx - prev.rx < (p.tagW + prev.tagW) / 2 + 8 ? (prev.want + 1) % 4 : 0;
-      p.want = want;
-      p.level += (want - p.level) * Math.min(1, dt * 12);
+      p.level += (p.want - p.level) * Math.min(1, dt * 12);
       set(p.tag, { transform: `translate(${p.rx.toFixed(1)}, ${(ROOM.floorY - 156 - p.up - p.level * (this.tagSize + 20)).toFixed(1)})` });
-      this.express(p, now);
-      prev = p;
+      this.express(p, now, bounds);
     }
     this.paint(now);
     this.drawCount(now, view);

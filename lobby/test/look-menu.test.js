@@ -30,8 +30,8 @@ function rig(firstPhase = "lobby") {
   const view = () => ({ phase, members: core.members.map((m) => (m ? { seat: m.seat, character: m.character, colour: m.colour } : null)) });
   const net = { up: 50, down: 50 };
   const log = { sent: [], refusedByRoom: [], shown: [] };
-  const corner = { insertBefore() {}, querySelector() {}, parentElement: {} };
-  const menu = new LookMenu(corner, {
+  const pad = { appendChild() {}, append() {} };
+  const menu = new LookMenu(pad, {}, {
     seat,
     send: (look) => {
       log.sent.push({ at: performance.now(), look });

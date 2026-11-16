@@ -463,6 +463,9 @@ export function characterPortrait(character, colour, size = 72) {
  * The word over a piece's head ("this is good", "RED CARD"): a speech bubble that pops in. Its
  * size is given in screen terms by the host, so it can be read on a phone whatever the zoom.
  */
+/** How far a word's bubble keeps from the edge of the view, in its own units. */
+const STICKER_MARGIN = 6;
+
 export class Sticker {
   constructor(parent) {
     this.g = el("g", { class: "emote-sticker", display: "none" }, parent);
@@ -471,14 +474,32 @@ export class Sticker {
     this.word = "";
   }
 
-  /** Shows `word` with its tail's tip at (x, y), at `scale`, popped in by `pop` (0 to 1); word null hides it. */
-  show(word, x, y, scale, pop) {
+  /**
+   * Shows `word` with its tail's tip at (x, y), at `scale`, popped in by `pop` (0 to 1); word null
+   * hides it. `bounds` ({left, right}, in the same units as x) is what is in view: a bubble near
+   * an edge slides along inside it, its tail still pointing at the piece.
+   */
+  show(word, x, y, scale, pop, bounds = null) {
     if (word === null) return set(this.g, { display: "none" });
     if (word !== this.word) {
       this.word = word;
       this.t.textContent = word;
-      const w = Math.max(60, [...word].length * 12.5 + 28);
-      set(this.back, { d: `M${-w / 2},-22 h${w} a10,10 0 0 1 10,10 v24 a10,10 0 0 1 -10,10 h${-w / 2 + 10} l-10,12 l-4,-12 h${-w / 2 + 4} a10,10 0 0 1 -10,-10 v-24 a10,10 0 0 1 10,-10 Z` });
+      this.w = Math.max(60, [...word].length * 12.5 + 28);
+      this.dx = null;
+    }
+    const w = this.w;
+    // How far the bubble slides from over its tail (its own units): never so far that the tail leaves it.
+    let dx = 0;
+    if (bounds) {
+      const half = w / 2 + 10 + STICKER_MARGIN;
+      const slack = w / 2 - 14;
+      dx = Math.round(Math.max(-slack, Math.min(slack, Math.max(0, (bounds.left - x) / scale + half) + Math.min(0, (bounds.right - x) / scale - half))));
+    }
+    if (dx !== this.dx) {
+      this.dx = dx;
+      const [l, r] = [dx - w / 2, dx + w / 2];
+      set(this.back, { d: `M${l},-22 H${r} a10,10 0 0 1 10,10 v24 a10,10 0 0 1 -10,10 H10 L0,34 L-4,22 H${l} a10,10 0 0 1 -10,-10 v-24 a10,10 0 0 1 10,-10 Z` });
+      set(this.t, { x: dx });
     }
     // The bubble's tail ends 34 units below its middle.
     set(this.g, { display: null, transform: `translate(${f1(x)},${f1(y)}) scale(${(scale * Math.max(0.01, pop)).toFixed(3)}) translate(0,-34)` });

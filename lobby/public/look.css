@@ -1,32 +1,50 @@
-/* "Your piece" (look-menu.js): the button in the room's corner that shows the player's own piece,
-   and the sheet to choose a character and a colour. The corner and the sheet's frame are
-   rooms.css and lobby.css. */
+/* "Your piece" (look-menu.js): the chip in the bar that shows the player's own piece, and the
+   sheet to choose a character and a colour. The bar and the sheet's frame are lobby.css and
+   rooms.css. The chip sits after the walking buttons, so the corner at the top keeps the width it
+   has always had and covers no more of the posters. */
 
+.look-btn {
+  flex: none;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: #1d130e;
+  border: 2px solid #5a4030;
+  overflow: hidden;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.look-btn:focus-visible {
+  outline: 3px solid #fff;
+  outline-offset: 2px;
+}
 .look-btn .look-face {
   display: grid;
   place-items: center;
   width: 30px;
   height: 36px;
+  margin-top: 2px;
 }
 .look-btn .look-face svg {
   display: block;
 }
-/* Folded to its picture, the button is as wide as the others. */
-.corner.folded .look-btn {
-  width: 44px;
-}
-/* An upright phone is too narrow for four buttons with their words: this one is its picture from the start. */
-@media (max-width: 560px) {
-  .look-btn .door-word {
-    display: none;
+/* An upright phone has no room for it in the row of buttons: it sits at the left end of the line
+   of words above them, which is centred and short. */
+@media (orientation: portrait) and (max-width: 560px) {
+  .hud-player .bar-player .look-btn {
+    position: absolute;
+    top: 10px;
+    left: max(2vw, env(safe-area-inset-left));
   }
-  .look-btn {
-    gap: 0;
-    padding: 0;
-    width: 44px;
+  /* The words keep clear of it on both sides, so they stay centred. */
+  .hud-player .bar-player:has(.look-btn) .status {
+    padding: 0 52px;
   }
 }
-/* During a game the piece cannot be changed, so the button goes, as Rooms does. */
+/* During a game the piece cannot be changed, so the chip goes, as Rooms does. */
 #app.staged .look-btn {
   display: none;
 }

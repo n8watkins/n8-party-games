@@ -41,6 +41,8 @@ export const GHOST = {
   yaw: 0.32,
   /** How high the hem floats over the floor at rest. */
   hover: 15,
+  /** How much larger its hands are than a pawn's: they float free of the body, and must read at phone size. */
+  hand: 1.25,
 };
 
 // ---------------------------------------------------------------- timing helpers (as in rig.js)
@@ -80,7 +82,7 @@ function armTo(side, wrist) {
 }
 
 function hand(side, x, y, rot, shape, s = 1, style = "mitten", sx = 1) {
-  return { side, x, y, rot, s, sx, style, arm: armTo(side, { x, y }), shape: typeof shape === "string" ? HAND[shape] : shape };
+  return { side, x, y, rot, s: s * GHOST.hand, sx, style, arm: armTo(side, { x, y }), shape: typeof shape === "string" ? HAND[shape] : shape };
 }
 
 /** A point given in a hand's own frame (fingers up, before mirroring), in the space the hand is in. */
@@ -207,7 +209,7 @@ export const GHOST_RIG = [
       p.face.eyes = on > 0.5 ? "happy" : "open";
       p.face.mouth = on > 0.5 ? "laugh" : null;
       // The pointing hand stays close to the sheet and drags a trail of it, so it reads as the ghost's own and not as a glove in the air.
-      p.hands.push({ ...hand(1, 56, -70, 92, "point", on), cuff: 1 });
+      p.hands.push({ ...hand(1, 45, -66, 92, "point", on), cuff: 1 });
       p.hands.push(hand(-1, -12, -36 + (shake ? wave(t, 240, 3) : 0), 24, "flat", on));
       if (on > 0.5 && (calm || Math.floor(t / 260) % 2)) p.fx.push({ kind: "text", text: "HA", x: -54, y: -104, size: 22 });
       if (on > 0.5 && (calm || Math.floor(t / 260) % 2 === 0)) p.fx.push({ kind: "text", text: "HA", x: 58, y: -112, size: 26 });
@@ -257,7 +259,7 @@ export const GHOST_RIG = [
       p.face.eye = 1.2;
       p.face.mouth = on > 0.5 ? "flat" : null;
       // The stopwatch is held out on the target's side, where they can see it; the other hand comes across to tap it.
-      const watch = hand(1, 58, -50, 8, "grip", on);
+      const watch = hand(1, 49, -50, 8, "grip", on);
       p.hands.push(watch);
       const face = held(watch, 0, -36);
       p.props.push({ kind: "stopwatch", x: face.x, y: face.y, rot: 0, s: on * 0.9, hand: calm ? 60 : (t / 3) % 360 });
@@ -278,7 +280,7 @@ export const GHOST_RIG = [
       const p = rest();
       const on = appear(t, this.dur);
       const pop = k(t, [[0, 0], [200, 0], [380, 1.35, "o"], [560, 1.18], [this.dur - 250, 1.18], [this.dur, 0]]);
-      p.hands.push(hand(1, 60, -80, 90, "thumb", on * pop, "hands"));
+      p.hands.push(hand(1, 47, -72, 90, "thumb", on * pop, "hands"));
       // A ghost has no neck to nod with: it dips its whole body.
       p.body.lift = on > 0.5 && !calm ? -Math.max(0, wave(t, 520, 5)) : 0;
       p.face.eye = 1.12;
@@ -335,8 +337,8 @@ export const GHOST_RIG = [
       const p = rest();
       const on = appear(t, this.dur);
       const shake = calm ? 0 : wave(t, 230, 6);
-      p.hands.push(hand(1, 62, -70 + shake, -90, "thumb", on * 1.15, "hands"));
-      p.hands.push(hand(-1, -62, -70 - shake, 90, "thumb", on * 1.15, "hands"));
+      p.hands.push(hand(1, 48, -70 + shake, -90, "thumb", on * 1.15, "hands"));
+      p.hands.push(hand(-1, -48, -70 - shake, 90, "thumb", on * 1.15, "hands"));
       p.face.mouth = on > 0.5 ? "frown" : null;
       p.face.brows = on > 0.5 ? "angry" : null;
       p.face.eye = 0.7;

@@ -25,18 +25,36 @@ import { HOP_HEIGHT, HOP_MS, PAWN_HEIGHT, SIZE, bumpPose } from "./pieces.js";
 import { PX, SPACE, walkX } from "./space.js";
 
 const TOP = 0.96;
-const HEM = 0.2;
+/** Where the sheet's edge is, between two scallops, and how far each scallop hangs below it (model units). */
+const HEM = 0.15;
+const SCALLOP = 0.095;
+/** How many scallops along the hem. */
+const SCALLOPS = 5;
+/** The hem's colour: full below BAND_LOW, none above BAND_HIGH (model units, before the scallops). */
+const BAND_LOW = 0.27;
+const BAND_HIGH = 0.43;
+/** How much higher than the flat drawing's the 3D ghost hangs (world units): the air under its hem must show from the whole-room view. */
+const LIFT = 9;
 /** The ghost's height in world units, and how far that is below a pawn's. */
 const GHOST_HEIGHT = (TOP * SIZE) / PX;
 const BELOW_PAWN = PAWN_HEIGHT - GHOST_HEIGHT;
 /** Model units per world unit. */
 const MU = PX / SIZE;
-/** How many sides the turned sheet has, and how many steps its round top: enough at the size a piece is drawn, and no more (its points are moved every frame). */
-const SEG = 20;
+/** How many sides the turned sheet has (six to a scallop), and how many steps its round top: enough at the size a piece is drawn, and no more (its points are moved every frame). */
+const SEG = 30;
 const DOME = 8;
 const RAD = Math.PI / 180;
 /** How much the sheet glows by itself in the dark (the emissive strength of its materials). */
 const GLOW = 0.16;
+/** How bright a dropped player's sheet is against a connected one's. */
+const DROPPED = 0.62;
+/**
+ * Below these a ghost is still, and the room need not draw every frame for it (poseGhost's
+ * `moving`): how far its hem trails behind (model units), and how fast its trail, squash, lean and
+ * swell springs move. Its idle life (hover, bob, breath, ripple) is laid on outside the springs,
+ * so an idle ghost sits at none of these, far from any of them.
+ */
+export const STILL = { trail: 0.004, trailV: 3, squashV: 0.03, leanV: 0.01, puffV: 0.02 };
 
 const INK = 0x0a0d18;
 const WHITE = new THREE.Color(0xffffff);
@@ -57,21 +75,47 @@ function spring(value, velocity, target, stiffness, damping, dt) {
   return [value + velocity * dt, velocity];
 }
 
-/** A toy material in the room's style, with a rim of light for a ghost that has faded. */
+/**
+ * How the sheet keeps its own colours under any room's light. The room's light is warm (lamps,
+ * candles, a neon sign) and a white sheet lit only by it turns beige and grey: the sheet takes
+ * from the light only how bright it is, never its hue, so white stays white and the hem stays the
+ * player's colour; part of it is the sheet's own glow (UNLIT), as a ghost's may be; and a cool
+ * rim of light outlines it against a warm wall. The numbers keep the brightest of it under white,
+ * so it is never blown out.
+ */
+export const SHEET_LIGHT = { unlit: 0.62, min: 0.5, max: 1.2, rim: 0.3, rimColour: [0.7, 0.84, 1.0] };
+
+/** A toy material in the room's style, lit as the sheet is (SHEET_LIGHT), with a warm rim of light for a ghost that has faded. */
 function toyMat(opts) {
   const mat = new THREE.MeshPhysicalMaterial({ roughness: 0.42, clearcoat: 0.45, clearcoatRoughness: 0.25, emissiveIntensity: 0.3, ...opts });
   mat.userData.rim = { value: 0 };
+  const L = SHEET_LIGHT;
+  const f = (n) => n.toFixed(3);
   mat.onBeforeCompile = (shader) => {
     shader.uniforms.uRim = mat.userData.rim;
     shader.fragmentShader =
       "uniform float uRim;\n" +
-      shader.fragmentShader.replace(
-        "#include <dithering_fragment>",
-        "float rimK = pow(1.0 - clamp(dot(normalize(normal), normalize(vViewPosition)), 0.0, 1.0), 3.6);\n gl_FragColor.rgb += vec3(1.0, 0.9, 0.74) * rimK * uRim;\n#include <dithering_fragment>",
-      );
+      shader.fragmentShader
+        .replace(
+          "#include <opaque_fragment>",
+          [
+            "{",
+            "  vec3 luma = vec3(0.2126, 0.7152, 0.0722);",
+            "  float shade = clamp(dot(outgoingLight, luma) / max(dot(diffuseColor.rgb, luma), 0.02), " + f(L.min) + ", " + f(L.max) + ");",
+            "  outgoingLight = diffuseColor.rgb * mix(shade, 1.0, " + f(L.unlit) + ");",
+            "  float coolK = pow(1.0 - clamp(dot(normalize(normal), normalize(vViewPosition)), 0.0, 1.0), 2.6);",
+            "  outgoingLight += vec3(" + L.rimColour.map(f).join(", ") + ") * coolK * " + f(L.rim) + ";",
+            "}",
+            "#include <opaque_fragment>",
+          ].join("\n"),
+        )
+        .replace(
+          "#include <dithering_fragment>",
+          "float rimK = pow(1.0 - clamp(dot(normalize(normal), normalize(vViewPosition)), 0.0, 1.0), 3.6);\n gl_FragColor.rgb += vec3(1.0, 0.9, 0.74) * rimK * uRim;\n#include <dithering_fragment>",
+        );
   };
   // One program for every ghost's materials of the same kind.
-  mat.customProgramCacheKey = () => "ghost-rim";
+  mat.customProgramCacheKey = () => "ghost-sheet";
   return mat;
 }
 
@@ -90,17 +134,22 @@ function merged(parts) {
 }
 
 /** Where the eyes sit on the sheet: how far round from the front, how high, how far out. */
-const EYE = { a: 0.37, y: 0.725, r: 0.258, w: 0.04, h: 0.06 };
-const MOUTH = { y: 0.585, z: 0.266 };
+const EYE = { a: 0.37, y: 0.725, r: 0.246, w: 0.04, h: 0.06 };
+const MOUTH = { y: 0.585, z: 0.258 };
 const weight = (y) => Math.pow(clamp((TOP - y) / (TOP - HEM), 0, 1.05), 1.7);
 
 /** What every ghost shares: the sheet's profile, a ball, the two eyes and their glints, the mouths, a shadow, a ring. */
 let SHAPES = null;
 function shapes() {
-  const profile = [[0, 0.215], [0.1, 0.2], [0.2, 0.2], [0.255, 0.245], [0.272, 0.32], [0.27, 0.46], [0.264, 0.6]];
+  // A sheet, not a solid: hollow underneath (the underside rises into it), its edge flared out a
+  // little past its sides, which narrow toward a round top. The rows nearest the edge hang into
+  // scallops (scallop(), in makeGhost); `hang` is how much of a scallop each row takes.
+  const profile = [[0, 0.4], [0.13, 0.36], [0.24, 0.25], [0.3, HEM], [0.293, 0.23], [0.279, 0.33], [0.266, 0.45], [0.255, 0.56], [0.248, 0.64]];
+  const hang = [0, 0.15, 0.7, 1, 0.55, 0.12, 0, 0, 0];
   for (let i = 1; i <= DOME; i++) {
     const a = (i / DOME) * Math.PI * 0.5;
-    profile.push([0.264 * Math.cos(a), 0.64 + (TOP - 0.64) * Math.sin(a)]);
+    profile.push([0.248 * Math.cos(a), 0.64 + (TOP - 0.64) * Math.sin(a)]);
+    hang.push(0);
   }
   const ball = new THREE.SphereGeometry(1, 12, 8);
   const eyes = [];
@@ -120,6 +169,7 @@ function shapes() {
   }
   return {
     profile,
+    hang,
     rows: profile.length,
     ball,
     eyes: merged(eyes),
@@ -208,6 +258,12 @@ export function makeGhost(radial) {
   const geo = new THREE.LatheGeometry(SHAPES.profile.map(([x, y]) => new THREE.Vector2(x, y)), SEG);
   const pos = geo.attributes.position;
   const n = pos.count;
+  // The scallops: the rows by the edge hang down in round humps, one in the middle of the front.
+  const R = SHAPES.rows;
+  for (let i = 0; i <= SEG; i++) {
+    const hump = Math.pow(Math.abs(Math.cos((SCALLOPS / 2) * ((i / SEG) * Math.PI * 2))), 0.55);
+    for (let j = 0; j < R; j++) pos.array[(i * R + j) * 3 + 1] -= SCALLOP * SHAPES.hang[j] * hump;
+  }
   const base = Float32Array.from(pos.array);
   // The ripple runs three waves round the sheet: sin(3a + phase), kept as its two parts so no point needs a sine every frame.
   const rs = new Float32Array(n);
@@ -219,18 +275,21 @@ export function makeGhost(radial) {
     rc[i] = Math.cos(a);
     wk[i] = weight(base[i * 3 + 1]);
   }
+  // How much of the player's colour each point of the sheet takes: the hem, and a short way up into the white.
+  const band = new Float32Array(n);
+  for (let i = 0; i < n; i++) band[i] = smooth((BAND_HIGH - base[i * 3 + 1]) / (BAND_HIGH - BAND_LOW));
   geo.setAttribute("color", new THREE.BufferAttribute(new Float32Array(n * 3), 3));
   const mat = toyMat({ vertexColors: true });
   const softMat = toyMat({});
   const turn = new THREE.Group();
   const body = new THREE.Mesh(geo, mat);
-  // The five lobes of the hem and the two nub arms: seven balls, one draw.
-  const soft = new THREE.InstancedMesh(SHAPES.ball, softMat, 7);
+  // The two nub arms: two balls, one draw.
+  const soft = new THREE.InstancedMesh(SHAPES.ball, softMat, 2);
   soft.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
   soft.frustumCulled = false;
-  const skins = [body, soft].map((mesh) => {
+  const prepass = [body, soft].map((mesh) => {
     mesh.renderOrder = 6;
-    const pre = mesh.isInstancedMesh ? new THREE.InstancedMesh(mesh.geometry, depthMat, 7) : new THREE.Mesh(mesh.geometry, depthMat);
+    const pre = mesh.isInstancedMesh ? new THREE.InstancedMesh(mesh.geometry, depthMat, 2) : new THREE.Mesh(mesh.geometry, depthMat);
     if (pre.isInstancedMesh) pre.instanceMatrix = mesh.instanceMatrix;
     pre.renderOrder = 5;
     pre.visible = false;
@@ -246,28 +305,24 @@ export function makeGhost(radial) {
   curve.visible = false;
   mouthAt.add(mouth, curve);
   for (const o of [eyes, glints, mouth, curve]) o.renderOrder = 7;
-  // The sheet is first: the baked look mirrors the first mesh of a piece.
   turn.add(body, soft, eyes, glints, mouthAt);
   const tilt = new THREE.Group();
   tilt.add(turn);
   const group = new THREE.Group();
   group.add(tilt);
+  // One soft shadow, with no dark spot pinning it to the floor (a pawn's has one): it floats.
   const blob = new THREE.Mesh(SHAPES.blob, new THREE.MeshBasicMaterial({ map: radial, color: 0x000000, transparent: true, opacity: 0.6, depthWrite: false }));
   blob.rotation.x = -Math.PI / 2;
   blob.renderOrder = 2;
-  const contact = new THREE.Mesh(SHAPES.blob, blob.material);
-  contact.scale.set(0.66, 0.66, 1);
-  contact.position.z = 0.001;
-  blob.add(contact);
   const ring = new THREE.Mesh(SHAPES.ring, new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.9, depthWrite: false }));
   ring.rotation.x = -Math.PI / 2;
   ring.renderOrder = 2;
   ring.visible = false;
   return {
     // The handles every character has (see pieces.js makePawn). `colour` is the sheet's own (white): the player's colour is in `hem`.
-    group, tilt, turn, mat, blob, ring, colour: new THREE.Color(0xffffff), lit: 0, fade: 1, air: false, dizzy: false, connected: true,
+    group, tilt, turn, mat, blob, ring, skin: [body, soft], colour: new THREE.Color(0xffffff), lit: 0, fade: 1, air: false, dizzy: false, connected: true,
     // The ghost's own.
-    geo, base, rs, rc, wk, softMat, soft, skins, eyes, glints, mouthAt, mouth, curve, faceMats: null,
+    geo, base, rs, rc, wk, band, softMat, soft, prepass, eyes, glints, mouthAt, mouth, curve, faceMats: null,
     hem: new THREE.Color(), nub: new THREE.Color(), glow: new THREE.Color(),
     sq: 1, sqV: 0, lean: 0, leanV: 0, yaw: 0, prevX: null, trX: null, trV: 0, trY: 0, trYV: 0, bobT: 0, arm: 0, armV: 0, puff: 0, puffV: 0, nubK: 1, fadeK: 0, ground: 0, opacity: 1, clear: false, want: null, tick: 0, busy: true, shaped: false,
   };
@@ -279,18 +334,21 @@ export function dressGhost(g, hex, connected) {
   tmpC.set(hex).getHSL(hsl);
   // The hem: the player's colour, kept bright enough to read against the white above it and the dark floor under it.
   if (!connected) g.hem.copy(GREY);
+  // A very pale colour stays pale: darkened to "read" it would only look like dirt on the sheet.
+  else if (isPale(hex)) g.hem.setHSL(hsl.h, Math.min(hsl.s, 0.55), clamp(hsl.l - 0.1, 0.72, 0.84));
   else if (hsl.s < 0.08) g.hem.setHSL(0, 0, clamp(hsl.l, 0.35, 0.72));
   else g.hem.setHSL(hsl.h, clamp(Math.max(hsl.s, 0.25) * 0.95 + 0.1, 0, 1), clamp(mix(hsl.l, 0.6, 0.55), 0.42, 0.74));
   g.connected = connected;
   const cols = g.geo.attributes.color;
   for (let i = 0; i < cols.count; i++) {
-    tmpC.setRGB(1, 1, 1).lerp(g.hem, smooth((g.wk[i] - 0.1) / 0.75));
+    tmpC.setRGB(1, 1, 1).lerp(g.hem, g.band[i]);
     cols.setXYZ(i, tmpC.r, tmpC.g, tmpC.b);
   }
   cols.needsUpdate = true;
-  g.nub.setRGB(1, 1, 1).lerp(g.hem, 0.22);
-  g.glow.setRGB(1, 1, 1).lerp(g.hem, 0.5);
-  for (let i = 0; i < 7; i++) g.soft.setColorAt(i, i < 5 ? g.hem : g.nub);
+  // The nub arms are the sheet's own: white, as in the flat drawing.
+  g.nub.setRGB(1, 1, 1);
+  g.glow.setRGB(1, 1, 1);
+  for (let i = 0; i < 2; i++) g.soft.setColorAt(i, g.nub);
   g.soft.instanceColor.needsUpdate = true;
 }
 
@@ -346,8 +404,10 @@ export function poseGhost(g, piece, now, dt, how) {
   g.ground += ((bump.dizzy ? 1 : 0) - g.ground) * Math.min(1, step * 14);
   const floaty = 1 - g.ground;
 
-  const breath = 0.02 * Math.sin(now / 700 + piece.seat * 1.7);
-  [g.sq, g.sqV] = spring(g.sq, g.sqV, (air ? 1.07 : 1) + (calm ? 0 : breath), 150, 10, step);
+  // The squash springs only for what happens to it (a jump, a landing); its breath is laid on top,
+  // outside the spring, so the slow life of an idle ghost never reads as movement (STILL).
+  const breath = calm ? 0 : 0.02 * Math.sin(now / 700 + piece.seat * 1.7);
+  [g.sq, g.sqV] = spring(g.sq, g.sqV, air ? 1.07 : 1, 150, 10, step);
   g.sq = clamp(g.sq, 0.68, 1.25);
   [g.lean, g.leanV] = spring(g.lean, g.leanV, -speed * 0.1, 95, 12, step);
   [g.puff, g.puffV] = spring(g.puff, g.puffV, want ? want.puff : 0, 240, 13, step);
@@ -358,11 +418,11 @@ export function poseGhost(g, piece, now, dt, how) {
   // It never stands: it hangs in the air and bobs, slower and wider when it has faded.
   if (!calm) g.bobT += step * (2.7 - fl);
   const bob = calm ? 0 : Math.sin(g.bobT) * (5 + 7 * fl) + Math.sin(g.bobT * 0.47 + 1) * 2.5;
-  const hover = (GHOST.hover + 16 * fl + bob) * floaty;
+  const hover = (GHOST.hover + LIFT + 16 * fl + bob) * floaty;
   const sway = calm ? 0 : Math.sin(g.bobT * 0.62) * 0.035 * (1 + 1.4 * fl) * floaty;
   const startle = (now - (piece.fx?.hopAt ?? -Infinity)) / HOP_MS;
   const yelp = startle >= 0 && startle < 1 ? 4 * HOP_HEIGHT * startle * (1 - startle) : 0;
-  const tall = Math.max(0.6, g.sq);
+  const tall = Math.max(0.6, g.sq + breath);
   const wide = 1 / Math.sqrt(tall);
   const rise = up + bump.lift + yelp + hover;
   const X = piece.rx + bump.dx;
@@ -413,26 +473,17 @@ export function poseGhost(g, piece, now, dt, how) {
     g.geo.attributes.position.needsUpdate = true;
     sheetNormals(g.geo);
   }
-  // The lobes along the hem, and its own nub arms: a little lift while it idles, tucked away while an emote gives it hands.
-  for (let i = 0; i < 5; i++) {
-    const a = Math.PI / 2 + (i * Math.PI * 2) / 5;
-    const f = 1 + flare * 1.15 + ripple * Math.sin(3 * a + phase);
-    at.position.set(Math.cos(a) * 0.178 * f + dLx * 1.12, 0.205 + dY * 1.25 + (calm ? 0 : Math.sin(now * 0.0062 + i * 1.9) * 0.014), Math.sin(a) * 0.178 * f + dLz * 1.12);
-    at.rotation.set(0, 0, 0);
-    at.scale.setScalar(0.092);
-    at.updateMatrix();
-    g.soft.setMatrixAt(i, at.matrix);
-  }
+  // Its own nub arms: a little lift while it idles, tucked away while an emote gives it hands.
   g.nubK += ((want ? want.nubs : 1) - g.nubK) * Math.min(1, step * 18);
   [g.arm, g.armV] = spring(g.arm, g.armV, 0.08 + (calm ? 0 : 0.1 * Math.sin(g.bobT * 0.8)), 190, 12, step);
   const nk = weight(0.5);
   for (const side of [-1, 1]) {
     const a = g.arm * 0.95;
-    at.position.set(side * (0.235 + 0.085 * Math.cos(a)) + dLx * nk, 0.5 + 0.085 * Math.sin(a) + dY * nk, 0.03 + dLz * nk);
+    at.position.set(side * (0.24 + 0.085 * Math.cos(a)) + dLx * nk, 0.5 + 0.085 * Math.sin(a) + dY * nk, 0.03 + dLz * nk);
     at.rotation.set(0, 0, side * a);
-    at.scale.set(0.105, 0.068, 0.068).multiplyScalar(Math.max(0.001, g.nubK));
+    at.scale.set(0.11, 0.066, 0.066).multiplyScalar(Math.max(0.001, g.nubK));
     at.updateMatrix();
-    g.soft.setMatrixAt(side < 0 ? 5 : 6, at.matrix);
+    g.soft.setMatrixAt(side < 0 ? 0 : 1, at.matrix);
   }
   g.soft.instanceMatrix.needsUpdate = true;
 
@@ -456,13 +507,13 @@ export function poseGhost(g, piece, now, dt, how) {
   g.lit += (how.lit - g.lit) * Math.min(1, step * 8);
   const lit = g.lit * (1 - 0.35 * fl);
   const char = piece.fx?.char ?? 0;
-  // A white sheet dimmed as far as a pawn's paint is turns to mud: it keeps more of its white in the dark, and glows a little, as a ghost may.
-  const k = mix(0.74 + 0.26 * lit, 1, fl) * (g.connected ? 1 : 0.72);
+  // A white sheet dimmed as far as a pawn's paint is turns to mud: it keeps most of its white in the dark, and glows a little, as a ghost may.
+  const k = mix(0.84 + 0.16 * lit, 1, fl) * (g.connected ? 1 : DROPPED);
   g.opacity = clamp(1 - 0.5 * fl, 0.2, 1) * (g.fade < 1 ? g.fade * 0.8 : 1);
   const clear = g.opacity < 0.985;
   for (const m of [g.mat, g.softMat]) {
     m.color.copy(WHITE).multiplyScalar(k).lerp(SOOT, char * 0.82);
-    m.emissive.copy(m === g.mat ? g.glow : g.hem).lerp(SOOT, char);
+    m.emissive.copy(g.glow).lerp(SOOT, char);
     m.emissiveIntensity = (g.connected ? GLOW : 0.04) + 0.14 * lit + 1.1 * fl;
     if (m.transparent !== clear) {
       m.transparent = clear;
@@ -471,14 +522,14 @@ export function poseGhost(g, piece, now, dt, how) {
     m.opacity = g.opacity;
     m.userData.rim.value = 0.12 + 0.9 * fl;
   }
-  if (g.clear !== clear) for (const pre of g.skins) pre.visible = g.clear = clear;
+  if (g.clear !== clear) for (const pre of g.prepass) pre.visible = g.clear = clear;
   // Up again and not to be knocked for a while: it flickers (it only glows steadily for people who asked for less motion).
   if (bump.safe) g.mat.emissiveIntensity += how.calm ? 0.25 : 0.55 * Math.abs(Math.sin(now / 70));
 
   // Its hover, bob and ripple are slow, and are not "moving": like a room's own ambient life they are drawn at the still room's rate
   // (room3d.js draws every frame only while something moves), so a room of idle ghosts costs what a room of idle pawns does.
   const moving =
-    walking || air || bump.state !== "idle" || yelp > 0 || Math.abs(dX) > 0.004 || Math.abs(g.trV) > 3 || Math.abs(g.sqV) > 0.03 || Math.abs(g.leanV) > 0.01 || Math.abs(g.puffV) > 0.02 ||
+    walking || air || bump.state !== "idle" || yelp > 0 || Math.abs(dX) > STILL.trail || Math.abs(g.trV) > STILL.trailV || Math.abs(g.sqV) > STILL.squashV || Math.abs(g.leanV) > STILL.leanV || Math.abs(g.puffV) > STILL.puffV ||
     Math.abs(facing - g.yaw) > 0.01 || Math.abs(how.lit - g.lit) > 0.01 || (fl > 0.01 && fl < 0.99);
   g.busy = moving;
   return { up: rise + (tall - 1) * GHOST_HEIGHT - BELOW_PAWN, moving, shock: bump.shock, burst: bump.burst, dust: bump.dust, state: bump.state };
@@ -540,7 +591,7 @@ export function bakeGhost(g) {
   }
   const flicker = Math.max(0, g.mat.emissiveIntensity - (GLOW + 0.14 * g.lit) - 0.01);
   for (const m of [g.mat, g.softMat]) {
-    m.color.copy(WHITE).multiplyScalar(g.connected ? 1 : 0.8);
+    m.color.copy(WHITE).multiplyScalar(g.connected ? 1 : DROPPED);
     m.emissiveIntensity = 0.03;
   }
   g.mat.emissiveIntensity += flicker * 0.6;

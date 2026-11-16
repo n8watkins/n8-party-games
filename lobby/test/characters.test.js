@@ -2,7 +2,7 @@
 // drawings and emotes, and the 3D look's models name the same characters; every definition has
 // every part a draw site asks for; and the ghost does the room's 14 emotes the way the owner
 // chose from the preview (hands by default, wisps for three, one take for Fuming).
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { EMOTES } from "../../party-kit/client/emotes.js";
 import { GHOST, GHOST_RIG, WISP, ghostPoseTop, ghostRigById, joinOf, mirrorGhostPose, wispAt, wispHalf } from "../public/characters/ghost-rig.js";
@@ -54,10 +54,51 @@ describe("the one list of characters", () => {
   it("names no character at a draw site: the rooms and the bump ask the definition", () => {
     for (const file of ["../public/scene.js", "../public/bump-draw.js", "../public/look3d/room3d.js", "../public/baked/room-baked.js", "../public/emotes/play.js"]) {
       const code = read(file).replace(/\/\*[\s\S]*?\*\/|\/\/.*$/gm, "");
-      expect(code, file).not.toMatch(/["'`](pawn|ghost)["'`]|makePawn|posePawn|dressPawn|makeGhost|poseGhost/);
+      expect(code, file).not.toMatch(/["'`](pawn|ghost)["'`]|makePawn|posePawn|dressPawn|bakePawn|makeGhost|poseGhost|dressGhost|bakeGhost/);
     }
   });
+
+  it("reads no body's paint outside the character definitions: a ghost's `mat` and `colour` are its white sheet", () => {
+    const sites = drawSites();
+    // Every file of the page is looked at, not a list: a new room is checked the day it is written.
+    expect(sites.length).toBeGreaterThan(20);
+    expect(sites).toContain("../public/look3d/room3d.js");
+    expect(sites).toContain("../public/baked/room-baked.js");
+    for (const file of sites) expect(paintReads(read(file)), file).toEqual([]);
+  });
+
+  it("would catch a room that reaches into a body's paint, by its handle or through a name for it", () => {
+    expect(paintReads("x(p.body.mat.color);")).toHaveLength(1);
+    expect(paintReads("const pawn = p.body;\npawn.mat.clearcoat = 1;\nm.color.copy(pawn.colour);")).toHaveLength(2);
+    expect(paintReads("for (const p of this.pieces.values()) { const { mat } = p.body; }")).toHaveLength(1);
+    expect(paintReads("p.pawn.dizzy")).toHaveLength(1);
+    // A member's colour, and a body's handles every room may read, are fine.
+    expect(paintReads("dot.style.background = m.colour; const b = p.body; b.blob.position.x = 1; p.kind.bake(p.body);")).toEqual([]);
+  });
 });
+
+/** Every page file outside the character definitions (characters/, look3d/characters.js, look3d/pieces.js, look3d/ghost.js), as paths from this test. */
+function drawSites() {
+  const root = new URL("../public/", import.meta.url);
+  const own = /^(characters\/|look3d\/(characters|pieces|ghost)\.js$)/;
+  return readdirSync(root, { recursive: true })
+    .map((f) => String(f).replaceAll("\\", "/"))
+    .filter((f) => f.endsWith(".js") && !own.test(f))
+    .map((f) => "../public/" + f);
+}
+
+/**
+ * Where code reads or writes a body's `mat` or `colour` (the character's own paint) or still calls
+ * the body `p.pawn`: through `<x>.body`, or through a name given to a body (`const pawn = p.body`).
+ */
+function paintReads(source) {
+  const code = source.replace(/\/\*[\s\S]*?\*\/|\/\/.*$/gm, "");
+  const names = [...code.matchAll(/(?:const|let|var)\s+(\w+)\s*=\s*[\w.?]*\.body\b(?!\.)/g)].map((m) => m[1]);
+  const found = [...code.matchAll(/\.body\??\.(mat|colour)\b|\.pawn\b/g)].map((m) => m[0]);
+  found.push(...[...code.matchAll(/(?:const|let|var)\s*\{[^}]*\b(mat|colour)\b[^}]*\}\s*=\s*[\w.?]*\.body\b/g)].map((m) => m[0]));
+  for (const name of names) found.push(...[...code.matchAll(new RegExp(`\\b${name}\\??\\.(mat|colour)\\b`, "g"))].map((m) => m[0]));
+  return found;
+}
 
 describe("the ghost's emotes", () => {
   it("are exactly the kit's emotes, in the same order, as long as the pawn's (each recording fits both)", () => {

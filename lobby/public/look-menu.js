@@ -1,4 +1,4 @@
-// "Your piece": the button in the room's corner that shows a player's own piece, and the sheet
+// "Your piece": the chip in the bar that shows a player's own piece, and the sheet
 // it opens to choose a character and a colour (lobby/shared/characters.js).
 //
 // The choice is the player's, kept with the room on the server and shown to everyone in the room
@@ -28,20 +28,21 @@ function saved() {
 
 export class LookMenu {
   /**
-   * @param {HTMLElement} corner  the room's corner of buttons (room-menu.js); this one goes before Rooms
+   * @param {HTMLElement} pad  where the button goes: the walking side of the bar, after its other
+   *   buttons (the corner at the top is kept for the room's own buttons, clear of the posters)
+   * @param {HTMLElement} layer  what the sheet is laid over (the Hud's element)
    * @param {{seat: number, send: (look: {c?: string, v?: string}) => void, onChange?: (now: {character: string, colour: string}) => void}} opts
    *   send: asks the room; onChange: the room has the player's piece as something new
    */
-  constructor(corner, opts) {
+  constructor(pad, layer, opts) {
     this.opts = opts;
-    this.corner = corner;
-    const btn = (this.button = h("button", "round corner-btn look-btn", ""));
+    this.layer = layer;
+    // A chip with the player's own piece on it, and no word: its picture says what it is.
+    const btn = (this.button = h("button", "look-btn", "", pad));
     btn.type = "button";
     btn.setAttribute("aria-label", "Your piece: choose a character and a colour");
     btn.setAttribute("aria-haspopup", "dialog");
     this.face = h("span", "look-face", "", btn);
-    h("span", "door-word", "Your piece", btn);
-    corner.insertBefore(btn, corner.querySelector(".rooms-btn"));
     btn.addEventListener("click", () => this.open());
     this.sheet = null;
     this.room = null;
@@ -98,7 +99,7 @@ export class LookMenu {
 
   open() {
     if (this.sheet || !this.room) return;
-    const back = (this.sheet = h("div", "sheet-back", "", this.corner.parentElement));
+    const back = (this.sheet = h("div", "sheet-back", "", this.layer));
     const box = h("div", "sheet picker look-sheet", "", back);
     box.setAttribute("role", "dialog");
     box.setAttribute("aria-label", "Your piece");

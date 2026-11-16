@@ -94,7 +94,8 @@ export function makePawn(radial) {
   const glints = new THREE.Mesh(SHAPES.glints, glintMat);
   const crosses = new THREE.Mesh(SHAPES.crosses, eyeMat);
   crosses.visible = false;
-  turn.add(new THREE.Mesh(SHAPES.body, mat), eyes, glints, crosses);
+  const skin = new THREE.Mesh(SHAPES.body, mat);
+  turn.add(skin, eyes, glints, crosses);
   const tilt = new THREE.Group();
   tilt.add(turn);
   const group = new THREE.Group();
@@ -111,7 +112,7 @@ export function makePawn(radial) {
   ring.rotation.x = -Math.PI / 2;
   ring.renderOrder = 2;
   ring.visible = false;
-  return { group, tilt, turn, mat, blob, ring, eyes, glints, crosses, colour: new THREE.Color(), sq: 1, sqV: 0, lean: 0, leanV: 0, yaw: 0, stride: 0, lit: 0, prevX: null, air: false, fade: 1 };
+  return { group, tilt, turn, mat, blob, ring, skin: [skin], eyes, glints, crosses, colour: new THREE.Color(), sq: 1, sqV: 0, lean: 0, leanV: 0, yaw: 0, stride: 0, lit: 0, prevX: null, air: false, fade: 1 };
 }
 
 /** Colours a pawn for its seat, or grey for a player who has dropped and is expected back. */
