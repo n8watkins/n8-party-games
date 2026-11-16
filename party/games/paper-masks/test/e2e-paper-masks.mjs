@@ -343,7 +343,8 @@ async function guessCard({ pick = "first" } = {}) {
   const author = inMatch().find((p) => p.view.step.card.id === card.id && p.view.step.yours);
   if (author) {
     await wait(1200);
-    pass(!author.sent.some((x) => x.d?.t === "decoy" && x.d.card === card.id), `${author.name}'s page sent its decoy tap without a click`);
+    // (unless the test already clicked it for this card: Di taps before her reload in match 2)
+    if (!author.clicked.has(card.id)) pass(!author.sent.some((x) => x.d?.t === "decoy" && x.d.card === card.id), `${author.name}'s page sent its decoy tap without a click`);
     // Before anyone taps the count is 0, except on the last card, where every sheet with one name
     // left (and the author's decoy) is filled in at once (the rules' README, "The decoy tap").
     const last = ref.view.step.index + 1 === ref.view.step.of && ref.view.step.eachNameOnce;

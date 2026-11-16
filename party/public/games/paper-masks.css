@@ -1418,8 +1418,15 @@
   .pm-unmask .big {
     width: calc(var(--u) * 36);
   }
+  .pm-unmask.win {
+    --uh: calc(var(--u) * 22);
+    --fw: calc(var(--u) * 48);
+  }
   .pm-unmask.win .big {
-    width: calc(var(--u) * 38);
+    width: calc(var(--u) * 30);
+  }
+  .pm[data-phase="over"] .pm-title {
+    font-size: max(22px, calc(var(--u) * 6.6));
   }
   .pm-toast {
     left: 25%;
