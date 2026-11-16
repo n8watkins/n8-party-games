@@ -20,7 +20,7 @@ import { farewellKind, goFront } from "/lobby/farewell.js";
 import { watchMode } from "/lobby/hop.js";
 import { MODES, MODE_NAME, modeLocked, modeTitle } from "/lobby/shared/mode.js";
 import { stageStale } from "/lobby/shared/stage.js";
-import { PLAY_BEAT_MS, showsTests, tablePlayers } from "/lobby/shared/table.js";
+import { PLAY_BEAT_MS, partyFull, showsTests, tableLine, tablePlayers } from "/lobby/shared/table.js";
 import { mountStage, viewerAtTable } from "/party/stage.js";
 
 const app = document.getElementById("app");
@@ -68,8 +68,8 @@ function build() {
   const screen = link.you?.role === "screen";
   if (wide()) document.documentElement.classList.add("as-screen");
   const top = h("header", "top", "", app);
-  // The room's own name is the page's heading, and under it one plain line: who chooses the
-  // room, or for a few seconds what just happened (notes take its place, so they never cover
+  // The room's own name is the page's heading, and under it one plain line: who hosts
+  // (tableLine), or for a few seconds what just happened (notes take its place, so they never cover
   // anything on the page).
   const title = h("div", "title", "", top);
   const brand = h("h1", "brand", "", title);
@@ -110,7 +110,7 @@ function build() {
   const grid = h("div", "grid", "", app);
 
   // The switch between the two rooms, for the one who holds the controls only (update): anyone
-  // else reads who chooses in the line under the heading. On the big screen it sits in the bar
+  // else reads who hosts in the line under the heading. On the big screen it sits in the bar
   // at the top, so the code and everyone's names fit on the screen without scrolling.
   const rooms = h("section", "panel rooms", "", wide() ? top : grid);
   if (wide()) top.insertBefore(rooms, status);
@@ -130,10 +130,11 @@ function build() {
   why.setAttribute("role", "alert");
   why.hidden = true;
 
-  // The code, large, and the QR code.
+  // The code, large, and the QR code; when every place is taken, neither (partyFull), only that
+  // the party is full.
   const code = h("section", "panel code", "", grid);
   code.setAttribute("aria-label", "The party's code");
-  h("p", "kicker", "Join this party", code);
+  const kicker = h("p", "kicker", "Join this party", code);
   const codeRow = h("div", "code-row", "", code);
   const digits = h("p", "digits", "----", codeRow);
   const qrTile = h("div", "qr", "", codeRow);
@@ -142,17 +143,12 @@ function build() {
   qr.width = 160;
   qr.height = 160;
   const where = h("p", "where", "Scan it, or type the code on the front page", code);
-
-  // Who is here.
-  const people = h("section", "panel people", "", grid);
-  people.setAttribute("aria-label", "Who is here");
-  const peopleHead = h("div", "panel-head", "", people);
-  h("h2", "", "Who is here", peopleHead);
-  const count = h("span", "count", "", peopleHead);
-  const list = h("ul", "list", "", people);
+  const fullWords = h("p", "full-words", "Every place is taken. Someone has to leave before anyone else can join.", code);
+  fullWords.hidden = true;
 
   // The Table's games: the last game's card, what is going on (a game starting, or on), and the
-  // list, which follows the party's size.
+  // list, which follows the party's size. Before who is here, so an upright phone shows the games
+  // first (the owner's layout); wider layouts place each panel by name (party.css).
   const games = h("section", "panel games", "", grid);
   games.setAttribute("aria-label", "Games");
   const gamesHead = h("div", "panel-head", "", games);
@@ -163,7 +159,15 @@ function build() {
   playWhy.setAttribute("role", "alert");
   playWhy.hidden = true;
 
-  ui = { top, status, rooms, options, line, lineText, lineNote, why, digits, qr, where, count, list, shown: "", grid, stageWrap, stageName, stageBox, stop, gamesBy, cardBox, banner, gameList, playWhy, listKey: "", cardKey: "", bannerKey: "" };
+  // Who is here.
+  const people = h("section", "panel people", "", grid);
+  people.setAttribute("aria-label", "Who is here");
+  const peopleHead = h("div", "panel-head", "", people);
+  h("h2", "", "Who is here", peopleHead);
+  const count = h("span", "count", "", peopleHead);
+  const list = h("ul", "list", "", people);
+
+  ui = { top, status, rooms, options, line, lineText, lineNote, why, code, kicker, codeRow, fullWords, digits, qr, where, count, list, shown: "", grid, stageWrap, stageName, stageBox, stop, gamesBy, cardBox, banner, gameList, playWhy, listKey: "", cardKey: "", bannerKey: "" };
   void fillQr();
 }
 
@@ -218,10 +222,18 @@ function update() {
   ui.options[0].parentElement.classList.toggle("locked", !!modeLocked(room) || !!room.starting);
   const name = holder();
   const staged = showsGame();
-  // While a game fills the page the code stays in the line, so the party can still be joined.
-  ui.lineText.textContent = staged ? `Code ${room.pin ?? "----"} · ${host ? "you host" : name ? `${capital(name)} hosts` : "playing"}` : host ? "You choose the room" : name ? `${capital(name)} chooses the room` : "The one who started the party chooses the room";
+  const full = partyFull(room);
+  // Who hosts; while a game fills the page the code stays in the line, so the party can still be joined.
+  ui.lineText.textContent = tableLine({ staged, host, name, pin: room.pin, full });
   ui.digits.textContent = room.pin ?? "----";
   ui.digits.setAttribute("aria-label", `Code ${(room.pin ?? "").split("").join(" ")}`);
+  // A full party shows no way in: no code, no QR code, only that it is full.
+  ui.code.classList.toggle("full", full);
+  ui.code.setAttribute("aria-label", full ? "The party is full" : "The party's code");
+  ui.kicker.textContent = full ? "This party is full" : "Join this party";
+  ui.codeRow.hidden = full;
+  ui.where.hidden = full;
+  ui.fullWords.hidden = !full;
   // Who is here, in seat order, then the big screen.
   const members = room.members.filter(Boolean);
   const key = JSON.stringify([members.map((m) => [m.seat, m.name, m.colour, m.connected, m.away, m.points]), room.picker, room.screens, link.you, room.game?.seats ?? null]);
@@ -438,7 +450,7 @@ function endStage() {
 
 /**
  * A short note ("Cy joined") in the line under the heading for a few seconds, in place of who
- * chooses the room: it takes no space of its own, so it never covers anything.
+ * hosts: it takes no space of its own, so it never covers anything.
  */
 function note(text) {
   if (!ui || !text) return;

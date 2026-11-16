@@ -59,3 +59,25 @@ export function tableWhyNot(entry, players) {
 
 /** Whether a page shows test games: only when its address ends in #dev. */
 export const showsTests = (hash) => hash === "#dev";
+
+/**
+ * Whether every place in the party is taken (eight of eight at the Table): nobody else can join,
+ * so the Table shows no code and no QR code, and says the party is full instead.
+ */
+export const partyFull = (room) => Array.isArray(room?.members) && room.members.length > 0 && room.members.every(Boolean);
+
+/**
+ * The line under the Table's title. At the Table the host picks the games (the games panel says
+ * so); the line says who hosts. While a game fills the page the code rides along in front, so the
+ * party can still be joined, unless it is full.
+ * @param {{staged: boolean, host: boolean, name: string | null, pin: string | null, full: boolean}} o
+ *   staged: a game fills this page. host: this device holds the controls. name: whoever does.
+ */
+export function tableLine({ staged, host, name, pin, full }) {
+  const named = name ? `${name[0].toUpperCase()}${name.slice(1)} hosts` : null;
+  if (staged) {
+    if (full) return host ? "You host" : (named ?? "Playing");
+    return `Code ${pin ?? "----"} · ${host ? "you host" : (named ?? "playing")}`;
+  }
+  return host ? "You host" : (named ?? "Waiting for the host");
+}

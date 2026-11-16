@@ -111,7 +111,7 @@ p {
   border-radius: 3px;
   background: var(--amber);
 }
-/* Who chooses the room, or for a few seconds what just happened: one line, never two. */
+/* Who hosts, or for a few seconds what just happened: one line, never two. */
 .line {
   min-height: 1.35em;
   padding-left: 25px;
@@ -331,6 +331,11 @@ p {
 .where {
   font-size: 14px;
   overflow-wrap: anywhere;
+}
+/* Every place taken: no code and no QR code (main.js), only that the party is full. */
+.full-words {
+  font-size: 16px;
+  max-width: 32ch;
 }
 
 /* Who is here: every seat, the free ones drawn as empty places. */
@@ -879,6 +884,50 @@ button.game-row:hover {
     padding-top: max(20px, env(safe-area-inset-top));
     padding-bottom: max(20px, env(safe-area-inset-bottom));
   }
+  /* The Table itself (not a game, which has its own view) is exactly one screen high: nobody
+     scrolls a television. The bar across the top, then three columns: the code, who is here,
+     and the games, with the news (the last game's card, a game starting) at the top of the games
+     column, so it never takes height from who is here. Who is here shares out its column's
+     height, so eight players and the screen fit at 1280x720 as at 1920x1080. */
+  html.as-screen:not(.staged) #app {
+    height: 100dvh;
+    display: grid;
+    grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr) minmax(0, 1fr);
+    grid-template-rows: auto auto minmax(0, 1fr);
+    grid-template-areas:
+      "top top top"
+      "code people news"
+      "code people games";
+    column-gap: 18px;
+  }
+  html.as-screen:not(.staged) .top {
+    grid-area: top;
+  }
+  html.as-screen:not(.staged) .news {
+    grid-area: news;
+    margin-bottom: 18px;
+  }
+  html.as-screen:not(.staged) .grid {
+    display: contents;
+  }
+  html.as-screen:not(.staged) .grid > .panel {
+    min-height: 0;
+    overflow: hidden;
+  }
+  .as-screen .people,
+  .as-screen .games {
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+  .as-screen .people .list {
+    min-height: 0;
+    grid-auto-rows: minmax(0, 64px);
+    align-content: start;
+  }
+  .as-screen .game-list {
+    min-height: 0;
+    overflow-y: auto;
+    align-content: start;
+  }
   .as-screen .top {
     grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr) auto;
     grid-template-areas:
@@ -950,11 +999,12 @@ button.game-row:hover {
     font-size: 20px;
   }
   .as-screen .person {
-    min-height: clamp(48px, 7.5vh, 64px);
-    padding: 6px 16px;
+    min-height: 0;
+    padding: 2px 16px;
   }
   .as-screen .person-name {
-    font-size: 22px;
+    font-size: clamp(19px, 3vh, 22px);
+    line-height: 1.2;
   }
   .as-screen .person.free .person-name {
     font-size: 19px;
@@ -963,6 +1013,12 @@ button.game-row:hover {
   .as-screen .count,
   .as-screen .tag {
     font-size: 16px;
+  }
+  .as-screen .person-sub {
+    line-height: 1.2;
+  }
+  .as-screen .full-words {
+    font-size: 22px;
   }
   .as-screen .dot {
     width: 22px;

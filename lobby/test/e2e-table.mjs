@@ -12,6 +12,7 @@
 import { mkdirSync } from "node:fs";
 import { resolve } from "node:path";
 import { chromium } from "playwright";
+import { partyApi } from "./client.mjs";
 
 const args = process.argv.slice(2);
 const opt = (k, d) => (args.find((a) => a.startsWith("--" + k + "=")) ?? "--" + k + "=" + d).split("=").slice(1).join("=");
@@ -27,6 +28,8 @@ const ANDROID = "Mozilla/5.0 (Linux; Android 15; Pixel 7) AppleWebKit/537.36 (KH
 
 const browser = await chromium.launch({ headless: true, args: ["--mute-audio"] });
 const errors = [];
+/** The players who join over sockets (no page of their own), closed at the end. */
+const sockets = [];
 try {
   async function open(name) {
     const context = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, hasTouch: true, isMobile: true, userAgent: ANDROID });
@@ -164,7 +167,81 @@ try {
   check(points === 3, `everyone placed scored, on who is here: ${points} with points`);
   await bo.click(".card-done");
   check(await bo.locator(".card").isHidden(), "Done puts the card away");
+
+  // ---------------------------------------------------------------- eight at the Table, and the big screen
+  // Five more join over sockets: eight of eight. The big screen shows everyone with nothing to
+  // scroll at 1280x720 and 1920x1080, and no code or QR code, since nobody else can join.
+  const { call, connect } = partyApi(base);
+  for (const name of ["Di", "Ed", "Flo", "Gus", "Hal"]) {
+    const session = await call("POST", `/join/${pin}`, { nickname: name });
+    const socket = connect(session);
+    sockets.push(socket);
+    await socket.wait((m) => m.t === "hello");
+  }
+  await bo.waitForFunction(() => document.querySelector(".people .count")?.textContent === "8 of 8", null, { timeout: 8000 });
+  const tvContext = await browser.newContext({ viewport: { width: 1280, height: 720 } });
+  const tv = await tvContext.newPage();
+  tv.on("pageerror", (e) => errors.push(`screen: ${e.message}`));
+  tv.on("console", (m) => m.type() === "error" && errors.push(`screen: ${m.text()}`));
+  await tv.goto(`${base}/lobby/?join=${pin}&as=screen&look=flat`);
+  await tv.getByText("Show the room here").click();
+  await tv.waitForURL((url) => new URL(url).pathname === "/party/", { timeout: 20000 });
+  await tv.waitForFunction(() => document.querySelectorAll(".people .person").length === 9, null, { timeout: 15000 });
+  /** Whether the Table fits the screen: no scrolling, every row of who is here whole and inside its panel. */
+  async function fits(label) {
+    await tv.waitForFunction(() => !document.querySelector(".line.noting"), null, { timeout: 8000 });
+    const m = await tv.evaluate(() => {
+      const box = (el) => el.getBoundingClientRect();
+      const panel = box(document.querySelector(".people"));
+      const rows = [...document.querySelectorAll(".people .person")].map((el) => {
+        const r = box(el);
+        const words = box(el.querySelector(".person-words"));
+        return { top: r.top, bottom: r.bottom, height: r.height, wordsFit: words.top >= r.top - 1 && words.bottom <= r.bottom + 1, name: el.querySelector(".person-name").textContent };
+      });
+      return {
+        scrollH: document.documentElement.scrollHeight,
+        scrollW: document.documentElement.scrollWidth,
+        h: innerHeight,
+        w: innerWidth,
+        panelBottom: panel.bottom,
+        rows,
+        inside: rows.every((r) => r.top >= panel.top && r.bottom <= panel.bottom),
+        codeShown: document.querySelector(".code-row").checkVisibility(),
+        full: document.querySelector(".code .kicker").textContent,
+        fullWords: document.querySelector(".full-words")?.checkVisibility() ?? false,
+        line: document.querySelector(".line-text").textContent,
+      };
+    });
+    check(m.scrollH <= m.h && m.scrollW <= m.w, `${label}: the page does not scroll (${m.scrollW}x${m.scrollH} in ${m.w}x${m.h})`);
+    check(m.panelBottom <= m.h, `${label}: Who is here ends on the screen (${Math.round(m.panelBottom)} of ${m.h})`);
+    check(m.rows.length === 9 && m.inside, `${label}: all eight players and the screen are inside the panel`);
+    const short = m.rows.filter((r) => r.height < 40 || !r.wordsFit);
+    check(!short.length, `${label}: every row is at least 40 pixels and holds its words${short.length ? ` (${short.map((r) => `${r.name} ${Math.round(r.height)}`).join(", ")})` : ""}`);
+    check(!m.codeShown && m.full === "This party is full" && m.fullWords, `${label}: a full party shows no code or QR code, and says it is full ("${m.full}")`);
+    check(!/chooses/.test(m.line), `${label}: the line under the title says who hosts: "${m.line}"`);
+  }
+  await fits("big screen 1280x720, eight players");
+  await shot(tv, "50-eight-screen-1280x720");
+  await tv.setViewportSize({ width: 1920, height: 1080 });
+  await tv.waitForTimeout(300);
+  await fits("big screen 1920x1080, eight players");
+  await shot(tv, "51-eight-screen-1920x1080");
+
+  // An upright phone with eight here: the games come before who is here, and no code is offered.
+  await bo.evaluate(() => scrollTo(0, 0));
+  const order = await bo.evaluate(() => ({
+    games: document.querySelector(".games").getBoundingClientRect().top,
+    people: document.querySelector(".people").getBoundingClientRect().top,
+    code: document.querySelector(".code-row").checkVisibility(),
+    line: document.querySelector(".line-text").textContent,
+  }));
+  check(order.games < order.people, `Bo's upright phone lists the games above who is here (${Math.round(order.games)} < ${Math.round(order.people)})`);
+  check(!order.code, "Bo's phone shows no code or QR code with eight of eight here");
+  check(order.line === "Ann hosts", `Bo's line says who hosts: "${order.line}"`);
+  await bo.screenshot({ path: `${out}/52-eight-bo-390x844.png`, fullPage: true });
+  await looksRight(bo, "the Table with eight, Bo upright");
 } finally {
+  for (const socket of sockets) socket.ws.close();
   await browser.close();
 }
 check(!errors.length, `no page logged an error${errors.length ? `: ${errors.join(" | ")}` : ""}`);

@@ -132,12 +132,12 @@ try {
   await shot(bo, "20-table-guest-with-note-390x844");
   await shot(ann, "21-table-host-844x390");
   await shot(tv, "22-table-screen-1280x720");
-  // Bo is not the host: no switch, just who chooses; Ann holds the controls and has it.
+  // Bo is not the host: no switch, just who hosts; Ann holds the controls and has it.
   check(await bo.locator(".rooms").isHidden(), "Bo's Table has no switch: he cannot use one");
   check(await ann.locator(".rooms").isVisible(), "Ann's Table has the switch at the top");
   await bo.waitForFunction(() => !document.querySelector(".line.noting"), null, { timeout: 8000 });
   const line = await bo.locator(".line-text").textContent();
-  check(line === "Ann chooses the room", `once the note has gone, Bo's line says who chooses: "${line}"`);
+  check(line === "Ann hosts", `once the note has gone, Bo's line says who hosts: "${line}"`);
   await shot(bo, "20-table-guest-390x844");
   await ann.setViewportSize({ width: 390, height: 844 });
   await ann.waitForTimeout(300);
