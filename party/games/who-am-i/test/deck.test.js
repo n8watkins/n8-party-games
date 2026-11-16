@@ -1,7 +1,7 @@
 // The names: the live game's lists, copied with their checks (the who-am-i repository's
 // test/content.test.ts), and the rules for dealing two of them.
 import { describe, expect, it } from "vitest";
-import { DIFFICULTY_POOLS, IDENTITIES, PACK_IDS, PACKS, SOURCE, SOURCE_PACK_IDS, drawPair, getIdentity, identitiesClash, mentions, normalizeName, packIdentities, pairable, publicIdentity } from "../deck.js";
+import { BLOCKED_PAIRS, DIFFICULTY_POOLS, IDENTITIES, PACK_IDS, PACKS, SOURCE, SOURCE_PACK_IDS, drawPair, getIdentity, identitiesClash, mentions, normalizeName, packIdentities, pairable, publicIdentity } from "../deck.js";
 import { MIXED_WEIGHTS, ROWS } from "../deck-data.js";
 import { testRandom } from "./random-match.js";
 
@@ -81,6 +81,53 @@ describe("dealing two names", () => {
     }
     expect(mentions(byName("Princess Zelda"), byName("Link from The Legend of Zelda"))).toBe(true);
     expect(pairable(byName("Tom Hanks"), byName("Meryl Streep"))).toBe(true);
+  });
+
+  it("never deals the pairs that give each other away in other words (the hand-kept list), nor a name in an author's run-together credit", () => {
+    const ids = (a, b) => [getIdentity(a), getIdentity(b)];
+    const pairs = [
+      ["video-games.dr-eggman", "video-games.sonic"],
+      ["anime-cartoons.road-runner", "anime-cartoons.wile-e-coyote"],
+      ["video-games.tom-nook", "video-games.isabelle"],
+      ["video-games.chun-li", "video-games.street-fighter-ryu"],
+      ["anime-cartoons.homer-simpson", "anime-cartoons.bart-simpson"],
+      ["video-games.minecraft-steve", "video-games.creeper"],
+      ["movie-characters.luke-skywalker", "movie-characters.darth-vader"],
+      ["historical-figures.marco-polo", "historical-figures.genghis-khan"],
+      ["anime-cartoons.snoopy", "anime-cartoons.charlie-brown"],
+      ["anime-cartoons.snoopy", "brand-mascots.mr-peanut"],
+      ["anime-cartoons.charlie-brown", "brand-mascots.mr-peanut"],
+      // Both pictures are credited to "Kingkongphoto & www.celebrity-photos.com".
+      ["actors.robin-williams", "movie-characters.king-kong"],
+      ["historical-figures.nelson-mandela", "movie-characters.king-kong"],
+    ];
+    for (const [a, b] of pairs) {
+      expect(pairable(...ids(a, b)), `${a} / ${b}`).toBe(false);
+      expect(pairable(...ids(b, a)), `${b} / ${a}`).toBe(false);
+    }
+    for (const id of BLOCKED_PAIRS.flat()) expect(() => getIdentity(id)).not.toThrow();
+    expect(mentions(getIdentity("actors.robin-williams"), getIdentity("movie-characters.king-kong"))).toBe(true);
+    // The pictures stay.
+    expect(getIdentity("actors.robin-williams").picture).not.toBeNull();
+    expect(getIdentity("historical-figures.nelson-mandela").picture).not.toBeNull();
+  });
+
+  it("reads picture addresses with their percent-encoding undone", () => {
+    // Pikachu's picture is "Pok%C3%A9mon_Pikachu_art.png"; Julius Caesar's "Retrato_de_Julio_C%C3%A9sar".
+    const pikachu = getIdentity("video-games.pikachu");
+    expect(pikachu.picture.imageUrl).toContain("Pok%C3%A9mon");
+    const named = (name) => ({ id: `test.${name}`, name, aliases: [] });
+    expect(mentions(pikachu, named("Pokémon"))).toBe(true);
+    expect(mentions(getIdentity("historical-figures.julius-caesar"), named("Julio César"))).toBe(true);
+  });
+
+  it("keeps every name dealable: each has a partner it may be dealt beside, in every pack and level it is in", () => {
+    for (const packId of PACK_IDS) {
+      for (const [level, difficulties] of Object.entries(DIFFICULTY_POOLS)) {
+        const pool = packIdentities(packId).filter((c) => difficulties.includes(c.difficulty));
+        for (const c of pool) expect(pool.some((d) => pairable(c, d)), `${c.id} in ${packId}/${level}`).toBe(true);
+      }
+    }
   });
 
   it("deals two different names from the chosen pack and level that may be dealt together", () => {

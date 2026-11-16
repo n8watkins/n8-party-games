@@ -4,10 +4,12 @@
 // watchers arriving, the host's choices), and every view of every state checked for every viewer:
 // each player, each watcher, a player who left, the big screen and an unknown seat.
 import { describe, expect, it } from "vitest";
-import { TURN_FORMATS, apply, isRefusal, nextDeadline, view } from "../rules.js";
+import { createHash } from "node:crypto";
+import { TURN_FORMATS, apply, create, isRefusal, nextDeadline, view } from "../rules.js";
 import { getIdentity, normalizeName, packIdentities, pairable } from "../deck.js";
+import { draw, sha256 } from "../draws.js";
 import { QUESTIONS, pickOf, randomMatch, testRandom } from "./random-match.js";
-import { Table, must } from "./table.js";
+import { T0, Table, must, testSecret } from "./table.js";
 
 /** Whole words of a normalised text, padded so a word can be looked for with spaces round it. */
 const words = (text) => ` ${normalizeName(text)} `;
@@ -36,7 +38,7 @@ function holds(v, id) {
 }
 
 // (`hints` is not here: a result row's count of hints used is called that.)
-const SECRET_KEYS = new Set(["rng", "idKey", "idSeq", "assign", "usedIds", "tracks", "sends", "seed", "slug", "aliases", "difficulty_", "acted", "idleMoves"]);
+const SECRET_KEYS = new Set(["secret", "draws", "rng", "idKey", "idSeq", "assign", "usedIds", "tracks", "sends", "seed", "slug", "aliases", "difficulty_", "seen", "idleMoves", "here", "goneSince"]);
 
 function walk(value, visit, path = []) {
   if (Array.isArray(value)) value.forEach((v, i) => walk(v, visit, [...path, i]));
@@ -109,15 +111,19 @@ describe("no view ever holds the viewer's own name before the reveal", () => {
     expect(hints).toBeGreaterThan(500);
   }, 120_000);
 
-  it("never holds a seed, the generator or the deck in any view", () => {
+  it("never holds the secret, anything drawn from it, the generator's position or the deck in any view", () => {
     for (const seed of [123456789, 987654321]) {
       const t = randomMatch(seed, 3);
+      const secret = t.state.secret;
+      // Every 8-hex-digit piece of the secret, and the first draws' digests as numbers and hex.
+      const pieces = Array.from({ length: secret.length - 7 }, (_, i) => secret.slice(i, i + 8));
+      const drawn = Array.from({ length: t.state.draws }, (_, n) => draw(secret, n));
       for (const state of t.history) {
         for (const viewer of viewersOf(state)) {
           const json = JSON.stringify(view(state, viewer));
-          expect(json).not.toContain(String(seed));
-          expect(json).not.toContain(String(state.rng));
-          expect(json).not.toMatch(/"(rng|idKey|seed|usedIds|assign)"/);
+          for (const piece of pieces) expect(json).not.toContain(piece);
+          for (const x of drawn) expect(json).not.toContain(String(x).slice(2, 12));
+          expect(json).not.toMatch(/"(secret|draws|rng|idKey|seed|usedIds|assign)"/);
         }
       }
     }
@@ -200,26 +206,103 @@ describe("a view is the same whatever name the viewer was dealt", () => {
 });
 
 describe("ids and order say nothing", () => {
-  it("question and hint ids do not come from the generator, and are the same whoever was dealt what", () => {
-    const t = new Table([0, 1], { turnFormat: "keep_going" }, 77);
+  it("question and hint ids are plain counts: the same whatever the secret, the seed or the deal", () => {
+    const ids = (secretNumber, roomSeed) => {
+      let s = must(create([0, 1], { host: 0, turnFormat: "keep_going" }, roomSeed, T0, { secret: testSecret(secretNumber) }));
+      s = must(apply(s, 0, { t: "begin" }, T0 + 1));
+      const g = s.turn.seat;
+      s = must(apply(s, g, { t: "ask", text: "Am I human?" }, T0 + 2));
+      s = must(apply(s, g, { t: "hint" }, T0 + 3));
+      const before = s.draws;
+      s = must(apply(s, 1 - g, { t: "answer", id: "q1", answer: "no" }, T0 + 4));
+      expect(s.draws).toBe(before); // asking and answering draw nothing
+      return s.turn.log.map((e) => e.id);
+    };
+    expect(ids(1, 7)).toEqual(["q1", "h2"]);
+    for (const [secret, seed] of [[2, 7], [3, 2 ** 32 - 1], [4, 0]]) expect(ids(secret, seed)).toEqual(["q1", "h2"]);
+  });
+});
+
+/** The rules' old id: FNV-1a with a final mix, as rules.js had it (the review's attack, seed-attack.mjs). */
+function oldHash(value) {
+  const text = String(value);
+  let h = 2166136261 >>> 0;
+  for (let i = 0; i < text.length; i++) {
+    h ^= text.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  h ^= h >>> 15;
+  h = Math.imul(h, 2246822507);
+  h ^= h >>> 13;
+  return h >>> 0;
+}
+
+describe("the deal comes from the match's secret alone", () => {
+  /** The first round's names by seat, and the starter, for a secret and a room seed. */
+  function deal(secret, roomSeed) {
+    let s = must(create([0, 1], { host: 0 }, roomSeed, T0, { secret }));
+    s = must(apply(s, 0, { t: "begin" }, T0 + 1));
+    return { starter: s.starter, assign: s.round.assign };
+  }
+
+  it("the review's seed attack finds nothing: no id is a function of a seed, and the room's seed does not change the deal", () => {
+    // The attack: read one public entry id, search the 32-bit seed space for the seed whose old
+    // id construction gives it, then replay the rules from that seed. Ids are now "q1" in every
+    // match, so the search has nothing to match: a window of the old space finds no seed.
+    const t = new Table([0, 1], {}, 91);
     t.begin();
-    const g = t.guesser;
-    const other = JSON.parse(JSON.stringify(t.state));
-    other.rng = 12345; // a different generator position
-    const asked = must(apply(t.state, g, { t: "ask", text: "Am I human?" }, t.now + 1));
-    const askedOther = must(apply(other, g, { t: "ask", text: "Am I human?" }, t.now + 1));
-    expect(asked.turn.log[0].id).toBe(askedOther.turn.log[0].id);
-    expect(asked.rng).toBe(t.state.rng); // asking draws nothing
-    expect(asked.turn.log[0].id).toMatch(/^[0-9a-z]{14}$/);
+    t.do(t.guesser, { t: "ask", text: "Am I real?" });
+    const target = t.view(t.guesser).turn.log[0].id;
+    expect(target).toBe("q1");
+    let found = 0;
+    for (let c = 0; c < 1 << 16; c++) {
+      const a = oldHash(`who-am-i/entry-ids/a/${c}`);
+      const b = oldHash(`who-am-i/entry-ids/b/${c}`);
+      if (oldHash(`${a}:${b}:1:hi`).toString(36).padStart(7, "0") + oldHash(`${a}:${b}:1:lo`).toString(36).padStart(7, "0") === target) found++;
+    }
+    expect(found).toBe(0);
+    // And a replay from any seed cannot work: with one secret, every room seed deals the same;
+    // with one room seed, different secrets deal differently.
+    const secret = testSecret(92);
+    const base = deal(secret, 1);
+    for (const seed of [0, 2, 12345, 2 ** 31, 2 ** 32 - 1]) expect(deal(secret, seed)).toEqual(base);
+    const deals = new Set(Array.from({ length: 40 }, (_, i) => JSON.stringify(deal(testSecret(1000 + i), 1).assign)));
+    expect(deals.size).toBeGreaterThan(30);
   });
 
-  it("a different seed gives different ids, so ids cannot be guessed across matches", () => {
-    const id = (seed) => {
-      const t = new Table([0, 1], {}, seed);
-      t.begin();
-      t.do(t.guesser, { t: "ask", text: "Am I human?" });
-      return t.turn.log[0].id;
+  it("a match restored from its saved state mid-match deals on exactly as the one that never stopped", () => {
+    const t = new Table([0, 1], { match: "rounds-10" }, 93);
+    t.begin();
+    t.rightGuess();
+    t.do(0, { t: "next" });
+    t.rightGuess();
+    // The room saves the state as JSON and wakes with it (a restart, a deploy).
+    const saved = JSON.parse(JSON.stringify(t.state));
+    const play = (state) => {
+      let s = state;
+      const names = [];
+      for (let i = 0; i < 60 && s.phase !== "over"; i++) {
+        if (s.phase === "reveal") s = must(apply(s, 0, { t: "next" }, s.now + 10));
+        else if (s.turn.phase === "asking") s = must(apply(s, s.turn.seat, { t: "guess" }, s.now + 10));
+        else s = must(apply(s, s.round.order.find((x) => x !== s.turn.seat), { t: "confirm" }, s.now + 10));
+        if (s.round) names.push(JSON.stringify(s.round.assign));
+      }
+      return { names: [...new Set(names)], end: s };
     };
-    expect(id(1)).not.toBe(id(2));
+    const straight = play(t.state);
+    const restored = play(saved);
+    expect(restored.names).toEqual(straight.names);
+    expect(restored.names.length).toBeGreaterThanOrEqual(8);
+    expect(restored.end).toEqual(straight.end);
+  });
+
+  it("draws come from SHA-256 in counter mode, and the hash is SHA-256", () => {
+    for (const n of [0, 1, 55, 56, 63, 64, 65, 200]) {
+      const bytes = new Uint8Array(n).map((_, i) => (i * 37 + n) & 255);
+      expect(Buffer.from(sha256(bytes)).toString("hex")).toBe(createHash("sha256").update(bytes).digest("hex"));
+    }
+    const secret = testSecret(94);
+    const d = createHash("sha256").update(`who-am-i/draw/3/${secret}`).digest();
+    expect(draw(secret, 3)).toBe(d.readUIntBE(0, 6) / 2 ** 48);
   });
 });

@@ -95,33 +95,70 @@ export function identitiesClash(a, b) {
   return false;
 }
 
+/** A picture address with its percent-encoding undone ("Mu%C3%B1oz" is "Muñoz"), so its words can be read. */
+function decoded(address) {
+  try {
+    return decodeURIComponent(address);
+  } catch {
+    return address;
+  }
+}
+
 /**
  * Everything of a name that reaches the OTHER player's phone during a round: the name itself, its
- * hints (in the shared turn log once asked for) and its picture's addresses and author; normalised
- * whole words, padded with spaces.
+ * hints (in the shared turn log once asked for) and its picture's addresses (decoded) and author;
+ * normalised whole words, padded with spaces. `author` is the credit run together with no spaces,
+ * since credits join words ("Kingkongphoto").
  */
-const SHOWN_WORDS = new Map(
+const SHOWN = new Map(
   IDENTITIES.map((i) => {
-    const picture = i.picture ? [i.picture.imageUrl, i.picture.filePage, i.picture.author ?? ""] : [];
-    return [i.id, ` ${normalizeName([i.name, ...i.hints, ...picture].join(" | "))} `];
+    const picture = i.picture ? [decoded(i.picture.imageUrl), decoded(i.picture.filePage), i.picture.author ?? ""] : [];
+    return [i.id, { words: ` ${normalizeName([i.name, ...i.hints, ...picture].join(" | "))} `, author: normalizeName(i.picture?.author ?? "").replace(/ /g, "") }];
   }),
 );
+/** A name run together this long or longer is looked for inside an author credit's words. */
+const RUN_TOGETHER_MIN = 6;
 
 /**
  * Whether what `a`'s player shows the other phone (`a`'s name, hints or picture) names `b` or one
- * of its aliases as whole words. The live lists have such pairs: "Link from The Legend of Zelda"
- * carries "Zelda" to Princess Zelda's player, Katniss Everdeen's picture is a file named after
- * Jennifer Lawrence, and Princess Zelda's is "Link_to_the_Past_Zelda.png".
+ * of its aliases as whole words, or inside the run-together words of its picture's author credit.
+ * The live lists have such pairs: "Link from The Legend of Zelda" carries "Zelda" to Princess
+ * Zelda's player, Katniss Everdeen's picture is a file named after Jennifer Lawrence, Princess
+ * Zelda's is "Link_to_the_Past_Zelda.png", and Robin Williams' is credited to "Kingkongphoto".
  */
 export function mentions(a, b) {
-  const words = SHOWN_WORDS.get(a.id) ?? ` ${normalizeName(a.name)} `;
-  for (const k of keysOf(b).all) if (words.includes(` ${k} `)) return true;
+  const shown = SHOWN.get(a.id) ?? { words: ` ${normalizeName(a.name)} `, author: "" };
+  for (const k of keysOf(b).all) {
+    if (shown.words.includes(` ${k} `)) return true;
+    const run = k.replace(/ /g, "");
+    if (run.length >= RUN_TOGETHER_MIN && shown.author.includes(run)) return true;
+  }
   return false;
 }
 
-/** Two names that may be dealt in the same round: no clash, and neither gives the other away. */
+/**
+ * Pairs that give each other away in other words than a name: a hint about one describes the
+ * other ("Sega's blue hedgehog", "a fast desert bird", "Peanuts"), or the two are one famous
+ * pair. Kept by hand; add to it when a new pair turns up. Ids, in either order.
+ */
+export const BLOCKED_PAIRS = Object.freeze([
+  ["video-games.dr-eggman", "video-games.sonic"],
+  ["anime-cartoons.road-runner", "anime-cartoons.wile-e-coyote"],
+  ["video-games.tom-nook", "video-games.isabelle"],
+  ["video-games.chun-li", "video-games.street-fighter-ryu"],
+  ["anime-cartoons.homer-simpson", "anime-cartoons.bart-simpson"],
+  ["video-games.minecraft-steve", "video-games.creeper"],
+  ["movie-characters.luke-skywalker", "movie-characters.darth-vader"],
+  ["historical-figures.marco-polo", "historical-figures.genghis-khan"],
+  ["anime-cartoons.snoopy", "anime-cartoons.charlie-brown"],
+  ["anime-cartoons.snoopy", "brand-mascots.mr-peanut"],
+  ["anime-cartoons.charlie-brown", "brand-mascots.mr-peanut"],
+].map((pair) => Object.freeze(pair)));
+const BLOCKED = new Set(BLOCKED_PAIRS.flatMap(([a, b]) => [`${a}|${b}`, `${b}|${a}`]));
+
+/** Two names that may be dealt in the same round: no clash, not a blocked pair, and neither gives the other away. */
 export function pairable(a, b) {
-  return !identitiesClash(a, b) && !mentions(a, b) && !mentions(b, a);
+  return !identitiesClash(a, b) && !BLOCKED.has(`${a.id}|${b.id}`) && !mentions(a, b) && !mentions(b, a);
 }
 
 function pickUniform(items, random) {

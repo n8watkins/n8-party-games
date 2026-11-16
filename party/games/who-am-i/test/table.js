@@ -2,6 +2,7 @@
 // (no ".test.js"). `secretOf` reads the server state, for tests only.
 import { apply, create, isRefusal, nextDeadline, SYSTEM, view } from "../rules.js";
 import { getIdentity } from "../deck.js";
+import { sha256 } from "../draws.js";
 
 export const T0 = 1_000_000;
 
@@ -10,11 +11,22 @@ export function must(x) {
   return x;
 }
 
+/** A match secret made from a test's number, so a test repeats (the room's adapter draws a real one). */
+export function testSecret(n) {
+  return Array.from(sha256(new TextEncoder().encode(`who-am-i test secret ${n}`)), (b) => b.toString(16).padStart(2, "0")).join("");
+}
+
 export class Table {
+  /** `seed` picks the test's secret (testSecret); the room's seed given to `create` is a fixed 1. */
   constructor(seats = [0, 1], options = {}, seed = 1) {
     this.now = T0;
-    this.state = must(create(seats, options, seed, T0));
+    this.state = must(create(seats, options, 1, T0, { secret: testSecret(seed) }));
     this.history = [this.state];
+  }
+
+  /** The room says a seat's phone came, went, hid or showed its page. */
+  presence(seat, connected, away = false, dt = 0) {
+    return this.do(SYSTEM, { t: "presence", seat, connected, away }, dt);
   }
 
   /** Applies a move; returns the refusal or the new state (kept). */

@@ -26,7 +26,7 @@ describe("turn timers", () => {
     expect(t.view(0).turn).toMatchObject({ timed: false, deadline: t.now + TIMERS.relaxedTurn });
   });
 
-  it("pauses the turn while a guess waits; lets the guesser confirm it after 30 s; lapses it after 2 minutes", () => {
+  it("pauses the turn while a guess waits; a judge who is here and does not tap lets it lapse after 2 minutes", () => {
     const t = new Table([0, 1], { turnFormat: "keep_going", timer: 90 }, 33);
     t.begin();
     const [a, b] = t.state.round.order;
@@ -34,20 +34,104 @@ describe("turn timers", () => {
     t.do(a, { t: "guess" });
     expect(t.turn).toMatchObject({ phase: "confirming", deadline: null, paused: 70_000 });
     expect(nextDeadline(t.state)).toBe(t.now + TIMERS.confirmLapse);
-    expect(t.view(b).turn).toMatchObject({ selfConfirmAt: t.now + 30_000, lapseAt: t.now + 120_000 });
+    // The judge's phone is here: the guesser cannot confirm it themselves.
+    expect(t.view(b).turn).toMatchObject({ selfConfirmAt: null, lapseAt: t.now + 120_000 });
     for (const move of ["ask", "hint", "count", "pass"]) expect(t.act(a, { t: move, text: "x" }).refused, move).toBeTruthy();
-    expect(t.act(a, { t: "selfConfirm" }, 29_999)).toMatchObject({ refused: "too_soon" });
+    expect(t.act(a, { t: "selfConfirm" }, 60_000)).toMatchObject({ refused: "judge_here" });
     expect(t.act(b, { t: "selfConfirm" })).toMatchObject({ refused: "not_guesser" });
     // Nobody answers: the guess lapses as if rejected, and the paused time comes back.
     t.toDeadline();
     expect(t.turn).toMatchObject({ seat: a, phase: "asking", deadline: t.now + 70_000, paused: null });
     expect(t.state.notes.at(-1)).toMatchObject({ k: "guess_lapsed", seat: a });
-    // This time the other phone is quiet for 30 s and the guesser confirms it.
-    t.do(a, { t: "guess" });
-    t.do(a, { t: "selfConfirm" }, 30_000);
+    expect(t.state.round.results).toEqual({});
+  });
+
+  it("lets the guesser confirm their own guess only once the judge's phone has been gone 30 s", () => {
+    const t = new Table([0, 1], { turnFormat: "keep_going", timer: 90 }, 33);
+    t.begin();
+    const [a, b] = t.state.round.order;
+    t.do(a, { t: "guess" }, 1000);
+    const asked = t.now;
+    // The judge's phone locks 10 s into the wait: 30 s from then, not from the guess.
+    t.presence(b, true, true, 10_000);
+    expect(t.view(a).turn.selfConfirmAt).toBe(t.now + TIMERS.selfConfirm);
+    expect(t.act(a, { t: "selfConfirm" }, 29_999)).toMatchObject({ refused: "too_soon" });
+    // Back for a moment, then gone again: the 30 s start again.
+    t.presence(b, true, false, 0);
+    expect(t.view(a).turn.selfConfirmAt).toBeNull();
+    t.presence(b, false, false, 1);
+    const gone = t.now;
+    expect(t.view(b).turn.selfConfirmAt).toBe(gone + TIMERS.selfConfirm);
+    expect(t.act(a, { t: "selfConfirm" }, 29_999)).toMatchObject({ refused: "too_soon" });
+    t.do(a, { t: "selfConfirm" }, 1);
+    expect(t.now - asked).toBeLessThan(TIMERS.confirmLapse);
     expect(t.state.round.results).toEqual({ [a]: "correct" });
     expect(t.state.notes.at(-1)).toMatchObject({ k: "self_confirmed", seat: a });
     expect(t.guesser).toBe(b);
+  });
+
+  it("a guess made while the judge's phone is already gone may be confirmed 30 s after the guess", () => {
+    const t = new Table([0, 1], { turnFormat: "keep_going", timer: 90 }, 33);
+    t.begin();
+    const [a, b] = t.state.round.order;
+    t.presence(b, false);
+    t.do(a, { t: "guess" }, 60_000);
+    expect(t.view(a).turn.selfConfirmAt).toBe(t.now + TIMERS.selfConfirm);
+    t.do(a, { t: "selfConfirm" }, TIMERS.selfConfirm);
+    expect(t.state.round.results).toEqual({ [a]: "correct" });
+  });
+
+  it("a spoken turn that runs out with the players here is ordinary play, in either turn format", () => {
+    // Keep going: both turns run out while they talk; the round is revealed and the match goes on.
+    const k = new Table([0, 1], { questions: "spoken", turnFormat: "keep_going", timer: 60 }, 37);
+    k.begin();
+    k.toDeadline();
+    k.toDeadline();
+    expect(k.phase).toBe("reveal");
+    expect(k.state.ended).toBeNull();
+    k.toDeadline();
+    expect(k.phase).toBe("playing");
+    // Trade: move after move runs out, and the round goes on.
+    const t = new Table([0, 1], { questions: "spoken", turnFormat: "trade", timer: 60 }, 38);
+    t.begin();
+    for (let i = 0; i < 20; i++) t.toDeadline();
+    expect(t.phase).toBe("playing");
+    expect(t.state.round.n).toBe(1);
+  });
+
+  it("ends as idle only when no player has been here for a whole round", () => {
+    const t = new Table([0, 1], { turnFormat: "keep_going", timer: 60 }, 39);
+    t.begin();
+    const [a, b] = t.state.round.order;
+    // Both phones go in round 1, after it began with them here: round 1 is not idle.
+    t.presence(a, false);
+    t.presence(b, true, true);
+    t.toDeadline();
+    t.toDeadline();
+    expect(t.phase).toBe("reveal");
+    t.toDeadline();
+    // Round 2 begins with nobody here and nobody comes: idle, no places.
+    expect(t.state.round.n).toBe(2);
+    t.toDeadline();
+    t.toDeadline();
+    expect(t.state.ended.how).toBe("idle");
+    expect(standings(t.state)).toEqual([]);
+    // One phone shown again for a moment in a round is enough to keep it going.
+    const u = new Table([0, 1], { turnFormat: "trade", timer: 60 }, 40);
+    u.begin();
+    u.presence(0, false);
+    u.presence(1, false);
+    for (let i = 0; i < 3; i++) u.toDeadline();
+    u.presence(1, true);
+    u.presence(1, false);
+    for (let i = 0; i < 3; i++) u.toDeadline();
+    expect(u.phase).toBe("playing");
+    for (let i = 0; i < 4 && u.phase === "playing"; i++) u.toDeadline();
+    // The round ran out with nobody here, but someone was in it: it is revealed, not idle.
+    expect(u.phase).toBe("reveal");
+    u.toDeadline();
+    for (let i = 0; i < 4; i++) u.toDeadline();
+    expect(u.state.ended.how).toBe("idle");
   });
 
   it("moves on from the reveal by itself, and ends a decided match by itself", () => {
@@ -82,9 +166,10 @@ describe("turn timers", () => {
     return ticks;
   }
 
-  it("never stalls: a table nobody touches begins, plays one silent round and ends with no points", () => {
+  it("never stalls: a table nobody is at begins, plays one silent round and ends with no points", () => {
     for (const options of [{}, { turnFormat: "keep_going" }, { mode: "describe_it", timer: 0 }, { match: "rounds-5" }]) {
       const t = new Table([0, 1, 2], options, 35);
+      for (const seat of [0, 1, 2]) t.presence(seat, false);
       runOnDeadlines(t);
       expect(t.state.ended.how, JSON.stringify(options)).toBe("idle");
       expect(t.state.summary.n).toBe(1);
@@ -150,6 +235,33 @@ describe("leaving", () => {
     u.do(SYSTEM, { t: "leave", seat: winner });
     expect(u.state.ended.how).toBe("forfeit");
     expect(standings(u.state)).toEqual([{ seat: winner === 0 ? 1 : 0, place: 1 }]);
+  });
+
+  it("when neither player is here, a leave picks no winner: the match ends with no places", () => {
+    const t = new Table([0, 1], {}, 46);
+    t.begin();
+    t.rightGuess();
+    t.do(0, { t: "next" });
+    t.presence(0, false);
+    t.presence(1, false);
+    t.do(SYSTEM, { t: "leave", seat: 0 });
+    expect(done(t.state)).toBe(true);
+    expect(t.state.ended).toEqual({ how: "abandoned", by: 0 });
+    expect(standings(t.state)).toEqual([]);
+    expect(result(t.state).every((r) => r.place === null && !r.forfeit)).toBe(true);
+    // The second leave changes nothing: the match is over.
+    expect(t.act(SYSTEM, { t: "leave", seat: 1 })).toMatchObject({ refused: "over" });
+    // An away page is not here either; a stayer who is here still wins the forfeit.
+    const u = new Table([0, 1], {}, 47);
+    u.begin();
+    u.presence(1, true, true);
+    u.do(SYSTEM, { t: "leave", seat: 0 });
+    expect(u.state.ended.how).toBe("abandoned");
+    const w = new Table([0, 1], {}, 48);
+    w.begin();
+    w.presence(0, false);
+    w.do(SYSTEM, { t: "leave", seat: 0 });
+    expect(standings(w.state)).toEqual([{ seat: 1, place: 1 }]);
   });
 
   it("a player who leaves once the match is decided keeps the real places", () => {

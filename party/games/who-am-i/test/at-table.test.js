@@ -60,6 +60,43 @@ describe("through the Table's adapter", () => {
     expect(g.result(state)[0]).toMatchObject({ seat: 3, place: 1 });
   });
 
+  it("gives each match a fresh 256-bit secret the views never hold, whatever the room's seed", () => {
+    const g = tableGame(rules);
+    const a = g.create({ seats: [{ seat: 0 }, { seat: 1 }], seed: 4242, now: T0, host: 0 });
+    const b = g.create({ seats: [{ seat: 0 }, { seat: 1 }], seed: 4242, now: T0, host: 0 });
+    expect(a.secret).toMatch(/^[0-9a-f]{64}$/);
+    expect(a.secret).not.toBe(b.secret);
+    g.input(a, 0, { t: "begin" }, T0 + 1);
+    for (const viewer of [{ role: "player", seat: 0 }, { role: "player", seat: 1 }, { role: "screen", seat: -1 }]) {
+      const json = JSON.stringify(g.snapshot(a, T0 + 1, viewer));
+      for (let i = 0; i + 8 <= a.secret.length; i++) expect(json).not.toContain(a.secret.slice(i, i + 8));
+    }
+    // The rules that do not use it (Count to ten) are created as before.
+    const counted = [];
+    const plain = tableGame({ ...rules, create: (...args) => (counted.push(args), rules.create(...args)) });
+    plain.create({ seats: [{ seat: 0 }, { seat: 1 }], seed: 7, now: T0, host: 0 });
+    expect(counted[0].slice(0, 4)).toEqual([[0, 1], { host: 0 }, 7, T0]);
+    expect(counted[0][4].secret).toMatch(/^[0-9a-f]{64}$/);
+  });
+
+  it("passes the room's presence to rules that hear it, and gives other rules no presence hook", () => {
+    const g = tableGame(rules);
+    const state = g.create({ seats: [{ seat: 0 }, { seat: 1 }], seed: 1, now: T0, host: 0 });
+    g.input(state, 0, { t: "begin" }, T0 + 1);
+    const guesser = state.turn.seat;
+    const judge = 1 - guesser;
+    g.input(state, guesser, { t: "guess" }, T0 + 2);
+    expect(g.input(state, guesser, { t: "selfConfirm" }, T0 + 60_000)).toMatchObject({ ok: false, error: "judge_here" });
+    expect(g.presence(state, judge, { connected: true, away: true }, T0 + 60_000)).toBe(true);
+    expect(g.input(state, guesser, { t: "selfConfirm" }, T0 + 60_000 + rules.TIMERS.selfConfirm)).toEqual({ ok: true, events: [] });
+    // A game that is over takes nothing more.
+    g.leave(state, guesser, T0 + 100_000);
+    expect(g.isOver(state)).toBe(true);
+    expect(g.presence(state, judge, { connected: false, away: false }, T0 + 100_001)).toBe(false);
+    const { HEARS_PRESENCE, ...deaf } = rules;
+    expect(tableGame(deaf)).not.toHaveProperty("presence");
+  });
+
   it("refuses to start with too few seats, through the adapter", () => {
     expect(() => tableGame(rules).create({ seats: [{ seat: 0 }], seed: 1, now: T0, host: 0 })).toThrow(/bad_seats/);
   });
@@ -217,7 +254,7 @@ describe("on the party room, two phones and a big screen", () => {
     const names = dealt(r);
     r.ctx.room.webSocketClose(r.ws.bo, 1001, "");
     await settle();
-    // The room holds the seat; the rules hear nothing of it and the match goes on.
+    // The room holds the seat; the rules hear only that it is not here, and the match goes on.
     expect(r.core().activity.seats).toEqual([0, 1]);
     r.ws.bo = await r.connect(r.tokens.bo);
     const full = r.ws.bo.messages().find((m) => m.t === "snap" && m.full);
@@ -287,6 +324,37 @@ describe("on the party room, two phones and a big screen", () => {
     expect(r.core().activity.kind).toBe("lobby");
     expect(r.core().last.rows).toEqual([expect.objectContaining({ seat: 0, place: 1, points: 3 })]);
     expect(r.core().members[0].points).toBe(3);
+  });
+
+  it("picks no winner when both phones are gone past the room's grace", async () => {
+    const r = await party({ players: 2 });
+    await play(r);
+    await send(r, "ann", { t: "begin" });
+    r.ctx.room.webSocketClose(r.ws.bo, 1001, "");
+    r.ctx.room.webSocketClose(r.ws.ann, 1001, "");
+    await settle();
+    expect(r.state().here).toEqual({ 0: false, 1: false });
+    await vi.advanceTimersByTimeAsync(TURN_GRACE_MS + 100);
+    expect(r.core().activity.kind).toBe("lobby");
+    expect(r.core().last.rows.filter((row) => row.place !== null)).toEqual([]);
+    expect(r.core().members.filter(Boolean).every((m) => !m.points)).toBe(true);
+  });
+
+  it("lets the guesser confirm their own guess once the judge's phone has dropped for 30 s, and not before", async () => {
+    const r = await party({ players: 2 });
+    await play(r);
+    await send(r, "ann", { t: "begin" });
+    const guesser = r.state().turn.seat;
+    const judge = 1 - guesser;
+    await send(r, key(guesser), { t: "guess" });
+    await vi.advanceTimersByTimeAsync(rules.TIMERS.selfConfirm + 1000);
+    expect(await send(r, key(guesser), { t: "selfConfirm" })).toMatchObject({ t: "error", error: "judge_here" });
+    r.ctx.room.webSocketClose(r.ws[key(judge)], 1001, "");
+    await settle();
+    expect(await send(r, key(guesser), { t: "selfConfirm" })).toMatchObject({ t: "error", error: "too_soon" });
+    await vi.advanceTimersByTimeAsync(rules.TIMERS.selfConfirm);
+    expect(await send(r, key(guesser), { t: "selfConfirm" })).toMatchObject({ t: "ack" });
+    expect(r.state().notes.some((n) => n.k === "self_confirmed")).toBe(true);
   });
 
   it("ends with a forfeit when a player leaves the party mid-round, and shows that round's names to the one who stayed", async () => {

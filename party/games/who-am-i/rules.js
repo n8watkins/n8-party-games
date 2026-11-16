@@ -6,19 +6,25 @@
 // and the other player confirms the guess.
 //
 // Everything here is a pure function of plain JSON: no clock, no platform APIs, no hidden
-// randomness. Randomness comes from a mulberry32 generator whose position is kept in the state
-// (`state.rng`), started from the secret seed given to `create`. The state is server only: a page
-// gets `view(state, seat)` and nothing else.
+// randomness. Every draw (the names, who starts) comes from the match's secret (`state.secret`,
+// at least 128 bits the Table's adapter takes from the platform's secure source) through
+// draws.js, at a position kept in the state (`state.draws`). The room's `seed` is not used: a page
+// may learn it. The state is server only: a page gets `view(state, seat)` and nothing else.
 //
-//   create(seats, options, seed, now)  -> state | refusal
+//   create(seats, options, seed, now, { secret })  -> state | refusal
 //   apply(state, seat, move, now)      -> new state | refusal     (never changes `state`)
 //   view(state, seat)                  -> what that seat may see (seat -1: a big screen)
 //   nextDeadline(state)                -> when the room must send { t: "tick" } as SYSTEM, or null
 //   done(state), result(state), standings(state)
 //
 // A refusal is `{ refused: code, message }`; `isRefusal(x)` tells them apart.
+//
+// The room's SYSTEM moves include `{ t: "presence", seat, connected, away }` (HEARS_PRESENCE): a
+// seat is here while its phone is connected and its page is shown. Who is here decides when a
+// table is idle, when a guesser may confirm their own guess, and whether a leave can be a forfeit.
 
 import { DIFFICULTIES, PACK_IDS, PACKS, drawPair, getIdentity, publicIdentity } from "./deck.js";
+import { draw, freshSecret, isSecret } from "./draws.js";
 
 export const GAME_ID = "who-am-i";
 /** Seats the module takes: two play, the rest watch. The Table's wall decides what a party may start. */
@@ -26,8 +32,10 @@ export const MIN_PLAYERS = 2;
 export const MAX_PLAYERS = 8;
 /** Players in a match. */
 export const PLAYERS_PER_MATCH = 2;
-/** The seat id the room sends its own moves as: tick, join, leave, host. */
+/** The seat id the room sends its own moves as: tick, join, leave, host, presence. */
 export const SYSTEM = "system";
+/** These rules take `{ t: "presence", seat, connected, away }` from SYSTEM (table-game.js). */
+export const HEARS_PRESENCE = true;
 
 export const MODES = Object.freeze(["twenty_questions", "describe_it"]);
 export const TURN_FORMATS = Object.freeze(["trade", "keep_going"]);
@@ -57,17 +65,28 @@ export const QUESTION_RATE_LIMIT = Object.freeze({ limit: 6, windowMs: 60_000 })
 export const TIMERS = Object.freeze({
   setup: 120_000, // the host's choices; then the match begins by itself with them as they stand
   relaxedTurn: 300_000, // the backstop of a turn with "no timer"
-  selfConfirm: 30_000, // a guess unanswered this long may be confirmed by the guesser
+  selfConfirm: 30_000, // a guess unanswered this long, the other phone gone, may be confirmed by the guesser
   confirmLapse: 120_000, // a guess unanswered this long lapses, as if rejected
   reveal: 90_000, // the round's reveal; then the next round (or the end) by itself
 });
 
 const NOTES_KEPT = 12;
-/** Trade turns: this many timed-out moves in a row with nobody touching the game ends the round. */
+/** A turn's log (questions and hints) keeps only its latest entries, in the state and in views. */
+export const LOG_KEPT = 50;
+/** Trade turns: this many timed-out moves in a row with no player here ends the round. */
 const IDLE_MOVES = 4;
 const MAX_RAW_QUESTION = QUESTION_MAX_LENGTH * 4;
-/** Control and format characters (bidi overrides, zero-width), as the live game strips them. */
-const CONTROL_CHARS = new RegExp("[\\x00-\\x1f\\x7f-\\x9f\\u200b-\\u200f\\u2028-\\u202e\\u2066-\\u2069]", "g");
+/**
+ * Invisible characters a question may not carry: controls, the soft hyphen, the Arabic letter mark,
+ * zero-width and bidi marks, invisible operators (U+2060 to U+2064), bidi isolates and tag
+ * characters. U+200D (zero-width joiner) is taken out apart from inside an emoji sequence.
+ */
+// (Written as strings: a bundler that prints U+2028 into a regular expression literal breaks it.)
+const CONTROL_CHARS = new RegExp("[\\x00-\\x1f\\x7f-\\x9f\\u00ad\\u061c\\u200b\\u200c\\u200e\\u200f\\u2028-\\u202e\\u2060-\\u2064\\u2066-\\u2069\\u{e0000}-\\u{e007f}]", "gu");
+const STRAY_JOINER = new RegExp("(?<![\\p{Extended_Pictographic}\\p{Emoji_Modifier}\\ufe0f])\\u200d|\\u200d(?!\\p{Extended_Pictographic})", "gu");
+/** Combining marks kept on one character; more is "zalgo" text that spills over other lines. */
+const MARKS_PER_CHAR = 3;
+const MARK_PILES = new RegExp(`(\\p{M}{${MARKS_PER_CHAR}})\\p{M}+`, "gu");
 
 // ---------------------------------------------------------------------------------------------
 // Refusals
@@ -103,6 +122,8 @@ const MESSAGES = {
   confirming: "A guess is waiting for confirmation.",
   no_guess: "There is no guess to judge.",
   too_soon: "The other player can still answer.",
+  judge_here: "The other player's phone is here: they confirm it.",
+  bad_secret: "The match needs a secret of at least 128 bits.",
   already_in_game: "That seat is in the game already.",
   full: "The table is full.",
 };
@@ -114,41 +135,29 @@ export function isRefusal(x) {
 }
 
 // ---------------------------------------------------------------------------------------------
-// Seeded randomness, kept in the state
+// Randomness from the match's secret, its position kept in the state
 
-/** Mixes any seed into a 32-bit number (FNV-1a with a final mix, as the kit's rng.js and Paper Masks). */
-export function hashSeed(value) {
-  const text = String(value);
-  let h = 2166136261 >>> 0;
-  for (let i = 0; i < text.length; i++) {
-    h ^= text.charCodeAt(i);
-    h = Math.imul(h, 16777619);
-  }
-  h ^= h >>> 15;
-  h = Math.imul(h, 2246822507);
-  h ^= h >>> 13;
-  return h >>> 0;
-}
-
+/** The next draw from the match's secret (draws.js), in [0, 1). */
 function rand(state) {
-  const a = (state.rng + 0x6d2b79f5) | 0;
-  state.rng = a;
-  let t = Math.imul(a ^ (a >>> 15), 1 | a);
-  t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-  return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  const n = state.draws;
+  state.draws += 1;
+  return draw(state.secret, n);
 }
 
 /**
- * An id for a turn log entry (a question or a hint): a hash of the match's id key (derived from
- * the seed apart from the generator, as Paper Masks' card ids), and a running count. It never
- * touches `state.rng`, so ids say nothing about the generator's draws (the names), and the count
- * is the same whoever is dealt what.
+ * An id for a turn log entry: "q" for a question or "h" for a hint, and a running count. Nothing
+ * secret goes into it, and the count is the same whoever is dealt what.
  */
-function entryId(state) {
+function entryId(state, kind) {
   state.idSeq += 1;
-  const [a, b] = state.idKey;
-  const base = `${a}:${b}:${state.idSeq}`;
-  return hashSeed(`${base}:hi`).toString(36).padStart(7, "0") + hashSeed(`${base}:lo`).toString(36).padStart(7, "0");
+  return `${kind === "question" ? "q" : "h"}${state.idSeq}`;
+}
+
+/** Adds an entry to the turn's log, keeping only the latest LOG_KEPT. */
+function logEntry(state, entry) {
+  const log = state.turn.log;
+  log.push({ id: entryId(state, entry.kind), ...entry });
+  if (log.length > LOG_KEPT) log.splice(0, log.length - LOG_KEPT);
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -199,12 +208,14 @@ const validSeats = (seats) =>
 
 /**
  * Starts at the setup step. `seats` are the seat numbers dealt in (2 to 8); `options` may name the
- * `host` (one of them) and any of the host's choices to start from. `seed` must be secret (the
- * room's fresh secure seed for this match), since the names come from it.
+ * `host` (one of them) and any of the host's choices to start from. `seed` (the room's) is not
+ * used. `secret` is the match's own (at least 128 bits, as hex): every draw comes from it, so it
+ * must never reach a page. Left out, a fresh one is taken from the platform's secure source.
  */
-export function create(seats, options = {}, seed = 0, now = 0) {
+export function create(seats, options = {}, seed = 0, now = 0, { secret = freshSecret() } = {}) {
   if (!validSeats(seats)) return refuse("bad_seats");
   if (!options || typeof options !== "object" || Array.isArray(options)) return refuse("bad_option");
+  if (!isSecret(secret)) return refuse("bad_secret");
   const { host: wanted, ...picked } = options;
   const clean = cleanOptions(picked);
   if (isRefusal(clean)) return clean;
@@ -213,11 +224,14 @@ export function create(seats, options = {}, seed = 0, now = 0) {
   if (!pool.includes(host)) return refuse("bad_host");
   const state = {
     game: GAME_ID,
-    v: 1,
-    rng: hashSeed(`who-am-i/draws/${seed}`) || 1,
-    idKey: [hashSeed(`who-am-i/entry-ids/a/${seed}`), hashSeed(`who-am-i/entry-ids/b/${seed}`)],
+    v: 2,
+    secret,
+    draws: 0,
     idSeq: 0,
     now,
+    // Who is here (connected, page shown), as the room last said; everyone is, until it says not.
+    here: Object.fromEntries(pool.map((s) => [key(s), true])),
+    goneSince: {},
     options: clean,
     host,
     phase: "setup",
@@ -258,6 +272,9 @@ const isPlayer = (state, seat) => {
 };
 const opponentOf = (state, seat) => state.players.find((p) => p.seat !== seat) ?? null;
 const key = (seat) => String(seat);
+/** Whether a seat is here: connected and its page shown (a seat the room never spoke of is). */
+const isHere = (state, seat) => state.here[key(seat)] !== false;
+const anyPlayerHere = (state) => state.players.some((p) => !p.left && isHere(state, p.seat));
 
 function note(state, k, extra = {}) {
   state.noteSeq += 1;
@@ -301,6 +318,8 @@ function startRound(state, now) {
     hints: {},
     tracks: {},
     reshuffled,
+    // Whether a player has been here at any time in this round (an idle round has nobody).
+    seen: anyPlayerHere(state),
   };
   state.summary = null;
   state.phase = "playing";
@@ -392,10 +411,10 @@ function matchDecided(state) {
 }
 
 function completeRound(state, now) {
-  const idle = !state.round.acted;
+  const idle = !state.round.seen;
   state.summary = summaryOf(state, true);
   state.round = null;
-  // A whole round in which neither player touched the game: nobody is there; end with no points.
+  // A whole round with no player here at any time: nobody is playing; end with no points.
   if (idle) return endMatch(state, "idle");
   state.turn = null;
   state.summary.matchOver = matchDecided(state);
@@ -440,19 +459,20 @@ export function apply(prev, seat, move, now = prev.now) {
 function inTurn(state, seat) {
   if (state.phase !== "playing") return refuse("not_now");
   if (!isPlayer(state, seat)) return refuse("not_playing");
-  // Somebody is playing this round (a refused move leaves no trace: apply drops the copy).
-  state.round.acted = true;
-  state.round.idleMoves = 0;
   return null;
 }
 
-function tidyQuestion(text) {
+/** A question as it is kept and shown, or { error }. Exported for the tests. */
+export function tidyQuestion(text) {
   if (typeof text !== "string") return { error: "not_text" };
   if (text.length > MAX_RAW_QUESTION) return { error: "too_long" };
   // As live, but whitespace first: a tab or a line break becomes a space instead of joining two words.
   const clean = text
     .replace(/\s+/g, " ")
     .replace(CONTROL_CHARS, "")
+    .replace(STRAY_JOINER, "")
+    .replace(MARK_PILES, "$1")
+    .replace(/ {2,}/g, " ")
     .trim();
   if (!clean.length) return { error: "empty" };
   if ([...clean].length > QUESTION_MAX_LENGTH) return { error: "too_long" };
@@ -501,7 +521,7 @@ const MOVES = {
     const recent = (state.sends[key(seat)] ?? []).filter((at) => now - at < QUESTION_RATE_LIMIT.windowMs);
     if (recent.length >= QUESTION_RATE_LIMIT.limit) return refuse("rate_limited");
     state.sends[key(seat)] = [...recent, now];
-    t.log.push({ id: entryId(state), kind: "question", text: tidy.text, answer: null, at: now });
+    logEntry(state, { kind: "question", text: tidy.text, answer: null, at: now });
     t.questionCount = Math.min(t.questionCount + 1, 99);
     t.moveAsked = true;
   },
@@ -519,12 +539,16 @@ const MOVES = {
     entry.answer = move.answer;
   },
 
-  /** A question asked out loud: one more on the counter (Ask matches). Either player may tap it. */
+  /**
+   * A question asked out loud: one more on the counter (Ask matches). Either player may tap it,
+   * apart from in trade turns, where it uses up the guesser's one question: theirs alone.
+   */
   count(state, seat) {
     const no = inTurn(state, seat);
     if (no) return no;
     const t = state.turn;
     if (state.options.mode !== "twenty_questions") return refuse("ask_mode_only");
+    if (isTrade(state) && t.seat !== seat) return refuse("not_guesser");
     if (t.phase !== "asking") return refuse("confirming");
     if (isTrade(state) && t.moveAsked) return refuse("one_question");
     t.questionCount = Math.min(t.questionCount + 1, 99);
@@ -543,7 +567,7 @@ const MOVES = {
     const identity = getIdentity(state.round.assign[key(seat)]);
     const index = t.hintsUsed;
     t.hintsUsed += 1;
-    t.log.push({ id: entryId(state), kind: "hint", index: index + 1, text: identity.hints[index], at: now });
+    logEntry(state, { kind: "hint", index: index + 1, text: identity.hints[index], at: now });
     state.round.hints[key(seat)] = (state.round.hints[key(seat)] ?? 0) + 1;
     playerOf(state, seat).hintsUsed += 1;
   },
@@ -581,8 +605,10 @@ const MOVES = {
   },
 
   /**
-   * The guesser confirms their own guess when the other player has not answered it for
-   * TIMERS.selfConfirm (their phone died or locked; they are at the same table and can say so).
+   * The guesser confirms their own guess when the other player's phone is not here (it died,
+   * dropped or is locked; they are at the same table and can say so) and the guess has waited
+   * TIMERS.selfConfirm with that phone gone, as live. A judge whose phone is here confirms or
+   * rejects it; unanswered, it lapses as rejected.
    */
   selfConfirm(state, seat, move, now) {
     const no = inTurn(state, seat);
@@ -590,7 +616,9 @@ const MOVES = {
     const t = state.turn;
     if (t.seat !== seat) return refuse("not_guesser");
     if (t.phase !== "confirming") return refuse("no_guess");
-    if (now < t.confirmSince + TIMERS.selfConfirm) return refuse("too_soon");
+    const at = selfConfirmAt(state);
+    if (at === null) return refuse("judge_here");
+    if (now < at) return refuse("too_soon");
     scoreCorrect(state, now, "self_confirmed");
   },
 
@@ -622,6 +650,15 @@ const MOVES = {
   },
 };
 
+/** When the guesser may confirm the waiting guess themselves, or null while the judge's phone is here (or no guess waits). */
+function selfConfirmAt(state) {
+  const t = state.turn;
+  if (!t || t.phase !== "confirming") return null;
+  const judge = state.round.order.find((s) => s !== t.seat);
+  if (isHere(state, judge)) return null;
+  return Math.max(t.confirmSince, state.goneSince[key(judge)] ?? t.confirmSince) + TIMERS.selfConfirm;
+}
+
 function rejectGuess(state, now) {
   const t = state.turn;
   t.phase = "asking";
@@ -651,10 +688,11 @@ const SYSTEM_MOVES = {
     }
     note(state, "timed_out", { seat: t.seat });
     if (!isTrade(state)) return finishTurn(state, "timed_out", now);
-    // Trade turns: running out of time costs only this move (as live), unless nobody has touched
-    // the game for two moves each: then the round is over for both, so an idle table ends.
+    // Trade turns: running out of time costs only this move (as live): a spoken turn may well run
+    // out with both players talking. Only when no player has been here for two moves each is the
+    // round over for both, so a table nobody is at ends (completeRound: idle).
     const r = state.round;
-    r.idleMoves = (r.idleMoves ?? 0) + 1;
+    r.idleMoves = anyPlayerHere(state) ? 0 : (r.idleMoves ?? 0) + 1;
     if (r.idleMoves < IDLE_MOVES) return endMove(state, now);
     saveTrack(state);
     for (const s of r.order) r.results[key(s)] ??= "timed_out";
@@ -684,9 +722,29 @@ const SYSTEM_MOVES = {
   },
 
   /**
+   * Who is here changed: `connected` (a phone is in the room) and `away` (its page is hidden). A
+   * seat is here when connected and not away.
+   */
+  presence(state, seat, move, now) {
+    const s = move.seat;
+    if (!Number.isInteger(s) || s < 0) return refuse("bad_move");
+    const here = move.connected === true && move.away !== true;
+    if (isHere(state, s) === here) return;
+    state.here[key(s)] = here;
+    if (here) {
+      delete state.goneSince[key(s)];
+      if (state.round && isPlayer(state, s)) {
+        state.round.seen = true;
+        state.round.idleMoves = 0;
+      }
+    } else state.goneSince[key(s)] = now;
+  },
+
+  /**
    * A seat is gone for good. A watcher just goes. Before the match, the table goes on without it
    * (and ends, with no points, below two). One of the two players: a match already decided ends
-   * with its real places; otherwise the player who left forfeits and the one who stayed is first.
+   * with its real places; otherwise the player who left forfeits and the one who stayed is first,
+   * when they are here. With nobody here, nobody is there to win it: it ends with no places.
    */
   leave(state, seat, move) {
     const s = move.seat;
@@ -708,6 +766,7 @@ const SYSTEM_MOVES = {
     p.left = true;
     note(state, "left", { seat: s });
     if (state.phase === "reveal" && state.summary.matchOver) return endMatch(state, "decided");
+    if (!anyPlayerHere(state)) return endMatch(state, "abandoned", s);
     endMatch(state, "forfeit", s);
   },
 
@@ -793,7 +852,8 @@ export function view(state, seat) {
       moveAsked: t.moveAsked,
       questionWaiting: pendingQuestion(t),
       confirmSince: t.confirmSince,
-      selfConfirmAt: t.confirmSince === null ? null : t.confirmSince + TIMERS.selfConfirm,
+      // When the guesser may confirm it themselves: null while the other phone is here.
+      selfConfirmAt: selfConfirmAt(state),
       lapseAt: t.confirmSince === null ? null : t.confirmSince + TIMERS.confirmLapse,
     };
     if (role === "player") {
@@ -838,8 +898,8 @@ export function result(state) {
     rows.sort((a, b) => (a.place === null) - (b.place === null));
     return rows;
   }
-  // A table that went idle places nobody.
-  if (state.ended?.how === "idle") return rows;
+  // A table that went idle, or that everyone left, places nobody.
+  if (state.ended?.how === "idle" || state.ended?.how === "abandoned") return rows;
   let place = 0;
   let last = null;
   rows.forEach((row, i) => {
