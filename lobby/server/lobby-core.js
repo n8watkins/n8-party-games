@@ -44,11 +44,12 @@ import { copyState, deadlineOf, gameProblems, inputOutcome, isTurnBased, loadSta
 import { viewerFor } from "../../party-kit/src/core/views.js";
 import { IDLE_SHUTDOWN_MS, NAME_MAX, SEAT_COLOURS, STALE_ROOM_MS, cleanName, randomToken } from "../../party-kit/src/core/room-core.js";
 import { AWAY_MS, COUNT_MS, SETTLE_MS, TOSS_MS, leaders, pointsForPlace, spotLights, standingsFromRows, tally, whyNot } from "../shared/vote.js";
-import { bumpTarget, cooldownLeft, isDown, isSafe, knockLanding, knocked, mayBump } from "../shared/bump.js";
+import { IMMUNE_MS, bumpTarget, cooldownLeft, isDown, isSafe, knockLanding, knocked, mayBump } from "../shared/bump.js";
+import { BOO_LATE_MS, FADE_MS, SCARE_LANDING, SPOOK_FAR, SPOOK_LANDING, fadeLeft, isFaded, mayFade, maySpook, scared, spooked } from "../shared/ghost.js";
 import { DEFAULT_ROOM, ROOM_COOLDOWN_MS, isRoom, roomLocked, wallFor } from "../shared/rooms.js";
-import { COLOUR_PRESETS, DEFAULT_CHARACTER, LOOK_COOLDOWN_MS, LOOK_SLACK_MS, characterOr, cleanColour, readLook } from "../shared/characters.js";
+import { COLOUR_PRESETS, DEFAULT_CHARACTER, LOOK_COOLDOWN_MS, LOOK_SLACK_MS, characterOr, cleanColour, moveOf, readLook } from "../shared/characters.js";
 import { record } from "../shared/tonight.js";
-import { DURING_PLAY, cooldownLeft as emoteLeft, mayEmote, relayEmote, waitMessage } from "../../party-kit/client/emotes.js";
+import { DURING_PLAY, cooldownLeft as emoteLeft, mayEmote, relayEmote, tooEager, waitMessage } from "../../party-kit/client/emotes.js";
 import { POSITION_SLACK, clampX, lightAt, posAt, spawnX } from "../shared/world.js";
 import { DEFAULT_MODE, MODE_COOLDOWN_MS, isMode, modeLocked, modeNote } from "../shared/mode.js";
 import { PLAY_BEAT_MS, tableWhyNot } from "../shared/table.js";
@@ -715,7 +716,8 @@ export class LobbyCore {
    */
   bump(seat, now) {
     const m = this.members[seat];
-    if (!m || this.activity.kind !== "lobby" || this.plainRoom() || !mayBump(m, now).ok) return null;
+    // Only a piece whose move is the kick kicks (a ghost fades instead: fade).
+    if (!m || moveOf(m.character) !== "kick" || this.activity.kind !== "lobby" || this.plainRoom() || !mayBump(m, now).ok) return null;
     m.bumpAt = now;
     this.lastActive = now;
     // A piece on the floor, or just up from it, cannot be knocked: nobody is kept down.
@@ -725,22 +727,93 @@ export class LobbyCore {
     const to = bumpTarget(posAt(m, now), m.face, others);
     if (to === -1) return { t: "b", s: seat, f: m.face, to: -1 };
     const o = this.members[to];
-    // Thrown into the dark: clear of every light that is on (one that is off is dark already).
+    // A kick that reaches a faded ghost passes through it, and the kicker is scared: it runs as
+    // far from the ghost as a kick would have thrown it (lobby/shared/ghost.js). `sc` is the ghost.
+    if (this.faded(o, now)) {
+      this.throwPiece(m, -m.face, now, SCARE_LANDING);
+      Object.assign(m, scared(now, IMMUNE_MS));
+      return { t: "b", s: seat, f: m.face, to: -1, sc: to, x: m.x, rev: m.rev };
+    }
+    this.throwPiece(o, m.face, now);
+    Object.assign(o, knocked(now), { fright: null });
+    return { t: "b", s: seat, f: m.face, to, x: o.x, rev: o.rev };
+  }
+
+  /**
+   * The room moves a piece itself, in direction `dir`, into the dark: clear of every light that
+   * is on (one that is off is dark already). `reach` is how far (knockLanding): a kick's by default.
+   */
+  throwPiece(o, dir, now, reach) {
     const lights = this.lights();
     const lit = this.boxes.map((box, i) => (lights[box.id] === null ? i : -1)).filter((i) => i >= 0);
-    o.x = knockLanding(posAt(o, now), m.face, this.wall, lit);
+    o.x = knockLanding(posAt(o, now), dir, this.wall, lit, reach);
     o.d = 0;
     o.t = now;
     o.rev += 1;
-    Object.assign(o, knocked(now));
-    return { t: "b", s: seat, f: m.face, to, x: o.x, rev: o.rev };
   }
 
   /** For a bump the room refused: how long until that piece may bump, as the message for its page. */
   bumpWait(seat, now) {
     const m = this.members[seat];
-    if (!m || this.activity.kind !== "lobby" || this.plainRoom()) return null;
+    if (!m || moveOf(m.character) !== "kick" || this.activity.kind !== "lobby" || this.plainRoom()) return null;
     return { t: "cd", in: Math.round(mayBump(m, now).wait) };
+  }
+
+  /** Whether a member is a ghost that has faded (lobby/shared/ghost.js): it cannot be touched, and has no vote. */
+  faded(m, now) {
+    return isFaded(m, now, moveOf(m.character) === "fade");
+  }
+
+  /**
+   * The ghost's move: it fades for FADE_MS (lobby/shared/ghost.js). Returns {relay} for everybody,
+   * or {ok: false, why, wait, bad} for that page only: not a ghost, not in the room's own time,
+   * during a count, a coin toss or a game starting, knocked over, or its cooldown not over
+   * (`wait`). `bad`: no real page asks that (it is not a ghost, or its cooldown is far from over),
+   * so it counts against the socket's rate limit.
+   */
+  fade(seat, now) {
+    const m = this.members[seat];
+    if (!m) return { ok: false, why: "You are not in this party." };
+    const fades = moveOf(m.character) === "fade";
+    const busy = this.count ? "Not during the count." : this.toss ? "Not during the coin toss." : this.starting ? "Not while a game starts." : null;
+    const may = mayFade(m, now, { fades, lobby: this.activity.kind === "lobby" && !this.plainRoom(), busy });
+    if (!may.ok) return { ...may, bad: !fades || (!!may.cooling && tooEager(may.wait)) };
+    Object.assign(m, { fadeAt: now, fadedUntil: now + FADE_MS, spooks: [] });
+    this.lastActive = now;
+    return { ok: true, relay: { t: "fade", s: seat, for: FADE_MS } };
+  }
+
+  /**
+   * Boo: a faded ghost says it drifted through the piece in seat `to`, and the room checks it
+   * (lobby/shared/ghost.js, maySpook): close enough by the room's own reckoning, not a ghost,
+   * not spooked by this fade or a moment ago, not on the floor. Then the piece is spooked out of
+   * place, the way the ghost was going, weaker than a kick. Never at the Table (plainRoom): it
+   * has no pieces. Returns {relay} for everybody, or {ok: false, why, bad} for that page only.
+   * `bad`: no real page sends that boo (lobby/shared/ghost.js, BOO_LATE_MS and SPOOK_FAR), so it
+   * counts against the socket's rate limit; the rest are honest boos the room got a moment late.
+   */
+  boo(seat, to, now) {
+    const m = this.members[seat];
+    if (!m) return { ok: false, why: "You are not in this party." };
+    const fades = moveOf(m.character) === "fade";
+    const real = Number.isInteger(to) && to !== seat && to >= 0 && to < this.members.length;
+    // A ghost that has just become something else may have a boo on its way still.
+    if (!fades) return { ok: false, why: "Only a faded ghost can spook.", bad: !(now - (m.lookAt ?? -Infinity) <= BOO_LATE_MS) };
+    if (!real) return { ok: false, why: "Nobody there to spook.", bad: true };
+    if (this.activity.kind !== "lobby" || this.plainRoom()) return { ok: false, why: "Nobody there to spook.", bad: false };
+    if (!this.faded(m, now)) return { ok: false, why: "Only a faded ghost can spook.", bad: !(now - (m.fadedUntil ?? -Infinity) <= BOO_LATE_MS) };
+    const o = this.members[to];
+    if (!o) return { ok: false, why: "Nobody there to spook.", bad: false };
+    const ghostX = posAt(m, now);
+    const x = posAt(o, now);
+    const may = maySpook(ghostX, { ...o, x, fades: moveOf(o.character) === "fade" }, now, m.spooks ?? []);
+    if (!may.ok) return { ...may, bad: Math.abs(x - ghostX) > SPOOK_FAR };
+    (m.spooks ??= []).push(to);
+    const dir = m.d || (x === ghostX ? m.face : Math.sign(x - ghostX)) || 1;
+    this.throwPiece(o, dir, now, SPOOK_LANDING);
+    Object.assign(o, spooked(now, IMMUNE_MS));
+    this.lastActive = now;
+    return { ok: true, relay: { t: "spook", s: seat, to, x: o.x, rev: o.rev } };
   }
 
   /**
@@ -778,9 +851,13 @@ export class LobbyCore {
     if (character === m.character && colour === m.colour) return { ok: true, changed: false };
     const gap = now - (m.lookAt ?? -Infinity);
     if (gap < LOOK_COOLDOWN_MS - LOOK_SLACK_MS) return { ok: false, why: "Wait a moment before changing it again.", wait: LOOK_COOLDOWN_MS - gap };
+    // A ghost that changes character mid-fade is solid at once: the new piece has its vote
+    // (lobby-room.js looks at the vote again and tells every page the fade is over: `unfaded`).
+    const unfaded = character !== m.character && this.faded(m, now);
+    if (unfaded) m.fadedUntil = now;
     Object.assign(m, { character, colour, lookAt: now });
     this.lastActive = now;
-    return { ok: true, changed: true };
+    return { ok: true, changed: true, ...(unfaded ? { unfaded: true } : {}) };
   }
 
   /** What the game being played allows (its box carries the manifest's word), or the defaults. */
@@ -823,14 +900,17 @@ export class LobbyCore {
     return Object.fromEntries(this.boxes.map((box) => [box.id, whyNot(box, party)]));
   }
 
-  /** {seat: the box whose light that piece stands in, or null for the dark}. A switched-off light is the dark. */
+  /**
+   * {seat: the box whose light that piece stands in, or null for the dark}. A switched-off light
+   * is the dark. A faded ghost has no vote: the light does not count it (lobby/shared/ghost.js).
+   */
   standing(now) {
     const lights = this.lights();
     const wall = this.wall;
     const out = {};
     for (const m of this.present()) {
       const box = this.boxes[lightAt(posAt(m, now), wall)];
-      out[m.seat] = box && lights[box.id] === null ? box.id : null;
+      out[m.seat] = box && lights[box.id] === null && !this.faded(m, now) ? box.id : null;
     }
     return out;
   }
@@ -1094,6 +1174,8 @@ export class LobbyCore {
       // The rest after a game: a count may be due the moment it is over, if anyone is here to vote.
       if (this.holdUntil > now && this.connected().length) at = Math.min(at, this.holdUntil);
       for (const m of this.present()) if (!m.connected && m.droppedAt !== null) at = Math.min(at, m.droppedAt + DROP_FADE_MS);
+      // A ghost turning solid again has its vote back: the count may be due.
+      for (const m of this.present()) if (this.faded(m, now)) at = Math.min(at, m.fadedUntil);
     } else if (this.activity.kind === "settings") {
       // The settings step's time limit, and the room's own limits. A dropped phone's piece does
       // not fade while settings are chosen: its seat is one of the game's.
@@ -1238,9 +1320,11 @@ export class LobbyCore {
     return { ok: true, choosing: true, ended: null };
   }
 
-  /** Every piece back by the door, standing still, moved by the room (so each page takes its place). */
+  /** Every piece back by the door, standing still and solid, moved by the room (so each page takes its place). */
   respawn(now) {
     for (const m of this.present()) {
+      // A faded ghost's fade ends here (a switch of waiting room, players chosen on spots).
+      if ((m.fadedUntil ?? 0) > now) m.fadedUntil = now;
       m.x = spawnX(m.seat, this.wall);
       m.d = 0;
       m.t = now;
@@ -2034,10 +2118,27 @@ export class LobbyCore {
 
   /**
    * What a page needs to show a piece's bump: milliseconds until it may bump again (`cool`),
-   * until it is up from the floor (`down`) and until it can be knocked again (`safe`).
+   * until it is up from the floor (`down`) and until it can be knocked again (`safe`). A ghost's
+   * fade, when there is one to tell: how long it is still faded (`faded`) and until it may fade
+   * again (`fadeCool`), for a page that arrives in the middle. A scare or a spook (`fright`) in
+   * place of a knock, and how long until the piece may be spooked again (`spooked`).
    */
   bumpView(m, now) {
-    return { cool: cooldownLeft(m.bumpAt ?? -Infinity, now), down: Math.max(0, (m.stunUntil ?? 0) - now), safe: Math.max(0, (m.immuneUntil ?? 0) - now) };
+    const faded = this.faded(m, now) ? m.fadedUntil - now : 0;
+    const fadeCool = moveOf(m.character) === "fade" ? fadeLeft(m.fadeAt, now) : 0;
+    const safe = Math.max(0, (m.immuneUntil ?? 0) - now);
+    const spookedFor = Math.max(0, (m.spookedUntil ?? 0) - now);
+    return {
+      cool: cooldownLeft(m.bumpAt ?? -Infinity, now),
+      down: Math.max(0, (m.stunUntil ?? 0) - now),
+      safe,
+      ...(faded > 0 ? { faded } : {}),
+      ...(fadeCool > 0 ? { fadeCool } : {}),
+      // Scared or spooked, not knocked: drawn as that (lobby/shared/ghost.js, frightPose).
+      ...(safe > 0 && m.fright ? { fright: m.fright } : {}),
+      // Cannot be spooked again for this long: a ghost's page does not ask (SPOOK_AGAIN_MS).
+      ...(spookedFor > 0 ? { spooked: spookedFor } : {}),
+    };
   }
 
   /**

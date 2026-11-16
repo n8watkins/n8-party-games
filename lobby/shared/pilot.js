@@ -10,6 +10,7 @@
 // A bump is one more small message ("b"). Being knocked down sends nothing at all: the room
 // put the piece where it landed, and the piece simply cannot walk, jump or bump until it is up.
 import { BUMP_COOLDOWN_MS, STUN_MS } from "./bump.js";
+import { FADE_COOLDOWN_MS } from "./ghost.js";
 import { JUMP_MS, WALK_SPEED, clampX, lightAt } from "./world.js";
 
 /** Messages are at least this far apart, so mashing the keys cannot outrun the room's rate limit. */
@@ -34,6 +35,9 @@ export class Pilot {
     this.jumpAt = -Infinity;
     /** When the piece may bump again, as far as this page knows; the room has the last word (cool). */
     this.coolUntil = -Infinity;
+    /** The same for a ghost's fade (its move in place of the bump), and which of the two the piece has. */
+    this.fadeCoolUntil = -Infinity;
+    this.move = "kick";
     /** Knocked down until then: no walking, jumping or bumping. */
     this.stunUntil = -Infinity;
     /** The lights that are on, by their place on the wall; null means all of them. */
@@ -126,9 +130,38 @@ export class Pilot {
     this.coolUntil = now + Math.max(0, left);
   }
 
-  /** Milliseconds until the piece may bump again (0: ready). */
+  /**
+   * Milliseconds until the piece's move is ready again (0: ready): the bump, or a ghost's fade
+   * when `move` is "fade" (the page keeps `move` as the player's character's: characters.js, moveOf).
+   */
   cooling(now) {
-    return Math.max(0, this.coolUntil - now);
+    return this.move === "fade" ? this.fadeCooling(now) : Math.max(0, this.coolUntil - now);
+  }
+
+  /** How far the move has recharged, 0 (just used) to 1 (ready): for the ring under the piece and the button. */
+  coolShare(now) {
+    return 1 - Math.min(1, this.cooling(now) / (this.move === "fade" ? FADE_COOLDOWN_MS : BUMP_COOLDOWN_MS));
+  }
+
+  /**
+   * The ghost's move (lobby/shared/ghost.js): asks the room to fade the piece, as a bump does.
+   * The room decides, and enforces the cooldown; its word comes back as fadeCool.
+   */
+  fade(now) {
+    if (now < this.fadeCoolUntil || this.down(now)) return false;
+    this.fadeCoolUntil = now + FADE_COOLDOWN_MS;
+    this.send({ t: "fade" });
+    return true;
+  }
+
+  /** The room's word on the fade's cooldown: the piece may fade again in `left` milliseconds. */
+  fadeCool(left, now) {
+    this.fadeCoolUntil = now + Math.max(0, left);
+  }
+
+  /** Milliseconds until the piece may fade again (0: ready). */
+  fadeCooling(now) {
+    return Math.max(0, this.fadeCoolUntil - now);
   }
 
   /** Call every frame (or every few tens of milliseconds): moves the piece and sends what is due. */

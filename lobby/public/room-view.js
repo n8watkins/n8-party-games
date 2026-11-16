@@ -31,7 +31,9 @@ import { hangsOwnBoxes } from "./shared/rooms.js";
  * @property {(room: object, now: number) => void} setRoom   the room changed: who is here, the code, the board
  * @property {(vote: object, now: number) => void} setVote   the vote changed: lights, who stands where, count, toss
  * @property {(msg: object, now: number) => void} onMove     someone moved
- * @property {(msg: object, now: number) => void} onBump     someone bumped (and perhaps hit someone)
+ * @property {(msg: object, now: number) => void} onBump     someone bumped (and perhaps hit someone, or was scared off by a faded ghost: `sc`)
+ * @property {(msg: object, now: number) => void} onFade     a ghost faded ({t: "fade", s, for}; for 0: solid again) (shared/ghost.js)
+ * @property {(msg: object, now: number) => void} onSpook    a faded ghost spooked a piece ({t: "spook", s, to, x, rev})
  * @property {(msg: object, now: number) => void} onExpress  someone sent an emote ({t: "e", s, e}): performed by
  *   their piece, with its word over their head (the kit's rules: party-kit/client/emotes.js; how
  *   each one moves: emotes/rig.js, the same numbers for both drawings). A player's new emote

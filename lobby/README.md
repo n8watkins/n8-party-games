@@ -413,6 +413,29 @@ The 3D look's definition (`public/look3d/pieces.js` is the pawn's, `public/look3
 
 What a piece is doing is the same for every character and is decided elsewhere: where it is, a jump, and a bump as a pose (`shared/bump.js`, read through `bumpPose` in `public/look3d/pieces.js` and `BumpDraw.pose` in `public/bump-draw.js`).
 A character decides only how that looks.
+A ghost can frighten any piece (below): the start, freeze and scurry are a pose like a knock, and the character only decides how wide its eyes go (`scared(body, k)` in the flat definition, `scared` in the 3D pose) and how its paint pales (`pale`).
+
+### The ghost's move: the fade, the scare and boo
+
+The rules are `shared/ghost.js`, the numbers the owner approved in the character previews.
+
+- A character's `move` (`moveOf`) is what its action button does: `kick` for the pawn, `fade` for the ghost, which does not kick.
+  The phone's button shows the move's own picture and word ("Fade") and its own cooldown.
+- The fade: `{t: "fade"}`.
+  The ghost is see-through for 2.5 s, and may fade again 8 s after it began.
+  Everybody hears `{t: "fade", s, for}`; a refusal goes to that page only, as `{t: "fade-no", why, wait}` (`wait` when waiting will do: the cooldown, or being knocked over), and the page says the reason as a note.
+  Refused during a count, a coin toss or a game starting, outside the Floor's own time, and to anything but a ghost.
+- A faded ghost has no vote: the light it stands in does not count it, and the count waits for it (the room wakes when the fade ends).
+  Its own player sees it less faded than everyone else does, so they can always find it; everyone else still sees its outline, face and name tag.
+- The scare: a kick that reaches a faded ghost passes through it, and the kicker is scared off: `{t: "b", s, to: -1, sc: ghost, x, rev}`.
+  It starts, freezes wide-eyed for about 0.75 s, then scurries as far as a kick would have thrown it, into the dark, with a pale tint; it cannot move until it has stopped, and cannot be knocked for a while after.
+- Boo: a faded ghost that drifts through a piece says so, `{t: "boo", to}`, and the room checks it was close enough by its own reckoning.
+  The piece is spooked out of place the way the ghost was going, weaker than a kick: `{t: "spook", s, to, x, rev}`, or `{t: "boo-no", why, to}` to the ghost's page only.
+  Its cap: a fade spooks each piece once at most, a piece cannot be spooked again for 6 s, and a ghost never spooks a ghost.
+- Any refusal of either counts against the socket's rate limit, so a script cannot keep a room busy with them.
+- The ghost swells, eyes and mouth wide, for its boo (both the scare and the spook), and says it with a sound made in code (`public/ghost-sounds.js`: no recording, so nothing to credit), as does the fade.
+  The party with no ghost never builds these sounds, and draws nothing new.
+- Nothing jolts the picture, and for someone who asked for less motion a frightened piece does not shiver.
 
 To add a third character: write its emote rig, its flat drawing and its model, and add it to the three lists.
 The picker, the room's check, the wheel's pictures and every draw site pick it up from there.

@@ -7,6 +7,7 @@
 // (GHOST in ./ghost-rig.js).
 import { s, set, shade } from "../dom.js";
 import { GHOST, ghostPoseTop, ghostRigById, mirrorGhostPose } from "./ghost-rig.js";
+import { booAmount } from "../shared/ghost.js";
 
 const INK = "#1a1210";
 const GREY = "#8a8d94";
@@ -50,12 +51,19 @@ function tint(a, colour, connected) {
 function face() {
   const eye = (cx) => s("ellipse", { cx, cy: GHOST.eyeY, rx: 4.6, ry: 7, fill: INK });
   const glint = (cx) => s("circle", { cx: cx + 1.2, cy: GHOST.eyeY - 3, r: 1.5, fill: "#fff" });
+  // Wide eyes for a fright: whites round the eyes (shown by `scared`).
+  const white = (cx) => s("ellipse", { cx, cy: GHOST.eyeY, rx: 7, ry: 9.4, fill: "#fff", stroke: INK, "stroke-width": 1.5 });
+  const whites = s("g", { display: "none", class: "ghost-wide" }, white(-10), white(10));
   const open = s("g", {}, eye(-10), eye(10), glint(-10), glint(10));
   // Squeezed shut: what a knocked ghost's eyes do (it never gets crosses).
   const shut = s("path", { d: `M-15,${GHOST.eyeY - 2} l5.5,3.5 l-5.5,3.5 M15,${GHOST.eyeY - 2} l-5.5,3.5 l5.5,3.5`, stroke: INK, "stroke-width": 3.2, "stroke-linecap": "round", "stroke-linejoin": "round", fill: "none", display: "none", class: "ghost-shut" });
   const mouth = s("ellipse", { cx: 0, cy: GHOST.mouthY, rx: 4, ry: 5.2, fill: INK });
-  return { g: s("g", {}, open, shut, mouth), open, shut };
+  return { g: s("g", {}, whites, open, shut, mouth), whites, open, shut, mouth };
 }
+
+/** How see-through a fully faded sheet is, and the colour of the rim of light that keeps its outline readable. */
+const FADED_OPACITY = 0.36;
+const FADED_RIM = "#e6f4ff";
 
 export const ghost = {
   id: "ghost",
@@ -77,8 +85,10 @@ export const ghost = {
       },
     },
     make() {
-      const a = { ...shapes("#888888"), face: face(), hover: 1, colour: "#888888" };
-      a.inner = s("g", {}, a.grad, a.nubs, a.body, a.shine, a.face.g);
+      const a = { ...shapes("#888888"), face: face(), hover: 1, colour: "#888888", faded: 0, boo: 0, scaredK: 0, shown: "" };
+      // `sheet` is what swells for a boo, inside what an emote leans (`inner`).
+      a.sheet = s("g", {}, a.nubs, a.body, a.shine, a.face.g);
+      a.inner = s("g", {}, a.grad, a.sheet);
       return a;
     },
     dress(a, colour, connected) {
@@ -87,13 +97,34 @@ export const ghost = {
     },
     /**
      * Every frame. Returns how far off the floor it holds itself: it hovers and bobs, and comes
-     * down to the floor while it is knocked over (`grounded`).
+     * down to the floor while it is knocked over (`grounded`). Faded (`faded`, 0 to 1: its own
+     * player sees it less faded than others do) it goes see-through with a rim of light, and
+     * floats a little higher; for a moment after `booAt` it swells, eyes and mouth wide (its boo).
      */
-    frame(a, { now, dt, face: dir, seat, calm, grounded }) {
+    frame(a, { now, dt, face: dir, seat, calm, grounded, faded = 0, booAt = -Infinity }) {
       a.hover += ((grounded ? 0 : 1) - a.hover) * Math.min(1, dt * 14);
-      set(a.face.g, { transform: `translate(${dir * 6}, 0)` });
-      const bob = calm ? 0 : Math.sin((now / BOB_MS) * Math.PI * 2 + seat * 1.7) * BOB;
-      return (GHOST.hover + bob) * a.hover;
+      a.faded += (faded - a.faded) * Math.min(1, dt * 9);
+      if (Math.abs(faded - a.faded) < 0.01) a.faded = faded;
+      const boo = booAmount(now - booAt);
+      const f = a.faded;
+      // Written only when something about it changed: an idle ghost costs what it did.
+      const key = `${dir}/${f.toFixed(2)}/${boo.toFixed(2)}/${a.scaredK}`;
+      if (key !== a.shown) {
+        a.shown = key;
+        const wide = Math.max(boo, a.scaredK);
+        set(a.face.g, { transform: `translate(${dir * 6}, 0)` });
+        set(a.face.whites, { display: wide > 0.3 ? null : "none" });
+        set(a.face.open, { transform: wide > 0 ? `translate(0,${GHOST.eyeY}) scale(${(1 - 0.25 * wide).toFixed(3)}) translate(0,${-GHOST.eyeY})` : null });
+        set(a.face.mouth, { rx: (4 * (1 + 0.6 * boo)).toFixed(2), ry: (5.2 * (1 + 0.9 * boo + 0.3 * a.scaredK)).toFixed(2) });
+        set(a.sheet, { transform: boo > 0 ? `translate(0,-70) scale(${(1 + 0.16 * boo).toFixed(3)}) translate(0,70)` : null, opacity: f > 0 ? (1 - (1 - FADED_OPACITY) * f).toFixed(3) : null });
+        set(a.body, { stroke: f > 0 ? FADED_RIM : "#00000022", "stroke-width": f > 0 ? (1 + 2.5 * f).toFixed(2) : 1 });
+      }
+      const bob = calm ? 0 : Math.sin((now / BOB_MS) * Math.PI * 2 + seat * 1.7) * BOB * (1 + f);
+      return (GHOST.hover + 14 * f + bob) * a.hover;
+    },
+    /** Frightened (0 to 1): its eyes go wide. */
+    scared(a, k) {
+      a.scaredK = k;
     },
     dizzy(a, on) {
       set(a.face.open, { display: on ? "none" : null });
