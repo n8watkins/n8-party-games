@@ -48,43 +48,51 @@ When a recognition session ends having heard nothing, the next starts by itself;
 - `public/voice.js`: one turn's listening, restarting the recogniser until it has a word.
 - `public/sounds.js`: the sounds (Bell, Knocks, Clock, Crack), made with Web Audio, and the vibration patterns (Tap, Pulse, Climb, Shudder).
 - `public/art.js`: the seam between the rules and the potato's look (below).
-- `public/art-code.js`, `public/potato-draw.js`: the code-drawn potato: its SVG renderer and its pure, seeded geometry.
-- `public/fonts/`: Lilita One (SIL Open Font License, `LILITA-ONE-OFL.txt`), served from this site.
+- `public/art-specimen.js`, `public/specimen-draw.js`: the Specimen, the default potato: its SVG renderer and its pure drawing (faces, motion, the scene).
+- `public/art-code.js`, `public/potato-draw.js`: the plain, faceless potato on a steel stand, kept for comparison (`#plain` in the address).
+- `public/fonts/`: Anton (SIL Open Font License, `ANTON-OFL.txt`), served from this site.
 - `shared/`: the matcher (`logic.js`), the categories (`categories.js`) and their lists, shared with the hearing test in `lab/hot-potato/` and served at `/one-device/hot-potato/shared/`. How the lists are built is in `lab/hot-potato/README.md`; sources and licences in `shared/CREDITS.txt`.
-- `test/game.test.js`, `test/potato.test.js`: unit tests (part of `npm test`).
-- `test/e2e-game.mjs`: the browser test.
+- `test/game.test.js`, `test/specimen.test.js`, `test/potato.test.js`: unit tests (part of `npm test`).
+- `test/e2e-game.mjs`: the browser test; `test/stills.mjs`: stills of every screen and a contact sheet of every face, for looking at.
+
+## The look
+
+The screens and the potato are the Game Art Picker's first Hot Potato look, "The Specimen", which the owner picked: a deep navy screen with a lighter diagonal band, bold condensed capitals (Anton) slanted a little, yellow and green on ink, thick dark outlines and flat colours.
+The phone is passed round and read upright.
+On a turn: the category on a yellow tag and who is up, the lives and the fuse, the potato in its rig, the last word with the letter the next word needs boxed in yellow, and the green microphone (the go button while it is passed, "Say it now" while it listens) beside the giant letter.
+The ground heats with the potato: navy, blue, teal, purple, then magenta with a slow pink pulse; a verdict tints it green or red for a moment under a big "Yes!" or "Nope!" (or "Too slow!", "Again?", "Overturned!"); the burst flashes it white and names who was holding it.
 
 ## The potato
 
-The potato is drawn in code in the bold, flat, outlined cartoon style of the art picker's "Specimen", and follows what the owner asked of it:
+The Specimen is the picker's drawing, ported: an angular, faceted tan potato with a face, held in a lab rig (two antennas with bulbs, a test tube each side, two clamp arms and a tray with four lights).
 
-- An ordinary potato merged with a machine, with no face, ever: a steel plate with a status lamp (a wide pill in a dark bezel, with vent slots, so it reads as a readout and never as an eye), two plugs and their cables, a tether from the plate to the stand, and faint circuit traces under the skin.
-- It grows and strains; nothing is bolted on, and nothing first appears as it grows.
-  Every part is drawn from the calm start, placed by one seed in the body's own coordinates, so the same pores sit in the same places at every stage and only stretch.
-  The marks that tell of strain are there from the start, faint and closed: a pucker where each cable meets the skin, short stretch lines, a faint glow in each pore.
-  Growth only deepens them: the creases fan out as the cables pull straight, the stretch lines open and glow, the pores brighten; the tether tilts the plate, the stand's rod sags, and once it presses on the frame both sides bow out together.
-  The browser test checks that every stage draws exactly the same parts.
-- It stays a potato: it grows rounder and lumpier (knobs all round that swell, bulging over the ends of its stand), not into a flat slab.
-- A proper, framed starting point: at first it sits small and calm in its bay, on its stand.
-- Growth is one continuous value the stages ease between (with a little cartoon bounce), not swapped pictures.
-- Cute and bold, pulsing, never shaking: the only idle motion is a scale about where it rests, slow when healthy and quicker as it strains.
-- The light goes green, dim green, yellow, orange, red, then dark when it bursts.
-  Getting worse lets out a puff of steam; a right answer makes it settle; the burst pops a splat that shrinks away at full colour, throws chunks that land inside the bay, and leaves a pile of mash on the stand.
+- It grows at every stage, about the point it sits on, past the clamps; growth is one continuous value the stages ease between, with a little cartoon bounce.
+- The same potato in the same rig at every stage: every part is drawn from the start and only shown, sized or moved, so nothing is added; the browser test checks the same parts at every stage.
+- It heats as the picker drew it: greener skin, lumps crawling under it, glowing veins, sprouts pushing out, a third eye once it strains.
+  The rig reacts as well: the clamps strain open (creaking once it strains), the tubes fill and bubble over, one bulb flickers, then sparks fly to the potato and the bulbs flash pink, the tray's lights go out one by one, the tray cracks.
+- Its face follows the stage, from several per stage (the picker's own first, then a choice by the round's seed that changes between turns): deadpan, side-eye, smug, a yawn, dozing; one brow up, a squint, uneasy; a gasp, gritted teeth, worried and sweating; three eyes, cross-eyed, a grimace; a screech, panic, a scream.
+  Listening, it looks up, and once the fuse burns its eyes follow the spark.
+  Between turns it blinks, glances at whoever is up and sighs.
+  A verdict shows a reaction for a moment: relieved or proud on a right answer, sheepish when the group calls a refusal right, a flinch on a wrong word, jolted awake by silence, an eye-roll at a repeat, betrayed when its word is overturned; the last miss panics until it bursts.
+  `test/stills.mjs` saves a contact sheet of every face.
+- The burst is the picker's: a splat with "BREACH!" and chunks flying out, the clamps flung wide; `reset` brings a fresh, deadpan potato.
+- Motion is the picker's breathing (calm), twitch (warm) and throb (hot and after): scales about where it sits, a few degrees of skew in the twitch and a degree or so of rock at the end; never a shake, and the screen never moves.
 
-With reduced motion it does not breathe or bounce, the steam is skipped and the burst shows its end at once.
+With reduced motion it does not move (faces still change) and the burst shows its end at once.
 It is redrawn only while something moves: still on the start screen, still once the burst has settled, still while paused, and the browser does not draw a hidden page.
 
 ### The seam for other art
 
-`art.js` is the only thing the page knows about the potato's look: `createPotatoArt(host, { seed, reducedMotion })` returns `set(state)`, `play(event)`, `look()` and `destroy()`.
-The state is `artState(g)` from `game.js`: `stage`, `growth`, `strain`, `light`, `phase` and `paused`; the events are `right`, `worse`, `burst` and `reset`.
-A picture-based renderer (painted stages matching this design) can replace the code-drawn one by exporting the same function from `art.js`, with no change to the rules or the screens.
+`art.js` is the only thing the page knows about the potato's look: `createPotatoArt(host, { seed, reducedMotion })` returns `set(state)`, `play(event, detail)`, `look()` and `destroy()`.
+The state is `artState(g)` from `game.js`: `stage`, `growth`, `strain`, `fuse`, `light`, `phase` and `paused`; the events are `right`, `worse`, `doom`, `burst` and `reset`, with the verdict's reason as `detail`.
+It picks the Specimen, or the plain potato with `#plain` in the address; another renderer can take their place by exporting the same function, with no change to the rules or the screens.
 
 ## Tests
 
-- `npm test` runs `test/game.test.js` (the rules against the real lists) and `test/potato.test.js` (the geometry against the owner's rules).
-- `npm run test:hot-potato -- --base=http://localhost:PORT` (`node one-device/hot-potato/test/e2e-game.mjs`) plays the game in a headless, muted Chromium against a built site served on that port (run it through `devguard slot --`), with a scripted fake recogniser: whole rounds to the burst in cities (by taps, on a phone) and animals (by keys, on a desktop), the typed fallback, a blocked microphone, three broken recognisers (one that never starts, one that ends at once, one that starts and aborts), pause (and that it holds the keyboard) and a hidden page, what is remembered, storage refused, reduced motion, that the potato is not redrawn when nothing moves, and the layout at 390x844, 320x568, 844x390 and 1280x720.
+- `npm test` runs `test/game.test.js` (the rules against the real lists), `test/specimen.test.js` (the Specimen against the owner's rules: the same parts at every stage, faces that follow the state, no shake, a drawing loop that stops) and `test/potato.test.js` (the plain potato's geometry).
+- `npm run test:hot-potato -- --base=http://localhost:PORT` (`node one-device/hot-potato/test/e2e-game.mjs`) plays the game in a headless, muted Chromium against a built site served on that port (run it through `devguard slot --`), with a scripted fake recogniser: whole rounds to the burst in cities (by taps, on a phone) and animals (by keys, on a desktop), the typed fallback, a blocked microphone, three broken recognisers (one that never starts, one that ends at once, one that starts and aborts), pause (and that it holds the keyboard) and a hidden page, what is remembered, storage refused, reduced motion, that the potato is not redrawn when nothing moves, its faces and reactions, that nothing shakes, one pass with `#plain`, and the layout at 390x844, 320x568, 844x390 and 1280x720.
   It saves stills of every stage of the potato at 390x844 and 1280x720 in `--shots` (default `/tmp/claude-hot-potato-game/shots`).
+- `node one-device/hot-potato/test/stills.mjs --base=http://localhost:PORT` saves stills of every screen at those four sizes and the faces' contact sheet in `--out` (default `/tmp/claude-hp-game/specimen-stills`).
 - `npm run test:hearing -- --base=http://localhost:PORT` runs the hearing test's browser test; its unit tests (`lab/hot-potato/README.md`) cover the matcher and the lists.
 - Neither browser test is part of the predeploy gate.
 

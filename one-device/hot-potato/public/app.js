@@ -124,7 +124,10 @@ let lastFrame = 0;
 const setScreen = (s) => {
   screen = s;
   game.dataset.screen = s;
-  if (s !== "turn") clearReact();
+  if (s !== "turn") {
+    clearReact();
+    game.dataset.phase = s === "end" ? "over" : "idle";
+  }
   renderHeat();
 };
 
