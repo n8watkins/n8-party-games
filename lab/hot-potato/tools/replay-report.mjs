@@ -17,8 +17,11 @@ const indexFor = (id) => {
 };
 const turns = parseReport(readFileSync(process.argv[2], "utf8"));
 
-const where = (m) => m.place.country ?? m.place.group ?? "";
-const show = (m) => (m.ok ? `yes ${m.said} (${where(m)}) ${m.kind}${m.plural ? ", plural" : ""}` : `no: ${m.reason}${m.place ? ` ${m.said} (${where(m)})` : ""} "${m.heard}"`);
+const where = (m) => {
+  const w = m.place.country ?? m.place.group ?? "";
+  return w ? ` (${w})` : "";
+};
+const show = (m) => (m.ok ? `yes ${m.said}${where(m)} ${m.kind}${m.plural ? ", plural" : ""}` : `no: ${m.reason}${m.place ? ` ${m.said}${where(m)}` : ""} "${m.heard}"`);
 const before = (t) => t.verdictText.replace(/ \(heard.*$/, "").replace(/ \(by .*$/, "");
 
 console.log(`| # | category | need | heard (best) | before (as the report says) | now (${RULES_VERSION}, default) | now (${RULES_VERSION}, hard mode) | early answer now |`);

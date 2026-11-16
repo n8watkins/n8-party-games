@@ -659,7 +659,11 @@ function renderAppeal(turn) {
 
 // ---- Rendering -----------------------------------------------------------------------------------
 
-const upper = (letters) => letters.map((c) => c.toUpperCase()).join(" and ");
+/** "Y", "O and Y", "U, X, Y and Z". */
+const upper = (letters) => {
+  const up = letters.map((c) => c.toUpperCase());
+  return up.length > 1 ? `${up.slice(0, -1).join(", ")} and ${up.at(-1)}` : (up[0] ?? "");
+};
 
 function renderGame() {
   const c = cat();
@@ -672,7 +676,7 @@ function renderGame() {
   const parts = [];
   if (last) parts.push(`after ${last}`);
   if (last && state.skipped.length) {
-    parts.push(state.required ? `${upper(state.skipped)} ${state.skipped.length > 1 ? "are dead ends" : "is a dead end"}, so the letter before` : "every letter of it is a dead end");
+    parts.push(state.required ? `${upper(state.skipped)} ${state.skipped.length > 1 ? "are dead ends" : "is a dead end"}` : "every letter of it is a dead end");
   }
   if (state.chain.length > 1) parts.push(`${state.chain.length} ${c.plural} so far`);
   $("chainLine").textContent = parts.join(" · ");
@@ -703,7 +707,7 @@ function renderDeadNote() {
   const dead = deadLetters(idx, $("hard").checked);
   const c = cat();
   note.textContent = dead.length
-    ? `Dead ends for ${c.plural}: ${upper(dead)}. Fewer than ${DEAD_END_BELOW} ${c.plural} start with ${dead.length > 1 ? "them" : "it"}, so after a name ending in one, the chain goes on from the letter before.`
+    ? `Dead ends: ${upper(dead)} (fewer than ${DEAD_END_BELOW} ${c.plural} start with ${dead.length > 1 ? "them" : "it"}). After one, go on from the letter before.`
     : "";
   note.hidden = !dead.length;
 }
