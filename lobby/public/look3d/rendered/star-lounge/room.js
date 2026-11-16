@@ -226,6 +226,8 @@ export class RoomStarLounge extends RoomRendered {
     };
     put(null);
     const empty = grab();
+    // The pieces were dressed for this picture once (dressing is done to a fresh pose each frame); not again.
+    this.dressPieces = () => {};
     this.shellMat.uniforms.uProbe.value = 1;
     this.renderer.setScissorTest(false);
     this.renderer.clear();
@@ -253,6 +255,7 @@ export class RoomStarLounge extends RoomRendered {
       changed.push(c);
       leaked.push(l);
     }
+    delete this.dressPieces;
     this.idle = 0;
     return { changed, leaked, worst, glass: panes, pixels: w * h };
   }
