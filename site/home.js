@@ -172,7 +172,7 @@ function drawRoom() {
     pic.width = 60;
     pic.height = 64;
     pic.addEventListener("error", () => pic.remove(), { once: true });
-    $("roomPieces").append(h("li", "piece", "", pic, h("span", "piece-name", c.name), h("span", "piece-move", MOVE[c.move] ?? c.move ?? "")));
+    $("roomPieces").append(h("li", "piece", "", pic, h("span", "piece-name", c.name), h("span", "piece-move", MOVE[c.move] ?? String(c.move ?? "").replace(/^./, (l) => l.toUpperCase()))));
   }
   $("piecesNote").textContent = `Pick ${CHARACTERS.length > 1 ? "one" : "it"} and a colour as you walk in. More characters, each with a move of its own, are on the way.`;
 }
