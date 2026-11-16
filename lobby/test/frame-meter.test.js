@@ -142,6 +142,32 @@ describe("the meter on the page", () => {
     expect(made[0].textContent).toMatch(/^3d bar · frame 20\.0 ms \(50 a second\) · worst 20 ms · drawing 2\.0 ms \(1[67] a second\) · 1\.5x$/);
   });
 
+  it("names a rendered room's rung, so a reading off a phone is never ambiguous", () => {
+    const meter = new FrameMeter({ append() {} });
+    const room = stillRoom();
+    // A rendered room (look3d/rendered/room-rendered.js) is the 3D look to the page; it names its own look and rung.
+    const rendered = {
+      look: "3d",
+      rendered: true,
+      lookName: "real",
+      rung: "star-lounge lite 1",
+      tick: room.tick,
+      get drawing() {
+        return { ...room.drawing, skin: this.rung };
+      },
+    };
+    meter.start(rendered);
+    for (let i = 0; i <= 30; i++) {
+      rendered.tick(i);
+      meter.frame(i * 20);
+    }
+    expect(made[0].textContent).toMatch(/^real star-lounge lite 1 · frame /);
+    // Fallen back to the 3D look's own drawing of the room.
+    Object.assign(rendered, { lookName: "3d", rung: "star-lounge" });
+    meter.frame(31 * 20 + SHOW_MS);
+    expect(made[0].textContent).toMatch(/^3d star-lounge · frame /);
+  });
+
   it("writes the line twice a second, not every frame", () => {
     expect(SHOW_MS).toBe(500);
     const meter = new FrameMeter({ append() {} });
