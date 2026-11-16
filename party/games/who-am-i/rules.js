@@ -104,7 +104,6 @@ const MESSAGES = {
   no_guess: "There is no guess to judge.",
   too_soon: "The other player can still answer.",
   already_in_game: "That seat is in the game already.",
-  left: "That seat left the match.",
   full: "The table is full.",
 };
 
@@ -672,7 +671,8 @@ const SYSTEM_MOVES = {
     const s = move.seat;
     if (!Number.isInteger(s) || s < 0) return refuse("bad_move");
     const p = playerOf(state, s);
-    if (p) return refuse(p.left ? "left" : "already_in_game");
+    // (A player who left has ended the match, so it is over before anyone could join again.)
+    if (p) return refuse("already_in_game");
     if (state.pool.includes(s) || state.watchers.includes(s)) return refuse("already_in_game");
     if (state.phase === "setup") {
       if (state.pool.length >= MAX_PLAYERS) return refuse("full");
@@ -705,7 +705,6 @@ const SYSTEM_MOVES = {
     }
     const p = playerOf(state, s);
     if (!p) return refuse("not_playing");
-    if (p.left) return refuse("left");
     p.left = true;
     note(state, "left", { seat: s });
     if (state.phase === "reveal" && state.summary.matchOver) return endMatch(state, "decided");

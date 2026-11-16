@@ -75,7 +75,12 @@ export function normalizeName(name) {
     .replace(/^the /, "");
 }
 
-const nameKeys = (identity) => [identity.name, ...identity.aliases].map(normalizeName).filter(Boolean);
+/** Each name's normalised forms, worked out once: ` name ` and the set of its name and aliases. */
+const KEYS = new Map(
+  IDENTITIES.map((i) => [i.id, { padded: ` ${normalizeName(i.name)} `, all: new Set([i.name, ...i.aliases].map(normalizeName).filter(Boolean)) }]),
+);
+const keysOf = (identity) =>
+  KEYS.get(identity.id) ?? { padded: ` ${normalizeName(identity.name)} `, all: new Set([identity.name, ...identity.aliases].map(normalizeName).filter(Boolean)) };
 
 /**
  * Two names clash when either contains the other as whole words, or they share a name or alias
@@ -83,11 +88,40 @@ const nameKeys = (identity) => [identity.name, ...identity.aliases].map(normaliz
  */
 export function identitiesClash(a, b) {
   if (a.id === b.id) return true;
-  const an = ` ${normalizeName(a.name)} `;
-  const bn = ` ${normalizeName(b.name)} `;
-  if (an.includes(bn) || bn.includes(an)) return true;
-  const bKeys = new Set(nameKeys(b));
-  return nameKeys(a).some((k) => bKeys.has(k));
+  const ka = keysOf(a);
+  const kb = keysOf(b);
+  if (ka.padded.includes(kb.padded) || kb.padded.includes(ka.padded)) return true;
+  for (const k of ka.all) if (kb.all.has(k)) return true;
+  return false;
+}
+
+/**
+ * Everything of a name that reaches the OTHER player's phone during a round: the name itself, its
+ * hints (in the shared turn log once asked for) and its picture's addresses and author; normalised
+ * whole words, padded with spaces.
+ */
+const SHOWN_WORDS = new Map(
+  IDENTITIES.map((i) => {
+    const picture = i.picture ? [i.picture.imageUrl, i.picture.filePage, i.picture.author ?? ""] : [];
+    return [i.id, ` ${normalizeName([i.name, ...i.hints, ...picture].join(" | "))} `];
+  }),
+);
+
+/**
+ * Whether what `a`'s player shows the other phone (`a`'s name, hints or picture) names `b` or one
+ * of its aliases as whole words. The live lists have such pairs: "Link from The Legend of Zelda"
+ * carries "Zelda" to Princess Zelda's player, Katniss Everdeen's picture is a file named after
+ * Jennifer Lawrence, and Princess Zelda's is "Link_to_the_Past_Zelda.png".
+ */
+export function mentions(a, b) {
+  const words = SHOWN_WORDS.get(a.id) ?? ` ${normalizeName(a.name)} `;
+  for (const k of keysOf(b).all) if (words.includes(` ${k} `)) return true;
+  return false;
+}
+
+/** Two names that may be dealt in the same round: no clash, and neither gives the other away. */
+export function pairable(a, b) {
+  return !identitiesClash(a, b) && !mentions(a, b) && !mentions(b, a);
 }
 
 function pickUniform(items, random) {
@@ -112,28 +146,33 @@ function pickOne(candidates, packId, random) {
   return pickUniform(entries[entries.length - 1][1], random);
 }
 
-function drawFrom(pool, used, packId, random) {
+/** The names that can still be dealt: unused, and each with at least one partner it may be dealt beside. */
+function dealable(pool, used) {
   const unused = pool.filter((c) => !used.some((u) => identitiesClash(c, u)));
-  if (!unused.length) return null;
-  const first = pickOne(unused, packId, random);
-  const rest = unused.filter((c) => !identitiesClash(c, first));
-  if (!rest.length) return null;
-  return [first, pickOne(rest, packId, random)];
+  return unused.filter((c) => unused.some((d) => pairable(c, d)));
 }
 
 /**
  * Two different names that clash with nothing used earlier in the match, the first for the round's
  * first guesser; when the pack runs out, the used list starts again (`reshuffled`).
+ * Whether it reshuffles is settled before anything is drawn, from the names already used (shown at
+ * earlier reveals) alone, so the "reshuffled" note says nothing about the names being dealt now.
+ * The generator is called the same number of times whatever is dealt.
  * Returns { pair: [id, id], reshuffled }.
  */
 export function drawPair({ packId, difficulty, usedIds, random }) {
   const pool = packIdentities(packId).filter((c) => DIFFICULTY_POOLS[difficulty].includes(c.difficulty));
-  const used = usedIds.map(getIdentity);
-  const pair = drawFrom(pool, used, packId, random);
-  if (pair) return { pair: pair.map((i) => i.id), reshuffled: false };
-  const again = drawFrom(pool, [], packId, random);
-  if (!again) throw new Error(`The ${packId} pack is too small to deal two names`);
-  return { pair: again.map((i) => i.id), reshuffled: true };
+  let candidates = dealable(pool, usedIds.map(getIdentity));
+  const reshuffled = candidates.length === 0;
+  if (reshuffled) candidates = dealable(pool, []);
+  if (!candidates.length) throw new Error(`The ${packId} pack is too small to deal two names`);
+  const first = pickOne(candidates, packId, random);
+  const second = pickOne(
+    candidates.filter((c) => pairable(c, first)),
+    packId,
+    random,
+  );
+  return { pair: [first.id, second.id], reshuffled };
 }
 
 /** What a viewer allowed to see a name gets of it: the name, its pack and its picture. Never its id. */
