@@ -1,0 +1,14 @@
+/* What the party room's page adds to round five's sheet (style.css, kept as it was). */
+body { margin: 0; }
+[hidden] { display: none !important; }
+/* The room's door button keeps the top right corner (the view is told how much: ctx.inset). */
+#btns { right: calc(var(--gr) + var(--inset-r, 0px)); }
+/* A big screen has no thumbs and no start card: the race, the places and the count. */
+#count { position: absolute; left: 50%; top: 42%; transform: translate(-50%, -50%); z-index: 9; pointer-events: none; font: 400 clamp(64px, 22vh, 220px)/1 var(--display); color: var(--red); -webkit-text-stroke: 3px var(--navy); paint-order: stroke fill; text-shadow: 5px 5px 0 var(--cream), 7px 7px 0 var(--navy); }
+#count:empty { display: none; }
+#count.go { color: var(--teal); }
+#app[data-mode="tvwide"] #hint { top: calc(var(--gt) + 52px); bottom: auto; }
+#app[data-mode="tvwide"] #tvbar { font-size: clamp(16px, 1.6vw, 26px); }
+#app[data-mode="tvwide"] #tvplaces b { font-size: 1em; }
+/* While the house drives a phone's car (its phone was away), the thumbs rest. */
+#app[data-house] :is(.tb, .steerzone) { opacity: 0.35; }

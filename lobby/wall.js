@@ -30,6 +30,7 @@ export const OUTSIDE = [
   { id: "who-am-i", name: "Who Am I?", blurb: "Ask questions, guess your name", players: { min: 2, max: 2 }, devices: { phone: true, desktop: false }, url: "https://whoami.n8builds.dev/" },
 ];
 
+/** A hosted game with the same id takes its coming-soon box's place on the wall (Tin Derby's), so the wall keeps its order. */
 const COMING_SOON = [
   { id: "tin-derby", name: "Tin Derby", blurb: "Wind up your tin racer and go", players: { min: 2, max: 4 }, devices: { phone: true, desktop: false, sharedScreen: "required" } },
   { id: "flood", name: "Flood", blurb: "Climb before the water rises", players: { min: 1, max: 4 }, devices: { phone: true, desktop: false } },
@@ -48,15 +49,18 @@ export function buildWall(hosted, { testGames = false } = {}) {
   const games = new Map();
   // Each game's settings as its manifest describes them, for the step after the vote.
   const fields = new Map();
+  // A hosted game that was coming soon hangs where its coming-soon box hung.
+  const inPlace = new Map();
+  const hang = (manifest, box) => (COMING_SOON.some((m) => m.id === manifest.id) ? inPlace.set(manifest.id, box) : boxes.push(box));
   for (const { manifest, game } of hosted) {
     if (manifest.lobby?.view) {
       // It opens inside the room: the room runs `game`, and the page mounts the view from the game's own files.
-      boxes.push(boxFromManifest(manifest, { view: manifest.path + manifest.lobby.view }));
+      hang(manifest, boxFromManifest(manifest, { view: manifest.path + manifest.lobby.view }));
       games.set(manifest.id, game);
       if (manifest.settings) fields.set(manifest.id, manifest.settings);
     } else {
       // No view the room can mount yet: it plays on its own page.
-      boxes.push(boxFromManifest(manifest, { url: manifest.path }));
+      hang(manifest, boxFromManifest(manifest, { url: manifest.path }));
     }
   }
   if (testGames) {
@@ -64,7 +68,7 @@ export function buildWall(hosted, { testGames = false } = {}) {
     games.set(coinFlip.manifest.id, coinFlip.game);
   }
   for (const manifest of OUTSIDE) boxes.push(boxFromManifest(manifest));
-  for (const manifest of COMING_SOON) boxes.push(boxFromManifest(manifest, { soon: true }));
+  for (const manifest of COMING_SOON) boxes.push(inPlace.get(manifest.id) ?? boxFromManifest(manifest, { soon: true }));
   return { boxes, games, fields };
 }
 
