@@ -8,7 +8,7 @@ import { game as coinFlip, FLIP_MS } from "../games/coin-flip.js";
 import { camera, CLOSER, CORNER_CLEAR, CORNER_WIDTH, PHONE_FRAME, PIECE_CSS, PIECE_HEIGHT, SIGN_TOP, signTop } from "../shared/camera.js";
 import { Pilot, SEND_GAP_MS } from "../shared/pilot.js";
 import { playerLine, statusLine } from "../shared/status.js";
-import { badgeFor, boxFromManifest, leaders, playersLabel, pointsForPlace, standingsFromRows, tally, whereabouts, whyNot } from "../shared/vote.js";
+import { badgeFor, boxFromManifest, leaders, playersLabel, pointsForPlace, spotLights, standingsFromRows, tally, whereabouts, whyNot } from "../shared/vote.js";
 import { JUMP_HEIGHT, JUMP_MS, ROOM, WALK_SPEED, boxCentre, boxWidth, jumpHeight, lightAt, lightHalf, posAt, spawnX } from "../shared/world.js";
 import { TEST_WALL, WALL, wallFor } from "../wall.js";
 
@@ -64,6 +64,22 @@ describe("which games the party can play", () => {
     expect(whyNot(box({ min: 1, max: 4 }, { sharedScreen: "required" }), { players: 2, screens: 0 })).toBe("Needs a big screen");
     expect(whyNot(box({ min: 1, max: 4 }, { sharedScreen: "required" }), { players: 2, screens: 1 })).toBeNull();
     expect(whyNot(box({ min: 1, max: 4 }, {}, { soon: true }), { players: 2, screens: 1 })).toBe("Coming soon");
+  });
+
+  it("keeps a game with an audience lit for a party larger than its seats, and finds its spots on the wall", () => {
+    const watched = boxFromManifest({ id: "w", name: "W", players: { min: 2, max: 2 }, audience: true, devices: { phone: true, upright: true } });
+    expect(watched).toMatchObject({ audience: true, upright: true, min: 2, max: 2 });
+    expect(box({ min: 2, max: 2 }, {})).not.toHaveProperty("audience");
+    expect(box({ min: 2, max: 2 }, {})).not.toHaveProperty("upright");
+    expect(whyNot(watched, { players: 4, screens: 0 })).toBeNull();
+    expect(whyNot(watched, { players: 1, screens: 0 })).toBe("Needs 2 players");
+    // The spots: lights side by side around the game's own, kept on the wall.
+    const wall = ["a", "b", "c", "d", "e"].map((id) => ({ id }));
+    expect(spotLights(wall, "a", 2)).toEqual(["a", "b"]);
+    expect(spotLights(wall, "c", 2)).toEqual(["c", "d"]);
+    expect(spotLights(wall, "c", 3)).toEqual(["b", "c", "d"]);
+    expect(spotLights(wall, "e", 2)).toEqual(["d", "e"]);
+    expect(spotLights(wall.slice(0, 1), "a", 2)).toBeNull();
   });
 
   it("counts the lights, finds a tie, and pays 3, 2, 1", () => {
@@ -306,10 +322,30 @@ describe("the words under the room", () => {
   });
 
   it("tells a player their own vote and who everyone is waiting for", () => {
-    expect(playerLine(base, vote({ standing: { 0: "coin-flip", 1: null }, waiting: [1] }), 0)).toEqual({ vote: "Coin Flip", voted: true, rest: "Waiting for Tom" });
-    expect(playerLine(base, vote({ standing: { 0: "coin-flip", 1: null }, waiting: [1] }), 1)).toEqual({ vote: "Not yet", voted: false, rest: "Everyone is waiting for you" });
+    expect(playerLine(base, vote({ standing: { 0: "coin-flip", 1: null }, waiting: [1] }), 0)).toEqual({ label: "Your vote", vote: "Coin Flip", voted: true, rest: "Waiting for Tom" });
+    expect(playerLine(base, vote({ standing: { 0: "coin-flip", 1: null }, waiting: [1] }), 1)).toEqual({ label: "Your vote", vote: "Not yet", voted: false, rest: "Everyone is waiting for you" });
     expect(playerLine(base, vote(), 0).rest).toBe("2 here, phones only");
     expect(playerLine({ ...base, screens: 1 }, vote({ leaders: ["coin-flip"], count: { endsIn: 2500 } }), 0).rest).toBe("Coin Flip starts in 3");
+  });
+
+  it("says who is choosing a game's settings after the vote", () => {
+    const choosing = (by) => ({ ...base, phase: "settings", choosing: { id: "who-am-i", name: "Who Am I?", by, fields: [], picks: {}, seats: [0, 1], endsIn: 60_000, of: 90_000 } });
+    expect(statusLine(choosing(0), vote())).toEqual({ chip: "SETTINGS", main: "Choosing settings for Who Am I?", sub: "Mabel is choosing.", waiting: [] });
+    expect(statusLine(choosing(-1), vote()).sub).toBe("The room's screen is choosing.");
+    expect(playerLine(choosing(0), vote(), 0).rest).toBe("You choose the settings");
+    expect(playerLine(choosing(0), vote(), 1).rest).toBe("Mabel is choosing settings");
+  });
+
+  it("says nothing about votes once the vote is over: the game being set up, then the one being played", () => {
+    const choosing = { ...base, phase: "settings", choosing: { id: "who-am-i", name: "Who Am I?", by: 0, fields: [], picks: {}, seats: [0, 1], endsIn: 60_000, of: 90_000 } };
+    // The vote from before the step still stands in the room view: it is not shown.
+    const old = vote({ standing: { 0: "coin-flip", 1: null } });
+    expect(playerLine(choosing, old, 1)).toMatchObject({ label: "Up next", vote: "Who Am I?", voted: true });
+    const playing = { ...base, phase: "playing", game: { id: "turns", name: "Turn Test", seats: [0], audience: true } };
+    expect(playerLine(playing, old, 0)).toEqual({ label: "Now", vote: "Turn Test", voted: true, rest: "2 here, phones only" });
+    expect(playerLine(playing, old, 1)).toEqual({ label: "Now", vote: "Turn Test", voted: true, rest: "You are watching" });
+    // A game with no audience: everyone in the room is in it.
+    expect(playerLine({ ...playing, game: { id: "cork-and-bell", name: "Cork & Bell" } }, old, 1)).toMatchObject({ label: "Now", vote: "Cork & Bell" });
   });
 });
 

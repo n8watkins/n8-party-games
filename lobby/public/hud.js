@@ -1,6 +1,7 @@
 // Everything laid over the room: the bottom line a big screen shows, a player's buttons and
 // emote wheel, the door button and its sheet (leave, the emote wheel's six, sound), the one-tap
 // mute, notes ("Tom left"), the card after a game, and what to say when the connection is gone. When the room is gone the page goes to the front page (farewell.js).
+import { awayLine, awayOthers } from "./connection.js";
 import { Controls } from "./controls.js";
 import { ICONS, h, icon } from "./dom.js";
 import { EmoteWheel, openLoadout } from "./emotes/wheel.js";
@@ -61,6 +62,11 @@ export class Hud {
     const turn = h("div", "turn-hint", "", this.el);
     turn.append(icon(ICONS.turn, 20));
     h("span", "", "Turn your phone sideways to see the whole room", turn);
+    // Its mirror: a game laid out for an upright phone, on a phone still held sideways. It sits in
+    // the dark band beside the game's box and shows only then (lobby.css, :root.upright).
+    const upright = h("div", "upright-hint", "", this.el);
+    upright.append(icon(ICONS.turn, 22));
+    h("span", "", "Turn your phone upright for this game", upright);
 
     const bar = (this.bar = h("div", "bar bar-player", "", this.el));
     // Walking under the left thumb, jump and bump under the right (controls.js).
@@ -78,7 +84,7 @@ export class Hud {
     });
 
     const mid = h("div", "status", "", bar);
-    h("span", "status-label", "Your vote", mid);
+    this.label = h("span", "status-label", "Your vote", mid);
     this.dot = h("span", "dot", "", mid);
     this.mine = h("span", "status-main", "Not yet", mid);
     h("span", "status-rule", "", mid);
@@ -120,14 +126,18 @@ export class Hud {
       const key = JSON.stringify([line, zoom]);
       if (key !== this.last) {
         this.last = key;
+        this.label.textContent = line.label;
         this.mine.textContent = line.vote;
         this.mine.classList.toggle("muted", !line.voted);
         this.dot.style.background = room.members[this.opts.seat]?.colour ?? "#888";
         this.rest.textContent = line.rest;
         this.zoomText.textContent = zoom === "closer" ? "Whole room" : "Closer";
+        // A small phone shows only the picture (lobby.css): the button keeps its words for a screen reader.
+        this.zoomBtn.setAttribute("aria-label", this.zoomText.textContent);
         this.zoomIcon.replaceChildren(icon(zoom === "closer" ? ICONS.zoomOut : ICONS.zoomIn, 18));
       }
     }
+    this.showAway(room);
     // A room near the end of its four hours says so, and so does one nobody has touched for a while.
     const left = room.closesIn - (now - voteAt);
     const quiet = room.idleLimit - idle;
@@ -156,6 +166,24 @@ export class Hud {
     this.linkEl ??= h("div", "link-state", "", this.el);
     this.linkEl.textContent = text;
     this.linkEl.hidden = !text;
+    // The word about who is away moves down out of its way.
+    this.el.classList.toggle("linking", !!text);
+  }
+
+  /**
+   * Who else has their page hidden with the socket open, during a turn-based game ("Bo is away"):
+   * still in the match, just not looking. The room view says so (`away` on a member).
+   */
+  showAway(room) {
+    const away = awayOthers(room, this.opts);
+    const text = awayLine(away.map((m) => m.name));
+    if (text === (this.awayEl?.dataset.text ?? "")) return;
+    this.awayEl ??= h("div", "link-state away-mark", "", this.el);
+    this.awayEl.dataset.text = text;
+    this.awayEl.replaceChildren();
+    for (const m of away) h("span", "dot", "", this.awayEl).style.background = m.colour;
+    h("span", "", text, this.awayEl);
+    this.awayEl.hidden = !text;
   }
 
   // ---------------------------------------------------------------- the door button

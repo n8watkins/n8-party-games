@@ -8,6 +8,7 @@ import { BUDGET_CLOSE_MS, DROP_FADE_MS as RECONNECT_GRACE_MS, LobbyCore, MAX_ROO
 import { AWAY_MS, COUNT_MS, SETTLE_MS, TOSS_MS, boxFromManifest } from "../shared/vote.js";
 import { BUMP_COOLDOWN_MS, COOLDOWN_SLACK_MS, IMMUNE_MS, STUN_MS, knockLanding } from "../shared/bump.js";
 import { POSITION_SLACK, boxCentre, lightAt, spawnX } from "../shared/world.js";
+import { turnGame } from "./turn-game.js";
 
 const duo = { id: "duo", name: "Duo", players: { min: 2, max: 4 }, devices: { phone: true, desktop: true } };
 const big = { id: "big", name: "Big", players: { min: 1, max: 4 }, devices: { phone: true, sharedScreen: "required" } };
@@ -493,6 +494,104 @@ describe("a game and the Tonight board", () => {
     expect(core.join("Eve", 2300)).toMatchObject({ ok: false, error: "room_full", message: "A game is on and its seats are taken. Join when it ends." });
     core.gameTick(2000 + FLIP_MS);
     expect(core.join("Eve", 2000 + FLIP_MS + 10)).toMatchObject({ ok: true, seat: 1 });
+  });
+});
+
+describe("a decided match and a player who leaves before the card", () => {
+  const whoAmI = { id: "turns", name: "Who Am I?", players: { min: 2, max: 3 }, devices: { phone: true } };
+
+  /** A party of `names` in a Who Am I?-shaped game, first to `firstTo` (turn-game.js). */
+  function matchOf(names, firstTo) {
+    const game = turnGame({ firstTo, seats: names.length });
+    const core = new LobbyCore({ boxes: [boxFromManifest(whoAmI)], games: new Map([["turns", game]]), seed: 1, code: "BCDFGH", now: 1000 });
+    const tokens = names.map((n) => seated(core, n).token);
+    expect(core.startGame("turns", 2000)).toMatchObject({ ok: true });
+    core.drainNotes();
+    return { core, game, tokens };
+  }
+
+  /** Each seat in `order` takes its turn; those in `scorers` score a point with it. */
+  function play(core, order, scorers, now = 3000) {
+    for (const seat of order) expect(core.playTurn(seat, { say: "?", point: scorers.includes(seat) }, now)).toMatchObject({ ok: true, ended: null });
+  }
+
+  /** A player leaves the party, and the room does its upkeep as the Durable Object does then. */
+  function leave(core, token, now = 4000) {
+    core.leave(token, now);
+    return core.turnUpkeep(now);
+  }
+
+  it("keeps the winner who left on the card in first place, gives the one who stayed second place's points, and says nothing of ending early", () => {
+    const { core, tokens } = matchOf(["Ann", "Bo"], 3);
+    play(core, [0, 1, 0, 1, 0], [0]);
+    expect(core.activity.kind).toBe("game");
+    const out = leave(core, tokens[0]);
+    expect(out.ended.result).toEqual([
+      { seat: 0, score: 3 },
+      { seat: 1, score: 0 },
+    ]);
+    expect(out.ended.last.rows).toEqual([
+      { seat: 0, name: "Ann", colour: expect.any(String), place: 1, points: 3, score: 3 },
+      { seat: 1, name: "Bo", colour: expect.any(String), place: 2, points: 2, score: 0 },
+    ]);
+    expect(out.ended.last).not.toHaveProperty("early");
+    expect(core.drainNotes().map((n) => n.k)).toEqual(["left"]);
+    expect(core.view(4000).members[1]).toMatchObject({ name: "Bo", points: 2 });
+    expect(core.view(4000).tonight).toMatchObject({ games: 1, played: [{ name: "Who Am I?", winners: [{ name: "Ann" }] }] });
+    // Ann's points are kept for her name, as for anyone who leaves: coming back, she has them.
+    expect(core.remembered.get("ann")).toBe(3);
+    expect(seated(core, "Ann", 5000).seat).toBe(0);
+    expect(core.members[0].points).toBe(3);
+  });
+
+  it("adds what the leaver won to what the room kept for them from earlier games", () => {
+    const { core, tokens } = matchOf(["Ann", "Bo"], 1);
+    play(core, [0], [0]);
+    core.playTurn(1, { results: true }, 3100);
+    expect(core.members[0].points).toBe(3);
+    core.holdUntil = 0;
+    expect(core.startGame("turns", 10_000)).toMatchObject({ ok: true });
+    play(core, [0], [0], 10_100);
+    leave(core, tokens[0], 10_200);
+    expect(core.remembered.get("ann")).toBe(6);
+  });
+
+  it("ends early as before when the match was still being played", () => {
+    const { core, tokens } = matchOf(["Ann", "Bo"], 3);
+    play(core, [0, 1, 0, 1], [0]);
+    const out = leave(core, tokens[0]);
+    expect(out.ended.result).toEqual({ winnerSeat: 1, abandonedBy: 0 });
+    expect(out.ended.last.rows).toEqual([{ seat: 1, name: "Bo", colour: expect.any(String), place: 1, points: 3 }]);
+    expect(out.ended.last.early).toEqual({ seat: 0, name: "Ann", why: "left", text: "Ann left the party, so Who Am I? ended." });
+    expect(core.drainNotes().map((n) => n.k)).toEqual(["left", "ended"]);
+    expect(core.remembered.has("ann")).toBe(false);
+  });
+
+  it("keeps all three on the card when one of three leaves a decided match", () => {
+    const { core, tokens } = matchOf(["Ann", "Bo", "Cy"], 2);
+    play(core, [0, 1, 2, 0, 1], [1, 2]);
+    const out = leave(core, tokens[2]);
+    expect(out.ended.last.rows.map((r) => [r.name, r.place, r.points, r.score])).toEqual([
+      ["Bo", 1, 3, 2],
+      ["Cy", 2, 2, 1],
+      ["Ann", 3, 1, 0],
+    ]);
+    expect(out.ended.last).not.toHaveProperty("early");
+    expect(core.members.map((m) => m?.points ?? null)).toEqual([1, 3, null, null]);
+  });
+
+  it("keeps the card, the one who left included, through the room sleeping", () => {
+    const { core, game, tokens } = matchOf(["Ann", "Bo"], 3);
+    play(core, [0, 1, 0, 1, 0], [0]);
+    leave(core, tokens[0]);
+    const woken = LobbyCore.restore({ boxes: [boxFromManifest(whoAmI)], games: new Map([["turns", game]]) }, structuredClone(core.serialize()), 9000);
+    const view = woken.view(9000);
+    expect(view.last.rows.map((r) => [r.name, r.place, r.points, r.score])).toEqual([
+      ["Ann", 1, 3, 3],
+      ["Bo", 2, 2, 0],
+    ]);
+    expect(view.last).not.toHaveProperty("early");
+    expect(woken.remembered.get("ann")).toBe(3);
   });
 });
 

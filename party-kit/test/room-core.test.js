@@ -122,9 +122,10 @@ describe("the authoritative round", () => {
     expect(core.input(ann.seat, { n: 3 }, 2010)).toBe(true);
     const first = core.tick(2033);
     expect(first.events).toEqual([{ seat: 0, n: 3 }]);
-    expect(first.snapshot).toBeNull();
+    expect(first.snap).toBe(false);
     const second = core.tick(2066);
-    expect(second.snapshot).toEqual({ ticks: 2, counts: { 0: 3, 1: 0 } });
+    expect(second.snap).toBe(true);
+    expect(core.snapshotFor(core.viewerOf({ role: "player", seat: 0 }), 2066)).toEqual({ ticks: 2, counts: { 0: 3, 1: 0 } });
   });
 
   it("ignores inputs outside a round and from seats that are not human", () => {
@@ -273,7 +274,9 @@ describe("saving the lobby", () => {
     const ann = seated(core, "Ann");
     core.pin = "4821";
     const copy = RoomCore.restore(counterGame(), JSON.parse(JSON.stringify(core.serialize())), 9000);
-    expect(copy.view(9000)).toMatchObject({ pin: "4821", code: "BCDFGH", seed: 42 });
+    expect(copy.seed).toBe(42);
+    expect(copy.view(9000)).toMatchObject({ pin: "4821", code: "BCDFGH" });
+    expect(copy.view(9000)).not.toHaveProperty("seed");
     expect(copy.view(9000).seats[0]).toMatchObject({ name: "Ann", connected: false });
     expect(copy.connect(ann.token, 9001)).toEqual({ role: "player", seat: 0 });
   });

@@ -324,7 +324,7 @@ So the room is built to be asleep, and to hear as little as it can.
 - **A bump is one event and no wake-up.** The room judges it the moment the message arrives. The knock, the safe time and the cooldown are three times written on a piece and looked at when the next message comes; nothing is scheduled for them, and a knocked piece sends nothing back.
 - **The screen's grace is not timed either.** A room has one screen, and when it drops its place is kept for 15 seconds (a reload, a wifi blip). That is only looked at when another device asks to be the screen.
 - **The keep-alive never wakes the room.** A page sends the text `ping` every 10 seconds and the runtime itself answers `pong` (`setWebSocketAutoResponse`).
-- **A timer runs only while a game is played**, at the game's own tick rate.
+- **A timer runs only while a ticking game is played**, at the game's own tick rate. A turn-based game (`tickHz: 0`) runs none: each input is applied and saved as it comes, the turn timer is the alarm, and the pages keep to the keep-alive (`party-kit/GAME-CONTRACT.md`, "Turn-based games").
 
 Other players' pieces look smooth because each page draws them a little way toward where they should be on every frame, instead of jumping to what the network last said.
 

@@ -5,14 +5,14 @@
 // In the lobby and on the results screen it holds its sockets through the WebSocket
 // Hibernation API and runs no timer: a message or the alarm wakes it, and it goes back to sleep.
 import { DurableObject } from "cloudflare:workers";
-import { RoomCore, LagLine } from "../core/room-core.js";
+import { RoomCore, LagLine, eventsFor, fanOut } from "../core/room-core.js";
 import { newSeed } from "../core/rng.js";
+import { CLOSE_BAD_TOKEN, CLOSE_HELLO_EXPECTED, HONOUR_TOKEN_IN_ADDRESS, UnknownSockets, clientOf, closeQuietly, readHello, seatToken } from "./hello-logic.js";
 import { PIN_DIRECTORY_NAME } from "./pin-logic.js";
 import { REPORT_EVERY_MS, fullMessage, roomBudgetState, spendRoomTime } from "./room-budget.js";
 
 const STORAGE_KEY = "room";
 const CLOSE_ROOM_CLOSED = 4000;
-const CLOSE_BAD_TOKEN = 4003;
 const MAX_MESSAGE_BYTES = 2048;
 
 /**
@@ -25,20 +25,23 @@ export function createPartyRoom(game) {
       super(ctx, env);
       /** @type {RoomCore | null} */
       this.core = null;
-      /** socket -> {token, role, seat, out: LagLine, in: LagLine} */
+      /** socket -> {token, role, seat, out: LagLine, in: LagLine}: the sockets that have a seat (or are a screen). */
       this.sockets = new Map();
+      /** The sockets that have not said whose they are yet: no seat, and nothing is sent to them. */
+      this.unknown = new UnknownSockets();
       this.timer = null;
       /** When the awake time not yet reported to the room budget began; null while the room is asleep. */
       this.meterFrom = null;
       void ctx.blockConcurrencyWhile(async () => {
         const saved = await ctx.storage.get(STORAGE_KEY);
-        if (!saved) return;
         const now = Date.now();
-        this.core = RoomCore.restore(game, saved, now);
-        // Waking from sleep: the sockets are still open, so their owners are still here.
+        if (saved) this.core = RoomCore.restore(game, saved, now);
+        // Waking from sleep: the sockets are still open, so their owners are still here. One that
+        // had not said whose it is before the sleep is still nobody's (also where there is no room).
         for (const ws of ctx.getWebSockets()) {
           const kept = ws.deserializeAttachment();
-          if (kept && this.core.connect(kept.token, now)) this.sockets.set(ws, this.entryFor(ws, kept));
+          if (kept?.unknown) this.unknown.restore(ws, kept);
+          else if (kept && this.core?.connect(kept.token, now)) this.sockets.set(ws, this.entryFor(ws, kept));
         }
       });
     }
@@ -82,33 +85,59 @@ export function createPartyRoom(game) {
       const url = new URL(request.url);
       const pair = new WebSocketPair();
       const [client, server] = [pair[0], pair[1]];
-      const token = url.searchParams.get("token") ?? "";
-      const who = this.core ? this.core.connect(token, Date.now()) : null;
-      if (!who) {
-        // Refused through the Hibernation API too: a socket accepted the standard way (accept())
-        // keeps the room from sleeping for as long as it lives.
-        this.ctx.acceptWebSocket(server);
-        server.close(CLOSE_BAD_TOKEN, "bad_token");
-        return new Response(null, { status: 101, webSocket: client });
-      }
-      // Simulated latency, each way, for tests. Off unless the Worker allows it.
-      const lag = this.env.PARTY_SIM_LATENCY === "on" ? Number(url.searchParams.get("lag") ?? 0) : 0;
-      // A hibernatable socket: the room may sleep while it stays open. What the room has to know
-      // about it rides along on the socket, since the room's memory does not survive sleep.
+      const now = Date.now();
+      // A hibernatable socket, also when it is about to be refused: one accepted the standard way
+      // (accept()) keeps the room from sleeping for as long as it lives.
       this.ctx.acceptWebSocket(server);
-      const kept = { token, role: who.role, seat: who.seat, lag };
-      server.serializeAttachment(kept);
-      const entry = this.entryFor(server, kept);
-      this.sockets.set(server, entry);
+      // Simulated latency is for tests, and off unless the Worker allows it.
+      const lag = this.env.PARTY_SIM_LATENCY === "on" ? Number(url.searchParams.get("lag") ?? 0) : 0;
+      const inAddress = HONOUR_TOKEN_IN_ADDRESS ? url.searchParams.get("token") : null;
+      if (inAddress !== null) {
+        // The old form, from a page loaded before the token left the address (hello-logic.js,
+        // HONOUR_TOKEN_IN_ADDRESS): taken as a socket that opened and said hello with it at once.
+        this.unknown.clear(now);
+        this.seat(server, seatToken(inAddress), lag, now);
+      } else {
+        // Nobody's socket yet: it has no seat and is sent nothing until its first message says
+        // whose it is (greet). What the room knows of it, its client included, rides along on the
+        // socket, since the room's memory does not survive sleep. A code that is no room is
+        // answered the same way, and its hello is refused like any wrong token: opening a socket
+        // does not tell anyone which codes are rooms.
+        this.unknown.add(server, now, lag, clientOf(request));
+      }
+      return new Response(null, { status: 101, webSocket: client });
+    }
 
-      this.send(entry, { t: "hello", you: { role: who.role, seat: who.seat }, room: this.core.view(Date.now()) });
+    /** The first message on a socket: `{t: "hello", token}` seats it, and anything else closes it. */
+    greet(ws, data) {
+      const now = Date.now();
+      const opened = this.unknown.take(ws);
+      this.unknown.clear(now);
+      const token = readHello(data, MAX_MESSAGE_BYTES);
+      if (token === null) return void closeQuietly(ws, CLOSE_HELLO_EXPECTED, "hello_expected");
+      this.seat(ws, token, opened.lag, now);
+    }
+
+    /**
+     * Seats a socket whose hello named `token`, or closes it with nothing said if that names no
+     * seat. Only now does the socket hear anything: the room, and the round as its seat may see it.
+     * The seat's attachment replaces the waiting one, and with it the client it came from.
+     */
+    seat(ws, token, lag, now) {
+      const who = this.core ? this.core.connect(token, now) : null;
+      if (!who) return void closeQuietly(ws, CLOSE_BAD_TOKEN, "bad_token");
+      const kept = { token, role: who.role, seat: who.seat, lag };
+      ws.serializeAttachment(kept);
+      const entry = this.entryFor(ws, kept);
+      this.sockets.set(ws, entry);
+
+      this.send(entry, { t: "hello", you: { role: who.role, seat: who.seat }, room: this.core.view(now) });
       if (this.core.phase !== "lobby" && this.core.state) {
-        this.send(entry, { t: "snap", s: game.snapshot(this.core.state, Date.now()), now: Date.now(), full: true });
+        this.send(entry, { t: "snap", s: this.core.snapshotFor(this.core.viewerOf(entry), now), now, full: true });
       }
       this.broadcastRoom();
       this.schedule();
-      await this.save();
-      return new Response(null, { status: 101, webSocket: client });
+      void this.save();
     }
 
     entryFor(ws, kept) {
@@ -128,6 +157,7 @@ export function createPartyRoom(game) {
     }
 
     webSocketMessage(ws, data) {
+      if (this.unknown.has(ws)) return this.greet(ws, data);
       if (typeof data !== "string" || data.length > MAX_MESSAGE_BYTES) return;
       this.sockets.get(ws)?.in.push(data);
     }
@@ -195,11 +225,8 @@ export function createPartyRoom(game) {
         case "leave":
           core.leave(entry.token, now);
           this.sockets.delete(ws);
-          try {
-            ws.close(1000, "left");
-          } catch {
-            // Already closed.
-          }
+          closeQuietly(ws, 1000, "left");
+          this.dropToken(entry.token, "left");
           this.changed();
           return;
         default:
@@ -216,9 +243,23 @@ export function createPartyRoom(game) {
       const now = Math.max(at, Date.now());
       const started = core.start(now);
       if (!started.ok) return this.send(entry, { t: "error", error: started.error, message: started.message });
-      this.broadcast({ t: "start", room: core.view(now), s: game.snapshot(core.state, now), now });
+      const room = core.view(now);
+      this.broadcastViews((viewer) => ({ t: "start", room, s: core.snapshotFor(viewer, now), now }));
       this.schedule();
       void this.save();
+    }
+
+    /**
+     * After a seat is given up: every other open socket of that token is closed too. Left open, it
+     * would still be taken for that seat and hear its views while a bot plays it. Closed as a seat
+     * that is no longer ours (4003), with why, so its page does not come back.
+     */
+    dropToken(token, reason) {
+      for (const [ws, entry] of [...this.sockets]) {
+        if (entry.token !== token) continue;
+        this.sockets.delete(ws);
+        closeQuietly(ws, CLOSE_BAD_TOKEN, reason);
+      }
     }
 
     isConnected(token) {
@@ -227,6 +268,8 @@ export function createPartyRoom(game) {
     }
 
     onGone(ws) {
+      // A socket that never said whose it was is nobody's drop.
+      this.unknown.take(ws);
       const entry = this.sockets.get(ws);
       if (!entry) return;
       this.sockets.delete(ws);
@@ -265,8 +308,13 @@ export function createPartyRoom(game) {
       const now = Date.now();
       this.meter(now);
       const out = core.tick(now);
-      if (out.events.length) this.broadcast({ t: "ev", ev: out.events, now });
-      if (out.snapshot) this.broadcast({ t: "snap", s: out.snapshot, now });
+      if (out.events.length) {
+        this.broadcastViews((viewer) => {
+          const ev = eventsFor(out.events, viewer);
+          return ev.length ? { t: "ev", ev, now } : null;
+        });
+      }
+      if (out.snap) this.broadcastViews((viewer) => ({ t: "snap", s: core.snapshotFor(viewer, now), now }));
       if (out.ended) this.broadcast({ t: "end", room: core.view(now), result: core.result, now });
       else if (out.roomChanged) this.broadcastRoom();
       if (out.ended || out.roomChanged) {
@@ -293,6 +341,7 @@ export function createPartyRoom(game) {
     }
 
     async alarm() {
+      this.unknown.clear(Date.now());
       if (!this.core) return;
       this.tick();
       if (this.core) {
@@ -311,6 +360,14 @@ export function createPartyRoom(game) {
     broadcast(message) {
       const text = JSON.stringify(message);
       for (const entry of this.sockets.values()) entry.out.push(text);
+    }
+
+    /**
+     * Sends a message that carries game state: `make(viewer)` builds it once for each kind of
+     * viewer (a seat in the round, or the screen view), and each socket gets its own.
+     */
+    broadcastViews(make) {
+      for (const [entry, text] of fanOut(this.sockets.values(), (e) => this.core.viewerOf(e), make)) entry.out.push(text);
     }
 
     broadcastRoom() {
@@ -341,6 +398,7 @@ export function createPartyRoom(game) {
         }
       }
       this.sockets.clear();
+      this.unknown.forget();
       this.core = null;
       await this.ctx.storage.deleteAlarm();
       await this.ctx.storage.deleteAll();
@@ -349,7 +407,7 @@ export function createPartyRoom(game) {
 
     /** For tests and the health page. */
     async debug() {
-      return this.core ? { view: this.core.view(Date.now()), sockets: this.sockets.size } : null;
+      return this.core ? { view: this.core.view(Date.now()), sockets: this.sockets.size, unknown: this.unknown.size } : null;
     }
   };
 }

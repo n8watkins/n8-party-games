@@ -9,21 +9,43 @@
 //   party.on("snapshot", (s, now) => ...)
 //   party.on("end", ({ room, result }) => ...)
 //   party.sendInput({ ... })                         // inputs only, never results
+//   await party.sendInput({ ... }, { id: "q-7" })    // a turn-based game's answer: ok, or a PartyError
 //   party.now()                                      // the room's clock, in ms
+//   party.setAway(document.hidden)                   // hidden with the socket kept open: away, not dropped
 //
 // The session is kept in sessionStorage, so a reload or a dropped connection comes back to the
 // same seat (the room holds it for 30 seconds).
 
 const API = "/api/party";
+/**
+ * The mark on every request this client makes to the room API: it says the page opens its socket
+ * the current way, with the seat's token as the first message. The Worker hands a seat only to a
+ * request that carries it (party-kit/src/worker/http.js holds the same two values).
+ */
+export const PROTOCOL_HEADER = "X-Party-Protocol";
+export const PROTOCOL = "2";
 const STORE_KEY = "party-kit:session";
 // Pings keep the two clocks in step. That matters during a round; in the lobby a slow ping is
 // enough, and it lets the room sleep.
 const PING_EVERY_MS = 2000;
 const IDLE_PING_EVERY_MS = 10_000;
+/** How long sendInput waits for the room to answer an input with an id. */
+export const ANSWER_TIMEOUT_MS = 10_000;
+/**
+ * How long to wait before the `retry`th reconnect: a back-off that doubles from 250 ms to four
+ * seconds, jittered between half of it and all of it, so the phones of a household cut off at the
+ * same moment (a deploy that resets a busy room) do not all come back in step.
+ */
+export function reconnectDelay(retry, random = Math.random) {
+  const full = Math.min(4000, 250 * 2 ** Math.min(retry, 4));
+  return full / 2 + random() * (full / 2);
+}
+/** An input id as a key: 7 and "7" are different ids, as they are to the room. */
+const answerKey = (id) => `${typeof id === "number" ? "n" : "s"}:${id}`;
 
 export class PartyClient {
   /**
-   * @param {{base?: string, lag?: number, storage?: Storage | null, api?: string, quietPing?: {text: string, everyMs: number}}} [opts]
+   * @param {{base?: string, lag?: number, storage?: Storage | null, api?: string, quietPing?: {text: string, everyMs: number}, random?: () => number}} [opts]
    *   lag: simulated latency in ms each way (the room must allow it: PARTY_SIM_LATENCY="on").
    *   api: the path of the room API, for a site with a second kind of room ("/api/lobby").
    *   quietPing: outside a round, send this fixed text instead of the clock ping. A room that
@@ -37,6 +59,8 @@ export class PartyClient {
     this.quietPing = opts.quietPing ?? null;
     this.lag = opts.lag ?? 0;
     this.storage = opts.storage === undefined ? safeStorage() : opts.storage;
+    /** The reconnect back-off's jitter (a test gives its own). */
+    this.random = opts.random ?? Math.random;
     this.handlers = new Map();
     this.session = null; // {code, pin, token, seat, role}
     this.room = null;
@@ -48,6 +72,29 @@ export class PartyClient {
     this.retry = 0;
     this.wantOpen = false;
     this.pingTimer = null;
+    /** The turn-based game the clock was last set for, by a few round trips ("id/round"). */
+    this.clockFor = null;
+    /** Inputs sent with an id and not yet answered: key -> {promise, resolve, reject, timer} (sendInput). */
+    this.answers = new Map();
+    /** What makes this page's input ids its own (nextInputId): fresh on every page load. */
+    this.idNonce = randomNonce();
+    this.idCount = 0;
+    /** The follow-up clock pings of a turn-based game (syncClock), cancelled when the connection goes. */
+    this.clockTimers = [];
+    /** Whether this page told the room it is hidden (setAway): said again on every new connection. */
+    this.away = false;
+    /** The reconnect waiting out its back-off after a drop, if any. */
+    this.retryTimer = null;
+  }
+
+  /**
+   * An id for `sendInput(data, {id})` that no other input of this seat has used in this game,
+   * also after a reload: a random part made when the page loaded, and a count. Send the same id
+   * again only to retry the same input.
+   */
+  nextInputId() {
+    this.idCount += 1;
+    return `${this.idNonce}.${this.idCount}`;
   }
 
   on(type, handler) {
@@ -68,7 +115,7 @@ export class PartyClient {
   async request(method, path, body) {
     const res = await fetch(this.base + this.api + path, {
       method,
-      headers: body ? { "Content-Type": "application/json" } : undefined,
+      headers: body ? { "Content-Type": "application/json", [PROTOCOL_HEADER]: PROTOCOL } : { [PROTOCOL_HEADER]: PROTOCOL },
       body: body ? JSON.stringify(body) : undefined,
     });
     let data = null;
@@ -131,20 +178,32 @@ export class PartyClient {
 
   connect() {
     if (!this.session) return;
+    // One socket at a time: a reconnect still waiting out its back-off is this one.
+    clearTimeout(this.retryTimer);
+    this.retryTimer = null;
     this.wantOpen = true;
     this.setStatus(this.retry ? "reconnecting" : "connecting");
     const origin = this.base || location.origin;
     const url = new URL(`${this.api}/rooms/${this.session.code}/ws`, origin);
     url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
-    url.searchParams.set("token", this.session.token);
+    // The seat's token is never part of the address: addresses are written down by the server's
+    // logs, and whoever reads the token there could take the seat. It is the first message.
     if (this.lag) url.searchParams.set("lag", String(this.lag));
+    const { token } = this.session;
     const ws = new WebSocket(url);
     this.ws = ws;
     ws.onopen = () => {
-      this.retry = 0;
+      // A socket this page has already given up on says nothing: it is not ours to seat.
+      if (this.ws !== ws) return;
       this.heardAt = Date.now();
+      // The hello comes before anything else: until the room has read it, this socket has no
+      // seat, is sent nothing, and is closed by any other first message.
+      ws.send(JSON.stringify({ t: "hello", token }));
+      // A new socket is a page that is showing, to the room: one that is hidden says so first.
+      if (this.away) this.send({ t: "away" });
       this.setStatus("open");
       this.pingPace = 0;
+      this.clockFor = null;
       this.setPingPace(this.pingPaceFor(this.room));
     };
     ws.onmessage = (event) => {
@@ -156,9 +215,18 @@ export class PartyClient {
     ws.onclose = (event) => {
       if (this.ws !== ws) return;
       clearInterval(this.pingTimer);
+      this.stopClockPings();
       this.ws = null;
-      // 4000: the room closed. 4003: the seat is no longer ours (the grace ran out).
+      // An answer cannot come on a closed socket: whoever waits may send the same id again once it is back.
+      this.dropAnswers();
+      // 4000: the room closed. 4003: the seat is no longer ours (the grace ran out, it was given
+      // up, or the room does not know the token). Anything else is a drop, and the socket is
+      // opened again: the signal went, or the room let go of a socket that had not said hello yet
+      // (4009: too many were waiting, or the hello came too late).
       if (event.code === 4000 || event.code === 4003 || !this.wantOpen) {
+        // Final: nothing opens a socket for this session again, not a back-off still pending and
+        // not the page being shown again (setAway).
+        this.wantOpen = false;
         this.forget();
         this.setStatus("closed");
         // The second word is the room's own reason for closing the socket, when it gave one.
@@ -167,8 +235,36 @@ export class PartyClient {
       }
       this.retry += 1;
       this.setStatus("reconnecting");
-      setTimeout(() => this.wantOpen && this.connect(), Math.min(4000, 250 * 2 ** Math.min(this.retry, 4)));
+      this.retryTimer = setTimeout(
+        () => {
+          this.retryTimer = null;
+          if (this.wantOpen) this.connect();
+        },
+        reconnectDelay(this.retry, this.random),
+      );
     };
+  }
+
+  /**
+   * Tells the room this page is hidden (`true`: a locked phone, another app) or showing again
+   * (`false`) while its socket stays open: the seat is away, not dropped, and a turn-based game
+   * hears it through `game.presence`. Remembered, and said again on a new connection. Shown again
+   * with the connection lost (it died while the page was hidden), it reconnects at once instead
+   * of waiting out the back-off. Returns whether it was said to the room now.
+   */
+  setAway(away) {
+    const was = this.away;
+    this.away = !!away;
+    if (this.ws?.readyState === WebSocket.OPEN) {
+      if (was !== this.away) this.send({ t: this.away ? "away" : "back" });
+      return was !== this.away;
+    }
+    if (!this.away && this.wantOpen && !this.ws && this.session) {
+      clearTimeout(this.retryTimer);
+      this.retryTimer = null;
+      this.connect();
+    }
+    return false;
   }
 
   onMessage(text) {
@@ -180,6 +276,9 @@ export class PartyClient {
     }
     switch (msg.t) {
       case "hello":
+        // The room read our hello and seated this socket. Only now does the reconnect back-off
+        // start over: a socket that opens and is closed before this keeps backing off.
+        this.retry = 0;
         this.you = msg.you;
         this.setRoom(msg.room);
         break;
@@ -212,8 +311,16 @@ export class PartyClient {
         this.setRoom(msg.room);
         this.emit("end", msg);
         break;
+      case "ack":
+        this.settleAnswer(answerKey(msg.id), { ok: true, id: msg.id });
+        break;
       case "error":
-        this.emit("error", new PartyError(msg.error, msg.message));
+        // An error with an id answers that input (sendInput); one nobody waits for any more (it
+        // timed out, or the page reloaded) is the page's to hear, on the error event.
+        if (msg.id !== undefined && msg.id !== null) {
+          const err = new PartyError(msg.error, msg.message, msg.id);
+          if (!this.settleAnswer(answerKey(msg.id), err)) this.emit("error", err);
+        } else this.emit("error", new PartyError(msg.error, msg.message));
         break;
       default:
         // Anything else belongs to whoever built on the kit (the party site's lobby).
@@ -223,8 +330,29 @@ export class PartyClient {
   }
 
   pingPaceFor(room) {
-    if (room?.phase === "playing") return PING_EVERY_MS;
+    if (ticking(room)) return PING_EVERY_MS;
     return this.quietPing?.everyMs ?? IDLE_PING_EVERY_MS;
+  }
+
+  /**
+   * A turn-based game (`room.game.turns`) keeps the quiet pace, so a match of people talking does
+   * not wake the room every two seconds; the clock is set by a few round trips when it begins
+   * and after every reconnect, which is all a turn timer needs.
+   */
+  syncClock(room) {
+    if (room?.phase !== "playing" || !room.game?.turns) return;
+    const key = `${room.game.id}/${room.game.round}`;
+    if (this.clockFor === key) return;
+    this.clockFor = key;
+    this.stopClockPings();
+    this.send({ t: "ping", c: Date.now() });
+    for (const after of [300, 1000]) this.clockTimers.push(setTimeout(() => this.clockFor === key && this.send({ t: "ping", c: Date.now() }), after));
+  }
+
+  /** The follow-up clock pings belong to one connection: a new one sends its own. */
+  stopClockPings() {
+    for (const timer of this.clockTimers) clearTimeout(timer);
+    this.clockTimers = [];
   }
 
   setPingPace(ms) {
@@ -239,7 +367,10 @@ export class PartyClient {
 
   setRoom(room) {
     this.room = room;
-    if (this.ws?.readyState === WebSocket.OPEN) this.setPingPace(this.pingPaceFor(room));
+    if (this.ws?.readyState === WebSocket.OPEN) {
+      this.setPingPace(this.pingPaceFor(room));
+      this.syncClock(room);
+    }
     if (this.session && room.pin && room.pin !== this.session.pin) this.session.pin = room.pin;
     this.emit("room", room);
   }
@@ -259,16 +390,60 @@ export class PartyClient {
   }
 
   ping() {
-    if (this.quietPing && this.room?.phase !== "playing") {
+    if (this.quietPing && !ticking(this.room)) {
       if (this.ws?.readyState === WebSocket.OPEN) this.ws.send(this.quietPing.text);
       return;
     }
     this.send({ t: "ping", c: Date.now() });
   }
 
-  /** Inputs only. The room decides what they did. */
-  sendInput(data) {
-    return this.send({ t: "in", d: data });
+  /**
+   * Inputs only. The room decides what they did.
+   *
+   * With no id it is fire and forget, as every ticking game uses it: true when it was sent.
+   * With `{id}` (a string of up to 64 characters or an integer, unique on this page) it returns a
+   * promise for the room's answer from a turn-based game: it resolves with `{ok: true, id}` when
+   * the input was applied, and rejects with a PartyError (`code` the game's error, or "timeout",
+   * "disconnected", "not_connected") when it was not. The fresh snapshot comes before the answer.
+   * The same id sent again (after a reconnect, or a second tap) is never applied twice: the room
+   * answers it the way it did the first time. In a ticking game nothing is answered, so the input
+   * goes without its id and the promise resolves at once with `{ok: true, id, answered: false}`.
+   */
+  sendInput(data, { id = null, timeoutMs = ANSWER_TIMEOUT_MS } = {}) {
+    if (id === null || id === undefined) return this.send({ t: "in", d: data });
+    if (!(typeof id === "string" ? id.length >= 1 && id.length <= 64 : Number.isSafeInteger(id))) {
+      return Promise.reject(new PartyError("bad_id", "An input id is a string of up to 64 characters, or a whole number."));
+    }
+    if (ticking(this.room)) {
+      return this.send({ t: "in", d: data }) ? Promise.resolve({ ok: true, id, answered: false }) : Promise.reject(new PartyError("not_connected", "Not connected to the room."));
+    }
+    const key = answerKey(id);
+    let waiting = this.answers.get(key);
+    if (!waiting) {
+      waiting = {};
+      waiting.promise = new Promise((resolve, reject) => Object.assign(waiting, { resolve, reject }));
+      this.answers.set(key, waiting);
+    }
+    clearTimeout(waiting.timer);
+    waiting.timer = setTimeout(() => this.settleAnswer(key, new PartyError("timeout", "The room did not answer in time.")), timeoutMs);
+    if (!this.send({ t: "in", d: data, id })) this.settleAnswer(key, new PartyError("not_connected", "Not connected to the room."));
+    return waiting.promise;
+  }
+
+  /** Every input still waiting for an answer is rejected: the connection it went on is gone. */
+  dropAnswers() {
+    for (const key of [...this.answers.keys()]) this.settleAnswer(key, new PartyError("disconnected", "The connection to the room dropped before it answered."));
+  }
+
+  /** Resolves (with a result) or rejects (with a PartyError) the promise waiting on an input's answer. */
+  settleAnswer(key, outcome) {
+    const waiting = this.answers.get(key);
+    if (!waiting) return false;
+    this.answers.delete(key);
+    clearTimeout(waiting.timer);
+    if (outcome instanceof Error) waiting.reject(outcome);
+    else waiting.resolve(outcome);
+    return true;
   }
   setReady(ready) {
     return this.send({ t: "ready", v: !!ready });
@@ -293,6 +468,7 @@ export class PartyClient {
   leave() {
     this.wantOpen = false;
     this.send({ t: "leave" });
+    this.dropAnswers();
     this.forget();
     this.ws?.close();
   }
@@ -303,6 +479,8 @@ export class PartyClient {
     const ws = this.ws;
     this.ws = null;
     clearInterval(this.pingTimer);
+    this.stopClockPings();
+    this.dropAnswers();
     ws?.close();
     this.setStatus("reconnecting");
     if (reconnectAfterMs !== null) setTimeout(() => this.connect(), reconnectAfterMs);
@@ -330,10 +508,25 @@ export class PartyClient {
 }
 
 export class PartyError extends Error {
-  constructor(code, message) {
+  /** `id`: the input this answers, for an error the room sent back for one (sendInput). */
+  constructor(code, message, id = undefined) {
     super(message);
     this.code = code;
+    if (id !== undefined) this.id = id;
   }
+}
+
+/** A game on the room's timer is being played: the clock pings keep their quick pace. A turn-based game is not ticked. */
+function ticking(room) {
+  return room?.phase === "playing" && !room.game?.turns;
+}
+
+/** Eight random letters and digits, from the secure source when there is one. */
+function randomNonce() {
+  const bytes = new Uint8Array(8);
+  if (globalThis.crypto?.getRandomValues) globalThis.crypto.getRandomValues(bytes);
+  else for (let i = 0; i < bytes.length; i++) bytes[i] = Math.floor(Math.random() * 256);
+  return Array.from(bytes, (b) => (b % 36).toString(36)).join("");
 }
 
 function safeStorage() {

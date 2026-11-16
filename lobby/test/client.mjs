@@ -9,7 +9,9 @@ export function partyApi(base) {
   const api = base + "/api/lobby";
 
   async function call(method, path, body) {
-    const res = await fetch(api + path, { method, headers: body ? { "Content-Type": "application/json" } : undefined, body: body ? JSON.stringify(body) : undefined });
+    // The mark the kit's client puts on its requests (party-client.js, PROTOCOL): a request to
+    // make or join a room without it is taken for a page loaded before the handshake changed.
+    const res = await fetch(api + path, { method, headers: body ? { "Content-Type": "application/json", "X-Party-Protocol": "2" } : undefined, body: body ? JSON.stringify(body) : undefined });
     return { status: res.status, ...(await res.json().catch(() => ({}))) };
   }
 
@@ -17,13 +19,20 @@ export function partyApi(base) {
    * Opens a socket for a session ({code, token, seat}) and returns a small client around it. It
    * sends the keep-alive every ten seconds, as a page does (the room lets a socket silent for 25
    * seconds go), unless `keepAlive: false` (a phone that loses its signal without a word).
+   *
+   * The seat's token is never in the address: it is the socket's first message, sent the moment
+   * the socket opens, as the page's client does. `hello: false` opens the socket and says nothing
+   * (the room does not know whose it is), and `oldForm: true` puts the token in the address the
+   * way pages did before (taken as that hello, for now). `from` is the address the socket comes
+   * from, as Cloudflare would put it on the request (the local runtime passes it through).
    */
-  function connect(session, { keepAlive = true } = {}) {
+  function connect(session, { keepAlive = true, hello = true, oldForm = false, from = null } = {}) {
     const url = new URL(api + "/rooms/" + session.code + "/ws", base);
     url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
-    url.searchParams.set("token", session.token);
-    const ws = new WebSocket(url);
-    const alive = keepAlive ? setInterval(() => ws.readyState === 1 && ws.send("ping"), 10_000) : null;
+    if (oldForm) url.searchParams.set("token", session.token);
+    const ws = from ? new WebSocket(url, { headers: { "CF-Connecting-IP": from } }) : new WebSocket(url);
+    // An old page sends the keep-alive too; a socket that says nothing does not.
+    const alive = keepAlive && (hello || oldForm) ? setInterval(() => ws.readyState === 1 && ws.send("ping"), 10_000) : null;
     alive?.unref?.();
     const seen = [];
     const raw = [];
@@ -51,7 +60,12 @@ export function partyApi(base) {
           waiters.push(w);
           setTimeout(() => reject(new Error("timed out waiting")), ms);
         }),
-      opened: new Promise((r) => (ws.onopen = r)),
+      opened: new Promise((resolve) => {
+        ws.onopen = () => {
+          if (hello && !oldForm) ws.send(JSON.stringify({ t: "hello", token: session.token }));
+          resolve();
+        };
+      }),
       closed: new Promise((r) => (ws.onclose = (e) => (clearInterval(alive), r({ code: e.code, reason: e.reason })))),
       /** Says where the piece is, standing still, in steps the room believes. */
       goto(x) {

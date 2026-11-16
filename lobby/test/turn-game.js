@@ -1,0 +1,304 @@
+// A small turn-based game in the shape of Who Am I?, and a party voted into it, for the tests of
+// turn-based games on the real party room class (party-room-turns, party-room-presence and
+// party-room-answers). Two seats, a secret per seat that only the other seat may see, a turn
+// timer, and (with `presence`) a timer that pauses while a seat is missing, as Who Am I? does.
+import { expect } from "vitest";
+import { openRoom, settle, voteIn, voteTo, walkIn, walkTo } from "./fake-room.js";
+import { ROOM, boxCentre } from "../shared/world.js";
+
+export const TURN_MS = 30_000;
+/** With `presence`: how long the other seat must be missing before a player may end the game on their own (Who Am I?'s host override). */
+export const OVERRIDE_MS = 30_000;
+
+/**
+ * Two seats take turns to say something. Each seat's secret is seen by the other seat and never
+ * by its own, nor by a screen. Saying something passes the turn and tells the other seat (and
+ * only it) the speaker's secret; a turn not taken in TURN_MS times out (tick) and passes too.
+ * Saying `win` wins; with `maxTimeouts`, the seat that did not time out wins at the last one.
+ * With `own`, it writes and reads its own saves as a string, as Who Am I? does.
+ *
+ * With `presence`, it hears who is here (game.presence): the turn timer pauses while either seat
+ * is dropped or away and runs on from where it stopped when both are back, and once the other
+ * seat has been missing OVERRIDE_MS a player may say `override` to win on their own.
+ *
+ * With `settings`, it has settings (SETTINGS_FIELDS: the turn timer, the match length, who
+ * starts) and refuses nine rounds on the short timer, as Who Am I? refuses what cannot be played.
+ * With `carry`, a match leaves the loser and its draw for a rematch, and the loser starts it.
+ * `calls.created` holds every context `create` was given. `fields`
+ * are added to the game object as they are (reconnectGraceMs, idleShutdownMs, abandon, ...).
+ *
+ * With `firstTo`, it is a match of points, as Who Am I?'s "first to 3" is: saying something with
+ * `point` scores one. The seat that reaches `firstTo` decides the match and its summary is up
+ * ("Match over"), but the match is over for the room only once a player says `results` (Who Am
+ * I?'s "See final results"). Its places and result are the scores', from the moment it is
+ * decided, and its `abandon` keeps that decided result whoever leaves; before then, the seats
+ * still here are placed by their scores and the one gone gets no place (a forfeit).
+ * `seats` is how many may play (2 or 3); the turn goes round them in order.
+ */
+export function turnGame({ own = false, maxTimeouts = Infinity, presence = false, settings = false, carry = false, firstTo = 0, seats: maxSeats = 2, fields = {} } = {}) {
+  const calls = { tick: 0, input: 0, presence: [], abandon: [], bot: 0, created: [], settings: [] };
+  const game = {
+    id: "turns",
+    minSeats: 2,
+    maxSeats,
+    tickHz: 0,
+    calls,
+    create(context) {
+      const { seats, now } = context;
+      calls.created.push(structuredClone(context));
+      const order = seats.map((s) => s.seat);
+      // With settings, the turn timer and who starts are the host's choice; with a carry from the
+      // same two seats, the loser of the last match starts whatever was chosen.
+      const turnMs = context.settings ? context.settings.pace * 1000 : TURN_MS;
+      let turn = context.settings?.first === "other" ? 1 : 0;
+      if (context.carry) turn = Math.max(0, order.indexOf(context.carry.loser));
+      return {
+        seats: order,
+        secrets: Object.fromEntries(seats.map((s) => [s.seat, `SECRET-${s.seat}-${crypto.randomUUID()}`])),
+        turn,
+        turnMs,
+        deadline: now + turnMs,
+        paused: null,
+        missing: {},
+        moves: [],
+        timeouts: 0,
+        winner: null,
+        // With firstTo: each seat's points, and whether the match is decided (its summary is up).
+        scores: Object.fromEntries(order.map((s) => [s, 0])),
+        decided: false,
+        // The last match's draw, kept out of this one (Who Am I?'s identities).
+        avoid: context.carry?.used ?? [],
+      };
+    },
+    input(state, seat, data, now) {
+      calls.input += 1;
+      if (data?.override) {
+        const other = state.seats.find((s) => s !== seat);
+        const since = state.missing[other];
+        if (since === undefined || now - since < OVERRIDE_MS) return { ok: false, error: "too_soon", message: "Wait for the other player." };
+        state.winner = seat;
+        return { ok: true, events: [{ k: "override", seat }] };
+      }
+      if (state.decided) {
+        // The match summary is up: the only thing left is to see the final results.
+        if (!data?.results) return { ok: false, error: "match_over", message: "The match is over." };
+        state.winner = ranked(state)[0].seat;
+        return { ok: true, events: [{ k: "results" }] };
+      }
+      if (seat !== state.seats[state.turn]) return { ok: false, error: "not_your_turn", message: "It is not your turn." };
+      const say = String(data?.say ?? "");
+      state.moves.push({ seat, say });
+      if (data?.win) state.winner = seat;
+      const other = state.seats[(state.turn + 1) % state.seats.length];
+      state.turn = (state.turn + 1) % state.seats.length;
+      if (state.paused === null) state.deadline = now + state.turnMs;
+      else state.paused = state.turnMs;
+      const events = [{ k: "said", seat, say }, { k: "psst", only: other, about: seat, secret: state.secrets[seat] }];
+      if (firstTo && data?.point) {
+        state.scores[seat] += 1;
+        if (state.scores[seat] >= firstTo) {
+          state.decided = true;
+          events.push({ k: "match_over", winner: seat });
+        }
+      }
+      return { ok: true, events };
+    },
+    // No turn timer runs while the match summary is up.
+    nextDeadline: (state) => (state.paused === null && !state.decided ? state.deadline : null),
+    tick(state, now) {
+      calls.tick += 1;
+      const seat = state.seats[state.turn];
+      state.timeouts += 1;
+      state.turn = (state.turn + 1) % state.seats.length;
+      state.deadline = now + state.turnMs;
+      if (state.timeouts >= maxTimeouts) state.winner = state.seats[state.turn];
+      return [{ k: "timed_out", seat }];
+    },
+    snapshot(state, now, viewer) {
+      const base = { turn: state.seats[state.turn], deadline: state.paused === null ? state.deadline : null, paused: state.paused !== null, missing: Object.keys(state.missing).map(Number), moves: state.moves.length, timeouts: state.timeouts };
+      if (viewer?.role === "player" && state.seats.includes(viewer.seat)) {
+        return { ...base, you: viewer.seat, others: Object.fromEntries(state.seats.filter((s) => s !== viewer.seat).map((s) => [s, state.secrets[s]])) };
+      }
+      // Who Am I?'s audience: a member watching the game sees both secrets (the big screen none).
+      if (viewer?.role === "audience") return { ...base, audience: viewer.seat, all: { ...state.secrets } };
+      return { ...base, screen: true };
+    },
+    isOver: (state) => state.winner !== null,
+    standings: (state) => state.seats.map((seat) => ({ seat, place: seat === state.winner ? 1 : 2 })),
+    result: (state) => ({ winnerSeat: state.winner }),
+    // Never called for a turn-based game: nobody stands in for a player.
+    bot() {
+      calls.bot += 1;
+      return [];
+    },
+  };
+  if (firstTo) {
+    game.standings = (state) => (state.decided ? placesOf(ranked(state)) : []);
+    // Result rows, best first, each with its score: the card shows the score beside the points.
+    game.result = (state) => (state.decided ? ranked(state) : null);
+    game.abandon = (state, seat, now) => {
+      calls.abandon.push({ seat, at: now, decided: state.decided });
+      // Decided before anyone left: the match ends as it was decided, whoever leaves.
+      if (state.decided) return { standings: game.standings(state), result: game.result(state), events: [] };
+      // Still being played: the seats still here are placed by their points, the one gone forfeits.
+      const stayed = ranked(state).filter((r) => r.seat !== seat);
+      return { standings: placesOf(stayed), result: { winnerSeat: stayed[0].seat, abandonedBy: seat }, events: [{ k: "abandoned", seat }] };
+    };
+  }
+  if (presence) {
+    game.presence = (state, seat, report, now) => {
+      calls.presence.push({ seat, ...report, at: now });
+      const missing = !report.connected || report.away;
+      if (missing === (state.missing[seat] !== undefined)) return false;
+      if (missing) state.missing[seat] = now;
+      else delete state.missing[seat];
+      const anyMissing = Object.keys(state.missing).length > 0;
+      if (anyMissing && state.paused === null) {
+        state.paused = Math.max(0, state.deadline - now);
+        state.deadline = null;
+      } else if (!anyMissing && state.paused !== null) {
+        state.deadline = now + state.paused;
+        state.paused = null;
+      }
+      return [{ k: missing ? "missing" : "back", seat }];
+    };
+  }
+  if (settings) {
+    // Who Am I?'s way: fill in what is missing, and refuse a combination that cannot be played.
+    game.settings = (value) => {
+      calls.settings.push(structuredClone(value));
+      const clean = { pace: value?.pace ?? 30, rounds: value?.rounds ?? 3, first: value?.first ?? "host" };
+      if (clean.pace === 30 && clean.rounds === 9) return { ok: false, error: "too_long", message: "Nine rounds need the longer timer." };
+      return clean;
+    };
+  }
+  if (carry) {
+    // What a rematch starts from: who lost (they start), and the last match's draw.
+    game.carry = (state) => ({ loser: state.seats.find((s) => s !== state.winner) ?? null, used: Object.values(state.secrets) });
+  }
+  if (own) {
+    game.serialize = (state) => JSON.stringify({ shape: "turns/1", state });
+    game.restore = (text) => {
+      const saved = JSON.parse(text);
+      if (saved.shape !== "turns/1") throw new Error("Not a saved turns game");
+      return saved.state;
+    };
+  }
+  return Object.assign(game, fields);
+}
+
+/** With firstTo: each seat and its points, most first (a tie by seat order). */
+function ranked(state) {
+  return state.seats.map((seat) => ({ seat, score: state.scores[seat] })).sort((p, q) => q.score - p.score || p.seat - q.seat);
+}
+
+/** Places for rows of scores: equal scores share a place. */
+function placesOf(rows) {
+  return rows.map((r) => ({ seat: r.seat, place: 1 + rows.filter((o) => o.score > r.score).length }));
+}
+
+/** How the test game's settings are described in its manifest (`manifest.settings`). */
+export const SETTINGS_FIELDS = [
+  {
+    key: "pace",
+    label: "Turn timer",
+    options: [
+      { value: 30, label: "30 seconds" },
+      { value: 60, label: "60 seconds" },
+    ],
+    default: 30,
+  },
+  { key: "rounds", label: "Match length", options: [1, 3, 9], default: 3 },
+  {
+    key: "first",
+    label: "Who starts",
+    options: [
+      { value: "host", label: "The host" },
+      { value: "other", label: "The other player" },
+    ],
+  },
+];
+
+/** The game as it is saved in the room's storage right now, or null. */
+export function savedGame(ctx) {
+  const saved = ctx.store.get("lobby")?.game;
+  if (!saved) return null;
+  return saved.state.by === "game" ? JSON.parse(saved.state.data).state : saved.state.data;
+}
+
+/** A party of Ann, Bo and a big screen, voted into the game. */
+export async function started(createLobbyRoom, game, opts) {
+  const r = await openRoom(createLobbyRoom, game, opts);
+  const { ctx, connect } = r;
+  ctx.keepAlive = true;
+  const ann = await ctx.room.create({ code: "BCDFGH", nickname: "Ann", as: "player" });
+  const bo = await ctx.room.join({ nickname: "Bo", as: "player" });
+  const screen = await ctx.room.join({ as: "screen" });
+  const ws = { ann: await connect(ann.token), bo: await connect(bo.token), screen: await connect(screen.token) };
+  await voteIn(r, [ws.ann, 0], [ws.bo, 1]);
+  await settle();
+  expect(ctx.room.core.activity.kind).toBe("game");
+  const state = ctx.room.core.activity.state;
+  return { ...r, tokens: { ann: ann.token, bo: bo.token, screen: screen.token }, ws, secrets: { ann: state.secrets[0], bo: state.secrets[1] } };
+}
+
+/**
+ * A party of Ann, Bo and a big screen, voted into a game with settings: the room is in the
+ * settings step. `manifest.settings` is SETTINGS_FIELDS unless `opts.manifest` says otherwise.
+ */
+export async function choosing(createLobbyRoom, game, opts = {}) {
+  const r = await openRoom(createLobbyRoom, game, { ...opts, manifest: { settings: SETTINGS_FIELDS, ...opts.manifest } });
+  const { ctx, connect } = r;
+  ctx.keepAlive = true;
+  const ann = await ctx.room.create({ code: "BCDFGH", nickname: "Ann", as: "player" });
+  const bo = await ctx.room.join({ nickname: "Bo", as: "player" });
+  const screen = await ctx.room.join({ as: "screen" });
+  const ws = { ann: await connect(ann.token), bo: await connect(bo.token), screen: await connect(screen.token) };
+  await voteTo(r, "settings", [ws.ann, 0], [ws.bo, 1]);
+  await settle();
+  return { ...r, tokens: { ann: ann.token, bo: bo.token, screen: screen.token }, ws };
+}
+
+/**
+ * A party of four (Ann, Bo, Cy, Di) and a big screen, for a two-seat game that takes an audience
+ * (`manifest.audience`), with two more lights on the wall: everyone voted the game in, and the room
+ * is choosing its players on two spots (the game's own light and the next). `opts.manifest` adds
+ * to the game's manifest.
+ */
+export async function spotsFor4(createLobbyRoom, game, opts = {}) {
+  const r = await openRoom(createLobbyRoom, game, { more: 2, ...opts, manifest: { audience: true, ...opts.manifest } });
+  const { ctx, connect } = r;
+  ctx.keepAlive = true;
+  const ann = await ctx.room.create({ code: "BCDFGH", nickname: "Ann", as: "player" });
+  const others = [];
+  for (const nickname of ["Bo", "Cy", "Di"]) others.push(await ctx.room.join({ nickname, as: "player" }));
+  const screen = await ctx.room.join({ as: "screen" });
+  const tokens = { ann: ann.token, bo: others[0].token, cy: others[1].token, di: others[2].token, screen: screen.token };
+  const ws = {};
+  for (const [who, token] of Object.entries(tokens)) ws[who] = await connect(token);
+  await voteTo(r, "settings", [ws.ann, 0], [ws.bo, 1], [ws.cy, 2], [ws.di, 3]);
+  await settle();
+  return { ...r, tokens, ws };
+}
+
+/** Walks a piece onto spot `k` (the k-th light from the game's own), and lets the room settle. */
+export async function standOn(r, ws, seat, k) {
+  const place = r.ctx.room.core.activity.spots[k].place;
+  await walkIn(r.say, r.ctx, ws, seat, r.ctx.room.core.boxes.findIndex((box) => box.id === place));
+  await settle();
+}
+
+/** Walks a piece off spot `k`, into the dark just to the left of its light, through no other light. */
+export async function stepOff(r, ws, seat, k) {
+  const core = r.ctx.room.core;
+  const n = core.boxes.length;
+  const i = core.boxes.findIndex((box) => box.id === core.activity.spots[k].place);
+  await walkTo(r.say, r.ctx, ws, seat, boxCentre(i, n) - (ROOM.boxesRight - ROOM.boxesLeft) / n / 2);
+  await settle();
+}
+
+/** What each socket was sent from now on: call the result for the frames since. */
+export function from(...sockets) {
+  const at = new Map(sockets.map((ws) => [ws, ws.frames.length]));
+  return (ws) => ws.frames.slice(at.get(ws)).map((f) => JSON.parse(f));
+}
