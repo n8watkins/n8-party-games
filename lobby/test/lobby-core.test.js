@@ -656,6 +656,30 @@ describe("a hidden page's grace in a turn-based game (the owner's rule: hide and
     expect(woken.turnUpkeep(31_000 + GRACE).ended.last.early).toMatchObject({ seat: 1, why: "gone" });
   });
 
+  it("a move that changes the game gives the whole grace back, even to a player who was away a moment ago", () => {
+    const { core, tokens } = matchOf();
+    expect(core.playTurn(0, { say: "?" }, 3000)).toMatchObject({ ok: true });
+    core.setAway(tokens[1], true, 4000);
+    core.setAway(tokens[1], false, 54_000);
+    expect(core.playTurn(1, { say: "Am I a bird?" }, 54_000)).toMatchObject({ ok: true, answer: { ok: true } });
+    core.setAway(tokens[1], true, 54_000);
+    expect(core.view(54_000).members[1].awayIn).toBe(GRACE);
+  });
+
+  it("an ok answer that changes nothing (an old command sent again under a fresh id) gives no grace back, so a hidden player cannot stall with it", () => {
+    const { core, game, tokens } = matchOf();
+    // As Who Am I?'s engine does with a commandId it has seen: `ok`, and nothing changes.
+    const input = game.input;
+    game.input = (state, seat, data, now) => (data?.again ? { ok: true, events: [] } : input(state, seat, data, now));
+    core.setAway(tokens[1], true, 4000);
+    core.setAway(tokens[1], false, 54_000);
+    expect(core.playTurn(1, { again: true }, 54_000, "fresh-1")).toMatchObject({ ok: true, answer: { ok: true } });
+    core.setAway(tokens[1], true, 54_000);
+    // 50 s used: 10 s left, not a fresh minute.
+    expect(core.view(54_000).members[1].awayIn).toBe(10_000);
+    expect(core.turnUpkeep(64_000).ended.last.early).toMatchObject({ seat: 1, why: "gone" });
+  });
+
   it("changes nothing in a real-time game: a hidden page starts no clock and is shown with no time", () => {
     const core = room();
     const tokens = ["Ann", "Bo"].map((n) => seated(core, n).token);

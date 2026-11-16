@@ -39,7 +39,7 @@
 import { ID_REUSED, answerOf, inputDigest, lookup, remember } from "../../party-kit/src/core/answers.js";
 import { hasAudience, needsSpots, openSpots, spotSeats, spotsFull, takeSpots, validSpots } from "../../party-kit/src/core/audience.js";
 import { makeRng } from "../../party-kit/src/core/rng.js";
-import { abandonOutcome, absenceClock, clockEndsAt, goneWhy, graceEndsAt, graceOf, isClock, isMissing, lifetimesOf, presenceOutcome, reportOf, sameReport, trackAbsence } from "../../party-kit/src/core/presence.js";
+import { abandonOutcome, absenceClock, clockEndsAt, goneWhy, graceEndsAt, graceOf, graceUsed, isClock, isMissing, lifetimesOf, presenceOutcome, reportOf, sameReport, trackAbsence } from "../../party-kit/src/core/presence.js";
 import { applyChange, carryFor, carryOf, checkSettings, fieldDefaults, hasCarry, hasSettings, seatsKey, settingFields, settingsProblems } from "../../party-kit/src/core/settings.js";
 import { copyState, deadlineOf, gameProblems, inputOutcome, isTurnBased, loadState, saveState, stateKey } from "../../party-kit/src/core/turns.js";
 import { viewerFor } from "../../party-kit/src/core/views.js";
@@ -1287,10 +1287,16 @@ export class LobbyCore {
     if (!answer.ok && draft !== a.state && unchanged()) {
       return { ok: true, quiet: true, answer, events: outcome.events, snapshot: (viewer) => game.snapshot(a.state, now, viewer), viewerOf: (who) => this.viewerOf(who, a), ended: null };
     }
+    // A move the game took is the player here and playing: their seat has its whole grace again.
+    // Only a move that changed the game: an `ok` that changed nothing (an engine's answer to a
+    // command it has already seen, sent again under a fresh id) gives nothing back, or a hidden
+    // player could stall for ever by showing the page, re-sending an old command and hiding again.
+    // Compared only when some grace is used, so the common case pays nothing for it.
+    const clock = a.clocks?.[seat];
+    const moved = answer.ok && !!clock && !isMissing(this.members[seat]) && graceUsed(clock, now) > 0 && !(draft !== a.state && unchanged());
     a.state = draft;
     delete a.stuck;
-    // A move the game took is the player here and playing: their seat has its whole grace again.
-    if (answer.ok && a.clocks && !isMissing(this.members[seat])) a.clocks[seat] = absenceClock(now);
+    if (moved) a.clocks[seat] = absenceClock(now);
     return { ok: true, answer, ...this.turnOut(game, outcome.events, now) };
   }
 
