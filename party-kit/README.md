@@ -58,6 +58,7 @@ What a game must export so the party site can host it is in [GAME-CONTRACT.md](G
 | `src/worker/room.js` | The Durable Object around `RoomCore`: WebSockets, the tick loop, saving, shutdown. |
 | `src/worker/pin-directory.js`, `pin-logic.js` | 4-digit PINs: 15 minute life, 10 minute cooldown before reuse. |
 | `src/worker/rate-limiter.js`, `limit-logic.js` | Fixed-window limits per client address, and the message rate one open socket may keep. |
+| `src/worker/hello-logic.js` | The socket handshake: reading the first message (`hello`), and the sockets that have not said whose they are yet. |
 | `src/worker/room-budget.js`, `budget-logic.js` | The room budget: a cap on hosted room time per day and per month, and the meter a room counts its awake time with. |
 | `src/worker/score-board.js`, `score-logic.js` | The score board: a game's ten best scores under three letters. |
 | `src/worker/http.js` | Responses and security headers, the body limit, the origin check, the QR allowlist. |
@@ -130,6 +131,9 @@ The party room counts everything, with the kit's `AwakeMeter` (below).
 The PIN directory, the limiter, the score board and the budget object themselves are not counted.
 
 New rooms are also limited per client address: 5 in ten minutes and 20 in a day.
+Opening a room's socket is limited per client address too: 120 a minute (`RATE_LIMITS.socket`).
+The Worker cannot tell a good socket from a bad one before the room has read its first message, and every socket wakes the room, so it limits how many one address may open.
+A party of five devices on one address, each reconnecting as fast as the client's back-off allows, opens 75 a minute.
 
 ### Counting all awake time: `AwakeMeter`
 
@@ -294,11 +298,16 @@ The plain logic is `src/core/audience.js`: `hasAudience`, `isUpright`, `needsSpo
 | `POST /api/party/rooms` `{nickname, as?: "player" or "screen", turnstile?}` | `{code, pin, token, seat, role}` |
 | `GET /api/party/join/:pinOrCode` | `{preview: {code, game, phase, players, full}}` |
 | `POST /api/party/join/:pinOrCode` `{nickname, as?}` | `{code, pin, token, seat, role}` |
-| `GET /api/party/rooms/:code/ws?token=...&lag=150` | WebSocket |
+| `GET /api/party/rooms/:code/ws` (`?lag=150` in tests) | WebSocket; its first message is `hello {token}` ("The socket handshake") |
 | `GET /api/party/qr.svg?text=<this site's join link>` | A QR code as SVG (only `<origin>/<path>?join=<PIN or code>`) |
 | `GET /api/party/config` | `{publicOrigin, simLatency, turnstileSiteKey}` |
 | `GET /api/party/scores/:game` | `{top: [{name, score, at}]}`: the game's ten best, best first |
 | `POST /api/party/scores/:game` `{name: "ABC", score}` | `{top, place}` (`place` is -1 when the score did not make the ten) |
+
+The two requests that hand out a seat (`POST .../rooms` and `POST .../join/:pinOrCode`) must carry the client's mark, the header `X-Party-Protocol: 2`; `PartyClient` sends it.
+Without it the answer is 426 `page_outdated`, "This page is out of date. Reload it to play.", and no seat is made.
+A page loaded before the seat's token left the socket's address keeps its old script until it is loaded afresh; this is what stops it from being given seat after seat that it would then name in an address.
+A script that talks to the API itself sends the header too, and then says hello on its socket.
 
 Requests whose `Origin` names another site are refused (403 `forbidden_origin`), so no other page can open rooms or sockets through a visitor's browser.
 Bodies are JSON objects of at most 4 KiB.
@@ -306,10 +315,52 @@ Every answer carries `X-Content-Type-Options: nosniff`, `Cache-Control: no-store
 
 The token is the seat: a random 144-bit value made by the room, kept by the client in `sessionStorage`.
 It needs no signing secret, so local development needs no `.dev.vars`.
+It travels in two places only: the JSON answer to making or joining a room, and the first message on a socket.
+It is never part of an address or a header, because those are written down: Workers Logs keep every request's address.
+
+### The socket handshake
+
+1. The page opens `GET <api>/rooms/:code/ws` with no token anywhere in the address or the headers.
+   The Worker checks the page's origin, the room code and the per-address limit (120 a minute, IPv6 counted by the /64 like every other limit), and hands the socket to the room.
+2. The room accepts it as nobody's socket: it has no seat, is sent nothing, and counts as nobody being connected.
+   Its attachment says `{unknown: true, at, lag, client}`, so a room that sleeps here wakes knowing the socket is still nobody's, and which address it came from (`client`: IPv4 as it is, IPv6 by the /48).
+3. The page's first message is `{"t": "hello", "token": "<the seat's token>"}`; `PartyClient` sends it the moment the socket opens, before anything else.
+4. The room looks the token up, and the socket takes its seat (or is the screen).
+   Its attachment becomes the seat, and only now is anything sent: `hello {you, room}`, then the round as that seat may see it.
+
+Anything else closes the socket, and nothing about the room is ever sent on it.
+
+| Close code | Reason | When | What `PartyClient` does |
+| --- | --- | --- | --- |
+| 4001 | `hello_expected` | The first message was not a hello (another message, not JSON, binary, too long). | Opens another socket; a page never causes this. |
+| 4003 | `bad_token` | The hello's token names no seat: wrong, given up, or its grace ran out. Also a room that does not exist. | Forgets the session; `closed` with `"seat_lost"`. |
+| 4003 | `left` (and in the party room `too_fast`) | The seat was given up on another socket of it (left, or in the party room kicked for flooding): every socket of a seat closes with it. | Forgets the session; `closed` with `"seat_lost"`. |
+| 4009 | `hello_late`, `crowded` | The socket said nothing for ten seconds (`HELLO_MS`), or it was pushed out to make room for another that had not said hello yet (below). | Opens another socket, backing off. |
+
+A code that is no room takes a socket exactly as a room does (nothing until the hello, then 4003), so opening a socket does not tell anyone which codes are rooms.
+4000 and 4003 are final for the client: it opens no socket for that session again, also when the page is shown again.
+
+**Who waits.** Anyone who knows a room's code can open sockets that never say hello, and a real page's socket waits one round trip for its hello to land.
+So the waiting sockets are shared out by the address they came from (`hello-logic.js`):
+
+- One address has at most six waiting (`MAX_UNKNOWN_PER_CLIENT`: a whole party on one home's wifi coming back at once is five, two phones on one carrier /48 with two tabs each are four); a seventh from it pushes out that address's own oldest.
+- The address is IPv6's /48 here, and only here: a key only ever pushes out its own sockets. The door's limit keeps the /64, because it is one allowance across every room and refuses outright, and a carrier gives each phone its own /64 out of a shared /48.
+- A room has at most 128 waiting (`MAX_UNKNOWN`). One more pushes out a socket of the address holding the most (the newcomer counted with its own), the one of them that has waited longest. When every address holds one, the oldest lone socket goes and the newcomer is let in.
+- So a phone alone on its address is pushed out by others only when 128 newer opens, from 128 different addresses, land inside its round trip; and by someone sharing its address with six.
+- The address lives only on the waiting socket's attachment and is gone once the socket is seated; no player's address is written to the room's storage.
+
+**The old form, for now.** A page loaded before the token left the address opens its socket with `?token=` and never says hello.
+Until a later release removes it (`HONOUR_TOKEN_IN_ADDRESS`), the room takes such a socket exactly as one that opened and said hello with that token at once: seated with `hello {you, room}` if the token names a seat, closed as a wrong hello (4003 `bad_token`, nothing sent) if not.
+It never waits among the sockets that have not said whose they are.
+
+A socket that says nothing costs the room nothing: it saves nothing, sets no alarm, and a room with only such sockets is as empty as it was and closes on time.
+The ten seconds are looked at when something else happens in the room; nothing is timed for them.
+The client starts its reconnect back-off over only when the room's `hello` arrives, so sockets that open and are closed before it keep backing off (to four seconds). Each wait is jittered between half the back-off and all of it (`reconnectDelay`), so phones cut off at the same moment do not come back in step.
+The party room's keep-alive text is answered by the runtime on any open socket, also one that has not said hello; the answer says nothing about the room.
 
 ### WebSocket messages
 
-Client to room: `ping {c}`, `in {d, id?}` (an input; `id` asks the party room for an answer in a turn-based game), `ready {v}`, `name {v}`, `character {v}`, `addBot`, `removeBot {seat}`, `start`, `leave`.
+Client to room: `hello {token}` (the first message, "The socket handshake"), `ping {c}`, `in {d, id?}` (an input; `id` asks the party room for an answer in a turn-based game), `ready {v}`, `name {v}`, `character {v}`, `addBot`, `removeBot {seat}`, `start`, `leave`.
 The party room also takes `away` and `back` from a player's page whose socket stays open while it is hidden and shown again; the seat is away when every open socket of it is, and its room view member says `away: true`.
 `party.setAway(hidden)` sends them, once per change, and sends `away` again first on every new connection while the page is hidden; shown again with its connection lost, it reconnects at once.
 This kit's own room does not read them yet.
@@ -420,7 +471,8 @@ The delay runs inside the room (`LagLine`), so the room's view of time is the re
 `party-kit/test/views.test.js` drives the room's Durable Object class itself, with fake sockets that keep every frame as sent: with a game that holds a secret per seat, no frame to a seat carries its own secret, the other seat's frames carry it, the screen and a later arrival get neither, the room's seed is in no frame, and a game that ignores the viewer sends every socket the same frames.
 `party-kit/test/turns.test.js` covers the turn-based logic in `src/core/turns.js`, and `party-kit/test/party-client-ping.test.js` how often the client pings in the lobby, in a turn-based game and in a ticking one.
 The party room's turn-based games are proved on its real Durable Object class in `lobby/test/party-room-turns.test.js`.
-`npm run test:room` (with `npm run dev` running) checks the Durable Object wiring end to end over real sockets, with no browser: create, PIN lookup, QR code, join, a wrong PIN, simulated latency, start, an input relayed to the other seat, a drop with a stand-in, the same seat back with a full snapshot, and with `-- --full=1` the length of a whole round and the instant rematch.
+The socket handshake is tested in `party-kit/test/hello-logic.test.js` (the pure part), `room-hello.test.js` (this room's Durable Object class: the old form, a socket that has not said hello, a sleep between the open and the hello, a wrong token, a seat given up, floods from one address, from 40 and from as many as may wait while a phone's hello is on its way, leaving with two sockets open), `party-client-hello.test.js` (no address the client builds names the token; the jittered back-off) and `door.test.js` (the Worker's limit on socket opens); the party room's own is `lobby/test/party-room-hello.test.js`.
+`npm run test:room` (with `npm run dev` running) checks the Durable Object wiring end to end over real sockets, with no browser: create, PIN lookup, QR code, join, a wrong PIN, the handshake (no token in the address, a silent socket, a wrong token, the old form, a flood of 300 sockets from 40 addresses while a phone's hello is on its way, leaving with two sockets open), simulated latency, start, an input relayed to the other seat, a drop with a stand-in, the same seat back with a full snapshot, and with `-- --full=1` the length of a whole round and the instant rematch.
 The games' multiplayer playtests (for example `npm run playtest:battle`) drive the same path through real browsers.
 `npm test` also checks the deploy settings (`test/deploy-config.test.js`), the API guards (`test/http.test.js`) and the score board's rules (`test/score.test.js`).
 `npm run test:production -- <base>` checks the production settings end to end and `npm run test:turnstile` the bot check with Cloudflare's test keys; each file's header says which server to start.

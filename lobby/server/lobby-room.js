@@ -18,6 +18,7 @@ import { LagLine, eventsFor, fanOut } from "../../party-kit/src/core/room-core.j
 import { answerMessage, inputId } from "../../party-kit/src/core/answers.js";
 import { allAway, graceOf, presenceSignal } from "../../party-kit/src/core/presence.js";
 import { newSeed } from "../../party-kit/src/core/rng.js";
+import { CLOSE_BAD_TOKEN, CLOSE_HELLO_EXPECTED, HONOUR_TOKEN_IN_ADDRESS, UnknownSockets, clientOf, closeQuietly, readHello, seatToken } from "../../party-kit/src/worker/hello-logic.js";
 import { SOCKET_RATE, newBucket, strike, takeMessage } from "../../party-kit/src/worker/limit-logic.js";
 import { PIN_DIRECTORY_NAME } from "../../party-kit/src/worker/pin-logic.js";
 import { AwakeMeter, EVENT_FLOOR_MS, MESSAGES_PER_REQUEST, REPORT_EVERY_MS, roomBudgetState, spendRoomTime } from "../../party-kit/src/worker/room-budget.js";
@@ -26,7 +27,6 @@ import { LobbyCore, TURN_GRACE_MS } from "./lobby-core.js";
 
 const STORAGE_KEY = "lobby";
 const CLOSE_ROOM_CLOSED = 4000;
-const CLOSE_BAD_TOKEN = 4003;
 const CLOSE_TOO_FAST = 4008;
 /** Lobby messages are a few dozen bytes; a game's inputs are not much more. Anything longer is dropped. */
 export const MAX_MESSAGE_BYTES = 512;
@@ -64,8 +64,10 @@ export function createLobbyRoom(wallFor) {
       const wall = (this.wall = wallFor(env));
       /** @type {LobbyCore | null} */
       this.core = null;
-      /** socket -> {ws, token, role, seat, kept, out, in, bucket} */
+      /** socket -> {ws, token, role, seat, kept, out, in, bucket}: the sockets that have a seat (or are the screen). */
       this.sockets = new Map();
+      /** The sockets that have not said whose they are yet: no seat, and nothing is sent to them. */
+      this.unknown = new UnknownSockets();
       this.timer = null;
       this.meter = new AwakeMeter();
       this.flushedAt = 0;
@@ -77,13 +79,25 @@ export function createLobbyRoom(wallFor) {
       ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair(KEEP_ALIVE.text, KEEP_ALIVE.reply));
       void ctx.blockConcurrencyWhile(async () => {
         const saved = await ctx.storage.get(STORAGE_KEY);
-        if (!saved) return;
+        if (!saved) {
+          // No party here: the only sockets there can be are ones that never said whose they are.
+          for (const ws of ctx.getWebSockets()) {
+            const kept = ws.deserializeAttachment();
+            if (kept?.unknown) this.unknown.restore(ws, kept);
+          }
+          return;
+        }
         this.core = LobbyCore.restore(wall, saved, this.wokeAt);
         this.alarmAt = await ctx.storage.getAlarm();
         // Waking from sleep: the sockets are still open, so their owners are still here, and each
         // socket carried its piece and what it owes the budget through the sleep.
         for (const ws of ctx.getWebSockets()) {
           const kept = ws.deserializeAttachment();
+          // One that had not said whose it is before the sleep is still nobody's.
+          if (kept?.unknown) {
+            this.unknown.restore(ws, kept);
+            continue;
+          }
           if (!kept || !this.core.resume(kept.token, kept.piece)) continue;
           this.sockets.set(ws, this.entryFor(ws, kept));
           this.flushedAt = Math.max(this.flushedAt, kept.flushedAt ?? 0);
@@ -145,24 +159,59 @@ export function createLobbyRoom(wallFor) {
       const url = new URL(request.url);
       const pair = new WebSocketPair();
       const [client, server] = [pair[0], pair[1]];
-      const token = url.searchParams.get("token") ?? "";
       const now = Date.now();
-      const who = this.core ? this.core.connect(token, now) : null;
-      // Refused through the Hibernation API too: a socket accepted the standard way (accept())
-      // keeps the room from sleeping for as long as it lives.
+      // A hibernatable socket, also when it is about to be refused: one accepted the standard way
+      // (accept()) keeps the room from sleeping for as long as it lives.
       this.ctx.acceptWebSocket(server);
-      if (!who) {
-        server.close(CLOSE_BAD_TOKEN, "bad_token");
-        return new Response(null, { status: 101, webSocket: client });
-      }
-      // Simulated latency, each way, for tests. Off unless the Worker allows it.
+      // Simulated latency is for tests, off unless the Worker allows it.
       const lag = this.env.PARTY_SIM_LATENCY === "on" ? Number(url.searchParams.get("lag") ?? 0) : 0;
-      const kept = { token, role: who.role, seat: who.seat, lag, at: now, piece: this.core.pieceOf(who.seat), owed: { ms: 0, n: 0, r: 0 }, flushedAt: this.flushedAt, pinAt: this.pinAt };
-      server.serializeAttachment(kept);
-      const entry = this.entryFor(server, kept);
-      this.sockets.set(server, entry);
+      const inAddress = HONOUR_TOKEN_IN_ADDRESS ? url.searchParams.get("token") : null;
+      if (inAddress !== null) {
+        // The old form, from a page loaded before the token left the address (hello-logic.js,
+        // HONOUR_TOKEN_IN_ADDRESS): taken as a socket that opened and said hello with it at once.
+        this.unknown.clear(now);
+        this.meter.event(now, now);
+        this.seat(server, seatToken(inAddress), lag, now);
+      } else {
+        // Nobody's socket yet: it has no seat and is sent nothing until its first message says
+        // whose it is (greet). It wakes nothing and saves nothing; opening it is still an event
+        // the room was awake for. Its client rides along on it, as the waiting sockets are shared
+        // out by client. A code that is no party is answered the same way, and its hello is
+        // refused like any wrong token: opening a socket does not tell anyone which codes are
+        // parties.
+        this.unknown.add(server, now, lag, clientOf(request));
+        this.meter.event(now, Date.now());
+      }
+      return new Response(null, { status: 101, webSocket: client });
+    }
 
+    /** The first message on a socket: `{t: "hello", token}` seats it, and anything else closes it. */
+    greet(ws, data) {
+      const now = Date.now();
+      const opened = this.unknown.take(ws);
+      this.unknown.clear(now);
+      this.meter.event(now, now, "message");
+      const token = readHello(data, MAX_MESSAGE_BYTES);
+      if (token === null) return closeQuietly(ws, CLOSE_HELLO_EXPECTED, "hello_expected");
+      this.seat(ws, token, opened.lag, now);
+    }
+
+    /**
+     * Seats a socket whose hello named `token`, or closes it with nothing said if that names no
+     * seat. Only now does the socket hear anything: the room, and a game as its seat may see it.
+     */
+    seat(ws, token, lag, now) {
       const core = this.core;
+      const who = core ? core.connect(token, now) : null;
+      if (!who) return closeQuietly(ws, CLOSE_BAD_TOKEN, "bad_token");
+      // What the room has to know about the socket rides along on it, since the room's memory
+      // does not survive sleep: from here on that is its seat (the waiting attachment, and the
+      // client it came from, are replaced).
+      const kept = { token, role: who.role, seat: who.seat, lag, at: now, piece: core.pieceOf(who.seat), owed: { ms: 0, n: 0, r: 0 }, flushedAt: this.flushedAt, pinAt: this.pinAt };
+      ws.serializeAttachment(kept);
+      const entry = this.entryFor(ws, kept);
+      this.sockets.set(ws, entry);
+
       this.send(entry, { t: "hello", you: { role: who.role, seat: who.seat }, room: core.view(now) });
       // Mid-game (a reload, a phone back from a drop, a late joiner): the game as this socket may see it.
       if (core.activity.kind === "game") this.send(entry, { t: "snap", s: core.snapshotFor(core.viewerOf(entry), now), now, full: true });
@@ -171,8 +220,7 @@ export function createLobbyRoom(wallFor) {
       this.changed(now);
       // A phone back in a turn-based game: the game hears it is here (its timer may run again).
       void this.upkeep(now);
-      this.bill(now);
-      return new Response(null, { status: 101, webSocket: client });
+      this.park(now);
     }
 
     entryFor(ws, kept) {
@@ -199,6 +247,8 @@ export function createLobbyRoom(wallFor) {
     /** Every message is counted and rate-limited before anything looks inside it. */
     webSocketMessage(ws, data) {
       const entry = this.sockets.get(ws);
+      // A socket that has not said whose it is: this is its first message, and its only chance.
+      if (!entry && this.unknown.has(ws)) return this.greet(ws, data);
       if (!entry || !this.core) return;
       const started = Date.now();
       // When this socket last said anything, set before the message is handled: what it says may
@@ -461,6 +511,8 @@ export function createLobbyRoom(wallFor) {
     }
 
     onGone(ws) {
+      // A socket that never said whose it was is nobody's drop: nothing changed, nobody is told.
+      if (this.unknown.take(ws)) return;
       const now = Date.now();
       const entry = this.sockets.get(ws);
       // A socket that closed while the room slept may not be among the ones it woke with.
@@ -481,6 +533,8 @@ export function createLobbyRoom(wallFor) {
      * when anything happens in the lobby, and on every input and wake-up of a turn-based game.
      */
     reap(now) {
+      // The sockets that never said whose they are go first: there are only a handful to look at.
+      this.unknown.clear(now);
       if (now - this.reapedAt < REAP_EVERY_MS) return;
       this.reapedAt = now;
       let reaped = false;
@@ -583,6 +637,7 @@ export function createLobbyRoom(wallFor) {
       const core = this.core;
       if (!core) return;
       const now = Date.now();
+      this.unknown.clear(now);
       if (core.turnGame()) {
         // A phone that went quiet without closing its socket is noticed here too.
         this.reap(now);
@@ -778,6 +833,11 @@ export function createLobbyRoom(wallFor) {
       const now = Date.now();
       this.meter.event(started, now);
       if (requests > 1) this.meter.add(0, requests - 1);
+      this.park(now);
+    }
+
+    /** Parks what the room's own tally holds on a socket, or reports it (see bill). */
+    park(now) {
       const carrier = this.sockets.values().next().value;
       if (!carrier || now - this.flushedAt >= REPORT_EVERY_MS) return this.flush(now);
       const owed = this.meter.take(now);
@@ -895,6 +955,7 @@ export function createLobbyRoom(wallFor) {
         }
       }
       this.sockets.clear();
+      this.unknown.forget();
       this.core = null;
       this.alarmAt = null;
       await this.ctx.storage.deleteAlarm();
@@ -909,6 +970,8 @@ export function createLobbyRoom(wallFor) {
       return {
         view: this.core.view(now),
         sockets: this.sockets.size,
+        // Sockets that have not said whose they are (never more than MAX_UNKNOWN).
+        unknown: this.unknown.size,
         timer: this.timer !== null,
         alarmIn: this.alarmAt === null ? null : this.alarmAt - now,
         wokeAgo: now - this.wokeAt,

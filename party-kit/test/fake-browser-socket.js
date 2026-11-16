@@ -35,6 +35,15 @@ export class FakeWebSocket {
     this.readyState = 3;
     this.onclose?.({ code, reason: "" });
   }
+  /** The token this socket named in its first message, or null when its first message was not a hello. */
+  helloToken() {
+    try {
+      const first = JSON.parse(this.sent[0]);
+      return first.t === "hello" ? first.token : null;
+    } catch {
+      return null;
+    }
+  }
   /** What was sent: the keep-alive text as "keep-alive", a clock ping as "clock", anything else by its `t`. */
   kinds() {
     return this.sent.map((text) => (text === "ping" ? "keep-alive" : JSON.parse(text).t === "ping" ? "clock" : JSON.parse(text).t));

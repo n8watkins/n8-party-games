@@ -48,8 +48,14 @@ const wrong = await call("POST", "/join/0000", { nickname: "X" });
 check(!wrong.ok, "a wrong code is turned away");
 const foreign = await fetch(api + "/rooms", { method: "POST", headers: { "Content-Type": "application/json", Origin: "https://evil.example" }, body: JSON.stringify({ nickname: "Mal" }) });
 check(foreign.status === 403, "a page on another site cannot start a party (the kit's origin check)");
-const fat = await fetch(api + "/rooms", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ nickname: "x".repeat(5000) }) });
+const fat = await fetch(api + "/rooms", { method: "POST", headers: { "Content-Type": "application/json", "X-Party-Protocol": "2" }, body: JSON.stringify({ nickname: "x".repeat(5000) }) });
 check(fat.status === 400, "an oversized body is refused (the kit's body cap)");
+// A page loaded before the seat's token left the socket's address does not mark its requests.
+const stale = await fetch(api + "/join/" + a.pin, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ nickname: "Old" }) });
+const staleSaid = await stale.json().catch(() => ({}));
+check(stale.status === 426 && staleSaid.error === "page_outdated" && /reload/i.test(staleSaid.message ?? ""), `a request to join without the client's mark is refused, with a line the old page shows: "${staleSaid.message}"`);
+const stillFour = await call("GET", "/join/" + a.pin);
+check(stillFour.preview?.players.length === 4, "and it was given no seat");
 
 // A party of one whose only player leaves at once: by the end of this run it must be gone.
 const left = await call("POST", "/rooms", { nickname: "Zed" });
@@ -205,6 +211,84 @@ S.send({ t: "m", x: 500, d: 0, r: 0 });
 S.send({ t: "b" });
 await sleep(300);
 check(!S.seen.slice(mark).some((m) => m.t === "m" || m.t === "b"), "a screen cannot move a piece or bump");
+
+// ---------------------------------------------------------------- the handshake
+// The seat's token is the socket's first message and never in its address (addresses are
+// written down by the server's logs). Until it is said, a socket is nobody's.
+{
+  const within = (promise, ms) => Promise.race([promise, sleep(ms).then(() => null)]);
+  const inner = async () => (await (await fetch(api + "/debug/" + a.code)).json()).room;
+  check([A, B, C2, S].every((c) => !c.ws.url.includes("token")) && !A.ws.url.includes(a.token), "no socket's address names a token: " + new URL(A.ws.url).pathname + new URL(A.ws.url).search);
+  const f = await call("POST", "/join/" + a.pin, { nickname: "Fay" });
+  mark = A.seen.length;
+  const quiet = connect(f, { hello: false });
+  await quiet.opened;
+  // The room goes on in front of it: Ann walks, and everyone else hears of it.
+  A.goto(A.x + 30);
+  await B.wait((m) => m.t === "m" && m.s === 0, 4000, 0);
+  await sleep(400);
+  const during = await inner();
+  check(quiet.seen.length === 0 && quiet.raw.length === 0 && quiet.ws.readyState === 1, "a socket that has not said hello hears nothing of the room");
+  check(during.unknown === 1 && during.view.members[3]?.name === "Fay" && during.view.members[3].connected === false, "it is nobody: Fay's seat is still not connected, and the room counts one socket it does not know");
+  quiet.ws.send(JSON.stringify({ t: "m", x: 500, d: 0, r: 0 }));
+  const shut = await within(quiet.closed, 3000);
+  check(shut?.code === 4001 && quiet.seen.length === 0, "anything but a hello as its first message closes it (4001), having heard nothing: " + JSON.stringify(shut));
+  const wrong = connect({ code: a.code, token: "not-a-token", seat: 3 });
+  const wrongShut = await within(wrong.closed, 3000);
+  check(wrongShut?.code === 4003 && wrongShut.reason === "bad_token" && wrong.seen.length === 0, "a hello with a wrong token is refused (4003), having heard nothing");
+  // Fay's page, as it should be: a hello, and she is in.
+  const F = connect(f);
+  await F.opened;
+  const helloF = await F.wait((m) => m.t === "hello", 4000, 0);
+  check(helloF.you.seat === 3 && helloF.you.role === "player", "with its hello a socket takes its seat");
+  // The old form, as a page loaded before the deploy still sends it: taken, for now, as a socket
+  // that said hello with that token at once. Fay's old tab is seated beside her new one.
+  const old = connect(f, { oldForm: true });
+  const oldHello = await old.wait((m) => m.t === "hello", 4000, 0).catch(() => null);
+  check(oldHello?.you?.seat === 3 && F.ws.readyState === 1, "the old form, ?token= in the address, is taken as its hello: the old page is seated in Fay's seat, and her other socket stays");
+  // What an old page said first: its keep-alive. (The local runtime does not finish closing a
+  // socket that never spoke, so without it Node would not hear the close below.)
+  old.ws.send("ping");
+  await sleep(200);
+  // With a token that names nobody: closed, and told nothing, as a wrong hello is. (The room closes
+  // that socket before it has said anything, and the local runtime does not finish closing such a
+  // socket: a browser gives up waiting after two seconds and reports the close, Node does not. So
+  // that close is read here from the socket's state; its code is checked in the unit tests.)
+  const oldWrong = connect({ code: a.code, token: "not-a-token", seat: 3 }, { oldForm: true });
+  await sleep(800);
+  check(oldWrong.ws.readyState >= 2 && oldWrong.seen.length === 0, "the old form with a token that names nobody is closed, having heard nothing");
+  // Fay leaves on her new socket: the old one is closed too (#34: every socket of a person).
+  F.send({ t: "leave" });
+  const oldShut = await within(old.closed, 3000);
+  check(oldShut?.code === 4003 && oldShut.reason === "left", "leaving closes the old page's socket of that seat too (4003 left): " + JSON.stringify(oldShut));
+  const gone = await A.wait((m) => m.t === "room" && m.room.members[3] === null, 4000, mark).catch(() => null);
+  check(!!gone, "and everyone sees the seat free again");
+  // More sockets from one address that say nothing than it may keep waiting: its oldest are let go.
+  const idle = Array.from({ length: 12 }, () => connect(a, { hello: false, from: "198.51.100.9" }));
+  await Promise.all(idle.map((c) => c.opened));
+  await sleep(500);
+  const kept = (await inner()).unknown;
+  check(kept === 6 && idle.filter((c) => c.ws.readyState === 1).length === 6 && idle.every((c) => c.seen.length === 0), `twelve sockets from one address that say nothing: the room keeps ${kept} (six at most) and tells none of them anything`);
+  for (const c of idle) c.ws.close();
+  await sleep(300);
+  check((await inner()).unknown === 0 && A.ws.readyState === 1, "closed, they are forgotten, and nobody in the room was disturbed");
+  // Someone who knows the code opens 300 silent sockets from 40 addresses of their own while Bo's
+  // hello is on its way, more than the room lets wait at once: Bo's phone is still seated, and
+  // none of them hears anything.
+  const phone = connect(b, { hello: false, from: "203.0.113.70" });
+  await phone.opened;
+  const flood = Array.from({ length: 300 }, (_, i) => connect(a, { hello: false, from: `2001:db8:${(100 + (i % 40)).toString(16)}::1` }));
+  await Promise.all(flood.map((c) => c.opened));
+  await sleep(250);
+  const full = (await inner()).unknown;
+  phone.ws.send(JSON.stringify({ t: "hello", token: b.token }));
+  const seated = await phone.wait((m) => m.t === "hello", 4000, 0).catch(() => null);
+  check(full === 128 && seated?.you?.seat === b.seat && flood.every((c) => c.seen.length === 0), `a phone whose hello lands after 300 silent sockets from 40 other addresses (${full} waiting, the most there may be) is still seated, and none of them heard anything`);
+  phone.ws.close();
+  for (const c of flood) c.ws.close();
+  await sleep(300);
+  check((await inner()).unknown === 0 && A.ws.readyState === 1 && B.ws.readyState === 1, "closed, they are forgotten, and Ann's and Bo's own sockets were not disturbed");
+}
 
 // ---------------------------------------------------------------- a client that misbehaves
 mark = B.seen.length;

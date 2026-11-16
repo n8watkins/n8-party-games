@@ -84,8 +84,9 @@ describe("a page hidden in the lobby or a ticking game", () => {
     show();
     expect(FakeWebSocket.made).toHaveLength(2);
     const again = FakeWebSocket.last;
-    expect(again.url).toContain("token=tok");
+    expect(again.url).not.toContain("tok");
     again.open();
+    expect(again.helloToken()).toBe("tok");
     expect(presence(again)).toEqual([]);
   });
 
@@ -145,8 +146,9 @@ describe("a page hidden in a turn-based game", () => {
     show();
     expect(FakeWebSocket.made).toHaveLength(2);
     const again = FakeWebSocket.last;
-    expect(again.url).toContain("token=tok");
+    expect(again.url).not.toContain("tok");
     again.open();
+    expect(again.helloToken()).toBe("tok");
     again.hear({ t: "hello", you: { role: "player", seat: 0 }, room: turns });
     expect(link.status).toBe("open");
     expect(link.you).toEqual({ role: "player", seat: 0 });
@@ -169,7 +171,9 @@ describe("a page hidden in a turn-based game", () => {
     expect(ws.closedByPage).toBe(true);
     vi.advanceTimersByTime(0);
     expect(FakeWebSocket.made).toHaveLength(2);
-    expect(FakeWebSocket.last.url).toContain("token=tok");
+    expect(FakeWebSocket.last.url).not.toContain("tok");
+    FakeWebSocket.last.open();
+    expect(FakeWebSocket.last.helloToken()).toBe("tok");
   });
 
   it("a connection that comes back while the page is still hidden says away at once", () => {
@@ -179,7 +183,8 @@ describe("a page hidden in a turn-based game", () => {
     vi.advanceTimersByTime(4000);
     const again = FakeWebSocket.last;
     again.open();
-    expect(again.kinds()[0]).toBe("away");
+    // The hello that names the seat, then away: the first thing the seat says.
+    expect(again.kinds().slice(0, 2)).toEqual(["hello", "away"]);
   });
 
   it("offline while hidden parks it; shown and online, it opens a socket that is showing", () => {
@@ -192,6 +197,44 @@ describe("a page hidden in a turn-based game", () => {
     expect(again).not.toBe(ws);
     again.open();
     expect(presence(again)).toEqual([]);
+  });
+});
+
+describe("a page whose seat is gone for good", () => {
+  it.each([
+    ["the seat was let go", 4003, "bad_token"],
+    ["the seat was given up on another socket", 4003, "left"],
+    ["the room closed", 4000, "room_closed"],
+  ])("%s while it was hidden: shown again, online again or looked at later, it opens no new socket", (_, code, reason) => {
+    const { link, ws, watch, hide, show } = page(turns);
+    hide();
+    ws.readyState = 3;
+    ws.onclose({ code, reason });
+    expect(link.status).toBe("closed");
+    show();
+    watch.online(false);
+    hide();
+    watch.offline();
+    show();
+    watch.online(false);
+    vi.advanceTimersByTime(60_000);
+    watch.check(Date.now());
+    expect(FakeWebSocket.made).toHaveLength(1);
+    expect(link.status).toBe("closed");
+  });
+
+  it("the same in the lobby, where a hidden phone had parked its connection", () => {
+    const { link, hide, show } = page(lobby);
+    hide();
+    show();
+    const again = FakeWebSocket.last;
+    again.open();
+    again.readyState = 3;
+    again.onclose({ code: 4003, reason: "bad_token" });
+    hide();
+    show();
+    expect(FakeWebSocket.made).toHaveLength(2);
+    expect(link.status).toBe("closed");
   });
 });
 

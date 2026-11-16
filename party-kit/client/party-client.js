@@ -17,6 +17,13 @@
 // same seat (the room holds it for 30 seconds).
 
 const API = "/api/party";
+/**
+ * The mark on every request this client makes to the room API: it says the page opens its socket
+ * the current way, with the seat's token as the first message. The Worker hands a seat only to a
+ * request that carries it (party-kit/src/worker/http.js holds the same two values).
+ */
+export const PROTOCOL_HEADER = "X-Party-Protocol";
+export const PROTOCOL = "2";
 const STORE_KEY = "party-kit:session";
 // Pings keep the two clocks in step. That matters during a round; in the lobby a slow ping is
 // enough, and it lets the room sleep.
@@ -24,12 +31,21 @@ const PING_EVERY_MS = 2000;
 const IDLE_PING_EVERY_MS = 10_000;
 /** How long sendInput waits for the room to answer an input with an id. */
 export const ANSWER_TIMEOUT_MS = 10_000;
+/**
+ * How long to wait before the `retry`th reconnect: a back-off that doubles from 250 ms to four
+ * seconds, jittered between half of it and all of it, so the phones of a household cut off at the
+ * same moment (a deploy that resets a busy room) do not all come back in step.
+ */
+export function reconnectDelay(retry, random = Math.random) {
+  const full = Math.min(4000, 250 * 2 ** Math.min(retry, 4));
+  return full / 2 + random() * (full / 2);
+}
 /** An input id as a key: 7 and "7" are different ids, as they are to the room. */
 const answerKey = (id) => `${typeof id === "number" ? "n" : "s"}:${id}`;
 
 export class PartyClient {
   /**
-   * @param {{base?: string, lag?: number, storage?: Storage | null, api?: string, quietPing?: {text: string, everyMs: number}}} [opts]
+   * @param {{base?: string, lag?: number, storage?: Storage | null, api?: string, quietPing?: {text: string, everyMs: number}, random?: () => number}} [opts]
    *   lag: simulated latency in ms each way (the room must allow it: PARTY_SIM_LATENCY="on").
    *   api: the path of the room API, for a site with a second kind of room ("/api/lobby").
    *   quietPing: outside a round, send this fixed text instead of the clock ping. A room that
@@ -43,6 +59,8 @@ export class PartyClient {
     this.quietPing = opts.quietPing ?? null;
     this.lag = opts.lag ?? 0;
     this.storage = opts.storage === undefined ? safeStorage() : opts.storage;
+    /** The reconnect back-off's jitter (a test gives its own). */
+    this.random = opts.random ?? Math.random;
     this.handlers = new Map();
     this.session = null; // {code, pin, token, seat, role}
     this.room = null;
@@ -97,7 +115,7 @@ export class PartyClient {
   async request(method, path, body) {
     const res = await fetch(this.base + this.api + path, {
       method,
-      headers: body ? { "Content-Type": "application/json" } : undefined,
+      headers: body ? { "Content-Type": "application/json", [PROTOCOL_HEADER]: PROTOCOL } : { [PROTOCOL_HEADER]: PROTOCOL },
       body: body ? JSON.stringify(body) : undefined,
     });
     let data = null;
@@ -168,13 +186,19 @@ export class PartyClient {
     const origin = this.base || location.origin;
     const url = new URL(`${this.api}/rooms/${this.session.code}/ws`, origin);
     url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
-    url.searchParams.set("token", this.session.token);
+    // The seat's token is never part of the address: addresses are written down by the server's
+    // logs, and whoever reads the token there could take the seat. It is the first message.
     if (this.lag) url.searchParams.set("lag", String(this.lag));
+    const { token } = this.session;
     const ws = new WebSocket(url);
     this.ws = ws;
     ws.onopen = () => {
-      this.retry = 0;
+      // A socket this page has already given up on says nothing: it is not ours to seat.
+      if (this.ws !== ws) return;
       this.heardAt = Date.now();
+      // The hello comes before anything else: until the room has read it, this socket has no
+      // seat, is sent nothing, and is closed by any other first message.
+      ws.send(JSON.stringify({ t: "hello", token }));
       // A new socket is a page that is showing, to the room: one that is hidden says so first.
       if (this.away) this.send({ t: "away" });
       this.setStatus("open");
@@ -195,8 +219,14 @@ export class PartyClient {
       this.ws = null;
       // An answer cannot come on a closed socket: whoever waits may send the same id again once it is back.
       this.dropAnswers();
-      // 4000: the room closed. 4003: the seat is no longer ours (the grace ran out).
+      // 4000: the room closed. 4003: the seat is no longer ours (the grace ran out, it was given
+      // up, or the room does not know the token). Anything else is a drop, and the socket is
+      // opened again: the signal went, or the room let go of a socket that had not said hello yet
+      // (4009: too many were waiting, or the hello came too late).
       if (event.code === 4000 || event.code === 4003 || !this.wantOpen) {
+        // Final: nothing opens a socket for this session again, not a back-off still pending and
+        // not the page being shown again (setAway).
+        this.wantOpen = false;
         this.forget();
         this.setStatus("closed");
         // The second word is the room's own reason for closing the socket, when it gave one.
@@ -210,7 +240,7 @@ export class PartyClient {
           this.retryTimer = null;
           if (this.wantOpen) this.connect();
         },
-        Math.min(4000, 250 * 2 ** Math.min(this.retry, 4)),
+        reconnectDelay(this.retry, this.random),
       );
     };
   }
@@ -246,6 +276,9 @@ export class PartyClient {
     }
     switch (msg.t) {
       case "hello":
+        // The room read our hello and seated this socket. Only now does the reconnect back-off
+        // start over: a socket that opens and is closed before this keeps backing off.
+        this.retry = 0;
         this.you = msg.you;
         this.setRoom(msg.room);
         break;

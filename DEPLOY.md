@@ -32,6 +32,43 @@ Everything else is already in the repository.
 7. Run `npm run deploy`, which deploys the top level (`wrangler deploy --env=''`) and never the local environment. It runs any new Durable Object migrations by itself (the first deploy ran `v1` to `v3`; the first deploy with the party room runs `v4`, the `LobbyRoom` class); nothing is created by hand.
 8. A deploy while a round is on lets that room finish on the old code for up to five minutes, so deploy when nobody is mid-round if you can.
 
+## The seat's token and the logs
+
+Workers Logs are on at full sampling, and they keep every request's address.
+A seat's token is therefore never part of an address or a header: it is the first message on the socket (`party-kit/README.md`, "The socket handshake").
+Nothing in the Worker prints a token either.
+
+The deploy that brought this in (the handshake changed in November 2026) is the one deploy where pages already open matter.
+How a room takes new code decides what its devices see:
+
+- A room that is asleep, or that falls asleep within 300 seconds of the deploy, takes the new code quietly: its sockets stay connected and the room still knows whose each one is.
+- A room still busy after 300 seconds (a round of a ticking game is on, or people keep moving and tapping) is reset by Cloudflare at that deadline, and every socket in it is cut at once (Cloudflare's "Durable Objects code updates", in Sources).
+  `npm run deploy -- --durable-objects-code-update-mode immediate` resets every busy room at once instead.
+  A ticking round cut short this way is lost, and both kinds of room put everyone back in the lobby; the seats are saved and kept (in a game's own room, such as Cork & Bell's, a phone has the 30 second grace to come back to its seat, which a reconnect takes a few seconds of).
+
+What a device that is in a room sees across it:
+
+- **Its socket stays open** when its room takes the new code quietly. Nothing changes on that device until its page opens a new socket.
+- **When its socket is cut** (the room was reset at the deadline, or the signal went), its page opens a new one by itself, as after any drop. A page loaded after the deploy says hello with its token. A page loaded before it still puts the token in the address (`?token=`), and the room takes that, for now, as that socket's hello (`HONOUR_TOKEN_IN_ADDRESS` in `party-kit/src/worker/hello-logic.js`). Either way the phone is back in its own seat, and a turn-based game goes on.
+- **A reload** loads the new page, which says hello with the saved session and has its seat back.
+- **Making or joining a room from a page that was open before the deploy** is refused with "This page is out of date. Reload it to play." until the page is reloaded, so an old page can only ever carry a token it was given before the deploy.
+- **A room that is in the middle of a ticking round** keeps the old code until the round is over or the deadline comes. A page loaded during that time (a reload, or someone joining) speaks the new way to a room that does not know it yet, is refused as a seat that is gone, and lands on the front page with **Rejoin**. Deploying when nobody is mid-round (step 8) avoids it.
+
+What cannot be fixed: a page loaded before the deploy keeps sending its token in the socket's address at every reconnect until it is reloaded, and each of those addresses is written to the logs.
+Those tokens are the ones its first connect already wrote there, they are good only while their room is open (four hours at most), and no old page can be given a new one.
+Refusing them would protect nothing and cost those phones their seats, which is why the room takes them for now.
+
+What cannot be undone: the logs from before that deploy hold the tokens of the sockets opened until then, in each request's address, for as long as Workers Logs keep them (seven days on the paid plan).
+A token is only good while its room is open (a party lasts four hours at most, and closes sooner when it is empty or untouched), so every token in those logs is dead within hours of the deploy.
+Nothing needs deleting.
+
+## To remove after
+
+- **`HONOUR_TOKEN_IN_ADDRESS`** (`party-kit/src/worker/hello-logic.js`, added 2026-11-15): in the first release deployed more than four hours after the one that ships it, delete the constant and the seating of the old form it guards in both rooms (`fetch` in `party-kit/src/worker/room.js` and `lobby/server/lobby-room.js`).
+  Keep a one-line branch in its place that closes a `?token=` socket at once with 4003 (`CLOSE_BAD_TOKEN`).
+  Without it such a socket becomes an ordinary one that never says hello: it is closed 4009 at the next sweep, 4009 tells an old tab to try again for ever, and in a room that no longer exists nothing sweeps it at all.
+  Change the old-form checks in the tests and end-to-end scripts to expect that 4003 (search for `oldForm` and `?token=`).
+
 ## Check it after a deploy
 
 The live address is shared by everyone, and Cloudflare sees your real address there, so the room limits (5 new rooms in ten minutes, 20 a day) count against you.
@@ -91,6 +128,6 @@ Optional: until both keys exist, rooms are made without it and the rate limits a
 - Environments and non-inheritable keys: https://developers.cloudflare.com/workers/wrangler/environments/
 - Durable Object duration billing and hibernation: https://developers.cloudflare.com/durable-objects/platform/pricing/ and https://developers.cloudflare.com/durable-objects/concepts/durable-object-lifecycle/
 - Durable Objects metrics in the dashboard: https://developers.cloudflare.com/durable-objects/observability/metrics-and-analytics/
-- Deferred Durable Object code updates: https://developers.cloudflare.com/changelog/post/2026-10-30-durable-objects-deferred-code-updates/
+- Deferred Durable Object code updates: https://developers.cloudflare.com/changelog/post/2026-10-30-durable-objects-deferred-code-updates/ and https://developers.cloudflare.com/durable-objects/deployments/durable-objects-code-updates/ (a busy object is reset when `max_delay`, 300 seconds by default, is reached, and a forced update disconnects its WebSockets: https://developers.cloudflare.com/durable-objects/best-practices/websockets/)
 - Turnstile server-side validation and test keys: https://developers.cloudflare.com/turnstile/get-started/server-side-validation/ and https://developers.cloudflare.com/turnstile/troubleshooting/testing/
 - Workers Logs: https://developers.cloudflare.com/workers/observability/logs/workers-logs/

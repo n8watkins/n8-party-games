@@ -43,11 +43,20 @@ const FRAME = 'iframe[title="Cork & Bell"]';
 /** Every page opened, by name, and what any of them complained of: reported if the run stops. */
 const opened = new Map();
 const errors = [];
+/** Every socket a page opened ({name, url, first: its first frame}) and every address a page asked for: the seat's token must be in none. */
+const pageSockets = [];
+const pageAddresses = [];
 const browser = await openBrowser({ win: opt("win", "0") === "1", width: 960, height: 540 });
 try {
   async function open(name, viewport, extra = {}) {
     const context = await browser.newContext({ viewport, deviceScaleFactor: 1, ...extra });
     const page = await context.newPage();
+    page.on("request", (request) => pageAddresses.push(request.url()));
+    page.on("websocket", (ws) => {
+      const socket = { name, url: ws.url(), first: null };
+      pageSockets.push(socket);
+      ws.on("framesent", (frame) => (socket.first ??= String(frame.payload)));
+    });
     page.on("pageerror", (e) => errors.push(`${name}: ${e.message}`));
     page.on("console", (m) => m.type() === "error" && !/WebSocket|ERR_/.test(m.text()) && errors.push(`${name}: ${m.text()}`));
     opened.set(name, page);
@@ -349,6 +358,50 @@ try {
     console.log(`     one round costs ${(first * ROOM_MEMORY_GB).toFixed(1)} GB-seconds of room time, however many play.`);
   }
 
+  // The handshake as real pages did it, reloads and late joiners included: every socket's first
+  // frame is the hello with the seat's token, and no address a page asked for names a token.
+  const hellos = pageSockets.map((s) => {
+    try {
+      const first = JSON.parse(s.first);
+      return first.t === "hello" && typeof first.token === "string" ? first.token : null;
+    } catch {
+      return null;
+    }
+  });
+  const spoke = pageSockets.filter((s) => s.first !== null);
+  check(spoke.length >= 4 && hellos.filter(Boolean).length === spoke.length, `every socket a page opened said hello with its token first (${spoke.length} sockets from ${new Set(spoke.map((s) => s.name)).size} pages)`);
+  const tokens = [...new Set(hellos.filter(Boolean))];
+  const named = [...pageSockets.map((s) => s.url), ...pageAddresses].filter((address) => /[?&]token=/.test(address) || tokens.some((token) => address.includes(token)));
+  check(tokens.length >= 3 && named.length === 0, `and none of the ${pageSockets.length + pageAddresses.length} addresses the pages asked for names a token (${tokens.length} seats)` + (named.length ? ": " + named[0].replace(/token=[^&]+/, "token=...") : ""));
+
+  // A page loaded before the token left the address still opens its socket the old way. From a
+  // real page: the room takes it, for now, as that socket's hello (hello-logic.js,
+  // HONOUR_TOKEN_IN_ADDRESS), so the old page keeps its seat; with a token that names nobody it is
+  // closed as a seat that is gone (4003), having heard nothing of the room.
+  {
+    const made = await call("POST", "/rooms", { nickname: "Old" });
+    const stale = await open("a page from before", { width: 480, height: 320 });
+    await stale.goto(base + "/");
+    const oldSocket = ([code, token]) =>
+      new Promise((done) => {
+        const ws = new WebSocket(`${location.origin.replace(/^http/, "ws")}/api/lobby/rooms/${code}/ws?token=${token}`);
+        const heard = [];
+        const from = Date.now();
+        ws.onmessage = (e) => heard.push(String(e.data).slice(0, 40));
+        // What an old page said first: its keep-alive.
+        ws.onopen = () => ws.send("ping");
+        ws.onclose = (e) => done({ code: e.code, reason: e.reason, heard, after: Date.now() - from });
+        setTimeout(() => {
+          done({ code: null, reason: "still open", heard, after: Date.now() - from });
+          ws.close();
+        }, 3000);
+      });
+    const kept = await stale.evaluate(oldSocket, [made.code, made.token]);
+    check(kept.code === null && kept.heard[0]?.startsWith('{"t":"hello"'), `a page that still puts the token in the address keeps its seat: its first frame is the hello (${kept.heard.length} frames, ${kept.reason})`);
+    const wrong = await stale.evaluate(oldSocket, [made.code, "not-a-token"]);
+    check(wrong.code === 4003 && wrong.reason === "bad_token" && !wrong.heard.some((f) => f.startsWith("{")), `and with a token that names nobody it is refused as a seat that is gone, having heard nothing of the room: ${JSON.stringify(wrong)}`);
+    await shut("a page from before");
+  }
   check(errors.length === 0, "no page reported an error" + (errors.length ? ": " + errors.slice(0, 4).join(" | ") : ""));
   clearInterval(alive);
 } catch (err) {
