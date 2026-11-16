@@ -434,7 +434,17 @@ Their emotes are the ghost's (`public/characters/ghost-rig.js`), fitted to each 
 The ids, words, lengths and moments are the ghost's, so the pawn's, and every recording fits.
 A joined arm takes the ghost's "wisp" variant of a pose (a hand on the hip in Red card and the tomato), because a hand that has an arm reads where a floating one would not.
 
-What they cost against the pawn and the ghost is in "What it costs", below.
+What one piece costs in the 3D look, with its shadow, measured with `npm run test:characters -- --looks= --measure` on 2026-11-16 (draws and triangles are the same on any device; the pose is this PC's time):
+
+| Character | Draws | Triangles | Pose, standing | Pose, walking |
+| --- | --- | --- | --- | --- |
+| Pawn | 5 | 2,800 | 0.7 µs | 1.0 µs |
+| Ghost | 6 | 2,160 | 8.9 µs | 33.5 µs |
+| Slime | 6 | 2,520 | 0.4 µs | 9.6 µs |
+| Robot | 8 (9 while its lamp glows) | 3,452 | 0.6 µs | 3.6 µs |
+
+The robot's two more draws are its head and its mast, which move apart from its body; its paint, steel and dark parts are one material coloured point by point (`pointLitMat` in `public/look3d/body-kit.js`).
+Four of any one character in the 3D bar held 60 frames a second on the graphics card; the software numbers on a loaded PC were too noisy to rank them (22 to 34 frames a second for all four characters).
 Not built yet: their own moves (the slime's harden and absorb, the robot's hook and stilt legs); `move` is `"kick"` until then.
 
 ## Sound

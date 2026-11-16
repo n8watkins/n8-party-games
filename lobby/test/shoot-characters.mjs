@@ -63,6 +63,11 @@ try {
     const host = await call("POST", "/rooms", { nickname: "Gus" });
     const gus = connect(host);
     await gus.opened;
+    if (look === "real") {
+      // The made-real room is the Star Lounge, and the room is the host's to pick (a joining page's `room=` does not change it).
+      gus.send({ t: "pick", v: "ship" });
+      await gus.wait((m) => (m.t === "pick" && m.v === "ship") || m.room?.room === "ship", 5000, 0);
+    }
     const rob = connect({ pin: host.pin, ...(await call("POST", "/join/" + host.pin, { nickname: "Rob" })) });
     await rob.opened;
     const laptop = await open(`laptop (${look})`, { width: 1280, height: 720 }, { deviceScaleFactor: 1 });
@@ -76,6 +81,11 @@ try {
       await page.fill("input[name=nickname]", name);
       await page.click("text=Join the party");
       await drawn(page, look);
+      if (look !== "flat") {
+        // The look asked for is the one drawing (a room without a made-real picture falls back to the 3D look).
+        const drawing = await page.waitForFunction((want) => window.__room3d && (window.__room3d.stats().look ?? "3d") === want, look, { timeout: 30000 }).then(() => true, () => false);
+        check(drawing, `${look}: ${name}'s page draws the ${look} look (it says ${await page.evaluate(() => window.__room3d?.stats().look ?? "3d")})`);
+      }
     }
     await gus.wait((m) => m.room?.members.filter((x) => x?.connected).length === 4, 10000, 0);
     const seatOf = (name) => gus.room.members.find((m) => m?.name === name).seat;

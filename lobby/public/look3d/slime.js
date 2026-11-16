@@ -55,14 +55,15 @@ const place = (x, y, z, rx, ry, rz, sx, sy, sz) => {
 
 function shapes() {
   // The landing scene's profile: a soft dome that sags outward at the foot, closed underneath (a shiny floor shows its underside).
-  const n = 14;
+  const n = 16;
   const profile = [[0, 0]];
   for (let i = 0; i <= n; i++) {
     const a = ((i / n) * Math.PI) / 2;
     profile.push([0.43 * Math.pow(Math.cos(a), 0.62) + 0.05 * Math.pow(1 - i / n, 6), TOP * Math.sin(a)]);
   }
   profile.push([0, TOP]);
-  const dome = new THREE.LatheGeometry(profile.map(([x, y]) => new THREE.Vector2(x, y)), 30);
+  // Round enough that a shiny floor's and a lit room's reflections run smoothly over it, not in stripes.
+  const dome = new THREE.LatheGeometry(profile.map(([x, y]) => new THREE.Vector2(x, y)), 44);
   dome.computeVertexNormals();
   const ball = new THREE.SphereGeometry(1, 12, 8);
   const drips = [
@@ -291,8 +292,9 @@ export function emoteSlime(b, pose, now, seat) {
 export function bakeSlime(b) {
   if (!b.baked) {
     b.baked = true;
-    b.mat.roughness = 0.1;
-    b.mat.clearcoatRoughness = 0.04;
+    // Glossy, but soft enough that a lit room's lines of light do not break into stripes on it.
+    b.mat.roughness = 0.18;
+    b.mat.clearcoatRoughness = 0.12;
     b.mat.envMapIntensity = 1.2;
   }
   const flicker = Math.max(0, b.mat.emissiveIntensity - ((b.connected ? 0.13 : 0.06) + 0.27 * b.lit) - 0.01);
