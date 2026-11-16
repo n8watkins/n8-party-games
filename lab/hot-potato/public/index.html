@@ -14,20 +14,20 @@
     <section class="play" aria-label="Play">
       <header class="top">
         <h1>Hot Potato hearing test</h1>
-        <p class="sub">Can this phone hear a city fast enough? Say a city; the next one starts with its last letter.</p>
+        <p class="sub">Can this device hear a city well enough to play? Say a city; the next one starts with its last letter.</p>
       </header>
 
       <div id="noRecognition" class="notice bad" hidden>
         <strong>This browser has no speech recognition.</strong>
         Firefox and some in-app browsers (inside chat or social apps) do not have it.
-        Open this page in Chrome on Android, or Safari on iPhone.
+        Open this page in Chrome or Edge (on a computer or Android), or in Safari (on a Mac, iPhone or iPad).
       </div>
       <div id="micBlocked" class="notice bad" hidden>
         <strong>The microphone is blocked for this page.</strong>
-        <span id="micHelp">In Chrome: tap the icon left of the address, then Permissions, then Microphone, and choose Allow. Then reload the page.</span>
+        <span id="micHelp">In Chrome or Edge: click or tap the icon left of the address, then Permissions (or Site settings), then Microphone, and choose Allow. Then reload the page.</span>
       </div>
       <div id="iosNote" class="notice" hidden>
-        <strong>iPhone or iPad:</strong> speech recognition there is Apple's and may behave differently. Try it anyway; the report is labelled iOS.
+        <strong>iPhone or iPad:</strong> speech recognition there is Apple's and may behave differently. Try it anyway; the report says which device it came from.
       </div>
 
       <div class="chain">
@@ -39,15 +39,18 @@
         <div id="potato" class="potato" aria-hidden="true"></div>
         <p id="heard" class="heard" aria-live="polite">&nbsp;</p>
         <p id="verdict" class="verdict" aria-live="polite">&nbsp;</p>
+        <div id="appealSlot" class="appeal-slot"></div>
       </div>
 
       <button id="turn" class="turn" type="button" disabled>Loading...</button>
       <button id="stop" class="ghost" type="button" hidden>Stop listening</button>
+      <p id="keys" class="hint keys" hidden>Keyboard: <kbd>Space</kbd> or <kbd>Enter</kbd> starts a turn, <kbd>Esc</kbd> stops listening.</p>
 
       <div class="settings">
         <label class="switch"><input id="handsFree" type="checkbox"><span>Hands-free: listen again after each answer</span></label>
         <label class="switch"><input id="sounds" type="checkbox" checked><span>Sounds (ding and buzz)</span></label>
-        <label class="switch"><input id="early" type="checkbox" checked><span>Answer at the first matching word, before the final result</span></label>
+        <label class="switch"><input id="hard" type="checkbox"><span>Hard mode: any town over 15,000 people <small>(off: well-known places only)</small></span></label>
+        <label class="switch"><input id="early" type="checkbox"><span>Answer early: take a well-known city before the final result <small>(off: wait for the final result, which is more reliable)</small></span></label>
         <label class="pick"><span>Language</span>
           <select id="lang">
             <option value="en-US">English (US)</option>
@@ -55,6 +58,10 @@
             <option value="en-AU">English (Australia)</option>
           </select>
         </label>
+        <div id="micPick" class="mic" hidden>
+          <label class="pick"><span>Microphone</span><select id="mic"></select></label>
+          <p id="micNote" class="hint" hidden></p>
+        </div>
         <button id="newGame" class="ghost" type="button">New game (keeps the log)</button>
       </div>
     </section>
@@ -62,12 +69,12 @@
     <section class="side" aria-label="Results">
       <div class="card">
         <h2>Five minutes: four things to try</h2>
-        <p class="hint">Tap the one you are doing now, so each turn is tagged with it. Tick it when done.</p>
+        <p class="hint">Pick the one you are doing now, so each turn is tagged with it. Tick it when done.</p>
         <ol id="checklist" class="checklist">
-          <li><input type="checkbox" aria-label="Done"><button type="button" data-scenario="1">Phone in your hand, quiet room, ten cities <span class="count"></span></button></li>
-          <li><input type="checkbox" aria-label="Done"><button type="button" data-scenario="2">Phone flat on the table, pass or slide it to each speaker <span class="count"></span></button></li>
+          <li><input type="checkbox" aria-label="Done"><button type="button" data-scenario="1">Quiet room, close to the microphone, ten cities <span class="count"></span></button></li>
+          <li><input type="checkbox" aria-label="Done"><button type="button" data-scenario="2">Further away: across the desk or the table, or passing the device around <span class="count"></span></button></li>
           <li><input type="checkbox" aria-label="Done"><button type="button" data-scenario="3">Same, with music or chatter <span class="count"></span></button></li>
-          <li><input type="checkbox" aria-label="Done"><button type="button" data-scenario="4">Sounds on, then sounds off (the switch above) <span class="count"></span></button></li>
+          <li><input type="checkbox" aria-label="Done"><button type="button" data-scenario="4">Sounds on, then sounds off (the Sounds switch) <span class="count"></span></button></li>
         </ol>
       </div>
 
@@ -81,20 +88,27 @@
 
       <div class="card">
         <h2>Turns</h2>
-        <p class="hint">Newest first. Tap "It misheard me" when the phone got your word wrong.</p>
+        <p class="hint">Newest first. "It misheard me" when the words shown are not what you said; "That was a real city" or "That was wrong" when the words were right but the verdict was not.</p>
         <ol id="log" class="log"></ol>
       </div>
 
       <div class="card small-print">
-        <h2>How words are checked</h2>
-        <p>Only the letters A to Z count, after accents are removed: S&atilde;o Paulo starts with S and ends with O. Spaces and punctuation are skipped: New York ends with K. The chain goes on from the name you said, so "New York" ends with K, while "NYC" plays as New York City and ends with Y. A place, or a name, said once this game cannot be said again.</p>
-        <p>What was heard is matched against about 32,000 places: every guess the phone returns is tried, exact names first, then names that sound alike (bigger cities first, and only among names starting with the right letter).</p>
+        <h2>How words are checked (rules m2)</h2>
+        <ul class="rules">
+          <li><strong>The whole phrase decides.</strong> After accents, capitals, punctuation and a few fillers ("um", "how about", "please") are dropped, what was heard must be a name of the place, all of it: "Leopold" is not L&eacute;o, "Edmonton" is not Edmond.</li>
+          <li><strong>Only believable guesses count.</strong> The recogniser offers several guesses with how sure it is of each. A guess counts if it is at least half as sure as the best one, or is another spelling of a counted guess that sounds the same.</li>
+          <li><strong>Well-known places by default.</strong> Capitals, US, Canadian and Australian state capitals, cities of 100,000 people or more, and a hand list of famous small towns (Venice, Aspen, Cannes). A city whose name is also an ordinary word (Orange, Surprise) needs 250,000 people, a capital or the hand list (Nice, Bath, Cork). Hard mode adds every town over 15,000.</li>
+          <li><strong>Sound-alike only mends spelling.</strong> It fixes the recogniser's spelling of a well-known city ("Sidnee" is Sydney), never a different word: not when the best guess is an ordinary word or a common name ("salmon" is a fish, not Salmas), not for a city named after a word, and only with the same first letter, the same consonants and one letter off (two vowels for longer names).</li>
+          <li><strong>Two places, one name:</strong> the bigger one is named, and the others are mentioned.</li>
+          <li><strong>The final result decides,</strong> about as soon as you stop speaking. With "Answer early" on, an interim result is taken only when it is exactly a well-known city, no longer name starts with it ("Edmond" could still become Edmonton), and it stays the same for 0.3 seconds.</li>
+          <li><strong>The chain:</strong> only the letters A to Z count, so S&atilde;o Paulo runs from S to O and New York ends with K. The chain goes on from the name you said ("NYC" plays as New York City). A place, or a name, said once this game cannot be said again.</li>
+        </ul>
         <h2>Privacy</h2>
-        <p>The microphone is used only while a turn is listening. This page stores and sends nothing. The browser's speech recognition may send the audio to its maker's servers (Google on Android, Apple on iPhone) to turn it into text.</p>
+        <p>The microphone is used only while a turn is listening. This page stores and sends nothing. The browser's speech recognition may send the audio to its maker's servers (Google in Chrome, Microsoft in Edge, Apple in Safari) to turn it into text. The report names the kind of device and microphone, never the device's own name.</p>
         <p id="caps" class="caps"></p>
       </div>
 
-      <footer class="credit">City names from <a href="https://www.geonames.org/" rel="noopener">GeoNames</a>, <a href="https://creativecommons.org/licenses/by/4.0/" rel="noopener">CC BY 4.0</a> (<a href="CREDITS.txt">details</a>). A throwaway test page.</footer>
+      <footer class="credit">City names from <a href="https://www.geonames.org/" rel="noopener">GeoNames</a> (CC BY 4.0); word lists from FrequencyWords (CC BY-SA 4.0), SCOWL and the US Census (<a href="CREDITS.txt">details</a>). A throwaway test page.</footer>
     </section>
   </main>
 </body>

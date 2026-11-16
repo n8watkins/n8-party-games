@@ -2,13 +2,44 @@ cities.json: city names from GeoNames
 
 Source: https://download.geonames.org/export/dump/cities15000.zip
         (populated places over 15,000 people, and capitals)
-        and https://download.geonames.org/export/dump/alternateNamesV2.zip
+        https://download.geonames.org/export/dump/cities500.zip
+        (only for the hand-listed famous small places in tools/famous-places.txt)
+        https://download.geonames.org/export/dump/alternateNamesV2.zip
         (English alternate names and abbreviations, such as "New York" and "NYC")
+        https://download.geonames.org/export/dump/admin1CodesASCII.txt and countryInfo.txt
+        (state, province and country names)
 Fetched: 2026-11-15
 Licence: Creative Commons Attribution 4.0, https://creativecommons.org/licenses/by/4.0/
 Credit: GeoNames, https://www.geonames.org/
 
 Changed from the source: only the name, ASCII name, up to five English alternate names,
-up to two abbreviations, country code and population are kept; city sections (PPLX) and
-abandoned or destroyed places are left out; sorted by population, biggest first.
+up to two abbreviations, country code, population, whether it is well known (capital,
+state capital, hand list, or population) and the state or province are kept; city sections (PPLX), numbered districts and abandoned or destroyed places are
+left out; sorted by population, biggest first.
 Rebuilt with lab/hot-potato/tools/make-cities.py in the n8-party-games repository.
+
+
+words.json: ordinary English words and common names
+
+Words: the 30,000 most frequent words of FrequencyWords en_50k that SCOWL lists as common
+lower-case English words.
+  FrequencyWords, 2018 English list (OpenSubtitles 2018 word counts), by Hermit Dave,
+  https://github.com/hermitdave/FrequencyWords
+  Licence of the word lists: Creative Commons Attribution-ShareAlike 4.0,
+  https://creativecommons.org/licenses/by-sa/4.0/
+  words.json is a derived list and is shared under the same licence (CC BY-SA 4.0).
+  SCOWL (Spell Checker Oriented Word Lists) 2020.12.07, by Kevin Atkinson, http://wordlist.aspell.net/
+  Licence: Copyright 2000-2018 by Kevin Atkinson. Permission to use, copy, modify, distribute
+  and sell these word lists, the associated scripts, the output created from the scripts, and
+  its documentation for any purpose is hereby granted without fee, provided that the above
+  copyright notice appears in all copies and that both that copyright notice and this
+  permission notice appear in supporting documentation. Kevin Atkinson makes no
+  representations about the suitability of this array for any purpose. It is provided
+  "as is" without express or implied warranty. (Full notice: the Copyright file in SCOWL.)
+Names: every first name, and the 5,000 most common family names, of the US Census Bureau's
+1990 name frequency files, https://www2.census.gov/topics/genealogy/1990surnames/
+  A work of the US government: public domain.
+Fetched: 2026-11-15
+Changed from the sources: lower case, letters a to z only; a name that is also a common
+word is kept in the word list only.
+Rebuilt with lab/hot-potato/tools/make-words.py in the n8-party-games repository.

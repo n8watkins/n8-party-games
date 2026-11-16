@@ -1,0 +1,87 @@
+# Places a casual player might say that the population floor (100,000) would drop, or whose
+# name is also an ordinary English word (Bath, Cork, Mobile, Split), kept in the default list by hand.
+# One per line: the GeoNames name or ASCII name or English alternate name, a bar, the country code.
+# Looked up in GeoNames cities500 (every place over 500 people), so small famous towns are found too.
+Geneva|CH
+Oxford|GB
+York|GB
+Liège|BE
+Limerick|IE
+Nancy|FR
+Tours|FR
+Tyre|LB
+Aurora|US
+Boulder|US
+Billings|US
+Venice|IT
+Siena|IT
+Assisi|IT
+Sorrento|IT
+Capri|IT
+Portofino|IT
+Positano|IT
+Amalfi|IT
+Pompei|IT
+Como|IT
+Cannes|FR
+Avignon|FR
+Arles|FR
+Lourdes|FR
+Chamonix|FR
+Saint-Tropez|FR
+Carcassonne|FR
+Versailles|FR
+Monte-Carlo|MC
+Interlaken|CH
+Zermatt|CH
+Davos|CH
+St. Moritz|CH
+Lucerne|CH
+Lugano|CH
+Hallstatt|AT
+Delft|NL
+Bruges|BE
+Ypres|BE
+Waterloo|BE
+Bath|GB
+Canterbury|GB
+Stratford-upon-Avon|GB
+Windsor|GB
+Dover|GB
+Inverness|GB
+St Andrews|GB
+Stirling|GB
+Cork|IE
+Galway|IE
+Kilkenny|IE
+Killarney|IE
+Split|HR
+Dubrovnik|HR
+Mobile|US
+Aspen|US
+Vail|US
+Malibu|US
+Sedona|US
+Taos|US
+Key West|US
+Napa|US
+Monterey|US
+Palm Springs|US
+Park City|US
+Beverly Hills|US
+Nantucket|US
+Gettysburg|US
+Roswell|US
+Tombstone|US
+Montpelier|US
+Pierre|US
+Queenstown|NZ
+Rotorua|NZ
+Cairns|AU
+Alice Springs|AU
+Byron Bay|AU
+Bethlehem|PS
+Nazareth|IL
+Darjeeling|IN
+Shimla|IN
+Nikko|JP
