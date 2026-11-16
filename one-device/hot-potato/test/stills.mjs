@@ -186,7 +186,9 @@ for (const [name, viewport] of SIZES) {
  * cell [caption, stage, stress, t]. Saved as `file`.
  */
 async function sheet(file, rows, { size = 170 } = {}) {
-  const context = await browser.newContext({ viewport: { width: 1400, height: 1000 }, deviceScaleFactor: 1 });
+  // Wide enough for the longest row: a sheet wider than the window is cut off.
+  const width = 150 + Math.max(...rows.map(([, cells]) => cells.length)) * (size + 6);
+  const context = await browser.newContext({ viewport: { width: Math.max(1000, width), height: 1000 }, deviceScaleFactor: 1 });
   const page = await context.newPage();
   await page.goto(`${BASE}/one-device/hot-potato/`);
   await page.evaluate(() => document.fonts.ready);
