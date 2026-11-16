@@ -242,7 +242,8 @@ Everything here is about the game's own seats (`activity.seats`), never about th
 - **One clock for a missing seat.** A seat is missing while its phone is dropped or its page is away, and each seat of the game has one clock for both (`party-kit/src/core/presence.js`, `absenceClock`), so a page that is hidden and then drops is not given a second grace.
   The clock runs while the seat is missing; once it has run for the whole `reconnectGraceMs` the seat is gone and the match ends through `abandon` ("Ending early", `why: "gone"`).
   While the player is back it winds back up at the speed it ran: back for as long as they were missing, they have the whole grace again, so blinking in and out (hidden 50 seconds, shown 2, hidden again: 12 seconds left) cannot stall a match.
-  A move the game takes from the seat (an input it answers `ok`) gives the whole grace back at once.
+  A move the game takes from the seat (an input it answers `ok` that changes its state) gives the whole grace back at once.
+  An `ok` that changes nothing (a game's answer to a command it has already seen, sent again under a fresh id) gives nothing back, so a hidden player cannot stall by showing the page, re-sending an old command and hiding again.
   The moment a running clock runs out is one of the room's wake-ups (its alarm), so the seat is given up on at the limit while the room sleeps and nobody else does anything; the clocks are saved with the game and run on through a sleep.
   While a seat's clock runs and the grace is not endless, the room view's member carries `awayIn`, the milliseconds it has left by the room's clock, and the other phones and the big screen show it ("Bo is away: back within 0:45 or the match ends").
   With an `Infinity` grace nothing runs out and no time is shown: away is for as long as the room lives, as before.

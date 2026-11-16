@@ -235,6 +235,25 @@ describe("a page hidden in a turn-based game", () => {
     expect(await endsAt(ctx, awayAt + GRACE)).toEqual(["game", "lobby"]);
   });
 
+  it("back long before the limit: the alarm for the limit is taken back, so the room does not wake for nothing", async () => {
+    // No turn timer, so nothing sooner moves the alarm when he is back.
+    const game = whoAmI({ nextDeadline: () => null });
+    const { ctx, say, ws } = await started(game);
+    say(ws.bo, { t: "away" });
+    await settle();
+    const awayAt = Date.now();
+    expect(ctx.alarm.at).toBe(awayAt + GRACE);
+    await vi.advanceTimersByTimeAsync(10_000);
+    say(ws.bo, { t: "back" });
+    await settle();
+    expect(ctx.alarm.at).toBe(ctx.room.core.nextWake(Date.now()));
+    expect(ctx.alarm.at).toBeGreaterThan(awayAt + GRACE);
+    const rang = ctx.alarm.rang;
+    await vi.advanceTimersByTimeAsync(2 * GRACE);
+    expect(ctx.alarm.rang).toBe(rang);
+    expect(ctx.room.core.activity.kind).toBe("game");
+  });
+
   it("with an endless grace keeps today's behaviour: away for ever, no time shown, no wake-up for it", async () => {
     const game = whoAmI({ reconnectGraceMs: Infinity });
     const { ctx, say, ws } = await started(game);

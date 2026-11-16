@@ -440,8 +440,9 @@ export function createLobbyRoom(wallFor) {
       if (!this.syncAway(entry.token, now)) return;
       this.broadcastRoom(now);
       // In a turn-based game the seat's grace now runs (or stops): its end is a wake-up, so a
-      // hidden page is given up on at the limit even when nothing else happens in the room.
-      this.arm(now);
+      // hidden page is given up on at the limit even when nothing else happens in the room. Shown
+      // again, that wake-up is taken back, however far off it was.
+      this.arm(now, { exact: !away });
       void this.upkeep(now);
     }
 
@@ -623,13 +624,16 @@ export function createLobbyRoom(wallFor) {
      *     billed request.
      *   - The slow "forgotten room" check creeps later with every message and is left alone:
      *     it rings early once in twenty minutes, finds nothing to do and is set again.
+     *   - `exact`: the alarm is set to the next wake-up whichever way it moved. For a page shown
+     *     again in a turn-based game: its grace's end, perhaps a minute off, is no longer wanted,
+     *     and the page says so once, not with every message.
      */
-    arm(now) {
+    arm(now, { exact = false } = {}) {
       const wake = this.core?.nextWake(now) ?? null;
       if (wake === null) return;
       const armed = this.alarmAt !== null && this.alarmAt > now ? this.alarmAt : null;
       const sooner = armed === null || wake < armed - 5;
-      const unwanted = armed !== null && armed - now < SHORT_FUSE_MS && wake > armed + 1000;
+      const unwanted = armed !== null && (exact || armed - now < SHORT_FUSE_MS) && wake > armed + 1000;
       if (!sooner && !unwanted) return;
       this.alarmAt = wake;
       void this.ctx.storage.setAlarm(wake);
