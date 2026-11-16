@@ -6,7 +6,9 @@
 //     fades after DROP_FADE_MS, the seat is kept for SEAT_HOLD_MS).
 //   - Except during a turn-based game (`room.game.turns`, a match of people talking): there a
 //     hidden page is away, not gone. It keeps its socket, tells the room it is away, and says it
-//     is back when it is shown, so the game may pause its turn timer and nobody's grace runs down.
+//     is back when it is shown, so the game may pause its turn timer. Its seat's grace runs
+//     meanwhile, as a dropped phone's does: hidden for the whole of it, the player forfeits
+//     (lobby-core.js, trackClocks), and everyone else is shown the time left.
 //     If the socket died while the page was hidden (the phone suspended it, the signal went),
 //     the page reconnects the moment it is shown and takes its seat back; the room took the gap
 //     for a drop, with the game's own grace.
@@ -39,18 +41,41 @@ export function whenHidden({ touch, player, room }) {
 /**
  * The other members whose page is hidden, as this device (`you`, {role, seat}) should hear of
  * them: never itself, and during a game with an audience only the game's seats (an audience page
- * that is hidden holds nothing up).
+ * that is hidden holds nothing up). During a turn-based game a seat whose phone dropped is missing
+ * the same way, on the same clock, and the room view says how long it has (`awayIn`): it is
+ * among them too.
  */
 export function awayOthers(room, you) {
   const seats = room.game?.audience && Array.isArray(room.game.seats) ? room.game.seats : null;
-  return room.members.filter((m) => m?.away && !(you?.role === "player" && m.seat === you.seat) && (!seats || seats.includes(m.seat)));
+  return room.members.filter((m) => (m?.away || typeof m?.awayIn === "number") && !(you?.role === "player" && m.seat === you.seat) && (!seats || seats.includes(m.seat)));
 }
 
-/** What the page says of other players whose page is hidden: "Bo is away", "Ann, Bo and Cy are away", or "" for nobody. */
-export function awayLine(names) {
+/** The time left as the page shows it: "0:45", "1:00", rounded up to the second, never below "0:00". */
+export function clockText(ms) {
+  const s = Math.max(0, Math.ceil(ms / 1000));
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+}
+
+/**
+ * What the page says of other players whose page is hidden: "Bo is away", "Ann, Bo and Cy are
+ * away", or "" for nobody. With `leftMs` (the room's time left for the first of them to run out),
+ * what happens then: "Bo is away: back within 0:45 or the match ends".
+ */
+export function awayLine(names, leftMs = null) {
   if (!names.length) return "";
   const who = names.length === 1 ? names[0] : `${names.slice(0, -1).join(", ")} and ${names.at(-1)}`;
-  return `${who} ${names.length === 1 ? "is" : "are"} away`;
+  const line = `${who} ${names.length === 1 ? "is" : "are"} away`;
+  return leftMs === null ? line : `${line}: back within ${clockText(leftMs)} or the match ends`;
+}
+
+/**
+ * The time left before the first of these members runs out, in ms, counted down from when the
+ * room view that said so arrived (`seenAt`, on the same clock as `now`), or null when none of them
+ * has a limit. The room's word, not this page's guess: every room view carries it afresh.
+ */
+export function awayLeft(members, seenAt, now) {
+  const limits = members.map((m) => m.awayIn).filter((ms) => typeof ms === "number");
+  return limits.length ? Math.max(0, Math.min(...limits) - (now - seenAt)) : null;
 }
 
 /**

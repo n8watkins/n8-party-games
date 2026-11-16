@@ -1,7 +1,7 @@
 // Everything laid over the room: the bottom line a big screen shows, a player's buttons and
 // emote wheel, the door button and its sheet (leave, the emote wheel's six, sound), the one-tap
 // mute, notes ("Tom left"), the card after a game, and what to say when the connection is gone. When the room is gone the page goes to the front page (farewell.js).
-import { awayLine, awayOthers } from "./connection.js";
+import { awayLeft, awayLine, awayOthers } from "./connection.js";
 import { Controls } from "./controls.js";
 import { ICONS, h, icon } from "./dom.js";
 import { EmoteWheel, openLoadout } from "./emotes/wheel.js";
@@ -137,7 +137,7 @@ export class Hud {
         this.zoomIcon.replaceChildren(icon(zoom === "closer" ? ICONS.zoomOut : ICONS.zoomIn, 18));
       }
     }
-    this.showAway(room);
+    this.showAway(room, now);
     // A room near the end of its four hours says so, and so does one nobody has touched for a while.
     const left = room.closesIn - (now - voteAt);
     const quiet = room.idleLimit - idle;
@@ -172,11 +172,21 @@ export class Hud {
 
   /**
    * Who else has their page hidden with the socket open, during a turn-based game ("Bo is away"):
-   * still in the match, just not looking. The room view says so (`away` on a member).
+   * still in the match, just not looking. The room view says so (`away` on a member), and how long
+   * the seat has before the match ends without it (`awayIn`): "Bo is away: back within 0:45 or the
+   * match ends", counted down from when that room view arrived.
    */
-  showAway(room) {
+  showAway(room, now) {
+    // Every room view is a new object: the time it carries counts from when it came.
+    if (room !== this.awayRoom) {
+      this.awayRoom = room;
+      this.awaySeenAt = now;
+    }
     const away = awayOthers(room, this.opts);
-    const text = awayLine(away.map((m) => m.name));
+    const text = awayLine(
+      away.map((m) => m.name),
+      awayLeft(away, this.awaySeenAt, now),
+    );
     if (text === (this.awayEl?.dataset.text ?? "")) return;
     this.awayEl ??= h("div", "link-state away-mark", "", this.el);
     this.awayEl.dataset.text = text;
