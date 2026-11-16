@@ -130,14 +130,21 @@ async function freePort(wanted) {
   return (await tryPort(wanted)) ?? (await tryPort(0));
 }
 
-// What to stop and remove at the end, last first. On Ctrl-C or SIGTERM it is started and not
-// waited for: every process group gets its SIGTERM at once.
+// What to stop and remove at the end, last first; also on Ctrl-C or SIGTERM, since the
+// side-by-side steps and the Workers run in process groups of their own, which the terminal's
+// Ctrl-C does not reach.
 const cleanups = [];
 const cleanUp = async () => {
   while (cleanups.length) await cleanups.pop()();
 };
-process.on("SIGINT", () => (cleanUp(), process.exit(130)));
-process.on("SIGTERM", () => (cleanUp(), process.exit(143)));
+let ending = false;
+for (const [signal, code] of [["SIGINT", 130], ["SIGTERM", 143]])
+  process.on(signal, async () => {
+    if (ending) return;
+    ending = true;
+    await cleanUp();
+    process.exit(code);
+  });
 
 /** One after another, against one local Worker: the gate as it always ran. */
 async function oneAfterAnother() {
@@ -198,6 +205,7 @@ async function sideBySideSteps() {
   console.log("\nStarted side by side:");
   STEPS.forEach(([name], i) => console.log(`  ${name} against ${workers[i].base}`));
   let failed = false;
+  const stopping = [];
   const running = STEPS.map(([name, script], i) => {
     const t = Date.now();
     const child = spawn(npm, ["run", script, "--", `--base=${workers[i].base}`], { stdio: ["ignore", "pipe", "pipe"], detached: true });
@@ -213,7 +221,7 @@ async function sideBySideSteps() {
     step.done = new Promise((resolve) => {
       const finish = (code) => {
         const status = step.stopped ? "stopped" : code === 0 ? "ok" : "FAIL";
-        const r = { name, status, seconds: seconds(t), order: results.length };
+        const r = { name, status, seconds: seconds(t) };
         results.push(r);
         console.log(`\n=== ${name}: ${status} after ${r.seconds} s (${workers[i].base}) ===`);
         process.stdout.write(out.endsWith("\n") || !out ? out : out + "\n");
@@ -222,7 +230,7 @@ async function sideBySideSteps() {
           if (!failed) {
             failed = true;
             // The others only add noise once one has failed: stop them, whole process groups.
-            for (const s of running) if (s !== step && s.child.exitCode === null && s.child.signalCode === null) stopStep(s);
+            for (const s of running) if (s !== step) stopping.push(stopStep(s));
           }
         }
         resolve();
@@ -234,17 +242,42 @@ async function sideBySideSteps() {
     return step;
   });
   await Promise.all(running.map((s) => s.done));
+  await Promise.all(stopping);
   // The summary lists the steps in the gate's order, whatever order they finished in.
   const order = new Map(STEPS.map(([name], i) => [name, i]));
   results.sort((a, b) => (order.get(a.name) ?? -1) - (order.get(b.name) ?? -1));
 }
 
-function stopStep(step) {
-  if (step.child.exitCode !== null || step.child.signalCode !== null) return;
-  step.stopped = true;
+/**
+ * Stops a step's whole process group: npm, the test script and its browser. A SIGTERM first;
+ * Playwright catches it to close its browser and then leaves the script running, so whatever is
+ * left after five seconds gets a SIGKILL (the private display and the card slot go with it).
+ * Resolves once nothing of the group is left.
+ */
+async function stopStep(step) {
+  const group = -step.child.pid;
+  const alive = () => {
+    try {
+      process.kill(group, 0);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+  if (!alive()) return;
+  if (step.child.exitCode === null && step.child.signalCode === null) step.stopped = true;
+  const waitGone = async (ms) => {
+    for (const until = Date.now() + ms; alive() && Date.now() < until; ) await new Promise((r) => setTimeout(r, 100));
+  };
   try {
-    process.kill(-step.child.pid, "SIGTERM");
+    process.kill(group, "SIGTERM");
   } catch {}
+  await waitGone(5000);
+  if (alive())
+    try {
+      process.kill(group, "SIGKILL");
+    } catch {}
+  await waitGone(2000);
 }
 
 try {

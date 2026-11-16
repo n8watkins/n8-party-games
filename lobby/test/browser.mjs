@@ -92,7 +92,10 @@ export async function launchBrowser({ args = [], software = false, ...options } 
 /**
  * How many test processes may draw on the card at once, unless TEST_GPU_JOBS says otherwise.
  * Measured on the owner's RX 7800 XT on 2026-11-15 (GPU-PLAYBOOK.md in the ops repo, "How many
- * jobs at once"): __SLOTS_WHY__
+ * jobs at once"): copies of e2e-room-pick scale almost in step up to six at once, fail now and
+ * then from eight, and at twelve some browsers do not get the card at all; heavy drawing fills
+ * the card at three or four. Four is half the point where failures start and leaves the
+ * owner's desktop room on the card.
  * gpu-run (the owner's dotfiles) uses the same default; keep the two in step.
  */
 export const DEFAULT_CARD_SLOTS = 4;
