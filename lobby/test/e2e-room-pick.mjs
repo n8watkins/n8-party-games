@@ -11,7 +11,7 @@
 // - After a reload, and after leaving and rejoining: still the host, and a tap still works.
 // - A party started on a big screen: the first phone to join picks (the screen can too).
 // - A guest's picker says who picks, and its cards look disabled.
-// The 3D pages draw in software (?gl=any): they are checked for the room they draw, not speed.
+// The 3D pages ask for ?gl=any, so they also draw in software: they are checked for the room they draw, not speed.
 import { mkdirSync } from "node:fs";
 import { resolve } from "node:path";
 import { launchBrowser } from "./browser.mjs";
@@ -105,7 +105,7 @@ try {
   await sleep(7000);
 
   // ---------------------------------------------------------------- after a reload
-  // (A reload to the room's own address, with ?gl=any again: this browser has no graphics card.)
+  // (A reload to the room's own address, with ?gl=any again: without TEST_GPU=1 this browser has no graphics card.)
   await nat.goto(`${base}/lobby/?gl=any`);
   await nat.waitForSelector(".look3d canvas", { timeout: 60000 });
   await sleep(1200);
@@ -119,7 +119,7 @@ try {
   await nat.tap(".note-act");
   await nat.waitForSelector(".bar", { timeout: 60000 });
   await sleep(5000);
-  // Back in the room (drawn flat here: the rejoin link has no ?gl=any), so the room's own word is checked.
+  // Back in the room (drawn flat in software: the rejoin link has no ?gl=any), so the room's own word is checked.
   let mark = watcher.seen.length;
   tap = await tapCard(nat, "fair");
   const moved = await watcher.wait((m) => m.t === "pick" && m.v === "fair", 6000, mark).catch(() => null);

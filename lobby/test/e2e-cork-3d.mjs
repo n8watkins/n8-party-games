@@ -12,16 +12,15 @@
 // A round is up to ninety seconds; played alone by the game's bot it ends sooner, once the
 // stall's corks are spent, so three take about four minutes. It
 // drives a headless, muted Chrome on the Windows side, on the real graphics card
-// (node_modules/cork-and-bell/tools/browser.mjs: no window, its own profile, closed at the end).
-// --soft=1 uses the software renderer inside WSL instead, which is very slow.
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+// (openWindowsChrome in lobby/test/browser.mjs: no window, a fresh profile folder and debugging
+// port for each run, so two runs at once never meet, a timeout on every connect attempt, and
+// closed at the end even if the run dies).
+// --soft=1 uses the software renderer inside WSL instead (Cork & Bell's tools/browser.mjs), which is very slow.
 import { openBrowser } from "../../node_modules/cork-and-bell/tools/browser.mjs";
 import { boxCentre } from "../shared/world.js";
+import { openWindowsChrome } from "./browser.mjs";
 import { partyApi, sleep } from "./client.mjs";
 
-// Its own Chrome profile on the Windows side, so it never meets another tool's browser.
-process.env.CAB_PROFILE ??= join(tmpdir(), "party-room-3d-chrome-profile");
 const args = process.argv.slice(2);
 const opt = (k, d) => (args.find((a) => a.startsWith("--" + k + "=")) ?? "--" + k + "=" + d).split("=").slice(1).join("=");
 const base = opt("base", "http://localhost:8791");
@@ -38,7 +37,7 @@ const check = (ok, what) => {
 };
 const FRAME = 'iframe[title="Cork & Bell"]';
 
-const b = await openBrowser({ win: !soft, width: 844, height: 390 });
+const b = soft ? await openBrowser({ win: false, width: 844, height: 390 }) : await openWindowsChrome({ width: 844, height: 390 });
 try {
   const context = await b.newContext({ viewport: { width: 844, height: 390 }, hasTouch: true });
   const page = await context.newPage();
