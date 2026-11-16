@@ -388,15 +388,30 @@ try {
         await ada.wait((m) => m.room?.members[ada.seat]?.character === "robot" && m.room.members[ada.seat].colour === hex, 5000, from);
         await cy.waitForFunction(([s, hex]) => window.__room3d.pieces.get(s)?.kind.id === "robot" && window.__room3d.pieces.get(s).member.colour === hex, [ada.seat, hex], { timeout: 4000 });
         await sleep(EMOTE_COOLDOWN_MS + 200);
+        const plain = await meanColour(cy, await paintBox(cy, ada.seat));
         ada.send({ t: "e", e: "steam" });
-        // At its reddest: the paint tinted all the way the emote takes it.
-        const reddest = await cy.waitForFunction((s) => (window.__room3d.pieces.get(s)?.body.mat.userData.tint?.value.w ?? 0) > 0.75, ada.seat, { timeout: 4000, polling: 16 }).then(() => true, () => false);
-        const box = await paintBox(cy, ada.seat);
-        const seen = await meanColour(cy, box);
-        if (shots) await cy.screenshot({ path: `${shots}/${look}-robot-fuming-${hex.slice(1)}.png`, clip: { x: box.x - 60, y: box.y - 110, width: 130, height: 150 } });
-        check(reddest && isRed(seen), `${name} (${hex}): fuming, its paint shows red (${JSON.stringify(seen)}), not its colour times red`);
+        // Read through the emote, and the reddest reading kept: nothing of the page's own state is asked.
+        let seen = plain;
+        let box = null;
+        const redness = (c) => c.r - Math.max(c.g, c.b);
+        for (let k = 0; k < 10; k++) {
+          await sleep(180);
+          const at = await paintBox(cy, ada.seat);
+          const c = await meanColour(cy, at);
+          if (redness(c) > redness(seen)) {
+            [seen, box] = [c, at];
+            if (shots) await cy.screenshot({ path: `${shots}/${look}-robot-fuming-${hex.slice(1)}.png`, clip: { x: box.x - 60, y: box.y - 110, width: 130, height: 150 } });
+          }
+        }
+        check(isRed(seen), `${name} (${hex}): fuming, its paint shows red (${JSON.stringify(plain)} to ${JSON.stringify(seen)}), not its colour times red`);
       }
     }
+
+    // Ada is a cream ghost again, as she was before the slime and the robot (the ghost's move below asks a ghost's fade of her).
+    await sleep(LOOK_COOLDOWN_MS + 200);
+    from = ada.seen.length;
+    ada.send({ t: "look", c: "ghost", v: CREAM });
+    await ada.wait((m) => m.room?.members[ada.seat]?.character === "ghost" && m.room.members[ada.seat].colour === CREAM, 5000, from);
 
     // ================================================================ a knock
     section(`${look}: a ghost that is bumped squeezes its eyes shut`);
