@@ -243,8 +243,9 @@ await sheet(
 // The motion at each stage, half stressed: 12 frames over one second, to judge without video.
 await sheet(
   "motion-frames.png",
-  HEAT_NAMES.map((heat, stage) => [heat, Array.from({ length: 12 }, (_, i) => [`${Math.round((i / 12) * 1000)} ms`, stage, 0.5, 1.15 + i / 12])]),
-  { size: 110 },
+  // (From 2.05 s: the moment a hot potato's nervous shiver comes.)
+  HEAT_NAMES.map((heat, stage) => [heat, Array.from({ length: 12 }, (_, i) => [`${Math.round((i / 12) * 1000)} ms`, stage, 0.5, 2.05 + i / 12])]),
+  { size: 150 },
 );
 
 // The contact sheet: every face, each at the stage it belongs to.

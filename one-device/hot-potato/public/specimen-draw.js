@@ -516,7 +516,8 @@ export function scene({ growth = 0, stress = 0, stage = 0, face, motion = { sx: 
   out.mouthTongue = m.tongue ? { d: m.tongue, opacity: 1 } : { d: "M0 0", opacity: 0 };
   // Sweat: beads form on its brow and roll down, more of them and faster as the stress rises (a
   // worried face sweats whatever the level). Held still, each bead shows part way down.
-  const beads = Math.max(face.sweat, atLevel(LADDER.beads, lv));
+  // (Calm never sweats: the first bead forms once it is warm.)
+  const beads = Math.max(face.sweat, lv < 1 ? 0 : atLevel(LADDER.beads, lv));
   const beadS = atLevel(LADDER.beadS, lv);
   BEADS.forEach(([x, y], i) => {
     const amount = clamp01(beads - i);
