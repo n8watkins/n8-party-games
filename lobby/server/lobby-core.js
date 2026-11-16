@@ -1781,6 +1781,16 @@ export class LobbyCore {
   }
 
   /**
+   * The game being played could not be shown (its view threw): it ends now, with no points, as
+   * one whose tick threw does. Returns what stopGame returns, or null when no game is on.
+   */
+  breakGame(now) {
+    const a = this.activity;
+    if (a.kind !== "game") return null;
+    return this.stopGame(this.games.get(a.id), "error", now);
+  }
+
+  /**
    * The host ends the turn-based game being played at the Table (`{t: "stop"}`): nobody scores,
    * everyone is back at the Table, and the card says who ended it. The same rule as every other
    * host tap says who may: the host, or whoever holds the controls while the host is away.

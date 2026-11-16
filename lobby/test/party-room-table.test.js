@@ -584,3 +584,144 @@ describe("the Table's eight places", () => {
     expect(r.core().members.filter(Boolean).map((m) => m.name)).toEqual(["Ann", "Bo"]);
   });
 });
+
+/** The test wall with one more Table game: these rules, through the same adapter, under `id`. */
+function wallWith(id, gameRules) {
+  const entry = tableEntry({ id, name: "Broken", pitch: "A Table game made to fail", players: { min: 2, max: 8 } }, { view: "/party/games/broken.js" });
+  return { ...TEST_WALL, games: new Map([...TEST_WALL.games, [id, tableGame(gameRules, { id })]]), table: [...TEST_WALL.table, entry] };
+}
+
+/**
+ * Count to ten whose view throws whenever `broken.now` is true. Returns the switch and the wall.
+ */
+function breakableView() {
+  const broken = { now: false };
+  const view = (state, seat) => {
+    if (broken.now) throw new Error("view boom");
+    return rules.view(state, seat);
+  };
+  return { broken, wall: wallWith("broken", { ...rules, view }) };
+}
+
+/** Everyone heard the game end for an error: the note, `end` and the room view, back at the Table. */
+function endedForError(r, since, sockets) {
+  expect(r.core().activity.kind).toBe("lobby");
+  for (const ws of sockets) {
+    const got = since(ws);
+    expect(got.find((m) => m.t === "note" && m.k === "ended")).toMatchObject({ why: "error", text: "Broken ran into a problem, so it ended." });
+    const end = got.find((m) => m.t === "end");
+    expect(end).toBeDefined();
+    expect(end.room).toMatchObject({ phase: "lobby", mode: "turn-based" });
+    expect(end.last).toMatchObject({ rows: [], early: { why: "error" } });
+    expect(got.findLastIndex((m) => m.t === "room")).toBeGreaterThan(got.findIndex((m) => m.t === "end"));
+  }
+}
+
+describe("a Table game whose view throws", () => {
+  let quiet;
+  beforeEach(() => {
+    quiet = vi.spyOn(console, "error").mockImplementation(() => {});
+  });
+  afterEach(() => quiet.mockRestore());
+
+  it("ends with reason error when the view throws after a turn, and the Table is free again", async () => {
+    const { broken, wall } = breakableView();
+    const r = await table({ players: 2, wall });
+    await play(r, "broken");
+    const since = from(r.ws.ann, r.ws.bo, r.ws.screen);
+    broken.now = true;
+    expect(() => r.say(turnOf(r).ws, { t: "in", d: { t: "add", n: 2 }, id: 1 })).not.toThrow();
+    await settle();
+    endedForError(r, since, [r.ws.ann, r.ws.bo, r.ws.screen]);
+    expect(r.ctx.store.get("lobby").game).toBeNull();
+    broken.now = false;
+    await play(r, "broken");
+  });
+
+  it("ends the game when it cannot be shown to a phone that comes back, and seats that phone all the same", async () => {
+    const { broken, wall } = breakableView();
+    const r = await table({ players: 2, wall });
+    await play(r, "broken");
+    r.ctx.room.webSocketClose(r.ws.bo, 1001, "");
+    await settle();
+    const since = from(r.ws.ann, r.ws.screen);
+    broken.now = true;
+    let threw = null;
+    try {
+      r.ws.bo = await r.connect(r.tokens.bo);
+    } catch (err) {
+      threw = err;
+    }
+    expect(threw).toBeNull();
+    const got = r.ws.bo.messages();
+    expect(got[0]).toMatchObject({ t: "hello", you: { role: "player", seat: 1 } });
+    expect(got.some((m) => m.t === "end")).toBe(true);
+    expect(r.core().members[1].connected).toBe(true);
+    endedForError(r, since, [r.ws.ann, r.ws.screen]);
+  });
+
+  it("ends the game at its start when it cannot be shown", async () => {
+    const { broken, wall } = breakableView();
+    const r = await table({ players: 2, wall });
+    const since = from(r.ws.ann, r.ws.bo, r.ws.screen);
+    broken.now = true;
+    r.say(r.ws.ann, { t: "play", id: "broken" });
+    await settle();
+    await vi.advanceTimersByTimeAsync(PLAY_BEAT_MS + 50);
+    expect(since(r.ws.ann).some((m) => m.t === "start")).toBe(false);
+    endedForError(r, since, [r.ws.ann, r.ws.bo, r.ws.screen]);
+    expect(r.ctx.room.timer).toBeNull();
+  });
+
+  it("ends the game when its view throws on a refused turn sent back to that page alone", async () => {
+    const { broken, wall } = breakableView();
+    const r = await table({ players: 2, wall });
+    await play(r, "broken");
+    const since = from(r.ws.ann, r.ws.bo, r.ws.screen);
+    broken.now = true;
+    const other = r.ws[key(1 - turnOf(r).seat)];
+    r.say(other, { t: "in", d: { t: "add", n: 1 }, id: "x" });
+    await settle();
+    endedForError(r, since, [r.ws.ann, r.ws.bo, r.ws.screen]);
+  });
+
+  it("lets the host end it all the same: everyone gets `end` and the room view", async () => {
+    const { broken, wall } = breakableView();
+    const r = await table({ players: 2, wall });
+    await play(r, "broken");
+    const since = from(r.ws.ann, r.ws.bo, r.ws.screen);
+    broken.now = true;
+    r.say(r.ws.ann, { t: "stop" });
+    await settle();
+    expect(r.core().activity.kind).toBe("lobby");
+    for (const ws of [r.ws.ann, r.ws.bo, r.ws.screen]) {
+      const got = since(ws);
+      expect(got.find((m) => m.t === "end")).toMatchObject({ room: { phase: "lobby", mode: "turn-based" }, last: { early: { why: "host", name: "Ann" } } });
+      expect(got.findLastIndex((m) => m.t === "room")).toBeGreaterThan(got.findIndex((m) => m.t === "end"));
+    }
+  });
+
+  it("lets the host end it when the save fails: everyone still hears it is over", async () => {
+    const r = await table({ players: 2 });
+    await play(r);
+    const since = from(r.ws.ann, r.ws.bo);
+    r.ctx.storage.put = async () => Promise.reject(new Error("down"));
+    r.say(r.ws.ann, { t: "stop" });
+    await settle();
+    expect(r.core().activity.kind).toBe("lobby");
+    for (const ws of [r.ws.ann, r.ws.bo]) expect(since(ws).some((m) => m.t === "end")).toBe(true);
+  });
+});
+
+describe("the Table game adapter", () => {
+  it("keeps the state when the rules give back the very state they were given", () => {
+    const same = { ...rules, apply: (s, seat, m, now) => (m.t === "tick" ? s : rules.apply(s, seat, m, now)) };
+    const g = tableGame(same, { id: "same" });
+    const state = g.create({ seats: [{ seat: 0 }, { seat: 1 }], seed: 5, now: 0, host: 0 });
+    const before = structuredClone(state);
+    g.tick(state, 1);
+    expect(state).toEqual(before);
+    expect(g.input(state, rules.SYSTEM, { t: "tick" }, 2)).toMatchObject({ ok: true });
+    expect(state).toEqual(before);
+  });
+});

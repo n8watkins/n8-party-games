@@ -18,8 +18,13 @@
 const isRefusal = (x) => !!x && typeof x === "object" && typeof x.refused === "string";
 const refusal = (out) => ({ ok: false, error: out.refused, message: typeof out.message === "string" ? out.message : "That cannot be done now." });
 
-/** The kit applies a move to a copy of the state and keeps the copy: the new state goes into it. */
+/**
+ * The kit applies a move to a copy of the state and keeps the copy: the new state goes into it.
+ * Rules that change nothing may give back the very state they were given: it is already in place
+ * (emptying it first would empty both).
+ */
 function replace(target, next) {
+  if (next === target) return;
   for (const key of Object.keys(target)) delete target[key];
   Object.assign(target, next);
 }
