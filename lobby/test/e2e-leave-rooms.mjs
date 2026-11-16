@@ -313,9 +313,9 @@ try {
   check(front.url() === base + "/" && (await front.locator(".note-chip").count()) === 0 && !(await front.evaluate(() => window.__seen)), "a party that has gone: no chip, no flash, the page stays");
 
   // ---------------------------------------------------------------- the way in: a wrong code, a full party, a second screen
-  await front.goto(base + "/");
-  await front.fill("#join", "0001");
-  await front.click(".join button");
+  // The party room's own way in, with a code typed (the front page checks a code before it comes
+  // here, and says a wrong one itself: site/test/e2e-home.mjs).
+  await front.goto(base + "/lobby/?join=0001");
   await front.fill("input[name=nickname]", "Gus");
   await sleep(600);
   const unknown = await front.locator(".door-who").textContent();

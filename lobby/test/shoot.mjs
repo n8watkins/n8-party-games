@@ -97,11 +97,13 @@ try {
   // ---------------------------------------------------------------- the way in
   const front = await open("front", { width: 1280, height: 800 });
   await front.goto(base + "/");
-  check((await front.locator("text=Start a party").count()) > 0 && (await front.locator("text=Join with a code").count()) > 0, "the front page offers Start a party and Join with a code");
+  await front.waitForSelector("body[data-ready]");
+  check((await front.locator(".door").count()) === 3 && (await front.locator("#joinOpen").isVisible()), "the front page offers its three doors and Join with a code");
   await shot(front, "00-front-page");
   const cork = await front.request.get(base + "/cork-and-bell/");
   check(cork.ok() && (await cork.text()).includes("party-kit/client/lobby.css"), "Cork & Bell's own page is still served at /cork-and-bell/");
-  await front.click("a.button");
+  await front.click(".door[data-kind=room]");
+  await front.click("#roomStart");
   await front.waitForSelector(".door-title");
   await shot(front, "01-start-a-party");
   await front.close();
