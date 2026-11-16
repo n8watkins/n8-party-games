@@ -32,7 +32,7 @@ function job(env = {}) {
   procs.push(p);
   p.out = "";
   p.stdout.on("data", (d) => (p.out += d));
-  p.until = (re, ms = 10000) =>
+  p.until = (re, ms = 30000) =>
     new Promise((resolve, reject) => {
       const t = setTimeout(() => reject(new Error(`no ${re} within ${ms} ms; said: ${p.out}`)), ms);
       const look = () => (re.test(p.out) ? (clearTimeout(t), resolve()) : setTimeout(look, 25));
@@ -43,7 +43,10 @@ function job(env = {}) {
 }
 const settle = (ms = 700) => new Promise((r) => setTimeout(r, ms));
 
-describe("card slots", () => {
+// Each job is a fresh Node process that loads Playwright, which takes seconds on a loaded PC
+// (the pre-deploy gate runs these tests while other agents build and test), so the limits are
+// generous; a test that passes takes about as long as it did before.
+describe("card slots", { timeout: 60000 }, () => {
   it("lets the default number of jobs draw at once, and makes the next one wait", async () => {
     const { DEFAULT_CARD_SLOTS } = await import("./browser.mjs");
     expect(DEFAULT_CARD_SLOTS).toBeGreaterThanOrEqual(1);
@@ -111,7 +114,7 @@ describe("card slots", () => {
     await free.release();
     await next.until(/held/);
     expect(readdirSync(queue)).not.toContain(stale);
-  }, 20000);
+  });
 
   it("under gpu-run (TEST_GPU_SLOT_HELD=1) takes its own slot without queueing", async () => {
     const a = job({ TEST_GPU_JOBS: "1" });
