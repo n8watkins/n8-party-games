@@ -8,9 +8,11 @@
 //
 //   node lobby/test/e2e-cork.mjs [--base=http://localhost:8791] [--out=lobby/test/shots] [--win=1]
 //
-// It takes about four minutes: a round is ninety seconds, there are two, and nothing shortens
-// them. It reads the room budget's books before and after (the local server's debug door), so
-// the run also says what the two rounds cost.
+// It takes about four minutes: there are two rounds of up to ninety seconds (the game's
+// ROUND_SECONDS). The battle runs its full time, as two of its stalls never spend their corks;
+// the round played alone ends sooner, once its one stall (the game's bot) has spent them. It
+// reads the room budget's books before and after (the local server's debug door), so the run
+// also says what each round cost, and checks that it is what each round lasted.
 //
 // Playwright's browser in WSL draws WebGL in software, a few frames a second, so the pages are
 // kept few and small (a 960 x 540 screen, phones at one pixel per pixel) and one of the three
@@ -21,6 +23,8 @@
 import { mkdirSync } from "node:fs";
 import { resolve } from "node:path";
 import { openBrowser } from "../../node_modules/cork-and-bell/tools/browser.mjs";
+import { COUNT_IN, END_HOLD } from "../../node_modules/cork-and-bell/game/shared/battle.js";
+import { ROUND_SECONDS } from "../../node_modules/cork-and-bell/game/shared/sim.js";
 import { REPORT_EVERY_MS, ROOM_MEMORY_GB } from "../../party-kit/src/worker/budget-logic.js";
 import { boxCentre } from "../shared/world.js";
 import { partyApi, sleep } from "./client.mjs";
@@ -107,6 +111,7 @@ const errors = [];
 const pageSockets = [];
 const pageAddresses = [];
 const loadProblems = [];
+const timeCalls = [];
 const browser = await openBrowser({ win: opt("win", "0") === "1", width: 960, height: 540 });
 try {
   async function open(name, viewport, extra = {}) {
@@ -117,6 +122,11 @@ try {
       const socket = { name, url: ws.url(), first: null };
       pageSockets.push(socket);
       ws.on("framesent", (frame) => (socket.first ??= String(frame.payload)));
+      // When the game called time, as the room told this page ({name, t: round seconds}).
+      ws.on("framereceived", (frame) => {
+        if (typeof frame.payload !== "string" || !frame.payload.includes('"k":"time"')) return;
+        for (const e of JSON.parse(frame.payload).ev ?? []) if (e.k === "time") timeCalls.push({ name, t: e.t });
+      });
     });
     page.on("pageerror", (e) => errors.push(`${name}: ${e.message}`));
     page.on("console", (m) => m.type() === "error" && !/WebSocket|ERR_/.test(m.text()) && errors.push(`${name}: ${m.text()}`));
@@ -236,7 +246,7 @@ try {
   for (const [name, page] of [["Ada", ada], ["Cy", cy], ["screen", screen]]) frames[name] = await gameFrame(page);
   const loadedIn = Date.now() - startedAt;
   // A browser that draws WebGL in software (Playwright's own, in WSL) has pages that run many
-  // seconds behind the room. What needs a page to keep up with a ninety-second round is left
+  // seconds behind the room. What needs a page to keep up with the round is left
   // out there, and said so; everything the room decides is checked either way.
   const slow = loadedIn > 15_000;
   if (slow) console.log(`     (the game took ${(loadedIn / 1000).toFixed(0)} seconds to come up: this browser draws in software. The reload in the middle, the door sheet and the stills are left out; run with --win=1 for all of it.)`);
@@ -338,11 +348,17 @@ try {
   }
 
   // ---------------------------------------------------------------- the end
-  console.log("     waiting for the round to end (ninety seconds in all)...");
+  console.log(`     waiting for the round to end (${ROUND_SECONDS} seconds in all: Ada and Bea never spend their corks)...`);
   const end = await watcher.wait((m) => m.t === "end", 150000, 0);
-  const took = (end.at - start.at) / 1000;
+  // How long the round was, on the room's clock: from the game's start to the room's end.
+  const took = (end.now - start.s.startAt) / 1000;
   const rows = end.last.rows;
-  check(took > 93 && took < 98, `the round lasted ${took.toFixed(1)} seconds: the count-in, ninety seconds and the hold at the end`);
+  // When the game called time, in round seconds, and what a round that ends then lasts: the
+  // count-in, the room's lag behind its clock, the round and the hold at the end. The room ticks
+  // on a timer, which a loaded machine fires late, so its end may come a little after.
+  const timeAt = watcher.seen.find((m) => m.t === "ev" && m.ev.some((e) => e.k === "time"))?.ev.find((e) => e.k === "time").t ?? null;
+  const due = COUNT_IN + start.s.delay + timeAt + END_HOLD;
+  check(timeAt !== null && timeAt >= ROUND_SECONDS && timeAt < ROUND_SECONDS + 0.5 && took >= due - 0.05 && took < due + 0.5, `the round lasted ${took.toFixed(1)} seconds: the count-in, the full ${ROUND_SECONDS} seconds (time was called at ${timeAt?.toFixed(2)}) and the hold at the end, ${due.toFixed(1)} s`);
   check(rows.length === 3 && rows.every((r, i) => i === 0 || r.score <= rows[i - 1].score) && rows[0].points === 3 && rows.find((r) => r.name === "Bea").score === 0, "it ends with places: " + rows.map((r) => `${r.name} ${r.score} (+${r.points})`).join(", "));
   check(end.room.phase === "lobby" && end.room.tonight.games === 1 && end.room.members.filter(Boolean).reduce((n, m) => n + m.points, 0) === rows.reduce((n, r) => n + r.points, 0), "everyone is back in the lobby and the points are on the Tonight board");
   if (!slow) {
@@ -408,7 +424,7 @@ try {
   await walk(lone, loneWatch, 0, light());
   const loneStart = await loneUntil((v) => v.phase === "playing", 16000);
   const loneFrame = await gameFrame(lone);
-  const loneSees = await loneFrame.evaluate(() => ({ mine: window.__cab.session.mySeat, stalls: window.__cab.views.length, seats: window.__cab.session.seats.length, rivals: document.getElementById("rivals").hidden }));
+  const loneSees = await loneFrame.evaluate(() => ({ mine: window.__cab.session.mySeat, stalls: window.__cab.views.length, seats: window.__cab.session.seats.length, rivals: document.getElementById("rivals").hidden, startAt: window.__cab.session.startAt }));
   check(loneStart.game.id === "cork-and-bell" && loneSees.seats === 1, "alone in its light, the count runs and a round starts for the one seat");
   check(loneSees.mine === 0 && loneSees.stalls === 1 && loneSees.rivals, "the party of one has a stall to itself, with no rivals to pick");
   if (!slow) await shot(lone, "54-phone-cork-and-bell-alone");
@@ -427,6 +443,12 @@ try {
   clearInterval(loneWatch.timer);
   const sol = loneEnd.last.rows[0];
   check(loneEnd.last.rows.length === 1 && sol.place === 1 && sol.points === 3 && sol.score > 0, `the round played alone ends too: ${sol.name} ${sol.score} (+${sol.points})`);
+  // On the room's clock, from the game's start to the room's end. Alone, the round is over once
+  // the stall has spent its corks, or when its time is up; the room ends it then, after the hold.
+  const loneTook = (loneEnd.last.at - loneSees.startAt) / 1000;
+  const loneTimeAt = timeCalls.find((c) => c.name === "alone" || c.name === "late screen")?.t ?? null;
+  const loneDue = COUNT_IN + start.s.delay + loneTimeAt + END_HOLD;
+  check(loneTimeAt !== null && loneTook >= loneDue - 0.05 && loneTook < loneDue + 0.5, `and the room ended it when the game did: time was called at ${loneTimeAt?.toFixed(1)} of ${ROUND_SECONDS} seconds (${loneTimeAt < ROUND_SECONDS ? "its corks were spent" : "the time was up"}), and the round lasted ${loneTook.toFixed(1)} seconds, ${loneDue.toFixed(1)} due`);
   await lone.waitForSelector(FRAME, { state: "detached", timeout: 90000 });
   const loneLeft = await leftBehind(lone);
   check(loneLeft.frames === 0 && loneLeft.canvases === 0 && loneLeft.lost === true, "and its game was taken away");
@@ -437,7 +459,14 @@ try {
   if (before && afterOne && after) {
     const first = (afterOne.dayUsed - before.dayUsed) / ROOM_MEMORY_GB;
     const both = (after.dayUsed - before.dayUsed) / ROOM_MEMORY_GB;
-    check(first > 93 && first < 101 && both - first > 93 && both - first < 101, `each round was counted against the room budget second for second: ${first.toFixed(1)} awake seconds for the battle and ${(both - first).toFixed(1)} for the round played alone`);
+    // A room is held awake, and counted second for second, from a round's start to its end, and
+    // asleep otherwise, where an event (a join, a step, a vote) counts only the few milliseconds
+    // it took. So each round's awake time is its own length, never less (the room must not
+    // under-count), and more only by those events: never by a timer left running after the round
+    // ended, early or not, which would add every second until the books were read.
+    const AROUND = 1;
+    const fair = (awake, took) => awake >= took - 0.05 && awake <= took + AROUND;
+    check(fair(first, took) && fair(both - first, loneTook), `each round was counted against the room budget second for second: ${first.toFixed(1)} awake seconds for the battle, which lasted ${took.toFixed(1)}, and ${(both - first).toFixed(1)} for the round played alone, which lasted ${loneTook.toFixed(1)} (at most ${AROUND} s more is allowed, for what happened around the rounds)`);
     console.log(`     one round costs ${(first * ROOM_MEMORY_GB).toFixed(1)} GB-seconds of room time, however many play.`);
   }
 

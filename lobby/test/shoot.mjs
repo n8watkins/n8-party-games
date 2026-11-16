@@ -140,7 +140,7 @@ try {
   for (const nickname of ["Mabel", "Fitch", "Tom"]) sessions.push(await call("POST", "/join/" + pin, { nickname }));
   const [mabel, fitch, tom] = sessions.map(connect);
   await Promise.all([mabel, fitch, tom].map((c) => c.opened));
-  // Bare sockets say nothing by themselves: through a ninety-second round they must keep alive as a page does.
+  // Bare sockets say nothing by themselves: through a round of up to ninety seconds they must keep alive as a page does.
   setInterval(() => [mabel, fitch, tom].forEach((c) => c.send("ping")), 20_000).unref();
   await mabel.wait((m) => m.room?.members.filter((x) => x?.connected).length === 4, 8000, 0);
 
