@@ -5,7 +5,7 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { CATEGORIES, CATEGORY_IDS } from "../../../one-device/hot-potato/shared/categories.js";
 import { buildIndex, firstLetter, matchHeard, nextLetter, normalize } from "../../../one-device/hot-potato/shared/logic.js";
-import { FAMOUS_CITIES, SUGGESTION_COUNT, suggestions } from "../../../one-device/hot-potato/shared/suggest.js";
+import { FAMOUS_CITIES, SKIP_NAMES, SKIP_WORDS, SUGGESTION_COUNT, suggestible, suggestions } from "../../../one-device/hot-potato/shared/suggest.js";
 
 const load = (name) => JSON.parse(readFileSync(new URL(`../../../one-device/hot-potato/shared/${name}`, import.meta.url), "utf8"));
 const words = load("words.json");
@@ -87,6 +87,29 @@ describe("suggestions", () => {
     expect(names(suggestions(index.cities, { letter: "b", page: 4 }))).toEqual(a);
     // Only one well-known Y animal: "more" has nothing else to show.
     expect(names(suggestions(index.animals, { letter: "y", page: 1 }))).toEqual(["yak"]);
+  });
+
+  it("never suggests a word on the skip list, for any letter, category or page, or deeper into a game", () => {
+    const skipped = (name) => SKIP_NAMES.has(normalize(name)) || normalize(name).split(" ").some((w) => SKIP_WORDS.has(w));
+    for (const id of CATEGORY_IDS) {
+      for (const letter of ["", ...ABC]) {
+        // The first 16 for the letter, then the next 16 once those are said.
+        const first = [0, 1, 2, 3].flatMap((page) => suggestions(index[id], { letter, page }));
+        const used = new Set(first.map((s) => s.id));
+        const later = [0, 1, 2, 3].flatMap((page) => suggestions(index[id], { letter, page, used }));
+        for (const s of [...first, ...later]) expect(skipped(s.name), `${id} ${letter || "any"}: ${s.name}`).toBe(false);
+      }
+    }
+    expect(names(suggestions(index.animals, { letter: "a" }))).not.toContain("ass");
+    expect(names(suggestions(index.animals))).toEqual(["dog", "horse", "fish", "cat"]);
+  });
+
+  it("still takes a skipped word as an answer: the skip list is for suggestions only", () => {
+    expect(suggestible("ass")).toBe(false);
+    expect(suggestible("blue tit")).toBe(false);
+    expect(suggestible("cocktail")).toBe(true);
+    expect(matchHeard(index.animals, [{ transcript: "ass", confidence: 0.9 }])).toMatchObject({ ok: true, said: "ass" });
+    expect(matchHeard(index.food, [{ transcript: "date", confidence: 0.9 }])).toMatchObject({ ok: true, said: "date" });
   });
 
   it("skips very short words in Anything", () => {

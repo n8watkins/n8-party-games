@@ -17,6 +17,51 @@ export const SUGGESTION_POOL = 16;
 /** In "Anything", words shorter than this are not suggested: "to" and "it" are heard as anything. */
 const MIN_WORD_LETTERS = 4;
 
+// Suggestions are read aloud at a party, so they skip words that double as swearing or read crude
+// or grim out of context, and names that are confusing on their own. This only limits what is
+// suggested: every one of these is still a right answer when a player says it.
+
+/** A name with any of these words in it is never suggested ("ass", "blue tit"). Lower case, whole words. */
+export const SKIP_WORDS = new Set([
+  "ass", "asses", "arse", "jackass", "asshole", "bitch", "bastard", "damn", "dammit", "hell", "crap",
+  "shit", "shitty", "fuck", "fucking", "fucked", "fucker", "piss", "pissed", "dick", "cock", "prick",
+  "pussy", "puss", "pussycat", "tit", "tits", "titty", "titmouse", "bushtit", "boob", "boobs",
+  "booby", "boobies", "shag", "slut", "whore", "hooker", "sex", "sexy", "naked", "nude", "penis",
+  "bollocks", "wanker", "twat", "bloody", "screw", "screwed", "horny", "idiot", "stupid", "jerk",
+  "moron", "wiener", "weenie", "woodcock", "beaver", "crumpet", "booze", "hooch", "hash", "doggy",
+  "nut", "nuts", "loin", "tart", "winkle", "kill", "kills", "killed", "killing", "killer", "dead",
+  "death", "die", "died", "dies", "murder", "suicide", "violence", "victim", "victims", "drugs",
+  "rump", "virgin", "violent", "blood", "shoot", "shooting", "shooter", "gun", "guns", "gunshot",
+  "gunshots", "gunfire", "weapon", "weapons", "bomb", "bombs", "goddamn", "damned", "drug", "knife",
+  "bullshit", "murdered", "murderer", "murders", "dumb", "ugly", "cancer", "suck", "sucks", "sexual",
+  "butt", "freak", "freaking", "motherfucker", "bastards", "loser", "rape", "raped", "assault",
+  "kidnapped", "kidnapping", "torture", "idiots", "corpse", "stab", "stabbed", "bitches", "porn",
+  "bang", "banging", "blow", "blows", "blowing", "killers", "deaths", "deadly", "hate", "hated", "hates",
+]);
+
+/**
+ * Names never suggested as a whole: confusing on their own (a "date" is not obviously food,
+ * "martin" not obviously a bird), brands, odd dictionary names, and mouthfuls. Normalised.
+ */
+export const SKIP_NAMES = new Set([
+  // animals
+  "martin", "merlin", "guinea", "ursine dasyure", "nag",
+  // food and drink
+  "pop", "punch", "date", "sub", "shake", "brat", "chop", "patty", "preserve", "dressing", "filling",
+  "spirits", "nan", "mace", "jello", "danish", "irish potato", "italian sandwich", "sole", "fowl",
+  "grain", "marrow", "herb", "port", "rye", "roe", "greens", "italian rice",
+  // countries
+  "heard island and mcdonald islands", "united states minor outlying islands", "french southern territories",
+  // anything
+  "john",
+]);
+
+/** Whether a name may be suggested (it is never refused as an answer either way). */
+export function suggestible(name) {
+  const key = normalize(name);
+  return !SKIP_NAMES.has(key) && !key.split(" ").some((w) => SKIP_WORDS.has(w));
+}
+
 /**
  * Famous, easy-to-say cities, best first within each letter, as spoken in English. Each must be
  * a well-known city in cities.json (the unit tests check it); the spelling here is what the page
@@ -103,6 +148,7 @@ function candidates(index) {
     const alt = index.places.filter((p) => others.has(p.id)).flatMap((p) => others.get(p.id).map((name) => ({ id: p.id, name, alt: true })));
     list = [...main, ...alt];
   }
+  list = list.filter((c) => suggestible(c.name));
   ranked.set(index, list);
   return list;
 }

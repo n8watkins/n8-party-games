@@ -46,9 +46,10 @@ The game (`one-device/hot-potato`) has no such switch and always plays the well-
 
 ### Suggestions
 
-To help a player who does not know many cities, the page shows three or four answers for the letter needed ("Try: Tokyo · Toronto · Tehran · more"), from the well-known list, never one already said this game.
-Cities are ranked by fame (population, with capitals and big cities of English-speaking countries first), other categories by how common the word is; "more" shows the next few.
+To help a player who does not know many cities, the page shows three or four answers for the letter needed ("Try: Tokyo · Toronto · Tampa · Tucson · more"), from the well-known list, never one already said this game.
+Cities come from a hand list of famous, easy-to-say cities first (`FAMOUS_CITIES` in `shared/suggest.js`), then by population with capitals and cities of English-speaking countries weighted up; other categories by how common the word is; "more" shows the next few.
 Tapping a suggestion does nothing: this is a hearing test, so the player says it.
+Suggestions are read aloud at a party, so `SKIP_WORDS` and `SKIP_NAMES` in `shared/suggest.js` keep out words that double as swearing or read crude or grim ("ass", "blue tit", "wiener"), and names that are confusing on their own ("date", "pop", "martin"); they are still right answers when said.
 A switch hides them (on by default, remembered on this device).
 Each turn line in the report ends with `sugg:read` when the answer was one of the suggestions shown, `sugg:own` when it was not, or `sugg:hidden` when they were off.
 The game does not show suggestions; there they would be cheating.
