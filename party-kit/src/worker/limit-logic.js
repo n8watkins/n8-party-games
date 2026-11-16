@@ -77,11 +77,13 @@ export function clientKey(ip, prefix = 64) {
 }
 
 /**
- * The client a room's socket comes from, for the door's socket limit and for sharing out the
- * sockets a room lets wait for their hello (hello-logic.js). IPv6 counts by the /48: that is what
- * a home or a small host is commonly given, and one /48 holds 65,536 /64s, each of which would
- * otherwise count as a client of its own. With no address (a local run, a test) every socket is
- * the one local client, as the rate limiter has always counted them.
+ * The client a room's socket comes from, only for sharing out the sockets a room lets wait for
+ * their hello (hello-logic.js), where a client only ever pushes out its own. IPv6 counts by the
+ * /48: that is what a home or a small host is commonly given, and one /48 holds 65,536 /64s, each
+ * of which would otherwise count as a client of its own. Never for the door's rate limits (those
+ * keep the /64, clientKey): they are one allowance across every room and refuse outright, and a
+ * carrier's phones share /48s. With no address (a local run, a test) every socket is the one local
+ * client, as the rate limiter has always counted them.
  */
 export function socketClient(ip) {
   return clientKey(ip || "local", 48);

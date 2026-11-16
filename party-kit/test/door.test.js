@@ -12,7 +12,7 @@ vi.mock("cloudflare:workers", () => ({
 }));
 
 const { handlePartyApi } = await import("../src/worker/index.js");
-const { RATE_LIMITS, clientKey, socketClient } = await import("../src/worker/limit-logic.js");
+const { RATE_LIMITS, clientKey, nextWindow, socketClient } = await import("../src/worker/limit-logic.js");
 const { PROTOCOL } = await import("../src/worker/http.js");
 
 /** A Worker environment whose limiter and room keep what they were asked. */
@@ -52,15 +52,42 @@ describe("opening a room's socket", () => {
     expect(hits).toEqual([{ name: "socket:203.0.113.7", rule: RATE_LIMITS.socket }]);
   });
 
-  it("counts IPv6 by the /48, so a /48's 65,536 /64s are one client and not 65,536", async () => {
+  it("counts IPv6 by the /64, as every other limit does: a carrier gives each phone its own /64 out of a shared /48", async () => {
     const { env, hits } = door();
-    for (const ip of ["2001:db8:1:2::5", "2001:0db8:0001:ffff:1:2:3:4", "2001:db8:1::"]) await handlePartyApi(socket("/api/party/rooms/BCDFGH/ws", { "CF-Connecting-IP": ip }), env);
-    await handlePartyApi(socket("/api/party/rooms/BCDFGH/ws", { "CF-Connecting-IP": "2001:db8:2::1" }), env);
-    expect(hits.map((h) => h.name)).toEqual(["socket:2001:db8:1::/48", "socket:2001:db8:1::/48", "socket:2001:db8:1::/48", "socket:2001:db8:2::/48"]);
-    // The other limits keep the /64.
-    expect(clientKey("2001:db8:1:2::5")).toBe("2001:db8:1:2::/64");
+    for (const ip of ["2001:db8:1:2::5", "2001:0db8:0001:0002:1:2:3:4", "2001:db8:1:3::1"]) await handlePartyApi(socket("/api/party/rooms/BCDFGH/ws", { "CF-Connecting-IP": ip }), env);
+    expect(hits.map((h) => h.name)).toEqual(["socket:2001:db8:1:2::/64", "socket:2001:db8:1:2::/64", "socket:2001:db8:1:3::/64"]);
+    // The room's own key for sharing out its waiting sockets is the /48, and only there.
+    expect(socketClient("2001:db8:1:2::5")).toBe("2001:db8:1::/48");
     expect(socketClient("::ffff:203.0.113.9")).toBe("203.0.113.9");
     expect(socketClient(null)).toBe("local");
+    expect(clientKey("2001:db8:1:2::5")).toBe("2001:db8:1:2::/64");
+  });
+
+  it("a full socket allowance spent from one /64 does not stop a phone in another /64 of the same /48 opening a socket to a different room", async () => {
+    // A limiter that counts as the real one does (one fixed window per name).
+    const windows = new Map();
+    const fetched = [];
+    const env = {
+      PARTY_RATE_LIMIT: "on",
+      PARTY_LIMITER: {
+        getByName: (name) => ({
+          hit: async (rule) => {
+            const window = nextWindow(windows.get(name) ?? { start: Date.now(), count: 0 }, rule, Date.now());
+            windows.set(name, window);
+            return window.count <= rule.limit;
+          },
+        }),
+      },
+      PARTY_ROOMS: { getByName: (code) => ({ fetch: async () => (fetched.push(code), { status: 101 }) }) },
+    };
+    const greedy = { "CF-Connecting-IP": "2001:db8:1:2::66" };
+    const statuses = [];
+    for (let i = 0; i <= RATE_LIMITS.socket.limit; i++) statuses.push((await handlePartyApi(socket("/api/party/rooms/BCDFGH/ws", greedy), env)).status);
+    expect(statuses.at(-2)).toBe(101);
+    expect(statuses.at(-1)).toBe(429);
+    const phone = await handlePartyApi(socket("/api/party/rooms/KMNPQR/ws", { "CF-Connecting-IP": "2001:db8:1:7::3" }), env);
+    expect(phone.status).toBe(101);
+    expect(fetched.at(-1)).toBe("KMNPQR");
   });
 
   it("passes the caller's address on to the room, which shares out its waiting sockets by it", async () => {

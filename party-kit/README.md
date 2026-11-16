@@ -321,9 +321,9 @@ It is never part of an address or a header, because those are written down: Work
 ### The socket handshake
 
 1. The page opens `GET <api>/rooms/:code/ws` with no token anywhere in the address or the headers.
-   The Worker checks the page's origin, the room code and the per-address limit (IPv6 counted by the /48), and hands the socket to the room.
+   The Worker checks the page's origin, the room code and the per-address limit (120 a minute, IPv6 counted by the /64 like every other limit), and hands the socket to the room.
 2. The room accepts it as nobody's socket: it has no seat, is sent nothing, and counts as nobody being connected.
-   Its attachment says `{unknown: true, at, lag, client}`, so a room that sleeps here wakes knowing the socket is still nobody's, and which address it came from (`client`, keyed as the door keys it).
+   Its attachment says `{unknown: true, at, lag, client}`, so a room that sleeps here wakes knowing the socket is still nobody's, and which address it came from (`client`: IPv4 as it is, IPv6 by the /48).
 3. The page's first message is `{"t": "hello", "token": "<the seat's token>"}`; `PartyClient` sends it the moment the socket opens, before anything else.
 4. The room looks the token up, and the socket takes its seat (or is the screen).
    Its attachment becomes the seat, and only now is anything sent: `hello {you, room}`, then the round as that seat may see it.
@@ -343,7 +343,8 @@ A code that is no room takes a socket exactly as a room does (nothing until the 
 **Who waits.** Anyone who knows a room's code can open sockets that never say hello, and a real page's socket waits one round trip for its hello to land.
 So the waiting sockets are shared out by the address they came from (`hello-logic.js`):
 
-- One address has at most six waiting (`MAX_UNKNOWN_PER_CLIENT`: a whole party on one home's wifi coming back at once is five); a seventh from it pushes out that address's own oldest.
+- One address has at most six waiting (`MAX_UNKNOWN_PER_CLIENT`: a whole party on one home's wifi coming back at once is five, two phones on one carrier /48 with two tabs each are four); a seventh from it pushes out that address's own oldest.
+- The address is IPv6's /48 here, and only here: a key only ever pushes out its own sockets. The door's limit keeps the /64, because it is one allowance across every room and refuses outright, and a carrier gives each phone its own /64 out of a shared /48.
 - A room has at most 128 waiting (`MAX_UNKNOWN`). One more pushes out a socket from an address the room has never let in before one from an address it has (made or joined the room from, or seated a socket from: `KnownClients`, at most 64, saved with the room); among those, from the address holding the most; and of those, the one that has waited longest.
 - So a phone on the network it played on is never pushed out by anyone else's sockets, and one on a new network only by someone with more than 128 addresses opening a socket each inside its round trip.
 

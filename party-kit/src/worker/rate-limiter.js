@@ -2,7 +2,7 @@
 // Lifted from Who Am I (src/worker/rate-limiter.ts). It slows down PIN guessing and room creation.
 import { DurableObject } from "cloudflare:workers";
 
-import { RATE_LIMITS, clientKey, nextWindow, socketClient } from "./limit-logic.js";
+import { RATE_LIMITS, clientKey, nextWindow } from "./limit-logic.js";
 
 export * from "./limit-logic.js";
 
@@ -24,8 +24,11 @@ export class RateLimiter extends DurableObject {
 /** True when the request may go ahead. With PARTY_RATE_LIMIT="off" (local tests) it always may. */
 export async function allowRequest(env, request, bucket) {
   if (env.PARTY_RATE_LIMIT === "off") return true;
-  const from = request.headers.get("CF-Connecting-IP");
-  // Opening a room's socket is counted by the /48, as the room shares out its waiting sockets.
-  const ip = bucket === "socket" ? socketClient(from) : clientKey(from ?? "local");
+  // Every bucket, the socket one included, counts IPv6 by the /64. The limiter is one allowance
+  // across all rooms and refuses outright, and a mobile carrier commonly gives each phone its own
+  // /64 out of a shared /48: keyed by the /48, one person's opens would refuse every unrelated
+  // phone on that block in every room. (The room itself shares out its waiting sockets by the /48,
+  // socketClient, where a key only ever pushes out its own.)
+  const ip = clientKey(request.headers.get("CF-Connecting-IP") ?? "local");
   return env.PARTY_LIMITER.getByName(`${bucket}:${ip}`).hit(RATE_LIMITS[bucket]);
 }

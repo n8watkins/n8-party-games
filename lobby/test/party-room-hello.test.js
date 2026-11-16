@@ -244,6 +244,16 @@ describe("silent sockets opened while a phone's hello is on its way", () => {
     expect(phone.messages()[0]).toMatchObject({ t: "hello", you: { role: "player", seat: 2 } });
   });
 
+  it("two phones on one carrier /48, two tabs each, coming back at the same moment, are all seated", async () => {
+    const r = await party();
+    const opened = [];
+    for (const [ip, who] of [["2001:db8:1:2::a", "ann"], ["2001:db8:1:2::a", "ann"], ["2001:db8:1:9::b", "bo"], ["2001:db8:1:9::b", "bo"]]) opened.push([await r.open("", ip), who]);
+    expect(r.ctx.room.unknown.countOf("2001:db8:1::/48")).toBe(4);
+    for (const [ws, who] of opened) hello(r, ws, r.tokens[who]);
+    await settle();
+    for (const [ws] of opened) expect(ws.messages()[0]).toMatchObject({ t: "hello" });
+  });
+
   it("one address cannot hold more than its share: its newest pushes out its own oldest, never another's", async () => {
     const r = await party();
     const phone = await r.open("", "192.0.2.50");

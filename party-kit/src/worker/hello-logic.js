@@ -12,8 +12,8 @@
 //
 // Anyone who knows a room's code can open such sockets, so how many may wait must not let them
 // push a real page's socket out during the one round trip it waits for its hello to arrive. The
-// room knows which client each socket came from (the address Cloudflare puts on the request, keyed
-// as the door's socket limit keys it: socketClient in limit-logic.js), and the sockets that wait
+// room knows which client each socket came from (the address Cloudflare puts on the request, IPv6
+// by the /48: socketClient in limit-logic.js; the door's limit keeps the /64), and the sockets that wait
 // are shared out by client: a client that opens more than its share pushes out only its own, and
 // when the room as a whole is full the client holding the most gives way. A page alone on its
 // address is never the one pushed out while anyone else holds two.
@@ -30,7 +30,8 @@ export const HELLO_MS = 10_000;
 /**
  * How many sockets one client (socketClient) may have waiting at once. A whole party on one home's
  * wifi coming back after a drop (four phones and the screen) is five, each waiting one round trip,
- * so they all fit. One more from that client closes that client's socket that has waited longest.
+ * so they all fit; so do two phones on one carrier /48 with two tabs each (four). One more from
+ * that client closes that client's socket that has waited longest.
  */
 export const MAX_UNKNOWN_PER_CLIENT = 6;
 /**

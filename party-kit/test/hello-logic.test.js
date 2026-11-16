@@ -2,7 +2,7 @@
 // sockets that have not said whose they are yet.
 import { describe, expect, it } from "vitest";
 import { CLOSE_HELLO_LATE, HELLO_MS, KnownClients, MAX_KNOWN_CLIENTS, MAX_TOKEN_LENGTH, MAX_UNKNOWN, MAX_UNKNOWN_PER_CLIENT, UnknownSockets, readHello } from "../src/worker/hello-logic.js";
-import { RATE_LIMITS } from "../src/worker/limit-logic.js";
+import { RATE_LIMITS, socketClient } from "../src/worker/limit-logic.js";
 
 const START = 1_700_000_000_000;
 
@@ -156,6 +156,32 @@ describe("UnknownSockets", () => {
     expect(full.list()).toHaveLength(MAX_KNOWN_CLIENTS);
     expect(full.add("late")).toBe(false);
     expect(full.has("n-0")).toBe(true);
+  });
+
+  it("a room full of fresh silent sockets from 128 addresses, one each, does not keep a phone out: it is let in, and stays until a full room's worth of newer opens land", () => {
+    const unknown = new UnknownSockets();
+    for (let i = 0; i < MAX_UNKNOWN; i++) unknown.add(new Socket(), START + i, 0, `hostile-${i}`);
+    const phone = new Socket();
+    unknown.add(phone, START + 1000, 0, "phone");
+    expect(phone.closed).toBeNull();
+    expect(unknown.has(phone)).toBe(true);
+    // Newer opens inside its round trip, each from an address of its own: the older lone ones go first.
+    for (let i = 0; i < MAX_UNKNOWN - 1; i++) unknown.add(new Socket(), START + 1001 + i, 0, `later-${i}`);
+    expect(unknown.has(phone)).toBe(true);
+    unknown.add(new Socket(), START + 2000, 0, "one too many");
+    expect(phone.closed).toEqual({ code: CLOSE_HELLO_LATE, reason: "crowded" });
+  });
+
+  it("two phones on one carrier /48, two tabs each, coming back at the same moment are all let wait", () => {
+    expect(MAX_UNKNOWN_PER_CLIENT).toBeGreaterThanOrEqual(4);
+    const unknown = new UnknownSockets();
+    const tabs = ["2001:db8:1:2::a", "2001:db8:1:2::a", "2001:db8:1:9::b", "2001:db8:1:9::b"].map((ip) => {
+      const ws = new Socket();
+      unknown.add(ws, START, 0, socketClient(ip));
+      return ws;
+    });
+    expect(unknown.countOf("2001:db8:1::/48")).toBe(4);
+    expect(tabs.every((ws) => ws.closed === null)).toBe(true);
   });
 
   it("when every client holds one and the room is full, the oldest of all goes (the newcomer stays)", () => {
