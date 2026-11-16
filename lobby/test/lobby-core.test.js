@@ -3,6 +3,10 @@
 import { describe, expect, it } from "vitest";
 import { IDLE_SHUTDOWN_MS, STALE_ROOM_MS } from "../../party-kit/src/core/room-core.js";
 import * as cork from "cork-and-bell";
+// The game's own round: how long it lasts and how many corks a stall has (the package exports
+// only its game and manifest, so these come from its source).
+import { COUNT_IN, END_HOLD } from "../../node_modules/cork-and-bell/game/shared/battle.js";
+import { CORKS_PER_ROUND, ROUND_SECONDS } from "../../node_modules/cork-and-bell/game/shared/sim.js";
 import { game as coinFlip, FLIP_MS, manifest as coinFlipManifest } from "../games/coin-flip.js";
 import { BUDGET_CLOSE_MS, DROP_FADE_MS as RECONNECT_GRACE_MS, LobbyCore, MAX_ROOM_LIFE_MS, SCREEN_GRACE_MS, SEAT_HOLD_MS } from "../server/lobby-core.js";
 import { AWAY_MS, COUNT_MS, SETTLE_MS, TOSS_MS, boxFromManifest } from "../shared/vote.js";
@@ -608,20 +612,37 @@ describe("Cork & Bell through the seam", () => {
     let now = from;
     let ended = null;
     let snapshots = 0;
+    let ticks = 0;
     const kinds = new Set();
+    /** The game's state, kept after the end: what it says about how the round ended. */
+    const state = core.activity.state;
+    /** The round time the game called time at, and the seats that ran out of corks, in order. */
+    let timeAt = null;
+    const out = [];
     while (!ended && now < from + 110_000) {
       now += step;
+      ticks++;
       for (const seat of core.activity.seats) {
         const aim = aims(seat, core.activity.state, now);
         if (aim) core.gameInput(seat, aim, now);
       }
-      const out = core.gameTick(now);
-      for (const e of out.events) kinds.add(e.k);
-      if (out.snapshot) snapshots++;
-      ended = out.ended;
+      const tick = core.gameTick(now);
+      for (const e of tick.events) {
+        kinds.add(e.k);
+        if (e.k === "time") timeAt = e.t;
+        if (e.k === "out") out.push(e.seat);
+      }
+      if (tick.snapshot) snapshots++;
+      ended = tick.ended;
     }
-    return { ended, now, snapshots, kinds };
+    return { ended, now, snapshots, ticks, kinds, state, timeAt, out };
   }
+  /**
+   * How long a round lasts in the room, from the start to the end, when the game called time at
+   * round time `timeAt`: the count-in, the room's lag behind its clock, the round and the hold at
+   * the end, all the game's own. The room ticks at the game's rate, so this holds within a tick.
+   */
+  const roundLength = (state, timeAt) => COUNT_IN + state.delay + timeAt + END_HOLD;
   /** The game's own stand-in, used here as a hand on the gun. */
   const botAim = (seat, state, now) => cork.game.bot(state, seat, now)[0] ?? null;
 
@@ -646,13 +667,22 @@ describe("Cork & Bell through the seam", () => {
     // Nothing of the lobby wakes the room while the game is on: the game's own timer does.
     expect(core.nextWake(at)).toBeNull();
     // Three play; Di holds the gun and never fires.
-    const { ended, now, snapshots, kinds } = playOut(core, at, (seat, state, t) => (seat === 3 ? null : botAim(seat, state, t)));
-    // No longer than the count-in and ninety seconds; sooner when the three who fire have spent
-    // their thirty-five corks, which ends the round with only Di's stall still holding any.
-    expect((now - at) / 1000).toBeGreaterThan(30);
-    expect((now - at) / 1000).toBeLessThan(97);
-    expect(snapshots).toBeGreaterThan(50);
-    expect([...kinds]).toEqual(expect.arrayContaining(["f", "atk"]));
+    const { ended, now, snapshots, ticks, kinds, state, timeAt, out } = playOut(core, at, (seat, state, t) => (seat === 3 ? null : botAim(seat, state, t)));
+    // The three who fire spend all their corks before the round's time is up, and once only Di's
+    // stall holds any the game calls time: the round ends early, and the room ends it then.
+    expect([...out].sort()).toEqual([0, 1, 2]);
+    expect(timeAt).toBeLessThan(ROUND_SECONDS);
+    expect(Math.abs((now - at) / 1000 - roundLength(state, timeAt))).toBeLessThanOrEqual(1 / cork.game.tickHz);
+    // A snapshot every `snapshotEvery` ticks, and the last one at the end.
+    expect(snapshots).toBe(Math.floor(ticks / cork.game.snapshotEvery) + (ticks % cork.game.snapshotEvery ? 1 : 0));
+    expect([...kinds]).toEqual(expect.arrayContaining(["f", "atk", "out", "time"]));
+    // Each firing stall fired its corks and more (a dead-centre hit earns one back), down to none;
+    // Di's still holds all of them.
+    for (const r of ended.result) {
+      expect(state.stalls[r.seat].corksLeft).toBe(r.seat === 3 ? CORKS_PER_ROUND : 0);
+      if (r.seat === 3) expect(r.shots).toBe(0);
+      else expect(r.shots).toBeGreaterThanOrEqual(CORKS_PER_ROUND);
+    }
     const rows = ended.last.rows;
     expect(rows).toHaveLength(4);
     expect(rows.map((r) => r.place)).toEqual([1, 2, 3, 4]);
@@ -675,7 +705,10 @@ describe("Cork & Bell through the seam", () => {
     core.evaluate(2000);
     expect(core.tick(2000 + COUNT_MS).start).toBe("cork-and-bell");
     core.startGame("cork-and-bell", 2000 + COUNT_MS);
-    const { ended } = playOut(core, 2000 + COUNT_MS, botAim);
+    const { ended, now, state, timeAt, out } = playOut(core, 2000 + COUNT_MS, botAim);
+    // Alone, the round is over once the one stall has spent its corks, or its time is up.
+    expect(out.length === 1 || timeAt >= ROUND_SECONDS).toBe(true);
+    expect(Math.abs((now - 2000 - COUNT_MS) / 1000 - roundLength(state, timeAt))).toBeLessThanOrEqual(1 / cork.game.tickHz);
     expect(ended.last.rows).toHaveLength(1);
     expect(ended.last.rows[0]).toMatchObject({ name: "Ann", place: 1, points: 3 });
     expect(ended.last.rows[0].score).toBeGreaterThan(0);
