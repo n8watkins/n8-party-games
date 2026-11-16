@@ -1,6 +1,30 @@
 // The pure parts of the Hot Potato hearing test: normalising what was heard, the last-letter
 // rule, and matching what the recogniser returned against the city list. No DOM, no browser
 // APIs, so it runs the same in the page and in the unit tests (lab/hot-potato/test).
+//
+// Matching rules, version m2 (each is said in plain words in index.html and README.md):
+//  1. The whole phrase decides: after accents, case, punctuation and a few filler words ("um",
+//     "how about") are dropped, what was heard must equal a name of the place. "Leopold" is not
+//     Léo, "Edmonton" is not Edmond.
+//  2. Only the recogniser's believable guesses count: those rated at least half as sure as its
+//     best guess, and spellings of a counted guess that sound the same. "Rogers" at 0.02 beside
+//     "Rodger" at 0.67 does not count.
+//  3. Two lists. The default list holds well-known places: capitals, US, Canadian and Australian
+//     state capitals, places of 100,000 people or more, and a hand list of famous small towns.
+//     A place whose name is also an ordinary word (Orange, Surprise) needs 250,000 people, a
+//     capital or the hand list (Nice, Bath, Cork, Reading, Mobile). Hard mode adds every town
+//     over 15,000.
+//  4. Sound-alike only mends the recogniser's spelling of a well-known city, never a different
+//     word: the best guess must not be an ordinary English word or a common name, the city's name
+//     must not be an ordinary word, it must start with the same letter, have the same consonants,
+//     and be one letter off (two for six letters or more, vowels only). "Sidnee" is Sydney;
+//     "salmon" is a fish.
+//  5. When a name fits two places, the bigger one is named, and the other is shown.
+//  6. Answering early (off by default) takes an interim result only when it is exactly a
+//     well-known city, no longer name in the list starts with it, and it stays the same for a
+//     moment; otherwise the final result decides.
+
+export const RULES_VERSION = "m2";
 
 /** Letters that NFD does not split into a base letter and a mark. */
 const FOLD = { ß: "ss", æ: "ae", œ: "oe", ø: "o", ł: "l", đ: "d", ð: "d", þ: "th", ı: "i", ħ: "h" };
@@ -39,27 +63,33 @@ export function followsChain(previous, next) {
   return firstLetter(next) === lastLetter(previous);
 }
 
-/** Levenshtein distance, stopping early once it is above `max`. */
+/**
+ * Edit distance counting a swap of two neighbouring letters as one edit ("Dehli" is one off
+ * "Delhi"), stopping early once it is above `max`.
+ */
 export function editDistance(a, b, max = Infinity) {
   if (Math.abs(a.length - b.length) > max) return max + 1;
+  let before = null;
   let prev = Array.from({ length: b.length + 1 }, (_, j) => j);
   for (let i = 1; i <= a.length; i++) {
     const cur = [i];
     let best = i;
     for (let j = 1; j <= b.length; j++) {
       cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+      if (before && i > 1 && j > 1 && a[i - 1] === b[j - 2] && a[i - 2] === b[j - 1]) cur[j] = Math.min(cur[j], before[j - 2] + 1);
       if (cur[j] < best) best = cur[j];
     }
     if (best > max) return max + 1;
+    before = prev;
     prev = cur;
   }
   return prev[b.length];
 }
 
 /**
- * A rough sound key for English speech: the first letter kept, common spellings of one sound
- * folded together (ph/f, c/k/q, z/s, y/i), silent letters dropped, then the vowels dropped and
- * doubled letters merged. "roam" and "Rome" are both "rm"; "burn" and "Bern" are both "brn".
+ * A rough sound key for English speech, the consonant skeleton: the first letter kept, common
+ * spellings of one sound folded together (ph/f, c/k/q, z/s, y/i), silent letters dropped, then
+ * the vowels dropped and doubled letters merged. "Sidnee" and "Sydney" are both "sdn".
  */
 export function soundKey(text) {
   let s = letters(text);
@@ -84,77 +114,135 @@ export function soundKey(text) {
   return (head + tail).replace(/(.)\1+/g, "$1");
 }
 
+/** Words said around a city that are not part of it: "um", "how about", "I'll say", "please". */
+const LEADING_FILLERS = [
+  "um", "umm", "uh", "uhh", "er", "erm", "ah", "hmm", "so", "okay", "ok", "well", "maybe", "like",
+  "i say", "ill say", "i will say", "lets say", "let me say", "how about", "what about",
+  "its", "it is", "the city of", "city of",
+].map((f) => f.split(" "));
+const TRAILING_FILLERS = ["please", "i guess", "maybe", "i think"].map((f) => f.split(" "));
+
+/** The heard phrase with filler words dropped from both ends: "um how about Sydney" -> "sydney". */
+export function trimFillers(text) {
+  let words = normalize(text).split(" ").filter(Boolean);
+  let changed = true;
+  while (changed && words.length > 1) {
+    changed = false;
+    for (const f of LEADING_FILLERS) {
+      if (words.length > f.length && f.every((w, i) => words[i] === w)) {
+        words = words.slice(f.length);
+        changed = true;
+        break;
+      }
+    }
+    for (const f of TRAILING_FILLERS) {
+      if (words.length > f.length && f.every((w, i) => words[words.length - f.length + i] === w)) {
+        words = words.slice(0, words.length - f.length);
+        changed = true;
+        break;
+      }
+    }
+  }
+  return words.join(" ");
+}
+
 /**
- * Turns the shipped JSON ({rows: [[name, ascii|0, alts|0, abbrs|0, country, population]]},
- * biggest first) into an index. Each place gets an id (its row number); every name, ASCII name,
- * English alternate name and abbreviation is a key. A place's spoken name is the name it was
- * matched by, except for abbreviations, which play as the main name.
+ * Turns the shipped JSON into an index. cities.json is {countries, rows: [[name, ascii|0,
+ * alts|0, abbrs|0, country, population, why|0, region|0]]}, biggest first; words.json is
+ * {words, names}. Each place gets an id (its row number); every name, ASCII name, English
+ * alternate name and abbreviation is a key. A place is well known (in the default list) when it
+ * has a "why".
  */
-export function buildIndex(doc) {
+export function buildIndex(doc, wordsDoc = { words: [], names: [] }) {
+  const ordinary = new Set(wordsDoc.words ?? []);
+  const names = new Set(wordsDoc.names ?? []);
+  const countries = doc.countries ?? {};
   const places = [];
   const byKey = new Map();
   const byLetter = new Map();
+  const keySet = { known: new Set(), all: new Set() };
   const add = (key, entry) => {
     if (!key) return;
     const list = byKey.get(key);
     if (!list) byKey.set(key, [entry]);
     else if (!list.some((e) => e.id === entry.id)) list.push(entry);
   };
-  doc.rows.forEach(([name, ascii, alts, abbrs, country, population], id) => {
-    const place = { id, name, country, population };
+  doc.rows.forEach(([name, ascii, alts, abbrs, country, population, why, region], id) => {
+    const known = Boolean(why);
+    const place = { id, name, country, countryName: countries[country] ?? country, population, why: why || "", region: region || "", known };
     places.push(place);
-    const names = [name, ...(ascii ? [ascii] : []), ...(alts || [])];
-    for (const n of names) {
+    const all = [name, ...(ascii ? [ascii] : []), ...(alts || [])];
+    for (const n of all) {
       const key = normalize(n);
-      add(key, { id, via: n, abbr: false });
+      if (!key) continue;
+      const word = isPlainWords(key, ordinary);
+      add(key, { id, via: n, abbr: false, word });
+      keySet.all.add(key);
+      if (known) keySet.known.add(key);
       const letter = key.charAt(0);
-      if (!/[a-z]/.test(letter)) continue;
+      // Sound-alikes are only ever looked for among well-known places whose name is not a word.
+      if (!known || word || !/[a-z]/.test(letter)) continue;
       if (!byLetter.has(letter)) byLetter.set(letter, []);
-      byLetter.get(letter).push({ id, via: n, compact: letters(n), sound: soundKey(n) });
+      byLetter.get(letter).push({ id, via: n, abbr: false, compact: letters(n), sound: soundKey(n) });
     }
-    for (const a of abbrs || []) add(normalize(a), { id, via: a, abbr: true });
+    for (const a of abbrs || []) {
+      const key = normalize(a);
+      add(key, { id, via: a, abbr: true, word: isPlainWords(key, ordinary) });
+      keySet.all.add(key);
+      if (known) keySet.known.add(key);
+    }
   });
-  return { places, byKey, byLetter };
+  const sortedKeys = { known: [...keySet.known].sort(), all: [...keySet.all].sort() };
+  return { places, byKey, byLetter, ordinary, names, sortedKeys, knownCount: places.filter((p) => p.known).length };
 }
 
-/** Every run of one to `max` words in a transcript, longest first: "uh Sydney please" finds "sydney". */
-export function spans(text, max = 4) {
-  const words = normalize(text).split(" ").filter(Boolean);
-  const out = [];
-  for (let len = Math.min(max, words.length); len >= 1; len--) {
-    for (let i = 0; i + len <= words.length; i++) out.push(words.slice(i, i + len).join(" "));
-  }
-  return out;
+/** True when every word of a normalised phrase is in the set. */
+function isPlainWords(key, set) {
+  const words = key.split(" ").filter(Boolean);
+  return words.length > 0 && words.every((w) => set.has(w));
 }
-
-/** How far a heard word may be from a name, by its length, before it is no longer a sound-alike. */
-const allowedDistance = (n) => (n <= 3 ? 1 : n <= 6 ? 2 : 3);
-
-/** Sound-alikes only count for places this big: small towns are too easy to hit by accident. */
-export const SOUND_ALIKE_MIN_POPULATION = 50000;
 
 /**
- * Sound-alike candidates for one heard span among places whose names start with `letter`:
- * the same sound key and a spelling no further off than its length allows ("roam" for Rome),
- * or one letter off for a heard word of five letters or more ("Lundon"). Heard words under four
- * letters never match by sound.
+ * What kind of thing a heard phrase is, when it is not a city: "word" (every word an ordinary
+ * English word: "salmon", "hear it"), "name" (made of ordinary words and common first or family
+ * names, at least one a name: "Ralph", "Rodger"), or "" (neither: "Sidnee").
  */
-function soundAlikes(index, span, letter) {
-  const heard = letters(span);
-  if (heard.length < 4) return [];
-  const key = soundKey(span);
-  const max = allowedDistance(heard.length);
-  const found = [];
-  for (const e of index.byLetter.get(letter) ?? []) {
-    if (Math.abs(e.compact.length - heard.length) > max) continue;
-    if (index.places[e.id].population < SOUND_ALIKE_MIN_POPULATION) continue;
-    const d = editDistance(heard, e.compact, max);
-    const sameSound = e.sound === key;
-    if (!(sameSound ? d <= max : d <= 1 && heard.length >= 5)) continue;
-    found.push({ ...e, distance: d, sameSound });
-  }
-  return found;
+export function wordKind(index, key) {
+  const words = key.split(" ").filter(Boolean);
+  if (!words.length) return "";
+  if (words.every((w) => index.ordinary.has(w))) return "word";
+  if (words.every((w) => index.ordinary.has(w) || index.names.has(w))) return "name";
+  return "";
 }
+
+/** Guesses below this share of the best guess's confidence do not count. */
+export const MIN_SHARE_OF_BEST = 0.5;
+/** Guesses this close to the best guess's confidence are its equals. */
+const TIE = 0.05;
+
+/**
+ * The guesses that count, best first: those rated at least half as sure as the best one, plus
+ * lower-rated spellings that sound the same as a counted guess (the recogniser spelling one word
+ * two ways). When the recogniser gives no confidences (all 0: interim results, some browsers),
+ * the first guess counts, with its sound-the-same spellings. Each comes with its trimmed key.
+ */
+export function usableAlternatives(alternatives) {
+  const alts = (alternatives ?? [])
+    .map((a, i) => ({ transcript: a?.transcript ?? "", confidence: Number(a?.confidence) || 0, i }))
+    .map((a) => ({ ...a, key: trimFillers(a.transcript) }))
+    .filter((a) => a.key);
+  if (!alts.length) return [];
+  const best = Math.max(...alts.map((a) => a.confidence));
+  const kept = best > 0 ? alts.filter((a) => a.confidence >= best * MIN_SHARE_OF_BEST) : [alts[0]];
+  const sounds = new Set(kept.map((a) => soundKey(a.key)));
+  const rescued = alts.filter((a) => !kept.includes(a) && sounds.has(soundKey(a.key)));
+  return [...kept, ...rescued].sort((a, b) => b.confidence - a.confidence || a.i - b.i);
+}
+
+/** How many letters a sound-alike may be off, by the heard word's length (same consonants only). */
+const allowedDistance = (n) => (n >= 6 ? 2 : 1);
+/** Heard words shorter than this never match by sound. */
+const SOUND_ALIKE_MIN_LETTERS = 4;
 
 /**
  * Matches what the recogniser returned against the list, under the chain rule.
@@ -162,88 +250,150 @@ function soundAlikes(index, span, letter) {
  * `alternatives` is [{transcript, confidence}] in the recogniser's order. `required` is the
  * letter the answer must start with (or "" on the first turn), `used` a Set of place ids already
  * played and `usedNames` a Set of the normalised names already said (so a second "Sydney" is a
- * repeat even though Sydney in Canada is another place), `previous` the last accepted spoken
- * name (a transcript that is just that word again is an echo, not an answer).
+ * repeat even though Sydney in Canada is another place), `previous` the last accepted spoken name
+ * (a guess that is just that word again is an echo, not an answer), `hard` true for hard mode
+ * (every town over 15,000; otherwise well-known places only).
  *
- * Preference: an exact name in the first alternative, then an exact name in a later alternative,
- * then a sound-alike; within each, longer heard phrases, then bigger cities. Returns
- * {ok, kind, place, said, heard, alternative, reason}:
- *  - ok true: kind is "exact", "alternative" or "sound-alike", `said` the name the chain goes on from.
- *  - ok false: reason is "used", "wrong-letter", "echo" or "not-a-city"; `place` and `heard` say
- *    what it came closest to, when anything.
+ * Returns {ok, kind, place, said, heard, alternative, others, reason, rules}:
+ *  - ok true: kind is "exact" (the best guess), "alternative" (another counted guess) or
+ *    "sound-alike"; `said` is the name the chain goes on from; `others` lists other places of
+ *    that name in the list, biggest first.
+ *  - ok false: reason is "used", "wrong-letter", "echo", "hard-only" (only in the full list),
+ *    "word" (an ordinary word), "name" (a common name) or "not-a-city"; `place` says what it came
+ *    closest to, when anything.
  */
-export function matchHeard(index, alternatives, { required = "", used = new Set(), usedNames = new Set(), previous = "" } = {}) {
-  const alts = (alternatives ?? []).filter((a) => a && normalize(a.transcript));
-  const isUsed = (e) => used.has(e.id) || usedNames.has(normalize(e.abbr ? index.places[e.id].name : e.via));
-  if (!alts.length) return { ok: false, reason: "not-a-city", kind: null, place: null, said: "", heard: "" };
+export function matchHeard(index, alternatives, { required = "", used = new Set(), usedNames = new Set(), previous = "", hard = false } = {}) {
+  const alts = usableAlternatives(alternatives);
+  const rules = RULES_VERSION;
+  if (!alts.length) return { ok: false, reason: "not-a-city", kind: null, place: null, said: "", heard: "", others: [], rules };
+  const said = (e) => (e.abbr ? index.places[e.id].name : e.via);
+  const isUsed = (e) => used.has(e.id) || usedNames.has(normalize(said(e)));
+  const inList = (e) => hard || index.places[e.id].known;
   const prevKey = previous ? normalize(previous) : "";
   let wrongLetter = null;
   let usedHit = null;
+  let hardOnly = null;
   let echo = false;
 
-  const result = (kind, entry, span, alternative, extra = {}) => {
+  const result = (kind, entry, alt, extra = {}) => {
     const place = index.places[entry.id];
-    return { ok: true, kind, place, said: entry.abbr ? place.name : entry.via, heard: span, alternative, ...extra };
+    const name = said(entry);
+    const others = (index.byKey.get(normalize(name)) ?? [])
+      .filter((e) => e.id !== entry.id && inList(e))
+      .sort((a, b) => a.id - b.id)
+      .map((e) => index.places[e.id]);
+    return { ok: true, kind, place, said: name, heard: alt.key, alternative: alt.i, others, wordName: entry.word, rules, ...extra };
   };
-  const fail = (reason, hit) => ({
+  const fail = (reason, hit, heardKey) => ({
     ok: false,
     reason,
     kind: null,
     place: hit ? index.places[hit.entry.id] : null,
-    said: hit ? hit.entry.via : "",
-    heard: hit ? hit.span : normalize(alts[0].transcript),
-    alternative: hit ? hit.ai : 0,
+    said: hit ? said(hit.entry) : "",
+    heard: hit ? hit.alt.key : heardKey ?? alts[0].key,
+    alternative: hit ? hit.alt.i : alts[0].i,
+    others: [],
+    rules,
   });
 
-  // Exact names (and aliases) first, across every alternative. Within one alternative the
-  // longest heard phrase wins ("los angeles" over "los"), then the biggest city ("I say Sydney"
-  // is Sydney, not the town of Say). Rows are sorted by population, so a lower id is bigger.
-  const said = (e) => (e.abbr ? index.places[e.id].name : e.via);
-  for (let ai = 0; ai < alts.length; ai++) {
-    let pick = null;
-    for (const span of spans(alts[ai].transcript)) {
-      if (prevKey && span === prevKey) {
-        echo = true;
-        continue;
-      }
-      const entries = index.byKey.get(span);
-      if (!entries) continue;
-      const words = span.split(" ").length;
-      const sorted = [...entries].sort((a, b) => a.id - b.id);
-      const fits = sorted.filter((e) => !required || firstLetter(said(e)) === required);
-      const fresh = fits.find((e) => !isUsed(e));
-      if (fresh && (!pick || words > pick.words || (words === pick.words && fresh.id < pick.entry.id))) pick = { entry: fresh, span, words };
-      if (fits.length) usedHit ??= { entry: fits[0], span, ai };
-      else wrongLetter ??= { entry: sorted[0], span, ai };
+  // 1. Exact: a counted guess, as a whole, is a name of a place. Best-rated guess first; among
+  //    places of one name, the biggest (rows are sorted by population, so a lower id is bigger).
+  for (const [rank, alt] of alts.entries()) {
+    if (prevKey && alt.key === prevKey) {
+      echo = true;
+      continue;
     }
-    if (pick) return result(ai === 0 ? "exact" : "alternative", pick.entry, pick.span, ai);
+    const entries = index.byKey.get(alt.key);
+    if (!entries) continue;
+    const sorted = [...entries].sort((a, b) => a.id - b.id);
+    const listed = sorted.filter(inList);
+    if (!listed.length) {
+      hardOnly ??= { entry: sorted[0], alt };
+      continue;
+    }
+    const fits = listed.filter((e) => !required || firstLetter(said(e)) === required);
+    const fresh = fits.find((e) => !isUsed(e));
+    if (fresh) return result(rank === 0 ? "exact" : "alternative", fresh, alt);
+    if (fits.length) usedHit ??= { entry: fits[0], alt };
+    else wrongLetter ??= { entry: listed[0], alt };
   }
 
   // A name heard exactly that was already played is a repeat, not a cue to guess at another place.
   if (usedHit) return fail("used", usedHit);
 
-  // Then sound-alikes, only among names that start with the required letter (on the first turn,
-  // the heard word's own first letter).
-  let best = null;
-  for (let ai = 0; ai < alts.length; ai++) {
-    for (const span of spans(alts[ai].transcript, 3)) {
-      if (prevKey && span === prevKey) continue;
-      const letter = required || span.charAt(0);
-      for (const c of soundAlikes(index, span, letter)) {
-        if (isUsed(c)) continue;
-        const place = index.places[c.id];
-        // Lower is better: spelling distance, a bonus for the same sound, a bonus for size and for
-        // the recogniser's first guess.
-        const score = c.distance - (c.sameSound ? 1 : 0) - Math.log10(Math.max(place.population, 10)) * 0.4 + ai * 0.3 - span.split(" ").length * 0.2;
-        if (!best || score < best.score) best = { score, entry: c, span, ai };
+  // 2. Sound-alike, only when the recogniser's best guesses are not ordinary words or names.
+  const top = alts.filter((a) => a.confidence >= alts[0].confidence - TIE);
+  const plain = top.map((a) => ({ alt: a, kind: wordKind(index, a.key) })).find((x) => x.kind);
+  if (!plain) {
+    let best = null;
+    for (const [rank, alt] of alts.entries()) {
+      if (prevKey && alt.key === prevKey) continue;
+      if (wordKind(index, alt.key)) continue;
+      const heard = letters(alt.key);
+      if (heard.length < SOUND_ALIKE_MIN_LETTERS) continue;
+      const letter = heard.charAt(0);
+      if (required && letter !== required) continue;
+      const key = soundKey(alt.key);
+      const max = allowedDistance(heard.length);
+      for (const e of index.byLetter.get(letter) ?? []) {
+        if (e.sound !== key || Math.abs(e.compact.length - heard.length) > max) continue;
+        const d = editDistance(heard, e.compact, max);
+        if (d > max || isUsed(e)) continue;
+        // Fewest letters off, then the better-rated guess, then the bigger city.
+        const score = [d, rank, e.id];
+        if (!best || score[0] < best.score[0] || (score[0] === best.score[0] && (score[1] < best.score[1] || (score[1] === best.score[1] && score[2] < best.score[2])))) {
+          best = { score, entry: e, alt, d };
+        }
       }
     }
+    if (best) return result("sound-alike", best.entry, best.alt, { distance: best.d });
   }
-  if (best) return result("sound-alike", best.entry, best.span, best.ai, { distance: best.entry.distance });
 
   if (wrongLetter) return fail("wrong-letter", wrongLetter);
+  if (hardOnly) return fail("hard-only", hardOnly);
+  if (plain) return fail(plain.kind, null, plain.alt.key);
   if (echo) return fail("echo", null);
   return fail("not-a-city", null);
+}
+
+/** True when some other name in the list (well known, or all in hard mode) starts with this key. */
+export function longerNameStartsWith(index, key, hard = false) {
+  const keys = hard ? index.sortedKeys.all : index.sortedKeys.known;
+  let lo = 0;
+  let hi = keys.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (keys[mid] <= key) lo = mid + 1;
+    else hi = mid;
+  }
+  // Keys that start with `key` sort right after it.
+  return lo < keys.length && keys[lo].startsWith(key);
+}
+
+/** How long an interim result must stay the same before an early answer is taken. */
+export const EARLY_STABLE_MS = 300;
+
+/**
+ * Whether an interim result may be answered early (the "answer early" switch). Only an exact
+ * name of a well-known city whose name is not an ordinary word, that fits the chain, when no
+ * longer name in the list starts with it ("Edmond" could still become "Edmonton", "Dar" "Dar es
+ * Salaam") and no other interim guess is longer and starts with it. The caller also waits
+ * EARLY_STABLE_MS for the interim to stay the same. Returns a match (as matchHeard) or
+ * {ok: false, why}.
+ */
+export function earlyMatch(index, interimTranscripts, opts = {}) {
+  const texts = (interimTranscripts ?? []).map((t) => (typeof t === "string" ? t : t?.transcript ?? ""));
+  const key = trimFillers(texts[0] ?? "");
+  if (!key) return { ok: false, why: "nothing yet" };
+  if (texts.slice(1).some((t) => {
+    const k = trimFillers(t);
+    return k.length > key.length && k.startsWith(key);
+  })) return { ok: false, why: "a longer guess starts with it" };
+  const m = matchHeard(index, [{ transcript: key, confidence: 0 }], { ...opts, hard: false });
+  if (!m.ok || m.kind !== "exact") return { ok: false, why: "not exactly a well-known city" };
+  if (m.wordName) return { ok: false, why: "also an ordinary word" };
+  if (longerNameStartsWith(index, key, Boolean(opts.hard))) return { ok: false, why: "a longer city name starts with it" };
+  return m;
 }
 
 /** The median of a list of numbers (null when there are none). */

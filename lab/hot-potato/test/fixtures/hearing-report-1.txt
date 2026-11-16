@@ -1,0 +1,30 @@
+Hot Potato hearing test, v1
+date: 2026-11-16T05:34Z
+device: other; Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/157.0.0.0 Safari/537.36
+recognition: SpeechRecognition; on-device: processLocally=false; on-device pack for en-US: downloadable
+vibration: works; wake lock: on while listening; screen 2560x1271
+settings now: lang=en-US sounds=on handsfree=off early=on maxAlternatives=10
+checklist done: 1- 2- 3- 4-
+summary: turns 20, right 10, wrong 8, nothing heard 2, misheard 0, sound-alike 5, errors 1
+medians ms: tap>first word 3331, tap>matching city 3331, tap>final 3425, speech end>final -10
+turns (#n test sounds mode need | ms after tap: start audio speech speechend first-word city final end | verdict | heard):
+#1 t1 snd:on tap early en-US need:- | 1438 1590 5189 5474 5458 5460 5532 5538 | RIGHT sound-alike Hilla IQ (heard "hello", by interim) | hello=0.73 / hellow=0.73 / hellos=0.73 / hellooooo=0.73 / helloooooo=0.73 | n-interim:1
+#2 t1 snd:on tap early en-US need:a | 3 150 1049 2051 1610 2008 2008 2070 | RIGHT sound-alike Ayapel CO (heard "appel", by final) | Apple=0.79 / Appel=0.79 | n-interim:1
+#3 t1 snd:on tap early en-US need:l | 6 140 1540 2540 2226 - 2530 2588 | WRONG not-a-city (by final) | dog=0.76 / dawg=0.76 / Dogg=0.76 / Dogue=0.76 / daag=0.76 | n-interim:1
+#4 t1 snd:on tap early en-US need:l | 1 137 2937 3938 3509 - 3895 3960 | WRONG not-a-city (by final) | meteor=0.83 / meteore=0.83 / media=0.21 | n-interim:2
+#5 t1 snd:on tap early en-US need:l | 2 139 1339 2023 2014 2022 2115 2117 | RIGHT exact Léo BF (heard "leo", by interim) final-differs:not-a-city | Leopold=0.29 / leipold=0.29 / liepold=0.29 / Leupold=0.35 | n-interim:3
+#6 t1 snd:on tap early en-US need:o | 1 138 3137 3810 3808 3808 3885 3886 | RIGHT exact Orange US (heard "orange", by interim) | Orange=0.78 | n-interim:1
+#7 t1 snd:on tap early en-US need:e | 2 142 5542 6543 6012 - 6501 6564 | WRONG not-a-city (by final) | Edgar=0.86 | n-interim:2
+#8 t1 snd:on tap early en-US need:e | 1 140 1241 2341 1735 - 2329 2388 | WRONG not-a-city (by final) | Elementary=0.92 | n-interim:2
+#9 t1 snd:on tap early en-US need:e | 2 141 1441 2027 2010 2026 2123 2123 | RIGHT exact Edmond US (heard "edmond", by interim) final-differs:Edmonton | Edmonton=0.89 / Edmundton=0.89 | n-interim:3
+#10 t1 snd:on tap early en-US need:d | 2 143 3743 4225 4223 4223 4327 4327 | RIGHT exact Dar KH (heard "dar", by interim) final-differs:Derby | Darby=0.77 / Darbi=0.77 / Darbie=0.77 / darbee=0.77 / Derby=0.44 / Barbie=0.57 | n-interim:2
+#11 t1 snd:on tap early en-US need:r | 3 152 2552 3238 3235 3235 3305 3306 | RIGHT sound-alike Rath IN (heard "ratch", by interim) final-differs:not-a-city | ratchet=0.87 | n-interim:2
+#12 t1 snd:on tap early en-US need:h | 2 147 2046 3247 2610 - 3204 3270 | WRONG not-a-city (by final) | Harrington=0.63 / Herrington=0.63 / Harington=0.63 / Herington=0.63 | n-interim:2
+#13 t1 snd:on tap early en-US need:h | 2 148 2648 3748 3829 - 3845 3850 | WRONG not-a-city (by final) | Albert=0.51 / Halbert=0.81 / how=0.10 / halibut=0.72 / how about=0.13 / Al=0.10 / Howe=0.10 | n-interim:1
+#14 t1 snd:on tap early en-US need:h | 3 153 2553 3429 3427 3427 3545 3546 | RIGHT sound-alike Harar ET (heard "hear", by interim) final-differs:Herat | hear it=0.38 / parrot=0.33 | n-interim:2
+#15 t1 snd:on tap early en-US need:r | 2 148 - - - - - 8049 | NONE | - | err:no-speech n-interim:0
+#16 t1 snd:on tap early en-US need:r | 9 169 5469 6470 5932 - 6432 6492 | WRONG not-a-city (by final) | Remington=0.95 / Remmington=0.95 | n-interim:2
+#17 t1 snd:on tap early en-US need:r | 2 147 1347 2348 1815 - 2307 2371 | WRONG not-a-city (by final) | Ralph=0.78 / Ralf=0.78 | n-interim:2
+#18 t1 snd:on tap early en-US need:r | 2 151 6051 7751 - - - 7854 | NONE | - | n-interim:0
+#19 t1 snd:on tap early en-US need:r | 4 155 755 2256 1724 2216 2216 2279 | RIGHT alternative Rogers US (heard "rogers", by final) | Rodger=0.67 / Rogers=0.02 / rajar=0.67 / Rodgers=0.02 / Roger=0.67 | n-interim:2
+#20 t1 snd:on tap early en-US need:s | 4 149 5849 7050 6838 7039 7039 7099 | RIGHT sound-alike Salmas IR (heard "salman", by final) | salmon=0.48 / Salman=0.48 / salmen=0.48 / sammon=0.48 / salmaan=0.48 / samon=0.48 | n-interim:1
