@@ -1,0 +1,49 @@
+# Well-known foods and drinks the frequency rule misses: single words whose food sense comes
+# late in WordNet ("date" is first a day there), and well-known names of two or three words.
+# Every name here must be a WordNet food or drink name.
+# One per line; read by tools/make-categories.py.
+
+date
+lamb
+lime
+mushroom
+olive
+peanut
+pepper
+water
+
+apple juice
+apple pie
+banana split
+black tea
+blue cheese
+cottage cheese
+cream cheese
+french fries
+French toast
+fried rice
+garlic bread
+ginger ale
+green bean
+green tea
+hot chocolate
+hot dog
+ice cream
+iced tea
+lamb chop
+maple syrup
+milk shake
+mineral water
+olive oil
+orange juice
+peanut butter
+pork chop
+potato chip
+red wine
+roast beef
+root beer
+sour cream
+soy sauce
+spring roll
+sweet potato
+white wine
