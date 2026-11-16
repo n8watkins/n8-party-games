@@ -677,6 +677,10 @@ export class Scene {
       if (pose.x !== null) p.rx = pose.x;
       // A faded ghost (shared/ghost.js): its own player sees it more clearly than everyone else does.
       const faded = now < (p.fadeUntil ?? 0) ? (seat === this.opts.own ? OWN_FADED : 1) : 0;
+      if (faded !== (p.fadedShown ?? 0)) {
+        p.fadedShown = faded;
+        set(p.g, { "data-faded": faded || null });
+      }
       // The character's own way of holding itself: where it looks, and how far off the floor it hangs (a pawn stands).
       const hover = flat.frame(p.actor, { now, dt, face: p.face, seat, calm: !!this.calmQuery?.matches, grounded: pose.dizzy, faded, booAt: p.booAt ?? -Infinity });
       set(p.g, { transform: poseTransform(p.rx, ROOM.floorY - up - bob - hover, pose) });

@@ -146,6 +146,7 @@ export class BumpDraw {
     if (scared !== (p.scaredK ?? 0)) {
       p.scaredK = scared;
       flat.scared(p.actor, scared);
+      set(p.g, { "data-scared": scared || null });
     }
     if (pale !== (p.paleK ?? 0)) {
       p.paleK = pale;
