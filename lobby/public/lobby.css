@@ -797,12 +797,15 @@ input {
   overflow: hidden;
   background: #0b1020;
 }
-#app.in-game svg.scene {
+#app.in-game svg.scene,
+#app.in-game .bar,
+#app.in-game .turn-hint,
+#app.in-game .banner {
   display: none;
 }
 /* Any game's view (main.js, startStage): a player's bar, its walk and emote buttons and the hints
-   do nothing for the game, so none of them lies over the view. The big screen keeps its bottom
-   line: the join code is still worth seeing. */
+   do nothing for the game, so none of them lies over the view. Around a view drawn in the stage
+   (one without `full`) the big screen keeps its bottom line: the join code is still worth seeing. */
 #app.staged .hud-player .bar,
 #app.staged .turn-hint,
 #app.staged .banner {
