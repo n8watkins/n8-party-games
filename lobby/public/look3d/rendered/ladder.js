@@ -12,9 +12,15 @@
 //   steps        the room's own, in its order. Each is kept once taken.
 //   fall back    still slow after the last step: the 3D look's own drawing of the room.
 //
-// One more rule keeps a capped device (one that never goes over 30 a second) from losing the
-// rendered look for nothing: if the room's own steps together did not make frames faster, they
-// are all undone and the ladder stops, as the governor stops.
+// One more rule keeps a capped device from losing the rendered look for nothing: a phone in a
+// battery saver (Android's power saving, iOS's Low Power Mode) is held to 30 frames a second,
+// whatever it draws. If the room's own steps together did not make frames faster AND frames sit
+// at that cap (33.3 ms, within CAP_SLACK), the steps are all undone and the ladder stops, and the
+// device remembers it is capped so later visits do not try again. A phone that is slow at any
+// other pace (40 ms, 44 ms) is simply slow: it falls back to the 3D look.
+// (Other display steps were considered: 60 Hz, 90 Hz and 120 Hz screens held to a cap all land on
+// 30 a second, and a phone that misses frames on a 60 Hz screen lands on 20 or 15 because it is
+// slow, which is what the fall back is for.)
 //
 // It is plain arithmetic on frame times, so it is tested with made-up ones (lobby/test/rendered.test.js).
 
@@ -24,6 +30,11 @@ export const SHARP_MIN = 0.75;
 export const SLOW_MS = 24;
 /** A step helped if frames after it are at most this share of what they were before. */
 export const HELPS = 0.88;
+/** The pace of a phone held to 30 frames a second, and how near to it counts as held there (ms). */
+export const CAP_MS = 1000 / 30;
+export const CAP_SLACK = 2.5;
+/** Whether an average frame time sits at the battery saver's cap. */
+export const atCap = (ms) => Math.abs(ms - CAP_MS) <= CAP_SLACK;
 
 export class Ladder {
   /**
@@ -31,10 +42,11 @@ export class Ladder {
    * @param {number} o.ratio         the pixel ratio the room starts at
    * @param {string[]} o.steps       the room's own steps, cheapest last
    * @param {string[]} [o.taken]     steps already taken (remembered on the device, or forced)
+   * @param {boolean} [o.capped]     the device was found held to 30 a second before: nothing to try
    * @param {number} [o.settleMs]    how long after the start nothing is judged (fonts, first frames)
    * @param {number} [o.windowMs]    how long each judgement averages over
    */
-  constructor({ ratio, steps, taken = [], slowMs = SLOW_MS, settleMs = 3000, windowMs = 1500, helps = HELPS }) {
+  constructor({ ratio, steps, taken = [], capped = false, slowMs = SLOW_MS, settleMs = 3000, windowMs = 1500, helps = HELPS }) {
     this.ratio = ratio;
     this.steps = steps;
     this.taken = new Set(taken);
@@ -52,8 +64,8 @@ export class Ladder {
     this.mine = [];
     this.before = null;
     this.helped = false;
-    /** "", "fell back" or "capped": why it stopped. */
-    this.done = "";
+    /** "", "fell back" or "capped": why it stopped. A device remembered as capped has nothing to try. */
+    this.done = capped ? "capped" : "";
     this.last = null;
   }
 
@@ -104,8 +116,8 @@ export class Ladder {
       this.mine.push(next);
       return { take: next };
     }
-    if (this.mine.length && !(avg < this.before * this.helps)) {
-      // The room's own steps together changed nothing: the device is held back by something else.
+    if (this.mine.length && !(avg < this.before * this.helps) && atCap(avg)) {
+      // The room's own steps together changed nothing, and frames sit at the battery saver's 30 a second: the cap holds the device back, not the room.
       this.done = "capped";
       const undo = this.mine;
       for (const s of undo) this.taken.delete(s);

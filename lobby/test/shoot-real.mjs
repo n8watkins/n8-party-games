@@ -47,7 +47,8 @@ try {
     const context = await browser.newContext({ viewport, deviceScaleFactor: 1, ...extra });
     const page = await context.newPage();
     page.on("pageerror", (e) => errors.push(`${name}: ${e.message}`));
-    page.on("console", (m) => m.type() === "error" && errors.push(`${name}: ${m.text()}`));
+    // three.js's own warnings count too (a material with no side, say): they mean something in the drawing is wrong.
+    page.on("console", (m) => (m.type() === "error" || (m.type() === "warning" && /THREE\./.test(m.text()))) && errors.push(`${name}: ${m.text()}`));
     return page;
   }
   const shot = async (page, name) => {
@@ -243,6 +244,30 @@ try {
     const gaveUp = done === "fell back" && end.look === "3d" && end.remembered === "3d";
     const capped = done === "capped" && end.look === "real" && end.taken.length === 0 && end.remembered === null;
     check(seen.some((s) => s.includes("lite 3")) && (gaveUp || capped), `on slow frames the ladder came down every rung and stopped (${done || "not yet"}): ${seen.join(" > ")}`);
+  }
+
+  if (lookName === "real" && want("11")) {
+    // A layer that is very slow to come (the planet, 20 seconds late) does not hold the room: after a few seconds the
+    // room is drawn the 3D look's way, and the late planet is never used.
+    const late = await open("late", { width: 844, height: 390 }, { deviceScaleFactor: 1 });
+    let held = 0;
+    await late.route("**/look3d/rendered/star-lounge/layers/planet.webp", async (route) => {
+      held++;
+      await sleep(20000);
+      await route.continue().catch(() => {});
+    });
+    const t0 = Date.now();
+    await late.goto(`${base}/lobby/?join=${pin}&${query}`);
+    await late.fill("input[name=nickname]", "Slow");
+    await late.click("text=Join the party");
+    await late.waitForSelector(".look3d canvas", { timeout: 60000 });
+    await late.waitForSelector(".l3-tag.you", { timeout: 60000 });
+    const took = (Date.now() - t0) / 1000;
+    const what = await drawn(late);
+    await shot(late, "11-late-planet-844x390");
+    // (Today's 3D look has no rung in its stats: only a rendered room names one.)
+    check(held === 1 && what.stats.skin === "ship" && !what.stats.rung && took < 15, `with the planet 20 s late the room still came up, the 3D look's way, in ${took.toFixed(1)} s (${what.stats.skin ?? what.stats.rung})`);
+    await late.close();
   }
 
   const s1 = await drawn(phone);

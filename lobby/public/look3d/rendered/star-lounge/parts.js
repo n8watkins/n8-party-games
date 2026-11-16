@@ -114,7 +114,8 @@ export function buildHolo({ plate, cfg, sheet, radial, exposure, add, depthTest 
   });
   const globe = new THREE.Mesh(new THREE.SphereGeometry(h.r, 32, 18), mat);
   globe.renderOrder = -28;
-  const glowMat = (colour, opacity, side) => new THREE.MeshBasicMaterial({ color: colour, transparent: true, opacity, blending: THREE.AdditiveBlending, depthWrite: false, depthTest, side });
+  // (A material's side must be one of three.js's sides: an undefined one makes it warn on every open.)
+  const glowMat = (colour, opacity, side = THREE.FrontSide) => new THREE.MeshBasicMaterial({ color: colour, transparent: true, opacity, blending: THREE.AdditiveBlending, depthWrite: false, depthTest, side });
   const core = new THREE.Mesh(new THREE.SphereGeometry(h.r * 0.36, 20, 12), glowMat(accent, 0.55));
   core.renderOrder = -29;
   const orbit = new THREE.Mesh(new THREE.RingGeometry(h.r * 0.52, h.r * 0.74, 48), glowMat(accent, 0.4, THREE.DoubleSide));

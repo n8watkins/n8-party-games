@@ -2,10 +2,11 @@
 // and its memory, which files a device fetches, the ladder a slow device comes down (with made-up
 // frame times), and the Star Lounge's sky timetable, which the room and its preview share.
 import { existsSync, readdirSync, statSync } from "node:fs";
-import { describe, expect, it } from "vitest";
-import { HELPS, Ladder, SHARP_MIN, SLOW_MS } from "../public/look3d/rendered/ladder.js";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { HELPS, Ladder, SHARP_MIN, SLOW_MS, atCap } from "../public/look3d/rendered/ladder.js";
+import { LAYERS_MS, within } from "../public/look3d/rendered/within.js";
 import { THINGS, TIMES, createSky } from "../public/look3d/rendered/star-lounge/sky.js";
-import { RENDERED, rememberReal, rememberRung, realWanted, renderedFor, rungName, rungOf } from "../public/look3d/rendered/switch.js";
+import { FELL_BACK_NOTE, RENDERED, rememberReal, rememberRung, realWanted, renderedFor, rungName, rungOf } from "../public/look3d/rendered/switch.js";
 
 /** A device's storage, as localStorage behaves. */
 function storage() {
@@ -48,6 +49,19 @@ describe("the switch", () => {
     expect(renderedFor({ look: "flat", skin: "ship" }, q(""), device)).toBe(null);
   });
 
+  it("is not opened, and fetches nothing, on a wall that is not the one its picture is of (the local test wall of six)", () => {
+    const device = storage();
+    rememberReal(q("look=real"), device);
+    expect(renderedFor({ look: "3d", skin: "ship", boxes: 6 }, q(""), device)).toBe(null);
+    expect(renderedFor({ look: "3d", skin: "ship", boxes: 4 }, q(""), device)).toBe(null);
+    expect(renderedFor({ look: "3d", skin: "ship", boxes: 5 }, q(""), device)).toBe(SHIP);
+  });
+
+  it("tells a player whose device fell back how to get it back, in words that are not the flat room's offer", () => {
+    expect(FELL_BACK_NOTE).toMatch(/\?look=real/);
+    expect(FELL_BACK_NOTE.toLowerCase()).not.toMatch(/simpler/);
+  });
+
   it("survives a browser that will not keep anything (private browsing): it is simply off", () => {
     const broken = { getItem: () => { throw new Error("no"); }, setItem: () => { throw new Error("no"); }, removeItem: () => { throw new Error("no"); } };
     expect(() => rememberReal(q("look=real"), broken)).not.toThrow();
@@ -80,7 +94,7 @@ describe("where on its ladder a device starts", () => {
   it("starts at the top, and where it came to last time once it has been slow", () => {
     const device = storage();
     rememberReal(q("look=real"), device);
-    expect(rungOf(SHIP, q(""), device)).toEqual({ taken: [], fallback: false, forced: false });
+    expect(rungOf(SHIP, q(""), device)).toEqual({ taken: [], fallback: false, capped: false, forced: false });
     rememberRung(["weather", "planet"], device);
     expect(rungOf(SHIP, q(""), device).taken).toEqual(["weather", "planet"]);
   });
@@ -104,7 +118,7 @@ describe("where on its ladder a device starts", () => {
   it("can be forced from the address for a test, and that is never remembered", () => {
     const device = storage();
     rememberReal(q("look=real"), device);
-    expect(rungOf(SHIP, q("rung=2"), device)).toEqual({ taken: ["weather", "planet"], fallback: false, forced: true });
+    expect(rungOf(SHIP, q("rung=2"), device)).toEqual({ taken: ["weather", "planet"], fallback: false, capped: false, forced: true });
     expect(rungOf(SHIP, q("rung=outside,weather"), device).taken).toEqual(["outside", "weather"]);
     expect(renderedFor({ look: "3d", skin: "ship" }, q("rung=3d"), device)).toBe(null);
     expect(rungOf(SHIP, q(""), device).taken).toEqual([]);
@@ -171,13 +185,41 @@ describe("the ladder", () => {
     expect(did.slice(0, 2)).toEqual([{ ratio: 1.6 }, { ratio: 2 }]);
   });
 
-  it("does not throw the rendered room away on a capped phone: steps that changed nothing are undone, and it stops", () => {
-    const l = new Ladder({ ratio: 2, steps: STEPS });
-    const did = run(l, 33.3, 60);
-    expect(did.some((a) => a.fallback)).toBe(false);
-    expect(did.at(-1)).toEqual({ undo: STEPS });
-    expect(l.done).toBe("capped");
-    expect(l.taken.size).toBe(0);
+  it("does not throw the rendered room away on a phone held to 30 a second: steps that changed nothing are undone, and it stops", () => {
+    for (const ms of [33.3, 31.5, 35.5]) {
+      const l = new Ladder({ ratio: 2, steps: STEPS });
+      const did = run(l, ms, 60);
+      expect(did.some((a) => a.fallback)).toBe(false);
+      expect(did.at(-1)).toEqual({ undo: STEPS });
+      expect(l.done).toBe("capped");
+      expect(l.taken.size).toBe(0);
+    }
+  });
+
+  it("does not trap a phone that is slow at any other pace on the heaviest look: it falls back", () => {
+    // 40 and 44 ms a frame whatever is drawn (a slow phone, not a capped one): before, these took every step, undid them all and stayed at 25 a second.
+    for (const ms of [40, 44, 50, 66.7]) {
+      const l = new Ladder({ ratio: 2, steps: STEPS });
+      const did = run(l, ms, 60);
+      expect(did.at(-1)).toEqual({ fallback: true });
+      expect(l.done).toBe("fell back");
+    }
+    expect(atCap(40)).toBe(false);
+    expect(atCap(1000 / 30)).toBe(true);
+  });
+
+  it("tries nothing on a device it found capped before (remembered as 'capped')", () => {
+    const device = storage();
+    rememberReal(q("look=real"), device);
+    rememberRung("capped", device);
+    const rung = rungOf(SHIP, q(""), device);
+    expect(rung).toEqual({ taken: [], fallback: false, capped: true, forced: false });
+    const l = new Ladder({ ratio: 2, steps: STEPS, taken: rung.taken, capped: rung.capped });
+    expect(run(l, 33.3, 60)).toEqual([]);
+    expect(renderedFor({ look: "3d", skin: "ship" }, q(""), device)).toBe(SHIP);
+    // Asking again with ?look=real forgets it, so the next visit measures afresh.
+    rememberReal(q("look=real"), device);
+    expect(rungOf(SHIP, q(""), device).capped).toBe(false);
   });
 
   it("starts where the device came to last time, and goes on from there", () => {
@@ -190,6 +232,42 @@ describe("the ladder", () => {
     expect(SLOW_MS).toBe(24);
     expect(SHARP_MIN).toBe(0.75);
     expect(HELPS).toBe(0.88);
+  });
+});
+
+describe("waiting for the layers", () => {
+  afterEach(() => vi.useRealTimers());
+
+  it("gives up after a few seconds, so a slow layer does not hold the dimmed room (the 3D look draws it)", async () => {
+    vi.useFakeTimers();
+    expect(LAYERS_MS).toBeGreaterThanOrEqual(5000);
+    expect(LAYERS_MS).toBeLessThanOrEqual(6000);
+    let arrive;
+    const loading = new Promise((done) => (arrive = done));
+    let aborted = false;
+    const late = [];
+    const waiting = within(loading, LAYERS_MS, { onTimeout: () => (aborted = true), late: (v) => late.push(v) });
+    const outcome = waiting.then(
+      () => "drew it",
+      (err) => err.message,
+    );
+    await vi.advanceTimersByTimeAsync(LAYERS_MS + 1);
+    expect(await outcome).toMatch(/longer than/);
+    expect(aborted).toBe(true);
+    // The layer that comes 20 seconds late is handed back to be given back, never used.
+    arrive({ planet: "the planet" });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(late).toEqual([{ planet: "the planet" }]);
+  });
+
+  it("uses layers that come in time, and passes on a layer that fails", async () => {
+    vi.useFakeTimers();
+    const late = [];
+    const fast = within(Promise.resolve({ base: 1 }), LAYERS_MS, { late: (v) => late.push(v) });
+    expect(await fast).toEqual({ base: 1 });
+    await expect(within(Promise.reject(new Error("the planet did not load")), LAYERS_MS)).rejects.toThrow("the planet did not load");
+    await vi.advanceTimersByTimeAsync(LAYERS_MS * 2);
+    expect(late).toEqual([]);
   });
 });
 
@@ -228,6 +306,56 @@ describe("the sky's timetable", () => {
       return out;
     };
     expect(seen(a)).toEqual(seen(b));
+  });
+
+  // The same timetable for screens that did not watch every frame: what is in the sky at a moment
+  // must not depend on when a screen last looked.
+  /** Every thing that passes in the first `seconds`, as a screen that draws every frame sees it: [{name, start, end}]. */
+  const everything = (seed, seconds) => {
+    const sky = createSky(seeded(seed));
+    const out = [];
+    for (let t = 0; t <= seconds; t += 1 / 60) {
+      const ev = sky.step(t);
+      if (ev && out.at(-1)?.start !== ev.start) out.push({ name: ev.thing.name, start: ev.start, end: ev.end });
+    }
+    return out;
+  };
+  /** What a screen that looks only at `times` sees then, beside what the screen that drew every frame had at that moment. */
+  function compare(seed, times) {
+    const all = everything(seed, times.at(-1) + 1);
+    const sky = createSky(seeded(seed));
+    const worst = { start: 0, misses: 0, looked: 0 };
+    for (const t of times) {
+      const ev = sky.step(t);
+      // (Within one frame of a start or an end, a screen that drew every sixtieth of a second may not have reached it yet.)
+      const truth = all.find((e) => t >= e.start + 1 / 30 && t < e.end - 1 / 30);
+      const edge = all.some((e) => Math.abs(t - e.start) <= 1 / 30 || Math.abs(t - e.end) <= 1 / 30);
+      if (edge) continue;
+      worst.looked++;
+      if (!!truth !== !!ev || (truth && truth.name !== ev.thing.name)) worst.misses++;
+      else if (truth) worst.start = Math.max(worst.start, Math.abs(truth.start - ev.start));
+    }
+    return worst;
+  }
+  const frames = (from, to, step = 1 / 60) => Array.from({ length: Math.floor((to - from) / step) }, (_, i) => from + i * step);
+
+  it("is the same for a screen that joined half an hour late", () => {
+    const r = compare(4827, frames(1800, 2400));
+    expect(r.looked).toBeGreaterThan(30000);
+    expect(r.misses).toBe(0);
+    expect(r.start).toBeLessThan(1e-6);
+  });
+
+  it("is the same for a tab that was hidden for five minutes and shown again", () => {
+    const r = compare(1111, [...frames(0, 600), ...frames(900, 1500)]);
+    expect(r.misses).toBe(0);
+    expect(r.start).toBeLessThan(1e-6);
+  });
+
+  it("is the same after the room was away in a game for twenty minutes (the room is not drawn during a game)", () => {
+    const r = compare(2222, [...frames(0, 300), ...frames(1500, 2100)]);
+    expect(r.misses).toBe(0);
+    expect(r.start).toBeLessThan(1e-6);
   });
 
   it("knows how long each thing takes, and the rocket comes first", () => {

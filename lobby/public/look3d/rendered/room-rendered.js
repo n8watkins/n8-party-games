@@ -27,14 +27,28 @@ import { FRAME, PX, SPACE, walkX } from "../space.js";
 import * as THREE from "../three.js";
 import { Ladder } from "./ladder.js";
 import { drawOutsideFirst, farCamera, radialTexture, shellGroup, shellMaterial, windowBox } from "./plate.js";
-import { rememberRung, rungName, rungOf } from "./switch.js";
+import { FELL_BACK_NOTE, rememberRung, rungName, rungOf } from "./switch.js";
+import { LAYERS_MS, within } from "./within.js";
+
+/** Gives back every texture in a room's layers that came too late (and one level in: the outside's pictures by name). */
+function giveBack(layers) {
+  const textures = new Set();
+  for (const v of Object.values(layers ?? {})) {
+    if (v?.isTexture) textures.add(v);
+    else if (v && typeof v === "object") for (const t of Object.values(v)) if (t?.isTexture) textures.add(t);
+  }
+  for (const t of textures) t.dispose();
+}
 
 export class RoomRendered extends Room3D {
   /** Starts the drawing in `root`. Throws when the device cannot draw it or its layers do not arrive, so the page can open the 3D look instead. */
   static async open(root, opts) {
     const view = await super.open(root, { ...opts, skin: this.SKIN });
+    // A layer stuck on a slow connection does not hold the room (dimmed while a view loads): after
+    // LAYERS_MS the room is drawn the 3D look's way, and what arrives later is given back unused.
+    const abort = new AbortController();
     try {
-      Object.assign(view, await view.loadLayers(opts));
+      Object.assign(view, await within(view.loadLayers(opts, abort.signal), LAYERS_MS, { onTimeout: () => abort.abort(), late: giveBack }));
     } catch (err) {
       view.destroy();
       throw err;
@@ -62,7 +76,7 @@ export class RoomRendered extends Room3D {
     // purpose, and stays on the rung it asked for (?rung=) unless it asks for the ladder
     // (?ladder=on); a measurement holds its rung with ?ladder=off.
     const ladder = params.get("ladder") ?? (params.get("gl") === "any" ? "off" : "on");
-    this.ladder = ladder === "on" ? new Ladder({ ratio: this.ratio, steps: def.steps, taken: rung.taken }) : null;
+    this.ladder = ladder === "on" ? new Ladder({ ratio: this.ratio, steps: def.steps, taken: rung.taken, capped: rung.capped }) : null;
     window.__roomRendered = this;
   }
 
@@ -110,6 +124,8 @@ export class RoomRendered extends Room3D {
 
   build(room) {
     this.plain = this.fellBack || room.boxes.length !== this.def.boxes;
+    // Drawn the 3D look's way: its own plain lights on the pieces, and no rendered room shining in them.
+    if (this.plain && this.lightsBefore) this.roomLights(false);
     // The room's life: as the 3D look has it when it draws the room, the rendered room's own otherwise.
     this.skin = this.plain ? this.todaySkin : { ...this.todaySkin, life: this.ownLife(this.todaySkin.life ?? []) };
     this.el.classList.toggle("rendered", !this.plain);
@@ -304,7 +320,8 @@ export class RoomRendered extends Room3D {
     else if (act.take) this.step(act.take, true);
     else if (act.undo) for (const s of act.undo) this.step(s, false);
     else if (act.fallback) return void this.fallBack();
-    if (!this.rung.forced) rememberRung([...this.ladder.taken]);
+    // Remembered, so the next visit starts where this one came to; a capped device, so it does not try again.
+    if (!this.rung.forced) rememberRung(this.ladder.done === "capped" ? "capped" : [...this.ladder.taken]);
   }
 
   /** The steps this drawing has taken now. */
@@ -334,7 +351,7 @@ export class RoomRendered extends Room3D {
     this.idle = 0;
     // The page's own slow check starts again from here (slow-room.js).
     window.dispatchEvent(new CustomEvent("party-room:look-changed", { detail: { look: this.lookName } }));
-    if (note) this.say("This device draws the simpler room.");
+    if (note) this.say(FELL_BACK_NOTE);
   }
 
   /** A short note over the room that the player can close; it goes by itself after a while. */

@@ -60,11 +60,11 @@ export class RoomStarLounge extends RoomRendered {
   }
 
   /** The plate, the room's pictures and what is outside, loaded together. */
-  async loadLayers() {
+  async loadLayers(opts, signal) {
     const aniso = Math.min(4, this.renderer.capabilities.getMaxAnisotropy());
     const at = (name) => new URL(name, LAYERS).href;
     const json = async (url) => {
-      const answer = await fetch(url);
+      const answer = await fetch(url, { signal });
       if (!answer.ok) throw new Error(`${String(url).split("/").pop()} did not load`);
       return answer.json();
     };
@@ -139,16 +139,17 @@ export class RoomStarLounge extends RoomRendered {
   stepOutside(ctx) {
     const T = ctx.T;
     if (!this.sky || T < this.skyT - 1 || this.skySeed !== ctx.seed) {
-      // The timetable from the room's start, run forward to now in a moment (it only does sums), so a screen that came late is in step.
+      // The timetable from the room's start, seeded by the room's code. It catches up to now by itself
+      // (sky.js: everything happens when it was due), so a screen that came late is in step.
       this.sky = createSky(seeded((ctx.seed ^ 0x51a7) >>> 0));
       this.skySeed = ctx.seed;
-      for (let t = 0; t < T; t += 0.5) this.sky.step(t);
       this.skyEv = this.sky.step(T);
     }
     this.skyT = T;
     const timed = this.sky.step(T);
     const ev = this.held ?? (ctx.calm ? null : timed);
-    if (ev && ev !== this.skyEv && !ev.held && SOUNDS[ev.thing.name]) ctx.emit(SOUNDS[ev.thing.name]);
+    // A thing's sound as it comes in, not one that was already half way across when this screen looked again.
+    if (ev && ev !== this.skyEv && !ev.held && T - ev.start < 1 && SOUNDS[ev.thing.name]) ctx.emit(SOUNDS[ev.thing.name]);
     this.skyEv = ev;
     this.world.step(T, 0, ev);
     const i = LIGHTS.indexOf("strips");

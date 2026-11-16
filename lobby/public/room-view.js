@@ -162,7 +162,7 @@ const BAKED_ROOMS = ["bar"];
  * @returns {Promise<RoomView>}
  */
 export async function openRoomView(root, opts) {
-  const rendered = renderedFor({ look: opts.look, skin: opts.skin || "bar" });
+  const rendered = renderedFor({ look: opts.look, skin: opts.skin || "bar", boxes: opts.boxes });
   if (rendered) {
     try {
       return await (await rendered.load()).open(root, opts);

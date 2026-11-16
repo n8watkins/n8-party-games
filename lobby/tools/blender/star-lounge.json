@@ -9,7 +9,7 @@
     "ring": [1.32, 2.15],
     "turnSeconds": 95
   },
-  "moon": { "centre": [-12.9, -3.6, -42.5], "radius": 1.05, "turnSeconds": 60 },
+  "moon": { "centre": [-12.56, 9.24, -60], "radius": 1.05, "turnSeconds": 60, "where": "High in the window, above the screens, between the first two lamps (wall x -3.24 m, y 5.5 m): clear of the name tags, which stack low in the first bay." },
   "sun": [-0.5, 0.75, 0.43],
   "lampColour": [0.82, 0.92, 1.0],
   "accent": [0.35, 0.8, 1.0],
