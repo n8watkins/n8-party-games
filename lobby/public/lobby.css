@@ -1466,6 +1466,58 @@ input {
   }
   .settings-row {
     padding: 0 0 0 10px;
+    font-size: 15px;
+  }
+  /* The labels are short; the picks get the room ("Out loud or typed" on a 640 pixel phone). */
+  .settings-row .settings-select {
+    max-width: 72%;
+  }
+  /* Everyone else's card shows the pick as words: off the row's rounded edge. */
+  .settings-row .settings-pick {
+    padding-right: 10px;
+  }
+  /* The full card (no spots) in two parts, so Start is in sight with eight settings (Who Am I?):
+     the game, who chooses and the time, and the host's two buttons in one row over the settings. */
+  .settings-card:not(.spots-card) {
+    padding: 8px 12px 10px;
+    gap: 6px 12px;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    grid-template-areas:
+      "head time actions"
+      "list list list";
+    align-items: center;
+  }
+  .settings-card:not(.spots-card) .card-kicker {
+    display: none;
+  }
+  .settings-card:not(.spots-card) .card-title {
+    grid-area: head;
+    font-size: 21px;
+  }
+  .settings-card:not(.spots-card) .settings-left,
+  .settings-card:not(.spots-card) .settings-said {
+    grid-area: time;
+    font-size: 13px;
+    line-height: 1.25;
+  }
+  .settings-back.said .settings-card:not(.spots-card) .settings-left {
+    display: none;
+  }
+  .settings-card:not(.spots-card) .settings-list {
+    grid-area: list;
+  }
+  .settings-card:not(.spots-card) .settings-actions {
+    grid-area: actions;
+    display: flex;
+    gap: 8px;
+  }
+  .settings-card:not(.spots-card) .settings-actions .button,
+  .settings-card:not(.spots-card) .settings-actions .plain {
+    width: auto;
+    min-height: 44px;
+    padding: 6px 14px;
+    font-size: 15px;
+    white-space: nowrap;
   }
 }
 
