@@ -136,7 +136,9 @@ const toss = await A.wait((m) => voteOf(m)?.toss, 14000, mark);
 const tossed = voteOf(toss).toss;
 check(tossed.between.length === 2 && tossed.between.includes(tossed.winner), "the tie is settled by a coin toss everybody is shown: " + tossed.winner);
 // Either game is played inside the room. Coin Flip is over in three seconds; a round of Cork &
-// Bell is ninety, so when the toss picks it this run is a minute and a half longer.
+// Bell here runs its full ninety (Ann spends a few corks and the three others none, so more than
+// one stall still holds corks when its time is up), and when the toss picks it this run is a
+// minute and a half longer.
 let end2;
 if (tossed.winner === "cork-and-bell") {
   const begun = await A.wait((m) => m.t === "start", 13000, mark);

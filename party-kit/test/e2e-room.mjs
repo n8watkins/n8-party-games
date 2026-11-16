@@ -189,12 +189,29 @@ const back = await A.wait((m) => m.t === "room" && m.at > away.at && m.room.seat
 check(!!back, "everyone sees them back");
 
 if (full) {
-  console.log("waiting for the round to end (about 95 seconds from its start)...");
+  console.log("waiting for the round to end (up to about 95 seconds from its start)...");
   const end = await A.wait((m) => m.t === "end", 130000).catch(() => null);
   check(!!end, "the round ends");
   if (end) {
-    const seconds = (end.at - start.s.startAt) / 1000;
-    check(Math.abs(seconds - 94.5) < 2.5, "it lasts 3 s count-in + 90 s + the hold: " + seconds.toFixed(1) + " s");
+    // Timed on the room's clock, from what the room sent: the game's start, the moment it called
+    // time ({k: "time"}, in round seconds), the last snapshot (the game over) and the end. This
+    // run is a kit test, run from a game's own repository too, so it knows none of the game's
+    // numbers and reads them all off the wire: the count-in is how far before round time 0 the
+    // first snapshot was, and a round ends early when the game says so (Cork & Bell: when its
+    // stalls run out of corks). What the room must do is end the round when the game is over,
+    // no sooner and no later: the end comes with the game's last snapshot, which says it is over,
+    // a short hold after the game called time, and never before.
+    const seconds = (end.now - start.s.startAt) / 1000;
+    const countIn = (start.now - start.s.startAt) / 1000 - start.s.t - start.s.delay;
+    const called = A.seen.find((m) => m.t === "ev" && m.ev.some((e) => e.k === "time"));
+    const timeAt = called?.ev.find((e) => e.k === "time").t ?? null;
+    const last = A.seen.findLast((m) => m.t === "snap" && m.now <= end.now);
+    const hold = called ? (end.now - called.now) / 1000 : null;
+    const scoring = last?.s.stalls?.filter((s) => !s.over).length ?? null;
+    check(
+      called && last?.now === end.now && last.s.over === true && hold > 0 && hold < 2 && Math.abs(seconds - (countIn + start.s.delay + timeAt + hold)) < 0.05,
+      `it lasts the count-in (${countIn.toFixed(1)} s), the round until the game called time (${timeAt?.toFixed(1)} s: ${scoring >= 2 ? "its clock ran out" : "its stalls ran dry"}) and the hold (${hold?.toFixed(2)} s), and the room ends it with the game's last snapshot: ${seconds.toFixed(1)} s`,
+    );
     check(Array.isArray(end.result) && end.result.length === 2, "with a result for every seat");
     A.send({ t: "ready", v: true });
     B2.send({ t: "ready", v: true });

@@ -9,7 +9,8 @@
 //
 //   node lobby/test/e2e-cork-3d.mjs [--base=http://localhost:8791] [--rounds=3] [--room=ship] [--soft=1]
 //
-// A round is ninety seconds and nothing shortens it, so three take about five minutes. It
+// A round is up to ninety seconds; played alone by the game's bot it ends sooner, once the
+// stall's corks are spent, so three take about four minutes. It
 // drives a headless, muted Chrome on the Windows side, on the real graphics card
 // (node_modules/cork-and-bell/tools/browser.mjs: no window, its own profile, closed at the end).
 // --soft=1 uses the software renderer inside WSL instead, which is very slow.
