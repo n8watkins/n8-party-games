@@ -37,8 +37,16 @@ import { chromium } from "playwright";
 const SOFTWARE_ONLY = new Set(["--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--use-gl=swiftshader"]);
 const GPU_ARGS = ["--ozone-platform=x11", "--use-gl=angle", "--use-angle=gl", "--ignore-gpu-blocklist"];
 
-/** Whether launches in this process draw on the graphics card (TEST_GPU=1). */
-export const gpu = process.env.TEST_GPU === "1";
+/**
+ * TEST_NO_GPU=1 keeps every test off the graphics card, whatever else is set: TEST_GPU=1 is
+ * ignored (software, with a line saying so) and openWindowsChrome refuses. It is the one switch
+ * to flip when the card is needed for something else or misbehaves.
+ */
+const cardOff = process.env.TEST_NO_GPU === "1";
+if (cardOff && process.env.TEST_GPU === "1") console.log("(TEST_NO_GPU=1: TEST_GPU=1 ignored, the browser draws in software)");
+
+/** Whether launches in this process draw on the graphics card (TEST_GPU=1, and not TEST_NO_GPU=1). */
+export const gpu = process.env.TEST_GPU === "1" && !cardOff;
 
 /**
  * chromium.launch with the scripts' usual settings (headless, muted), plus the caller's
@@ -48,6 +56,7 @@ export async function launchBrowser({ args = [], software = false, ...options } 
   if (!gpu || software) return chromium.launch({ headless: true, ...options, args: ["--mute-audio", ...args] });
 
   if (!existsSync("/dev/dxg")) throw new Error("TEST_GPU=1 needs WSL2's /dev/dxg (the graphics card); unset TEST_GPU to draw in software");
+  await holdCard();
   const display = await startDisplay();
   let browser;
   try {
@@ -78,6 +87,44 @@ export async function launchBrowser({ args = [], software = false, ...options } 
     }
   };
   return browser;
+}
+
+/**
+ * The card is shared with the owner's desktop and with other GPU work (Blender renders), so
+ * only TEST_GPU_JOBS processes (default 1) may use it for tests at once. A process takes one of
+ * the machine-wide locks /tmp/test-gpu-<n>.lock before its first GPU browser and keeps it until
+ * it exits; others wait their turn, saying so. The lock is a kernel flock held by a small child
+ * (flock ... cat) that reads this process's stdin pipe: when this process ends, however it ends,
+ * the pipe closes and the lock is released. Other GPU work can wait for, or hold, the same lock:
+ *   flock /tmp/test-gpu-1.lock <command>
+ */
+let cardHeld = null;
+export function holdCard() {
+  cardHeld ??= (async () => {
+    const jobs = Math.max(1, Number(process.env.TEST_GPU_JOBS) || 1);
+    if (!which("flock")) throw new Error("TEST_GPU=1 needs flock (util-linux) to share the graphics card");
+    for (let said = false; ; ) {
+      for (let n = 1; n <= jobs; n++) {
+        const holder = spawn("flock", ["-n", `/tmp/test-gpu-${n}.lock`, "sh", "-c", "echo held; exec cat >/dev/null"], { stdio: ["pipe", "pipe", "ignore"] });
+        const held = await new Promise((resolve) => {
+          holder.stdout.once("data", () => resolve(true));
+          holder.once("exit", () => resolve(false)); // that lock is taken
+          holder.once("error", () => resolve(false));
+        });
+        if (held) {
+          holder.unref();
+          holder.stdin.unref?.();
+          holder.stdout.unref?.();
+          holder.stdin.on("error", () => {});
+          return;
+        }
+      }
+      if (!said) console.log(`(waiting for the graphics card: ${jobs} GPU test job${jobs > 1 ? "s" : ""} already running; TEST_GPU_JOBS raises the limit)`);
+      said = true;
+      await new Promise((r) => setTimeout(r, 1000));
+    }
+  })();
+  return cardHeld;
 }
 
 /** The full path of a program on PATH, or null. */
@@ -181,7 +228,9 @@ const WINDOWS_CHROME = "/mnt/c/Program Files/Google/Chrome/Application/chrome.ex
  * that uses this profile folder, and nothing else.
  */
 export async function openWindowsChrome({ width = 1920, height = 1080, uncapped = false, attemptMs = 5000, startMs = 45000 } = {}) {
+  if (cardOff) throw new Error("TEST_NO_GPU=1: the Windows Chrome draws on the graphics card, so it is not started (use the script's software option, e.g. --soft=1)");
   if (!existsSync(WINDOWS_CHROME)) throw new Error("no Chrome on the Windows side at " + WINDOWS_CHROME);
+  await holdCard();
   const profile = mkdtempSync(join(tmpdir(), "party-test-chrome-"));
   const winProfile = execFileSync("wslpath", ["-w", profile]).toString().trim();
   const child = spawn(
