@@ -1,4 +1,4 @@
-"""Builds lab/hot-potato/public/cities.json from GeoNames: every town over 15,000 people (hard
+"""Builds one-device/hot-potato/shared/cities.json from GeoNames: every town over 15,000 people (hard
 mode), each marked with why it is, or is not, in the default list of well-known places.
 
 Download and unzip, in an empty folder of their own:
@@ -7,7 +7,7 @@ Download and unzip, in an empty folder of their own:
   https://download.geonames.org/export/dump/alternateNamesV2.zip -> alternateNamesV2.txt
   https://download.geonames.org/export/dump/admin1CodesASCII.txt
   https://download.geonames.org/export/dump/countryInfo.txt
-and build public/words.json first (tools/make-words.py).
+and build shared/words.json first (tools/make-words.py).
 
 Then: python3 -I lab/hot-potato/tools/make-cities.py <geonames folder> <words.json> <famous-places.txt> <out.json> <date fetched>
 

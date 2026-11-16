@@ -1,6 +1,6 @@
-"""Builds the Hot Potato category lists other than cities: public/countries.json,
-public/animals.json and public/food.json. (Cities come from tools/make-cities.py; the "Anything"
-category uses public/words.json as it is.)
+"""Builds the Hot Potato category lists other than cities, in one-device/hot-potato/shared:
+countries.json, animals.json and food.json. (Cities come from tools/make-cities.py; the "Anything"
+category uses words.json as it is.)
 
 Download, in an empty folder of their own:
   https://github.com/globalwordnet/english-wordnet/releases/download/2025-edition/english-wordnet-2025.xml.gz

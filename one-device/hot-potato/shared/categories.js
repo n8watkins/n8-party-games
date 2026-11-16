@@ -1,5 +1,7 @@
 // The Hot Potato categories: what each list is, where its data lives, and the few ways the one
-// matcher (logic.js) treats it differently. Pure data, shared by the page and the unit tests.
+// matcher (logic.js) treats it differently. Pure data, shared by the game (one-device/hot-potato),
+// the hearing test (lab/hot-potato) and their unit tests. The lists sit beside this file, and
+// the site serves this folder at /one-device/hot-potato/shared/.
 //
 //  - file, format: the list's JSON (built by tools/) and how its rows read ("cities" for
 //    tools/make-cities.py, "entries" for tools/make-categories.py, "words" for words.json).
@@ -73,3 +75,6 @@ export const CATEGORIES = {
 
 export const CATEGORY_IDS = Object.keys(CATEGORIES);
 export const DEFAULT_CATEGORY = "cities";
+
+/** Where a list (cities.json, words.json ...) is: beside this file, for every page that imports it. */
+export const dataUrl = (file) => new URL(file, import.meta.url).href;
