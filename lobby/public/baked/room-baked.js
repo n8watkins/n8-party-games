@@ -365,17 +365,9 @@ export class RoomBaked extends Room3D {
     for (const p of this.pieces.values()) {
       const pawn = p.pawn;
       seen.add(pawn);
-      if (!pawn.baked) {
-        pawn.baked = true;
-        pawn.mat.roughness = 0.3;
-        pawn.mat.clearcoat = 1;
-        pawn.mat.clearcoatRoughness = 0.12;
-        pawn.mat.envMapIntensity = 1;
-      }
-      // look3d dims the paint outside a pool and makes it glow inside one, because it has no real light. Here there is light.
-      const flicker = Math.max(0, pawn.mat.emissiveIntensity - (0.09 + 0.27 * pawn.lit) - 0.01);
-      pawn.mat.color.copy(pawn.colour);
-      pawn.mat.emissiveIntensity = 0.035 + flicker * 0.6;
+      // look3d dims the paint outside a pool and makes it glow inside one, because it has no real light. Here there is light:
+      // each character gives its body its true colour and a shinier finish (look3d/characters.js, `bake`).
+      p.kind.bake(pawn);
 
       // The shadow: short and dark right under a lamp, longer and leaning away from it further out, faint in the dark.
       const lamp = this.lampOver(p.rx);

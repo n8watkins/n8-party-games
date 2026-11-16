@@ -15,6 +15,7 @@ import { Hud } from "./hud.js";
 import { TouchSpots } from "./touch.js";
 import { KEEP_ALIVE_MS, watchConnection } from "./connection.js";
 import { CountTick } from "./count-tick.js";
+import { LookMenu } from "./look-menu.js";
 import { RoomMenu } from "./room-menu.js";
 import { SettingsStep } from "./settings-step.js";
 import { RoomSounds, defineRoomSounds, emoteSound } from "./room-sounds.js";
@@ -61,6 +62,8 @@ let entering = false;
 let board = null;
 /** Rooms and the door button, and the room picker (room-menu.js). */
 let menu = null;
+/** A player's own piece in the corner, and the sheet to choose its character and colour (look-menu.js). */
+let looks = null;
 /** The count, large, over the foot of the room (count-tick.js). */
 let count = null;
 /** The settings step after the vote, for a game that has settings (settings-step.js). */
@@ -134,8 +137,8 @@ function teardown() {
   stage = null;
   app.classList.remove("in-game", "staged");
   document.documentElement.classList.remove("upright");
-  for (const part of [menu, count, step, touch, fit, roomSounds]) part?.destroy();
-  menu = count = step = touch = fit = roomSounds = null;
+  for (const part of [looks, menu, count, step, touch, fit, roomSounds]) part?.destroy();
+  looks = menu = count = step = touch = fit = roomSounds = null;
   hud?.destroy();
   hud = null;
   scene?.destroy();
@@ -187,6 +190,7 @@ async function enter() {
     on: {
       emote: sendEmote,
       colour: () => room?.members[link.you.seat]?.colour ?? "#c8382c",
+      character: () => room?.members[link.you.seat]?.character,
       steer: (d, down) => press(`pad${d}`, d, down),
       jump,
       bump,
@@ -203,6 +207,11 @@ async function enter() {
   menu = new RoomMenu(hud.el, { role: link.you.role, seat: link.you.seat, onPick: (id) => link.send({ t: "pick", v: id }) });
   hud.muteButton(menu.corner);
   if (menu.mine(room)) menu.hint();
+  // A player's own piece, and the choice of its character and colour; the one last chosen on this device comes back.
+  if (isPlayer()) {
+    looks = new LookMenu(menu.corner, { seat: link.you.seat, send: (choice) => link.send({ t: "look", ...choice }) });
+    looks.restore(room);
+  }
   count = new CountTick(hud.el, { buzz: isPlayer() ? buzz : null });
   // The one who chooses is the room's picker: a player's seat, or -1 for the room's screen.
   step = new SettingsStep(hud.el, { send: (message) => link.send(message), mine: (choosing) => (isPlayer() ? choosing.by === link.you.seat : choosing.by === -1) });
@@ -396,6 +405,7 @@ function apply(next) {
   if (!scene) return;
   scene.setRoom(room, voteAt);
   menu?.update(room);
+  looks?.update(room);
   step?.update(room, voteAt);
   // A page that missed a change (a drop, a sleep) catches up from the room itself.
   if (room.room !== shownRoom || look !== scene.look) void showRoom();
@@ -496,6 +506,11 @@ link.on("message", (msg) => {
     case "pick-no":
       // Said in the picker when it is open, as a note over the room when it is not.
       if (menu?.isOpen) menu.refused(msg.why);
+      else hud?.note(msg.why);
+      break;
+    case "look-no":
+      // The room turned down this device's choice of character or colour: said on the sheet, or as a note.
+      if (looks?.isOpen) looks.refused(msg.why);
       else hud?.note(msg.why);
       break;
     case "note":
@@ -705,7 +720,7 @@ link.on("error", (err) => err.id === undefined && hud?.note(err.message));
 // ---------------------------------------------------------------- keys and fingers
 
 // The pieces walk in the lobby, and while a game's players are chosen on its spots (bumping stays the lobby's).
-const canMove = () => !!pilot && (room?.phase === "lobby" || !!room?.choosing?.spots) && !hud?.sheet && !hud?.card && !board && !menu?.isOpen;
+const canMove = () => !!pilot && (room?.phase === "lobby" || !!room?.choosing?.spots) && !hud?.sheet && !hud?.card && !board && !menu?.isOpen && !looks?.isOpen;
 
 function steerNow(d) {
   pilot?.steer(d, performance.now());
@@ -753,6 +768,7 @@ addEventListener("keydown", (e) => {
   if (e.key === "Escape" && hud?.loadoutSheet?.el.isConnected) return hud.loadoutSheet.close();
   if (e.key === "Escape" && board) return hideBoard();
   if (e.key === "Escape" && menu?.isOpen) return menu.close();
+  if (e.key === "Escape" && looks?.isOpen) return looks.close();
   if (e.key === "Escape" && touch?.card) return touch.closeCard();
   if (e.key === "Escape") return hud?.sheet ? hud.sheet.click() : hud?.openSheet();
   if (e.key in WALK_KEYS) {

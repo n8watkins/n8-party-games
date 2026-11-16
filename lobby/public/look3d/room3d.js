@@ -15,12 +15,13 @@
 import { IMPACT_MS, cooldownFraction } from "../shared/bump.js";
 import { COUNT_MS } from "../shared/vote.js";
 import { ROOM, boxCentre, lightHalf, posAt } from "../shared/world.js";
-import { Expressions, poseTop } from "../emotes/play.js";
+import { Expressions } from "../emotes/play.js";
 import { EmoteFigure, Sticker } from "../emotes/svg.js";
-import { EmoteArms, RIG_UNIT } from "./emote-arms.js";
+import { modelOf } from "./characters.js";
+import { RIG_UNIT } from "./emote-arms.js";
 import { Life } from "./life.js";
 import { ART_IMAGES, boxArt, boxSide, canvasOf } from "./paint.js";
-import { PAWN_HEIGHT, dressPawn, disposePawn, fadePawn, makePawn, posePawn, resumeKnock, startAttack, startKnock } from "./pieces.js";
+import { PAWN_HEIGHT, resumeKnock, startAttack, startKnock } from "./pieces.js";
 import { SKINS, liveSkin } from "./skins.js";
 import { CAM, D_WALL, FEET_Y, FRAME, PX, SPACE, U, layout, place, walkX, wallX, wallY } from "./space.js";
 import * as THREE from "./three.js";
@@ -28,8 +29,6 @@ import { Words } from "./words.js";
 
 /** How quickly another player's piece closes on where it should be (per second). The flat drawing's number. */
 const EASE = 14;
-/** The red a fuming piece goes. */
-const FUMING = new THREE.Color("#ff2a14");
 /** How bright a lamp burns for 0, 1, 2, 3 and 4 players standing under it. */
 const LEVELS = [0.16, 0.6, 1.2, 1.4, 1.55];
 /** Painted walls and floors: pixels per metre. */
@@ -631,10 +630,14 @@ export class Room3D {
       if (m.d) p.face = m.d;
       if (p.rev !== m.rev) p.rx = m.x; // the room put it somewhere: no sliding across the floor
       p.rev = m.rev;
+      // The player chose another character: the same piece, where it stands, with a new body.
+      if (p.kind !== modelOf(m.character)) this.recast(p, m);
       const look = `${m.name}/${m.connected}/${m.colour}`;
       if (p.look !== look) {
         p.look = look;
-        dressPawn(p.pawn, m.colour, m.connected);
+        p.kind.dress(p.pawn, m.colour, m.connected);
+        // An emote in the middle of a change of colour is drawn again in the new one.
+        this.dropEmote(p);
       }
       p.member = m;
       // On the floor or just up from it already (this page arrived in the middle of a bump).
@@ -656,19 +659,50 @@ export class Room3D {
 
   piece(m) {
     const p = { fx: { char: 0, hopAt: -Infinity }, seat: m.seat, rx: m.x, net: { x: m.x, d: m.d, t: 0 }, face: 1, rev: m.rev, jumpAt: -Infinity, attack: null, knock: null, leaving: 0, level: 0, look: "", tag: null, member: m };
-    p.pawn = makePawn(this.radial);
-    p.pawn.ring.visible = m.seat === this.opts.own;
-    this.cast.add(p.pawn.group, p.pawn.blob, p.pawn.ring);
+    this.embody(p, m);
     return p;
   }
 
-  removePiece(p) {
+  /**
+   * Gives a piece the body of its player's character (./characters.js): the one place this look
+   * makes a body. `p.kind` is the character's definition and `p.pawn` the body it made, whatever
+   * the character (the name is from when every piece was a pawn).
+   */
+  embody(p, m) {
+    p.kind = modelOf(m.character);
+    p.pawn = p.kind.make(this.radial);
+    p.pawn.ring.visible = m.seat === this.opts.own;
+    this.cast.add(p.pawn.group, p.pawn.blob, p.pawn.ring);
+    p.look = "";
+  }
+
+  /** Takes a piece's body out of the room, and whatever it was doing with its hands. */
+  disembody(p) {
+    this.dropEmote(p);
     this.cast.remove(p.pawn.group, p.pawn.blob, p.pawn.ring);
-    p.emote?.arms.dispose();
-    p.emote?.figure.remove();
+    p.kind.dispose(p.pawn);
+  }
+
+  /** A piece changes character where it stands. */
+  recast(p, m) {
+    this.disembody(p);
+    this.expressions.stop(p.seat);
+    this.embody(p, m);
+  }
+
+  /** Puts away the hands and props of a piece's emote (the emote itself may go on, and is drawn afresh). */
+  dropEmote(p) {
+    if (!p.emote) return;
+    p.emote.arms.dispose();
+    p.emote.figure.remove();
+    p.emote = null;
+    p.sticker?.show(null);
+  }
+
+  removePiece(p) {
+    this.disembody(p);
     p.sticker?.remove();
     this.expressions.stop(p.seat);
-    disposePawn(p.pawn);
     p.tag?.el.remove();
   }
 
@@ -783,7 +817,7 @@ export class Room3D {
 
   /** Someone sent an emote (room-view.js): it starts on their piece now, in place of any they were doing. */
   onExpress(msg, now) {
-    const where = [...this.pieces.values()].filter((p) => !p.leaving).map((p) => ({ seat: p.seat, x: p.rx, face: p.face }));
+    const where = [...this.pieces.values()].filter((p) => !p.leaving).map((p) => ({ seat: p.seat, x: p.rx, face: p.face, character: p.kind.id }));
     this.expressions.start(msg.s, msg.e, now, where);
   }
 
@@ -796,33 +830,20 @@ export class Room3D {
   express(p, now, view, calm) {
     const e = this.expressions.pose(p.seat, now, (seat) => this.pieces.get(seat)?.rx, calm);
     if (!e) {
-      if (p.emote) {
-        p.emote.arms.dispose();
-        p.emote.figure.remove();
-        p.emote = null;
-        p.sticker.show(null);
-      }
+      this.dropEmote(p);
       return false;
     }
     const colour = p.member?.colour ?? "#8a8d94";
     if (!p.emote) {
-      const figure = new EmoteFigure(colour, { face: false, limbs: false });
+      const figure = new EmoteFigure(colour, { face: false, limbs: false, character: p.kind.id });
       this.words.emotes.append(figure.stage, figure.body);
-      p.emote = { arms: new EmoteArms(p.pawn, colour), figure };
+      p.emote = { arms: p.kind.hands(p.pawn, colour), figure };
       p.sticker ??= new Sticker(this.words.stickers);
     }
     const pawn = p.pawn;
-    const b = e.pose.body;
-    // The body: lifted, nudged and leaned about its foot, on top of whatever the walk and the bump did.
-    const metres = RIG_UNIT * (PAWN_HEIGHT * PX / 1.115);
-    pawn.group.position.x += b.dx * metres;
-    pawn.group.position.y += b.lift * metres;
-    pawn.tilt.rotation.z -= (b.rot * Math.PI) / 180;
-    if (b.tint > 0) {
-      pawn.mat.color.lerp(FUMING, b.tint * 0.8);
-      pawn.mat.emissive.lerp(FUMING, b.tint * 0.6);
-    }
-    p.emote.arms.set(e.pose);
+    // The body, as its character does it: lifted, nudged and leaned on top of whatever the walk and the bump did, red when it fumes; then its hands.
+    p.kind.emote(pawn, e.pose, now, p.seat);
+    p.emote.arms.set(e.pose, now);
     // In SVG: room units become world units at the walking line (S), then screen pixels (k).
     const k = view.scale;
     const S = RIG_UNIT * (PAWN_HEIGHT / 1.115);
@@ -835,7 +856,7 @@ export class Room3D {
     p.emote.figure.draw(e.pose, e.toward);
     // The word: over the name tag and whatever the emote holds up, larger than the tag's words (much larger on a screen read from across the room), and never too small to read.
     const tagTop = FEET_Y - PAWN_HEIGHT - 16 - p.up - p.level * ((p.tag?.h ?? 30) + 6) - (p.tag?.h ?? 30);
-    const y = Math.min(tagTop - 6, gy + poseTop(e.pose) * S);
+    const y = Math.min(tagTop - 6, gy + e.top * S);
     const scale = Math.max(0.62, k * (this.opts.compact ? 1.08 : 1.25));
     const [sx, sy] = px(gx, y).split(",").map(Number);
     p.sticker.show(e.word, sx, sy, scale, e.pop);
@@ -972,7 +993,7 @@ export class Room3D {
           busy = true;
           continue;
         }
-        fadePawn(p.pawn, 1 - gone);
+        p.kind.fade(p.pawn, 1 - gone);
         alpha = 1 - gone;
         busy = true;
       }
@@ -987,7 +1008,7 @@ export class Room3D {
         if (Math.abs(target - p.rx) < 0.3) p.rx = target;
         walking = (p.net.d !== 0 && target > ROOM.minX && target < ROOM.maxX) || Math.abs(target - p.rx) > 6;
       }
-      const pose = posePawn(p.pawn, p, now, dt, { walking, lit: this.lightAt(p.rx), calm });
+      const pose = p.kind.pose(p.pawn, p, now, dt, { walking, lit: this.lightAt(p.rx), calm });
       if (pose.burst) this.burst(pose.burst, now, calm);
       if (pose.dust !== null) this.dust(pose.dust, now, calm);
       alive.push({ seat, x: p.rx, up: pose.up, air: p.pawn.air, fx: p.fx });

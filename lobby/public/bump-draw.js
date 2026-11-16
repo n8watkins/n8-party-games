@@ -97,22 +97,22 @@ export class BumpDraw {
     return STILL;
   }
 
-  /** Dizzy eyes while a piece is thrown and lying, and a blink while it cannot be knocked again. */
+  /**
+   * Dizzy eyes while a piece is thrown and lying, and a blink while it cannot be knocked again.
+   * How each looks is the character's own (p.kind.flat: characters/index.js).
+   */
   dress(p, pose, now) {
+    const flat = p.kind.flat;
     if (pose.dizzy !== !!p.dizzy) {
       p.dizzy = pose.dizzy;
-      p.crosses ??= crosses(p);
-      set(p.crosses, { display: pose.dizzy ? null : "none" });
-      set(p.eyes, { display: pose.dizzy ? "none" : null });
+      flat.dizzy(p.actor, pose.dizzy);
     }
     if (pose.safe) {
       p.blinking = true;
-      set(p.body, { opacity: calm() ? 0.7 : 0.55 + 0.45 * Math.abs(Math.sin(now / 70)) });
-      set(p.head, { opacity: calm() ? 0.7 : 0.55 + 0.45 * Math.abs(Math.sin(now / 70)) });
+      flat.blink(p.actor, calm() ? 0.7 : 0.55 + 0.45 * Math.abs(Math.sin(now / 70)));
     } else if (p.blinking) {
       p.blinking = false;
-      set(p.body, { opacity: null });
-      set(p.head, { opacity: null });
+      flat.blink(p.actor, null);
     }
   }
 
@@ -201,12 +201,4 @@ export function poseTransform(x, y, pose) {
   if (pose.tilt) t += ` rotate(${pose.tilt.toFixed(1)}, 0, ${-pose.pivot})`;
   if (pose.sx !== 1 || pose.sy !== 1) t += ` scale(${pose.sx.toFixed(3)}, ${pose.sy.toFixed(3)})`;
   return t;
-}
-
-/** Two little crosses for eyes: a piece that has just been knocked over. */
-function crosses(p) {
-  const cross = (cx) => s("path", { d: `M${cx - 5},-118 l10,10 M${cx + 5},-118 l-10,10`, stroke: "#1a1210", "stroke-width": 3.4, "stroke-linecap": "round", fill: "none" });
-  const g = s("g", { display: "none" }, cross(-10), cross(10));
-  p.g.append(g);
-  return g;
 }

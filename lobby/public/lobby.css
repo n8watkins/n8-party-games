@@ -1603,8 +1603,8 @@ input {
   top: max(2px, env(safe-area-inset-top));
   left: max(4px, env(safe-area-inset-left));
   z-index: 30;
-  /* Clear of the corner's three round buttons at the top right (rooms.css). */
-  max-width: calc(100% - 190px);
+  /* Clear of the corner's four round buttons at the top right (rooms.css, look.css). */
+  max-width: calc(100% - 242px);
   padding: 1px 6px;
   border-radius: 4px;
   background: rgba(0, 0, 0, 0.7);

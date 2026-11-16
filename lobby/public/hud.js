@@ -19,7 +19,7 @@ export class Hud {
    * @param {HTMLElement} root
    * @param {{role: "player" | "screen", seat: number, sound: object, on: object}} opts  `sound` is the
    *   page's SoundBoard (party-kit/client/sounds.js); `on` holds the callbacks: steer(d), jump(),
-   *   bump(), zoom(), leave(), away(url), emote(id) (true when it went), colour() (the player's seat colour)
+   *   bump(), zoom(), leave(), away(url), emote(id) (true when it went), colour() and character() (the player's own piece)
    */
   constructor(root, opts) {
     this.opts = opts;
@@ -73,7 +73,7 @@ export class Hud {
     const left = h("div", "pad pad-left", "", bar);
     const right = h("div", "pad pad-right", "");
     this.pad = new Controls(left, right, this.on);
-    this.wheel = new EmoteWheel(right, this.el, { send: (id) => this.on.emote(id), colour: () => this.on.colour() });
+    this.wheel = new EmoteWheel(right, this.el, { send: (id) => this.on.emote(id), colour: () => this.on.colour(), character: () => this.on.character?.() });
     this.zoomBtn = h("button", "pill-btn zoom-btn", "", left);
     this.zoomBtn.type = "button";
     this.zoomIcon = h("span", "pill-icon", "", this.zoomBtn);
@@ -239,7 +239,7 @@ export class Hud {
   loadout() {
     if (!this.wheel) return;
     this.loadoutSheet?.close();
-    this.loadoutSheet = openLoadout(this.el, { ids: this.wheel.ids, colour: this.on.colour(), onSave: (ids) => this.wheel.setIds(ids) });
+    this.loadoutSheet = openLoadout(this.el, { ids: this.wheel.ids, colour: this.on.colour(), character: this.on.character?.(), onSave: (ids) => this.wheel.setIds(ids) });
   }
 
   /** On the door button's sheet: sound on or off for everything, its volume, and the room's own life. */

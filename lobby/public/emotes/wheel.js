@@ -9,7 +9,6 @@
 // The room enforces the cooldown (party-kit/client/emotes.js). This only shows it.
 import { EMOTES, EMOTE_COOLDOWN_MS, WHEEL_SLOTS, emoteById } from "/party-kit/client/emotes.js";
 import { h, s } from "../dom.js";
-import { rigById } from "./rig.js";
 import { emoteThumb } from "./svg.js";
 
 /** The six a new player starts with: the owner's pick. */
@@ -64,7 +63,7 @@ export class EmoteWheel {
   /**
    * @param {HTMLElement} pad    where the button goes (the right-hand pad, before jump)
    * @param {HTMLElement} layer  where the wheel opens (the HUD)
-   * @param {{send: (id: string) => boolean, colour: () => string}} on  send: tries to send an emote,
+   * @param {{send: (id: string) => boolean, colour: () => string, character?: () => string}} on  send: tries to send an emote,
    *   true when it went; colour: the player's seat colour, for the pictures
    */
   constructor(pad, layer, on) {
@@ -175,7 +174,7 @@ export class EmoteWheel {
       pick.setAttribute("aria-label", `${e.name} (key ${i + 1})`);
       pick.style.left = `${(50 + Math.cos(mid) * 32).toFixed(2)}%`;
       pick.style.top = `${(50 + Math.sin(mid) * 32).toFixed(2)}%`;
-      pick.append(emoteThumb(rigById(id), colour, Math.round(size * 0.17)));
+      pick.append(emoteThumb(this.on.character?.(), id, colour, Math.round(size * 0.17)));
       h("span", "wheel-name", shortName(id), pick);
       h("span", "wheel-key", String(i + 1), pick).setAttribute("aria-hidden", "true");
       pick.addEventListener("click", () => this.fire(i));
@@ -243,9 +242,9 @@ export class EmoteWheel {
  * The sheet for choosing the six: the wheel's slots across the top, every emote below. Tap a
  * slot, then an emote to put on it. "Start again" puts the starter six back.
  * @param {HTMLElement} parent
- * @param {{ids: string[], colour: string, onSave: (ids: string[]) => void}} opts
+ * @param {{ids: string[], colour: string, character?: string, onSave: (ids: string[]) => void}} opts  the pictures are of the player's own character in their colour
  */
-export function openLoadout(parent, { ids, colour, onSave }) {
+export function openLoadout(parent, { ids, colour, character, onSave }) {
   let six = [...ids];
   let slot = 0;
   const back = h("div", "sheet-back", "", parent);
@@ -264,7 +263,7 @@ export function openLoadout(parent, { ids, colour, onSave }) {
       b.setAttribute("aria-pressed", String(i === slot));
       b.setAttribute("aria-label", `Slot ${i + 1}: ${emoteById(id).name}`);
       h("span", "loadout-key", String(i + 1), b);
-      b.append(emoteThumb(rigById(id), colour, 44));
+      b.append(emoteThumb(character, id, colour, 44));
       h("span", "loadout-name", shortName(id), b);
       b.addEventListener("click", () => {
         slot = i;
@@ -276,7 +275,7 @@ export function openLoadout(parent, { ids, colour, onSave }) {
       const b = h("button", `loadout-emote${six.includes(e.id) ? " on" : ""}`, "", all);
       b.type = "button";
       b.setAttribute("aria-label", `Put ${e.name} on slot ${slot + 1}`);
-      b.append(emoteThumb(rigById(e.id), colour, 44));
+      b.append(emoteThumb(character, e.id, colour, 44));
       h("span", "loadout-name", e.name, b);
       b.addEventListener("click", () => {
         // An emote already on the wheel swaps places with the one in the chosen slot.
