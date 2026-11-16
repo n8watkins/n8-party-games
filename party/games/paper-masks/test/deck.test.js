@@ -35,6 +35,20 @@ describe("the question deck", () => {
     }
   });
 
+  it("keeps the review's cuts and rewrites", () => {
+    const ids = new Set(QUESTIONS.map((q) => q.id));
+    for (const cut of ["confess-13", "group-16"]) expect(ids.has(cut), cut).toBe(false);
+    const byId = Object.fromEntries(QUESTIONS.map((q) => [q.id, q]));
+    expect(byId["confess-06"].text).not.toMatch(/whistl|fitted sheet/i);
+    expect(byId["confess-16"].text).not.toMatch(/\bapp\b/i); // no longer a near copy of week-15
+    for (const id of ["explain-13", "explain-14"]) expect(byId[id].family, id).toBe(true);
+  });
+
+  it("ghost answers read the same to American and British players", () => {
+    const oneSided = /\b(crisps?|toasties?|hoover\w*|jumpers?|biscuits?|adverts?|pavements?|pubs?|coming round|queu\w*|colours?|favourite|tummy|lift|holiday|washing up|mad|chips|school disco\w*|pancake race)\b/i;
+    for (const q of QUESTIONS) for (const g of q.ghosts) expect(g, `${q.id}: ${g}`).not.toMatch(oneSided);
+  });
+
   it("the page list carries no ghost answers", () => {
     for (const p of promptsForPage()) expect(Object.keys(p).sort()).toEqual(["best", "family", "id", "pack", "text"]);
   });
