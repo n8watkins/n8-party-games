@@ -668,10 +668,12 @@ describe("Cork & Bell through the seam", () => {
     expect(core.nextWake(at)).toBeNull();
     // Three play; Di holds the gun and never fires.
     const { ended, now, snapshots, ticks, kinds, state, timeAt, out } = playOut(core, at, (seat, state, t) => (seat === 3 ? null : botAim(seat, state, t)));
-    // The three who fire spend all their corks before the round's time is up, and once only Di's
-    // stall holds any the game calls time: the round ends early, and the room ends it then.
+    // The three who fire spend all their corks before the round's time is up, but Di's stall still
+    // holds all of hers, so the round is not over: it runs to the game's time call (on the first
+    // tick at or past its ninety seconds), and the room ends it then.
     expect([...out].sort()).toEqual([0, 1, 2]);
-    expect(timeAt).toBeLessThan(ROUND_SECONDS);
+    expect(timeAt).toBeGreaterThanOrEqual(ROUND_SECONDS);
+    expect(timeAt).toBeLessThan(ROUND_SECONDS + 2 / cork.game.tickHz);
     expect(Math.abs((now - at) / 1000 - roundLength(state, timeAt))).toBeLessThanOrEqual(1 / cork.game.tickHz);
     // A snapshot every `snapshotEvery` ticks, and the last one at the end.
     expect(snapshots).toBe(Math.floor(ticks / cork.game.snapshotEvery) + (ticks % cork.game.snapshotEvery ? 1 : 0));
@@ -696,6 +698,23 @@ describe("Cork & Bell through the seam", () => {
     for (const m of view.members) expect(m).toMatchObject({ x: spawnX(m.seat, 1), rev: 1 });
     // Asleep again: after the rest, the next wake-up is the slow "forgotten room" check.
     expect(core.nextWake(now + SETTLE_MS + 1)).toBe(now + STALE_ROOM_MS);
+  });
+
+  it("ends a battle early once every stall is out of corks, and the room ends it then", () => {
+    const core = corkRoom();
+    for (const n of ["Ann", "Bo", "Cy", "Di"]) seated(core, n);
+    const at = 2000;
+    expect(core.startGame("cork-and-bell", at)).toEqual({ ok: true, ended: null });
+    // All four fire: once the last stall's last cork has come to rest, the game calls time.
+    const { ended, now, state, timeAt, out } = playOut(core, at, botAim);
+    expect([...out].sort()).toEqual([0, 1, 2, 3]);
+    expect(timeAt).toBeLessThan(ROUND_SECONDS);
+    expect(Math.abs((now - at) / 1000 - roundLength(state, timeAt))).toBeLessThanOrEqual(1 / cork.game.tickHz);
+    for (const r of ended.result) {
+      expect(state.stalls[r.seat].corksLeft).toBe(0);
+      expect(r.shots).toBeGreaterThanOrEqual(CORKS_PER_ROUND);
+    }
+    expect(ended.last.rows.map((r) => r.points)).toEqual([3, 2, 1, 0]);
   });
 
   it("gives a party of one a round to itself", () => {
