@@ -11,8 +11,9 @@
 //
 // The piece may be any character (../characters/index.js). What differs between them comes from
 // the character's definition (`flat.figure`): the shape that turns red when it fumes, where its
-// face sits, and how a hand is joined to the body (a pawn's stick arm; a ghost's floating hand,
-// wisp of sheet or short cuff, by the pose).
+// face sits and in what ink, and how a hand is joined to the body (a pawn's stick arm; a ghost's
+// floating hand, wisp of sheet or short cuff, by the pose; a slime's arm of goo; a robot's jointed
+// arm of metal and its steel hand).
 import { drawingOf } from "../characters/index.js";
 import { WISP, joinOf, wispAt, wispHalf } from "../characters/ghost-rig.js";
 import { s, set } from "../dom.js";
@@ -69,19 +70,21 @@ const MOUTHS = {
 };
 
 /** The face the pose asks for, in place of the pawn's own two eyes (which the host hides meanwhile). */
-function makeFace(parent, skin) {
+function makeFace(parent, skin, ink = INK) {
   const f = { g: el("g", {}, parent) };
   f.eyes = el("g", {}, f.g);
-  f.eyeL = el("ellipse", { rx: 3.8, ry: 5.6, fill: INK }, f.eyes);
-  f.eyeR = el("ellipse", { rx: 3.8, ry: 5.6, fill: INK }, f.eyes);
-  f.glintL = el("circle", { r: 1.3, fill: "#fff" }, f.eyes);
-  f.glintR = el("circle", { r: 1.3, fill: "#fff" }, f.eyes);
-  const line = { fill: "none", stroke: INK, "stroke-width": 3.2, "stroke-linecap": "round", "stroke-linejoin": "round" };
+  f.eyeL = el("ellipse", { rx: 3.8, ry: 5.6, fill: ink }, f.eyes);
+  f.eyeR = el("ellipse", { rx: 3.8, ry: 5.6, fill: ink }, f.eyes);
+  // A face drawn in light (the robot's visor) has no glints: they would be lost in the eye.
+  const glint = ink === INK ? "#fff" : "none";
+  f.glintL = el("circle", { r: 1.3, fill: glint }, f.eyes);
+  f.glintR = el("circle", { r: 1.3, fill: glint }, f.eyes);
+  const line = { fill: "none", stroke: ink, "stroke-width": 3.2, "stroke-linecap": "round", "stroke-linejoin": "round" };
   f.happy = el("path", { d: "M-14,-111 Q-9,-119 -4,-111 M4,-111 Q9,-119 14,-111", ...line }, f.g);
   f.shut = el("path", { d: "M-14,-113 Q-9,-109 -4,-113 M4,-113 Q9,-109 14,-113", ...line }, f.g);
-  f.lids = el("path", { fill: skin, stroke: INK, "stroke-width": 2.2, "stroke-linejoin": "round" }, f.g);
+  f.lids = el("path", { fill: skin, stroke: ink, "stroke-width": 2.2, "stroke-linejoin": "round" }, f.g);
   f.brows = el("path", { ...line, "stroke-width": 3 }, f.g);
-  f.mouth = el("path", { "stroke-linecap": "round", "stroke-linejoin": "round", stroke: INK }, f.g);
+  f.mouth = el("path", { "stroke-linecap": "round", "stroke-linejoin": "round", stroke: ink }, f.g);
   return f;
 }
 
@@ -117,16 +120,30 @@ function shapeFace(f, face) {
  * or a small cartoon hand, all in the pawn's own colour. Both hands are deliberately simple and
  * round: a toy's hands, not a person's.
  */
-function makeLimb(parent, colour, ghostly = false) {
+function makeLimb(parent, colour, style = "stick") {
   const g = el("g", { class: "emote-limb" }, parent);
-  // A pawn's arm is a stick in its colour; a ghost's is a wisp of its sheet (a filled shape), when it has one at all.
-  const arm = ghostly
-    ? el("path", { class: "emote-wisp", fill: SHEET, stroke: shade(colour, 0.1), "stroke-width": 1.4, "stroke-linejoin": "round" }, g)
-    : el("path", { fill: "none", stroke: shade(colour, -0.05), "stroke-width": 8, "stroke-linecap": "round", "stroke-linejoin": "round" }, g);
+  // A pawn's arm is a stick in its colour; a ghost's is a wisp of its sheet (a filled shape), when it
+  // has one at all; a slime's is the same shape in its own goo; a robot's is jointed dark metal.
+  const ghostly = style === "ghost" || style === "goo";
+  let arm;
+  let rod = null;
+  if (style === "ghost") arm = el("path", { class: "emote-wisp", fill: SHEET, stroke: shade(colour, 0.1), "stroke-width": 1.4, "stroke-linejoin": "round" }, g);
+  else if (style === "goo") arm = el("path", { class: "emote-wisp emote-goo", fill: shade(colour, 0.14), stroke: shade(colour, -0.45), "stroke-width": 1.8, "stroke-linejoin": "round" }, g);
+  else if (style === "rod") {
+    arm = el("g", { class: "emote-rod" }, g);
+    rod = {
+      edge: el("path", { fill: "none", stroke: ROD.edge, "stroke-width": 10, "stroke-linecap": "round", "stroke-linejoin": "round" }, arm),
+      core: el("path", { fill: "none", stroke: ROD.metal, "stroke-width": 7, "stroke-linecap": "round", "stroke-linejoin": "round" }, arm),
+      elbow: el("circle", { r: 5.2, fill: ROD.steel, stroke: ROD.edge, "stroke-width": 1.6 }, arm),
+    };
+  } else arm = el("path", { fill: "none", stroke: shade(colour, -0.05), "stroke-width": 8, "stroke-linecap": "round", "stroke-linejoin": "round" }, g);
   const handG = el("g", {}, g);
-  // Against a white sheet a very pale hand is lost: it gets a dark outline.
-  const outlined = ghostly && isPale(colour);
-  const look = { fill: shade(colour, outlined ? 0.1 : 0.28), stroke: outlined ? INK : shade(colour, -0.42), "stroke-width": outlined ? 2.6 : 1.8, "stroke-linejoin": "round" };
+  // Against a white sheet a very pale hand is lost: it gets a dark outline. A robot's hands are steel.
+  const outlined = style === "ghost" && isPale(colour);
+  const look =
+    style === "rod"
+      ? { fill: ROD.steel, stroke: ROD.edge, "stroke-width": 2, "stroke-linejoin": "round" }
+      : { fill: shade(colour, outlined ? 0.1 : 0.28), stroke: outlined ? INK : shade(colour, -0.42), "stroke-width": outlined ? 2.6 : 1.8, "stroke-linejoin": "round" };
   const back = el("g", {}, handG); // a thumb held out sits behind the palm's edge
   const mitten = el("rect", look, handG);
   const pointer = el("rect", look, handG);
@@ -134,20 +151,25 @@ function makeLimb(parent, colour, ghostly = false) {
   const fingers = [0, 1, 2, 3].map(() => el("rect", look, handG));
   const front = el("g", {}, handG); // a thumb across the palm, in front
   const thumb = el("rect", look, front);
-  return { g, arm, handG, back, front, mitten, pointer, palm, fingers, thumb, ghostly };
+  return { g, arm, rod, handG, back, front, mitten, pointer, palm, fingers, thumb, ghostly, thick: style === "goo" ? GOO_THICK : 1 };
 }
+
+/** A robot's arm: dark metal, an outline, a steel elbow. */
+const ROD = { metal: "#3a3f4b", edge: "#14161c", steel: "#c1c8d3" };
+/** How much thicker a slime's goo arm is than a ghost's wisp: it is a body, not a sheet. */
+const GOO_THICK = 1.35;
 
 const WISP_STEPS = 9;
 const AT = [0, 0, 0, 0];
 /** The outline of a wisp (or of a cuff's short trail) along an arm, as a closed path. */
-function wispPath(arm, cuff) {
+function wispPath(arm, cuff, thick = 1) {
   const from = cuff ? WISP.cuffFrom : 0;
   let there = "";
   let back = "";
   for (let i = 0; i <= WISP_STEPS; i++) {
     const u = from + ((1 - from) * i) / WISP_STEPS;
     wispAt(arm, u, AT);
-    const r = wispHalf(u, cuff);
+    const r = wispHalf(u, cuff) * thick;
     there += `${i ? "L" : "M"}${f1(AT[0] - AT[3] * r)},${f1(AT[1] + AT[2] * r)} `;
     back = `L${f1(AT[0] + AT[3] * r)},${f1(AT[1] - AT[2] * r)} ` + back;
   }
@@ -168,7 +190,13 @@ function shapeLimb(l, pose, whole) {
   const a = pose.arm;
   if (l.ghostly) {
     const join = joinOf(whole, pose);
-    set(l.arm, join ? { display: null, d: wispPath(a, join === "cuff"), opacity: Math.min(1, pose.s).toFixed(2) } : { display: "none" });
+    set(l.arm, join ? { display: null, d: wispPath(a, join === "cuff", l.thick), opacity: Math.min(1, pose.s).toFixed(2) } : { display: "none" });
+  } else if (l.rod) {
+    const d = `M${f1(a.shoulder.x)},${f1(a.shoulder.y)} L${f1(a.elbow.x)},${f1(a.elbow.y)} L${f1(a.wrist.x)},${f1(a.wrist.y)}`;
+    set(l.rod.edge, { d });
+    set(l.rod.core, { d });
+    set(l.rod.elbow, { cx: f1(a.elbow.x), cy: f1(a.elbow.y) });
+    set(l.arm, { opacity: Math.min(1, pose.s).toFixed(2) });
   } else set(l.arm, { d: `M${f1(a.shoulder.x)},${f1(a.shoulder.y)} L${f1(a.elbow.x)},${f1(a.elbow.y)} L${f1(a.wrist.x)},${f1(a.wrist.y)}` });
   const sh = pose.shape;
   set(l.handG, { transform: `translate(${f1(pose.x)},${f1(pose.y)}) rotate(${f1(pose.rot)}) scale(${(pose.side * pose.s * (pose.sx ?? 1)).toFixed(3)},${pose.s.toFixed(3)})` });
@@ -365,7 +393,6 @@ export class EmoteFigure {
    */
   constructor(colour, { face = true, limbs = true, character } = {}) {
     const kind = (this.kind = drawingOf(character).flat.figure);
-    const ghostly = kind.limbs === "ghost";
     this.body = s("g", { class: "emote" });
     this.stage = s("g", { class: "emote-stage" });
     this.cache = new Map();
@@ -375,11 +402,13 @@ export class EmoteFigure {
       kind.tint(this.tint);
     }
     this.head = el("g", {}, this.body);
-    this.faceEls = face ? makeFace(this.head, ghostly ? SHEET : shade(colour, 0.05)) : null;
+    // The skin a heavy lid is cut from: the ghost's white sheet, the robot's dark visor (`skin`), or the body's colour.
+    const skin = kind.skin ?? (kind.limbs === "ghost" ? SHEET : shade(colour, 0.05));
+    this.faceEls = face ? makeFace(this.head, skin, kind.ink) : null;
     this.headFx = el("g", {}, this.head);
     this.props = el("g", {}, this.body);
     this.hands = el("g", {}, this.body);
-    this.limbs = limbs ? [makeLimb(this.hands, colour, ghostly), makeLimb(this.hands, colour, ghostly)] : null;
+    this.limbs = limbs ? [makeLimb(this.hands, colour, kind.limbs), makeLimb(this.hands, colour, kind.limbs)] : null;
     this.fx = el("g", {}, this.body);
     this.other = el("g", {}, this.stage);
   }
@@ -395,7 +424,9 @@ export class EmoteFigure {
       shapeFace(this.faceEls, pose.face);
       // A face that sits elsewhere on this character, and slides toward the piece it is turned to.
       const at = this.kind.face;
-      if (at) set(this.faceEls.g, { transform: `translate(${f1(Math.sin(pose.ghost?.yaw ?? 0) * at.turn)},${at.dy})` });
+      // A larger or smaller face (`scale`) is sized about the eyes.
+      const size = at?.scale ? ` translate(0,-113) scale(${at.scale}) translate(0,113)` : "";
+      if (at) set(this.faceEls.g, { transform: `translate(${f1(Math.sin(pose.ghost?.yaw ?? 0) * at.turn)},${at.dy})${size}` });
     }
     set(this.head, { transform: `translate(${f1(pose.body.hx)},${f1(pose.body.hy)}) rotate(${f1(pose.body.hr)},0,-113)` });
     if (this.limbs) for (let i = 0; i < 2; i++) shapeLimb(this.limbs[i], pose.hands[i], pose);
@@ -449,12 +480,17 @@ export function emoteThumb(character, id, colour, size = 56) {
   return s("svg", { viewBox: `${box.x} ${box.y} ${box.w} ${box.h}`, width: Math.round((size * box.w) / box.h), height: size, "aria-hidden": "true", class: "emote-thumb" }, fig.stage, piece);
 }
 
-/** A small picture of a character standing still in `colour`, as an <svg> `size` pixels tall: for the picker. */
+/**
+ * A small picture of a character standing still in `colour`, as an <svg> `size` pixels tall: for
+ * the picker. Every character is drawn in the same frame, wide enough for the slime and tall enough
+ * for the robot's mast, so they show at their sizes against each other.
+ */
 export function characterPortrait(character, colour, size = 72) {
   const def = drawingOf(character);
   const piece = def.flat.portrait(colour);
   set(piece, { transform: `translate(0,${-def.flat.rest})` });
-  return s("svg", { viewBox: "-52 -150 104 156", width: Math.round((size * 104) / 156), height: size, "aria-hidden": "true", class: "character-portrait" }, piece);
+  const box = { x: -68, y: -184, w: 136, h: 190 };
+  return s("svg", { viewBox: `${box.x} ${box.y} ${box.w} ${box.h}`, width: Math.round((size * box.w) / box.h), height: size, "aria-hidden": "true", class: "character-portrait" }, piece);
 }
 
 // ---------------------------------------------------------------- the sticker

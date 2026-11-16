@@ -647,7 +647,9 @@ export class Scene {
       const pose = this.bumps.pose(p, now);
       if (pose.x !== null) p.rx = pose.x;
       // The character's own way of holding itself: where it looks, and how far off the floor it hangs (a pawn stands).
-      const hover = flat.frame(p.actor, { now, dt, face: p.face, seat, calm: !!this.calmQuery?.matches, grounded: pose.dizzy });
+      // It is told whether it walks, where it is and whether it stands in a game's light (its vote), for characters that show them.
+      const voting = !!this.vote?.standing?.[seat];
+      const hover = flat.frame(p.actor, { now, dt, face: p.face, seat, calm: !!this.calmQuery?.matches, grounded: pose.dizzy, walking: walking && pose.x === null, x: p.rx, voting });
       set(p.g, { transform: poseTransform(p.rx, ROOM.floorY - up - bob - hover, pose) });
       this.bumps.dress(p, pose, now);
       const air = up + Math.max(0, pose.lift);

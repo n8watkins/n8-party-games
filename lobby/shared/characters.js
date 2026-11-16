@@ -11,11 +11,14 @@
 
 /**
  * The characters, in the order the picker shows them. `move` is what the character's action
- * button does: every character kicks until its own move is built (the ghost's is "fade").
+ * button does: every character kicks until its own move is built (the ghost's is "fade", the
+ * slime's "harden", the robot's "hook").
  */
 export const CHARACTERS = [
   { id: "pawn", name: "Pawn", move: "kick" },
   { id: "ghost", name: "Ghost", move: "kick" },
+  { id: "slime", name: "Slime", move: "kick" },
+  { id: "robot", name: "Robot", move: "kick" },
 ];
 
 /** What everyone is until they choose, and what an unknown character is read as. */
