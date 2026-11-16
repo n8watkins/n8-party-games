@@ -6,6 +6,7 @@
 //     &shot=vote|count|toss|off|empty|live  the moment (default vote: four pieces mid-vote; live: the
 //                                    wall as it hangs today, with the games that are not built yet dark)
 //     &look=baked                    the baked look (../baked/room-baked.js) on today's wall of five boxes
+//     &look=real                     the Star Lounge made real (./rendered/), on the same wall; &rung=, &ladder=off as in the room
 //     &as=screen|player              the big screen's bottom line, or a player's buttons (seat 2)
 //     &zoom=room|closer              a player's view
 //     &bare=1                        no bottom line or buttons at all

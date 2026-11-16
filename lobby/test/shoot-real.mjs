@@ -186,13 +186,22 @@ try {
   if (lookName === "real") {
     await phone.click(".zoom-btn");
     await sleep(1500);
-    for (const [name, at] of [["rocket", [0.3, 0.5, 0.7]], ["liner", [0.27, 0.5, 0.73]], ["saucer", [0.3, 0.5, 0.7]], ["rock0", [0.3, 0.5, 0.7]], ["rock1", [0.3, 0.5, 0.7]], ["rock2", [0.3, 0.5, 0.7]], ["star", [0.2, 0.5, 0.8]]]) {
+    for (const [name, at] of [["rocket", [0.37, 0.5, 0.63]], ["liner", [0.39, 0.5, 0.61]], ["saucer", [0.37, 0.5, 0.63]], ["rock0", [0.37, 0.5, 0.63]], ["rock1", [0.37, 0.5, 0.63]], ["rock2", [0.37, 0.5, 0.63]], ["star", [0.2, 0.5, 0.8]]]) {
       if (!want(`08-${name}`)) continue;
       for (const [k, u] of at.entries()) {
         await Promise.all([phone, screen].map((p) => p.evaluate(([n, v]) => window.__room3d.hold(n, v), [name, u])));
         await sleep(700);
         await shot(phone, `08-${name}-${["entry", "middle", "exit"][k]}-phone-844x390-whole-room`);
         if (k === 1) await shot(screen, `08-${name}-middle-screen-1280x720`);
+      }
+    }
+    // Pixel by pixel: nothing outside may change a pixel that is not glass, anywhere along its way, on the phone (whole room) or the big screen.
+    for (const name of ["rocket", "liner", "saucer", "rock0", "rock1", "rock2", "star"]) {
+      if (!want(`08-${name}`)) continue;
+      for (const [label, page] of [["phone 844x390 whole room", phone], ["screen 1280x720", screen]]) {
+        const r = await page.evaluate((n) => window.__room3d.leaks(n, 16), name);
+        const leaked = r.leaked.reduce((a, b) => a + b, 0);
+        check(leaked === 0 && Math.max(...r.changed) > 0, `${name} on the ${label}: changed up to ${Math.max(...r.changed)} pixels along its way, ${leaked} of them not glass (glass is ${r.glass} of ${r.pixels})`);
       }
     }
     await Promise.all([phone, screen].map((p) => p.evaluate(() => window.__room3d.hold(null))));
@@ -203,10 +212,12 @@ try {
   if (lookName === "real" && want("09")) {
     // The bottom of the ladder, forced: the phone draws today's 3D Star Lounge in place, with a note, and says so.
     await phone.evaluate(() => window.__room3d.fallBack());
+    // (The note goes by itself after twelve seconds, which a busy machine's screenshot can take: it is counted first.)
+    const noted = await phone.locator(".rendered-note").count();
     await sleep(2500);
     await shot(phone, "09-phone-844x390-fell-back");
     const fell = await drawn(phone);
-    check(fell.stats.rung === "3d star-lounge" && (await phone.locator(".rendered-note").count()) === 1, `fallen back in place: ${fell.stats.rung}, with its note`);
+    check(fell.stats.rung === "3d star-lounge" && noted === 1, `fallen back in place: ${fell.stats.rung}, with its note`);
     check((await phone.evaluate(() => localStorage.getItem("party-room:real-rung"))) === null, "a forced rung (?rung=) is never remembered");
 
     // The ladder itself, on real (slow, software) frames: a posed room with the ladder on comes down it by itself.
