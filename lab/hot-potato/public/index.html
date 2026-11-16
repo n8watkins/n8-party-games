@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="robots" content="noindex, nofollow">
+  <meta name="color-scheme" content="light dark">
+  <title>Hot Potato hearing test</title>
+  <link rel="stylesheet" href="style.css">
+  <script type="module" src="app.js"></script>
+</head>
+<body>
+  <main class="app">
+    <section class="play" aria-label="Play">
+      <header class="top">
+        <h1>Hot Potato hearing test</h1>
+        <p class="sub">Can this phone hear a city fast enough? Say a city; the next one starts with its last letter.</p>
+      </header>
+
+      <div id="noRecognition" class="notice bad" hidden>
+        <strong>This browser has no speech recognition.</strong>
+        Firefox and some in-app browsers (inside chat or social apps) do not have it.
+        Open this page in Chrome on Android, or Safari on iPhone.
+      </div>
+      <div id="micBlocked" class="notice bad" hidden>
+        <strong>The microphone is blocked for this page.</strong>
+        <span id="micHelp">In Chrome: tap the icon left of the address, then Permissions, then Microphone, and choose Allow. Then reload the page.</span>
+      </div>
+      <div id="iosNote" class="notice" hidden>
+        <strong>iPhone or iPad:</strong> speech recognition there is Apple's and may behave differently. Try it anyway; the report is labelled iOS.
+      </div>
+
+      <div class="chain">
+        <p id="need" class="need">Say any city to start</p>
+        <p id="chainLine" class="chainline"></p>
+      </div>
+
+      <div class="stage">
+        <div id="potato" class="potato" aria-hidden="true"></div>
+        <p id="heard" class="heard" aria-live="polite">&nbsp;</p>
+        <p id="verdict" class="verdict" aria-live="polite">&nbsp;</p>
+      </div>
+
+      <button id="turn" class="turn" type="button" disabled>Loading...</button>
+      <button id="stop" class="ghost" type="button" hidden>Stop listening</button>
+
+      <div class="settings">
+        <label class="switch"><input id="handsFree" type="checkbox"><span>Hands-free: listen again after each answer</span></label>
+        <label class="switch"><input id="sounds" type="checkbox" checked><span>Sounds (ding and buzz)</span></label>
+        <label class="switch"><input id="early" type="checkbox" checked><span>Answer at the first matching word, before the final result</span></label>
+        <label class="pick"><span>Language</span>
+          <select id="lang">
+            <option value="en-US">English (US)</option>
+            <option value="en-GB">English (UK)</option>
+            <option value="en-AU">English (Australia)</option>
+          </select>
+        </label>
+        <button id="newGame" class="ghost" type="button">New game (keeps the log)</button>
+      </div>
+    </section>
+
+    <section class="side" aria-label="Results">
+      <div class="card">
+        <h2>Five minutes: four things to try</h2>
+        <p class="hint">Tap the one you are doing now, so each turn is tagged with it. Tick it when done.</p>
+        <ol id="checklist" class="checklist">
+          <li><input type="checkbox" aria-label="Done"><button type="button" data-scenario="1">Phone in your hand, quiet room, ten cities <span class="count"></span></button></li>
+          <li><input type="checkbox" aria-label="Done"><button type="button" data-scenario="2">Phone flat on the table, pass or slide it to each speaker <span class="count"></span></button></li>
+          <li><input type="checkbox" aria-label="Done"><button type="button" data-scenario="3">Same, with music or chatter <span class="count"></span></button></li>
+          <li><input type="checkbox" aria-label="Done"><button type="button" data-scenario="4">Sounds on, then sounds off (the switch above) <span class="count"></span></button></li>
+        </ol>
+      </div>
+
+      <div class="card">
+        <h2>Results</h2>
+        <dl id="summary" class="summary"></dl>
+        <button id="copy" class="turn small" type="button">Copy results</button>
+        <p id="copyNote" class="hint" hidden></p>
+        <textarea id="copyText" class="copytext" readonly hidden aria-label="Results to copy"></textarea>
+      </div>
+
+      <div class="card">
+        <h2>Turns</h2>
+        <p class="hint">Newest first. Tap "It misheard me" when the phone got your word wrong.</p>
+        <ol id="log" class="log"></ol>
+      </div>
+
+      <div class="card small-print">
+        <h2>How words are checked</h2>
+        <p>Only the letters A to Z count, after accents are removed: S&atilde;o Paulo starts with S and ends with O. Spaces and punctuation are skipped: New York ends with K. The chain goes on from the name you said, so "New York" ends with K, while "NYC" plays as New York City and ends with Y. A place, or a name, said once this game cannot be said again.</p>
+        <p>What was heard is matched against about 32,000 places: every guess the phone returns is tried, exact names first, then names that sound alike (bigger cities first, and only among names starting with the right letter).</p>
+        <h2>Privacy</h2>
+        <p>The microphone is used only while a turn is listening. This page stores and sends nothing. The browser's speech recognition may send the audio to its maker's servers (Google on Android, Apple on iPhone) to turn it into text.</p>
+        <p id="caps" class="caps"></p>
+      </div>
+
+      <footer class="credit">City names from <a href="https://www.geonames.org/" rel="noopener">GeoNames</a>, <a href="https://creativecommons.org/licenses/by/4.0/" rel="noopener">CC BY 4.0</a> (<a href="CREDITS.txt">details</a>). A throwaway test page.</footer>
+    </section>
+  </main>
+</body>
+</html>

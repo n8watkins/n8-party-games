@@ -1,0 +1,711 @@
+/* The Table (/party/): the party's plain waiting room. The site's own colours and type
+   (site/site.css and lobby/public/lobby.css): dark wood, cream ink, amber for what can be
+   tapped. The device's own fonts: nothing is downloaded. Nothing on this page lies over anything
+   else: notes take the place of the line under the heading for a few seconds. */
+:root {
+  --bg: #0d0806;
+  --panel: #17100c;
+  --panel-2: #1f1611;
+  --line: #3b2a1f;
+  --ink: #fbf3e2;
+  --soft: #cdbfa6;
+  --dim: #8f8170;
+  --gold: #f6d9a0;
+  --amber: #f4b453;
+  --amber-ink: #1e1410;
+  --display: Georgia, "Times New Roman", "Noto Serif", "DejaVu Serif", serif;
+  --ui: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --mono: ui-monospace, "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace;
+  --gutter: 16px;
+  color-scheme: dark;
+}
+* {
+  box-sizing: border-box;
+}
+html {
+  min-height: 100%;
+  background: var(--bg);
+}
+body {
+  min-height: 100vh;
+  min-height: 100dvh;
+  margin: 0;
+  background: radial-gradient(120% 70% at 50% 0%, #24160f 0%, var(--bg) 70%) var(--bg);
+  color: var(--ink);
+  font-family: var(--ui);
+  -webkit-text-size-adjust: 100%;
+  -webkit-tap-highlight-color: transparent;
+}
+[hidden] {
+  display: none !important;
+}
+button {
+  font: inherit;
+  color: inherit;
+}
+h1,
+h2,
+p {
+  margin: 0;
+}
+:focus-visible {
+  outline: 3px solid #fff;
+  outline-offset: 2px;
+}
+
+#app {
+  width: min(100%, 560px);
+  margin: 0 auto;
+  padding: max(12px, env(safe-area-inset-top)) max(var(--gutter), env(safe-area-inset-right)) max(24px, env(safe-area-inset-bottom)) max(var(--gutter), env(safe-area-inset-left));
+}
+.connecting {
+  padding-top: 40vh;
+  text-align: center;
+  color: var(--soft);
+}
+
+/* ------------------------------------------------------------ the bar at the top */
+/* The heading and Leave on one row, the line under them across the whole width. */
+.top {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  grid-template-areas:
+    "brand status leave"
+    "line line line";
+  align-items: center;
+  column-gap: 12px;
+  row-gap: 2px;
+  margin-bottom: 14px;
+}
+.title {
+  display: contents;
+}
+.brand {
+  grid-area: brand;
+}
+.line {
+  grid-area: line;
+}
+.status {
+  grid-area: status;
+}
+.leave {
+  grid-area: leave;
+}
+.top .rooms {
+  grid-column: 1 / -1;
+  margin-top: 10px;
+}
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font: 700 24px/1.1 var(--display);
+  color: var(--gold);
+  white-space: nowrap;
+}
+.brand-mark {
+  flex: none;
+  width: 17px;
+  height: 12px;
+  border-radius: 3px;
+  background: var(--amber);
+}
+/* Who chooses the room, or for a few seconds what just happened: one line, never two. */
+.line {
+  min-height: 1.35em;
+  padding-left: 25px;
+  font-size: 15px;
+  line-height: 1.35;
+  color: var(--soft);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.line-note {
+  display: none;
+  color: var(--gold);
+  font-weight: 700;
+}
+.line.noting .line-text {
+  display: none;
+}
+.line.noting .line-note {
+  display: inline;
+  animation: note-in 0.25s ease-out;
+}
+@keyframes note-in {
+  from {
+    opacity: 0;
+  }
+}
+.status {
+  flex: none;
+  max-width: 40%;
+  color: var(--amber);
+  font-weight: 700;
+  font-size: 14px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.status:empty {
+  display: none;
+}
+.leave {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 44px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 22px;
+  background: var(--panel-2);
+  box-shadow: inset 0 0 0 1px var(--line);
+  color: var(--soft);
+  font-weight: 700;
+  font-size: 15px;
+  cursor: pointer;
+}
+.leave:hover {
+  color: var(--ink);
+}
+
+/* ------------------------------------------------------------ the panels */
+.grid {
+  display: grid;
+  gap: 12px;
+}
+.panel {
+  display: grid;
+  align-content: start;
+  gap: 10px;
+  padding: 16px;
+  border-radius: 16px;
+  background: var(--panel);
+  box-shadow: inset 0 0 0 1px var(--line);
+}
+.panel h2 {
+  font: 700 20px/1.2 var(--display);
+  color: var(--gold);
+}
+.panel p {
+  line-height: 1.45;
+  color: var(--soft);
+}
+.panel-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+.count {
+  color: var(--dim);
+  font-weight: 700;
+  font-size: 14px;
+  white-space: nowrap;
+}
+.kicker {
+  font: 700 12px/1 var(--mono);
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--amber) !important;
+}
+
+/* The switch between the two waiting rooms, for the one who holds the controls: the party's room
+   is pressed in. While it cannot be used (main.js, modeLocked) it goes flat. */
+.rooms {
+  padding: 8px;
+}
+.switch {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+  padding: 4px;
+  border-radius: 28px;
+  background: #0b0705;
+  box-shadow: inset 0 0 0 1px var(--line);
+}
+.switch-option {
+  min-height: 48px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 24px;
+  background: transparent;
+  color: var(--soft);
+  font-weight: 800;
+  font-size: 16px;
+  line-height: 1.1;
+  cursor: pointer;
+  transition:
+    background 0.18s ease,
+    color 0.18s ease;
+}
+.switch-option.here {
+  background: var(--amber);
+  color: var(--amber-ink);
+  cursor: default;
+}
+.switch-option.going {
+  background: #3a2a1d;
+  color: var(--gold);
+}
+.switch:not(.locked) .switch-option:not(.here):hover {
+  background: var(--panel-2);
+  color: var(--ink);
+}
+.switch.locked {
+  background: transparent;
+}
+.switch.locked .switch-option.here {
+  background: #3a2a1d;
+  color: var(--gold);
+}
+.switch.locked .switch-option:not(.here) {
+  cursor: not-allowed;
+  color: var(--dim);
+}
+@media (max-width: 360px) {
+  .switch-option {
+    padding: 0 6px;
+    font-size: 15px;
+  }
+}
+.switch-why {
+  margin-top: 8px;
+  padding: 8px 12px;
+  border-radius: 10px;
+  background: #3a1712;
+  color: #ffd6cc !important;
+  font-weight: 700;
+  font-size: 15px;
+  line-height: 1.35;
+  text-align: center;
+}
+.switch-why.nudge {
+  animation: nudge 0.4s ease-out;
+}
+@keyframes nudge {
+  20% {
+    transform: translateX(-6px);
+  }
+  50% {
+    transform: translateX(5px);
+  }
+  80% {
+    transform: translateX(-2px);
+  }
+}
+
+/* The code, large, beside the QR code: the page's hero. */
+.code-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+.digits {
+  font: 800 clamp(52px, 17vw, 80px) / 1 var(--mono);
+  letter-spacing: 0.08em;
+  color: var(--gold) !important;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.qr {
+  flex: none;
+  width: clamp(96px, 30vw, 132px);
+  aspect-ratio: 1;
+  padding: 6px;
+  border-radius: 12px;
+  background: #f4ead2;
+}
+.qr img {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+.qr img:not([src]) {
+  visibility: hidden;
+}
+.where {
+  font-size: 14px;
+  overflow-wrap: anywhere;
+}
+
+/* Who is here: every seat, the free ones drawn as empty places. */
+.list {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.person {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 52px;
+  padding: 8px 12px;
+  border-radius: 12px;
+  background: var(--panel-2);
+}
+.person.gone {
+  opacity: 0.6;
+}
+.person.free {
+  background: transparent;
+  border: 1.5px dashed var(--line);
+  color: var(--dim);
+}
+.person.free {
+  min-height: 44px;
+  padding-block: 6px;
+}
+.person.free .person-name {
+  font-weight: 600;
+  font-size: 15px;
+}
+.dot {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.08);
+}
+.person.free .dot {
+  box-shadow: inset 0 0 0 2px var(--line);
+}
+.screen-icon {
+  flex: none;
+  width: 18px;
+  display: grid;
+  place-items: center;
+  color: var(--soft);
+}
+.person-words {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  gap: 1px;
+}
+.person-name {
+  font-weight: 700;
+  font-size: 17px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.person-sub {
+  color: var(--dim);
+  font-size: 13px;
+}
+.tag {
+  flex: none;
+  padding: 4px 9px;
+  border-radius: 999px;
+  font-weight: 800;
+  font-size: 12px;
+  letter-spacing: 0.04em;
+}
+.tag.host {
+  background: var(--amber);
+  color: var(--amber-ink);
+}
+.tag.points {
+  background: #2c2018;
+  color: var(--gold);
+}
+
+/* Coming soon. */
+.soon {
+  background: transparent;
+}
+.soon h2 {
+  font-size: 18px;
+}
+.soon p {
+  font-size: 15px;
+}
+
+/* ------------------------------------------------------------ the leave sheet, no party */
+.confirm-back {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  background: rgba(8, 4, 3, 0.7);
+}
+.confirm {
+  width: min(100%, 380px);
+  display: grid;
+  gap: 12px;
+  padding: 20px;
+  border-radius: 16px;
+  background: #f4e6cf;
+  color: #1e1410;
+  box-shadow: 0 18px 60px rgba(0, 0, 0, 0.55);
+}
+.confirm h2 {
+  font: 700 26px/1.15 var(--display);
+}
+.confirm p {
+  color: #5a4636;
+  line-height: 1.4;
+}
+.button {
+  display: block;
+  width: 100%;
+  min-height: 52px;
+  padding: 14px 20px;
+  border: 0;
+  border-radius: 26px;
+  background: var(--amber);
+  color: var(--amber-ink);
+  font-weight: 800;
+  font-size: 17px;
+  line-height: 1.4;
+  text-align: center;
+  text-decoration: none;
+  cursor: pointer;
+}
+.button.quiet {
+  background: transparent;
+  color: inherit;
+  box-shadow: inset 0 0 0 2px currentColor;
+}
+.empty {
+  margin-top: 18vh;
+  gap: 14px;
+  padding: 24px;
+}
+.empty .brand {
+  font-size: 18px;
+}
+.empty h1 {
+  font: 700 clamp(28px, 7vw, 38px) / 1.12 var(--display);
+  color: var(--gold);
+}
+
+/* ------------------------------------------------------------ wider: two columns */
+/* A sideways phone, a tablet or a laptop: the code on the left, filling its column and staying
+   in view while the names scroll past it; the rest on the right. */
+@media (min-width: 640px) and (orientation: landscape) {
+  #app {
+    width: min(100%, 980px);
+  }
+  .grid {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr);
+    grid-template-areas:
+      "code rooms"
+      "code people"
+      "code soon";
+    grid-template-rows: auto auto 1fr;
+    align-items: start;
+  }
+  /* Nobody else's switch: the right column starts with who is here. */
+  .grid:has(> .rooms[hidden]) {
+    grid-template-areas:
+      "code people"
+      "code soon";
+    grid-template-rows: auto 1fr;
+  }
+  .rooms {
+    grid-area: rooms;
+  }
+  .code {
+    grid-area: code;
+    position: sticky;
+    top: 12px;
+    min-height: min(calc(100dvh - 110px), 560px);
+    align-content: center;
+    justify-items: center;
+    gap: 16px;
+    text-align: center;
+  }
+  .people {
+    grid-area: people;
+  }
+  .soon {
+    grid-area: soon;
+  }
+  .code-row {
+    flex-direction: column;
+  }
+  .qr {
+    width: clamp(120px, 22vw, 220px);
+  }
+  .digits {
+    font-size: clamp(52px, 8vw, 96px);
+  }
+}
+/* A sideways phone: short, so the code and the QR sit side by side, and the rest is tighter. */
+@media (min-width: 640px) and (orientation: landscape) and (max-height: 520px) {
+  #app {
+    padding-top: max(8px, env(safe-area-inset-top));
+    padding-bottom: max(12px, env(safe-area-inset-bottom));
+  }
+  .top {
+    min-height: 48px;
+    margin-bottom: 8px;
+  }
+  .brand {
+    font-size: 21px;
+  }
+  .line {
+    font-size: 14px;
+  }
+  .grid {
+    gap: 10px;
+  }
+  .panel {
+    padding: 12px 14px;
+    gap: 8px;
+  }
+  .code {
+    min-height: calc(100dvh - 90px);
+  }
+  .code-row {
+    flex-direction: row;
+    gap: 22px;
+  }
+  .qr {
+    width: min(150px, 38dvh);
+  }
+  .digits {
+    font-size: 64px;
+  }
+  .person {
+    min-height: 46px;
+    padding: 6px 12px;
+  }
+  .soon p {
+    font-size: 14px;
+  }
+}
+
+/* The big screen: when it holds the controls the switch is in the bar at the top (main.js), on a
+   row of its own while the screen is narrow. */
+@media (min-width: 640px) and (orientation: landscape) {
+  .as-screen .grid,
+  .as-screen .grid:has(> .rooms[hidden]) {
+    grid-template-areas:
+      "code people"
+      "code soon";
+    grid-template-rows: 1fr auto;
+    align-items: stretch;
+  }
+}
+/* Seen from across the room: the code and the QR are the hero, the names are large, and it all
+   fills the screen without scrolling. */
+@media (min-width: 1000px) and (min-height: 600px) {
+  .as-screen #app {
+    width: min(100%, 1500px);
+    min-height: 100dvh;
+    display: flex;
+    flex-direction: column;
+    padding-top: max(20px, env(safe-area-inset-top));
+    padding-bottom: max(20px, env(safe-area-inset-bottom));
+  }
+  .as-screen .top {
+    grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr) auto;
+    grid-template-areas:
+      "brand rooms status leave"
+      "line rooms status leave";
+    column-gap: 24px;
+    margin-bottom: 18px;
+  }
+  .as-screen .top .rooms {
+    grid-area: rooms;
+    margin: 0;
+    padding: 0;
+    background: none;
+    box-shadow: none;
+  }
+  .as-screen .status {
+    justify-self: end;
+  }
+  .as-screen .top .switch {
+    width: 380px;
+  }
+  .as-screen .top .switch-why {
+    position: absolute;
+    top: 84px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 5;
+  }
+  .as-screen .brand {
+    font-size: 32px;
+  }
+  .as-screen .line {
+    padding-left: 25px;
+    font-size: 19px;
+  }
+  .as-screen .grid {
+    flex: 1;
+    gap: 18px;
+    grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
+  }
+  .as-screen .code {
+    position: static;
+    min-height: 0;
+    gap: 20px;
+  }
+  .as-screen .panel {
+    padding: 24px;
+    gap: 14px;
+    border-radius: 20px;
+  }
+  .as-screen .panel h2 {
+    font-size: 28px;
+  }
+  .as-screen .kicker {
+    font-size: 18px;
+  }
+  .as-screen .digits {
+    font-size: clamp(96px, min(12vw, 18vh), 180px);
+  }
+  .as-screen .qr {
+    width: clamp(180px, min(22vw, 32vh), 320px);
+    padding: 10px;
+  }
+  .as-screen .where {
+    font-size: 20px;
+  }
+  .as-screen .person {
+    min-height: clamp(48px, 7.5vh, 64px);
+    padding: 6px 16px;
+  }
+  .as-screen .person-name {
+    font-size: 22px;
+  }
+  .as-screen .person.free .person-name {
+    font-size: 19px;
+  }
+  .as-screen .person-sub,
+  .as-screen .count,
+  .as-screen .tag {
+    font-size: 16px;
+  }
+  .as-screen .dot {
+    width: 22px;
+    height: 22px;
+  }
+  .as-screen .switch-option {
+    min-height: 56px;
+    font-size: 19px;
+  }
+  .as-screen .soon p {
+    font-size: 18px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .line.noting .line-note,
+  .switch-why.nudge {
+    animation: none;
+  }
+}

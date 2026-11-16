@@ -95,6 +95,15 @@ describe("the public folder", () => {
     expect(headersFile([])).toContain("X-Frame-Options: DENY");
   });
 
+  it("lets only the Hot Potato hearing test use the microphone, and changes nothing else for it", () => {
+    const headers = readFileSync(join(OUT, "_headers"), "utf8");
+    const rules = headers.split(/\n(?=\/)/);
+    expect(rules).toHaveLength(2);
+    expect(rules[0]).toContain("Permissions-Policy: camera=(), microphone=(), geolocation=(), payment=(), usb=()");
+    expect(rules[1]).toBe("/lab/hot-potato/*\n  ! Permissions-Policy\n  Permissions-Policy: camera=(), microphone=(self), geolocation=(), payment=(), usb=()\n");
+    expect(headersFile([])).not.toContain("microphone=(self)");
+  });
+
   it("lets the zone's Cloudflare Web Analytics beacon load and report, and nothing else from outside", () => {
     const headers = readFileSync(join(OUT, "_headers"), "utf8");
     expect(headers).toMatch(/script-src [^;]*https:\/\/static\.cloudflareinsights\.com/);

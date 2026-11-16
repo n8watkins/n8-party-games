@@ -50,6 +50,7 @@ import { DEFAULT_CHARACTER, LOOK_COOLDOWN_MS, LOOK_SLACK_MS, characterOr, cleanC
 import { record } from "../shared/tonight.js";
 import { DURING_PLAY, cooldownLeft as emoteLeft, mayEmote, relayEmote, waitMessage } from "../../party-kit/client/emotes.js";
 import { POSITION_SLACK, clampX, lightAt, posAt, spawnX } from "../shared/world.js";
+import { DEFAULT_MODE, MODE_COOLDOWN_MS, isMode, modeLocked, modeNote } from "../shared/mode.js";
 
 export const MAX_PLAYERS = 4;
 /** A room is closed this long after it was made, whatever is going on: a party, not a tenancy. */
@@ -83,6 +84,17 @@ export const TURN_GRACE_MS = SEAT_HOLD_MS;
  * starts with the picks as they stand: the defaults, or the last match's, unless the host changed them.
  */
 export const SETTINGS_MS = 90_000;
+/**
+ * A host whose phone dropped this recently still holds the controls (pickerToken): long enough
+ * for a page to move between the two waiting rooms and reconnect, well inside DROP_FADE_MS.
+ */
+export const HOST_GRACE_MS = 8000;
+/**
+ * At the Table people sit and talk and nothing they do reaches the room, so an idle party there
+ * is not put away after STALE_ROOM_MS as one on the Floor is: while anyone is connected, it may
+ * sit this long. No wake-up is added for it (nextWake): it only moves the room's own limit.
+ */
+export const TABLE_STALE_MS = 2 * 60 * 60_000;
 /** How many people who left are remembered by name, so coming back restores their points. */
 const MAX_REMEMBERED = 12;
 
@@ -155,6 +167,21 @@ export class LobbyCore {
      * first connected player picks for it (pickerToken).
      */
     this.hostToken = null;
+    /**
+     * Which waiting room the party is in (lobby/shared/mode.js): the character room ("party-games")
+     * or the plain one ("turn-based"). The host switches it (setMode); in turn-based mode the
+     * pieces do not walk, so there is no vote.
+     */
+    this.mode = DEFAULT_MODE;
+    /** When the mode was last switched: the next switch waits MODE_COOLDOWN_MS. */
+    this.modeAt = -Infinity;
+    /**
+     * The game the vote (or the settings step's time) has just chosen, from the wake-up that chose
+     * it (tick) until the room has started it or decided not to (the budget check comes between:
+     * lobby-room.js, launch, then startDone). Nothing may switch the room or the party meanwhile.
+     * Kept in memory only: a restart in that gap starts nothing.
+     */
+    this.starting = null;
   }
 
   // ---------------------------------------------------------------- coming and going
@@ -350,21 +377,33 @@ export class LobbyCore {
     return null;
   }
 
-  /** Whose taps change the room right now: the host, or while the host is away the first connected player. */
-  pickerToken() {
+  /**
+   * Whose taps change the room right now: the host, or while the host is away the first connected
+   * player. A host whose phone dropped less than HOST_GRACE_MS ago still holds the controls: that
+   * is a page moving between the two waiting rooms (hop.js) or a wifi blip, and nobody else may
+   * switch or pick in that moment. After the grace the first connected player holds them until the
+   * host is back, and the host's piece fades and hands over for good as before (DROP_FADE_MS,
+   * nextHost). `now` left out: no grace.
+   */
+  pickerToken(now = Infinity) {
     const host = this.identify(this.hostToken);
     // A party started on a big screen (a TV, often with nothing to tap) is picked for by its
     // first player; the screen's own taps still count (setRoom).
     if (host?.role === "screen" && this.connected().length) return this.connected()[0].token;
-    const here = host && (host.role === "screen" ? this.screens.get(this.hostToken).connected : this.members[host.seat].connected);
-    if (here) return this.hostToken;
+    const place = host && (host.role === "screen" ? this.screens.get(this.hostToken) : this.members[host.seat]);
+    if (place && (place.connected || now - (place.droppedAt ?? -Infinity) < HOST_GRACE_MS)) return this.hostToken;
     return this.connected()[0]?.token ?? (host ? this.hostToken : null);
   }
 
   /** Who picks the room, for the view: {seat} for a player, {seat: -1} for the room's screen, or null. */
-  pickerView() {
-    const who = this.identify(this.pickerToken());
+  pickerView(now = Infinity) {
+    const who = this.identify(this.pickerToken(now));
     return who ? { seat: who.seat } : null;
+  }
+
+  /** Why a game cannot be got ready to start right now (the vote's winner waits on the budget check), or null. */
+  startingWhy(what) {
+    return this.starting ? `A game is starting. You can ${what} when it ends.` : null;
   }
 
   /**
@@ -373,8 +412,12 @@ export class LobbyCore {
    */
   setRoom(token, id, now) {
     if (!isRoom(id)) return { ok: false, why: "That is not a room." };
-    if (token !== this.pickerToken() && token !== this.hostToken) return { ok: false, why: "Only the one who started the party can change the room." };
+    if (token !== this.pickerToken(now) && token !== this.hostToken) return { ok: false, why: "Only the one who started the party can change the room." };
+    // At the Table nobody sees the room's look: it is chosen on the Floor.
+    if (this.plainRoom()) return { ok: false, why: "The room's look is chosen on the Floor." };
     if (this.activity.kind === "settings") return { ok: false, why: "A game's settings are being chosen. You can change the room after it." };
+    const starting = this.startingWhy("change the room");
+    if (starting) return { ok: false, why: starting };
     const locked = roomLocked({ phase: this.activity.kind === "game" ? "playing" : "lobby", vote: { count: this.count, toss: this.toss } });
     if (locked) return { ok: false, why: locked };
     if (id === this.room) return { ok: false, why: "The party is in that room already." };
@@ -383,6 +426,53 @@ export class LobbyCore {
     this.roomAt = now;
     this.lastActive = now;
     return { ok: true, room: id, by: this.identify(token).seat };
+  }
+
+  // ---------------------------------------------------------------- the two waiting rooms
+
+  /**
+   * The host moves the whole party to the other waiting room (lobby/shared/mode.js). The same
+   * rule as setRoom says who may: the host, or whoever holds the controls while the host is away.
+   * Refused during a count or a coin toss, the settings step or a game, and again within a few
+   * seconds. On a switch the vote starts over: every piece is back by the door, and the room
+   * rests a moment before a count may run. Returns {ok, mode, by} or {ok: false, why}.
+   */
+  setMode(token, v, now) {
+    if (!isMode(v)) return { ok: false, why: "That is not a waiting room." };
+    if (!token || (token !== this.pickerToken(now) && token !== this.hostToken)) return { ok: false, why: "Only the one who started the party can switch rooms." };
+    const phase = this.activity.kind === "game" ? "playing" : this.activity.kind;
+    const locked = modeLocked({ phase, vote: { count: this.count, toss: this.toss } }) ?? this.startingWhy("switch");
+    if (locked) return { ok: false, why: locked };
+    if (v === this.mode) return { ok: false, why: "The party is in that room already." };
+    if (now - this.modeAt < MODE_COOLDOWN_MS) return { ok: false, why: "Wait a moment before switching again." };
+    const who = this.identify(token);
+    const before = { mode: this.mode, modeAt: this.modeAt };
+    this.mode = v;
+    this.modeAt = now;
+    this.count = null;
+    this.toss = null;
+    this.respawn(now);
+    this.holdUntil = now + SETTLE_MS;
+    this.lastActive = now;
+    const name = who.role === "screen" ? "The room's screen" : this.members[who.seat].name;
+    this.notes.push({ k: "mode", mode: v, seat: who.seat, name, text: modeNote(name, v) });
+    return { ok: true, mode: v, by: who.seat, was: { mode: before.mode, modeAt: before.modeAt } };
+  }
+
+  /**
+   * A switch that could not be saved is taken back (lobby-room.js, switchMode): the party is in
+   * the room it was in, nobody hears of the switch, and the host may try again at once. The
+   * pieces stay by the door, where the switch put them.
+   */
+  undoMode(was) {
+    this.mode = was.mode;
+    this.modeAt = was.modeAt;
+    this.notes = this.notes.filter((note) => note.k !== "mode");
+  }
+
+  /** Whether the party is in the plain waiting room: nothing walks and nothing is voted for there. */
+  plainRoom() {
+    return this.mode === "turn-based";
   }
 
   remove(m, why) {
@@ -479,7 +569,7 @@ export class LobbyCore {
    */
   bump(seat, now) {
     const m = this.members[seat];
-    if (!m || this.activity.kind !== "lobby" || !mayBump(m, now).ok) return null;
+    if (!m || this.activity.kind !== "lobby" || this.plainRoom() || !mayBump(m, now).ok) return null;
     m.bumpAt = now;
     this.lastActive = now;
     // A piece on the floor, or just up from it, cannot be knocked: nobody is kept down.
@@ -503,7 +593,7 @@ export class LobbyCore {
   /** For a bump the room refused: how long until that piece may bump, as the message for its page. */
   bumpWait(seat, now) {
     const m = this.members[seat];
-    if (!m || this.activity.kind !== "lobby") return null;
+    if (!m || this.activity.kind !== "lobby" || this.plainRoom()) return null;
     return { t: "cd", in: Math.round(mayBump(m, now).wait) };
   }
 
@@ -514,7 +604,8 @@ export class LobbyCore {
    */
   emote(seat, id, now) {
     const m = this.members[seat];
-    if (!m) return null;
+    // At the Table there are no pieces to perform one: an emote is ignored.
+    if (!m || this.plainRoom()) return null;
     const verdict = mayEmote(m.emoteAt, now, { playing: this.activity.kind === "game", rules: this.playRules() });
     if (!verdict.ok) return { refused: waitMessage(verdict.wait), wait: verdict.wait };
     m.emoteAt = now;
@@ -560,9 +651,11 @@ export class LobbyCore {
 
   /**
    * Whether the pieces walk: in the lobby, and while a game's players are chosen on its spots
-   * (the spots are lights, and standing in one is the choice). Bumping stays the lobby's.
+   * (the spots are lights, and standing in one is the choice). Bumping stays the lobby's. Never
+   * in the plain waiting room (plainRoom): it has no pieces.
    */
   piecesWalk() {
+    if (this.plainRoom()) return false;
     return this.activity.kind === "lobby" || this.choosingSpots();
   }
 
@@ -612,7 +705,8 @@ export class LobbyCore {
     if (this.activity.kind === "lobby" && !this.toss) {
       const standing = this.standing(now);
       const voters = this.connected();
-      const ready = voters.length > 0 && voters.every((m) => standing[m.seat]) && now >= this.holdUntil && !this.closing;
+      // The plain waiting room has no vote: a count never starts there.
+      const ready = !this.plainRoom() && voters.length > 0 && voters.every((m) => standing[m.seat]) && now >= this.holdUntil && !this.closing;
       if (ready && !this.count) this.count = { endsAt: now + COUNT_MS };
       else if (!ready && this.count) this.count = null;
     }
@@ -717,9 +811,12 @@ export class LobbyCore {
         }
       }
     }
+    // From here until the room has started the game or decided not to (startDone), nothing may
+    // move the party to another room or the other waiting room: the budget check comes between.
+    if (out.start) this.starting = out.start;
     if (this.emptySince !== null && now - this.emptySince >= this.emptyLimit(now)) out.close = "empty";
     else if ((inLobby || this.activity.kind === "settings") && !out.start && !out.away) {
-      if (now - this.lastActive >= STALE_ROOM_MS) out.close = "stale";
+      if (now - this.lastActive >= this.staleLimit()) out.close = "stale";
       else if (now - this.createdAt >= MAX_ROOM_LIFE_MS) out.close = "expired";
       else if (this.closing && now >= this.closing.at) out.close = this.closing.reason;
     } else if (this.turnGame() && now - this.lastActive >= this.lifetimes().staleRoomMs) {
@@ -735,9 +832,24 @@ export class LobbyCore {
    * chooses nothing (Cork & Bell) keeps the room's.
    */
   lifetimes() {
-    const defaults = { idleShutdownMs: IDLE_SHUTDOWN_MS, staleRoomMs: STALE_ROOM_MS };
+    const defaults = { idleShutdownMs: IDLE_SHUTDOWN_MS, staleRoomMs: this.staleLimit() };
     const a = this.activity;
-    return a.kind === "game" ? lifetimesOf(this.games.get(a.id), defaults) : defaults;
+    return a.kind === "game" ? lifetimesOf(this.games.get(a.id), { ...defaults, staleRoomMs: STALE_ROOM_MS }) : defaults;
+  }
+
+  /**
+   * How long the room may go with nobody doing anything before it is put away, outside a game:
+   * STALE_ROOM_MS, or at the Table while anyone is connected TABLE_STALE_MS (people sit and talk
+   * there, and nothing they do reaches the room).
+   */
+  staleLimit() {
+    if (this.activity.kind === "lobby" && this.plainRoom() && this.connected().length + this.screensConnected() > 0) return TABLE_STALE_MS;
+    return STALE_ROOM_MS;
+  }
+
+  /** The vote's winner was started, or will not be (the budget, an error, a refusal): the room may be switched again. */
+  startDone() {
+    this.starting = null;
   }
 
   /**
@@ -761,6 +873,7 @@ export class LobbyCore {
 
   /** The hosting allowance is spent: no game starts, and the room will close after a few minutes. */
   refuseStart(now, reason = "budget") {
+    this.startDone();
     if (this.activity.kind === "settings") this.toLobby(now);
     this.count = null;
     this.toss = null;
@@ -811,7 +924,7 @@ export class LobbyCore {
     let at = Infinity;
     if (this.emptySince !== null) at = Math.min(at, this.emptySince + this.emptyLimit(now));
     if (this.activity.kind === "lobby") {
-      at = Math.min(at, this.lastActive + STALE_ROOM_MS, this.createdAt + MAX_ROOM_LIFE_MS);
+      at = Math.min(at, this.lastActive + this.staleLimit(), this.createdAt + MAX_ROOM_LIFE_MS);
       if (this.closing) at = Math.min(at, this.closing.at);
       if (this.count) at = Math.min(at, this.count.endsAt);
       if (this.toss) at = Math.min(at, this.toss.endsAt);
@@ -849,6 +962,8 @@ export class LobbyCore {
    * Left out (the tests), it is derived from the room's seed and the round, so a run repeats.
    */
   startGame(id, now, seed = this.roundSeed(this.round + 1)) {
+    // Whatever happens next, the start the vote chose is being dealt with now.
+    this.startDone();
     const game = this.games.get(id);
     if (!game || this.activity.kind !== "lobby") return fail("not_found", "That game cannot start here.");
     const problems = [...gameProblems(game), ...settingsProblems(game, this.fields.get(id))];
@@ -870,6 +985,8 @@ export class LobbyCore {
    */
   spotsFor(id) {
     const box = this.boxOf(id);
+    // The plain waiting room has no lights to stand on.
+    if (this.plainRoom()) return null;
     if (!needsSpots({ audience: box?.audience, seats: box?.max }, this.connected().length)) return null;
     const places = spotLights(this.boxes, id, box.max);
     return places ? openSpots(places) : null;
@@ -952,8 +1069,8 @@ export class LobbyCore {
   }
 
   /** Whether this device may start the game now: the host, and with every spot taken when players are chosen on spots. */
-  mayStart(token) {
-    const may = this.mayChoose(token);
+  mayStart(token, now = Infinity) {
+    const may = this.mayChoose(token, now);
     if (!may.ok) return may;
     if (this.choosingSpots() && !spotsFull(this.activity.spots)) {
       const n = this.activity.spots.length;
@@ -963,9 +1080,9 @@ export class LobbyCore {
   }
 
   /** Whether this device may choose the settings: the party's host (the one who picks the room, pickerToken). */
-  mayChoose(token) {
+  mayChoose(token, now = Infinity) {
     if (this.activity.kind !== "settings") return fail("not_choosing", "No settings are being chosen.");
-    if (!token || (token !== this.pickerToken() && token !== this.hostToken)) return fail("not_host", "Only the one who started the party chooses the settings.");
+    if (!token || (token !== this.pickerToken(now) && token !== this.hostToken)) return fail("not_host", "Only the one who started the party chooses the settings.");
     return { ok: true, id: this.activity.id };
   }
 
@@ -975,7 +1092,7 @@ export class LobbyCore {
    * picks. Returns {ok, picks} or {ok: false, error, message} with the game's own words.
    */
   chooseSettings(token, change, now) {
-    const may = this.mayChoose(token);
+    const may = this.mayChoose(token, now);
     if (!may.ok) return may;
     const a = this.activity;
     const game = this.games.get(a.id);
@@ -992,7 +1109,7 @@ export class LobbyCore {
 
   /** The host goes back to the room instead: nobody plays, and the pieces are back by the door. */
   cancelSettings(token, now) {
-    const may = this.mayChoose(token);
+    const may = this.mayChoose(token, now);
     if (!may.ok) return may;
     const name = this.boxOf(this.activity.id)?.name ?? this.activity.id;
     this.notes.push({ k: "cancelled", text: `Back to the room. ${name} did not start.` });
@@ -1032,6 +1149,7 @@ export class LobbyCore {
    * startGame returns.
    */
   startChosen(id, now, seed = this.roundSeed(this.round + 1)) {
+    this.startDone();
     const a = this.activity;
     if (a.kind !== "settings" || a.id !== id) return fail("not_choosing", "No settings are being chosen for that game.");
     const game = this.games.get(id);
@@ -1555,7 +1673,9 @@ export class LobbyCore {
       closing: this.closing ? { in: Math.max(0, this.closing.at - now), reason: this.closing.reason } : null,
       // The room the party is in, and who picks it (lobby/shared/rooms.js).
       room: this.room,
-      picker: this.pickerView(),
+      picker: this.pickerView(now),
+      // Which waiting room the party is in (lobby/shared/mode.js): a page showing the other one moves.
+      mode: this.mode,
     };
   }
 
@@ -1596,7 +1716,7 @@ export class LobbyCore {
       picks: a.picks,
       seats: a.seats,
       ...(Array.isArray(a.spots) ? { spots: a.spots.map((spot) => ({ ...spot })) } : {}),
-      by: this.pickerView()?.seat ?? null,
+      by: this.pickerView(now)?.seat ?? null,
       endsIn: Math.max(0, a.endsAt - now),
       of: SETTINGS_MS,
     };
@@ -1637,6 +1757,8 @@ export class LobbyCore {
       lastActive: this.lastActive,
       emptySince: this.emptySince,
       room: this.room,
+      mode: this.mode,
+      modeAt: this.modeAt,
       hostToken: this.hostToken,
       lastAnswers: this.lastAnswers,
       choosing: this.activity.kind === "settings" ? { ...this.activity } : null,
@@ -1729,6 +1851,9 @@ export class LobbyCore {
     // counted from then and not from every time the room wakes up.
     room.emptySince = data.emptySince ?? now;
     room.room = isRoom(data.room) ? data.room : DEFAULT_ROOM;
+    // A room saved before the two waiting rooms is the character room.
+    room.mode = isMode(data.mode) ? data.mode : DEFAULT_MODE;
+    room.modeAt = typeof data.modeAt === "number" ? data.modeAt : -Infinity;
     room.hostToken = data.hostToken ?? null;
     room.lastAnswers = data.lastAnswers ?? null;
     room.carries = data.carries ?? {};
