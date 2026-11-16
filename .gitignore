@@ -1,4 +1,9 @@
 node_modules/
+# A worktree may borrow the main checkout's packages through a link.
+/node_modules
+# Blender's raw passes for the Star Lounge (lobby/tools/blender/all.sh makes them again), and the preview's stills.
+lobby/tools/blender/out/
+preview/star-lounge/shots/
 .wrangler/
 dist/
 # Stills from `npm run lobby:shots`. A chosen few are kept in lobby/shots/.

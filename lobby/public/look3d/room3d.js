@@ -1087,6 +1087,14 @@ export class Room3D {
     return true;
   }
 
+  /**
+   * For the frame meter (../frame-meter.js), read every frame it is on: the skin, how many
+   * pictures were drawn and the draw calls' time all told, and the pixel ratio drawn at.
+   */
+  get drawing() {
+    return { skin: this.skin.id, frames: this.drawn.frames, cpu: this.drawn.cpu, sharpness: this.renderer.getPixelRatio() };
+  }
+
   /** For tests and for measuring: how much is being drawn, and at what size. */
   stats() {
     const info = this.renderer.info.render;

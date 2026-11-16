@@ -21,7 +21,7 @@
 import { mkdirSync } from "node:fs";
 import { resolve } from "node:path";
 import { openBrowser } from "../../node_modules/cork-and-bell/tools/browser.mjs";
-import { ROOM_MEMORY_GB } from "../../party-kit/src/worker/budget-logic.js";
+import { REPORT_EVERY_MS, ROOM_MEMORY_GB } from "../../party-kit/src/worker/budget-logic.js";
 import { boxCentre } from "../shared/world.js";
 import { partyApi, sleep } from "./client.mjs";
 
@@ -37,6 +37,66 @@ const check = (ok, what) => {
   if (!ok) problems.push(what);
 };
 const books = async () => (await (await fetch(api + "/debug")).json()).budget?.usage ?? null;
+/**
+ * Waits until the server serves the lobby page and every module it imports (a static import
+ * that fails leaves the page blank: no door, no nickname field). `wrangler dev` rebuilds the
+ * served folder whenever a watched source changes, and says "Ready" before and between builds,
+ * so the signal that a page can load is the files being there, not a pause.
+ */
+async function servedAll(timeoutMs = 60_000) {
+  const until = Date.now() + timeoutMs;
+  let why = "";
+  while (Date.now() < until) {
+    why = "";
+    try {
+      const seen = new Set();
+      const queue = ["/lobby/main.js"];
+      const html = await fetch(base + "/lobby/");
+      if (!html.ok) why = `/lobby/ answered ${html.status}`;
+      while (!why && queue.length) {
+        const path = queue.shift();
+        if (seen.has(path)) continue;
+        seen.add(path);
+        const res = await fetch(base + path);
+        if (!res.ok) {
+          why = `${path} answered ${res.status}`;
+          break;
+        }
+        const source = await res.text();
+        // Static imports only: the ones whose failure stops the page from running at all.
+        for (const [, spec] of source.matchAll(/^\s*(?:import|export)\s[^"']*?from\s*["']([^"']+)["']/gm)) {
+          if (spec.startsWith("/")) queue.push(spec);
+          else if (spec.startsWith(".")) queue.push(new URL(spec, base + path).pathname);
+        }
+      }
+      if (!why) return seen.size;
+    } catch (err) {
+      why = String(err?.message ?? err);
+    }
+    await sleep(500);
+  }
+  throw new Error("the server is not serving the lobby page and its modules: " + why);
+}
+/**
+ * The room budget is one count for the whole server, so the run's own rooms can only be told
+ * apart from other rooms by the server being quiet around them. A server that has never
+ * counted anything is clean. One with a history is quiet when a whole report interval (a room
+ * that is awake reports every REPORT_EVERY_MS) passes with its books unchanged; if rooms of an
+ * earlier run or of another test are still awake, say so and stop rather than mis-count.
+ */
+async function quietBooks() {
+  let seen = await books();
+  if (!seen || seen.dayUsed === 0) return;
+  console.log(`     the server's books already hold ${seen.dayUsed.toFixed(1)} GB-seconds today: waiting for a whole report interval to see that no other room is awake...`);
+  for (let i = 0; i < 3; i++) {
+    await sleep(REPORT_EVERY_MS + 5_000);
+    const now = await books();
+    if (now.dayUsed === seen.dayUsed) return;
+    console.log(`     the books moved by ${(now.dayUsed - seen.dayUsed).toFixed(2)} GB-seconds meanwhile: another room is awake on this server`);
+    seen = now;
+  }
+  throw new Error("other rooms keep this server's room budget moving, so what this run's rooms cost cannot be told apart: use a server of its own with an empty persist folder (wrangler dev --persist-to <empty folder>)");
+}
 const inner = async (code) => (await (await fetch(api + "/debug/" + code)).json()).room;
 const FRAME = 'iframe[title="Cork & Bell"]';
 
@@ -46,6 +106,7 @@ const errors = [];
 /** Every socket a page opened ({name, url, first: its first frame}) and every address a page asked for: the seat's token must be in none. */
 const pageSockets = [];
 const pageAddresses = [];
+const loadProblems = [];
 const browser = await openBrowser({ win: opt("win", "0") === "1", width: 960, height: 540 });
 try {
   async function open(name, viewport, extra = {}) {
@@ -59,6 +120,9 @@ try {
     });
     page.on("pageerror", (e) => errors.push(`${name}: ${e.message}`));
     page.on("console", (m) => m.type() === "error" && !/WebSocket|ERR_/.test(m.text()) && errors.push(`${name}: ${m.text()}`));
+    // A file the page could not get is what a blank page has to say for itself: kept for the report.
+    page.on("response", (r) => r.status() >= 400 && loadProblems.push(`${name}: ${r.status()} ${r.url()}`));
+    page.on("requestfailed", (r) => !/WebSocket/.test(r.url()) && loadProblems.push(`${name}: ${r.failure()?.errorText} ${r.url()}`));
     opened.set(name, page);
     return page;
   }
@@ -114,6 +178,9 @@ try {
   const leftBehind = (page) =>
     page.evaluate(() => ({ frames: document.querySelectorAll("iframe").length, canvases: document.querySelectorAll("canvas").length, lost: window.__gl?.isContextLost?.() ?? null, stage: document.querySelector(".stage")?.hidden, bar: !!document.querySelector(".bar")?.offsetHeight }));
   const holdContext = (page) => page.evaluate((sel) => (window.__gl = document.querySelector(sel).contentWindow.__cab.lens.renderer.getContext()), FRAME);
+  const modules = await servedAll();
+  console.log(`     the server serves the lobby page and its ${modules} modules`);
+  await quietBooks();
   const before = await books();
 
   // ================================================================ a party of three and a big screen
@@ -185,6 +252,19 @@ try {
   }
   // Ada fires with real clicks: a click on the picture aims there and fires.
   const fired = async () => (await summary(frames.Ada)).stalls[0].shots;
+  // The watching pages' frame gaps, for the report if one of them falls behind (see below).
+  for (const name of ["screen", "Cy"]) {
+    await frames[name].evaluate(() => {
+      const gaps = (window.__gaps = []);
+      let last = performance.now();
+      const tick = (now) => {
+        if (now - last > 250) gaps.push({ at: +window.__cab.session.time().toFixed(2), ms: Math.round(now - last) });
+        last = now;
+        requestAnimationFrame(tick);
+      };
+      requestAnimationFrame(tick);
+    });
+  }
   let clicks = 0;
   for (let i = 0; i < 5; i++) {
     const had = await fired();
@@ -211,7 +291,10 @@ try {
   const counted = await roomShots();
   await frames.screen.waitForFunction((n) => window.__cab.session.sims[0].shots === n, counted, { timeout: 30000 }).catch(() => {});
   const onScreen = (await summary(frames.screen)).stalls;
-  if (counted !== shots) {
+  if (counted !== shots || onScreen[0].shots !== counted) {
+    const watchers = {};
+    for (const name of ["screen", "Cy"]) watchers[name] = await frames[name].evaluate(() => ({ seen: window.__cab.session.sims[0].shots, gaps: window.__gaps }));
+    console.log(`     watchers: the big screen counts ${watchers.screen.seen}, Cy's phone ${watchers.Cy.seen} of Ada's corks; frame gaps over 250 ms (round second, ms): screen ${JSON.stringify(watchers.screen.gaps)}, Cy ${JSON.stringify(watchers.Cy.gaps)}`);
     const taken = watcher.seen.filter((m) => m.t === "ev").flatMap((m) => m.ev.filter((e) => e.k === "f" && e.seat === 0).map((e) => e.at.toFixed(3)));
     console.log(`     note: the room counted ${counted} of the ${shots} corks Ada's page showed (it relayed them at round times ${taken.join(", ")})`);
     const roundAt = (ms) => ((ms - start.s.startAt) / 1000 - 3).toFixed(3);
@@ -414,6 +497,7 @@ try {
       .catch((e) => String(e).slice(0, 80));
     console.log(`     ${name}: ${JSON.stringify(was)}`);
   }
+  if (loadProblems.length) console.log("     files that did not load: " + loadProblems.slice(0, 8).join(" | "));
   if (errors.length) console.log("     page errors: " + errors.slice(0, 6).join(" | "));
 } finally {
   await browser.close();

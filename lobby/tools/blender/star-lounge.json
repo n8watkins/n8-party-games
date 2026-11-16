@@ -1,0 +1,17 @@
+{
+  "about": "The Star Lounge's numbers that the Blender scene (star-lounge.py) and the page share: what is outside the window, in the room's metres (x along the wall, y up, z toward the viewer).",
+  "boxes": 5,
+  "rect": { "x0": -320, "y0": -180, "x1": 2240, "y1": 1260 },
+  "planet": {
+    "centre": [5.3, -31.4, -70.5],
+    "radius": 26.4,
+    "axis": [-0.15, 0.55, 0.82],
+    "ring": [1.32, 2.15],
+    "turnSeconds": 95
+  },
+  "moon": { "centre": [-12.9, -3.6, -42.5], "radius": 1.05, "turnSeconds": 60 },
+  "sun": [-0.5, 0.75, 0.43],
+  "lampColour": [0.82, 0.92, 1.0],
+  "accent": [0.35, 0.8, 1.0],
+  "holo": { "x": 6.069, "y": 1.62, "z": -1.35, "r": 0.46 }
+}

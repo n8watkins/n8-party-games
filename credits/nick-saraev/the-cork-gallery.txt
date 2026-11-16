@@ -1,0 +1,59 @@
+# The cork gallery
+
+I will open your build on screen and show it to an audience for 20 to 60 seconds. Quality is the goal. Take the time that quality needs.
+
+## Your build: The cork gallery
+
+The request: an extremely high-quality shooting game, with attention to detail, shading, lighting and taste.
+
+Direction. The reference for the finish: tin toys on a kitchen table, light baked in Blender Cycles, a low macro camera with shallow depth of field. Your game must reach that level and must not look like that.
+
+It is stylized on purpose, to stay out of the uncanny valley: a world of real, handmade or manufactured objects at toy scale, photographed with a real lens. You have one physical medium. Obey its rules in every pixel. Before you write code, decide the rules of the medium: what each surface is made of, how it was made, where it is worn, how light sits on it, and how each thing moves. The finish must be extremely high: a frozen frame should pass for a photograph. No cookie-cutter look: no low-poly, no voxels, no pixel art, no neon synthwave, no glass UI, no generic cel shading, no default three.js materials, no stock "sci-fi shooter" look.
+
+The shooting is toy shooting. No real weapon, no brand, no blood, and nothing that aims at a person or at a living animal. The targets are objects.
+
+This is a game, and the shot is the star. It must be fun for two minutes on camera: a clear goal inside 5 seconds, an attract mode that plays until the first input, instant restart, and strong feedback on every shot (sound made in WebAudio, recoil, a physical reaction of the thing that is hit). The design is your own: do not copy the rules, characters, levels or look of a specific existing game, film or television show. Use invented names.
+
+Tune the first 30 seconds for the camera. I have never played it. Something satisfying happens on my first click, the first wave is generous, and the hit areas are forgiving. Then it gets harder. Do not use pointer lock: aim with the pointer position.
+
+Playtest (required). A game that looks excellent and plays badly fails. Add `?auto=1`: a simple bot plays the game (it is also your attract mode). Add `?seed=<n>` for a repeatable run and `?state=<name>` for states that are hard to reach (the last wave, the end screen). Before you call a version done, play one full run with scripted input in the headless browser (clicks, drags, held keys) and read the screenshots: the start, the middle, the end screen, and the game after a restart.
+
+Your medium: a travelling fairground shooting gallery of the 1930s, built of carved and hand-painted wood, brass, enamelled iron and glass bulbs, photographed at dusk.
+
+The game: first person, at the counter, fixed position. A cork pop-gun (turned wood stock, brass barrel) shows at the bottom of the frame and follows the pointer with weight, lag and a little sway. A click fires: the spring thumps, the gun kicks, and a cork flies on a real ballistic arc. It drops and drifts more with distance, so the far row needs a higher aim. It spins, bounces off targets and boards, and comes to rest on the shelves and the floor, where it stays for the round. A lever cocks the gun again in about half a second, so rhythm matters.
+
+Targets stand in three rows at three distances. One visible mechanism of your design drives them all (a belt, a chain on sprockets, cams, counterweights), and the viewer can read how it works: hinged plates that fall back with a clack and stand up again when a cam bar lifts the row, a row that travels on a chain, a spinner that turns when it is hit, a pendulum, a small star behind a shutter that opens in rhythm, a bell bullseye. The targets are objects of your choice (for example ducks, moons, teapots, clay pipes, bottles, stars). No people and no clown faces. Rules of your design, for example: three timed rounds of about 40 seconds, combos for hits in a row, more points for the far row and for a ricochet hit, a mechanical score counter (flip numbers or painted reels), a prize shelf where bulbs light as the score climbs, and a painted board with the best scores of the day.
+
+Look: paint with brush strokes, sign-writer lettering in your own words (an invented fairground name), gold lines, chipped edges where corks have struck for years, dents in the back board, brass rubbed bright where hands touch it, bulb glass with filaments, a canvas awning, a string of festoon bulbs, moths at the bulbs.
+
+Light: bake it. Build the static set in Blender by script. Bake Cycles light, bounce light and soft shadows into texture atlases, and show them unlit in three.js. Render the moving things live with an environment map that matches the bake, with contact shadows and live soft shadows, so that they sit in the baked scene. Add a lens: depth of field that follows the action, a little bloom on real light sources, grain. Keep 60 fps at 1920x1080. For this build: blue dusk sky against warm bulbs. The moving targets cast live soft shadows from the key bulbs. A chase pattern runs along the bulb border when the player scores. Focus racks to the row under the aim. The far lights of the fairground are soft discs behind the stall.
+
+Blender jobs: test at small size and few samples first. Check every baked file after a job (a job can be cut short).
+
+Bar: a frozen frame passes for a photograph of a restored fairground stall in a museum catalogue, and each shot feels as good as it looks.
+
+## Tools and files
+
+- Work in the current folder. The entry file is `index.html`. Put your other files (modules, shaders, baked images, textures, video) in a subfolder beside it.
+- Use three.js or raw WebGL2, whichever gives the better picture. Keep a local copy of three.js in the folder (my builds used r186). No CDN. The only network request that the finished page may make is Google Fonts.
+- CC0 assets from Poly Haven (HDRI skies, PBR textures) are allowed when they clearly raise realism. The subject of your build must be geometry that you make in code, unless the build section names a model.
+- Use Blender only if the build section tells you to.
+- Check your work in a headless browser on the real GPU (for example Playwright with Chrome): load the page, send input steps (move, click, drag, key, wheel), take screenshots and measure the frame rate. Read every screenshot that you take.
+
+## Hard rules
+
+- The page looks alive at load with no input: motion or an attract mode from the first frame. It reacts to the mouse or the keyboard in the first second of input.
+- It fills the window. Target 60 fps at 1920x1080 on a recent laptop GPU. Cap the device pixel ratio at 2, and lower the internal resolution when a frame takes too long.
+- Games, scenes and experiments: a quiet title and one hint line at the top left. Websites and videos: no HUD. The build is the picture.
+- Sound: start muted. Show a clear "Enable sound" control and make no sound before a click on it. Make all sound in code (WebAudio). The build must look complete with the sound off.
+- Make time controllable: `?t=<seconds>` freezes the animation at that time, and `?view=<name>` selects a camera or a state where that helps. Use them to look at exact moments.
+- Original work only. No copy of a specific existing game, film, brand, character, logo or site. Genres, techniques, real places and public buildings are fine.
+- Copy: real words for the subject, sentence case, no lorem ipsum, no emoji as icons. State only facts that you are sure of.
+
+## Process
+
+1. Build a complete v1. Check it in the headless browser. Fix every error.
+2. Run at least 6 improvement rounds. In each round: take three or more screenshots of different moments, views and input states. Read them. Judge them as a harsh art director who compares the picture with the best work of this kind. Name the three weakest things. Fix them. Check again.
+3. Measure the frame rate. Under 50 fps at 1920x1080: make it faster before you add anything.
+4. Stop when one more round would not show on camera, or at 150 minutes from your start.
+5. Final reply, five lines or fewer: what to do in the first five seconds, the best moment and how to reach it, what you used, any known flaw.
