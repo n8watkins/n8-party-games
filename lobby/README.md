@@ -284,7 +284,8 @@ There is no soundboard: the owner dropped it on 2026-11-13 ("just emotes").
 
 A player's piece is a character in a colour, and each player chooses both.
 There are two characters: the pawn, which everyone starts as, and the ghost.
-The corner of a phone holds a button with the player's own piece on it; it opens "Your piece", with the characters, ten preset colours and the device's own colour picker for any other.
+A phone's bar holds a round chip with the player's own piece on it, after the walking buttons (on an upright phone, at the left of the line of words); it opens "Your piece", with the characters, ten preset colours and the device's own colour picker for any other.
+The corner at the top keeps only the room's own three buttons, so it covers no more of the posters than before.
 
 ### The choice
 
@@ -305,8 +306,8 @@ The corner of a phone holds a button with the player's own piece on it; it opens
 
 ### The interface
 
-No draw site names a character.
-Each asks a definition, and a test (`test/characters.test.js`) fails if one names a character again.
+No draw site names a character, or reaches into a character's paint.
+Each asks a definition, and a test (`test/characters.test.js`) fails if one names a character again, or if any file of the page outside the definitions reads a body's `mat` or `colour`.
 A character is one entry in each of three lists, which a test keeps the same:
 
 | List | File | What it holds |
@@ -325,14 +326,17 @@ The page's definition (`public/characters/pawn.js` is the one to copy):
 
 The 3D look's definition (`public/look3d/pieces.js` is the pawn's, `public/look3d/ghost.js` the ghost's):
 
-- `make(radial)` returns a body with the handles every character has: `group`, `tilt`, `turn`, `mat`, `blob`, `ring`, `colour`, `lit`, `fade`, `air` and `dizzy`.
-  The body is kept on the piece's record as `p.pawn`, whatever the character, and its definition as `p.kind`.
+- `make(radial)` returns a body with the handles every character has: `group`, `tilt`, `turn`, `mat`, `blob`, `ring`, `colour`, `lit`, `fade`, `air`, `dizzy` and `skin`.
+  The body is kept on the piece's record as `p.body`, and its definition as `p.kind`.
+  A room reads `group`, `tilt`, `blob`, `ring`, `fade`, `air` and `dizzy`; `mat` and `colour` are the character's own (a ghost's are its white sheet: the player's colour is its hem).
+  `skin` is the meshes of its own surface, for `Reflection` (`public/look3d/characters.js`), which stands any character on its head in a shiny floor in its own colours.
 - `dress(body, hex, connected)`, `fade(body, left)` and `dispose(body)`.
 - `pose(body, piece, now, dt, how)` stands it where its piece is and returns `{up, moving, shock, burst, dust, state}`.
   `up` is how far the top of its head is above a standing pawn's, so name tags and words are placed the same way for every character.
   `moving` is whether the room must draw every frame for it.
 - `emote(body, pose, now, seat)` lays an emote's pose over it, and `hands(body, colour)` returns its hands as `{set(pose, now), dispose()}`.
 - `bake(body)` is the baked look's finish: its true colour under real light.
+  A room gives it each frame after `pose` and before `emote` (`finish` in `room3d.js`), so an emote's red stays on top.
 
 What a piece is doing is the same for every character and is decided elsewhere: where it is, a jump, and a bump as a pose (`shared/bump.js`, read through `bumpPose` in `public/look3d/pieces.js` and `BumpDraw.pose` in `public/bump-draw.js`).
 A character decides only how that looks.
@@ -342,14 +346,18 @@ The picker, the room's check, the wheel's pictures and every draw site pick it u
 
 ### The ghost
 
-A white sheet with a hem dipped in the player's colour, five lobes along the hem and two nub arms.
+A white sheet with a hem dipped in the player's colour, scalloped along its edge, and two nub arms.
 It hangs above the floor and bobs, its hem trails behind it, and it squeezes its eyes shut when it is knocked over, where the pawn gets crosses.
+In the 3D and baked looks the sheet keeps its own white under any room's light: it takes only how bright the light is, never its hue, part of it glows by itself, and a cool rim outlines it (`SHEET_LIGHT` in `public/look3d/ghost.js`).
+It hangs a little higher there than in the flat drawing, over one soft shadow, so the air under it shows from the whole room.
+Its idle hover, bob and breath are laid on outside its springs, so an idle ghost is never "moving" (`STILL`; `test/ghost-model.test.js`).
 Its emotes are in `public/characters/ghost-rig.js`, with the fits the owner chose from a preview on 2026-11-15:
 
 - Floating hands in the player's colour ("Hands", the default) for popcorn, slow clap, point and laugh, red card, hurry up, thumbs up, confetti, boo, shh and the tomato.
 - Wisps of the sheet reaching out to the hands ("Wisps") for GG, lighter up and Huh?.
 - Fuming has no hands: the sheet turns red, swells and bounces.
 - Point and laugh's pointing hand drags a short cuff of the sheet, so it reads as the ghost's own.
+- Its hands are two fifths larger than a pawn's (`GHOST.hand`) and held close to the sheet, so they read at phone size.
 - On a very pale colour the hands get a dark outline, because they would be lost against the white sheet.
 
 Not built yet, and where each goes:

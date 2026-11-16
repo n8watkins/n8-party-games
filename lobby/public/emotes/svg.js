@@ -464,7 +464,7 @@ export function characterPortrait(character, colour, size = 72) {
  * size is given in screen terms by the host, so it can be read on a phone whatever the zoom.
  */
 /** How far a word's bubble keeps from the edge of the view, in its own units. */
-const STICKER_MARGIN = 6;
+const STICKER_MARGIN = 16;
 
 export class Sticker {
   constructor(parent) {

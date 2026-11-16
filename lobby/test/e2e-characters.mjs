@@ -75,7 +75,7 @@ try {
         const arms = p.emote?.arms;
         const limbs = arms ? (arms.arms ?? arms).limbs : [];
         const on = !!arms && arms.group.visible;
-        return { look: "3d", character: p.kind.id, colour: p.member.colour, words: word, hands: on ? limbs.filter((l) => l.g.visible).length : 0, wisps: (arms?.wisps ?? []).filter((w) => w.visible).length, sticks: on ? limbs.filter((l) => l.g.visible && l.upper.visible).length : 0, shut: !!p.pawn.dizzy, outlined: (arms?.hulls ?? []).length > 0 };
+        return { look: "3d", character: p.kind.id, colour: p.member.colour, words: word, hands: on ? limbs.filter((l) => l.g.visible).length : 0, wisps: (arms?.wisps ?? []).filter((w) => w.visible).length, sticks: on ? limbs.filter((l) => l.g.visible && l.upper.visible).length : 0, shut: !!p.body.dizzy, outlined: (arms?.hulls ?? []).length > 0 };
       }
       const g = document.querySelector(`svg.scene g[data-seat="${seat}"]`);
       if (!g) return null;
@@ -107,7 +107,9 @@ try {
     const B = ada.room.members.find((m) => m?.name === "Bea").seat;
     const C = ada.room.members.find((m) => m?.name === "Cy").seat;
     check(ada.room.members.filter(Boolean).every((m) => m.character === "pawn"), "everyone starts as a pawn");
-    check((await bea.locator(".look-btn").count()) === 1 && (await bea.locator(".look-btn svg").count()) === 1, "the phone has its own piece in the corner, as a button");
+    check((await bea.locator(".bar .look-btn").count()) === 1 && (await bea.locator(".look-btn svg").count()) === 1, "the phone has its own piece in the bar, as a button");
+    const corner = await bea.evaluate(() => [...document.querySelectorAll(".corner button")].filter((b) => b.offsetWidth).map((b) => b.className.split(" ").find((c) => c.endsWith("-btn"))));
+    check(corner.length === 3 && !corner.includes("look-btn"), `and the corner keeps its three buttons, as on main, clear of the posters: ${corner.join(", ")}`);
 
     await bea.locator(".look-btn").click();
     await bea.waitForSelector(".look-sheet");
@@ -215,7 +217,7 @@ try {
       let n = 0;
       const watch = () => {
         const room = window.__room3d;
-        const shut = room ? !!room.pieces.get(seat)?.pawn.dizzy : document.querySelector(`svg.scene g[data-seat="${seat}"] .ghost-shut`)?.getAttribute("display") !== "none";
+        const shut = room ? !!room.pieces.get(seat)?.body.dizzy : document.querySelector(`svg.scene g[data-seat="${seat}"] .ghost-shut`)?.getAttribute("display") !== "none";
         if (shut) window.__shut = true;
         if (++n < 900) requestAnimationFrame(watch);
       };
@@ -329,13 +331,13 @@ try {
         const saved = { rx: p.rx };
         const t0 = performance.now();
         const N = 3000;
-        for (let i = 0; i < N; i++) p.kind.pose(p.pawn, p, t0 + i * 16.7, 1 / 60, { walking: false, lit: 0.5, calm: false });
+        for (let i = 0; i < N; i++) p.kind.pose(p.body, p, t0 + i * 16.7, 1 / 60, { walking: false, lit: 0.5, calm: false });
         const ms = (performance.now() - t0) / N;
         // And walking, when everything about it moves every frame.
         const t1 = performance.now();
         for (let i = 0; i < N; i++) {
           p.rx = saved.rx + Math.sin(i / 40) * 120;
-          p.kind.pose(p.pawn, p, t1 + i * 16.7, 1 / 60, { walking: true, lit: 0.5, calm: false });
+          p.kind.pose(p.body, p, t1 + i * 16.7, 1 / 60, { walking: true, lit: 0.5, calm: false });
         }
         const walking = (performance.now() - t1) / N;
         p.rx = saved.rx;

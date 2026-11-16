@@ -1,7 +1,7 @@
 // The ghost, as the page knows it without the 3D look: its flat drawing and its emotes.
 // One of the characters (./index.js lists them; lobby/README.md, "Characters", is the interface).
 //
-// A white sheet with a hem dipped in the player's colour, five lobes along the hem, two nub
+// A white sheet with a hem dipped in the player's colour, scalloped along the hem, two nub
 // arms, two eyes and a mouth. It never stands: it hangs a little above the floor and bobs. The
 // 3D look draws the same ghost as a model (../look3d/ghost.js), from the same measurements
 // (GHOST in ./ghost-rig.js).
@@ -11,7 +11,7 @@ import { GHOST, ghostPoseTop, ghostRigById, mirrorGhostPose } from "./ghost-rig.
 const INK = "#1a1210";
 const GREY = "#8a8d94";
 const SHEET = "#fbf8f1";
-/** The sheet: straight sides, a round top, five lobes along the hem. */
+/** The sheet: straight sides, a round top, five scallops along the hem. */
 const LOBE = (GHOST.half * 2) / 5;
 export const GHOST_SHEET = `M${-GHOST.half},-30 L${-GHOST.half},-87 A${GHOST.half},${GHOST.half} 0 0 1 ${GHOST.half},-87 L${GHOST.half},-30 ${`q${-LOBE / 2},13 ${-LOBE},0 `.repeat(5)}Z`;
 /** How far the top of its head is below a standing pawn's (room units), before it hovers. */

@@ -1,16 +1,17 @@
-// The ghost of the 3D look: a turned sheet with a hem dipped in the player's colour, five lobes
-// along the hem, two nub arms, two eyes and a mouth. It never stands: it hangs above the floor,
-// bobs, and its hem trails behind it like a sheet. The model is the one the owner approved in
-// the character previews; the flat look draws the same ghost in SVG (../characters/ghost.js).
+// The ghost of the 3D look: a turned sheet with a hem dipped in the player's colour, scalloped
+// along its edge and hollow underneath, two nub arms, two eyes and a mouth. It never stands: it
+// hangs above the floor, bobs, and its hem trails behind it like a sheet. The flat look draws the
+// same ghost in SVG (../characters/ghost.js), and this one is held to it: white under any room's
+// light (SHEET_LIGHT), the hem a band of the player's colour, air under it.
 //
 // It is one of the characters (./characters.js; lobby/README.md, "Characters"): the same handles
-// as the pawn (pieces.js: group, tilt, turn, mat, blob, ring, colour, lit, fade, air, dizzy), the
+// as the pawn (pieces.js: group, tilt, turn, mat, blob, ring, colour, lit, fade, air, dizzy, skin), the
 // same moments from the room (a walk, a jump, a bump's pose from lobby/shared/bump.js), its own
 // way of showing them. Where the pawn gets crosses for eyes, the ghost squeezes its eyes shut.
 //
-// Cost: a ghost is five draws (the sheet; the lobes and nubs as one instanced mesh; the eyes;
-// their glints; the mouth) plus its shadow, about what a pawn is, in fewer triangles. The sheet's
-// 300-odd points are moved every frame (that is its cost over a pawn: measured by
+// Cost: a ghost is five draws (the sheet; the nubs as one instanced mesh; the eyes; their
+// glints; the mouth) plus its shadow, about what a pawn is. The sheet's
+// 500-odd points are moved every frame (that is its cost over a pawn: measured by
 // lobby/test/e2e-characters.mjs --measure), nothing is made per frame, and its idle hover does
 // not keep the room drawing every frame.
 //
@@ -508,7 +509,7 @@ export function poseGhost(g, piece, now, dt, how) {
   const lit = g.lit * (1 - 0.35 * fl);
   const char = piece.fx?.char ?? 0;
   // A white sheet dimmed as far as a pawn's paint is turns to mud: it keeps most of its white in the dark, and glows a little, as a ghost may.
-  const k = mix(0.84 + 0.16 * lit, 1, fl) * (g.connected ? 1 : DROPPED);
+  const k = mix(0.9 + 0.1 * lit, 1, fl) * (g.connected ? 1 : DROPPED);
   g.opacity = clamp(1 - 0.5 * fl, 0.2, 1) * (g.fade < 1 ? g.fade * 0.8 : 1);
   const clear = g.opacity < 0.985;
   for (const m of [g.mat, g.softMat]) {

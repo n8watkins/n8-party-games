@@ -42,7 +42,7 @@ export const GHOST = {
   /** How high the hem floats over the floor at rest. */
   hover: 15,
   /** How much larger its hands are than a pawn's: they float free of the body, and must read at phone size. */
-  hand: 1.25,
+  hand: 1.4,
 };
 
 // ---------------------------------------------------------------- timing helpers (as in rig.js)
