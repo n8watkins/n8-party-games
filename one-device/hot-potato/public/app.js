@@ -106,7 +106,9 @@ function loadIndex(id) {
 const game = $("game");
 const art = createPotatoArt($("pot"), { seed: 7, reducedMotion: reduced });
 const sounds = createSounds();
-const canBuzz = typeof navigator.vibrate === "function";
+// Vibration only where it can be felt: a phone or tablet held in the hand (a touch screen as the main
+// pointer). Desktop Chrome has navigator.vibrate too, but nothing to vibrate, so no Buzz there.
+const canBuzz = typeof navigator.vibrate === "function" && touchFirst;
 let g = null; // the round
 let screen = "start";
 let mode = Recognition ? "voice" : "typed"; // how answers are given
@@ -596,8 +598,14 @@ function render() {
   life.setAttribute("aria-label", `${left} ${left === 1 ? "life" : "lives"} left`);
   $("g-left").textContent = left === 0 ? "No lives" : left === 1 ? "Last life" : `${left} lives`;
   const holding = g.phase === "doom" || g.phase === "burst" || g.phase === "over";
-  $("g-holder").textContent = playerName(holding ? (g.last?.by ?? g.holder) : g.holder);
-  $("g-holder").nextElementSibling.textContent = holding ? "is holding it" : "is up";
+  const who = playerName(holding ? (g.last?.by ?? g.holder) : g.holder);
+  const sub = holding ? "is holding it" : "is up";
+  // Two places, one shown at a time by the layout: beside the category on a phone, at the head of
+  // the turn's group where there is room.
+  $("g-holder").textContent = who;
+  $("g-holder").nextElementSibling.textContent = sub;
+  $("g-up-name").textContent = who;
+  $("g-up-sub").textContent = sub;
   const tag = $("g-tag");
   tag.classList.toggle("any", !g.need);
   $("g-letter").textContent = g.need ? showLetter(g.need) : "Any";

@@ -166,7 +166,7 @@ async function open(viewport, inits = [fake], { phone = viewport.width < 600 || 
 
 const round = (page) => page.evaluate(() => {
   const g = window.__hotPotato.round();
-  return g && { phase: g.phase, stage: g.stage, holder: g.holder, need: g.need, chain: g.chain.map((c) => c.said), burstOn: g.burstOn, fuse: g.fuse, fuseMax: g.fuseMax, lit: g.lit, paused: g.paused, misses: g.misses, last: g.last && { ok: g.last.ok, why: g.last.why, reason: g.last.reason } };
+  return g && { phase: g.phase, turns: g.turns, stage: g.stage, holder: g.holder, need: g.need, chain: g.chain.map((c) => c.said), burstOn: g.burstOn, fuse: g.fuse, fuseMax: g.fuseMax, lit: g.lit, paused: g.paused, misses: g.misses, last: g.last && { ok: g.last.ok, why: g.last.why, reason: g.last.reason } };
 });
 const waitPhase = (page, phase, timeout = 15000) => page.waitForFunction((p) => window.__hotPotato.round()?.phase === p, phase, { timeout });
 const waitReady = (page) => page.waitForSelector("#g-go:not([hidden]):not([disabled])", { timeout: 15000 });
@@ -273,6 +273,211 @@ const overlaps = (page) =>
       }
     return out;
   });
+
+/**
+ * Everything the responsive layout promises, on the screen as it is now: nothing outside the
+ * screen, nothing cut short inside its own box, nothing over anything, no scroll, every control at
+ * least 40 px, and on a turn the last word and the next letter the biggest words on the screen and
+ * big for the screen. Returns a list of what is wrong, and the sizes it measured.
+ */
+const layoutFaults = (page, turn) =>
+  page.evaluate((turn) => {
+    const bad = [];
+    const W = innerWidth;
+    const H = innerHeight;
+    const shown = (el) => {
+      if (!el || el.closest("[hidden]") || !el.getClientRects().length) return false;
+      const cs = getComputedStyle(el);
+      if (cs.visibility === "hidden" || cs.display === "none") return false;
+      const r = el.getBoundingClientRect();
+      return r.width > 0 && r.height > 0;
+    };
+    const name = (el) => el.id || String(el.className?.baseVal ?? el.className).split(" ")[0] || el.tagName;
+    const se = document.scrollingElement;
+    if (se.scrollWidth > W + 0.5 || se.scrollHeight > H + 0.5) bad.push(`the page scrolls (${se.scrollWidth}x${se.scrollHeight})`);
+    const paused = !document.getElementById("g-paused").hidden;
+    const scope = paused ? "#g-paused" : ".gi";
+    // Inside the screen.
+    const texts = [...document.querySelectorAll(`${scope} :is(button, input, output, .status, .tag, .holder, .up, .logo, .kicker, .lede, .chain, .lbl, .after, .heard, .keys, .dead, .cat, .life, .fuse, .note, .flabel, h2, .pnote)`)].filter(shown);
+    for (const el of texts) {
+      const r = el.getBoundingClientRect();
+      if (r.left < -0.5 || r.top < -0.5 || r.right > W + 0.5 || r.bottom > H + 0.5) bad.push(`outside: ${name(el)} ${Math.round(r.left)},${Math.round(r.top)},${Math.round(r.right)},${Math.round(r.bottom)}`);
+    }
+    // Not cut short inside its own box (an ellipsis, or text hidden by overflow).
+    for (const el of document.querySelectorAll(`${scope} :is(.after, .holder b, .up b, .logo, .cat, .cap-t, .cap, .plate, .tag span)`)) {
+      if (!shown(el)) continue;
+      if (el.scrollWidth > el.clientWidth + 1 && getComputedStyle(el).overflow !== "visible") bad.push(`cut short: ${name(el)} (${el.scrollWidth} > ${el.clientWidth})`);
+    }
+    // Nothing over anything.
+    const parts = [...document.querySelectorAll(`${scope} :is(button, input, .status, .tag, .holder, .up, .after, .heard, .keys, .dead, .lastword .lbl, .need .lbl, .cat, .life, .lifelbl, .fuse, .logo, .lede, .chips, .stepper, .note, .chain, .flabel)`)].filter((el) => shown(el) && getComputedStyle(el).position !== "absolute");
+    for (let i = 0; i < parts.length; i++)
+      for (let j = i + 1; j < parts.length; j++) {
+        if (parts[i].contains(parts[j]) || parts[j].contains(parts[i])) continue;
+        const a = parts[i].getBoundingClientRect();
+        const b = parts[j].getBoundingClientRect();
+        const x = Math.min(a.right, b.right) - Math.max(a.left, b.left);
+        const y = Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top);
+        if (x > 2 && y > 2) bad.push(`overlap: ${name(parts[i])} / ${name(parts[j])} (${Math.round(x)}x${Math.round(y)})`);
+      }
+    // Every control big enough to hit.
+    for (const el of document.querySelectorAll(`${scope} :is(button, input)`)) {
+      if (!shown(el)) continue;
+      const r = el.getBoundingClientRect();
+      if (Math.min(r.width, r.height) < 40) bad.push(`small control: ${name(el)} ${Math.round(r.width)}x${Math.round(r.height)}`);
+    }
+    // The potato fills its box: the rig is at least half the box's smaller side, and inside it.
+    const pot = document.getElementById("pot").getBoundingClientRect();
+    const rig = document.querySelector('#pot [data-part="tray"], #pot [data-part="base"]') ?? document.querySelector("#pot svg");
+    const rr = rig.getBoundingClientRect();
+    if (rr.width < 0.5 * Math.min(pot.width, pot.height) - 1) bad.push(`the potato is small for its box (${Math.round(rr.width)} in ${Math.round(pot.width)}x${Math.round(pot.height)})`);
+    if (rr.left < pot.left - 1 || rr.right > pot.right + 1 || rr.top < pot.top - 1 || rr.bottom > pot.bottom + 1) bad.push("the potato's tray is outside its box");
+    const size = (el) => (el && shown(el) ? parseFloat(getComputedStyle(el).fontSize) : 0);
+    const out = { letter: 0, word: 0 };
+    if (turn && !paused) {
+      const letter = document.querySelector("#g-tag:not(.any) #g-letter");
+      out.letter = size(letter);
+      out.word = size(document.getElementById("g-after"));
+      // The last word and the next letter are the biggest words on the screen, the letter above all.
+      const others = [...document.querySelectorAll(".gi :is(.holder, .holder b, .up, .up b, .cat, .lbl, .status, .heard, .cap-t, .lifelbl, .dead, .keys, button, input)")].filter(shown);
+      const biggest = Math.max(...others.map(size));
+      if (letter && out.letter <= Math.max(biggest, out.word)) bad.push(`the letter (${out.letter}px) is not the biggest (others up to ${Math.max(biggest, out.word)}px)`);
+      if (out.word && out.word < biggest) bad.push(`the last word (${out.word}px) is smaller than other text (${biggest}px)`);
+      // Big for the screen: the letter at least 16% of the shorter side (22% where there is room),
+      // the last word at least 7%.
+      const short = Math.min(W, H);
+      const room = Math.min(W, H) >= 600;
+      if (letter && out.letter < short * (room ? 0.22 : 0.16)) bad.push(`the letter is small for the screen (${out.letter}px on ${W}x${H})`);
+      if (out.word && out.word < short * 0.07) bad.push(`the last word is small for the screen (${out.word}px on ${W}x${H})`);
+    }
+    return { bad, ...out };
+  }, turn);
+
+const PHONES = ["320x568", "360x640", "390x844", "430x932", "568x320", "667x375", "844x390", "932x430", "768x1024", "1024x768", "820x1180"];
+const DESKTOPS = ["1280x720", "1366x768", "1440x900", "1920x1080", "2560x1080", "1080x1920"];
+const dims = (s) => {
+  const [width, height] = s.split("x").map(Number);
+  return { width, height };
+};
+
+// 0. The responsive layout, at every size it is designed for, on every key screen: phones and
+//    tablets (touch) in one round, laptops, desktops and the extremes (mouse and keyboard) in
+//    another. The window is resized in place for each size, so this is also a resize in the middle
+//    of every screen: the round goes on untouched.
+for (const [kind, sizes] of [["touch", PHONES], ["desktop", DESKTOPS]]) {
+  const touch = kind === "touch";
+  const first = dims(sizes[0]);
+  const context = await browser.newContext({ viewport: first, deviceScaleFactor: 1, hasTouch: touch, isMobile: touch, ...(touch ? { userAgent: PIXEL } : {}) });
+  const { page, errors } = await open(first, [fake], { context });
+  await page.evaluate(() => document.fonts.ready);
+  const sizes_ = {};
+  /** Walks every size on the screen as it is now and checks it. */
+  const walk = async (what, turn = true) => {
+    const keep = await round(page);
+    for (const s of sizes) {
+      await page.setViewportSize(dims(s));
+      await page.evaluate(() => new Promise((ok) => requestAnimationFrame(() => requestAnimationFrame(ok))));
+      const { bad, letter, word } = await layoutFaults(page, turn);
+      check(bad.length === 0, `${s} ${what}: fits ${bad.slice(0, 4).join(" | ")}`);
+      if (turn && letter) (sizes_[s] ??= []).push(`${what} letter ${letter} word ${word}`);
+    }
+    const now = await round(page);
+    if (keep) check(now.phase === keep.phase && now.turns === keep.turns && now.stage === keep.stage && now.holder === keep.holder, `${kind} ${what}: resizing does not touch the round (${keep.phase} turn ${keep.turns}, then ${now.phase} turn ${now.turns})`);
+    await page.setViewportSize(first);
+  };
+  await walk("start", false);
+  await start(page, "cities", 3);
+  await walk("ready");
+  // Listening: a word half heard, the fuse burning (a slow speaker: 9 s before the word ends).
+  await page.evaluate(() => window.__turns.push([[200, "interim", "Los Ang"], [9000, "final", [["Los Angeles", 0.9]]]]));
+  await page.click("#g-go");
+  await page.waitForFunction(() => /Los/.test(document.getElementById("g-heard").textContent));
+  const fuseBefore = (await round(page)).fuse;
+  await walk("listening");
+  const fuseAfter = await round(page);
+  check(fuseAfter.phase === "listen" && fuseAfter.lit && fuseAfter.fuse < fuseBefore, `${kind}: through every resize the turn kept listening and the fuse kept burning (${Math.round(fuseBefore)} then ${Math.round(fuseAfter.fuse)} ms)`);
+  await waitPhase(page, "ready", 15000);
+  // A refusal with its appeal (once the big verdict has gone).
+  await say(page, word("Salmon", 0.4));
+  await page.waitForFunction(() => !document.getElementById("game").dataset.react, null, { timeout: 5000 });
+  check(await page.isVisible("#g-appeal"), `${kind}: the refusal offers its appeal`);
+  await walk("verdict");
+  // A typed turn.
+  await waitReady(page);
+  await page.click("#g-go");
+  await page.waitForSelector("#g-type:not([hidden])");
+  await page.click("#g-type");
+  await page.fill("#g-word", "Lisbon");
+  await walk("typed");
+  await page.keyboard.press("Escape");
+  await page.waitForSelector("#g-paused:not([hidden])");
+  await walk("paused");
+  await page.click("#p-resume");
+  await page.keyboard.press("Enter");
+  await waitPhase(page, "ready");
+  // The last stage, listening.
+  while ((await round(page)).stage < 4) {
+    await waitReady(page);
+    await page.click("#g-go");
+    await page.waitForSelector("#g-typed:not([hidden])");
+    await page.fill("#g-word", "table");
+    await page.keyboard.press("Enter");
+    await page.waitForFunction(() => window.__hotPotato.round().phase !== "listen");
+  }
+  await waitReady(page);
+  await page.click("#g-go");
+  await page.waitForSelector("#g-typed:not([hidden])");
+  await walk("last stage");
+  await page.fill("#g-word", "zzzz");
+  await page.keyboard.press("Enter");
+  await waitPhase(page, "doom");
+  await waitPhase(page, "burst", 5000);
+  await page.waitForTimeout(900);
+  await walk("burst", false);
+  await waitPhase(page, "over", 6000);
+  await page.waitForTimeout(1500);
+  await walk("end", false);
+  for (const [s, list] of Object.entries(sizes_)) console.log(`     ${s}: ${list.join("; ")}`);
+  check(errors.length === 0, `${kind} layout walk: no console errors ${errors.join(" | ")}`);
+  await context.close();
+}
+
+// 0b. Turning a phone in the middle of a listening turn, and resizing a desktop window: the turn
+//     goes on, the fuse keeps burning, and the potato refits its new box at once.
+for (const [kind, from, to] of [["phone turned", "390x844", "844x390"], ["phone turned back", "844x390", "390x844"], ["window resized", "1280x720", "900x700"], ["window maximised", "1024x640", "1920x1080"]]) {
+  const phone = kind.startsWith("phone");
+  const { context, page, errors } = await open(dims(from), [fake], { phone });
+  await start(page, "animals", 2);
+  await waitReady(page);
+  await page.evaluate(() => window.__turns.push([[200, "interim", "Ele"], [6000, "final", [["elephant", 0.9]]]]));
+  await page.click("#g-go");
+  await page.waitForFunction(() => window.__hotPotato.round().lit);
+  await page.waitForTimeout(500);
+  const a = await round(page);
+  const starts = await page.evaluate(() => window.__starts);
+  await page.setViewportSize(dims(to));
+  await page.evaluate(() => new Promise((ok) => requestAnimationFrame(() => requestAnimationFrame(ok))));
+  const fit = await page.evaluate(() => {
+    const pot = document.getElementById("pot").getBoundingClientRect();
+    const svg = document.querySelector("#pot svg").getBoundingClientRect();
+    return { pot: [pot.width, pot.height], svg: [svg.width, svg.height], inside: svg.left >= pot.left - 1 && svg.right <= pot.right + 1 && svg.top >= pot.top - 1 && svg.bottom <= pot.bottom + 1 };
+  });
+  const { bad } = await layoutFaults(page, true);
+  await page.waitForTimeout(400);
+  const b = await round(page);
+  check(b.phase === "listen" && b.turns === a.turns && b.lit && b.fuse < a.fuse && (await page.evaluate(() => window.__starts)) === starts, `${kind} (${from} to ${to}) mid-turn: still the same listening turn, the fuse still burning (${Math.round(a.fuse)} then ${Math.round(b.fuse)} ms), listening not restarted`);
+  // (layoutFaults also checks that the drawing fills its new box.)
+  check(fit.inside && Math.abs(fit.svg[1] - fit.pot[1]) < 2, `${kind}: the potato refits its new box (${fit.svg.map(Math.round).join("x")} in ${fit.pot.map(Math.round).join("x")})`);
+  check(bad.length === 0, `${kind}: the new layout fits ${bad.slice(0, 4).join(" | ")}`);
+  await page.waitForFunction(() => window.__hotPotato.round().phase !== "listen", null, { timeout: 15000 });
+  check((await round(page)).chain.includes("elephant"), `${kind}: the word said across the change counts`);
+  check(errors.length === 0, `${kind}: no console errors ${errors.join(" | ")}`);
+  await context.close();
+}
+if (arg("only", "") === "layout") {
+  await browser.close();
+  console.log(failures ? `\n${failures} check(s) failed` : "\nall checks passed");
+  process.exit(failures ? 1 : 0);
+}
 
 // 1. Layout: the start screen, a turn listening, a verdict with its appeal, the pause and the end,
 //    at an upright phone, a small phone, a sideways phone and a desktop window.

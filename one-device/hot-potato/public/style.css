@@ -11,6 +11,23 @@
   font-display: swap;
 }
 
+/* The roomy layouts' type and spacing ("The layouts" below), set once on .gi from the screen's size.
+   Registered as lengths so they are worked out there, against the whole screen, and inherited as
+   pixels: unregistered, a container unit would be read again inside .bot (a container of its own)
+   against the column's width. */
+@property --row { syntax: "<length>"; inherits: true; initial-value: 8px; }
+@property --up-size { syntax: "<length>"; inherits: true; initial-value: 34px; }
+@property --lbl-size { syntax: "<length>"; inherits: true; initial-value: 15px; }
+@property --word-max { syntax: "<length>"; inherits: true; initial-value: 64px; }
+@property --letter { syntax: "<length>"; inherits: true; initial-value: 120px; }
+@property --disc { syntax: "<length>"; inherits: true; initial-value: 96px; }
+@property --ask-gap { syntax: "<length>"; inherits: true; initial-value: 32px; }
+@property --heard-size { syntax: "<length>"; inherits: true; initial-value: 28px; }
+@property --status-size { syntax: "<length>"; inherits: true; initial-value: 17px; }
+@property --btn { syntax: "<length>"; inherits: true; initial-value: 52px; }
+@property --btn-text { syntax: "<length>"; inherits: true; initial-value: 18px; }
+@property --keys-size { syntax: "<length>"; inherits: true; initial-value: 13px; }
+
 :root {
   --ink: #1a1433;
   --y: #ffd23f;
@@ -200,6 +217,7 @@ legend { padding: 0; }
 .game[data-lit="yes"] .listening .r2 { animation-delay: 0.7s; }
 .game[data-paused="yes"] .listening .ring { animation-play-state: paused; }
 @keyframes micring { 0% { transform: scale(1); opacity: 0.8; } 100% { transform: scale(1.55); opacity: 0; } }
+@keyframes micring-near { 0% { transform: scale(1); opacity: 0.8; } 100% { transform: scale(1.36); opacity: 0; } }
 .game[data-lit="no"] .listening .disc { background: #8a90b8; }
 /* What the spot shows: the go button when it is passed, the microphone while it listens. */
 .game:not([data-phase="ready"]) .mic-btn { display: none; }
@@ -281,6 +299,195 @@ legend { padding: 0; }
 .pbox .tg .cap { flex: 1; }
 .game[data-paused="yes"] .spark, .game[data-paused="yes"] .rv, .game[data-paused="yes"] .tint { animation-play-state: paused !important; }
 
+/* ---------- The layouts ----------
+   Four, chosen by the screen's shape and size (container queries on .game, so a resize or a turn
+   of the phone simply re-lays the same screen; nothing restarts):
+   - Phone upright (narrower than 600, taller than wide): the base rules above; who is up beside
+     the category at the top, the potato in the middle, the turn under it.
+   - Phone sideways (wider than tall, under 500 high): the potato on the left, the turn compact on
+     the right ("Short sideways" below).
+   - Roomy upright (600 wide or more, taller than wide: tablets, a portrait monitor): as on a phone,
+     but the turn is a centred group led by who is up, and everything scales with the screen.
+   - Roomy wide (wider than tall, 500 high or more: tablets sideways, laptops, desktops, TVs,
+     ultrawide): the potato on the left, about 45% of the width; on the right the category, the
+     lives and the fuse along the top, then one centred group in reading order: who is up, the last
+     word, the microphone beside the giant next letter, what is heard, the verdict, the buttons, and
+     the keys at the foot.
+   Type is fluid (clamp) between a floor that stays readable and a ceiling that stops a TV from
+   making it absurd. */
+
+/* Who is up, in the turn's group: only in the roomy layouts. */
+.up { display: none; }
+
+@container game (max-aspect-ratio: 1/1) and (min-width: 600px) {
+  .gi { padding: clamp(16px, 3.4cqw, 48px) clamp(20px, 4.4cqw, 64px); gap: clamp(8px, 1.6cqh, 24px); }
+  .head .holder { display: none; }
+  .head { justify-content: flex-start; }
+  .cat { font-size: clamp(20px, 3.2cqw, 40px); max-width: 100%; }
+  .life i { width: clamp(15px, 2.1cqw, 28px); height: clamp(17px, 2.4cqw, 32px); border-width: 3px; }
+  .lifelbl { font-size: clamp(16px, 2.3cqw, 28px); }
+  .fuse .track { height: clamp(16px, 2.2cqw, 28px); }
+  .fuse .spark { width: clamp(28px, 3.8cqw, 48px); height: clamp(28px, 3.8cqw, 48px); }
+  .ibtn { width: clamp(48px, 6.6cqw, 72px); height: clamp(48px, 6.6cqw, 72px); }
+  .ibtn svg { width: 45%; height: 45%; }
+  .potato-art.specimen { width: min(100%, 76cqw); left: calc((100% - min(100%, 76cqw)) / 2); }
+  .logo { font-size: clamp(64px, 13cqw, 150px); }
+  .logo.burst-on { font-size: clamp(64px, 14cqw, 170px); }
+  .lede, .kicker { font-size: clamp(16px, 2.4cqw, 26px); }
+  .flabel { font-size: clamp(15px, 2.1cqw, 24px); }
+  .chips .chip, .setup .cap { min-height: clamp(48px, 6.6cqw, 72px); font-size: clamp(18px, 2.6cqw, 30px); }
+  .stepper .cap { width: clamp(48px, 6.6cqw, 72px); font-size: clamp(30px, 4cqw, 44px); }
+  .stepper output { font-size: clamp(34px, 4.8cqw, 56px); }
+  .go .plate { min-height: clamp(56px, 7.4cqw, 84px); font-size: clamp(22px, 3.4cqw, 38px); }
+  .note { font-size: clamp(14px, 2cqw, 22px); }
+  .chain li { font-size: clamp(18px, 2.6cqw, 30px); }
+  .chain li small { font-size: clamp(12px, 1.7cqw, 18px); }
+  .endbtns .cap { min-height: clamp(56px, 7.4cqw, 84px); font-size: clamp(18px, 2.6cqw, 30px); }
+  .pbox { width: min(480px, 70cqw); }
+  .pbox h2 { font-size: clamp(56px, 10cqw, 110px); }
+  .pnote { font-size: clamp(15px, 2.2cqw, 24px); }
+  .rv b { font-size: clamp(80px, 18cqw, 220px); }
+  .rv span { font-size: clamp(24px, 4.6cqw, 60px); }
+  .rv .mk { width: clamp(64px, 11cqw, 140px); }
+  .rv-boom b { font-size: clamp(80px, 17cqw, 220px); }
+}
+
+/* The turn as one centred group, in both roomy layouts. */
+@container game ((max-aspect-ratio: 1/1) and (min-width: 600px)) or ((min-aspect-ratio: 1/1) and (min-height: 500px)) {
+  .game[data-screen="turn"] .bot { justify-content: center; }
+  .v-turn.bot-turn { justify-items: center; text-align: center; gap: 0; }
+  .bot-turn > * { max-width: 100%; }
+  .up { display: flex; align-items: baseline; justify-content: center; gap: 0.32em; min-width: 0; max-width: 100%; font: 400 var(--up-size)/1 var(--display); text-transform: uppercase; letter-spacing: 0.03em; white-space: nowrap; transform: var(--slant); transform-origin: 50% 100%; margin-bottom: var(--row); }
+  .up b { font-weight: 400; color: var(--y); text-shadow: 0.05em 0.05em 0 var(--ink); overflow: hidden; text-overflow: ellipsis; min-width: 0; padding-right: 0.06em; }
+  .up span { font-size: 0.5em; color: var(--white); }
+  .lastword { justify-items: center; }
+  .lastword .lbl, .need .lbl { font-size: var(--lbl-size); transform-origin: 50% 100%; }
+  .lastword .lbl { display: block; }
+  .after { font-size: min(var(--word-max), calc(92cqi / (max(var(--n), 6) * 0.47))); transform-origin: 50% 100%; }
+  .dead { font-size: var(--lbl-size); transform-origin: 50% 100%; }
+  .ask { grid-template-columns: auto auto; justify-content: center; align-items: center; column-gap: var(--ask-gap); margin-top: calc(var(--row) * 1.6); }
+  /* The rings stay clear of the last word above them. */
+  .game[data-lit="yes"] .listening .ring { animation-name: micring-near; }
+  .disc, .listening { --d: var(--disc); }
+  .cap-t { font-size: var(--lbl-size); }
+  .mic-btn, .listening { gap: calc(var(--row) * 0.8); }
+  .tag span { font-size: var(--letter); }
+  .tag.any span { font-size: calc(var(--letter) * 0.5); }
+  .heard { font-size: var(--heard-size); margin-top: calc(var(--row) * 0.5); max-width: 22ch; }
+  .status { justify-content: center; font-size: var(--status-size); margin-top: calc(var(--row) * 0.5); max-width: 46ch; text-wrap: balance; transform-origin: 50% 100%; }
+  .mark { width: 1.3em; height: 1.3em; }
+  .mark.bad::after { font-size: 0.85em; }
+  .acts { justify-content: center; gap: 12px; margin-top: var(--row); width: 100%; }
+  .acts > * { flex: 0 1 auto; }
+  .acts .cap { min-height: var(--btn); padding: 0 1.4em; font-size: var(--btn-text); min-width: min(100%, 15em); }
+  .typed { flex: 0 1 28em; font-size: var(--btn-text); }
+  .typed input { min-height: var(--btn); font-size: calc(var(--btn-text) * 1.25); padding: 0 0.7em; }
+  .typed input::placeholder { font-size: calc(var(--btn-text) * 0.85); }
+  .typed .cap { min-width: 0; }
+  .keys { margin-top: var(--row); font-size: var(--keys-size); }
+  .keys kbd { font-size: calc(var(--keys-size) * 0.9); padding: 0.15em 0.5em 0.25em; }
+  .status.quiet { margin: 0; }
+}
+
+/* Roomy upright: sizes from the width (the potato takes the height that is left). */
+@container game (max-aspect-ratio: 1/1) and (min-width: 600px) {
+  .gi {
+    --row: clamp(6px, 1.3cqw, 18px);
+    --up-size: clamp(34px, 6.4cqw, 80px);
+    --lbl-size: clamp(14px, 2.2cqw, 26px);
+    --word-max: clamp(48px, 9.4cqw, 120px);
+    --letter: clamp(110px, min(24cqw, 17cqh), 320px);
+    --disc: clamp(96px, 15cqw, 190px);
+    --ask-gap: clamp(32px, 8cqw, 120px);
+    --heard-size: clamp(26px, 4.6cqw, 60px);
+    --status-size: clamp(17px, 2.6cqw, 30px);
+    --btn: clamp(52px, 7cqw, 80px);
+    --btn-text: clamp(18px, 2.6cqw, 30px);
+    --keys-size: clamp(13px, 1.7cqw, 20px);
+  }
+}
+
+/* Roomy wide: tablets sideways, laptops, desktops, TVs, ultrawide. */
+@container game (min-aspect-ratio: 1/1) and (min-height: 500px) {
+  .gi, .react {
+    /* An ultrawide screen keeps the same proportions, centred on the band; a 16:9 one is filled. */
+    max-width: max(1280px, 178cqh);
+    grid-template-columns: minmax(0, 0.82fr) minmax(0, 1fr);
+    column-gap: clamp(24px, 4cqw, 80px);
+    padding: clamp(16px, 3.4cqh, 48px) clamp(20px, 3.6cqw, 72px);
+  }
+  .gi {
+    --row: clamp(6px, 1.5cqh, 20px);
+    --up-size: clamp(30px, min(6.6cqh, 4.4cqw), 92px);
+    --lbl-size: clamp(14px, min(2.3cqh, 1.6cqw), 28px);
+    --word-max: clamp(44px, min(11cqh, 7.4cqw), 140px);
+    --letter: clamp(120px, min(30cqh, 21cqw), 380px);
+    --disc: clamp(84px, min(16cqh, 11cqw), 200px);
+    --ask-gap: clamp(28px, 4.5cqw, 120px);
+    --heard-size: clamp(24px, min(5.6cqh, 3.8cqw), 70px);
+    --status-size: clamp(16px, min(2.8cqh, 1.9cqw), 32px);
+    --btn: clamp(48px, 7.4cqh, 84px);
+    --btn-text: clamp(17px, min(2.7cqh, 1.8cqw), 30px);
+    --keys-size: clamp(13px, 1.9cqh, 22px);
+    grid-template-areas: "pot top" "pot bot";
+    grid-template-rows: auto minmax(0, 1fr);
+    row-gap: clamp(8px, 2cqh, 28px);
+  }
+  /* The start screen: the title and the setup as one group, centred on the height, with no gap
+     between the pitch and the categories. */
+  .game[data-screen="start"] .gi { grid-template-areas: "pot ." "pot top" "pot bot" "pot ."; grid-template-rows: minmax(0, 1fr) auto auto minmax(0, 1fr); }
+  .game[data-screen="start"] .top, .game[data-screen="start"] .bot { width: min(100%, 100cqh); }
+  /* The end: who it burst on, the chain and the buttons as one group, centred on the height; a
+     long chain takes the height there is and scrolls inside its own box. */
+  .game[data-screen="end"] .gi { grid-template-areas: "pot ." "pot top" "pot bot" "pot ."; grid-template-rows: minmax(0, 1fr) auto minmax(0, max-content) minmax(0, 1fr); }
+  .game[data-screen="end"] .chain { flex: 0 1 auto; }
+  .game[data-screen="end"] .v-end.bot-end { gap: clamp(12px, 2.4cqh, 32px); }
+  .logo { font-size: clamp(56px, min(13cqh, 8.4cqw), 160px); }
+  .logo.burst-on { font-size: clamp(56px, min(15cqh, 8cqw), 180px); }
+  .lede, .kicker { font-size: clamp(15px, min(2.4cqh, 1.7cqw), 28px); }
+  .lede { max-width: 40ch; }
+  .flabel { font-size: clamp(14px, 2.1cqh, 24px); }
+  .setup { gap: clamp(10px, 2cqh, 26px); }
+  .chips { gap: clamp(8px, 1.2cqh, 14px); }
+  .chips .chip, .setup .cap { min-height: clamp(44px, 6.4cqh, 76px); font-size: clamp(17px, 2.6cqh, 30px); }
+  .stepper .cap { width: clamp(46px, 6.4cqh, 76px); font-size: clamp(28px, 4cqh, 46px); }
+  .stepper output { font-size: clamp(32px, 5cqh, 60px); }
+  .go .plate { min-height: clamp(52px, 7.6cqh, 88px); font-size: clamp(22px, 3.6cqh, 40px); }
+  .note { font-size: clamp(14px, 2cqh, 22px); }
+  /* The top of a turn: the category with sound and pause beside it, then the lives and the fuse as
+     one long bar under them (the head and the bar give their parts to one grid). */
+  .turnhead { grid-template-columns: auto auto minmax(0, 1fr) auto auto; grid-template-areas: "cat cat . snd pse" "life lbl fuse fuse fuse"; align-items: center; column-gap: clamp(10px, 1.2cqw, 20px); row-gap: clamp(8px, 1.8cqh, 22px); }
+  .turnhead .head, .turnhead .bar { display: contents; }
+  .head .holder { display: none; }
+  .cat { grid-area: cat; justify-self: start; max-width: 100%; font-size: clamp(18px, min(3.4cqh, 2.2cqw), 40px); }
+  .life { grid-area: life; }
+  .lifelbl { grid-area: lbl; }
+  .fuse { grid-area: fuse; }
+  #g-sound { grid-area: snd; }
+  #g-pause { grid-area: pse; }
+  .life { gap: clamp(4px, 0.6cqh, 8px); }
+  .life i { width: clamp(13px, 2.2cqh, 28px); height: clamp(15px, 2.6cqh, 32px); border-width: 3px; }
+  .lifelbl { font-size: clamp(15px, 2.4cqh, 28px); }
+  .fuse .track { height: clamp(16px, 2.6cqh, 30px); border-width: 3px; }
+  .fuse .spark { width: clamp(30px, 4.6cqh, 52px); height: clamp(30px, 4.6cqh, 52px); }
+  .ibtn { width: clamp(44px, 6.4cqh, 72px); height: clamp(44px, 6.4cqh, 72px); }
+  .ibtn svg { width: 45%; height: 45%; }
+  /* The end: who it burst on, the chain and the buttons, scaled for across a room. */
+  .chain li { font-size: clamp(17px, 2.6cqh, 30px); padding: 0.35em 0.6em 0.3em; }
+  .chain li small { font-size: clamp(12px, 1.7cqh, 18px); }
+  .endbtns .cap { min-height: clamp(52px, 7.6cqh, 88px); font-size: clamp(17px, 2.6cqh, 30px); }
+  .pbox { width: min(520px, 40cqw); gap: clamp(12px, 2cqh, 22px); }
+  .pbox h2 { font-size: clamp(56px, 11cqh, 120px); }
+  .pnote { font-size: clamp(15px, 2.2cqh, 24px); }
+  /* A verdict, big, over the right-hand column (the overlay copies the screen's grid). */
+  .react { position: absolute; inset: 0; margin: 0 auto; display: grid; grid-template-rows: minmax(0, 1fr); justify-items: center; align-content: stretch; align-items: center; }
+  .rv { grid-area: 1 / 2; width: 100%; }
+  .rv b { font-size: clamp(64px, min(17cqh, 10cqw), 220px); }
+  .rv span { font-size: clamp(22px, min(4.6cqh, 3cqw), 58px); max-width: 20ch; }
+  .rv .mk { width: clamp(56px, 11cqh, 140px); }
+  .rv-boom b { font-size: clamp(64px, min(16cqh, 9cqw), 210px); }
+}
+
 /* ---------- Smaller screens ---------- */
 /* Short upright screens: smaller headings, no captions (the end screen keeps its count) */
 @container game (max-height: 700px) and (max-aspect-ratio: 1/1) {
@@ -310,8 +517,8 @@ legend { padding: 0; }
   .disc, .listening { --d: 54px; }
   .chips .chip, .setup .cap { min-height: 42px; }
 }
-/* Narrow sideways (a phone on its side): the info column needs more of the width */
-@container game (min-aspect-ratio: 1/1) and (max-width: 900px) {
+/* Short sideways (a phone on its side, under 500 high): the info column needs more of the width */
+@container game (min-aspect-ratio: 1/1) and (max-height: 499.98px) {
   .gi { grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr); column-gap: 12px; padding: 8px 14px; }
   /* The start screen: the title over the potato, the setup down the whole right side, so a note
      (cannot listen, microphone blocked) still fits. */
@@ -325,11 +532,18 @@ legend { padding: 0; }
   .logo.burst-on { font-size: 44px; }
   .kicker { margin-bottom: 0; font-size: 13px; }
   .after { font-size: min(9cqi, calc(92cqi / (max(var(--n), 6) * 0.47)), 38px); }
-  .ask { grid-template-columns: auto minmax(0, 1fr); }
-  .disc, .listening { --d: 54px; }
+  /* The turn's words centred over its buttons: the last word, then the microphone beside the
+     letter as a pair, then what is heard and the verdict. */
+  .v-turn.bot-turn { justify-items: center; text-align: center; }
+  .lastword { justify-items: center; }
+  .after, .dead { transform-origin: 50% 100%; }
+  .status { justify-content: center; transform-origin: 50% 100%; }
+  .acts { width: 100%; }
+  .ask { grid-template-columns: auto auto; justify-content: center; column-gap: clamp(20px, 7cqw, 72px); }
+  .disc, .listening { --d: clamp(54px, 13cqh, 60px); }
   .mic-btn, .listening { gap: 5px; padding: 2px; grid-template-columns: auto; }
   .cap-t { font-size: 14px; }
-  .tag span { font-size: 64px; }
+  .tag span { font-size: clamp(64px, 18cqh, 80px); }
   .tag.any span { font-size: 36px; }
   .need .lbl { font-size: 13px; }
   .status { font-size: 13.5px; gap: 6px; }
@@ -358,12 +572,16 @@ legend { padding: 0; }
   .setrow .field { display: flex; align-items: center; gap: 8px; }
   .note { font-size: 12px; line-height: 1.3; padding: 5px 8px; }
 }
-/* The smallest sideways phones (568x320): the setup's buttons a little shorter, so the longest note
-   (the microphone blocked, on an iPhone) and Start still fit. */
+/* The smallest sideways phones (568x320): the category's heading left to the buttons themselves (it
+   stays for screen readers) and tighter gaps, so the longest note (the microphone blocked, on an
+   iPhone) and Start still fit with every button at least 40 high. */
 @container game (min-aspect-ratio: 1/1) and (max-height: 340px) {
-  .chips .chip, .setup .cap { min-height: 36px; }
+  .setup > .field > .flabel { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; margin: 0; }
+  .chips .chip, .setup .cap { min-height: 40px; }
+  .chips .chip { padding: 0 3px; letter-spacing: 0.02em; }
   .go .plate { min-height: 40px; }
   .setup { gap: 5px; }
+  .setrow { row-gap: 5px; }
   .chips { gap: 5px; }
 }
 @container game (max-width: 359px) {
