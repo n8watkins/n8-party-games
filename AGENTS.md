@@ -80,6 +80,7 @@ The interface, part by part, is in `lobby/README.md`, "Characters".
 
 - `party-kit/`: the room kit (server core, client, tests, `GAME-CONTRACT.md`).
 - `lobby/`: the party room.
+- `one-device/`: games on one passed-around device, no server (Hot Potato; its matcher and lists in `one-device/hot-potato/shared/`, shared with `lab/hot-potato/`).
 - `games.js`: the hosted games, each its own repository pinned in `package.json` (Cork & Bell is a git commit; bump it deliberately).
 - `worker.js` and `wrangler.jsonc`: the Worker and its Durable Object migrations (`v1` to `v4`).
   A new migration changes what a rollback can do, so read "Rolling back" in `DEPLOY.md` first.

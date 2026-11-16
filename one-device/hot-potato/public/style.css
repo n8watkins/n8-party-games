@@ -202,6 +202,10 @@ legend { padding: 0; }
 .typed input::placeholder { color: var(--dim); }
 .typed .cap { min-height: 50px; flex: none; padding: 0 16px; }
 
+.keys { font-size: 12px; color: var(--dim); text-align: center; }
+.keys kbd { font: 600 11px/1 var(--text); padding: 2px 6px 3px; border-radius: 5px; border: 1px solid var(--line-2); color: var(--soft); background: rgba(0, 0, 0, 0.25); }
+@media (pointer: coarse), (hover: none) { .keys { display: none; } }
+
 /* ---------- End ---------- */
 .game[data-screen="end"] .v-end.bot-end { display: flex; flex-direction: column; gap: 10px; }
 .chain { list-style: none; margin: 0; padding: 4px 2px 14px; display: flex; flex-wrap: wrap; gap: 6px; align-content: flex-start; overflow-y: auto; min-height: 0; flex: 1; scrollbar-width: thin; -webkit-mask-image: linear-gradient(#000 calc(100% - 16px), rgba(0, 0, 0, 0)); mask-image: linear-gradient(#000 calc(100% - 16px), rgba(0, 0, 0, 0)); }
@@ -241,7 +245,8 @@ legend { padding: 0; }
 /* Narrow sideways (a phone on its side): the info column needs more of the width */
 @container game (min-aspect-ratio: 1/1) and (max-width: 900px) {
   .gi { grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr); column-gap: 12px; padding: 8px 12px; }
-  .holder .sub, .lede, .lifelbl { display: none; }
+  .holder .sub, .lifelbl { display: none; }
+  .lede { font-size: 13px; margin-top: 2px; }
   .bar .life { flex: 1; }
   .holder b { font-size: 24px; }
   .after { font-size: 13px; }
@@ -269,7 +274,7 @@ legend { padding: 0; }
   .turnhead { row-gap: 2px; }
   .ibtn { width: 40px; height: 40px; min-width: 40px; }
   .wire { --h: 10px; }
-  .game[data-screen="end"] .lede { display: none; }
+  .keys { display: none; }
 }
 @container game (max-width: 359px) {
   .gi { padding-left: 12px; padding-right: 12px; }
