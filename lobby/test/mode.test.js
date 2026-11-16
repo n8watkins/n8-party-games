@@ -4,7 +4,8 @@
 // The page side's small rules (where to go, the loop guard) are at the end.
 import { describe, expect, it } from "vitest";
 import { game as coinFlip, manifest as coinFlipManifest } from "../games/coin-flip.js";
-import { LobbyCore } from "../server/lobby-core.js";
+import { DROP_FADE_MS, HOST_GRACE_MS, LobbyCore, TABLE_STALE_MS } from "../server/lobby-core.js";
+import { STALE_ROOM_MS } from "../../party-kit/src/core/room-core.js";
 import { COUNT_MS, SETTLE_MS, boxFromManifest } from "../shared/vote.js";
 import { DEFAULT_MODE, HOP_GAP_MS, HOP_KEY, MODES, MODE_COOLDOWN_MS, MODE_NAME, MODE_PAGE, arrived, hopNow, hopTarget, isMode, mayHop, modeLocked, modeOf, modeTitle, readHop } from "../shared/mode.js";
 import { POSITION_SLACK, boxCentre, spawnX } from "../shared/world.js";
@@ -57,7 +58,7 @@ describe("the party's mode", () => {
 
   it("is switched by the host, both ways, with a note naming who did it", () => {
     const { core, ann } = party();
-    expect(core.setMode(ann.token, "turn-based", 2000)).toEqual({ ok: true, mode: "turn-based", by: 0 });
+    expect(core.setMode(ann.token, "turn-based", 2000)).toEqual({ ok: true, mode: "turn-based", by: 0, was: { mode: "party-games", modeAt: -Infinity } });
     expect(core.view(2000).mode).toBe("turn-based");
     expect(core.drainNotes()).toEqual([{ k: "mode", mode: "turn-based", seat: 0, name: "Ann", text: "Ann moved the party to the Table" }]);
     expect(core.setMode(ann.token, "party-games", 2000 + MODE_COOLDOWN_MS)).toMatchObject({ ok: true, mode: "party-games" });
@@ -73,13 +74,30 @@ describe("the party's mode", () => {
     expect(core.drainNotes()).toEqual([]);
   });
 
-  it("is switched by whoever holds the controls while the host's phone is dropped, and by the host again on coming back", () => {
+  it("stays the host's while the host's phone is only between pages, and passes to whoever holds the controls after that", () => {
     const { core, ann, bo } = party();
     core.disconnect(ann.token, 1500);
-    expect(core.setMode(bo.token, "turn-based", 2000).ok).toBe(true);
-    core.connect(ann.token, 2500);
-    expect(core.setMode(bo.token, "party-games", 2000 + MODE_COOLDOWN_MS).ok).toBe(false);
-    expect(core.setMode(ann.token, "party-games", 2000 + MODE_COOLDOWN_MS).ok).toBe(true);
+    // Inside the grace (a page moving to the other room): Bo may not switch or pick, and the view still names Ann.
+    const inside = 1500 + HOST_GRACE_MS - 1;
+    expect(core.setMode(bo.token, "turn-based", inside)).toEqual({ ok: false, why: "Only the one who started the party can switch rooms." });
+    expect(core.setRoom(bo.token, "camp", inside).ok).toBe(false);
+    expect(core.view(inside).picker).toEqual({ seat: 0 });
+    // After it, the first connected player holds the controls until the host is back.
+    const after = 1500 + HOST_GRACE_MS;
+    expect(core.view(after).picker).toEqual({ seat: 1 });
+    expect(core.setRoom(bo.token, "camp", after).ok).toBe(true);
+    expect(core.setMode(bo.token, "turn-based", after).ok).toBe(true);
+    core.connect(ann.token, after + 500);
+    expect(core.setMode(bo.token, "party-games", after + MODE_COOLDOWN_MS).ok).toBe(false);
+    expect(core.setMode(ann.token, "party-games", after + MODE_COOLDOWN_MS).ok).toBe(true);
+  });
+
+  it("hands the party on for good when the host's piece fades, as before", () => {
+    const { core, ann, bo } = party();
+    core.disconnect(ann.token, 1500);
+    core.tick(1500 + DROP_FADE_MS);
+    expect(core.hostToken).toBe(bo.token);
+    expect(core.setMode(bo.token, "turn-based", 1500 + DROP_FADE_MS).ok).toBe(true);
   });
 
   it("is switched by the host even while someone else holds the controls (the room's rule for the picker)", () => {
@@ -89,7 +107,7 @@ describe("the party's mode", () => {
     core.connect(screen.token, 1000);
     const ann = seated(core, "Ann");
     expect(core.pickerToken()).toBe(ann.token);
-    expect(core.setMode(screen.token, "turn-based", 2000)).toEqual({ ok: true, mode: "turn-based", by: -1 });
+    expect(core.setMode(screen.token, "turn-based", 2000)).toMatchObject({ ok: true, mode: "turn-based", by: -1 });
     expect(core.drainNotes()[0].text).toBe("The room's screen moved the party to the Table");
     expect(core.setMode(ann.token, "party-games", 2000 + MODE_COOLDOWN_MS).ok).toBe(true);
   });
@@ -154,6 +172,46 @@ describe("the party's mode", () => {
   });
 });
 
+describe("between the vote and the game", () => {
+  it("refuses a switch and a room pick from the wake-up that chose the game until the room has dealt with it", () => {
+    const { core, ann } = party();
+    stand(core, 0, 0, 2000);
+    stand(core, 1, 0, 2000);
+    const out = core.tick(2000 + COUNT_MS);
+    expect(out.start).toBe("coin-flip");
+    expect(core.count).toBeNull();
+    expect(core.activity.kind).toBe("lobby");
+    // The room now waits on the budget check: nothing may move the party meanwhile.
+    expect(core.starting).toBe("coin-flip");
+    const at = 2000 + COUNT_MS + 10;
+    expect(core.setMode(ann.token, "turn-based", at)).toEqual({ ok: false, why: "A game is starting. You can switch when it ends." });
+    expect(core.setRoom(ann.token, "camp", at)).toEqual({ ok: false, why: "A game is starting. You can change the room when it ends." });
+    expect(core.startGame("coin-flip", at).ok).toBe(true);
+    expect(core.starting).toBeNull();
+  });
+
+  it("lets the room be switched again when the start is refused", () => {
+    const { core, ann } = party();
+    stand(core, 0, 0, 2000);
+    stand(core, 1, 0, 2000);
+    core.tick(2000 + COUNT_MS);
+    core.refuseStart(2000 + COUNT_MS + 10);
+    expect(core.starting).toBeNull();
+    expect(core.setMode(ann.token, "turn-based", 2000 + COUNT_MS + 20).ok).toBe(true);
+  });
+});
+
+describe("a switch taken back", () => {
+  it("puts the mode and its cooldown back and drops the note, so the host can try again at once", () => {
+    const { core, ann } = party();
+    const done = core.setMode(ann.token, "turn-based", 2000);
+    core.undoMode(done.was);
+    expect(core.mode).toBe("party-games");
+    expect(core.drainNotes()).toEqual([]);
+    expect(core.setMode(ann.token, "turn-based", 2001).ok).toBe(true);
+  });
+});
+
 describe("the plain waiting room", () => {
   /** Ann and Bo in the plain room, past its rest. */
   function plain() {
@@ -191,6 +249,35 @@ describe("the plain waiting room", () => {
     core.disconnect(cy.token, now);
     expect(core.tick(now + 60_000).changed).toBe(true);
     expect(core.members[2]).toBeNull();
+  });
+
+  it("refuses a room pick (nobody sees the room's look there) and ignores emotes", () => {
+    const { core, ann, now } = plain();
+    expect(core.setRoom(ann.token, "camp", now)).toEqual({ ok: false, why: "The room's look is chosen on the Floor." });
+    expect(core.room).toBe("bar");
+    expect(core.emote(0, "popcorn", now)).toBeNull();
+    // The same emote on the Floor is passed on.
+    expect(party().core.emote(0, "popcorn", 2000).relay).toBeTruthy();
+  });
+
+  it("is not put away after twenty idle minutes while anyone is there, and adds no wake-up for it", () => {
+    const { core, now } = plain();
+    const quiet = core.lastActive;
+    // The room's next wake-up is its own limits only: no earlier than the Table's long stale limit.
+    expect(core.nextWake(now)).toBe(quiet + TABLE_STALE_MS);
+    expect(core.view(now).idleLimit).toBe(TABLE_STALE_MS);
+    expect(core.tick(quiet + STALE_ROOM_MS).close).toBeNull();
+    expect(core.tick(quiet + TABLE_STALE_MS - 1).close).toBeNull();
+    expect(core.tick(quiet + TABLE_STALE_MS).close).toBe("stale");
+  });
+
+  it("keeps the usual limit on the Floor, and at the Table once nobody is connected", () => {
+    const floor = party();
+    expect(floor.core.nextWake(5000)).toBe(floor.core.lastActive + STALE_ROOM_MS);
+    const { core, ann, bo, now } = plain();
+    core.disconnect(ann.token, now);
+    core.disconnect(bo.token, now);
+    expect(core.staleLimit()).toBe(STALE_ROOM_MS);
   });
 
   it("goes back to the character room, where the vote works again", () => {

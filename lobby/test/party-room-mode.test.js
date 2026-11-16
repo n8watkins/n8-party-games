@@ -2,9 +2,12 @@
 // message, saved before anyone hears of it, refused to the sender alone, the mode in the hello,
 // the room view and the preview, and kept through a restart.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { dropFakeRuntime, openRoom, settle, useFakeRuntime } from "./fake-room.js";
+import { dropFakeRuntime, fakeEnv, openRoom, settle, useFakeRuntime, walkIn } from "./fake-room.js";
 import { choosing, from, started, turnGame } from "./turn-game.js";
 import { MODE_COOLDOWN_MS } from "../shared/mode.js";
+import { COUNT_MS } from "../shared/vote.js";
+import { HOST_GRACE_MS, TABLE_STALE_MS } from "../server/lobby-core.js";
+import { STALE_ROOM_MS } from "../../party-kit/src/core/room-core.js";
 
 vi.mock("cloudflare:workers", () => ({
   DurableObject: class {
@@ -18,8 +21,8 @@ vi.mock("cloudflare:workers", () => ({
 const { createLobbyRoom } = await import("../server/lobby-room.js");
 
 /** Ann (the host), Bo and a big screen in the lobby, all connected. */
-async function party() {
-  const r = await openRoom(createLobbyRoom, turnGame());
+async function party(opts = {}) {
+  const r = await openRoom(createLobbyRoom, turnGame(), opts);
   const { ctx, connect } = r;
   ctx.keepAlive = true;
   const ann = await ctx.room.create({ code: "BCDFGH", nickname: "Ann", as: "player" });
@@ -147,5 +150,142 @@ describe("switching the party between the two waiting rooms", () => {
     r.say(r.ws.ann, { t: "b" });
     await settle();
     expect(since(r.ws.bo).filter((msg) => msg.t === "m" || msg.t === "b")).toEqual([]);
+  });
+
+  it("at the Table refuses a room pick and passes on no emote", async () => {
+    const r = await party();
+    r.say(r.ws.ann, { t: "mode", v: "turn-based" });
+    await settle();
+    const since = from(r.ws.ann, r.ws.bo);
+    r.say(r.ws.ann, { t: "pick", v: "camp" });
+    r.say(r.ws.ann, { t: "e", e: "popcorn" });
+    await settle();
+    expect(since(r.ws.ann)).toEqual([{ t: "pick-no", why: "The room's look is chosen on the Floor.", v: "bar" }]);
+    expect(since(r.ws.bo)).toEqual([]);
+  });
+});
+
+// The faults an independent review proved, each with the race held open the way it happens.
+describe("switching, in the gaps", () => {
+  it("refuses a switch while the vote's winner waits on the budget check, and the game starts on the Floor", async () => {
+    const env = fakeEnv({ budget: [] });
+    let release;
+    const gate = new Promise((done) => (release = done));
+    const stub = env.PARTY_BUDGET.getByName();
+    env.PARTY_BUDGET.getByName = () => ({ ...stub, state: () => gate.then(() => "open") });
+    const r = await party({ env });
+    await walkIn(r.say, r.ctx, r.ws.ann, 0);
+    await walkIn(r.say, r.ctx, r.ws.bo, 1);
+    expect(r.ctx.room.core.count).not.toBeNull();
+    // The count runs out: the wake-up clears it and waits on the budget check.
+    await vi.advanceTimersByTimeAsync(COUNT_MS + 50);
+    expect(r.ctx.room.core.activity.kind).toBe("lobby");
+    expect(r.ctx.room.core.count).toBeNull();
+    const since = from(r.ws.ann);
+    r.say(r.ws.ann, { t: "mode", v: "turn-based" });
+    r.say(r.ws.ann, { t: "pick", v: "camp" });
+    await settle();
+    expect(since(r.ws.ann)).toEqual([
+      { t: "mode-no", why: "A game is starting. You can switch when it ends.", v: "party-games" },
+      { t: "pick-no", why: "A game is starting. You can change the room when it ends.", v: "bar" },
+    ]);
+    release();
+    await settle();
+    expect({ mode: r.ctx.room.core.mode, activity: r.ctx.room.core.activity.kind, starting: r.ctx.room.core.starting }).toEqual({ mode: "party-games", activity: "game", starting: null });
+  });
+
+  it("lets the room be switched again when the budget check fails and nothing starts", async () => {
+    const env = fakeEnv({ budget: [] });
+    const stub = env.PARTY_BUDGET.getByName();
+    env.PARTY_BUDGET.getByName = () => ({ ...stub, state: async () => "spent" });
+    const r = await party({ env });
+    await walkIn(r.say, r.ctx, r.ws.ann, 0);
+    await walkIn(r.say, r.ctx, r.ws.bo, 1);
+    await vi.advanceTimersByTimeAsync(COUNT_MS + 50);
+    expect(r.ctx.room.core.activity.kind).toBe("lobby");
+    expect(r.ctx.room.core.starting).toBeNull();
+  });
+
+  it("keeps the controls with the host while the host's page moves, and a guest cannot switch or pick in that moment", async () => {
+    const r = await party();
+    r.say(r.ws.ann, { t: "mode", v: "turn-based" });
+    await settle();
+    // Bo's page has moved already; Ann's is still loading (her socket is gone).
+    r.ctx.room.webSocketClose(r.ws.bo, 1001, "");
+    const bo2 = await r.connect(r.tokens.bo);
+    r.ctx.room.webSocketClose(r.ws.ann, 1001, "");
+    await settle();
+    expect(lastRoom(bo2.messages()).picker).toEqual({ seat: 0 });
+    await vi.advanceTimersByTimeAsync(MODE_COOLDOWN_MS);
+    const since = from(bo2);
+    r.say(bo2, { t: "mode", v: "party-games" });
+    await settle();
+    expect(since(bo2)).toEqual([{ t: "mode-no", why: "Only the one who started the party can switch rooms.", v: "turn-based" }]);
+    expect(r.ctx.room.core.mode).toBe("turn-based");
+    // A host gone longer than the grace (not a page moving): the next player holds the controls.
+    await vi.advanceTimersByTimeAsync(HOST_GRACE_MS);
+    r.say(bo2, { t: "mode", v: "party-games" });
+    await settle();
+    expect(r.ctx.room.core.mode).toBe("party-games");
+    r.say(bo2, { t: "pick", v: "camp" });
+    await settle();
+    expect(r.ctx.room.core.room).toBe("camp");
+  });
+
+  it("never frees a seat or hands the party over for good across a hop", async () => {
+    const r = await party();
+    r.say(r.ws.ann, { t: "mode", v: "turn-based" });
+    await settle();
+    r.ctx.room.webSocketClose(r.ws.ann, 1001, "");
+    await vi.advanceTimersByTimeAsync(3000);
+    const ann2 = await r.connect(r.tokens.ann);
+    await settle();
+    const hello = ann2.messages().find((m) => m.t === "hello");
+    expect(hello.you).toEqual({ role: "player", seat: 0 });
+    expect(hello.room.picker).toEqual({ seat: 0 });
+    expect(r.ctx.room.core.hostToken).toBe(r.tokens.ann);
+  });
+
+  it("takes back a switch that cannot be saved, tells only the sender, and takes the next try", async () => {
+    const r = await party();
+    const put = r.ctx.storage.put;
+    let fail = true;
+    r.ctx.storage.put = async (k, v) => {
+      if (fail) {
+        fail = false;
+        throw new Error("storage is down");
+      }
+      return put(k, v);
+    };
+    const since = from(r.ws.ann, r.ws.bo);
+    const quiet = vi.spyOn(console, "error").mockImplementation(() => {});
+    r.say(r.ws.ann, { t: "mode", v: "turn-based" });
+    await settle();
+    quiet.mockRestore();
+    expect(since(r.ws.ann)).toEqual([{ t: "mode-no", why: "The switch did not go through. Try again.", v: "party-games" }]);
+    expect(since(r.ws.bo)).toEqual([]);
+    expect(r.ctx.room.core.mode).toBe("party-games");
+    // Nothing unrelated later moves anyone: the next broadcast still says the Floor.
+    r.ctx.room.broadcastRoom(Date.now());
+    expect(lastRoom(since(r.ws.bo)).mode).toBe("party-games");
+    r.say(r.ws.ann, { t: "mode", v: "turn-based" });
+    await settle();
+    expect(r.ctx.room.core.mode).toBe("turn-based");
+    expect(r.ctx.store.get("lobby").mode).toBe("turn-based");
+  });
+
+  it("lets an idle party sit at the Table: no wake-up, and not put away after twenty minutes", async () => {
+    const r = await party();
+    r.say(r.ws.ann, { t: "mode", v: "turn-based" });
+    await settle();
+    await vi.advanceTimersByTimeAsync(7000);
+    const rang = r.ctx.alarm.rang;
+    await vi.advanceTimersByTimeAsync(STALE_ROOM_MS + 5 * 60_000);
+    expect(r.ctx.alarm.rang).toBe(rang);
+    expect(r.ctx.room.core).not.toBeNull();
+    expect(r.ws.ann.closed).toBeNull();
+    const now = Date.now();
+    expect(r.ctx.room.core.nextWake(now)).toBe(r.ctx.room.core.lastActive + TABLE_STALE_MS);
+    expect(r.ctx.room.timer ?? null).toBeNull();
   });
 });

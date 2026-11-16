@@ -395,7 +395,7 @@ export function createLobbyRoom(wallFor) {
         return this.changed(now);
       }
       // Start: the host's, and with every spot taken when the players are chosen on spots.
-      const may = core.mayStart(entry.token);
+      const may = core.mayStart(entry.token, now);
       if (!may.ok) return no(may);
       await this.launch(may.id, true);
       this.bill(now, 2); // this message's work, and the budget check
@@ -406,13 +406,21 @@ export function createLobbyRoom(wallFor) {
      * (`mode-no {why, v}`, with the mode the party is still in). A switch is saved before anyone
      * hears of it, so a page that moves and reconnects at once, or a room that restarts in
      * between, never finds the party back in the room it left. Then everyone gets the note and
-     * the room view, and every page whose mode is not the party's moves itself.
+     * the room view, and every page whose mode is not the party's moves itself. A switch that
+     * cannot be saved is taken back, and only the sender hears, so it can try again.
      */
     async switchMode(entry, msg, now) {
       const core = this.core;
       const done = core.setMode(entry.token, msg.v, now);
       if (!done.ok) return this.send(entry, { t: "mode-no", why: done.why, v: core.mode });
-      await this.save();
+      try {
+        await this.save();
+      } catch (err) {
+        console.error("party room: a switch could not be saved; it is taken back", err);
+        if (this.core !== core) return;
+        core.undoMode(done.was);
+        return this.send(entry, { t: "mode-no", why: "The switch did not go through. Try again.", v: core.mode });
+      }
       if (this.core !== core) return;
       this.changed(now);
     }
@@ -423,10 +431,18 @@ export function createLobbyRoom(wallFor) {
      */
     async launch(id, chosen = false) {
       const core = this.core;
-      const budget = await roomBudgetState(this.env).catch(() => "open");
-      if (this.core !== core) return;
-      if (budget === "open") await this.startGame(id, chosen);
-      else core.refuseStart(Date.now());
+      try {
+        const budget = await roomBudgetState(this.env).catch(() => "open");
+        if (this.core !== core) return;
+        // The vote is the Floor's: a game it chose never starts while the party is at the Table.
+        // (The room refuses a switch while a start is pending, core.starting; this is the last guard.)
+        if (core.plainRoom()) console.error(`party room: ${id} was not started: the party is at the Table`);
+        else if (budget === "open") await this.startGame(id, chosen);
+        else core.refuseStart(Date.now());
+      } finally {
+        // Started, refused, or failed: the room may be switched again.
+        core.startDone();
+      }
       this.changed(Date.now());
     }
 

@@ -1,7 +1,7 @@
 // The room a party is in: one shared choice, picked by the host, kept through a sleep, refused
 // during the count, the coin toss and a game, and not changed twice within a few seconds.
 import { describe, expect, it } from "vitest";
-import { DROP_FADE_MS as RECONNECT_GRACE_MS } from "../server/lobby-core.js";
+import { HOST_GRACE_MS, DROP_FADE_MS as RECONNECT_GRACE_MS } from "../server/lobby-core.js";
 import { game as coinFlip, manifest as coinFlipManifest } from "../games/coin-flip.js";
 import { LobbyCore } from "../server/lobby-core.js";
 import { DEFAULT_ROOM, ROOMS, ROOM_COOLDOWN_MS, isRoom, roomLocked } from "../shared/rooms.js";
@@ -93,7 +93,9 @@ describe("the party's room", () => {
     const ann = seated(core, "Ann");
     const bo = seated(core, "Bo");
     core.disconnect(ann.token, 2000);
-    expect(core.view(2000).picker).toEqual({ seat: bo.seat });
+    // A host only between pages (a moment) still holds the controls; one gone longer hands them on.
+    expect(core.view(2000).picker).toEqual({ seat: ann.seat });
+    expect(core.view(2000 + HOST_GRACE_MS).picker).toEqual({ seat: bo.seat });
     core.connect(ann.token, 3000);
     expect(core.view(3000).picker).toEqual({ seat: ann.seat });
     core.disconnect(ann.token, 4000);
