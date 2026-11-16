@@ -15,11 +15,14 @@
 // lobby/test/e2e-characters.mjs --measure), nothing is made per frame, and its idle hover does
 // not keep the room drawing every frame.
 //
-// `piece.faded` (nothing sets it yet) is where the ghost's own move comes in: the model already
-// knows how to be see-through, lighter and higher (fadeK below).
+// Its move (lobby/shared/ghost.js) comes in as `piece.faded`, 0 (solid) to 1, which the room view
+// sets each frame (its own player's ghost fades less): see-through, lighter, higher, with a rim of
+// light (fadeK below). `piece.booAt` is when it last scared or spooked someone: it swells, eyes
+// and mouth wide, for a moment. A ghost frightened by another reacts as any piece does (bumpPose).
 import * as THREE from "./three.js";
 import { GHOST, WISP, joinOf, wispAt, wispHalf } from "../characters/ghost-rig.js";
 import { isPale } from "../shared/characters.js";
+import { booAmount } from "../shared/ghost.js";
 import { JUMP_MS, WALK_SPEED, jumpHeight } from "../shared/world.js";
 import { EmoteArms, RIG_UNIT } from "./emote-arms.js";
 import { HOP_HEIGHT, HOP_MS, PAWN_HEIGHT, SIZE, bumpPose } from "./pieces.js";
@@ -63,6 +66,8 @@ const WHITE = new THREE.Color(0xffffff);
 const GREY = new THREE.Color("#8a8d94");
 const SOOT = new THREE.Color("#1c1512");
 const FUMING = new THREE.Color("#ff2a14");
+/** A white sheet cannot pale: a fright gives it a cool tinge instead. */
+const COOL = new THREE.Color("#cfe0ff");
 const tmpC = new THREE.Color();
 const at = new THREE.Object3D();
 
@@ -384,7 +389,7 @@ export function fadeGhost(g, left) {
 export function poseGhost(g, piece, now, dt, how) {
   const step = Math.min(dt, 1 / 30);
   const calm = how.calm;
-  const bump = bumpPose(piece, now);
+  const bump = bumpPose(piece, now, calm);
   const thrown = bump.x !== null;
   if (thrown) piece.rx = bump.x;
   g.prevX ??= piece.rx;
@@ -401,7 +406,12 @@ export function poseGhost(g, piece, now, dt, how) {
   // What an emote asked of the body last frame (emoteGhost): the turn of its face, a swell, its nubs tucked away.
   const want = g.want;
   g.want = null;
-  const fl = (g.fadeK += ((piece.faded ? 1 : 0) - g.fadeK) * Math.min(1, step * 9));
+  const fadeAim = piece.faded || 0;
+  g.fadeK += (fadeAim - g.fadeK) * Math.min(1, step * 9);
+  if (Math.abs(fadeAim - g.fadeK) < 0.005) g.fadeK = fadeAim;
+  const fl = g.fadeK;
+  // Its boo: a swell, wide eyes and an open mouth, for a moment after it scared or spooked someone.
+  const boo = booAmount(now - (piece.booAt ?? -Infinity));
   // Knocked over, it lies on the floor like anything else; then it lifts off again.
   g.ground += ((bump.dizzy ? 1 : 0) - g.ground) * Math.min(1, step * 14);
   const floaty = 1 - g.ground;
@@ -412,7 +422,7 @@ export function poseGhost(g, piece, now, dt, how) {
   [g.sq, g.sqV] = spring(g.sq, g.sqV, air ? 1.07 : 1, 150, 10, step);
   g.sq = clamp(g.sq, 0.68, 1.25);
   [g.lean, g.leanV] = spring(g.lean, g.leanV, -speed * 0.1, 95, 12, step);
-  [g.puff, g.puffV] = spring(g.puff, g.puffV, want ? want.puff : 0, 240, 13, step);
+  [g.puff, g.puffV] = spring(g.puff, g.puffV, want ? want.puff : 0.2 * boo, 240, 13, step);
   const walking = how.walking && !thrown;
   const facing = walking ? Math.sign(speed || piece.face) * 0.7 : want ? want.yaw : GHOST.yaw * piece.face;
   g.yaw += (facing - g.yaw) * Math.min(1, step * 10);
@@ -496,7 +506,9 @@ export function poseGhost(g, piece, now, dt, how) {
   g.glints.position.copy(g.eyes.position);
   g.mouthAt.position.set(dLx * mk, MOUTH.y + dY * mk, MOUTH.z + dLz * mk);
   g.dizzy = bump.dizzy;
-  faceGhost(g, bump.dizzy ? 0.9 : calm ? 0 : blinkAt(now, piece.seat), 1, null);
+  // Wide-eyed for its own boo, or when something frightened it; an open mouth for the boo.
+  const fright = Math.max(boo, bump.scared);
+  faceGhost(g, bump.dizzy ? 0.9 : calm || fright > 0 ? 0 : blinkAt(now, piece.seat), 1 + 0.35 * fright, boo > 0.25 ? "laugh" : bump.scared > 0.5 ? "o" : null);
 
   // The shadow stays on the floor and tightens as the ghost leaves it; a faded ghost barely has one.
   const off = Math.max(0.45, 1 - Math.max(0, rise) * PX * 0.6);
@@ -515,7 +527,7 @@ export function poseGhost(g, piece, now, dt, how) {
   g.opacity = clamp(1 - 0.5 * fl, 0.2, 1) * (g.fade < 1 ? g.fade * 0.8 : 1) * (g.connected ? 1 : DROPPED_OPACITY);
   const clear = g.opacity < 0.985;
   for (const m of [g.mat, g.softMat]) {
-    m.color.copy(WHITE).multiplyScalar(k).lerp(SOOT, char * 0.82);
+    m.color.copy(WHITE).multiplyScalar(k).lerp(SOOT, char * 0.82).lerp(COOL, 0.45 * bump.pale);
     m.emissive.copy(g.glow).lerp(SOOT, char);
     m.emissiveIntensity = (g.connected ? GLOW : 0.04) + 0.14 * lit + 1.1 * fl;
     if (m.transparent !== clear) {
@@ -533,7 +545,7 @@ export function poseGhost(g, piece, now, dt, how) {
   // (room3d.js draws every frame only while something moves), so a room of idle ghosts costs what a room of idle pawns does.
   const moving =
     walking || air || bump.state !== "idle" || yelp > 0 || Math.abs(dX) > STILL.trail || Math.abs(g.trV) > STILL.trailV || Math.abs(g.sqV) > STILL.squashV || Math.abs(g.leanV) > STILL.leanV || Math.abs(g.puffV) > STILL.puffV ||
-    Math.abs(facing - g.yaw) > 0.01 || Math.abs(how.lit - g.lit) > 0.01 || (fl > 0.01 && fl < 0.99);
+    Math.abs(facing - g.yaw) > 0.01 || Math.abs(how.lit - g.lit) > 0.01 || fl !== fadeAim || boo > 0;
   g.busy = moving;
   return { up: rise + (tall - 1) * GHOST_HEIGHT - BELOW_PAWN, moving, shock: bump.shock, burst: bump.burst, dust: bump.dust, state: bump.state };
 }
