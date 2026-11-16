@@ -55,19 +55,22 @@ legend { padding: 0; }
 .ground .l-pulse { background: var(--pink); transition: none; }
 .game[data-heat="warm"] .l-warm, .game[data-heat="hot"] .l-warm, .game[data-heat="hot"] .l-hot, .game[data-heat="strain"] .l-hot, .game[data-heat="critical"] .l-hot, .game[data-heat="critical"] .l-crit, .game[data-heat="boom"] .l-crit { opacity: 1; }
 .game[data-heat="strain"] .l-crit { opacity: 0.45; }
-.game[data-heat="strain"] .l-pulse { --to: 0.16; animation: pulse 0.8s ease-in-out infinite alternate; }
-.game[data-heat="critical"] .l-pulse { --to: 0.3; animation: pulse 0.5s ease-in-out infinite alternate; }
+/* The pulse stays soft enough that every word keeps 4.5:1 at its brightest (yellow on the critical
+   band is the closest, at 4.67:1). */
+.game[data-heat="strain"] .l-pulse { --to: 0.12; animation: pulse 0.8s ease-in-out infinite alternate; }
+.game[data-heat="critical"] .l-pulse { --to: 0.15; animation: pulse 0.5s ease-in-out infinite alternate; }
 .game[data-heat="hot"], .game[data-heat="strain"], .game[data-heat="critical"], .game[data-heat="boom"] { --lbl: var(--soft); }
 .game[data-paused="yes"] .l-pulse { animation-play-state: paused; }
 @keyframes pulse { from { opacity: 0; } to { opacity: var(--to, 0.3); } }
-/* A verdict tints the ground for a moment; the burst flashes it white. */
+/* A verdict tints the ground for a moment; the burst lights it up briefly (a light flash, never a
+   blank white screen). */
 .ground .tint { transition: none; }
 .game[data-react="right"] .tint { background: #12a35c; animation: tint 1.2s ease-out both; }
 .game[data-react="wrong"] .tint { background: #c81e3a; animation: tint 1.2s ease-out both; }
 @keyframes tint { 0% { opacity: 0; } 12%, 70% { opacity: 0.88; } 100% { opacity: 0; } }
 .ground .flash { background: #fff; transition: none; }
-.game[data-phase="burst"] .flash { animation: flash 0.5s ease-out both; }
-@keyframes flash { 0% { opacity: 1; } 100% { opacity: 0; } }
+.game[data-phase="burst"] .flash { animation: flash 0.35s ease-out both; }
+@keyframes flash { 0% { opacity: 0.4; } 100% { opacity: 0; } }
 
 .gi {
   position: absolute; display: grid; min-height: 0;
@@ -76,6 +79,9 @@ legend { padding: 0; }
   gap: clamp(4px, 1.2cqh, 12px); padding: clamp(10px, 2.4cqmin, 22px) clamp(16px, 3.2cqw, 26px);
   max-width: 1280px; margin: 0 auto;
 }
+/* The screen takes the keyboard for a moment after a pause while the go button settles (app.js):
+   no ring around the whole screen. */
+.gi:focus { outline: none; }
 .top { grid-area: top; min-width: 0; }
 .pot { grid-area: pot; position: relative; min-height: 0; min-width: 0; }
 .potato-art { position: absolute; inset: 0; width: 100%; height: 100%; display: block; overflow: visible; pointer-events: none; }
@@ -147,13 +153,17 @@ legend { padding: 0; }
 .holder { min-width: 0; display: flex; align-items: baseline; justify-content: flex-end; gap: 0.3em; font: 400 clamp(17px, 4.4cqmin, 24px)/1 var(--display); text-transform: uppercase; letter-spacing: 0.04em; white-space: nowrap; }
 .holder b { font-weight: 400; font-size: 1.55em; color: var(--y); overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 .bar { display: flex; align-items: center; gap: 10px; min-width: 0; }
+/* Lives: a solid block for each left, an empty outline (light, at least 3:1 on every ground) for
+   each lost, so they read by shape as well as colour. The one at risk warms from yellow to pink
+   with the potato's stress, as the fuse does. */
 .life { display: inline-flex; align-items: center; gap: 4px; flex: none; }
-.life i { width: 13px; height: 15px; transform: var(--slant); background: rgba(26, 20, 51, 0.45); border: 2px solid rgba(223, 227, 255, 0.55); transition: background 0.4s, border-color 0.4s; }
+.life i { width: 13px; height: 15px; transform: var(--slant); background: none; border: 2px solid var(--soft); transition: background 0.4s, border-color 0.4s; }
 .life i.on { background: var(--y); border-color: var(--ink); }
+.life i.on.risk { background: color-mix(in srgb, var(--pink) calc(var(--stress, 0) * 100%), var(--y)); transition: border-color 0.4s; }
 .lifelbl { font: 400 15px/1 var(--display); text-transform: uppercase; letter-spacing: 0.06em; color: var(--lbl); white-space: nowrap; flex: none; }
 .fuse { flex: 1; min-width: 40px; }
 .fuse .track { position: relative; height: 14px; background: rgba(26, 20, 51, 0.6); border: 2px solid var(--ink); transform: var(--slant); }
-.fuse .cable { position: absolute; left: 0; top: 0; bottom: 0; width: var(--f); background: var(--y); }
+.fuse .cable { position: absolute; left: 0; top: 0; bottom: 0; width: var(--f); background: color-mix(in srgb, var(--pink) calc(var(--stress, 0) * 100%), var(--y)); }
 .fuse.low .cable { background: var(--pink); }
 .fuse .spark { position: absolute; left: var(--f); top: 50%; width: 26px; height: 26px; transform: translate(-50%, -50%); border-radius: 50%; background: radial-gradient(circle, #fff 0 18%, var(--y) 34%, rgba(255, 210, 63, 0) 68%); opacity: 0; }
 .game[data-lit="yes"] .fuse .spark { opacity: 1; animation: spark 0.5s ease-in-out infinite alternate; }
@@ -220,11 +230,12 @@ legend { padding: 0; }
 .mark.ok::after { content: ""; width: 10px; height: 5px; border: solid var(--ink); border-width: 0 0 3px 3px; transform: translateY(-2px) rotate(-45deg); }
 .mark.bad { background: var(--pink); }
 .mark.bad::after { content: "!"; font: 400 16px/1 var(--display); color: var(--ink); }
-.acts { display: flex; flex-wrap: wrap; gap: 8px; }
+.acts { display: flex; flex-wrap: wrap; gap: 8px; min-width: 0; }
 .acts > * { flex: 1 1 100%; }
 .acts .appeal { border-color: var(--y); color: var(--y); }
 .typed { display: flex; gap: 8px; min-width: 0; }
-.typed input { flex: 1; min-width: 0; min-height: 50px; padding: 0 14px; border: 3px solid var(--ink); background: #fff; color: var(--ink); font: 400 20px/1 var(--display); letter-spacing: 0.03em; text-transform: uppercase; user-select: text; -webkit-user-select: text; transform: var(--slant); }
+/* width: 0 so the box's own default width never pushes the row (and "Say it") off a narrow screen. */
+.typed input { flex: 1; width: 0; min-width: 0; min-height: 50px; padding: 0 14px; border: 3px solid var(--ink); background: #fff; color: var(--ink); font: 400 20px/1 var(--display); letter-spacing: 0.03em; text-transform: uppercase; user-select: text; -webkit-user-select: text; transform: var(--slant); }
 .typed input::placeholder { color: #6b6890; text-transform: none; font: 16px var(--text); }
 .typed .cap { min-height: 50px; flex: none; padding: 0 16px; background: var(--y); color: var(--ink); border-color: var(--ink); }
 
@@ -245,7 +256,8 @@ legend { padding: 0; }
 @keyframes fadein { from { opacity: 0; transform: var(--slant); } to { opacity: 1; transform: var(--slant); } }
 .game[data-phase="burst"] .bot-turn > :not(.status), .game[data-phase="burst"] .turnhead .bar { visibility: hidden; }
 @keyframes pop { 0% { opacity: 0; transform: var(--slant) scale(0.3); } 16% { opacity: 1; transform: var(--slant) scale(1.06); } 28% { transform: var(--slant) scale(1); } 80% { opacity: 1; transform: var(--slant) scale(1); } 100% { opacity: 0; transform: var(--slant) scale(1); } }
-.game[data-react] .bot-turn > *, .game[data-react] .turnhead { animation: stepback 1.2s ease-out both; }
+/* The appeal buttons (in .acts) stay clearly visible throughout: the group may need them at once. */
+.game[data-react] .bot-turn > :not(.acts), .game[data-react] .turnhead { animation: stepback 1.2s ease-out both; }
 @keyframes stepback { 0% { opacity: 1; } 10%, 75% { opacity: 0.12; } 100% { opacity: 1; } }
 @container game (min-aspect-ratio: 1/1) { .react { padding: 0 16px; align-content: center; justify-items: end; padding-right: max(6cqw, 24px); } .rv { width: 48cqw; } }
 
@@ -292,7 +304,6 @@ legend { padding: 0; }
   .typed input, .typed .cap { min-height: 46px; }
 }
 @container game (max-height: 600px) and (max-aspect-ratio: 1/1) {
-  .lifelbl { display: none; }
   .holder b { font-size: 1.35em; }
   .after { font-size: min(11cqi, calc(92cqi / (max(var(--n), 6) * 0.47)), 40px); }
   .tag span { font-size: 58px; }
@@ -302,7 +313,11 @@ legend { padding: 0; }
 /* Narrow sideways (a phone on its side): the info column needs more of the width */
 @container game (min-aspect-ratio: 1/1) and (max-width: 900px) {
   .gi { grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr); column-gap: 12px; padding: 8px 14px; }
-  .lifelbl, .lastword .lbl, .v-start .lede { display: none; }
+  /* The start screen: the title over the potato, the setup down the whole right side, so a note
+     (cannot listen, microphone blocked) still fits. */
+  .game[data-screen="start"] .gi { grid-template-areas: "top bot" "pot bot"; }
+  .game[data-screen="start"] .bot { justify-content: center; }
+  .lastword .lbl, .v-start .lede { display: none; }
   .lede { font-size: 13px; margin-top: 2px; }
   .cat { font-size: 16px; }
   .holder { font-size: 16px; }
@@ -339,8 +354,21 @@ legend { padding: 0; }
   .turnhead { gap: 4px; }
   .ibtn { width: 40px; height: 40px; min-width: 40px; }
   .keys { display: none; }
+  /* Short sideways setup: the small labels beside their controls, and a tighter note. */
+  .setrow .field { display: flex; align-items: center; gap: 8px; }
+  .note { font-size: 12px; line-height: 1.3; padding: 5px 8px; }
+}
+/* The smallest sideways phones (568x320): the setup's buttons a little shorter, so the longest note
+   (the microphone blocked, on an iPhone) and Start still fit. */
+@container game (min-aspect-ratio: 1/1) and (max-height: 340px) {
+  .chips .chip, .setup .cap { min-height: 36px; }
+  .go .plate { min-height: 40px; }
+  .setup { gap: 5px; }
+  .chips { gap: 5px; }
 }
 @container game (max-width: 359px) {
+  /* Too narrow for "5 lives" beside the squares and the fuse: the squares alone (by shape and colour). */
+  .lifelbl { display: none; }
   .gi { padding-left: 12px; padding-right: 12px; }
   .stepper .cap { width: 44px; }
   .setrow { gap: 8px 12px; }

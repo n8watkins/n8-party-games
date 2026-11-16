@@ -167,6 +167,12 @@ for (const [name, viewport] of SIZES) {
   check(desktop ? /click, then say/.test(button) : /tap and say/.test(button), `${name}: the button speaks to this device ("${button}")`);
   const body = await page.textContent("body");
   check(!/your phone|this phone/i.test(body), `${name}: the wording never assumes a phone`);
+  // Suggestions are seen before speaking, and the turn button stays in reach.
+  const fold = async () => page.evaluate(() => ({ bottom: Math.round(document.getElementById("turn").getBoundingClientRect().bottom), h: window.innerHeight }));
+  const shownNow = async () => (await page.isVisible("#suggestions")) && /^Try: \S/.test(await page.textContent("#suggestions"));
+  check(await shownNow(), `${name}: suggestions shown (${await page.textContent("#suggestions")})`);
+  const f = await fold();
+  check(f.bottom <= f.h, `${name}: the turn button is above the fold with suggestions shown (bottom ${f.bottom} of ${f.h}px)`);
   await page.screenshot({ path: `${SHOTS}/load-${name}.png` });
   await page.screenshot({ path: `${SHOTS}/load-${name}-full.png`, fullPage: true });
   // The longest picker label and the dead-end note must fit too.
@@ -175,6 +181,9 @@ for (const [name, viewport] of SIZES) {
     await listLoaded(page);
     const wide = await page.evaluate((w) => Math.max(document.documentElement.scrollWidth, window.innerWidth) - w, viewport.width);
     check(wide <= 0, `${name}: no sideways scroll with ${id} chosen (${wide}px)`);
+    // (At 320x568 the food and animal dead-end notes already pushed it below, before suggestions.)
+    const g = await fold();
+    if (name !== "320x568") check(g.bottom <= g.h, `${name}: the turn button is above the fold with ${id} suggestions (bottom ${g.bottom} of ${g.h}px)`);
   }
   check(await page.isVisible("#deadNote"), `${name}: the dead-end note is shown for animals`);
   await page.screenshot({ path: `${SHOTS}/animals-${name}.png` });
@@ -224,12 +233,14 @@ for (const [name, viewport] of SIZES) {
   await play([[200, "interim", "Accra"], [900, "final", [["Accra", 0.9]]]], 9);
   await play([[200, "interim", "Acapulco"], [300, "final", [["Acapulco", 0.9]]]], 10);
   await play([[200, "interim", "Orange"], [300, "final", [["Orange", 0.78]]]], 11);
-  check((await page.textContent("#verdict")).includes("only in hard mode"), "Orange is only in hard mode");
-  await page.check("#hard");
+  const lesser = await page.textContent("#verdict");
+  check(lesser === 'No: Orange (United States) is a lesser-known town of 141k, not on the well-known list (taken with "Also allow lesser-known cities" on)', `Orange is refused as lesser known (${lesser})`);
+  check(!/hard/i.test(await page.textContent(".play")), "no 'hard' anywhere on the play side");
+  await page.check("#wide");
   await play([[200, "interim", "Orange"], [300, "final", [["Orange", 0.78]]]], 12);
   const orange = await page.textContent("#verdict");
-  check(/^Yes: Orange \(California, United States, 141k\), exact \(the city, not the word\); there is also one in Australia/.test(orange), `hard mode takes Orange, naming the bigger one (${orange})`);
-  await page.uncheck("#hard");
+  check(/^Yes: Orange \(California, United States, 141k\), exact \(the city, not the word\); there is also one in Australia/.test(orange), `with lesser-known cities allowed, Orange is taken, naming the bigger one (${orange})`);
+  await page.uncheck("#wide");
   await play([[400, "error", "no-speech"]], 13);
   // Hands-free: two turns queued, one tap; the second starts by itself. Escape stops the third.
   await page.evaluate(() => window.__turns.push([[200, "interim", "Edmonton"], [400, "final", [["Edmonton", 0.89], ["Edmundton", 0.89]]]], [[200, "interim", "Nairobi"], [250, "final", [["Nairobi", 0.85]]]]));
@@ -250,18 +261,24 @@ for (const [name, viewport] of SIZES) {
   const report = await page.evaluate(() => navigator.clipboard.readText());
   console.log("---- copied report ----\n" + report + "\n-----------------------");
   const line = (n) => report.split("\n").find((l) => l.startsWith(`#${n} `)) ?? "";
-  check(report.startsWith("Hot Potato hearing test, v3 (matching rules m3)"), "the report says v3 and the rules version");
+  check(report.startsWith("Hot Potato hearing test, v4 (matching rules m3)"), "the report says v4 and the rules version");
   check(/^device: desktop \(Linux, Chrome \d+\)/m.test(report), "the report names a desktop, its system and browser");
   check(/^microphone: chosen: headset \(2 inputs\); used by recognition: yes$/m.test(report), "the report names the microphone only by its kind");
   check(!/Jabra|Realtek/.test(report), "no microphone's own name in the report");
-  check(report.split("\n").filter((l) => /^#\d+ m3 cities (known|hard) /.test(l)).length === 15, "every turn line carries the rules version, the category and the list");
+  check(report.split("\n").filter((l) => /^#\d+ m3 cities (known|wide) /.test(l)).length === 15, "every turn line carries the rules version, the category and the list");
+  check(!/ hard /.test(report), "the report no longer writes 'hard'");
+  check(/sugg:own$/.test(line(1)), "turn 1: Los Angeles was not among the suggestions (sugg:own)");
+  check(/sugg:read$/.test(line(4)) && /sugg:read$/.test(line(5)), "turns 4 and 5: Yokohama and Amsterdam were read from the suggestions (sugg:read)");
+  check(!/sugg:/.test(line(13)), "turn 13: nothing heard, no suggestion token");
+  check(/read from suggestions [1-9]/.test(report), "the summary counts the turns read from the suggestions");
+  check(/ suggestions=on /.test(report), "the settings line says suggestions are on");
   check(/RIGHT exact Los Angeles US/.test(line(1)) && /by final/.test(line(1)), "turn 1: Los Angeles, exact, decided on the final (early off)");
   check(/RIGHT alternative Sydney AU/.test(line(2)) && /MISHEARD/.test(line(2)), "turn 2: Sydney from the second guess, marked misheard");
   check(/WRONG word \(heard "salmon"/.test(line(3)) && /APPEAL:real\b/.test(line(3)), "turn 3: salmon, an ordinary word, appealed from the log");
   check(/WRONG/.test(line(7)) && /APPEAL:real\b/.test(line(7)), "turn 7: Leopold refused, appealed under the verdict");
   check(/RIGHT exact Accra GH \(heard "accra", by interim\)/.test(line(9)) && /early-would:Accra@\d+/.test(line(9)) && !/final-differs/.test(line(9)), "turn 9: Accra answered early from a stable interim, and the final agreed");
-  check(/WRONG hard-only Orange/.test(line(11)) && / known /.test(line(11)), "turn 11: Orange, hard mode only");
-  check(/RIGHT exact Orange US/.test(line(12)) && / hard /.test(line(12)), "turn 12: Orange in hard mode");
+  check(/WRONG lesser-known Orange/.test(line(11)) && / known /.test(line(11)), "turn 11: Orange, lesser known, on the well-known list");
+  check(/RIGHT exact Orange US/.test(line(12)) && / wide /.test(line(12)), "turn 12: Orange with lesser-known cities allowed (wide)");
   check(/NONE/.test(line(13)) && /err:no-speech/.test(line(13)), "turn 13: nothing heard, no-speech error");
   check(/RIGHT exact Edmonton CA/.test(line(14)) && /RIGHT exact Nairobi KE/.test(line(15)) && /auto/.test(line(15)), "turns 14 and 15: hands-free, Edmonton then Nairobi");
   check(/summary: turns 15, right 11, wrong 3, nothing heard 1, misheard 1, sound-alike 0, appeals real 2 wrong 0/.test(report), "summary counts, with appeals");
@@ -291,6 +308,38 @@ for (const [name, viewport] of SIZES) {
   check(/^device: phone \(Android, Chrome 157\)/m.test(report), "phone: the report names an Android phone");
   check(/RIGHT exact Oslo NO/.test(report), "phone: Oslo by tap");
   await page.screenshot({ path: `${SHOTS}/game-390.png` });
+
+  // Suggestions: for the letter needed (O after Oslo), never Oslo again; "more" shows others;
+  // tapping one starts nothing; the switch hides them, and this device remembers it.
+  const list = async () => (await page.$$eval("#suggestList .suggestion", (els) => els.map((e) => e.textContent)));
+  const first = await list();
+  check(first.length >= 3 && first.length <= 4 && first.every((s) => s.startsWith("O")) && !first.includes("Oslo"), `phone: suggestions start with O, not Oslo (${first.join(", ")})`);
+  await page.tap("#suggestMore");
+  const more = await list();
+  check(more.length >= 3 && more.every((s) => s.startsWith("O") && !first.includes(s)), `phone: "more" shows others (${more.join(", ")})`);
+  const startsBefore = await page.evaluate(() => window.__starts);
+  await page.tap("#suggestList .suggestion");
+  await page.waitForTimeout(300);
+  check((await page.evaluate(() => window.__starts)) === startsBefore && (await page.textContent("#turn")).startsWith("Your turn"), "phone: tapping a suggestion starts nothing");
+  await page.evaluate((w) => window.__turns.push([[200, "interim", w], [300, "final", [[w, 0.9]]]]), more[0]);
+  await page.tap("#turn");
+  await turnsDone(page, 2);
+  check((await page.textContent("#log li:first-child .row-extra")).includes("read from the suggestions"), "phone: a suggestion read after 'more' is marked in the log");
+  await page.tap("#suggest");
+  check(!(await page.isVisible("#suggestions")), "phone: the switch hides the suggestions");
+  const fold = await page.evaluate(() => ({ bottom: Math.round(document.getElementById("turn").getBoundingClientRect().bottom), h: window.innerHeight }));
+  check(fold.bottom <= fold.h, `phone: the turn button is above the fold after two turns (bottom ${fold.bottom} of ${fold.h}px)`);
+  await page.reload();
+  await listLoaded(page);
+  check(!(await page.isChecked("#suggest")) && !(await page.isVisible("#suggestions")), "phone: after a reload the suggestions stay hidden on this device");
+  await page.evaluate(() => window.__turns.push([[200, "interim", "Paris"], [300, "final", [["Paris", 0.9]]]]));
+  await page.tap("#turn");
+  await turnsDone(page, 1);
+  await page.click("#copy");
+  const hidden = await page.evaluate(() => navigator.clipboard.readText());
+  check(/^#1 .*sugg:hidden$/m.test(hidden) && / suggestions=off /.test(hidden), "phone: with suggestions hidden the turn says sugg:hidden");
+  await page.tap("#suggest");
+  check(await page.isVisible("#suggestions"), "phone: the switch shows them again");
   check(errors.length === 0, `phone: no console errors ${errors.join(" | ")}`);
   await context.close();
 }
@@ -309,7 +358,8 @@ for (const [name, viewport] of SIZES) {
   check((await page.textContent("#turn")) === "Your turn: click, then say an animal", "the button asks for an animal");
   check((await page.textContent("#need")) === "Say any animal to start", "the chain line asks for an animal");
   check(/^Dead ends: U, X, Y and Z \(fewer than 3 animals start with them\)/.test(await page.textContent("#deadNote")), `the dead ends are named (${await page.textContent("#deadNote")})`);
-  check(/Hard mode: rare animals too/.test(await page.textContent("#hardText")) && !(await page.isDisabled("#hard")), "hard mode says what it adds for animals");
+  const wideText = `${await page.textContent("#wideText")} ${await page.textContent("#wideNote")}`;
+  check(wideText === "Also allow lesser-known animals: rarer animals too, every one WordNet names (accepts more answers; off: well-known animals only)" && !(await page.isDisabled("#wide")), `the lesser-known switch says what it adds for animals (${wideText})`);
   let n = 0;
   const say = async (steps, key) => {
     await page.evaluate((s) => window.__turns.push(s), steps);
@@ -344,7 +394,7 @@ for (const [name, viewport] of SIZES) {
 
   await page.selectOption("#category", "countries");
   await listLoaded(page);
-  check(await page.isDisabled("#hard"), "countries have no hard mode: the switch is off");
+  check(await page.isDisabled("#wide") && (await page.textContent("#wideText")) === "Also allow lesser-known countries: there are none", "countries have no lesser-known ones: the switch is off");
   const mexico = await say([[200, "interim", "Mexico"], [300, "final", [["Mexico", 0.9]]]]);
   check(/^Yes: Mexico \(North America\), exact/.test(mexico), `Mexico (${mexico})`);
   check((await page.textContent("#need")) === "Next: a country starting with C", "after Mexico (O is a dead end) the next country starts with C");
@@ -383,6 +433,10 @@ for (const [name, viewport] of SIZES) {
     { content: `Object.defineProperty(window, "localStorage", { get() { throw new DOMException("denied", "SecurityError"); } }); (${fake.toString()})();` },
   );
   check((await page.inputValue("#category")) === "cities", "no storage: cities");
+  check(await page.isVisible("#suggestions"), "no storage: suggestions shown (on by default)");
+  await page.uncheck("#suggest");
+  check(!(await page.isVisible("#suggestions")), "no storage: the switch still hides them for this visit");
+  await page.check("#suggest");
   await page.selectOption("#category", "animals");
   await listLoaded(page);
   check((await page.textContent("#turn")) === "Your turn: tap and say an animal", "no storage: choosing a category still works");

@@ -25,6 +25,7 @@ import {
   showLetter,
   speaking,
   startTurn,
+  stressOf,
   tick,
 } from "./game.js";
 import { CATEGORIES, CATEGORY_IDS, DEFAULT_CATEGORY, dataUrl } from "./shared/categories.js";
@@ -427,13 +428,27 @@ function pause(on) {
   else restoreFocus();
 }
 
-/** After the pause, the keyboard goes back where it was, or to what the turn needs now. */
+/** Whether the keyboard can be put on `el`: on the page, enabled, and shown. */
+const usable = (el) => Boolean(el) && el.isConnected && !el.disabled && !el.closest("[hidden]") && el.getClientRects().length > 0 && getComputedStyle(el).visibility !== "hidden";
+/** The turn's area, which takes the keyboard while none of its controls can (the go button settling). */
+const turnArea = game.querySelector(".gi");
+turnArea.tabIndex = -1;
+let goWhenReady = false; // the keyboard moves on to the go button once it can be pressed
+
+/**
+ * After the pause, the keyboard goes back where it was, or to what the turn needs now: the word box
+ * while typing, the go button, the appeal; and while the go button is still settling after a
+ * verdict, the turn's area, until the go button can be pressed. Never a hidden or disabled control.
+ */
 function restoreFocus() {
   const before = focusBefore;
   focusBefore = null;
-  const usable = (el) => el && el.isConnected && !el.disabled && !el.closest("[hidden]") && el.getClientRects().length > 0;
-  const target = g?.phase === "listen" && typing() ? $("g-word") : usable(before) && before !== document.body ? before : $("g-go");
-  if (usable(target)) target.focus({ preventScroll: true });
+  goWhenReady = false;
+  const wanted = g?.phase === "listen" && typing() ? $("g-word") : before !== document.body ? before : null;
+  const target = [wanted, $("g-go"), $("g-appeal"), $("g-word")].find(usable);
+  if (target) return target.focus({ preventScroll: true });
+  turnArea.focus({ preventScroll: true });
+  goWhenReady = g?.phase === "ready";
 }
 $("g-pause").addEventListener("click", () => pause(true));
 $("p-resume").addEventListener("click", () => pause(false));
@@ -572,7 +587,12 @@ function render() {
   game.dataset.typing = typing() ? "yes" : "no";
   $("g-cat").textContent = cat.label;
   const life = $("g-life");
-  life.querySelectorAll("i").forEach((el, i) => el.classList.toggle("on", i < left));
+  life.querySelectorAll("i").forEach((el, i) => {
+    el.classList.toggle("on", i < left);
+    // The life at risk: it warms with the potato's stress (renderStress), as the fuse does.
+    el.classList.toggle("risk", i === left - 1);
+  });
+  renderStress();
   life.setAttribute("aria-label", `${left} ${left === 1 ? "life" : "lives"} left`);
   $("g-left").textContent = left === 0 ? "No lives" : left === 1 ? "Last life" : `${left} lives`;
   const holding = g.phase === "doom" || g.phase === "burst" || g.phase === "over";
@@ -589,6 +609,12 @@ function render() {
   $("g-fuse").classList.toggle("low", g.phase === "listen" && g.lit && g.fuse < 3000);
   renderStatus();
   renderActs();
+}
+
+/** The potato's stress within its stage, for the life at risk and the fuse to agree with it. */
+function renderStress() {
+  const s = stressOf(g).toFixed(3);
+  if (game.style.getPropertyValue("--stress") !== s) game.style.setProperty("--stress", s);
 }
 
 /** The last word, big, with the letter the next word needs boxed (dead ends skipped back past). */
@@ -730,7 +756,12 @@ function frame(now) {
     else if (g.phase === "listen" || g.phase === "ready") {
       game.style.setProperty("--f", `${(fuseShare(g) * 100).toFixed(2)}%`);
       $("g-fuse").classList.toggle("low", g.phase === "listen" && g.lit && g.fuse < 3000);
+      renderStress();
       if (g.phase === "ready") $("g-go").disabled = !canStart(g);
+    }
+    if (goWhenReady && g.phase === "ready" && canStart(g) && document.activeElement === turnArea) {
+      goWhenReady = false;
+      $("g-go").focus({ preventScroll: true });
     }
     art.set(artState(g));
   } else if (screen === "start") {

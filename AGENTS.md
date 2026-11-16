@@ -39,10 +39,11 @@ The global rules file (branches, pull requests, no merging without the owner's w
   `TEST_NO_GPU=1` keeps every test off the card, whatever else is set: the one switch when the card is busy or misbehaves.
 - Some browsers stay on software even with `TEST_GPU=1`: the still tools (`shoot*.mjs`, `weigh-baked.mjs`), whose pictures are for a person or compared with earlier ones; the browsers that stand for a device without hardware 3D (`e2e-feel`, `e2e-emotes`, the plain browser in `e2e-leave-rooms`), since a card gets the 3D look instead of the flat one; and `party-kit/test/e2e-turnstile.mjs`, which ships to game repos.
   GPU pixels differ from software ones and can change with a driver update, so any stored-image comparison must run on software.
-- `npm run predeploy` runs the full gate: unit tests, then `test:room`, `test:lobby` and `test:cork` against its own server, one after another.
+- `npm run predeploy` runs the full gate: unit tests, then `test:room`, `test:lobby`, `test:cork`, `test:hot-potato` and `test:hearing` against its own server, one after another.
   The same script is the GitHub workflow `predeploy-gate`.
 - One gate runs at a time on this machine: a second one waits for the first and says so (a flock on `$TMPDIR/n8-party-games-predeploy.lock`), so two gates never pick the same port.
-- On this PC the fastest safe way is `TEST_GPU=1 npm run predeploy` (or `TEST_GPU=1 npm run deploy`): the unit tests run first, then the three steps run side by side, each against a local Worker of its own with empty storage, and the gate takes about as long as its slowest step, `test:cork`.
+- On this PC the fastest safe way is `TEST_GPU=1 npm run predeploy` (or `TEST_GPU=1 npm run deploy`): the unit tests run first, then the five steps run side by side, each against a local Worker of its own with empty storage, and the gate takes about as long as its slowest step, now `test:hot-potato`.
+  Measured on 2026-11-16 with the five steps: 348 s side by side on the card (`test:hot-potato` 280 s, `test:cork` 218 s; 391 CPU seconds), against 858 s one after another in software.
   Measured on 2026-11-15: 221 and 236 s side by side on the card, against 614 s one after another on the card and 637 s in software (2,172 CPU seconds in software, about 320 on the card).
   Most of the gain is `test:cork` on a server of its own: it no longer waits minutes for the earlier steps' rooms to go quiet before it reads the room budget (415 s after the other steps, 212 to 226 s alone).
   Each step's output is printed whole when it ends, then a table of every step's time; the first failure stops the others and fails the gate.

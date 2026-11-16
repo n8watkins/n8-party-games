@@ -34,6 +34,15 @@ export const GRACE_MS = 1200;
 export const MIN_PLAYERS = 2;
 export const MAX_PLAYERS = 8;
 
+// Stress: how stressed the potato is within its stage (0 to 1), for the art only; it never
+// changes the rules. Each lost life starts the next stage at its baseline: 0 after one miss, more
+// after misses in a row (STRESS_AFTER_MISSES, by how many in a row). While a turn's fuse burns the
+// stress climbs toward 1 (up to STRESS_FROM_FUSE of the way there by the time it runs out); a
+// right answer ends that climb and takes STRESS_RELIEF off the baseline. The last miss is 1.
+export const STRESS_AFTER_MISSES = [0, 0.25, 0.45];
+export const STRESS_FROM_FUSE = 0.9;
+export const STRESS_RELIEF = 0.3;
+
 /** The light on the potato's plate, per stage, then dark when it has burst. */
 export const LIGHTS = ["#5dff6a", "#3fae48", "#ffc93a", "#ff9a1f", "#ff3b2f", "#2b2826"];
 
@@ -70,6 +79,8 @@ export function newRound({ index, players, first = 0 }) {
     used: new Set(),
     usedNames: new Set(),
     misses: 0,
+    streak: 0, // misses in a row
+    tension: 0, // the stage's stress baseline (see STRESS_AFTER_MISSES)
     turns: 0,
     appeals: 0,
     last: null,
@@ -171,7 +182,7 @@ export function refusalReason(g, m, required) {
       return `${said} starts with ${showLetter(said.replace(/[^A-Za-z]/g, "").charAt(0))}, not ${showLetter(required)}`;
     case "echo":
       return `${heard || "That"} was the last word again`;
-    case "hard-only":
+    case "lesser-known":
       return `${said} is too little known for this list`;
     case "word":
       return `"${heard}" is not ${a}`;
@@ -211,9 +222,21 @@ export function timeUp(g) {
   return missVerdict(g, verdict);
 }
 
+/** A right answer (or a refusal called right): the misses in a row end and it calms a notch. */
+function relax(g) {
+  g.streak = 0;
+  g.tension = Math.max(0, g.tension - STRESS_RELIEF);
+}
+/** A miss that costs a life: the next stage starts at its baseline for the misses in a row. */
+function tense(g) {
+  g.streak++;
+  g.tension = STRESS_AFTER_MISSES[Math.min(g.streak, STRESS_AFTER_MISSES.length) - 1];
+}
+
 function settleVerdict(g, verdict) {
   g.last = verdict;
   g.speaking = false;
+  relax(g);
   emit(g, "right", { by: verdict.by, word: verdict.word.said });
   passOn(g);
   return verdict;
@@ -229,6 +252,7 @@ function missVerdict(g, verdict) {
     emit(g, "doom", { by: verdict.by, why: verdict.why });
     return verdict;
   }
+  tense(g);
   g.stage++;
   emit(g, "worse", { by: verdict.by, stage: g.stage, why: verdict.why });
   passOn(g);
@@ -279,6 +303,7 @@ export function appeal(g) {
     const entry = { said, id: v.match?.place?.id ?? null, by: v.by, heard: v.heard, typed: v.typed, group: "", appealed: true };
     addWord(g, entry);
     g.misses = Math.max(0, g.misses - 1);
+    relax(g);
     if (g.phase === "doom") {
       g.doomLeft = 0;
       g.phase = "ready";
@@ -301,6 +326,7 @@ export function appeal(g) {
     burst(g, v.by);
     return true;
   }
+  tense(g);
   g.stage++;
   g.fuseMax = fuseFor(g.stage);
   g.fuse = g.fuseMax;
@@ -362,21 +388,33 @@ export const fuseShare = (g) => (g.phase === "listen" ? Math.max(0, Math.min(1, 
 export const livesLeft = (g) => Math.max(0, LIVES - g.stage);
 
 /**
+ * How stressed the potato is within its stage, 0 to 1 (see STRESS_AFTER_MISSES): the stage's
+ * baseline, climbing while the fuse burns; 1 on the last miss and once it has burst.
+ */
+export function stressOf(g) {
+  if (g.phase === "doom" || g.phase === "burst" || g.phase === "over") return 1;
+  const burning = g.phase === "listen" && g.lit ? 1 - fuseShare(g) : 0;
+  return Math.max(0, Math.min(1, g.tension + (1 - g.tension) * STRESS_FROM_FUSE * burning));
+}
+
+/**
  * Everything the potato's look needs, and nothing else: the seam between the rules and the
  * drawing (see art.js). `growth` is how far along it is, 0 healthy to 1 about to burst, from the
- * stage; `strain` adds the pressure of a burning fuse on top, so it swells a little as time runs
- * out and settles back after an answer; `fuse` is the fuse left while it burns (1 otherwise), which
- * the Specimen's eyes follow; `light` is the plate light's colour.
+ * stage; `stress` is how stressed it is within the stage (stressOf), the finer steps between two
+ * lost lives; `strain` is growth with the stress on top, so it swells a little as time runs out and
+ * settles back after an answer; `fuse` is the fuse left while it burns (1 otherwise), which the
+ * Specimen's eyes follow; `light` is the plate light's colour.
  */
 export function artState(g) {
   const burst = g.phase === "burst" || g.phase === "over";
   const stage = Math.min(g.stage, LIVES);
   const growth = burst ? 1 : Math.min(1, stage / LAST_STAGE);
-  const pressure = g.phase === "listen" ? 1 - fuseShare(g) : g.phase === "doom" ? 1 : 0;
-  const strain = burst ? 1 : Math.min(1, growth * 0.8 + pressure * 0.2);
+  const stress = stressOf(g);
+  const strain = burst ? 1 : Math.min(1, growth * 0.8 + stress * 0.2);
   return {
     stage,
     growth,
+    stress,
     strain,
     fuse: g.phase === "listen" && g.lit ? fuseShare(g) : 1,
     light: LIGHTS[Math.min(stage, LIGHTS.length - 1)],
