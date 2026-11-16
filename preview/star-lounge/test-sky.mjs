@@ -1,11 +1,13 @@
-// Runs the sky's timetable (src/sky.js) for a long simulated time and checks its promises:
-// one thing at a time, empty sky between, a rare thing stays rare.
+// Runs the sky's timetable (lobby/public/look3d/rendered/star-lounge/sky.js, which the preview and
+// the party room share) for a long simulated time and checks its promises: one thing at a time,
+// empty sky between, a rare thing stays rare. (npm test runs the same promises for a shorter time:
+// lobby/test/rendered.test.js.)
 //
 //   node preview/star-lounge/test-sky.mjs [--hours=500]
 //
 // It prints the numbers the page's Notes quote ("how often things pass"), and exits with 1 if a promise is broken.
 import assert from "node:assert/strict";
-import { THINGS, TIMES, createSky } from "./src/sky.js";
+import { THINGS, TIMES, createSky } from "../../lobby/public/look3d/rendered/star-lounge/sky.js";
 
 const hours = Number((process.argv.find((a) => a.startsWith("--hours=")) ?? "--hours=500").split("=")[1]);
 const seeded = (s) => () => ((s = (s * 1664525 + 1013904223) >>> 0) / 4294967296);
