@@ -364,6 +364,34 @@ It has no `game`, so the room never calls `create`: when it wins the vote the ro
 Nothing of the party carries over (not the code, the seats or the points), no points go on the Tonight board, and the party room empties and closes by its usual rules.
 A hosted game whose view cannot be mounted in the room yet is hung the same way, with its own `manifest.path` as the address.
 
+### Games at the Table
+
+The party has two waiting rooms (`lobby/shared/mode.js`): the Floor, where the vote above chooses a game, and the Table (`/party/`), a plain page where the host picks a turn-based game from a list.
+A Table game keeps the same contract as any turn-based game ("Turn-based games", "Who is here during a turn-based game"), run by the same room, with these differences.
+
+- **What it is.** A package in `TURN_GAMES` (`games.js`) exporting `game` and `manifest`.
+  The game must be turn-based (`tickHz: 0`) and must not have `settings` yet: the Table has no settings step.
+  The manifest adds `table: { view }`, the module under `manifest.path` whose `mount` shows the game at the Table ("In the browser"), and may add `pitch` (one line about the game) and `art` (the address of its door picture).
+  `buildTurnWall` in `lobby/wall.js` refuses a game that breaks any of this when the Worker loads, not when a party picks it.
+  A game in `TABLE_SOON` with the same id is replaced by the real one.
+- **The list.** The room view carries `table`: every entry (`id`, `name`, `pitch`, `min`, `max`, `art`, `soon`, `test`, `view`) with `why`, the reason the party cannot play it now in a few words ("Needs 3 or more", "For exactly 2", "Coming soon"), or null.
+  The party's size is its connected players (`lobby/shared/table.js`, `tableWhyNot`).
+  An entry marked `test` is listed only on a page whose address ends in `#dev`.
+- **The pick.** The host (or whoever holds the controls while the host is away, the same rule as every host tap) sends `{ t: "play", id }`.
+  It is refused to that page alone with `play-no { error, message }` unless the party is at the Table, nothing else is going on (no game, no settings step, no other start, no switch being saved, the room not closing), the game can start and the party's size is in range.
+  A yes is a beat of `PLAY_BEAT_MS` (three seconds) that everyone sees in the room view as `starting: { id, name, by, in }`; nothing may switch rooms or start another game meanwhile.
+  At its end the size is checked again, and the game starts as any game does (the budget check, `create`, `start`), or does not, with a `cancelled` note.
+  The beat lives in memory only: a restart during it starts nothing, and the host picks again.
+- **The players.** The seats are the phones connected when the game starts.
+  The room view's `game` carries `seats` at the Table, so every page knows who plays.
+  A player's page shows the game's view; the big screen shows it with `{ role: "screen", seat: -1 }`.
+  Anyone else, including whoever joins mid-game, stays on the Table and sees that a game is on; the room sends them the screen's view, which must hold no secret.
+  There is no audience at the Table.
+- **The end.** As for any turn-based game, plus one way more: the host sends `{ t: "stop" }` and the game ends with no points and a note, `note { k: "ended", why: "host", seat, name, text }` ("Ann ended Count to ten."), the card's `last.early` saying the same; anyone else is refused, `stop-no { error, message }`.
+  Everyone is back at the Table, with the card.
+
+Count to ten (`party/games/count-to-ten/`, view in `party/public/games/`) is the test game that shows the whole shape: per-seat secrets, a turn timer, `presence` skipping a dropped phone's turns, and a view that keeps to `mount`.
+
 ### What hosting a game through this takes
 
 On the server, nothing new: a `game` the kit's own rooms can run already has everything the party room calls, and result rows with a score already give places.

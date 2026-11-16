@@ -494,27 +494,39 @@ button.game-row:hover {
   font-size: 13px;
   line-height: 1.35;
 }
-.game-why,
-.game-go {
-  flex: none;
-  max-width: 40%;
-  padding: 5px 10px;
+.game-why {
+  justify-self: start;
+  margin-top: 4px;
+  padding: 3px 9px;
   border-radius: 999px;
+  background: #2c2018;
+  color: var(--soft);
   font-weight: 800;
   font-size: 12px;
   line-height: 1.25;
-  text-align: center;
-}
-.game-why {
-  background: #2c2018;
-  color: var(--soft);
 }
 .game-go {
+  flex: none;
   min-width: 56px;
   padding: 8px 14px;
+  border-radius: 999px;
   background: var(--amber);
   color: var(--amber-ink);
+  font-weight: 800;
   font-size: 14px;
+  text-align: center;
+}
+/* The news under the bar: shown only when it has something. */
+.news {
+  display: grid;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.news:not(:has(> :not([hidden]))) {
+  display: none;
+}
+.staged .news {
+  display: none;
 }
 .tag.test {
   padding: 2px 7px;

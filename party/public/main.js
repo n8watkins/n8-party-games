@@ -98,6 +98,15 @@ function build() {
   stop.addEventListener("click", () => openStop());
   const stageBox = h("div", "stage-box", "", stageWrap);
 
+  // What everyone must see without scrolling, under the bar: a game starting, a game on (for
+  // whoever waits here), and the last game's card.
+  const news = h("div", "news", "", app);
+  const banner = h("div", "banner", "", news);
+  banner.hidden = true;
+  const cardBox = h("div", "card", "", news);
+  cardBox.setAttribute("aria-label", "The last game");
+  cardBox.hidden = true;
+
   const grid = h("div", "grid", "", app);
 
   // The switch between the two rooms, for the one who holds the controls only (update): anyone
@@ -149,10 +158,6 @@ function build() {
   const gamesHead = h("div", "panel-head", "", games);
   h("h2", "", "Games", gamesHead);
   const gamesBy = h("span", "count", "", gamesHead);
-  const cardBox = h("div", "card", "", games);
-  cardBox.hidden = true;
-  const banner = h("div", "banner", "", games);
-  banner.hidden = true;
   const gameList = h("ul", "game-list", "", games);
   const playWhy = h("p", "switch-why", "", games);
   playWhy.setAttribute("role", "alert");
@@ -325,7 +330,8 @@ function updateGames(host) {
     const title = h("span", "game-name", entry.name, words);
     if (entry.test) h("span", "tag test", "Test", title);
     h("span", "game-meta", `${tablePlayers(entry)} · ${entry.pitch}`, words);
-    if (entry.why) h("span", "game-why", entry.why, row);
+    // The reason sits under the words, so the line about the game keeps the row's width.
+    if (entry.why) h("span", "game-why", entry.why, words);
     else if (can) h("span", "game-go", "Play", row);
   }
   if (!entries.length) h("li", "game-none", "No games yet.", ui.gameList);

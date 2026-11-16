@@ -50,6 +50,7 @@
     "test:drop": "node lobby/test/e2e-drop.mjs",
     "test:mode": "node lobby/test/e2e-mode.mjs",
     "test:two-rooms": "node lobby/test/e2e-two-rooms.mjs",
+    "test:table": "node lobby/test/e2e-table.mjs",
     "lobby:shots": "node lobby/test/shoot.mjs",
     "lobby:measure": "node lobby/test/measure.mjs",
     "test:cork:3d": "node lobby/test/e2e-cork-3d.mjs",
