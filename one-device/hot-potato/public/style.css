@@ -358,6 +358,14 @@ legend { padding: 0; }
   .setrow .field { display: flex; align-items: center; gap: 8px; }
   .note { font-size: 12px; line-height: 1.3; padding: 5px 8px; }
 }
+/* The smallest sideways phones (568x320): the setup's buttons a little shorter, so the longest note
+   (the microphone blocked, on an iPhone) and Start still fit. */
+@container game (min-aspect-ratio: 1/1) and (max-height: 340px) {
+  .chips .chip, .setup .cap { min-height: 36px; }
+  .go .plate { min-height: 40px; }
+  .setup { gap: 5px; }
+  .chips { gap: 5px; }
+}
 @container game (max-width: 359px) {
   /* Too narrow for "5 lives" beside the squares and the fuse: the squares alone (by shape and colour). */
   .lifelbl { display: none; }

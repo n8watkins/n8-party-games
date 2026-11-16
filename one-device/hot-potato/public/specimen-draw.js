@@ -521,21 +521,23 @@ export function scene({ growth = 0, stress = 0, stage = 0, face, motion = { sx: 
   BEADS.forEach(([x, y], i) => {
     const amount = clamp01(beads - i);
     const p = live ? (((t / beadS + i * 0.37) % 1) + 1) % 1 : 0.35;
-    // It forms (grows), rolls down, and fades at the end.
-    const grow = live ? clamp01(p / 0.2) : 1;
-    const fade = 1 - clamp01((p - 0.8) / 0.2);
-    const yy = y + 14 * clamp01((p - 0.2) / 0.6);
-    const s = 0.4 + 0.6 * grow;
-    out[`sweat${i}`] = { points: dropPoints(x, f(yy)), transform: `translate(${x} ${f(yy)}) scale(${s.toFixed(3)}) translate(${-x} ${f(-yy)})`, opacity: amount > 0.01 ? f(amount * fade) : 0 };
+    // It forms (grows), rolls down, and shrinks away at the end (solid all the while: a faded drop
+    // with its outline reads as a smudge). A bead still forming (a fraction) is smaller.
+    const grow = live ? smooth(clamp01(p / 0.2)) : 1;
+    const shrink = 1 - smooth(clamp01((p - 0.82) / 0.18));
+    const yy = y + 14 * smooth(clamp01((p - 0.2) / 0.62));
+    const s = (0.35 + 0.65 * grow) * shrink * (0.5 + 0.5 * amount);
+    out[`sweat${i}`] = { points: dropPoints(x, f(yy)), transform: `translate(${x} ${f(yy)}) scale(${s.toFixed(3)}) translate(${-x} ${f(-yy)})`, opacity: amount > 0.01 && s > 0.05 ? 1 : 0 };
   });
-  // Once it strains, drops of sweat are flung off it (only while it moves).
+  // Once it strains, drops of sweat are flung off it (only while it moves), shrinking as they fly.
   const flung = live && !boom ? atLevel(LADDER.flung, lv) : 0;
   FLUNG.forEach(([x, y, dir], i) => {
     const amount = clamp01(flung - i);
     const p = (((t * 1.4 + i * 0.29) % 1) + 1) % 1;
-    const fx = x + dir * 24 * p;
-    const fy = y - 14 * p + 36 * p * p;
-    out[`fling${i}`] = { points: dropPoints(f(fx), f(fy)), opacity: amount > 0.01 ? f(amount * (p < 0.1 ? p / 0.1 : 1 - (p - 0.1) / 0.9)) : 0 };
+    const fx = f(x + dir * 24 * p);
+    const fy = f(y - 14 * p + 36 * p * p);
+    const s = smooth(clamp01(p / 0.12)) * (1 - p * 0.7) * (0.5 + 0.5 * amount);
+    out[`fling${i}`] = { points: dropPoints(fx, fy), transform: `translate(${fx} ${fy}) scale(${s.toFixed(3)}) translate(${-fx} ${-fy})`, opacity: amount > 0.01 && s > 0.05 ? 1 : 0 };
   });
 
   // The clamps are pushed open as the stress rises, creaking with each beat once it strains; the

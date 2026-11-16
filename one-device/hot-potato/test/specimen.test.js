@@ -235,7 +235,8 @@ describe("its motion: a ladder of stress", () => {
       const s = sceneAt(stage, { stress, still: true });
       const lights = [0, 1, 2, 3].filter((i) => s[`light${i}`].fill !== "#ffd23f").length;
       return {
-        sweat: [0, 1, 2, 3].reduce((n, i) => n + Number(s[`sweat${i}`].opacity), 0),
+        // How much sweat shows: each bead shown, by its size.
+        sweat: [0, 1, 2, 3].reduce((n, i) => n + Number(s[`sweat${i}`].opacity) * Number(s[`sweat${i}`].transform.match(/scale\(([\d.]+)\)/)[1]), 0),
         clamp: Number(s.clampL.transform.match(/rotate\((-?[\d.]+)/)[1]),
         tube: Number(s.liquidL.y),
         size: Number(s.spud.transform.match(/scale\(([\d.]+)/)[1]),

@@ -5,7 +5,8 @@
 //   art.set(state)    every frame: artState(g) from game.js, nothing more:
 //                       stage   0 healthy ... 4 last life, 5 burst
 //                       growth  0 to 1, how big it has grown (from the stage)
-//                       strain  0 to 1, how tight its skin is (growth, plus the burning fuse)
+//                       stress  0 to 1, how stressed it is within the stage (stressOf in game.js)
+//                       strain  0 to 1, how tight its skin is (growth, plus the stress)
 //                       fuse    0 to 1, the fuse left (1 while it is not burning)
 //                       light   the status light's colour (green, dim green, yellow, orange, red, dark)
 //                       phase   "idle" (the start screen), "ready", "listen", "doom" or "burst"

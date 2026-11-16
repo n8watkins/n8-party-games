@@ -2,8 +2,9 @@
 // behind the art interface in art.js. It builds every part once (PARTS) and each frame sets what
 // scene() in specimen-draw.js says; nothing is ever added or removed.
 //
-// It eases toward what it is told (a spring, so it swells past and settles, cartoon style), moves
-// as the picker did (breathing, a twitch, a throb), and between turns blinks, glances at whoever is
+// It eases toward what it is told (a spring, so it swells past and settles, cartoon style), acts
+// as stressed as the stress level says (the LADDER in specimen-draw.js: breathing, blinks, darting
+// eyes, sweat, shivers, a tremble, a hard shake), and between turns blinks, glances at whoever is
 // up and sighs; listening, it looks up and follows the fuse. Its face is one of several for the
 // stage, chosen by the round's seed, changing between turns; a verdict shows a reaction for a
 // moment (right, an appeal, wrong, silence, a repeat, an overturned word), and the last miss
