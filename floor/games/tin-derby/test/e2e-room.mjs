@@ -193,6 +193,11 @@ try {
     }
     check(!!end, `${label}: the race ended in the room within ${Math.round((Date.now() - t0) / 1000)} s`);
     if (!end) return { end, last };
+    // Each page's own last word, once its copy has reached the end too: a poll can be a second old on a busy machine,
+    // and two cars the last call caught side by side can swap places in it.
+    for (const [p, f] of frames) {
+      try { await f.waitForFunction(() => window.__derby.race.over, null, { timeout: 5000 }); last.set(p, await look(f)); } catch { /* taken away already: its last poll stands */ }
+    }
     const roomOrder = end.result.map((r) => r.seat).join();
     for (const [p, l] of last) {
       const seen = l.order.map((o) => o.seat).join();
@@ -352,19 +357,41 @@ try {
       const code = await codeOf(pin);
       await vote(code, [ada, bo, nogl, stall]);
       const at = { drop: null, back: null, reload: null, freeze: null };
-      const nowT = (frames) => frames.get(scr).evaluate(() => window.__derby.race.t);
+      // How far along each player's car was at each poll, as the big screen showed it: [race time, {seat: distance}].
+      const along = [];
+      let maps = null;
       const during = async (t, frames, last) => {
-        if (at.drop === null && t > 3) { at.drop = await nowT(frames); await bo.context().setOffline(true); }
-        if (at.drop !== null && at.back === null && t > at.drop + 5) { at.back = await nowT(frames); await bo.context().setOffline(false); }
-        if (at.freeze === null && t > 5) { at.freeze = await nowT(frames); relay.freeze(4000); }
-        if (at.back !== null && at.reload === null && t > at.back + 3) {
-          at.reload = t;
-          frames.delete(bo); last.delete(bo);
-          await bo.reload();
-          frames.set(bo, await derby(bo));
-        }
+        maps = { frames, last };
+        const sl = last.get(scr);
+        if (sl && sl.t > (along.at(-1)?.[0] ?? -9)) along.push([sl.t, Object.fromEntries(sl.order.map((o) => [o.seat, o.s]))]);
       };
+      // The troubles, on their own clock (the big screen's race time, read every 0.1 s): race()'s poll of four pages can
+      // take seconds on a busy machine, and the race is only some 30 s long. Each waits for its phone to be driving its
+      // own car first (a page that loads after GO is the house's until it speaks, so there would be nothing to take).
+      let reloading = null;
+      const troubles = (async () => {
+        const sf = await derby(scr);
+        while (at.reload === null) {
+          const r = await sf.evaluate(() => { const x = window.__derby.race; return { t: x.t, over: x.over, own: Object.fromEntries(x.cars.map((c) => [c.name, !c.house && !c.auto])) }; }).catch(() => null);
+          if (!r || r.over) return;
+          if (at.drop === null && r.t > 3 && r.own.Bo) { at.drop = r.t; await bo.context().setOffline(true); }
+          if (at.drop !== null && at.back === null && r.t > at.drop + 5) { at.back = r.t; await bo.context().setOffline(false); }
+          if (at.freeze === null && r.t > 5 && r.own.Stall) { at.freeze = r.t; relay.freeze(4000); }
+          if (at.back !== null && r.t > at.back + 3 && r.own.Bo && maps) {
+            at.reload = r.t;
+            maps.frames.delete(bo); maps.last.delete(bo);
+            // Not awaited: a slow reload must not stop the other pages being watched. (Drawn in software on a loaded
+            // machine, the reloaded race page can take 10 s to come up and then hold its thread for 10 s more; on the
+            // graphics card it is up and drawing in about 1.5 s.)
+            reloading = bo.reload().then(() => derby(bo)).then((f) => maps.frames.set(bo, f), () => {});
+          }
+          await sleep(100);
+        }
+      })();
       const { end, last } = await race("short", code, [ada, bo, stall, scr], { during });
+      await troubles;
+      // Bo's page may still be on its way back with the race already over: its frame is gone, so this ends with the race.
+      await Promise.race([reloading, sleep(2000)]);
       if (end) {
         const l = last.get(scr), ev = roomEvents(scr), hand = (name) => ev.filter((e) => e.k === "a" && e.c === carOf(l, name)).map((e) => [e.on, +raceT(e.n).toFixed(2)]);
         const houseAt = (list, t) => { let on = 0; for (const [o, et] of list) if (et <= t) on = o; return on; };
@@ -377,9 +404,20 @@ try {
         check(ng.length === 1 && ng[0][0] === 1 && ng[0][1] <= 0.05 && typeof row("NoGL")?.time === "number", `short: the phone with no 3D: the house's by GO, and home (${JSON.stringify(ng)}, ${JSON.stringify(row("NoGL"))})`);
         const b = hand("Bo");
         check(houseAt(b, at.drop + 2) === 1 && b.some(([o, et]) => o === 0 && et > at.back - 0.5), `short: Bo's car was the house's while his phone was away (${at.drop?.toFixed(2)}) and his again on return (${at.back?.toFixed(2)}): ${JSON.stringify(b)}`);
-        check(last.get(bo)?.car >= 0 && (last.get(bo)?.stats.frames ?? 0) > 0, `short: Bo's page came back from its reload (at ${at.reload?.toFixed(1)}) in the same car`);
+        // Came back: the room took Bo's car back from the house for his reloaded page (only his seat's own word does
+        // that), and, where the test saw that page racing before the end, it drew from that car.
+        const lb = last.get(bo), backAfterReload = at.reload !== null && b.find(([o, et]) => o === 0 && et > at.reload);
+        check(!!backAfterReload && (!lb || (lb.car >= 0 && lb.stats.frames > 0)), `short: Bo's page came back from its reload (at ${at.reload?.toFixed(1)}) in the same car (${backAfterReload ? `the room's at ${backAfterReload[1]}` : "never"}; ${lb ? `seen racing, car ${lb.car}, ${lb.stats.frames} frames` : "not seen racing before the end"})`);
         const s = hand("Stall"), sOn = s.find(([o, et]) => o === 1 && et > at.freeze - 0.5);
-        check(!!sOn && sOn[1] - at.freeze < 1.6 && s.some(([o, et]) => o === 0 && et > sOn[1]) && typeof row("Stall")?.time === "number", `short: the stalled phone's car was the house's ${sOn ? (sOn[1] - at.freeze).toFixed(2) : "?"} s after the stall (${at.freeze?.toFixed(2)}), its own again after, and home (${JSON.stringify(s)})`);
+        // Home: over the line, or, when the last call closed the race first, driven on from the hand-back: at least 40
+        // along the table and a quarter of what Ada's car, the untroubled phone driven the same way, made in that time.
+        // (A phone's driver steers once a drawn frame, and a loaded machine draws these pages at 2 to 4 frames a second,
+        // so both phone cars can fall more than the short race's 5 s last call behind the house's, and one can lose
+        // half its pace to a spill; a car left stuck after the hand-back makes next to nothing.)
+        const backT = sOn ? (s.find(([o, et]) => o === 0 && et > sOn[1])?.[1] ?? Infinity) : Infinity, from = along.find(([t]) => t >= backT)?.[1], to = along.at(-1)?.[1];
+        const gain = (name) => (from && to ? to[row(name)?.seat] - from[row(name)?.seat] : NaN), sGain = gain("Stall"), aGain = gain("Ada");
+        const home = typeof row("Stall")?.time === "number" || (sGain >= 40 && sGain >= aGain / 4);
+        check(!!sOn && sOn[1] - at.freeze < 1.6 && backT < Infinity && home, `short: the stalled phone's car was the house's ${sOn ? (sOn[1] - at.freeze).toFixed(2) : "?"} s after the stall (${at.freeze?.toFixed(2)}), its own again after, and home (${JSON.stringify(s)}; ${JSON.stringify(row("Stall"))}; after ${backT}: Stall +${sGain?.toFixed(1)}, Ada +${aGain?.toFixed(1)})`);
       }
       report.short = { seconds: Math.round((Date.now() - began) / 1000) };
       console.log(`     the short race, party to card: ${report.short.seconds} s`);
