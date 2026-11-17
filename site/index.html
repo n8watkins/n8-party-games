@@ -3,37 +3,141 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-    <meta name="theme-color" content="#120b08" />
-    <title>n8 Party</title>
+    <meta name="theme-color" content="#dfe8fb" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#08102a" media="(prefers-color-scheme: dark)" />
+    <meta name="color-scheme" content="light dark" />
+    <title>n8games</title>
+    <meta name="description" content="Party games for friends in one room. Free, no app, no sign-up." />
     <link rel="icon" href="/icons/icon-192.png" />
     <link rel="manifest" href="/manifest.webmanifest" />
     <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <link rel="preload" href="/fonts/baloo-2.woff2" as="font" type="font/woff2" crossorigin />
+    <link rel="preload" href="/fonts/nunito.woff2" as="font" type="font/woff2" crossorigin />
     <link rel="stylesheet" href="/site.css" />
+    <script type="module" src="/home.js"></script>
     <script type="module" src="/front.js"></script>
   </head>
   <body>
-    <!-- A plain front page: the real one is being designed separately. It only has to lead into the party room. -->
-    <!-- A phone is a device to play on: there the page leads with joining and playing (site.css),
-         and using the phone as the room's screen is a small link. A wide screen leads with starting
-         a party, and the next page offers both ways to be in it. -->
-    <main>
-      <p class="brand"><span class="brand-mark"></span>n8 Party</p>
-      <h1>Party games for two to four, in one room.</h1>
-      <p class="lead on-wide">Start a party on a laptop or a TV, and everyone joins from their phone with a code.</p>
-      <p class="lead on-phone">Join your friends with the code on their screen, or start a party and play from this phone.</p>
-      <a class="button start" href="/lobby/?start">Start a party</a>
-      <form class="join" action="/lobby/" method="get">
-        <label for="join">Join with a code</label>
-        <div class="join-row">
-          <input id="join" name="join" inputmode="numeric" autocomplete="off" maxlength="4" pattern="[0-9]{4}" placeholder="0000" required />
-          <button class="button quiet" type="submit">Join</button>
+    <!-- The front page: "How do you want to play?" and three doors. Each door opens on what is in
+         it; the address keeps which one (#room, #table, #device), so the back button closes it. -->
+    <div class="floaters" id="floaters" aria-hidden="true"></div>
+
+    <header class="bar" id="bar">
+      <a class="logo" id="logoHome" href="/" aria-label="n8games, back to the three doors"><span class="logo-n8">n8</span><span class="logo-word">games</span></a>
+      <button class="join-pill" id="joinOpen" type="button" aria-haspopup="dialog" aria-controls="joinPop" aria-expanded="false">
+        <span class="join-q">Got a code?</span> <span class="join-go">Join</span>
+      </button>
+    </header>
+
+    <main class="home" id="home">
+      <!-- The first screen: three doors. -->
+      <section class="view view-doors" id="view-doors" aria-labelledby="doorsTitle">
+        <div class="hello">
+          <h1 id="doorsTitle" class="sticker" tabindex="-1">How do you want to play?</h1>
+          <p class="top-line">Party games for friends in one room. Free, no app, no sign-up.</p>
         </div>
-      </form>
-      <a class="minor on-phone" href="/lobby/?start&amp;as=screen">Use this phone as the room's screen</a>
-      <p class="aside">Or play one game on its own: <a href="/cork-and-bell/">Cork &amp; Bell</a>.</p>
+        <!-- The three ways in as plain links, for a page whose script has not run (or cannot):
+             home.js replaces them with the doors. -->
+        <div class="doors doors-plain" id="doors">
+          <a class="door-link" data-kind="room" href="/lobby/?start"><b>In the room</b><span>Start a party</span></a>
+          <a class="door-link" data-kind="table" href="/table/"><b>Round the table</b><span>Start a party at the Table</span></a>
+          <a class="door-link" data-kind="device" href="/one-device/hot-potato/"><b>Pass one device</b><span>Play Hot Potato</span></a>
+        </div>
+        <noscript>
+          <p class="top-line">The games need JavaScript. Turn it on to play.</p>
+        </noscript>
+
+        <footer class="made" aria-labelledby="madeTitle">
+          <div class="made-card">
+            <img class="made-robot" src="/art/fl-robot.webp" alt="" width="56" height="60" />
+            <svg class="made-arrow" viewBox="0 0 60 40" aria-hidden="true"><path d="M4 30 C 18 6, 38 4, 52 16" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" /><path d="M44 8 L53 17 L41 21" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round" /></svg>
+            <div class="made-text">
+              <h2 id="madeTitle">Made in the open</h2>
+              <p>n8games is open source. Read how it is built, or take the code and make your own games for it.</p>
+            </div>
+            <div class="made-links">
+              <a class="made-link" id="howItWorks" href="/" hidden>How it works</a>
+              <a class="made-link" id="getCode" href="https://github.com/n8watkins/n8-party-games" target="_blank" rel="noopener">Get the code</a>
+            </div>
+          </div>
+        </footer>
+      </section>
+
+      <!-- Behind the room door: the room itself, no game list to shop from. -->
+      <section class="view view-room" id="view-room" aria-labelledby="roomTitle" data-kind="room" hidden>
+        <button class="back" type="button" data-back><span aria-hidden="true">&#8592;</span> All three doors</button>
+        <div class="in-head">
+          <h1 id="roomTitle" class="sticker sticker-sm" tabindex="-1">In the room</h1>
+        </div>
+        <div class="room-grid">
+          <figure class="room-pic">
+            <img src="/art/room-light.webp" alt="The party room: four pieces gather in the light under Cork &amp; Bell's lamp, beside the party code on the wall." width="960" height="960" loading="lazy" />
+          </figure>
+          <div class="room-side">
+            <p class="in-line" id="roomInside"></p>
+            <div class="meta" id="roomNeeds"></div>
+            <div class="d-actions room-actions">
+              <a class="btn btn-go" id="roomStart" href="/lobby/?start">Start a party</a>
+              <button class="btn btn-alt" type="button" data-join>Join with a code</button>
+            </div>
+            <p class="d-note">Start it on the screen everyone can see. Friends join on their phones with the code.</p>
+          </div>
+        </div>
+
+        <div class="room-more">
+          <section class="room-block" aria-labelledby="voteTitle">
+            <h2 class="d-h" id="voteTitle">The party picks the next game</h2>
+            <ol class="d-steps" id="roomVote"></ol>
+          </section>
+          <section class="room-block" aria-labelledby="wallTitle">
+            <h2 class="d-h" id="wallTitle">On the wall tonight</h2>
+            <ul class="wall" id="roomWall"></ul>
+          </section>
+          <section class="room-block" aria-labelledby="piecesTitle">
+            <h2 class="d-h" id="piecesTitle">Who you walk in as</h2>
+            <ul class="pieces" id="roomPieces"></ul>
+            <p class="d-note" id="piecesNote"></p>
+          </section>
+        </div>
+      </section>
+
+      <!-- Behind the table and device doors: that door's games, and the card that explains one. -->
+      <section class="view view-games" id="view-games" aria-labelledby="gamesTitle" hidden>
+        <button class="back" type="button" data-back><span aria-hidden="true">&#8592;</span> All three doors</button>
+        <div class="in-head" id="gamesHead">
+          <h1 id="gamesTitle" class="sticker sticker-sm" tabindex="-1"></h1>
+          <p class="in-line" id="gamesInside"></p>
+          <div class="meta" id="gamesNeeds"></div>
+          <div class="table-start" id="tableStart" hidden>
+            <div class="d-actions">
+              <a class="btn btn-go" id="tableGo" href="/table/">Start a party at the Table</a>
+              <button class="btn btn-alt" type="button" data-join>Join with a code</button>
+            </div>
+            <p class="d-note" id="tableNote"></p>
+          </div>
+        </div>
+        <div class="layout">
+          <div class="kinds" id="kinds"></div>
+          <aside class="detail" id="detail" tabindex="-1" aria-labelledby="d-name"></aside>
+        </div>
+      </section>
     </main>
+
+    <div class="sheet-back" id="sheetBack" hidden></div>
+
+    <div class="join-pop" id="joinPop" role="dialog" aria-labelledby="joinTitle" hidden>
+      <form id="joinForm" action="/lobby/" method="get" novalidate>
+        <label id="joinTitle" for="joinCode">Join a party</label>
+        <p class="join-help" id="joinHelp">The four digits on your friend's screen.</p>
+        <div class="join-row">
+          <input id="joinCode" name="join" inputmode="numeric" autocomplete="off" maxlength="4" pattern="[0-9]{4}" placeholder="0000" aria-describedby="joinHelp joinErr" />
+          <button class="btn btn-go" id="joinGo" type="submit">Join</button>
+        </div>
+        <p class="join-err" id="joinErr" role="alert"></p>
+      </form>
+      <button class="x" id="joinClose" type="button" aria-label="Close">&#215;</button>
+    </div>
   </body>
 </html>

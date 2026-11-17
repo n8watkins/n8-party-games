@@ -55,6 +55,7 @@
     "test:two-rooms": "node lobby/test/e2e-two-rooms.mjs",
     "test:paper-masks": "node party/games/paper-masks/test/e2e-paper-masks.mjs",
     "test:table": "node lobby/test/e2e-table.mjs",
+    "test:home": "node site/test/e2e-home.mjs",
     "lobby:shots": "node lobby/test/shoot.mjs",
     "lobby:measure": "node lobby/test/measure.mjs",
     "test:cork:3d": "node lobby/test/e2e-cork-3d.mjs",
