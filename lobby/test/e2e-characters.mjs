@@ -572,7 +572,10 @@ try {
     ada.goto(light - 60);
     await walkTo(bea, B, light);
     await walkTo(cy, C, light + 60);
-    const counting = await ada.wait((m) => m.t === "vote" && !!m.vote.count, 5000, mark).then(() => true, () => !!ada.room.vote?.count);
+    // The count as it stands now (one that started while a piece walked through a light, and
+    // stopped as it walked on, is not one): up to five seconds for it.
+    let counting = false;
+    for (let i = 0; i < 50 && !(counting = !!ada.room.vote?.count); i++) await sleep(100);
     check(counting, "everyone stands in a light, and the count runs");
     mark = ada.seen.length;
     await bea.keyboard.press("KeyX");

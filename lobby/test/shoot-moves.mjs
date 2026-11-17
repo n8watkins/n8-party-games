@@ -288,6 +288,8 @@ try {
       await sleep(6200);
 
       // ------------------------------------------------ stilt legs over a kick
+      // Ada (bonked into the middle just now) out of the way: the kick must have nobody but Rob before it.
+      await place(ada, 1700);
       await place(rob, X + 160, 1);
       await place(pat, X + 80, 1);
       mark = rob.seen.length;
