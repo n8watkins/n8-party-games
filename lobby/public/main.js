@@ -33,7 +33,7 @@ import { isRoom, roomName, wallFor } from "./shared/rooms.js";
 import { watchMode } from "./hop.js";
 import { stageKey, stageStale } from "./shared/stage.js";
 import { playerLine, statusLine } from "./shared/status.js";
-import { JUMP_HEIGHT, posAt } from "./shared/world.js";
+import { JUMP_HEIGHT, acrossWalls, posAt, sameWall } from "./shared/world.js";
 
 const params = new URLSearchParams(location.search);
 const app = document.getElementById("app");
@@ -315,9 +315,7 @@ async function showRoom() {
     shownRoom = skin;
     if (made.look !== asked) look = made.look;
     const now = performance.now();
-    scene.build(room);
-    scene.setRoom(room, now);
-    for (const [s, move] of lastMoves) if (room.members[s] && move.t > roomSeenAt) scene.onMove({ s, x: posAt(move, now), d: move.d }, now);
+    redraw(now);
     slow.start(scene.look, now, simpler);
     meter?.start(scene);
   }
@@ -416,6 +414,8 @@ function apply(next) {
     else if ([...was].some((seat) => !now.has(seat))) roomSounds.play("leave", -1, { gain: 0.6 });
   }
   room = next;
+  // The places in a whole room message are on the wall of the room it says the party is in.
+  placesWall = wallFor(next.room, next.boxes.length);
   // Until the room answers the start link's pick, its older words do not undo it.
   if (pendingRoom) room.room = pendingRoom;
   voteAt = roomSeenAt = performance.now();
@@ -467,13 +467,36 @@ function wall() {
  * every room and so is not swapped, builds its boxes again. (A 3D drawing is swapped for the room.)
  */
 function followWall(now) {
-  const key = wall().xs.join();
+  const w = wall();
+  // The room carries every piece with its pool when the boxes move (LobbyCore.carryAcross) and
+  // sends the new places; until they arrive this page carries them the same way, so nobody is
+  // drawn in another light for a moment.
+  if (placesWall && !sameWall(placesWall, w)) carryPlaces(placesWall, w, now);
+  placesWall = w;
+  const key = w.xs.join();
   if (touch && touch.wallKey !== key) touch.build(room);
-  if (scene?.look === "flat" && scene.wall && scene.wall.xs.join() !== key) {
-    scene.build(room);
-    scene.setRoom(room, now);
-  }
+  if (scene?.look === "flat" && scene.wall && scene.wall.xs.join() !== key) redraw(now);
   tellLit(now);
+}
+
+/** The wall the places in `room` and `lastMoves` are laid against: the room's own, as it last said (apply). */
+let placesWall = null;
+
+/** Moves every piece's last known place from wall `from` to wall `to`, as the room does (shared/world.js, acrossWalls). */
+function carryPlaces(from, to, now) {
+  for (const m of room.members) if (m) m.x = acrossWalls(m.x, from, to);
+  for (const [s, move] of lastMoves) if (move.t > roomSeenAt) lastMoves.set(s, { ...move, x: acrossWalls(posAt(move, now), from, to), t: now });
+}
+
+/**
+ * Builds the drawing afresh from the last whole room message, and then puts each piece where the
+ * moves since that message say it is now: a drawing built from the room alone would draw them
+ * where they were then (often by the door).
+ */
+function redraw(now) {
+  scene.build(room);
+  scene.setRoom(room, now);
+  for (const [s, move] of lastMoves) if (room.members[s] && move.t > roomSeenAt) scene.onMove({ s, x: posAt(move, now), d: move.d }, now);
 }
 
 function tellLit(now) {
