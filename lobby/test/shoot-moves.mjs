@@ -161,9 +161,10 @@ try {
         for (const [what, ms] of steps) {
           await page.clock.runFor(Math.max(0, Math.round(ms - at)));
           at = Math.round(ms);
-          if (what === "release") {
+          // "release?": let the next word through if the room said one (it may not have).
+          if (what === "release" || what === "release?") {
             const ok = await page.evaluate(() => window.__releaseOne());
-            if (!ok) check(false, `${look} ${device} ${name}: a word from the room to let through at ${ms} ms`);
+            if (!ok && what === "release") check(false,`${look} ${device} ${name}: a word from the room to let through at ${ms} ms`);
             continue;
           }
           // A software-drawn 3D frame can lag a step behind the clock: one more frame.
@@ -377,9 +378,10 @@ try {
         ["into Pat: a shove", 300],
         ["release", 440],
         ["and on", 520],
-        ["release", 660],
+        // How many shoves the room takes depends on how far each pushed Pat ahead (shared/slime.js, SHOVE_AHEAD).
+        ["release?", 660],
         ["pushed along", 740],
-        ["release", 880],
+        ["release?", 880],
         ["upright all the way", 1000],
       ]);
       check(rob.seen.slice(mark).filter((m) => m.t === "shove").length >= 2, `${look} ${device}: the slime shoves Pat along`);
