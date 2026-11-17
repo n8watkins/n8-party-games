@@ -375,8 +375,11 @@ export function createLobbyRoom(wallFor) {
           const picked = core.setRoom(entry.token, msg.v, now);
           if (!picked.ok) return this.send(entry, { t: "pick-no", why: picked.why, v: core.room });
           this.broadcast({ t: "pick", v: picked.room, by: picked.by });
+          // A room that hangs its boxes elsewhere (shared/rooms.js, wallFor) carried every piece
+          // with its pool (LobbyCore.carryAcross): everyone gets the room with the new places.
+          if (picked.moved) return this.changed(now);
           void this.save();
-          // A room may hang its boxes in other places (shared/rooms.js, wallFor): who stands in a light may have changed.
+          // The room rests a moment after the change (holdUntil): the next wake-up is set by it.
           this.settle(now);
           return;
         }

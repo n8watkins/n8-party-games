@@ -17,7 +17,7 @@ import { tagLevels } from "./tag-levels.js";
 import { standings } from "./shared/tonight.js";
 import { BADGES, COUNT_MS, playersLabel } from "./shared/vote.js";
 import { wallFor } from "./shared/rooms.js";
-import { ROOM, jumpHeight, posAt } from "./shared/world.js";
+import { ROOM, drawnLight, jumpHeight, posAt } from "./shared/world.js";
 
 const GREY = "#9b948b";
 const BADGE_COLOURS = { any: ["#3db8ff", "#06263a"], phones: ["#b79cf7", "#24124d"], screen: ["#ffc93c", "#3a2a00"] };
@@ -187,7 +187,6 @@ export class Scene {
     const cx = this.wall.xs[i];
     const w = this.wall.box;
     const x = cx - w / 2;
-    const half = this.half;
     const compact = this.opts.compact;
     const b = { box, cx, w, on: null, gold: null };
 
@@ -241,10 +240,14 @@ export class Scene {
     frame.append(b.sign, ...b.blurbs, b.badge.g, b.players, b.reason.g, b.chip.g);
     this.layers.wall.append(frame);
 
-    b.cone = s("polygon", { points: `${cx - 54},102 ${cx + 54},102 ${cx + half + 26},${ROOM.floorY + 8} ${cx - half - 26},${ROOM.floorY + 8}`, fill: "url(#g-cone)" });
+    // The cone and the pool reach as far as the wall says (shared/world.js, drawnLight): on a placed
+    // wall, to where the room counts and no further. The cone's top is never wider than its foot.
+    const { cone, pool } = drawnLight(this.wall);
+    const top = Math.min(54, cone);
+    b.cone = s("polygon", { points: `${cx - top},102 ${cx + top},102 ${cx + cone},${ROOM.floorY + 8} ${cx - cone},${ROOM.floorY + 8}`, fill: "url(#g-cone)" });
     this.layers.cones.append(b.cone);
-    b.pool = s("ellipse", { cx, cy: ROOM.floorY + 6, rx: half + 12, ry: 31 });
-    b.ring = s("ellipse", { cx, cy: ROOM.floorY + 6, rx: half + 12, ry: 31, fill: "none", "stroke-width": 3 });
+    b.pool = s("ellipse", { cx, cy: ROOM.floorY + 6, rx: pool, ry: 31 });
+    b.ring = s("ellipse", { cx, cy: ROOM.floorY + 6, rx: pool, ry: 31, fill: "none", "stroke-width": 3 });
     this.layers.pools.append(b.pool, b.ring);
     return b;
   }

@@ -16,7 +16,7 @@ import { IMPACT_MS, cooldownFraction } from "../shared/bump.js";
 import { OWN_FADED } from "../shared/ghost.js";
 import { COUNT_MS } from "../shared/vote.js";
 import { wallFor } from "../shared/rooms.js";
-import { ROOM, posAt } from "../shared/world.js";
+import { ROOM, drawnLight, posAt, warmthAt } from "../shared/world.js";
 import { Expressions } from "../emotes/play.js";
 import { EmoteFigure, Sticker } from "../emotes/svg.js";
 import { tagLevels } from "../tag-levels.js";
@@ -267,6 +267,8 @@ export class Room3D {
     // The room's wall (shared/rooms.js): where its boxes hang and its pools lie, as the room decides the vote by it.
     const L = (this.L = layout(wallFor(room.room ?? this.skin.id, room.boxes.length)));
     this.half = L.wall.half;
+    // How far its light is drawn (shared/world.js, drawnLight): on a placed wall, to the counted edge and no further.
+    this.light = drawnLight(L.wall);
     this.shell(L);
     this.doorway(L);
     this.bulbs();
@@ -498,7 +500,7 @@ export class Room3D {
     const b = { box, i, cx: L.wall.xs[i], level: 0, aim: 0, gold: 0, goldAim: 0, shown: -1, lead: null };
     const x = walkX(b.cx);
     const z = SPACE.walkZ;
-    const radius = (this.half + 12) * PX;
+    const radius = this.light.pool * PX;
     b.pool = new THREE.Vector4(x, z, radius, 0);
 
     // The lamp, its cord, its beam and the edge of its pool.
@@ -926,7 +928,8 @@ export class Room3D {
     let best = 0;
     for (const b of this.boxes) {
       const d = Math.abs(x - b.cx);
-      if (d < this.half + 40) best = Math.max(best, Math.min(1, b.level * 0.85) * Math.min(1, (this.half + 40 - d) / 40));
+      const warm = warmthAt(d, this.L.wall);
+      if (warm > 0) best = Math.max(best, Math.min(1, b.level * 0.85) * warm);
     }
     return Math.max(best, this.life.warmth(x));
   }

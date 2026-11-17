@@ -50,7 +50,7 @@ import { DEFAULT_ROOM, ROOM_COOLDOWN_MS, isRoom, roomLocked, wallFor } from "../
 import { COLOUR_PRESETS, DEFAULT_CHARACTER, LOOK_COOLDOWN_MS, LOOK_SLACK_MS, characterOr, cleanColour, moveOf, readLook } from "../shared/characters.js";
 import { record } from "../shared/tonight.js";
 import { DURING_PLAY, cooldownLeft as emoteLeft, mayEmote, relayEmote, tooEager, waitMessage } from "../../party-kit/client/emotes.js";
-import { POSITION_SLACK, clampX, lightAt, posAt, spawnX } from "../shared/world.js";
+import { POSITION_SLACK, acrossWalls, clampX, evenWall, lightAt, posAt, sameWall, spawnX } from "../shared/world.js";
 import { DEFAULT_MODE, MODE_COOLDOWN_MS, isMode, modeLocked, modeNote } from "../shared/mode.js";
 import { PLAY_BEAT_MS, tableWhyNot } from "../shared/table.js";
 
@@ -457,10 +457,33 @@ export class LobbyCore {
     if (locked) return { ok: false, why: locked };
     if (id === this.room) return { ok: false, why: "The party is in that room already." };
     if (now - this.roomAt < ROOM_COOLDOWN_MS) return { ok: false, why: "Wait a moment before changing it again." };
+    const before = this.wall;
     this.room = id;
     this.roomAt = now;
     this.lastActive = now;
-    return { ok: true, room: id, by: this.identify(token).seat };
+    // A room that hangs its boxes elsewhere carries every piece with its pool: nobody's vote changes.
+    const moved = this.carryAcross(before, now);
+    // And the room rests a moment, as after a switch of waiting room, so no count starts on the change itself.
+    this.holdUntil = Math.max(this.holdUntil, now + SETTLE_MS);
+    return { ok: true, room: id, by: this.identify(token).seat, moved };
+  }
+
+  /**
+   * The party's wall changed from `from` (shared/rooms.js, wallFor): each piece is moved with the
+   * floor (shared/world.js, acrossWalls), so one in a pool stands in that same pool and one in the
+   * dark in that same stretch of dark, and its page takes the new place (rev). Returns whether any
+   * piece moved: false when the two walls have their pools in the same places.
+   */
+  carryAcross(from, now) {
+    const to = this.wall;
+    if (sameWall(from, to)) return false;
+    for (const m of this.members) {
+      if (!m) continue;
+      m.x = acrossWalls(posAt(m, now), from, to);
+      m.t = now;
+      m.rev += 1;
+    }
+    return true;
   }
 
   // ---------------------------------------------------------------- the two waiting rooms
@@ -2168,6 +2191,9 @@ export class LobbyCore {
       lastActive: this.lastActive,
       emptySince: this.emptySince,
       room: this.room,
+      // The wall the pieces' places were laid against, so a room woken after the wall moved (a
+      // deploy) carries them across (restore).
+      wall: { xs: this.wall.xs, half: this.wall.half },
       mode: this.mode,
       modeAt: this.modeAt,
       hostToken: this.hostToken,
@@ -2267,6 +2293,10 @@ export class LobbyCore {
     // counted from then and not from every time the room wakes up.
     room.emptySince = data.emptySince ?? now;
     room.room = isRoom(data.room) ? data.room : DEFAULT_ROOM;
+    // The pieces stood on the wall the room was saved with: a save from before rooms hung their
+    // boxes in places of their own stood on the even wall. Where this room's wall is not that one
+    // now, every piece is carried across, so nobody's vote changes in the sleep.
+    room.carryAcross(savedWall(data.wall, room.boxes.length), now);
     // A room saved before the two waiting rooms is the character room.
     room.mode = isMode(data.mode) ? data.mode : DEFAULT_MODE;
     room.modeAt = typeof data.modeAt === "number" ? data.modeAt : -Infinity;
@@ -2280,6 +2310,13 @@ export class LobbyCore {
     else if (data.choosing) room.restoreChoosing(data.choosing);
     return room;
   }
+}
+
+/** The wall a room was saved with ({xs, half}, serialize), or the even wall of `n` boxes for a save from before it was kept or one that does not read. */
+function savedWall(saved, n) {
+  const xs = saved?.xs;
+  const good = Array.isArray(xs) && xs.length === n && xs.every(Number.isFinite) && Number.isFinite(saved.half);
+  return good ? { n, xs: [...xs], half: saved.half } : evenWall(n);
 }
 
 /** Who was in the party when a saved match began (LobbyCore.partyTokens), or null for a save from before it was kept. */
