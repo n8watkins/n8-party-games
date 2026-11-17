@@ -253,7 +253,13 @@ try {
     const roomOrder = end.result.map((r) => r.seat).join();
     for (const [p, l] of last) {
       const seen = l.order.map((o) => o.seat).join();
-      check(seen === roomOrder, `${label}, ${p.name}: the page's finishing order (${seen}) is the room's (${roomOrder})`);
+      // The cars home when the page was last looked at must be the room's first places, in its order. A car still
+      // racing when the last call closed the race is placed by where it was at the room's last step, which no look
+      // at a page can catch exactly (the page goes the moment the race ends): those may differ only in the seconds
+      // after the last look.
+      const home = l.order.filter((o) => o.fin).map((o) => o.seat), roomSeats = end.result.map((r) => r.seat);
+      const settled = home.length === roomSeats.length ? seen === roomOrder : home.every((s, k) => roomSeats[k] === s) && !end.result.slice(0, home.length).some((r) => typeof r.time !== "number");
+      check(settled, `${label}, ${p.name}: the page's finishing order (${seen}; home ${home.join() || "none"}) is the room's (${roomOrder})`);
       check(l.stats.diverged === 0, `${label}, ${p.name}: its copy of the race matched the room's at every snapshot it could check (${l.stats.compared} checked, ${l.stats.diverged} differed, ${l.stats.gaps} gaps, ${l.stats.restarts} restarts, ${l.stats.full} full snapshots)`);
     }
     // Every page that showed the race, a big screen that joined late included.
