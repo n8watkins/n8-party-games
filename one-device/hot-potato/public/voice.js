@@ -58,6 +58,7 @@ export function createListener({ lang = "en-US", onStart, onSpeech, onInterim, o
     r.continuous = false;
     r.maxAlternatives = MAX_ALTERNATIVES;
     let final = false;
+    let partial = ""; // what this session has heard so far, while no final result has come
     // The microphone is on: whichever of the two events this browser sends first.
     const on = () => {
       if (rec !== r || started) return;
@@ -82,7 +83,10 @@ export function createListener({ lang = "en-US", onStart, onSpeech, onInterim, o
           }
         } else interim += result[0]?.transcript ?? "";
       }
-      if (interim.trim()) onInterim?.(interim.trim());
+      if (interim.trim()) {
+        partial = interim.trim();
+        onInterim?.(partial);
+      }
     });
     r.addEventListener("error", (e) => {
       if (rec !== r) return;
@@ -101,6 +105,14 @@ export function createListener({ lang = "en-US", onStart, onSpeech, onInterim, o
       if (rec !== r) return;
       rec = null;
       if (!wanted || final) return;
+      // It heard words but never said they were final (Safari can end a session that way, and
+      // asking for the result as the fuse runs out can too): those words are the turn's answer.
+      // Starting again would throw them away and leave the turn to run out of time.
+      if (partial) {
+        wanted = false;
+        onFinal?.([{ transcript: partial, confidence: 0 }]);
+        return;
+      }
       // A session that ended at once (aborted by the browser, refused quietly) is not listening:
       // wait longer before each new one, and give up after a few in a row.
       quick = Date.now() - born < QUICK_MS ? quick + 1 : 0;
