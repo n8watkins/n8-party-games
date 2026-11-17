@@ -108,6 +108,20 @@ describe("the public folder", () => {
     expect(headersFile([])).toContain("X-Frame-Options: DENY");
   });
 
+  it("lets pages show pictures from Wikimedia's upload host (Who Am I?) and from no other outside host", () => {
+    const headers = readFileSync(join(OUT, "_headers"), "utf8");
+    const img = headers.match(/img-src ([^;]*);/)?.[1];
+    expect(img).toBe("'self' data: blob: https://upload.wikimedia.org");
+    // Pictures are only pictures: no script, style, frame or connection may come from there.
+    for (const directive of ["default-src", "script-src", "style-src", "connect-src", "frame-src", "font-src"]) {
+      expect(headers.match(new RegExp(`${directive} ([^;]*);`))?.[1] ?? "").not.toContain("wikimedia");
+    }
+    // The kit's default adds none, and only a bare https origin is taken.
+    expect(headersFile([])).toContain("img-src 'self' data: blob:;");
+    expect(() => headersFile([], { images: ["http://upload.wikimedia.org"] })).toThrow();
+    expect(() => headersFile([], { images: ["https://a.example; script-src *"] })).toThrow();
+  });
+
   it("lets only Hot Potato and its hearing test use the microphone, and changes nothing else for them", () => {
     const headers = readFileSync(join(OUT, "_headers"), "utf8");
     const rules = headers.split(/\n(?=\/)/);

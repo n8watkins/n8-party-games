@@ -61,14 +61,17 @@ function inlineScriptHashes(files) {
  * `frames` is who may put this site's pages in a frame. "none" (the default): nobody. "self": the
  * site's own pages, and only those, which a site needs when one of its pages shows another of
  * its pages in a frame (the party room mounts a game's page that way). No other site ever may.
+ *
+ * `images` are outside origins (https only) the site's pages may show pictures from; none by default.
  */
-export function headersFile(scriptHashes, { frames = "none", microphone = [] } = {}) {
+export function headersFile(scriptHashes, { frames = "none", microphone = [], images = [] } = {}) {
   const own = frames === "self";
+  for (const origin of images) if (!/^https:\/\/[a-z0-9.-]+$/.test(origin)) throw new Error(`Not an https origin for img-src: ${origin}`);
   const csp = [
     "default-src 'self'",
     `script-src 'self' ${scriptHashes.join(" ")} ${TURNSTILE} ${WEB_ANALYTICS_SCRIPT}`.replace(/\s+/g, " "),
     "style-src 'self'",
-    "img-src 'self' data: blob:",
+    ["img-src 'self' data: blob:", ...images].join(" "),
     "font-src 'self'",
     `connect-src 'self' ${WEB_ANALYTICS_REPORT}`,
     `frame-src ${own ? "'self' " : ""}${TURNSTILE}`,
@@ -96,10 +99,11 @@ export function headersFile(scriptHashes, { frames = "none", microphone = [] } =
 /**
  * Empties `out` and fills it from `entries`: each `{from, to}` copies the file or folder at the
  * absolute path `from` to the site path `to` (no leading slash). Writes the `_headers` file.
- * Returns every file written as `{path, bytes}`, sorted by path. `frames` and `microphone` (the
- * site paths, such as "/lab/x/*", whose pages may use the microphone) are passed to headersFile.
+ * Returns every file written as `{path, bytes}`, sorted by path. `frames`, `microphone` (the
+ * site paths, such as "/lab/x/*", whose pages may use the microphone) and `images` (outside
+ * origins pictures may load from) are passed to headersFile.
  */
-export function buildPublic({ out, entries, frames = "none", microphone = [] }) {
+export function buildPublic({ out, entries, frames = "none", microphone = [], images = [] }) {
   rmSync(out, { recursive: true, force: true });
   mkdirSync(out, { recursive: true });
   for (const { from, to } of entries) {
@@ -113,7 +117,7 @@ export function buildPublic({ out, entries, frames = "none", microphone = [] }) 
   const files = walk(out);
   const tooBig = files.filter((f) => statSync(f).size > MAX_FILE_BYTES);
   if (tooBig.length) throw new Error(`Over the 25 MiB per-file limit: ${tooBig.map((f) => relative(out, f)).join(", ")}`);
-  writeFileSync(join(out, "_headers"), headersFile(inlineScriptHashes(files), { frames, microphone }));
+  writeFileSync(join(out, "_headers"), headersFile(inlineScriptHashes(files), { frames, microphone, images }));
   return files.map((f) => ({ path: relative(out, f).split(sep).join("/"), bytes: statSync(f).size })).sort((a, b) => a.path.localeCompare(b.path));
 }
 
