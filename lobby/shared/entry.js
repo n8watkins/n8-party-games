@@ -12,21 +12,30 @@ export function isSmall(width, height) {
 
 /**
  * What the way in shows.
- * @param {{small: boolean, starting: boolean, as: "player" | "screen", screenTaken?: boolean}} o
+ * @param {{small: boolean, starting: boolean, as: "player" | "screen", screenTaken?: boolean, room?: string | null}} o
  *   small: a phone. starting: making a party, not joining one. as: what the device has chosen
- *   so far. screenTaken: the party being joined already has its screen.
+ *   so far. screenTaken: the party being joined already has its screen. room: the room this way
+ *   in is for, when it is one room's ("turn-based": the Table); null for the party room's own.
  * @returns {{as: "player" | "screen", choice: "cards" | "link" | "none", link: null | {to: "player" | "screen", text: string},
  *   title: string, sub: string, go: string, askName: boolean, note: string}}
  */
-export function doorPlan({ small, starting, as, screenTaken = false }) {
+export function doorPlan({ small, starting, as, screenTaken = false, room = null }) {
   const taken = !starting && screenTaken;
   const role = taken ? "player" : as === "screen" ? "screen" : "player";
   const screen = role === "screen";
   const device = small ? "phone" : "device";
+  // A way in for the Table (the front page's /table/) has no wall with a QR code on it.
+  const table = room === "turn-based";
   let link = null;
   if (small && !taken) link = screen ? { to: "player", text: `Play on this ${device} instead` } : { to: "screen", text: `Use this ${device} as the room's screen` };
-  let title = starting ? "Start a party" : "Type the room code";
-  let sub = starting ? "You get a room and a code. Friends join with the code or the QR code on the wall." : "It is on the sign by the door in the room.";
+  let title = starting ? (table ? "Start a party at the Table" : "Start a party") : "Type the room code";
+  let sub = starting
+    ? table
+      ? "You get a room and a code. Friends join with the code on their phones."
+      : "You get a room and a code. Friends join with the code or the QR code on the wall."
+    : table
+      ? "It is on the host's screen at the Table."
+      : "It is on the sign by the door in the room.";
   if (small && screen) {
     title = starting ? "Start a party on this screen" : "Show the room on this phone";
     sub = "This phone shows the room and the games for everyone. Nobody plays from it.";

@@ -9,11 +9,13 @@
 //   node scripts/build-public.mjs            build, print a one-line summary
 //   node scripts/build-public.mjs --list     build and list every file that will be served
 //   node scripts/build-public.mjs --preview  also build the pages that are not approved yet (below)
+import { writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { KIT_CLIENT_PATH, buildPublic, kitClientEntry, report } from "../party-kit/build/public.mjs";
 import { GAMES, TURN_GAMES } from "../games.js";
+import { WALL } from "../lobby/wall.js";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 export const OUT = join(ROOT, "dist", "public");
@@ -49,9 +51,19 @@ export function gameEntries({ manifest }) {
  * lobby's server code is not among them.
  */
 const siteEntries = [
+  // The front page: the three doors (home.js), drawn from home-data.js and the build's copy of the
+  // wall (HOME_WALL_PATH, below), with its pictures, its two self-hosted fonts (SIL OFL, licences
+  // beside them), and the line about the party this device has just left (front.js).
   { from: join(ROOT, "site", "index.html"), to: "index.html" },
   { from: join(ROOT, "site", "site.css"), to: "site.css" },
   { from: join(ROOT, "site", "front.js"), to: "front.js" },
+  { from: join(ROOT, "site", "home.js"), to: "home.js" },
+  { from: join(ROOT, "site", "home-data.js"), to: "home-data.js" },
+  { from: join(ROOT, "site", "home-model.js"), to: "home-model.js" },
+  { from: join(ROOT, "site", "art"), to: "art" },
+  { from: join(ROOT, "site", "fonts"), to: "fonts" },
+  // Starting a party at the Table: the party room's way in, then straight to the Table.
+  { from: join(ROOT, "site", "table"), to: "table" },
   // The web app manifest and its icons (scripts/make-icons.py draws them): "Add to Home Screen" opens the site full screen.
   { from: join(ROOT, "site", "manifest.webmanifest"), to: "manifest.webmanifest" },
   { from: join(ROOT, "site", "icons"), to: "icons" },
@@ -91,8 +103,38 @@ for (const { from } of entries) {
   if (bad) throw new Error(`build-public: ${relative(ROOT, from)} would publish server-only ${relative(ROOT, bad)}`);
 }
 
-/** Every site path that is served: the kit's browser files, the site's pages and each game's public files. */
-export const SERVED = entries.map((entry) => entry.to);
+/**
+ * The front page's copy of the party room's wall: written by the build, never kept in the
+ * repository. The front page shows what the Floor's wall and the Table's list hold in production
+ * (lobby/wall.js, WALL), so a game is "playable now" on it only when the room really plays it. The
+ * wall itself is server code (it names every game's server definition), so the page gets this
+ * plain list instead: names, lines, player counts and whether each is coming soon. Test games
+ * are left out; production has none.
+ */
+export const HOME_WALL_PATH = "home-wall.js";
+
+/** The plain lists the front page reads: {floor, table}. */
+export function homeWall(wall = WALL) {
+  const floor = wall.boxes
+    .filter((box) => !box.test)
+    .map(({ id, name, blurb, min, max, soon, url, view }) => ({ id, name, line: blurb, min, max, soon, inRoom: !!view, url: url ?? null }));
+  const table = wall.table.filter((entry) => !entry.test).map(({ id, name, pitch, min, max, soon }) => ({ id, name, line: pitch, min, max, soon }));
+  return { floor, table };
+}
+
+/** The module the build writes at HOME_WALL_PATH. */
+export function homeWallModule(wall = WALL) {
+  const { floor, table } = homeWall(wall);
+  return [
+    "// Written by scripts/build-public.mjs from lobby/wall.js (production): do not edit.",
+    `export const FLOOR = ${JSON.stringify(floor)};`,
+    `export const TABLE = ${JSON.stringify(table)};`,
+    "",
+  ].join("\n");
+}
+
+/** Every site path that is served: the kit's browser files, the site's pages, each game's public files, and the front page's wall. */
+export const SERVED = [...entries.map((entry) => entry.to), HOME_WALL_PATH];
 /** Where each served path is copied from. */
 export const SOURCES = entries.map((entry) => entry.from);
 
@@ -105,7 +147,10 @@ export function build(out = OUT) {
   // pages may be framed by this site's pages, and by nobody else.
   // Hot Potato (one-device/hot-potato) and its hearing test (lab/hot-potato) listen through the
   // microphone; no other page may.
-  return buildPublic({ out, entries, frames: "self", microphone: ["/lab/hot-potato/*", "/one-device/hot-potato/*"] });
+  const files = buildPublic({ out, entries, frames: "self", microphone: ["/lab/hot-potato/*", "/one-device/hot-potato/*"] });
+  const text = homeWallModule();
+  writeFileSync(join(out, HOME_WALL_PATH), text);
+  return [...files, { path: HOME_WALL_PATH, bytes: Buffer.byteLength(text) }].sort((a, b) => a.path.localeCompare(b.path));
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) report(build(), OUT);
