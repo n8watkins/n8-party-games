@@ -329,7 +329,7 @@ There is no soundboard: the owner dropped it on 2026-11-13 ("just emotes").
 ## Characters
 
 A player's piece is a character in a colour, and each player chooses both.
-There are two characters: the pawn, which everyone starts as, and the ghost.
+There are four characters: the pawn, which everyone starts as, the ghost, the slime and the robot.
 A phone's bar holds a round chip with the player's own piece on it, after the walking buttons (on an upright phone, at the left of the line of words); it opens "Your piece", with the characters, ten preset colours and the device's own colour picker for any other.
 The corner at the top keeps only the room's own three buttons, so it covers no more of the posters than before.
 
@@ -366,11 +366,13 @@ The page's definition (`public/characters/pawn.js` is the one to copy):
 
 - `emotes`: `byId(id)` gives an emote as `pose(t, calm, reach)`, in the terms of `public/emotes/rig.js`; `mirror(pose)`; `top(pose)`, how high a pose reaches, for the word over the head.
   Every character does the kit's fourteen emotes, with the pawn's lengths and words, so each recording fits them all.
-- `flat`: `make()` returns its body, with `inner` as the group an emote leans; `dress(body, colour, connected)`; `frame(body, {now, dt, face, seat, calm, grounded})`, which returns how far off the floor it holds itself; `dizzy(body, on)`; `blink(body, opacity)`; `emote(body, pose, bodyTransform)`; `still(colour)` and `portrait(colour)` for small pictures.
+- `flat`: `make()` returns its body, with `inner` as the group an emote leans; `dress(body, colour, connected)`; `frame(body, {now, dt, face, seat, calm, grounded, walking, x, voting})`, which returns how far off the floor it holds itself (`walking`, `x` and `voting`, whether it stands in a game's light, are for characters that show them: the slime's creep, the robot's wheels and lamp); `dizzy(body, on)`; `scared(body, k)`, how wide its eyes go when a ghost frightens it (0 to 1); `blink(body, opacity)`; `emote(body, pose, bodyTransform)`; `still(colour)` and `portrait(colour)` for small pictures.
   Its numbers are `tall` (the top of its head against a standing pawn's), `rest`, `shadow` and `glides`.
-  `figure` tells the emote drawing (`public/emotes/svg.js`) what turns red when it fumes, where its face sits and how its hands are joined on.
+  `figure` tells the emote drawing (`public/emotes/svg.js`) what turns red when it fumes, where its face sits (`face`: `dy`, `turn`, `scale`) and in what ink (`ink`, `skin`), and how its hands are joined on (`limbs`: `"stick"`, `"ghost"`, `"goo"` or `"rod"`).
+  With `ownKnockedFace` (the slime, the robot) a piece knocked over in the middle of an emote keeps its own knocked eyes and the emote draws no face, as in the 3D look.
+  The robot's paint is coloured point by point, so its fuming red and a fright's pale are laid on the paint itself (`tintPaint` in `public/look3d/body-kit.js`), not on its material's colour, which would multiply them by the paint.
 
-The 3D look's definition (`public/look3d/pieces.js` is the pawn's, `public/look3d/ghost.js` the ghost's):
+The 3D look's definition (`public/look3d/pieces.js` is the pawn's, `public/look3d/ghost.js` the ghost's, `slime.js` and `robot.js` the others', with the small parts those two share in `body-kit.js`):
 
 - `make(radial)` returns a body with the handles every character has: `group`, `tilt`, `turn`, `mat`, `blob`, `ring`, `colour`, `lit`, `fade`, `air`, `dizzy` and `skin`.
   The body is kept on the piece's record as `p.body`, and its definition as `p.kind`.
@@ -386,8 +388,32 @@ The 3D look's definition (`public/look3d/pieces.js` is the pawn's, `public/look3
 
 What a piece is doing is the same for every character and is decided elsewhere: where it is, a jump, and a bump as a pose (`shared/bump.js`, read through `bumpPose` in `public/look3d/pieces.js` and `BumpDraw.pose` in `public/bump-draw.js`).
 A character decides only how that looks.
+A ghost can frighten any piece (below): the start, freeze and scurry are a pose like a knock, and the character only decides how wide its eyes go (`scared(body, k)` in the flat definition, `scared` in the 3D pose) and how its paint pales (`pale`).
 
-To add a third character: write its emote rig, its flat drawing and its model, and add it to the three lists.
+### The ghost's move: the fade, the scare and boo
+
+The rules are `shared/ghost.js`, the numbers the owner approved in the character previews.
+
+- A character's `move` (`moveOf`) is what its action button does: `kick` for the pawn, `fade` for the ghost, which does not kick.
+  The phone's button shows the move's own picture and word ("Fade") and its own cooldown.
+- The fade: `{t: "fade"}`.
+  The ghost is see-through for 2.5 s, and may fade again 8 s after it began.
+  Everybody hears `{t: "fade", s, for}`; a refusal goes to that page only, as `{t: "fade-no", why, wait}` (`wait` when waiting will do: the cooldown, or being knocked over), and the page says the reason as a note.
+  Refused during a count, a coin toss or a game starting, outside the Floor's own time, and to anything but a ghost.
+- A faded ghost has no vote: the light it stands in does not count it, and the count waits for it (the room wakes when the fade ends).
+  Its own player sees it less faded than everyone else does, so they can always find it; everyone else still sees its outline, face and name tag.
+- The scare: a kick that reaches a faded ghost passes through it, and the kicker is scared off: `{t: "b", s, to: -1, sc: ghost, x, rev}`.
+  It starts, freezes wide-eyed for about 0.75 s, then scurries as far as a kick would have thrown it, into the dark, with a pale tint; it cannot move until it has stopped, and cannot be knocked for a while after.
+- Boo: a faded ghost that drifts through a piece says so, `{t: "boo", to}`, and the room checks it was close enough by its own reckoning.
+  The piece is spooked out of place the way the ghost was going, weaker than a kick: `{t: "spook", s, to, x, rev}`, or `{t: "boo-no", why, to}` to the ghost's page only.
+  Its cap: a fade spooks each piece once at most, a piece cannot be spooked again for 6 s, and a ghost never spooks a ghost.
+- Any refusal of either counts against the socket's rate limit, so a script cannot keep a room busy with them.
+- The ghost swells, eyes and mouth wide, for its boo (both the scare and the spook), and says it with a sound made in code (`public/ghost-sounds.js`: no recording, so nothing to credit), as does the fade.
+  The party with no ghost never builds these sounds, and draws nothing new.
+- Nothing jolts the picture, and for someone who asked for less motion a frightened piece does not shiver.
+
+To add another character: write its emote rig, its flat drawing and its model, and add it to the three lists.
+A body without a pawn's shoulders can take the ghost's emotes fitted to it (`bodyRig` in `public/characters/body-rig.js`) instead of a rig of its own, as the slime and the robot do.
 The picker, the room's check, the wheel's pictures and every draw site pick it up from there.
 
 ### The ghost
@@ -409,9 +435,43 @@ Its emotes are in `public/characters/ghost-rig.js`, with the fits the owner chos
 Not built yet, and where each goes:
 
 - The ghost's own move (fade, the scare, boo with its cap).
-  `CHARACTERS[].move` is `"kick"` for both characters until then, so a ghost bumps as a pawn does.
+  `CHARACTERS[].move` is `"kick"` for every character until then, so a ghost bumps as a pawn does.
   The model already draws a faded ghost: set `piece.faded` on the piece's record (`fadeK` in `public/look3d/ghost.js`); the flat drawing needs the same.
 - Squeezed-shut eyes for every knocked piece: `flat.dizzy` in `public/characters/pawn.js` and the crosses in `public/look3d/pieces.js`.
+
+### The slime and the robot
+
+Both are the landing scene's, which the owner approved in the character previews (`landing/tools/scene/scene.js`, `makeSkin`, on the branch `chore/blender-on-gpu`), drawn in the room's own style: the same shapes and proportions, the player's colour on what the landing scene paints.
+
+The slime is a soft dome that sags outward at its foot, two drips at the foot, a wet highlight, and two big eyes low on its front.
+It is a shade lighter than the player's colour with a darker rim and a gloss streak, front and back (the Tin Derby reviewer's fix for a dome that read as nothing from behind), so it reads on a light wall and a dark floor alike.
+It has no feet: it creeps, squashing and stretching as it goes, its top drags behind when it sets off, runs on and wobbles back when it stops, it flattens when it is knocked over and its eyes squeeze shut (swirls in the flat look).
+Its hands are joined on with arms of its own goo, in the body's own material in the 3D looks, so they are lit and reddened as it is.
+Fuming turns it red and swells it.
+
+The robot is a dark base on wheels, a body and a head in the player's colour, a dark visor with two light eyes, a steel neck, a round plate on its chest, dark arms with steel hands at its sides, and a mast with a lamp on top.
+Its head is at a pawn's height; the mast stands above it, so its name tag sits higher.
+It rolls: the base stays level and its wheels turn (flat look), the rest hums along with a small bob and leans into where it goes, its head lags its body and its mast lags its head, so both run on and wobble back when it stops, jumps or is hit.
+The lamp is dim until it stands in a game's light (its vote), when it lights with a quick double flash and its eyes squint with pleasure; knocked over, the lamp flashes red and its eyes are crosses.
+Its emote face lights up in its visor; its hands are steel, on jointed arms of dark metal that reach out of its shoulders (they telescope), and its own arms are put away meanwhile.
+
+Their emotes are the ghost's (`public/characters/ghost-rig.js`), fitted to each body by its landmarks (`public/characters/body-rig.js`): heights are carried between the floor, the mouth and the top of the head, one for one in a band about the mouth so a finger on the lips stays on the lips; widths are scaled inside the body and shifted outside it; each arm is worked out again from the body's own shoulder; and what is on the floor (a splat, confetti landing) stays where it was.
+The ids, words, lengths and moments are the ghost's, so the pawn's, and every recording fits.
+A joined arm takes the ghost's "wisp" variant of a pose (a hand on the hip in Red card and the tomato), because a hand that has an arm reads where a floating one would not.
+
+What one piece costs in the 3D look, with its shadow, measured with `npm run test:characters -- --looks= --measure` on 2026-11-16 (draws and triangles are the same on any device; the pose is this PC's time):
+
+| Character | Draws | Triangles | Pose, standing | Pose, walking |
+| --- | --- | --- | --- | --- |
+| Pawn | 5 | 2,800 | 0.3 µs | 0.2 µs |
+| Ghost | 6 | 2,160 | 3.6 µs | 13.4 µs |
+| Slime | 6 | 3,144 | 0.4 µs | 1.0 µs |
+| Robot | 8 (9 while its lamp glows) | 3,452 | 0.5 µs | 1.8 µs |
+
+The robot's two more draws are its head and its mast, which move apart from its body; its paint, steel and dark parts are one material coloured point by point (`pointLitMat` in `public/look3d/body-kit.js`).
+The slime is turned finer than the pawn (44 sides) so a lit room's lines of light run smoothly over its gloss.
+Four of any one character in the 3D bar held 60 frames a second, on the graphics card and in software, drawing in 0.6 to 1.0 ms a picture (a quiet PC, phone held sideways).
+Not built yet: their own moves (the slime's harden and absorb, the robot's hook and stilt legs); `move` is `"kick"` until then.
 
 ## Sound
 
@@ -570,9 +630,10 @@ A lobby nobody touches costs nothing: no timer, no messages, nothing counted, an
 
 - `npm test` runs the unit tests with the kit's: the room's rules (`test/lobby-core.test.js`), the shared logic, the awake meter and the socket rate limit (`test/shared.test.js`), the bump (`test/bump.test.js`), the Tonight board (`test/tonight.test.js`) and the way in (`test/entry.test.js`).
 - `npm run test:emotes` (with `npm run dev` running) puts emotes and sound through real pages and sockets in one room (headless and muted): the room relaying each once and enforcing the cooldown, a hammering script closed, emotes during a game, the wheel (tap, pick, number keys, the ring, the six kept on the device), the piece performing it with its word, an emote's sound on the phones with no big screen and on the screen only with one, nothing fetched before sound is allowed, nothing played before a tap and nothing late after it, a muted player, the one-tap mute, a phone hearing its own steps and jump, and a shared sound (someone joining) coming from the screen and not the phones. `npm test` covers the rules with a fake clock (`test/emotes.test.js`, `party-kit/test/sounds.test.js`), and every pose, the mirror, the aim, the tomato and the sound files with their credits (`test/emote-rig.test.js`).
-- `npm run test:characters` (with `npm run dev` running) goes through choosing a character and a colour in real pages, once in each look (flat, 3D, baked; headless and muted): a phone picks the ghost and a colour from "Your piece", a second phone sees it, a ghost does each of the fourteen emotes with the hands the owner chose, a bumped ghost squeezes its eyes shut, the choice survives a reconnect and comes back in a new party, two players pick the same, and a bad choice is refused.
-  `--looks=flat,3d,baked` picks the looks, `--shots=DIR` saves pictures for a person to look at, and `--measure` prints what four ghosts cost against four pawns in the 3D look.
-  `npm test` covers the choice with a fake clock and on the real room class (`test/party-room-characters.test.js`), and the interface and the ghost's poses (`test/characters.test.js`).
+- `npm run test:characters` (with `npm run dev` running) goes through choosing a character and a colour in real pages, once in each look (flat, 3D, baked; headless and muted): a phone picks the ghost and a colour from "Your piece", a second phone sees it, the second phone picks the slime and then the robot in colours of its own and the others see each, a ghost, a slime and a robot each do the fourteen emotes with their own hands, a bumped ghost, slime and robot each show it in their eyes, the choice survives a reconnect and comes back in a new party, two players pick the same, and a bad choice is refused.
+  `--looks=flat,3d,baked` picks the looks, `--shots=DIR` saves pictures for a person to look at, and `--measure` prints what four of each character cost in the 3D look (with `TEST_GPU=1`, on the graphics card).
+  `npm test` covers the choice with a fake clock and on the real room class (`test/party-room-characters.test.js`), and the interface and every character's poses (`test/characters.test.js`).
+- `node lobby/test/shoot-characters.mjs [--looks=flat,3d,baked,real] [--only=line,emotes,colours,motion]` (with a server running; for `real`, one with `--var PARTY_TEST_GAMES:off`) takes stills of the four characters side by side on an upright phone and a laptop, lit and in the dark, the slime and the robot doing each emote, in each of the ten preset colours, and walking, stopping and bumped.
 - `node lobby/test/shoot-emotes.mjs [--look=3d|flat] [--room=bar]` takes a still of every emote at its best moment on a big screen and on a phone held sideways at the closer view, and checks that each one's word is over the right piece, in view, and large enough to read on the phone.
 - `npm run test:feel` (with `npm run dev` running) goes through how the room feels in real pages and over sockets: the way in on a phone and on a wide screen, one screen per room and its grace, the four buttons, the cooldown ring and the room enforcing it, the bump frame by frame, that nobody can be kept on the floor, the board opening and closing with the vote carrying on, and that a bump sets no timer. It takes stills of each, the bump's with the page's clock held still.
 - `npm run test:lobby` (with `npm run dev` running) puts four socket players through an evening (when the coin toss picks Cork & Bell, a whole round of it over sockets, which makes the run a minute and a half longer), sends a party of two off to an outside game, then checks that a lobby nobody touches goes silent: no messages, no timer, nothing added to the budget.

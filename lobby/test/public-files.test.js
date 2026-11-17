@@ -6,11 +6,12 @@ import { readdirSync, readFileSync, statSync } from "node:fs";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import { describe, expect, it } from "vitest";
 import { SERVED, SERVER_ONLY, SOURCES, gameEntries } from "../../scripts/build-public.mjs";
-import { GAMES } from "../../games.js";
-import { TEST_WALL, buildTurnWall } from "../wall.js";
+import { GAMES, TURN_GAMES } from "../../games.js";
+import { TEST_WALL, WALL, buildTurnWall } from "../wall.js";
 import * as countToTen from "../../party/games/count-to-ten/index.js";
+import * as paperMasks from "../../party/games/paper-masks/index.js";
 import * as paperMasksRules from "../../party/games/paper-masks/rules.js";
-import { tableGame } from "../../party/games/table-game.js";
+import { QUESTIONS } from "../../party/games/paper-masks/questions.js";
 
 const ROOT = resolve(import.meta.dirname, "..", "..");
 const inside = (path, folder) => path === folder || path.startsWith(folder + sep);
@@ -63,6 +64,22 @@ describe("what the site serves", () => {
     }
     expect(bad).toEqual([]);
   });
+
+  it("holds none of Paper Masks' deck: no prompt and no ghost answer is in any served file, the game's own page included", () => {
+    const local = SOURCES.filter((from) => inside(resolve(from), ROOT) && !resolve(from).includes(`${sep}node_modules${sep}`));
+    const served = local.flatMap(files).filter((file) => /\.(m?js|html|json|css|txt|md|svg|webmanifest)$/.test(file));
+    // The page itself is among them (party/public/games/paper-masks.js and its folder).
+    expect(served.map((f) => relative(ROOT, f))).toEqual(expect.arrayContaining(["party/public/games/paper-masks.js", "party/public/games/paper-masks.css"]));
+    const secrets = QUESTIONS.flatMap((q) => [q.text, ...q.ghosts]);
+    expect(secrets.length).toBeGreaterThan(200);
+    const found = [];
+    for (const file of served) {
+      const text = readFileSync(file, "utf8");
+      for (const s of secrets) if (text.includes(s)) found.push(`${relative(ROOT, file)}: ${s}`);
+      if (/questions\.js|at-table\.js|paper-masks\/rules\.js/.test(text)) found.push(`${relative(ROOT, file)} names a Paper Masks server file`);
+    }
+    expect(found).toEqual([]);
+  });
 });
 
 describe("a Table game that lives in this repository (party/games/<id>)", () => {
@@ -70,14 +87,15 @@ describe("a Table game that lives in this repository (party/games/<id>)", () => 
     expect(gameEntries(countToTen)).toEqual([]);
   });
 
-  it("takes Paper Masks from party/games/paper-masks as it will be listed: no package, server-only rules, on the Table's list", () => {
-    // The entry TURN_GAMES will hold once Paper Masks has its view (not on the wall yet).
-    const paperMasks = { manifest: { id: "paper-masks", name: "Paper Masks", path: "/party/", players: { min: paperMasksRules.MIN_PLAYERS, max: paperMasksRules.MAX_PLAYERS }, public: [], table: { view: "games/paper-masks.js" } }, game: tableGame(paperMasksRules) };
+  it("takes Paper Masks from party/games/paper-masks as it is listed: no package, server-only rules, on the Table's list", () => {
+    expect(TURN_GAMES).toContain(paperMasks);
+    expect(paperMasks.manifest).toMatchObject({ id: "paper-masks", path: "/party/", public: [], table: { view: "games/paper-masks.js" }, players: { min: paperMasksRules.MIN_PLAYERS, max: paperMasksRules.MAX_PLAYERS } });
     expect(gameEntries(paperMasks)).toEqual([]);
-    expect(SERVER_ONLY.some((f) => inside(resolve(ROOT, "party", "games", "paper-masks", "rules.js"), f))).toBe(true);
+    for (const file of ["rules.js", "questions.js", "at-table.js", "index.js", "text.js"]) expect(SERVER_ONLY.some((f) => inside(resolve(ROOT, "party", "games", "paper-masks", file), f)), file).toBe(true);
     const turn = buildTurnWall([paperMasks]);
     expect(turn.table.filter((e) => e.id === "paper-masks")).toEqual([expect.objectContaining({ soon: false, view: "/party/games/paper-masks.js" })]);
     expect(turn.games.get("paper-masks").tickHz).toBe(0);
+    expect(WALL.table.find((e) => e.id === "paper-masks")).toMatchObject({ soon: false, test: false });
   });
 
   it("is refused, with what to do, when it lists public files without being a package", () => {

@@ -11,11 +11,14 @@
 
 /**
  * The characters, in the order the picker shows them. `move` is what the character's action
- * button does: every character kicks until its own move is built (the ghost's is "fade").
+ * button does: every character kicks until its own move is built (the ghost's is "fade"; the
+ * slime's will be "harden", the robot's "hook").
  */
 export const CHARACTERS = [
   { id: "pawn", name: "Pawn", move: "kick" },
-  { id: "ghost", name: "Ghost", move: "kick" },
+  { id: "ghost", name: "Ghost", move: "fade" },
+  { id: "slime", name: "Slime", move: "kick" },
+  { id: "robot", name: "Robot", move: "kick" },
 ];
 
 /** What everyone is until they choose, and what an unknown character is read as. */
@@ -29,6 +32,12 @@ export const characterOr = (id) => (isCharacter(id) ? id : DEFAULT_CHARACTER);
 
 /** A character's name, for the words. */
 export const characterName = (id) => CHARACTERS.find((c) => c.id === id)?.name ?? "Pawn";
+
+/**
+ * What a character's action button does: "kick", or the ghost's "fade" (lobby/shared/ghost.js).
+ * A ghost does not kick. An unknown character is read as the default.
+ */
+export const moveOf = (id) => CHARACTERS.find((c) => c.id === characterOr(id))?.move ?? "kick";
 
 /**
  * The colours the picker offers. The first four are the seat colours (party-kit's SEAT_COLOURS:
