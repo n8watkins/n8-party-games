@@ -642,9 +642,11 @@ try {
   // ---------------------------------------------------------------- the big screen's split view at 1, 2 and 3 players
   // (four is the gate's short race). Short races, the big screen at 1920 x 1080; stills of each.
   if (only.has("panes")) {
-    const runs = [["panes-1", ["Ada"], ""], ["panes-2", ["Ada", "Bo"], ""], ["panes-2-stacked", ["Ada", "Bo"], "&derby-two=stacked"], ["panes-3", ["Ada", "Bo", "Cy"], ""], ["panes-4", ["Ada", "Bo", "Cy", "Di"], ""]];
+    // --panes=1,2,3,4: which of them (all by default).
+    const counts = new Set(opt("panes", "1,2,3,4").split(",").map(Number));
+    const runs = [["panes-1", ["Ada"], ""], ["panes-2", ["Ada", "Bo"], ""], ["panes-3", ["Ada", "Bo", "Cy"], ""], ["panes-4", ["Ada", "Bo", "Cy", "Di"], ""]].filter(([, names]) => counts.has(names.length));
     for (const [label, names, q] of runs) {
-      console.log(`---- ${label}: ${names.length} phone${names.length > 1 ? "s" : ""} and a big screen at 1920 x 1080 in the split view${q ? " (two stacked)" : ""}`);
+      console.log(`---- ${label}: ${names.length} phone${names.length > 1 ? "s" : ""} and a big screen at 1920 x 1080 in the split view`);
       const scr = await screenPage("screen", { width: 1920, height: 1080 });
       const pin = await startParty(scr, "&derby-tvview=split" + q);
       const phones = [];
@@ -658,7 +660,7 @@ try {
       const during = async (t, frames) => {
         const f = frames.get(scr);
         if (t > 0.5) { const P = await panesOf(f).catch(() => null); if (P) { samples++; for (const b of paneFaults(P, names)) faults.add(b); } }
-        if (!mid && t > 9) { mid = true; await shot(scr, `${label}-mid-race`, `the big screen (1920 x 1080), ${names.length} player${names.length > 1 ? "s" : ""}${q ? ", two stacked" : ""}, race time ${t.toFixed(1)} s`); }
+        if (!mid && t > 9) { mid = true; await shot(scr, `${label}-mid-race`, `the big screen (1920 x 1080), ${names.length} player${names.length > 1 ? "s" : ""}, race time ${t.toFixed(1)} s`); }
         if (dropper && !drop && t > 4) { drop = { at: t }; await dropper.context().setOffline(true); }
         if (drop && !drop.note && t > drop.at + 2.5) {
           drop.note = (await panesOf(f)).panes.find((p) => p.name === "Bo")?.note ?? "";
@@ -666,11 +668,14 @@ try {
           await dropper.context().setOffline(false);
         }
         if (names.length === 3 && !joiner && t > 5) {
+          joiner = { t };
           const p = await phone("Dee", pin, "", { midRace: true });
+          console.log(`     Dee joins at race time ${t.toFixed(1)} s`);
           const jf = await derby(p);
           joiner = await look(jf);
           joiner.hint = await jf.evaluate(() => document.getElementById("hint").textContent);
           joiner.panes = (await panesOf(f)).n;
+          console.log(`     Dee watches: ${JSON.stringify({ car: joiner.car, mode: joiner.mode, panes: joiner.panes })}`);
         }
       };
       const still = async (when, t) => {

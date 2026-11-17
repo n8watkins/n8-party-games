@@ -35,6 +35,18 @@ export const HOUSE = [
   { name: "Dot", habit: "dot" },
 ];
 export const CHARACTERS = ["pawn", "ghost", "slime", "robot"];
+/**
+ * The house cars' paints, in the order they are tried: each house car takes the first that is not close to a colour
+ * already in the race, so no house car wears a player's colour (they all wore the default red, as the first player does).
+ */
+export const HOUSE_COLOURS = ["#565b66", "#3f7a4a", "#8a5bc4", "#d9a02a", "#3aa9a0", "#d9619a", "#d9662b", "#2f6f8f", "#c8382c"];
+const rgbOf = (hex) => { const n = parseInt(String(hex).slice(1), 16) || 0; return [(n >> 16) & 255, (n >> 8) & 255, n & 255]; };
+/** The first house paint far enough from every colour the rows so far wear (the last one if none is). */
+function houseColour(rows) {
+  const taken = rows.map((r) => rgbOf(r.colour || "#c8382c"));
+  const far = (hex) => { const c = rgbOf(hex); return taken.every((t) => Math.abs(t[0] - c[0]) + Math.abs(t[1] - c[1]) + Math.abs(t[2] - c[2]) > 120); };
+  return HOUSE_COLOURS.find(far) || HOUSE_COLOURS[rows.length % HOUSE_COLOURS.length];
+}
 export const GRID_ORDER = [0, 2, 1, 3];
 const TAU = dmath.TAU;
 /** The timers every car counts down each step. */
@@ -87,7 +99,7 @@ export function makeRules(T = TUNE, { math: M = dmath, preview: PREVIEW = false 
   function createRace({ seed = 1, seats = [], now = 0, round = 1, endless = false, house: houseRows = [], delay = NET.DELAY } = {}) {
     const rows = seats.slice(0, 4).map((s) => ({ ...s, kind: "human" }));
     const free = CHARACTERS.filter((ch) => !rows.some((r) => (CHARACTERS.includes(r.character) ? r.character : "pawn") === ch));
-    for (let h = 0; rows.length < 4; h++) rows.push({ seat: -1 - h, kind: "house", name: HOUSE[h % 3].name, habit: HOUSE[h % 3].habit, character: free[h % (free.length || 1)] || "pawn", ...(houseRows[h] || {}) });
+    for (let h = 0; rows.length < 4; h++) rows.push({ seat: -1 - h, kind: "house", name: HOUSE[h % 3].name, habit: HOUSE[h % 3].habit, character: free[h % (free.length || 1)] || "pawn", colour: houseColour(rows), ...(houseRows[h] || {}) });
     return fresh({
       seed: seed >>> 0, round, startAt: now, delay: Math.round(delay * 1000), n: 0, endless: !!endless, toast: 0, over: false, firstFin: -1, homeAt: null,
       cars: rows.map((r, i) => makeCar(i, r, T.GRID[GRID_ORDER[i]])),

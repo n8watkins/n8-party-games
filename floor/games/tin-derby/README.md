@@ -164,14 +164,18 @@ The page finds the room's `you`, `snapshot`, `send` and `now` on its frame eleme
 
 - **A player's phone** shows its own car from behind with round five's chase camera, strip, spring, thumbs (slide to steer, it goes by itself, Brake, Drift, Use) and keys.
   Its own inputs go into the replica at once (`replica.predict(now)`), so steering answers before the room has heard it.
-- **The big screen** shows the whole table with round five's wide camera (close shots of a fall and the winner), a name over each car and a strip along the bottom: the leader's lap, every car along the line, and the places.
-- **Anyone else** (a phone that joined in the middle of a race) watches the big screen's picture and is told it races in the next one.
+  With a big screen in the party it keeps drawing its own car (someone may not see the screen well), and offers a **Controller only** switch: the picture stops, the thumbs grow, and the place, the lap and the power in hand show large; the phone remembers the choice.
+- **The big screen** is where the players race: a pane for each player with that player's own chase camera (below, "The big screen").
+  The host can switch it to round five's whole table with one button (or V), and the screen remembers it.
+- **Anyone else** (a phone that joined in the middle of a race) watches the whole table and is told it races in the next one.
 - **The count-in** is the 3, 2, 1 and GO of the race itself (three seconds); a page that comes up later joins the race where it is.
 - **The end**: once every player is home (and the house cars have had their few seconds) the room ends the game, puts the places on the Tonight board and shows its card; the page is taken away.
 - **A dropped phone**: the room's `bot` hands its car to the house (the car paces itself), and back when the phone returns and its page speaks; the returning page starts its replica again from the full snapshot the room sends it, and says "the house is driving your car" meanwhile.
 - **A phone that stalls** with its socket still open, or is put away (another tab or app): the room has heard nothing from it for a second, so the house drives its car until it speaks again. A key held when the page was hidden is let go of first.
 - **A page that loads late**: the house drives its car from GO until the page's first word; the page then says "Race under way" (and the big screen, which shows no count it missed).
-- **A phone that cannot show the race** (no WebGL, a context that cannot be made, or one lost and not restored within 1.5 s): it says `{house: 1}` and shows one plain card, "This phone can't show the race. The house is driving your car. Watch the big screen.", with no picture and no buttons.
+- **A phone that cannot show the race** (no WebGL, a context that cannot be made, or one lost and not restored within 1.5 s), in a party with a big screen: its car is on the big screen, so it becomes a controller ("This phone can't show the race. Steer here: your car is on the big screen.") and keeps sending its hands and beats, so the room knows a real player drives the seat; it never says `{house: 1}`.
+  With no big screen in the party (the page is told how many there were when the race was mounted: `partyHost.screens`) it says `{house: 1}` and shows one plain card, "This phone can't show the race. The house is driving your car. Watch the big screen.", with no picture and no buttons.
+- **A big screen that cannot draw in 3D** shows the table as a flat drawing with the cars on it and the places beside it (`map.js`), never a black screen; one that draws 3D in software (SwiftShader, llvmpipe) starts on the whole table, one picture a frame, not four.
 - **A reload** comes back to the same car from the room's full snapshot.
 - **Kept honest**: at every snapshot that is of the same step as its replica (once a second), the page compares the two by `rules.fingerprint`; on any difference, or when the numbered events show it missed one, it starts again from the snapshot.
   A page more than two seconds behind the room's clock (it was asleep) draws the room's word and waits for the next snapshot rather than running the race forward in one frame.

@@ -335,7 +335,7 @@ class App {
     this.tv = world ? new TvRig() : null;
     if (this.big) {
       const say = { ORD, itemSvg, itemName: (id) => ITEM_INFO[id]?.name || "", items: TUNE.ITEMS, lapText: (c, st) => `Lap ${lapOf(c, st)} of ${lapsIn(st)}`, dot, pepperT: TUNE.PEPPER_T, drift2: TUNE.DRIFT_2 };
-      this.split = new Split({ panes: $("panes"), mapbox: $("mapbox"), map: $("map"), standings: $("standings") }, cars, say, { stacked: params.get("two") === "stacked", rigs: !!world });
+      this.split = new Split({ panes: $("panes"), mapbox: $("mapbox"), map: $("map"), standings: $("standings") }, cars, say, { rigs: !!world });
       this.root.dataset.panes = String(this.split.n);
       if (world) {
         $("bview").hidden = false;
@@ -696,8 +696,10 @@ class App {
   /** The big screen's count: 3, 2, 1, GO (which clears itself), or `kind` "late": a line that stays a little longer. */
   count(text, go = false, kind = "") {
     const c = $("count"); c.textContent = text; c.classList.toggle("go", go); c.classList.toggle("late", kind === "late");
+    // While the count is up the table in the middle of four panes makes way for it.
+    this.root.toggleAttribute("data-counting", !!text);
     clearTimeout(this.countT);
-    if (go) this.countT = setTimeout(() => { c.textContent = ""; }, kind === "late" ? 2200 : 900);
+    if (go) this.countT = setTimeout(() => { c.textContent = ""; this.root.removeAttribute("data-counting"); }, kind === "late" ? 2200 : 900);
   }
 
   hint(st) {
@@ -916,7 +918,10 @@ function paneCheck(app) {
       camDist = d[p.i]; nearest = d.indexOf(Math.min(...d));
       at = W.project(p.i, rig.view, 0.3, {});
       if (at) at = { x: Math.round(at.x), y: Math.round(at.y) };
-      inPane = !!at && at.x >= sp.rects[k].x && at.x <= sp.rects[k].x + sp.rects[k].w && at.y >= sp.rects[k].y && at.y <= sp.rects[k].y + sp.rects[k].h;
+      // In its pane: a car dropping off a step dips to the pane's lower edge for a moment (the camera follows a drop
+      // with a short lag, as on the phone), so a tenth of the pane's height below it still counts.
+      const R = sp.rects[k];
+      inPane = !!at && at.x >= R.x && at.x <= R.x + R.w && at.y >= R.y && at.y <= R.y + R.h * 1.1;
     }
     const words = [...p.el.querySelectorAll(".plabel, .pnear span, .pheld .hname, .pnote b, .pnote small")].filter((e) => e.offsetParent !== null && e.textContent.trim());
     return {

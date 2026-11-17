@@ -12,6 +12,17 @@ const two = (a = "robot", b = "robot", more = {}) => stage({ seats: [{ seat: 0, 
 const off = (c) => wrapA(c.h - C.trackAt(c.u, 0, {}).th);
 
 describe("the start", () => {
+  it("paints each house car a colour of its own, never close to a player's (the party room's first seats are red and blue)", () => {
+    const rgb = (h) => [1, 3, 5].map((k) => parseInt(h.slice(k, k + 2), 16));
+    const gap = (a, b) => rgb(a).reduce((n, v, k) => n + Math.abs(v - rgb(b)[k]), 0);
+    for (const seats of [[{ seat: 0, name: "Ada", colour: "#c8382c" }], [{ seat: 0, name: "Ada", colour: "#c8382c" }, { seat: 1, name: "Bo", colour: "#2f6f8f" }], [{ seat: 0, name: "Ada" }, { seat: 1, name: "Bo", colour: "#565b66" }, { seat: 2, name: "Cy", colour: "#3f7a4a" }]]) {
+      const cars = rules.createRace({ seed: 1, seats }).cars;
+      for (const h of cars.filter((c) => c.house)) for (const o of cars) if (o !== h) expect(gap(h.colour, o.colour), `${h.name} ${h.colour} beside ${o.name} ${o.colour}`).toBeGreaterThan(120);
+    }
+    // A colour asked for (the `house` rows) is kept.
+    expect(rules.createRace({ seed: 1, seats: [{ seat: 0, name: "Ada" }], house: [{ colour: "#010203" }] }).cars[1].colour).toBe("#010203");
+  });
+
   it("lines four cars up behind the line, two by two, players first and house cars after", () => {
     const st = rules.createRace({ seed: 5, seats: [{ seat: 2, name: "Ann", colour: "#123456" }, { seat: 0, name: "Bo" }] });
     expect(st.cars.map((c) => [c.seat, c.house, c.name])).toEqual([[2, false, "Ann"], [0, false, "Bo"], [-1, true, "Pip"], [-2, true, "Gus"]]);

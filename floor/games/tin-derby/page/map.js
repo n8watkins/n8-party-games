@@ -68,7 +68,7 @@ export class TableMap {
 export class Places {
   constructor(list) { this.el = list; this.key = ""; }
   draw(st, order, lapText) {
-    const rows = order.map((c, n) => [n + 1, c.colour, c.house ? `${c.name} (house)` : c.name, c.fin ? "home" : lapText(c, st)]);
+    const rows = order.map((c, n) => [n + 1, c.colour, c.house ? `${c.name} (house)` : c.name, c.fin ? "Home" : lapText(c, st)]);
     const key = JSON.stringify(rows);
     if (key === this.key) return;
     this.key = key;

@@ -25,9 +25,9 @@ body { margin: 0; }
 #count.late { font-size: clamp(34px, 9vh, 104px); white-space: nowrap; }
 
 /* The big screen is read from across a room: its names, hint and strip grow with the screen (names at 2.3% of its height). */
-#app[data-mode="tvwide"] .tag { font-size: max(13px, 2.3vh); padding: 0.08em 0.55em 0.14em; border-width: max(2px, 0.2vh); border-radius: 0.7em; gap: 0.4em; }
-#app[data-mode="tvwide"] .tag i { width: 0.7em; height: 0.7em; box-sizing: border-box; border-width: max(1.5px, 0.15vh); }
-#app[data-mode="tvwide"] .tag.lead::after { font-size: 0.8em; }
+#app:is([data-mode="tvwide"], [data-mode="split"]) .tag { font-size: max(13px, 2.3vh); padding: 0.08em 0.55em 0.14em; border-width: max(2px, 0.2vh); border-radius: 0.7em; gap: 0.4em; }
+#app:is([data-mode="tvwide"], [data-mode="split"]) .tag i { width: 0.7em; height: 0.7em; box-sizing: border-box; border-width: max(1.5px, 0.15vh); }
+#app:is([data-mode="tvwide"], [data-mode="split"]) .tag.lead::after { font-size: 0.8em; }
 #app[data-mode="tvwide"] #hint { font-size: max(14px, 2.2vh); max-width: min(46vw, 30em); padding: 0.2em 0.6em 0.25em; border-radius: 0.6em; }
 #app[data-mode="tvwide"] #brand b { font-size: max(15px, 1.7vh); }
 #app[data-mode="tvwide"] #tvbar { padding: 0.25em 0.6em; border-radius: 0.6em; }
@@ -76,6 +76,8 @@ body { margin: 0; }
 #app[data-mode="board"] #mapbox { display: flex; }
 #mapbox { box-sizing: border-box; padding: max(8px, 0.8vh); gap: max(6px, 0.6vh); border-width: max(3px, 0.3vh); border-radius: max(14px, 1.4vh); }
 #mapbox.nolist #standings { display: none; }
+#app[data-mode="split"] #count { top: 50%; }
+#app[data-counting] #mapbox.nolist { visibility: hidden; } /* the count is said in the middle, where four panes keep the table */
 #mapbox #map { aspect-ratio: auto; height: auto; }
 #standings { font-size: max(15px, 2.4vh); gap: 0.15em; }
 #standings li { grid-template-columns: 2.2em 0.9em minmax(0, 1fr) auto; gap: 0.4em; }
