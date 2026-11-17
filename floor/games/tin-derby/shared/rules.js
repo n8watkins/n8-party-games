@@ -58,7 +58,8 @@ export function makeRules(T = TUNE, { math: M = dmath, preview: PREVIEW = false 
 
   function makeCar(i, row, slot) {
     const u = T.LINE_U + slot[0], p = trackAt(u, slot[1], {});
-    const character = row.character || "pawn";
+    // One of the four racers; anything else (a character a newer room offers) races as the pawn.
+    const character = CHARACTERS.includes(row.character) ? row.character : "pawn";
     return {
       // Who it is (never changes in a race).
       i, seat: row.seat, house: row.kind === "house", name: row.name || "", character, colour: row.colour || "#c8382c",
@@ -85,7 +86,7 @@ export function makeRules(T = TUNE, { math: M = dmath, preview: PREVIEW = false 
    */
   function createRace({ seed = 1, seats = [], now = 0, round = 1, endless = false, house: houseRows = [], delay = NET.DELAY } = {}) {
     const rows = seats.slice(0, 4).map((s) => ({ ...s, kind: "human" }));
-    const free = CHARACTERS.filter((ch) => !rows.some((r) => (r.character || "pawn") === ch));
+    const free = CHARACTERS.filter((ch) => !rows.some((r) => (CHARACTERS.includes(r.character) ? r.character : "pawn") === ch));
     for (let h = 0; rows.length < 4; h++) rows.push({ seat: -1 - h, kind: "house", name: HOUSE[h % 3].name, habit: HOUSE[h % 3].habit, character: free[h % (free.length || 1)] || "pawn", ...(houseRows[h] || {}) });
     return fresh({
       seed: seed >>> 0, round, startAt: now, delay: Math.round(delay * 1000), n: 0, endless: !!endless, toast: 0, over: false, firstFin: -1, homeAt: null,

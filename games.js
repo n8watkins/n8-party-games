@@ -7,6 +7,7 @@
 import * as corkAndBell from "cork-and-bell";
 // Tin Derby is still a folder of this repository (floor/games/tin-derby), installed as a package by a file: dependency until it moves to its own.
 import * as tinDerby from "tin-derby";
+import * as paperMasks from "./party/games/paper-masks/index.js";
 
 export const GAMES = [corkAndBell, tinDerby];
 
@@ -15,6 +16,5 @@ export const GAMES = [corkAndBell, tinDerby];
 // game's public path that shows it at the Table. lobby/wall.js (buildTurnWall) hangs them on the
 // Table's list with the coming-soon entries. A Table game may be a package, or live in this
 // repository (party/games/<id>/index.js, with its view in party/public/games and `public: []`,
-// as Paper Masks will): import its index.js here either way. None is hosted yet: Who Am I? and
-// Paper Masks come in their own pull requests.
-export const TURN_GAMES = [];
+// as Paper Masks does): import its index.js here either way. Who Am I? comes in its own pull request.
+export const TURN_GAMES = [paperMasks];

@@ -61,6 +61,25 @@ describe("Tin Derby in the party room", () => {
     expect(bo.seat).toBe(1);
   });
 
+  it("gives a player who walked in as the slime or the robot that racer and its trait, and the house the ghost and the pawn", () => {
+    const core = derbyRoom();
+    const ann = seated(core, "Ann"), bo = seated(core, "Bo");
+    expect(core.setLook(ann.seat, { c: "slime" }, 1500)).toMatchObject({ ok: true, changed: true });
+    expect(core.setLook(bo.seat, { c: "robot" }, 1500)).toMatchObject({ ok: true, changed: true });
+    start(core);
+    const cars = core.activity.state.cars;
+    expect(cars.filter((c) => !c.house).map((c) => [c.name, c.character, c.trait])).toEqual([
+      ["Ann", "slime", "slime"],
+      ["Bo", "robot", "robot"],
+    ]);
+    expect(cars.filter((c) => c.house).map((c) => c.character).sort()).toEqual(["ghost", "pawn"]);
+  });
+
+  it("races a character it does not know as the pawn, so a newer room can never break a race", () => {
+    const st = game.create({ seed: 3, seats: [{ seat: 0, name: "Ann", colour: "#c8382c", character: "dragon" }], now: 0 });
+    expect([st.cars[0].character, st.cars[0].trait]).toEqual(["pawn", "pawn"]);
+  });
+
   it("drives a dropped phone's car with the house, runs the race to its end, and puts the places on the Tonight board", () => {
     const core = derbyRoom();
     const ann = seated(core, "Ann");

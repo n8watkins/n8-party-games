@@ -554,7 +554,7 @@ export class Scene {
     // The character lays the pose over its own body (its lean, its swell) and hides what the emote draws in its place.
     p.kind.flat.emote(p.actor, e.pose, bodyTransform);
     set(p.emote.stage, { transform: `translate(${p.rx.toFixed(1)}, ${ROOM.floorY})` });
-    p.emote.draw(e.pose, e.toward);
+    p.emote.draw(e.pose, e.toward, !!p.dizzy);
     // The word over the head, clear of the name tag and of whatever the emote holds up; as easy to read as the tag, and larger on a screen read from across the room.
     const tagTop = ROOM.floorY - 156 - p.up - p.level * (this.tagSize + 20) - (this.tagSize + 14);
     const y = Math.min(tagTop - 4, ROOM.floorY - p.rise + e.top);
@@ -685,7 +685,12 @@ export class Scene {
         set(p.g, { "data-faded": faded || null });
       }
       // The character's own way of holding itself: where it looks, and how far off the floor it hangs (a pawn stands).
-      const hover = flat.frame(p.actor, { now, dt, face: p.face, seat, calm: !!this.calmQuery?.matches, grounded: pose.dizzy, faded, booAt: p.booAt ?? -Infinity });
+      // It is told whether it walks, where it is and whether it stands in a game's light (its vote), for characters that show them.
+      const voting = !!this.vote?.standing?.[seat];
+      const hover = flat.frame(p.actor, {
+        now, dt, face: p.face, seat, calm: !!this.calmQuery?.matches, grounded: pose.dizzy,
+        faded, booAt: p.booAt ?? -Infinity, walking: walking && pose.x === null, x: p.rx, voting,
+      });
       set(p.g, { transform: poseTransform(p.rx, ROOM.floorY - up - bob - hover, pose) });
       this.bumps.dress(p, pose, now);
       const air = up + Math.max(0, pose.lift);
