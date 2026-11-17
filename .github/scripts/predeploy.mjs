@@ -35,8 +35,12 @@
 //   never more than that many of its card browsers draw at once; the others wait their turn with
 //   their Workers up. Steps without a card browser (test:room, test:lobby, test:mode, and those
 //   whose browser draws in software) take no token and run beside them. Under gpu-run
-//   (`gpu-run --tokens 3 --kind browser-test -- npm run predeploy`), the tokens come from the
-//   ones gpu-run holds for it instead of from the card's pool.
+//   (`gpu-run --label gate --kind browser-test --tokens 3 --admit-timeout-runs -- npm run
+//   predeploy`), the tokens come from the ones gpu-run holds for it instead of from the card's
+//   pool, and gpu-run's admission check (card load, video memory, heat, recent driver events)
+//   runs first; --admit-timeout-runs makes a busy card delay the gate, never fail it.
+//   Run bare (`npm run predeploy`, and `npm run deploy`, which runs it first), the gate has no
+//   admission check: it takes its tokens and starts whatever the card's state.
 //
 // One gate at a time on this machine: a gate holds the flock on
 // $TMPDIR/n8-party-games-predeploy.lock while it runs, and a second one waits for it and says
@@ -305,7 +309,7 @@ async function sideBySideSteps() {
   if (tokens.length < CARD_TOKENS)
     console.log(
       `(only ${tokens.length} of the ${CARD_TOKENS} it wants: the job it runs under holds no more, or TEST_GPU_JOBS is smaller, ` +
-        `so its card browsers take turns; under gpu-run, give the gate its ${CARD_TOKENS}: gpu-run --tokens ${CARD_TOKENS} ...)`,
+        `so its card browsers take turns; under gpu-run, give the gate its ${CARD_TOKENS}: gpu-run --tokens ${CARD_TOKENS} --admit-timeout-runs ...)`,
     );
 
   console.log("\nStarted side by side:");

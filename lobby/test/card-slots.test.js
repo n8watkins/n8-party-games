@@ -3,7 +3,7 @@
 // served; under a job that holds tokens (TEST_GPU_TOKENS), processes draw only on those.
 // Real processes and real flocks, in a folder of their own (TEST_GPU_LOCK_DIR), so the
 // machine's own tokens in /tmp are never touched. No graphics card is needed.
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -28,7 +28,18 @@ afterEach(async () => {
 
 function job(env = {}) {
   const p = spawn(process.execPath, ["--input-type=module", "-e", holder], {
-    env: { ...process.env, TEST_GPU_LOCK_DIR: dir, TEST_GPU_JOBS: "", TEST_GPU_SLOT_HELD: "", TEST_GPU_TOKENS: "", WANT: "", ...env },
+    env: {
+      ...process.env,
+      TEST_GPU_LOCK_DIR: dir,
+      TEST_GPU_JOBS: "",
+      TEST_GPU_SLOT_HELD: "",
+      TEST_GPU_TOKENS: "",
+      TEST_GPU_GATE_PRIORITY_S: "",
+      TEST_GPU_GATE_WAIT_MAX_S: "",
+      TEST_GPU_WAIT_REPORT_S: "",
+      WANT: "",
+      ...env,
+    },
     stdio: ["pipe", "pipe", "inherit"],
   });
   procs.push(p);
@@ -46,6 +57,19 @@ function job(env = {}) {
 }
 const settle = (ms = 700) => new Promise((r) => setTimeout(r, ms));
 const token = (n) => join(dir, `test-gpu-${n}.lock`);
+const gateFile = () => join(dir, "test-gpu-gate.lock");
+/** Whether anyone holds a lock on `file`. */
+const locked = (file) => spawnSync("flock", ["-n", "-E", "200", file, "true"]).status === 200;
+/** Another program holding `file` exclusively (as an older gpu-run or helper would) until killed. */
+function outsideHolder(file) {
+  const p = spawn("flock", ["-o", file, "sleep", "120"], { stdio: "ignore" });
+  procs.push(p);
+  return p;
+}
+async function until(check, ms = 30000) {
+  for (const end = Date.now() + ms; Date.now() < end; await settle(100)) if (check()) return true;
+  return false;
+}
 
 // Each job is a fresh Node process that loads Playwright, which takes seconds on a loaded PC
 // (the pre-deploy gate runs these tests while other agents build and test), so the limits are
@@ -185,6 +209,89 @@ describe("card tokens", { timeout: 60000 }, () => {
     const kids = parents.map((p) => job({ TEST_GPU_TOKENS: p.tokens(), TEST_GPU_JOBS: "3", TEST_GPU_SLOT_HELD: "1" }));
     await Promise.all(kids.map((k) => k.until(/held/)));
     for (const k of kids) expect(k.out).not.toMatch(/waiting/);
+  });
+
+  it("lets the gate go when a waiter is no longer first in line (review exp4)", async () => {
+    // B waits first in line and holds the gate. Then an entry sorting before B's appears (a
+    // waiter that read its place in line earlier but got into line later). B must let the gate
+    // go, or the new first could never take it, and every gpu-run would wait on the gate for good.
+    const env = { TEST_GPU_JOBS: "1" };
+    const a = job(env);
+    await a.until(/held/);
+    const b = job(env);
+    await b.until(/0 ahead/);
+    expect(await until(() => locked(gateFile()))).toBe(true);
+    const queue = join(dir, "test-gpu-queue");
+    const earlier = join(queue, `${"0".repeat(20)}-1`);
+    writeFileSync(earlier, "");
+    const ahead = outsideHolder(earlier);
+    await b.until(/waiting for a card token, 1 ahead\)/);
+    expect(await until(() => !locked(gateFile()))).toBe(true);
+    ahead.kill();
+    await a.release();
+    await b.until(/held/);
+  });
+
+  it("serves every waiter in turn when many join the line at once (review exp3)", async () => {
+    const env = { TEST_GPU_JOBS: "1" };
+    const first = outsideHolder(token(1));
+    await until(() => locked(token(1)));
+    const waiters = Array.from({ length: 6 }, () => job(env));
+    await Promise.all(waiters.map((w) => w.until(/waiting for a card token/)));
+    first.kill();
+    for (let served = 0; served < waiters.length; served++) {
+      // Whoever holds the token now lets it go; the next must get it.
+      const holder = await new Promise((resolve) => {
+        const look = () => {
+          const h = waiters.find((w) => w.exitCode === null && /held/.test(w.out));
+          h ? resolve(h) : setTimeout(look, 50);
+        };
+        look();
+      });
+      await holder.release();
+    }
+    expect(waiters.every((w) => /held/.test(w.out))).toBe(true);
+  }, 120000);
+
+  it("does not let one long holder and a waiting big job hold up single jobs for good (review exp1)", async () => {
+    const env = { TEST_GPU_JOBS: "3", TEST_GPU_GATE_PRIORITY_S: "1" };
+    outsideHolder(token(1)); // a long holder, gone for good as far as this test goes
+    await until(() => locked(token(1)));
+    const big = job({ ...env, WANT: "3" });
+    await big.until(/it needs 3 of the card's 3 tokens/);
+    const single = job(env);
+    await single.until(/held/);
+    expect(big.out).toMatch(/going to the back of the line/);
+    expect(big.out).not.toMatch(/held/);
+  });
+
+  it("names who holds the tokens once a waiter has waited long", async () => {
+    const a = job({ TEST_GPU_JOBS: "1" });
+    await a.until(/held/);
+    const b = job({ TEST_GPU_JOBS: "1", TEST_GPU_WAIT_REPORT_S: "1" });
+    await b.until(new RegExp(`held now: test-gpu-1.lock: node \\(pid ${a.pid}\\) for \\d+ s`));
+  });
+
+  it("passes by a gate that has been held too long", async () => {
+    outsideHolder(gateFile());
+    await until(() => locked(gateFile()));
+    const p = job({ TEST_GPU_JOBS: "1", TEST_GPU_GATE_WAIT_MAX_S: "1" });
+    await p.until(/held/);
+    expect(p.out).toMatch(/has been held for over 1 s by no details .*; taking tokens without it/);
+  });
+
+  it("keeps a job's token taken while its test process runs, even once the job's own process is killed (review exp2)", async () => {
+    const parent = job({ TEST_GPU_JOBS: "1" });
+    await parent.until(/held/);
+    const child = job({ TEST_GPU_TOKENS: parent.tokens() });
+    await child.until(/held/);
+    parent.kill("SIGKILL");
+    await settle();
+    expect(locked(token(1))).toBe(true);
+    const outsider = job({ TEST_GPU_JOBS: "1" });
+    await outsider.until(/waiting for a card token/);
+    await child.release();
+    await outsider.until(/held/);
   });
 
   it("under a gpu-run from before the token pool (TEST_GPU_SLOT_HELD=1) takes its own slot without queueing", async () => {

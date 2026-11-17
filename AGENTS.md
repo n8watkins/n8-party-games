@@ -35,7 +35,11 @@ The global rules file (branches, pull requests, no merging without the owner's w
   Why (measured on the owner's RX 7800 XT on 2026-11-15, `GPU-PLAYBOOK.md` in the private ops repo): real suites ran fine to about six browsers at once and failed now and then from eight; heavy drawing fills the card at three or four, past which the owner's desktop shares a full card.
   Under a job that holds tokens (`gpu-run`, or the gate), a browser draws only on that job's tokens (`TEST_GPU_TOKENS`), never on more.
   The gate side by side holds three tokens itself, so at most three of its card browsers draw at once; the steps without a card browser run beside them.
-  Under `gpu-run`, give the gate its three: `gpu-run --tokens 3 --kind browser-test -- npm run predeploy`.
+  Run the gate through `gpu-run` and give it its three: `gpu-run --label gate --kind browser-test --tokens 3 --admit-timeout-runs -- npm run predeploy`.
+  There `gpu-run` first waits for the card to settle (load, video memory, heat, recent driver events), and `--admit-timeout-runs` makes a busy card delay the gate, never fail it.
+  Run bare (`TEST_GPU=1 npm run predeploy`, and `npm run deploy`, which runs the gate first), the gate gets no such check: it takes its tokens and starts whatever the card's state.
+  The cap of three only fully holds once every checkout that runs card tests has this helper: an older `lobby/test/browser.mjs` (another worktree, an older branch) counts four slots and takes them without the gate, so beside it one more browser can draw.
+  Another repo's Playwright run on the card with N workers is N browsers: run it as `gpu-run --tokens N ...`.
   A plain `flock /tmp/test-gpu-1.lock <command>` holds one token, not the card: the other tokens still draw beside it.
   Work that needs the card to itself (a render, an image or language model) runs through the owner's `gpu-run --kind blender|image|model`, which holds every token, so no test draws beside it.
   `TEST_NO_GPU=1` keeps every test off the card, whatever else is set: the one switch when the card is busy or misbehaves.

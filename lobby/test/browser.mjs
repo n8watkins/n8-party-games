@@ -116,11 +116,19 @@ export const DEFAULT_CARD_SLOTS = 3;
  *   as that gpu-run expects: any free file of 1 to its TEST_GPU_JOBS, which is one more than its
  *   pool, without queueing.
  *
- * Tokens are taken all at once or not at all, so nobody sits on some while waiting for others,
- * and the one taking them holds the pool's gate file meanwhile, so a job that needs several is
- * not overtaken by single ones that come after it. Every lock is a kernel flock held by a small
- * child (flock ... cat) that reads this process's stdin pipe: when this process ends, however it
- * ends, the pipe closes and the lock is released.
+ * A token is taken while anyone holds any lock on its file: the taker checks it is free with an
+ * exclusive lock and then holds it shared, and a process under a job also holds the job's card
+ * token shared, so a token stays taken while any process of the job still runs, even when the
+ * job's own process (gpu-run, the gate) was killed.
+ *
+ * Tokens are taken all at once or not at all, so nobody sits on some while waiting for others.
+ * The first in line holds the pool's gate file while it waits, so a job that needs several is
+ * not overtaken by single ones that come after it; it lets the gate go as soon as it is no longer
+ * first, and after GATE_PRIORITY_S it goes to the back of the line, so one long holder and one
+ * waiting big job cannot hold up everyone else for good. A gate held past GATE_WAIT_MAX_S (a
+ * holder that hangs) is passed by, and a waiter says who holds the tokens after WAIT_REPORT_S.
+ * Every lock is a kernel flock held by a small child (sh ... cat) that reads this process's stdin
+ * pipe: when this process ends, however it ends, the pipe closes and the lock is released.
  *
  * A plain `flock /tmp/test-gpu-1.lock <command>` holds one token, not the card: the other tokens
  * still draw beside it. Work that needs the card to itself (a render, an image or language model)
@@ -166,6 +174,9 @@ export async function holdTokens(want) {
   if (!which("flock")) throw new Error("TEST_GPU=1 needs flock (util-linux) to share the graphics card");
   const pool = cardPool();
   want = Math.max(1, Math.min(want, pool.tokens.length));
+  // Written into the files this process locks, so a waiter can say who holds them.
+  const owner = `pid=${process.pid} since=${Math.floor(Date.now() / 1000)} what=${basename(process.argv[1] ?? "node")}`;
+  const gate = { held: null, since: 0 };
   // A free token is taken at once when nobody is waiting, and the line is joined only when too
   // few are free (or others are already waiting), so jobs that start together do not line up
   // behind each other for free tokens.
@@ -173,76 +184,162 @@ export async function holdTokens(want) {
     // Another taker holds the gate only for the moment it takes its tokens, unless it is waiting
     // for tokens itself: so a busy gate is tried again for a short while before joining the line.
     for (const until = Date.now() + 2000; ; ) {
-      const got = await gather(pool, want, { keepGate: false });
+      const got = await gather(pool, want, { keepGate: false, gate, owner });
       if (Array.isArray(got)) return got;
       if (got !== GATE_BUSY || Date.now() > until) break;
-      await new Promise((r) => setTimeout(r, 50));
+      await sleep(50);
     }
   }
-  const queue = pool.queue ? await joinQueue(pool.queue) : { ahead: () => 0, leave: () => {} };
-  const gate = { held: null };
+  const noQueue = { ahead: () => 0, leave: () => {} };
+  let queue = pool.queue ? await joinQueue(pool.queue) : noQueue;
+  const t0 = Date.now();
+  let reportAt = t0 + WAIT_REPORT_S * 1000;
+  let gateWaitFrom = null;
+  let skipGate = false;
   try {
     for (let said = -1; ; ) {
       const ahead = queue.ahead();
+      // Only the first in line may hold the gate: one that is no longer first (a waiter whose
+      // entry sorts before it got into line) lets it go, or the new first could never take it.
+      if (ahead !== 0 && gate.held) releaseGate(gate);
       if (ahead === 0) {
-        // First in line: hold the gate from now on, so nobody takes tokens before this one.
-        const got = await gather(pool, want, { keepGate: true, gate });
+        const got = await gather(pool, want, { keepGate: true, gate, owner, skipGate });
         if (Array.isArray(got)) return got;
+        if (got !== GATE_BUSY) gateWaitFrom = null;
+        else if (!skipGate && Date.now() - (gateWaitFrom ??= Date.now()) > GATE_WAIT_MAX_S * 1000) {
+          console.log(`(the card's gate ${pool.gate} has been held for over ${GATE_WAIT_MAX_S} s by ${holderOf(pool.gate)}; taking tokens without it)`);
+          skipGate = true;
+        }
+        if (gate.held && Date.now() - gate.since > GATE_PRIORITY_S * 1000 && pool.queue) {
+          // First in line too long: to the back of the line, so the ones behind get a turn.
+          releaseGate(gate);
+          queue.leave();
+          queue = await joinQueue(pool.queue);
+          console.log(`(still waiting after ${GATE_PRIORITY_S} s first in line: going to the back of the line, so jobs that need fewer tokens can start)`);
+          said = -2;
+          await sleep(GATE_YIELD_S * 1000);
+          continue;
+        }
       }
       if (ahead !== said) {
         const n = pool.tokens.length;
         const why = want > 1 ? `it needs ${want} of ${pool.what}` : n > 1 ? `all ${pool.what} are in use` : `${pool.what} is in use`;
         const hint = pool.inherited ? "" : "; TEST_GPU_JOBS changes the number";
-        console.log(said < 0 ? `(waiting for a card token, ${ahead} ahead: ${why}${hint})` : `(waiting for a card token, ${ahead} ahead)`);
+        console.log(said === -1 ? `(waiting for a card token, ${ahead} ahead: ${why}${hint})` : `(waiting for a card token, ${ahead} ahead)`);
         said = ahead;
       }
-      await new Promise((r) => setTimeout(r, 500));
+      if (Date.now() >= reportAt) {
+        const held = pool.tokens.filter(isLocked).map((t) => `${basename(t)}: ${holderOf(t)}`);
+        console.log(`(still waiting after ${Math.round((Date.now() - t0) / 1000)} s; held now: ${held.join("; ") || "none (another job is about to take them)"})`);
+        reportAt = Date.now() + WAIT_REPORT_EVERY_S * 1000;
+      }
+      await sleep(500);
     }
   } finally {
-    gate.held?.release();
+    releaseGate(gate);
     queue.leave();
   }
 }
 
+/** Limits on waiting, in seconds, as in gpu-run; the environment changes them for the helper's own tests. */
+const limit = (name, value) => (process.env[name] ? Math.max(0, Number(process.env[name])) || 0 : value);
+const GATE_PRIORITY_S = limit("TEST_GPU_GATE_PRIORITY_S", 180);
+const GATE_YIELD_S = 5;
+const GATE_WAIT_MAX_S = limit("TEST_GPU_GATE_WAIT_MAX_S", 600);
+const WAIT_REPORT_S = limit("TEST_GPU_WAIT_REPORT_S", 60);
+const WAIT_REPORT_EVERY_S = 300;
 const GATE_BUSY = "gate busy";
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+function releaseGate(gate) {
+  gate.held?.release();
+  gate.held = null;
+}
+
+/** The card token a claim file stands for: the path without its ".use" endings. */
+const rootToken = (path) => path.replace(/(\.use)+$/, "");
+
+/** Who holds `file`, as its holder wrote it into the file, when that holder is still running. */
+function holderOf(file) {
+  try {
+    const d = Object.fromEntries(
+      readFileSync(file, "utf8")
+        .trim()
+        .split(" ")
+        .map((kv) => kv.split("=")),
+    );
+    const pid = Number(d.pid);
+    process.kill(pid, 0);
+    const s = Math.round(Date.now() / 1000 - Number(d.since));
+    return `${d.what ?? "?"} (pid ${pid}) for ${s >= 60 ? Math.round(s / 60) + " min" : s + " s"}`;
+  } catch {
+    return "no details (an older gpu-run or test helper)";
+  }
+}
 
 /**
  * One try at `want` tokens of `pool`, all or nothing, under its gate. Resolves to the paths held,
  * GATE_BUSY when someone else holds the gate, or null when too few tokens are free. With keepGate
  * the gate stays held (in gate.held) after a failed try, so the next try is still first; it is
- * let go by the caller.
+ * let go by the caller. With skipGate the gate is not taken at all.
  */
-async function gather(pool, want, { keepGate, gate = { held: null } }) {
-  if (pool.gate && !gate.held) {
-    gate.held = await lockFile(pool.gate);
+async function gather(pool, want, { keepGate, gate, owner, skipGate = false }) {
+  if (pool.gate && !gate.held && !skipGate) {
+    gate.held = await lockFile(pool.gate, { info: owner });
     if (!gate.held) return GATE_BUSY;
+    gate.since = Date.now();
   }
   const held = [];
   try {
     for (const path of pool.tokens) {
-      const lock = await lockFile(path);
-      if (!lock) continue;
-      held.push({ path, lock });
+      const locks = await claim(pool, path, owner);
+      if (!locks) continue;
+      held.push({ path, locks });
       if (held.length === want) return held.map((h) => h.path);
     }
-    for (const h of held) h.lock.release();
+    for (const h of held) for (const l of h.locks) l.release();
     return null;
   } finally {
-    if (!keepGate || held.length === want) {
-      gate.held?.release();
-      gate.held = null;
-    }
+    if (!keepGate || held.length === want) releaseGate(gate);
   }
 }
 
 /**
- * Holds a flock on `file` for the life of this process, or until release() is called, through a
- * small child (flock ... cat) that reads this process's stdin pipe: when this process ends,
- * however it ends, the pipe closes and the lock is released. Resolves to null when the file is
- * locked by someone else.
+ * One token, if free: its locks, or null. A card token is checked free (exclusive) and then held
+ * shared, so the processes of this job can hold it too. A claim on a job's token is exclusive
+ * among the job's processes, and comes with a shared hold on the card token behind it, which
+ * keeps that token taken while this process runs, whatever happens to the job's own process.
  */
-async function lockFile(file) {
-  const holder = spawn("flock", ["-n", file, "sh", "-c", "echo held; exec cat >/dev/null"], { stdio: ["pipe", "pipe", "ignore"] });
+async function claim(pool, path, owner) {
+  if (!pool.inherited) {
+    const lock = await lockFile(path, { mode: "take", info: owner });
+    return lock && [lock];
+  }
+  const lock = await lockFile(path, { info: owner });
+  if (!lock) return null;
+  const keep = await lockFile(rootToken(path), { mode: "shared" });
+  return keep ? [lock, keep] : [lock];
+}
+
+// Holds the lock on $1 on file descriptor 9, which `cat` keeps open until this process's stdin
+// pipe closes. $2 is "x" (exclusive), "s" (shared) or "take" (exclusive to check the file is
+// free, then shared); $3, when set, is written into the file to say who holds it.
+const HOLD_LOCK = `exec 9<>"$1" || exit 1
+if [ "$2" = s ]; then flock -n -s 9 || exit 1; else flock -n -x 9 || exit 1; fi
+if [ "$2" = take ]; then flock -n -s 9 || exit 1; fi
+[ -z "$3" ] || printf '%s\\n' "$3" >"$1"
+echo held
+exec cat >/dev/null`;
+
+/**
+ * Holds a flock on `file` for the life of this process, or until release() is called, through a
+ * small child (sh, then cat) that reads this process's stdin pipe: when this process ends,
+ * however it ends, the pipe closes and the lock is released. Resolves to null when the file is
+ * locked by someone else. mode: "exclusive" (the default), "shared", or "take" (see HOLD_LOCK).
+ */
+async function lockFile(file, { mode = "exclusive", info = "" } = {}) {
+  const how = { exclusive: "x", shared: "s", take: "take" }[mode];
+  const holder = spawn("sh", ["-c", HOLD_LOCK, "hold-lock", file, how, info], { stdio: ["pipe", "pipe", "ignore"] });
   holder.stdin.on("error", () => {});
   const held = await new Promise((resolve) => {
     holder.stdout.once("data", () => resolve(true));
@@ -269,8 +366,9 @@ function isLocked(file) {
 /**
  * The line of processes waiting for tokens: one empty file per waiter in the pool's queue folder
  * (/tmp/test-gpu-queue for the card's pool, "<first token>.queue" for a job's own), named by when
- * it started waiting and its process id. Only the first in line tries for tokens, so a job that
- * has waited longest goes next.
+ * it got into line (the monotonic clock) and its process id. Only the first in line tries for
+ * tokens, so a job that has waited longest goes next. Order in line is only fairness: a waiter
+ * that finds another ahead of it lets the gate go, so no ordering mistake can stop the line.
  *
  * A waiter holds a flock on its own file while it waits, and a file nobody holds a lock on no
  * longer counts and is removed by whoever sees it. That is what makes a waiter killed outright
@@ -310,20 +408,24 @@ function waiting(queue, me = "~") {
 }
 
 async function joinQueue(queue) {
-  const me = `${String(Date.now()).padStart(15, "0")}-${process.pid}`;
+  const temp = `.${process.pid}-${Math.random().toString(36).slice(2)}`;
+  let me = null;
   const noQueue = { ahead: () => 0, leave: () => {} }; // every waiter simply tries
   let lock;
   try {
     mkdirSync(queue, { recursive: true, mode: 0o1777 });
-    writeFileSync(join(queue, "." + me), "");
-    lock = await lockFile(join(queue, "." + me));
+    writeFileSync(join(queue, temp), "");
+    lock = await lockFile(join(queue, temp));
     if (!lock) throw new Error("could not lock its own queue file");
-    renameSync(join(queue, "." + me), join(queue, me));
+    // The place in line is read from the system's monotonic clock (the same for every process on
+    // the machine, and never stepped) once the entry is ready, right before it goes into line.
+    me = `${String(process.hrtime.bigint()).padStart(20, "0")}-${process.pid}`;
+    renameSync(join(queue, temp), join(queue, me));
   } catch {
     lock?.release();
-    for (const name of ["." + me, me])
+    for (const name of [temp, me])
       try {
-        unlinkSync(join(queue, name));
+        if (name) unlinkSync(join(queue, name));
       } catch {}
     return noQueue;
   }
