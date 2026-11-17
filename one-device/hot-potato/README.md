@@ -34,18 +34,24 @@ The screen is kept on during a round where the browser allows it (Wake Lock).
 Chrome, Edge and Safari can listen (the Web Speech API).
 Where the browser cannot (Firefox, some in-app browsers), the start screen says so and every word is typed instead.
 When the microphone is refused, or listening fails, the round goes on by typing and the start screen says how to allow the microphone.
-"Type it instead" switches one round to typing, for a loud room.
+Otherwise answers are only spoken: there is no typing control in normal play, and no setting for one.
 
 A turn never waits for ever on the microphone.
 The fuse is lit when the recogniser says it has started; if it has not after 4 seconds, that turn is typed instead, saying why, and the next turn listens again.
 When a recognition session ends having heard nothing, the next starts by itself; sessions that end almost at once are restarted with a growing wait (150 ms, doubling, at most 2 s), and after 4 of those in a row, or 12 restarts in one turn, that turn is typed instead.
+When a session ends having heard words but never saying they are final (Safari can end that way), those words are judged as the answer, instead of being thrown away while the fuse runs out.
+
+A microphone that is on but hears nothing (muted, turned down, the wrong one chosen) gives no error: the recogniser runs and the fuse runs out.
+After two turns in a row in which the recogniser ran and heard no speech at all, the word box comes up by itself at the start of the next turn, saying "The microphone hears nothing. Type any city, or check the mic.", while the microphone keeps listening.
+The moment speech is heard the box goes and the turn is spoken again; each new round starts on voice.
+A quiet moment inside a turn, or silent turns that are not in a row, never bring it up.
 
 ## Files
 
 - `public/index.html`, `public/style.css`: the screens.
 - `public/app.js`: the page: screens, voice, sounds, buzz, pause, keys, storage, wake lock.
 - `public/game.js`: the rules of a round, pure (no DOM, no clock of its own): turn order, the fuse and stages, verdicts, appeals, dead ends through the shared matcher, the burst and the end, and `artState()`, all the art is told.
-- `public/voice.js`: one turn's listening, restarting the recogniser until it has a word.
+- `public/voice.js`: one turn's listening, restarting the recogniser until it has a word (or judging the partial words of a session that never gave a final one).
 - `public/sounds.js`: the sounds (Bell, Knocks, Clock, Crack), made with Web Audio, and the vibration patterns (Tap, Pulse, Climb, Shudder).
 - `public/art.js`: the seam between the rules and the potato's look (below).
 - `public/art-specimen.js`, `public/specimen-draw.js`: the Specimen, the default potato: its SVG renderer and its pure drawing (faces, motion, the scene).
@@ -58,11 +64,33 @@ When a recognition session ends having heard nothing, the next starts by itself;
 ## The look
 
 The screens and the potato are the Game Art Picker's first Hot Potato look, "The Specimen", which the owner picked: a deep navy screen with a lighter diagonal band, bold condensed capitals (Anton) slanted a little, yellow and green on ink, thick dark outlines and flat colours.
-The phone is passed round and read upright.
-On a turn: the category on a yellow tag and who is up, the lives and the fuse, the potato in its rig, the last word with the letter the next word needs boxed in yellow, and the green microphone (the go button while it is passed, "Say it now" while it listens) beside the giant letter.
-The ground heats with the potato: navy, blue, teal, purple, then magenta with a slow pink pulse; a verdict tints it green or red for a moment under a big "Yes!" or "Nope!" (or "Too slow!", "Again?", "Overturned!"), while the appeal stays in full view; the burst lights it up briefly and names who was holding it.
+The phone is passed round and played upright.
+The ground heats with the potato: navy, blue, teal, purple, then magenta with a slow pink pulse; a verdict tints it green or red for a moment under a big "Yes!" or "Nope!" (or "Too slow!", "Again?", "Overturned!") over the potato; the burst lights it up briefly and names who was holding it.
 The pulse stays soft enough that every word keeps 4.5:1 at its brightest; the lives are solid blocks, and lost ones empty outlines, so they read by shape as well as colour (`test/contrast.test.js` checks both against `style.css`).
-Sideways on a small phone the start screen puts the title over the potato and the setup down the right, so a note (this browser cannot listen, the microphone is blocked) still fits.
+
+### One composition on every screen
+
+Phone, tablet, laptop or TV, the screen is the same (`style.css`, "The composition"):
+
+- **The potato**, big and centred, from the top of the screen down to the strip.
+  He is framed so that he himself (his body, face and sprouts at their biggest) fills the screen's width or height, whichever runs out first; the rig's outer parts (the tubes, the clamp arms' ends, the tray's corners) may run off the sides once he strains, but he, the bulbs and the tray's lights never leave the screen.
+  His tray sits just above the strip, and the height above him is his room to grow into: by the last stage his sprouts reach up toward the top line.
+- **A slim top line**: the category, the lives, the fuse, sound and pause.
+- **A small strip under him**, centred, with a hairline above it: whose turn it is; the microphone beside the word to follow, with its last letter boxed (the letter the next word needs, dead ends already skipped back past and said under the word); and one reserved line for what is heard while listening, or the verdict's reason and its appeal after it, so nothing moves when they come and go.
+  The line has one fixed height and the reason at most two lines: a long word heard is shortened in it (the last word shows in full beside the microphone), and after a long reason "It gets worse" is left to the potato.
+  On wide screens the line reaches a little past the pair on each side, without moving them.
+  The microphone shows that it is listening in the button itself (green, rings inside its own space, "Say it now" under it).
+  On wide screens whose turn sits over the word, beside the microphone, so he keeps the height, and the keys (Space or Enter starts a turn, Esc pauses) sit small in the bottom corner where the main pointer is a mouse or trackpad.
+- **Start**: the title over him and the setup as a compact panel under him.
+  **End**: who it burst on over him, the chain and the buttons under him.
+
+Measured at the calm stage (the rig's drawn box: potato, clamps, antennas, tubes, tray): on a 390x844 phone, 92% of the width and 37% of the height (his body 42% of the width, 77% at the last stage); on a 768x1024 tablet, 53% of the height; on a 1280x720 or 1920x1080 screen, 55% of the height, 70% at the last stage.
+On a phone the width is the limit: he grows to about twice his calm size, so the calm stage cannot be bigger without the last stage leaving the screen.
+A phone on its side shows the same composition, smaller (the rig about 40% of the height), with a quiet "Better upright" hint; it neither blocks nor pauses the round.
+Type is fluid (clamp), from the screen's size, between a readable floor and a ceiling; the word to follow is the biggest text in the strip.
+Buzz shows only on a touch device that can vibrate (desktop Chrome has the call but nothing to vibrate).
+Where listening cannot work, the word box appears under the word, takes the keyboard at once, and Enter sends it.
+Resizing a window or turning a phone re-lays the same screen: the turn, the fuse and the listening go on, and the potato refits.
 
 ## The potato
 
@@ -114,7 +142,15 @@ It picks the Specimen, or the plain potato with `#plain` in the address; another
 
 - `npm test` runs `test/game.test.js` (the rules against the real lists, and the stress they hand the art), `test/specimen.test.js` (the Specimen against the owner's rules: the same parts at every stage, faces that follow the state and are never scary, the stress ladder rising at every step with no tremble when calm and nothing moving with reduced motion, everything inside its drawing, a drawing loop that stops), `test/contrast.test.js` (the colours in `style.css`) and `test/potato.test.js` (the plain potato's geometry).
 - `npm run test:hot-potato -- --base=http://localhost:PORT` (`node one-device/hot-potato/test/e2e-game.mjs`) plays the game in a headless, muted Chromium (on the graphics card with `TEST_GPU=1`) against a built site served on that port (run it through `devguard slot --`), with a scripted fake recogniser: whole rounds to the burst in cities (by taps, on a phone) and animals (by keys, on a desktop), the typed fallback (and that it fits at 320 wide), a blocked microphone, three broken recognisers (one that never starts, one that ends at once, one that starts and aborts), pause (and that it holds the keyboard, and where the keyboard goes when it ends straight after a verdict) and a hidden page, the appeal in full view through a verdict, what is remembered, storage refused, reduced motion, that the potato is not redrawn when nothing moves, its faces and reactions, that the stress climbs during a slow turn, that the screen and the layout never move while the potato shakes, that the last stage and the burst stay inside the screen with a light flash, the start screen's notes on sideways phones (568x320, 667x375, 740x340, 844x390), one pass with `#plain`, and the layout at 390x844, 320x568, 568x320, 844x390 and 1280x720.
+  It begins with the fallbacks for a microphone that hears nothing: no word box in the first two silent turns, then the box by itself with its reason while the microphone still listens, a typed word counting, the box going the moment speech is heard, a new round starting on voice, a quiet pause inside a turn and silent turns not in a row never bringing it up, and a recogniser that only ever gives partial words having them judged; and the word box with the on-screen keyboard up (the page is resized by it, `interactive-widget=resizes-content`) at 390x480, 360x360 and 320x300.
+  `--only=fallback` runs just that part.
+  Then the layout walk: every key screen (start, ready, listening, a long verdict, a verdict with its appeal, a typed turn, the pause, the last stage, the burst, the end) at 17 sizes (320x568, 360x640, 390x844, 430x932, 568x320, 667x375, 844x390, 932x430, 768x1024, 1024x768 and 820x1180 by touch; 1280x720, 1366x768, 1440x900, 1920x1080, 2560x1080 and 1080x1920 by mouse), resized in place without touching the round: nothing outside the screen, cut short, overlapping or scrolling, every control at least 44 px, the microphone's caption at least 12 px, the status line at most two lines and not cut off, the microphone not moved up or down by a verdict (nor at all by a long one), the end's stats on a dark panel at 7:1, and the go button's accessible name starting with its visible words; the potato's rig at the calm stage at least 85% of the width on an upright phone, 48% of the height on a tablet or a wide screen (or 85% of the width on a tall portrait screen) and 28% of the height on a phone on its side; he, his bulbs and his tray's lights on screen at every stage; the word to follow the biggest text in the strip and at least 24 px and 6% of the shorter side.
+  In a normal listening turn the strip holds only whose turn, the microphone and the word (and what is heard), and there is no typing control in the page, focusable or in the accessibility tree; the typed turn comes from a refused microphone.
+  The fallbacks still type: no recognition (a round finished by typing), a refused microphone (the round finished by typing, listening not tried again), listening that fails, and the broken recognisers.
+  Then a phone turned both ways and a window resized and maximised in the middle of a listening turn: the same turn, the fuse burning, listening not restarted, the potato refitted, the word counted.
+  `--only=layout` runs just that part (about a minute).
   It saves stills of every stage of the potato at 390x844 and 1280x720 in `--shots` (default `/tmp/claude-hot-potato-game/shots`).
+- `node one-device/hot-potato/test/screens.mjs --base=http://localhost:PORT` saves stills of the key screens at all 17 sizes in `--out` (default `/tmp/claude-hp-game/responsive-stills`; `--sizes=390x844,1280x720` for a few).
 - `node one-device/hot-potato/test/stills.mjs --base=http://localhost:PORT` saves stills of every screen at 390x844, 320x568, 568x320, 844x390 and 1280x720 (and of the start screen's note and a typed turn), the faces' contact sheet, each stage's stress steps and twelve frames of each stage's motion, in `--out` (default `/tmp/claude-hp-game/specimen-stills`).
 - `npm run test:hearing -- --base=http://localhost:PORT` runs the hearing test's browser test; its unit tests (`lab/hot-potato/README.md`) cover the matcher and the lists.
 - Both browser tests are steps of the predeploy gate (`npm run predeploy`, see `AGENTS.md`).

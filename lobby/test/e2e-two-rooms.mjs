@@ -119,8 +119,10 @@ try {
   const boBefore = await bo.evaluate(() => JSON.parse(sessionStorage.getItem("party-kit:session:/api/lobby")).token);
   await ann.click(".mode-choice");
   await ann.waitForSelector(".hop-cover", { timeout: 3000 });
+  // Read the words at once: by the time a screenshot is taken the page may have moved on.
+  const moving = await ann.locator(".hop-words").textContent();
   await shot(ann, "11-switch-cover-844x390");
-  check((await ann.locator(".hop-words").textContent()) === "Moving to the Table", "Ann's page says: Moving to the Table");
+  check(moving === "Moving to the Table", "Ann's page says: Moving to the Table");
   await Promise.all([landed(ann, "/party/"), landed(bo, "/party/"), landed(tv, "/party/")]);
   check(true, "every page moved itself to the plain waiting room: both phones and the big screen");
   const boAfter = await bo.evaluate(() => JSON.parse(sessionStorage.getItem("party-kit:session:/api/lobby")).token);
