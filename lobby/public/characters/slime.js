@@ -53,6 +53,27 @@ function domePath() {
 }
 export const SLIME_DOME = domePath();
 
+/**
+ * The dome hardened: the same outline cut into flat faces, like a gem (lobby/shared/slime.js,
+ * harden), and the lines between its faces.
+ */
+function gemPaths() {
+  const n = 4;
+  const pts = [];
+  for (let i = 0; i <= n; i++) {
+    const a = ((i / n) * Math.PI) / 2;
+    const r = 0.43 * Math.pow(Math.cos(a), 0.62) + 0.05 * Math.pow(1 - i / n, 6);
+    pts.push([r * RU, -0.7 * Math.sin(a) * RU]);
+  }
+  const ring = [...pts.map(([x, y]) => [x, y]), ...pts.slice(0, -1).reverse().map(([x, y]) => [-x, y])];
+  const outline = `M${ring.map(([x, y]) => `${x.toFixed(1)},${y.toFixed(1)}`).join(" L")} Z`;
+  // From a point high on its front to each corner: the facets.
+  const c = [-6, -0.46 * RU];
+  const facets = ring.slice(1, -1).map(([x, y]) => `M${c[0]},${c[1].toFixed(1)} L${x.toFixed(1)},${y.toFixed(1)}`).join(" ");
+  return { outline, facets };
+}
+const GEM = gemPaths();
+
 /** How far the top of its head is below a standing pawn's (room units). */
 const BELOW_PAWN = 141 + SLIME.top;
 
@@ -73,7 +94,12 @@ function shapes(colour, connected = true) {
     drips: s("g", {}, s("ellipse", { cx: 58, cy: -3, rx: 8.5, ry: 5 }), s("ellipse", { cx: -55, cy: -2.5, rx: 6.2, ry: 3.8 })),
     // The wet highlight, and a second smaller one: the gloss that makes it read as jelly, from near and far.
     shine: s("g", {}, s("ellipse", { cx: -21, cy: -70, rx: 12, ry: 5.2, fill: "#fff", opacity: 0.72, transform: "rotate(-28,-21,-70)" }), s("ellipse", { cx: -34, cy: -52, rx: 3.4, ry: 2.4, fill: "#fff", opacity: 0.55 })),
+    // Hardened: a gem of flat faces over the dome, with sharp glints (shown by frame).
+    gemBody: s("path", { d: GEM.outline, "stroke-width": 2.4, "stroke-linejoin": "round" }),
+    gemLines: s("path", { d: GEM.facets, fill: "none", stroke: "#fff", "stroke-width": 1.6, opacity: 0.55 }),
+    gemGlint: s("path", { d: "M-24,-66 l6,-10 l4,10 l-5,4 z M20,-40 l4,-6 l3,6 l-3,3 z", fill: "#fff", opacity: 0.9 }),
   };
+  a.gem = s("g", { display: "none", class: "slime-gem" }, a.gemBody, a.gemLines, a.gemGlint);
   tint(a, colour, connected);
   return a;
 }
@@ -86,6 +112,8 @@ function tint(a, colour, connected) {
   set(a.lo, { "stop-color": shade(c, -0.12) });
   set(a.body, { stroke: shade(c, -0.45), opacity: connected ? null : 0.85 });
   set(a.drips, { fill: shade(c, 0.05), stroke: shade(c, -0.45), "stroke-width": 1.6 });
+  // The gem is the colour made glassy and bright.
+  if (a.gemBody) set(a.gemBody, { fill: shade(c, 0.32), stroke: shade(c, 0.7) });
 }
 
 function face() {
@@ -132,9 +160,9 @@ export const slime = {
       },
     },
     make() {
-      const a = { ...shapes("#888888"), face: face(), colour: "#888888", sq: 1, sqV: 0, lean: 0, leanV: 0, phase: 0, walked: false, puff: 0, scaredK: 0 };
+      const a = { ...shapes("#888888"), face: face(), colour: "#888888", sq: 1, sqV: 0, lean: 0, leanV: 0, phase: 0, walked: false, puff: 0, scaredK: 0, hardK: 0, softK: 0 };
       // The jelly in a group of its own, so its squash is about its foot and an emote's lean (on `inner`) is laid over it.
-      a.squish = s("g", {}, a.grad, a.drips, a.body, a.shine, a.face.g);
+      a.squish = s("g", {}, a.grad, a.drips, a.body, a.shine, a.gem, a.face.g);
       a.inner = s("g", {}, a.squish);
       return a;
     },
@@ -143,21 +171,42 @@ export const slime = {
       a.colour = colour;
     },
     /** Every frame: the squash and stretch of its creep, the lag of its top, the jiggle when it stops. It never leaves the floor by itself. */
-    frame(a, { now, dt, face: dir, seat, calm, grounded, walking }) {
+    frame(a, { now, dt, face: dir, seat, calm, grounded, walking, goo = null }) {
       const step = Math.min(dt, 1 / 30);
       const moving = !!walking && !grounded;
       if (moving) a.phase += step * 10.5;
       // Setting off, the top is left behind; stopping, it runs on past and wobbles back.
       if (a.walked && !moving && !calm) a.sqV += 1.6;
       a.walked = moving;
-      const creep = moving && !calm ? 0.085 * Math.sin(a.phase) : 0;
-      const breath = calm ? 0 : 0.018 * Math.sin(now / 650 + seat * 1.7);
-      [a.sq, a.sqV] = spring(a.sq, a.sqV, grounded ? 0.66 : 1 + creep, 260, calm ? 30 : 7.5, step);
+      // Hard (lobby/shared/slime.js): a gem, stiff and still. Soft: low, wide and wobbling.
+      const hard = goo?.hard ?? 0;
+      const soft = goo?.soft ?? 0;
+      if (hard > 0.5 && a.hardK <= 0.5) a.sqV -= calm ? 0 : 2.2;
+      if (soft > 0.5 && a.softK <= 0.5) a.sqV -= calm ? 0 : 3;
+      a.hardK = hard;
+      a.softK = soft;
+      const creep = moving && !calm && hard < 0.5 ? 0.085 * Math.sin(a.phase) : 0;
+      const breath = calm || hard > 0.5 ? 0 : 0.018 * Math.sin(now / 650 + seat * 1.7);
+      const wobble = calm ? 0 : soft * 0.06 * Math.sin(now / 85);
+      [a.sq, a.sqV] = spring(a.sq, a.sqV, grounded ? 0.66 : 1 + creep - 0.24 * soft + wobble + 0.03 * hard, hard > 0.5 ? 600 : 260, calm ? 30 : hard > 0.5 ? 26 : 7.5, step);
       // Its top drags a little behind while it moves (a positive skew leans the top to the left).
-      [a.lean, a.leanV] = spring(a.lean, a.leanV, moving ? dir * 7 : 0, 120, calm ? 30 : 6, step);
+      [a.lean, a.leanV] = spring(a.lean, a.leanV, moving && hard < 0.5 ? dir * 7 : 0, 120, calm ? 30 : 6, step);
       const tall = Math.max(0.55, a.sq + breath);
       const wide = 1 / Math.sqrt(tall);
       set(a.squish, { transform: `skewX(${a.lean.toFixed(2)}) scale(${wide.toFixed(3)},${tall.toFixed(3)})` });
+      const gem = hard > 0.02;
+      if (gem !== !!a.gemShown || (gem && Math.abs(hard - (a.gemK ?? 0)) > 0.04)) {
+        a.gemShown = gem;
+        a.gemK = hard;
+        set(a.gem, { display: gem ? null : "none", opacity: hard.toFixed(2) });
+        set(a.shine, { opacity: (1 - hard).toFixed(2) });
+      }
+      // Soft, it runs at the foot: its drips spread and swell.
+      const drip = 1 + 0.15 * soft;
+      if (Math.abs(drip - (a.dripK ?? 1)) > 0.004) {
+        a.dripK = drip;
+        set(a.drips, { transform: `scale(${drip.toFixed(3)},${(1 + 1.6 * soft).toFixed(2)})` });
+      }
       if (!a.dizzy) {
         // Wide while a ghost has frightened it (no blink then), about the middle of its eyes.
         const wide = 1 + 0.3 * a.scaredK;

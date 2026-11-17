@@ -22,6 +22,8 @@ import { tagLevels } from "../tag-levels.js";
 import { modelOf } from "./characters.js";
 import { RIG_UNIT } from "./emote-arms.js";
 import { Life } from "./life.js";
+import { Hooks3D } from "./moves3d.js";
+import { heardHook, heardShove, heardSlime, heardStilts, heardVerdict, hookNow, hookStop, refusedOwn, resumeMoves, startGoo, startHook, startStilts } from "../move-state.js";
 import { ART_IMAGES, boxArt, boxSide, canvasOf } from "./paint.js";
 import { PAWN_HEIGHT, resumeKnock, startAttack, startFright, startKnock } from "./pieces.js";
 import { SKINS, liveSkin } from "./skins.js";
@@ -246,6 +248,8 @@ export class Room3D {
     this.stuff = new THREE.Group();
     this.cast = new THREE.Group();
     this.scene.add(this.stuff, this.cast);
+    // The robots' hooks and chains (./moves3d.js).
+    this.hooks = new Hooks3D(this.cast);
     this.words = new Words(el, opts, skin);
     this.at = new THREE.Vector3();
     // The page's bar under the room takes the room's colours while this look is up (look3d.css).
@@ -649,6 +653,8 @@ export class Room3D {
       // drawn the moment its button goes down, before the room has said so: left as it is.
       if (m.faded > 0) p.fadeUntil = now + m.faded;
       else if (m.seat !== this.opts.own) p.fadeUntil = 0;
+      // A robot's hook out or legs up, a slime hard or soft (../move-state.js), likewise.
+      resumeMoves(p, m, now, m.seat === this.opts.own);
     }
     for (const [seat, p] of this.pieces) {
       if (!seen.has(seat) && !p.leaving) p.leaving = now;
@@ -702,6 +708,9 @@ export class Room3D {
   recast(p, m) {
     this.disembody(p);
     this.expressions.stop(p.seat);
+    // Its old move ends with its old body.
+    p.hook = p.stilt = p.goo = null;
+    this.hooks?.hook(p.seat, null);
     this.embody(p, m);
   }
 
@@ -715,6 +724,7 @@ export class Room3D {
   }
 
   removePiece(p) {
+    this.hooks?.hook(p.seat, null);
     this.disembody(p);
     p.sticker?.remove();
     this.expressions.stop(p.seat);
@@ -758,6 +768,15 @@ export class Room3D {
       const ghost = this.pieces.get(msg.sc);
       if (ghost) ghost.booAt = began + IMPACT_MS;
     }
+    // The kick bounced off a hardened slime (`bo`, shared/slime.js): the kicker is knocked back itself.
+    if (msg.bo !== undefined && by) {
+      by.net = { x: msg.x, d: 0, t: now };
+      by.rev = msg.rev;
+      startKnock(by, msg.x, began);
+      const slime = this.pieces.get(msg.bo);
+      if (slime) setTimeout(() => this.spark(slime.rx - (msg.f || 1) * 40, 70, performance.now()), IMPACT_MS);
+    }
+    if (hit) hit.goo = null;
     // If it happened by the room's feature, the feature is knocked too (look3d/life.js).
     // Where they are is taken from what the room said, not from where this device has drawn them
     // so far, so that a slow screen and a fast one agree.
@@ -780,6 +799,68 @@ export class Room3D {
     p.net = { x: msg.x, d: 0, t: now };
     p.rev = msg.rev;
     startFright(p, msg.x, now, "spook");
+    this.idle = 0;
+  }
+
+  // The robot's and the slime's moves (../move-state.js keeps what both drawings know of them).
+
+  /** How this look starts a slide or a fright, and a spark (`h`: how high above the floor). */
+  get moveDrawing() {
+    return { fright: (p, x, at, kind) => startFright(p, x, at, kind), spark: (x, h, now) => this.spark(x, h, now) };
+  }
+
+  onHook(msg, now) {
+    heardHook(this.pieces, this.opts.own, msg, now);
+    this.idle = 0;
+  }
+
+  onHookVerdict(msg, now) {
+    heardVerdict(this.pieces, msg, now, this.moveDrawing);
+    this.idle = 0;
+  }
+
+  onStilts(msg, now) {
+    heardStilts(this.pieces, msg, now);
+    this.idle = 0;
+  }
+
+  onSlime(msg, now) {
+    heardSlime(this.pieces, msg, now);
+    this.idle = 0;
+  }
+
+  onShove(msg, now) {
+    heardShove(this.pieces, msg, now, this.moveDrawing);
+    this.idle = 0;
+  }
+
+  ownHook(now) {
+    const p = this.pieces.get(this.opts.own);
+    if (p) startHook(p, p.face, now);
+  }
+
+  ownStilts(now) {
+    const p = this.pieces.get(this.opts.own);
+    if (p) startStilts(p, now);
+  }
+
+  ownSlime(kind, now) {
+    const p = this.pieces.get(this.opts.own);
+    if (p) startGoo(p, kind, now);
+  }
+
+  ownRefused(what, now) {
+    refusedOwn(this.pieces.get(this.opts.own), what, now);
+  }
+
+  /** A small spark where a hook clangs off or is batted away, or a kick bounces off a slime (no jolt). `h`: how high above the floor. */
+  spark(x, h, now) {
+    if (this.life?.calmQuery?.matches) return;
+    place(x, ROOM.floorY - h, SPACE.walkZ + 0.2, this.at);
+    for (let i = 0; i < 8; i++) {
+      const a = (i / 8) * Math.PI * 2;
+      this.life.sparks.add(this.at.x, this.at.y, this.at.z, Math.cos(a) * 1.6, Math.sin(a) * 1.6, 0.22, 0.16, i % 2 ? 0xfff6d8 : 0xffe2a8, 0);
+    }
     this.idle = 0;
   }
 
@@ -1069,6 +1150,16 @@ export class Room3D {
       this.words.dressTag(p.tag, p.member);
       ordered.push(p);
     }
+    // The robots' hooks: each flies until the room's word, stopping at the first piece it meets.
+    for (const p of ordered) {
+      if (!p.hook) {
+        this.hooks.hook(p.seat, null);
+        continue;
+      }
+      const others = ordered.filter((o) => o !== p && !o.leaving).map((o) => o.rx);
+      const drawn = hookNow(p, now, p.rx, p.hook.verdict ? null : hookStop(p.rx, p.hook.dir, others));
+      if (this.hooks.hook(p.seat, drawn, p.rx, p.hook?.dir ?? p.face, p.body.legs ?? 0)) busy = true;
+    }
     // Name tags that would sit on top of each other step up instead.
     tagLevels(ordered, (p) => p.tag.w, (p) => p.up, (p) => (p.tag.h || 30) + 6);
     for (const p of ordered) {
@@ -1184,6 +1275,7 @@ export class Room3D {
   destroy() {
     for (const p of this.pieces.values()) this.removePiece(p);
     this.pieces.clear();
+    this.hooks.dispose();
     this.clear(this.stuff);
     this.radial.dispose();
     this.words.destroy();

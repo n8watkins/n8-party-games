@@ -22,6 +22,8 @@ import { blinkAt, clamp, merged, paintPoints, pointLitMat, roundedBox, spring, t
 import { HOP_HEIGHT, HOP_MS, PALE, PAWN_HEIGHT, SIZE, bumpPose } from "./pieces.js";
 import { PX, SPACE, walkX } from "./space.js";
 import { JUMP_MS, WALK_SPEED, jumpHeight } from "../shared/world.js";
+import { STILT_RISE } from "../shared/robot.js";
+import { stiltsNow } from "../move-state.js";
 
 /** The landing robot's own scale, baked into its shapes. */
 const K = 1.13;
@@ -109,8 +111,15 @@ function shapes() {
     joint: new THREE.SphereGeometry(1, 12, 8),
     blob: new THREE.CircleGeometry(0.5 * SIZE * 1.05, 24),
     ring: new THREE.RingGeometry(0.4, 0.47, 48),
+    foot: new THREE.CylinderGeometry(0.05, 0.06, 0.025, 14),
   };
 }
+
+/** How far either side of its middle the legs stand (metres), and how thick each tube is. */
+const LEG_X = 0.12;
+const LEG_R = { outer: 0.032, inner: 0.02 };
+let legMat = null;
+let legDark = null;
 
 const eyeMat = new THREE.MeshBasicMaterial({ color: EYE });
 
@@ -161,9 +170,31 @@ export function makeRobot(radial) {
   ring.rotation.x = -Math.PI / 2;
   ring.renderOrder = 2;
   ring.visible = false;
+  // Its stilt legs (lobby/shared/robot.js): two telescoping tubes under its base, a wide dark one
+  // and a thinner steel one sliding out of it, on little feet. On the group itself (not the tilt),
+  // so they reach the floor whatever the body does; hidden while they are in.
+  legMat ??= new THREE.MeshStandardMaterial({ color: STEEL, roughness: 0.3, metalness: 0.6, emissive: 0x30343c, emissiveIntensity: 0.6 });
+  legDark ??= new THREE.MeshStandardMaterial({ color: DARK, roughness: 0.45, metalness: 0.3, emissive: 0x15171c, emissiveIntensity: 0.6 });
+  const legs = new THREE.Group();
+  legs.visible = false;
+  const stilts = [-1, 1].map((side) => {
+    const outer = new THREE.Mesh(SHAPES.rod, legDark);
+    const inner = new THREE.Mesh(SHAPES.rod, legMat);
+    const foot = new THREE.Mesh(SHAPES.foot, legDark);
+    for (const m of [outer, inner, foot]) m.position.set(side * LEG_X, 0, 0);
+    legs.add(outer, inner, foot);
+    return { outer, inner, foot };
+  });
+  group.add(legs);
+  const flash = new THREE.Mesh(SHAPES.ring, new THREE.MeshBasicMaterial({ color: 0xfff6d8, transparent: true, opacity: 0, depthWrite: false }));
+  flash.rotation.x = -Math.PI / 2;
+  flash.renderOrder = 2;
+  flash.visible = false;
+  flash.position.y = 0.012;
+  group.add(flash);
   return {
     group, tilt, turn, mat, blob, ring, skin: [main, arms, head, mast], colour: new THREE.Color(), lit: 0, fade: 1, air: false, dizzy: false, connected: true,
-    main, arms, headG, head, eyes, crosses, mastG, mast, lamp, lampMat, glow, own: null,
+    main, arms, headG, head, eyes, crosses, mastG, mast, lamp, lampMat, glow, own: null, legsG: legs, stilts, flash, legs: 0,
     sq: 1, sqV: 0, lean: 0, leanV: 0, nod: 0, nodV: 0, mastA: 0, mastV: 0, yaw: 0, prevX: null, lampK: 0, voting: false, pleasedAt: -Infinity, want: null, shockAt: -Infinity,
   };
 }
@@ -186,6 +217,7 @@ export function disposeRobot(r) {
   for (const m of r.own ?? []) m.dispose();
   r.blob.material.dispose();
   r.ring.material.dispose();
+  r.flash.material.dispose();
 }
 
 /** Fades a robot that is leaving the room: `left` runs from 1 to 0. */
@@ -240,7 +272,10 @@ export function poseRobot(r, piece, now, dt, how) {
   [r.sq, r.sqV] = spring(r.sq, r.sqV, air ? 1.03 : 1, 320, calm ? 30 : 14, step);
   r.sq = clamp(r.sq, 0.85, 1.12);
   // It leans into where it goes; its head lags its body, and its mast lags its head.
-  [r.lean, r.leanV] = spring(r.lean, r.leanV, -speed * 0.09, 140, calm ? 30 : 11, step);
+  // Throwing its hook: it rocks back for the wind-up (the tell), then forward as the hook flies.
+  const h = piece.hook;
+  const heave = !h ? 0 : h.verdict ? 0 : now - h.at < 150 ? 0.13 * (h.dir || 1) : -0.1 * (h.dir || 1);
+  [r.lean, r.leanV] = spring(r.lean, r.leanV, -speed * 0.09 + heave, 140, calm ? 30 : 11, step);
   [r.nod, r.nodV] = spring(r.nod, r.nodV, r.lean, 170, calm ? 30 : 7, step);
   [r.mastA, r.mastV] = spring(r.mastA, r.mastV, r.nod * 1.4, 90, calm ? 30 : 4, step);
   const facing = how.walking ? Math.sign(speed || piece.face) * 0.85 : want ? want.yaw : piece.face * 0.32;
@@ -248,11 +283,35 @@ export function poseRobot(r, piece, now, dt, how) {
 
   const startle = (now - (piece.fx?.hopAt ?? -Infinity)) / HOP_MS;
   const yelp = startle >= 0 && startle < 1 ? 4 * HOP_HEIGHT * startle * (1 - startle) : 0;
-  const rise = up + bump.lift + yelp + hum;
+  // Its legs (lobby/shared/robot.js, stiltPose): a squat as the tell, out, a shake as time runs out, down, a flash.
+  const stilt = stiltsNow(piece, now, calm);
+  const lift = stilt ? Math.max(0, stilt.out) * STILT_RISE * (1 + stilt.shake) : 0;
+  const squat = stilt ? Math.min(0, stilt.out) : 0;
+  r.legs = lift;
+  const rise = up + bump.lift + yelp + hum + lift;
   const pivot = bump.pivot * PX;
+  r.legsG.visible = lift > 0.5;
+  if (r.legsG.visible) {
+    const m = lift * PX;
+    const top = Math.min(m * 0.5, 54 * PX);
+    for (const l of r.stilts) {
+      l.outer.scale.set(LEG_R.outer, top + 0.03, LEG_R.outer);
+      l.outer.position.y = -(top + 0.03) / 2 + 0.03;
+      l.inner.scale.set(LEG_R.inner, m - top, LEG_R.inner);
+      l.inner.position.y = -top - (m - top) / 2;
+      l.foot.position.y = -m + 0.012;
+    }
+  }
+  r.flash.visible = !!stilt && stilt.flash > 0;
+  if (r.flash.visible) {
+    r.flash.material.opacity = stilt.flash * r.fade;
+    r.flash.scale.setScalar(0.9 + (1 - stilt.flash) * 0.5);
+    r.flash.position.y = 0.012 - rise * PX;
+  }
   r.group.position.set(walkX(piece.rx + bump.dx) + pivot * Math.sin(bump.lean), rise * PX + pivot * (1 - Math.cos(bump.lean)), SPACE.walkZ);
   r.tilt.rotation.z = (thrown ? 0 : r.lean) + bump.lean;
-  const tall = r.sq;
+  // The squat before its legs go out: the tell.
+  const tall = r.sq + squat * 0.9;
   const wide = 1 / Math.sqrt(tall);
   r.tilt.scale.set(SIZE * wide * bump.sx, SIZE * tall * bump.sy, SIZE * wide * bump.sx);
   r.turn.rotation.y = thrown ? r.yaw * 0.3 : r.yaw;
@@ -286,7 +345,8 @@ export function poseRobot(r, piece, now, dt, how) {
   // The resting arms come back once an emote's arms are gone.
   r.arms.visible = !want || want.nubs > 0.5;
 
-  const off = Math.max(0.45, 1 - Math.max(0, rise - hum) * PX * 0.6);
+  // On its legs it still stands on the floor: its shadow stays whole.
+  const off = Math.max(0.45, 1 - Math.max(0, rise - hum - lift) * PX * 0.6);
   r.blob.position.set(walkX(piece.rx + bump.dx), 0.008, SPACE.walkZ);
   r.blob.scale.setScalar(off * 1.1);
   r.blob.material.opacity = 0.72 * off * r.fade;
@@ -305,7 +365,7 @@ export function poseRobot(r, piece, now, dt, how) {
   tintPaint(r.mat, PALE, 0.5 * bump.pale, 0.4 * bump.pale);
 
   const moving =
-    walking || air || bump.state !== "idle" || yelp > 0 || alarm || since < PLEASED_MS + 450 || Math.abs(r.sqV) > STILL.squashV || Math.abs(r.leanV) > STILL.leanV || Math.abs(r.nodV) > STILL.nodV || Math.abs(r.mastV) > STILL.mastV || Math.abs(facing - r.yaw) > 0.01 || Math.abs(how.lit - r.lit) > 0.01;
+    walking || air || !!stilt || !!h || bump.state !== "idle" || yelp > 0 || alarm || since < PLEASED_MS + 450 || Math.abs(r.sqV) > STILL.squashV || Math.abs(r.leanV) > STILL.leanV || Math.abs(r.nodV) > STILL.nodV || Math.abs(r.mastV) > STILL.mastV || Math.abs(facing - r.yaw) > 0.01 || Math.abs(how.lit - r.lit) > 0.01;
   return { up: rise + (tall - 1) * ROBOT_HEIGHT + ABOVE_PAWN, moving, shock: bump.shock, burst: bump.burst, dust: bump.dust, state: bump.state };
 }
 

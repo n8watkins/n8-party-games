@@ -11,7 +11,12 @@
 // put the piece where it landed, and the piece simply cannot walk, jump or bump until it is up.
 import { BUMP_COOLDOWN_MS, STUN_MS } from "./bump.js";
 import { FADE_COOLDOWN_MS } from "./ghost.js";
+import { HOOK_COOLDOWN_MS, HOOK_LIFE_MS, STILT_COOLDOWN_MS, STILT_MS } from "./robot.js";
+import { HOLD_MS, SLIME_COOLDOWN_MS } from "./slime.js";
 import { JUMP_MS, WALK_SPEED, clampX, lightAt } from "./world.js";
+
+/** Each move's whole cooldown, for the ring and the button (shared/characters.js, moveOf). */
+export const MOVE_COOLDOWN = { kick: BUMP_COOLDOWN_MS, fade: FADE_COOLDOWN_MS, hook: HOOK_COOLDOWN_MS, harden: SLIME_COOLDOWN_MS };
 
 /** Messages are at least this far apart, so mashing the keys cannot outrun the room's rate limit. */
 export const SEND_GAP_MS = 60;
@@ -34,9 +39,20 @@ export class Pilot {
     this.jumpAt = -Infinity;
     /** When the piece may bump again, as far as this page knows; the room has the last word (cool). */
     this.coolUntil = -Infinity;
-    /** The same for a ghost's fade (its move in place of the bump), and which of the two the piece has. */
+    /** The same for a ghost's fade (its move in place of the bump), and which move the piece has. */
     this.fadeCoolUntil = -Infinity;
     this.move = "kick";
+    /** The same for a robot's hook and its legs, and a slime's harden (shared/robot.js, slime.js). */
+    this.hookCoolUntil = -Infinity;
+    this.stiltCoolUntil = -Infinity;
+    this.slimeCoolUntil = -Infinity;
+    /** A robot stands still from its throw until the room has judged its hook. */
+    this.rootedUntil = -Infinity;
+    /** A robot's legs are up until then (no hook while up). */
+    this.upUntil = -Infinity;
+    /** When this slime's harden was sent, and whether it has been turned soft (one absorb a press). */
+    this.hardenAt = -Infinity;
+    this.turned = true;
     /** Knocked down until then: no walking, jumping or bumping. */
     this.stunUntil = -Infinity;
     /** The lights that are on, by their place on the wall; null means all of them. */
@@ -89,9 +105,9 @@ export class Pilot {
     return now < this.stunUntil;
   }
 
-  /** Walk left (-1), right (1) or stand (0). A piece on the floor stands whatever is held. */
+  /** Walk left (-1), right (1) or stand (0). A piece on the floor, or a robot throwing its hook, stands whatever is held. */
   steer(d, now) {
-    const next = this.down(now) ? 0 : d < 0 ? -1 : d > 0 ? 1 : 0;
+    const next = this.down(now) || now < this.rootedUntil ? 0 : d < 0 ? -1 : d > 0 ? 1 : 0;
     if (next === this.d) return;
     this.advance(now);
     this.d = next;
@@ -128,12 +144,76 @@ export class Pilot {
    * when `move` is "fade" (the page keeps `move` as the player's character's: characters.js, moveOf).
    */
   cooling(now) {
-    return this.move === "fade" ? this.fadeCooling(now) : Math.max(0, this.coolUntil - now);
+    const until = { fade: this.fadeCoolUntil, hook: this.hookCoolUntil, harden: this.slimeCoolUntil }[this.move] ?? this.coolUntil;
+    return Math.max(0, until - now);
   }
 
   /** How far the move has recharged, 0 (just used) to 1 (ready): for the ring under the piece and the button. */
   coolShare(now) {
-    return 1 - Math.min(1, this.cooling(now) / (this.move === "fade" ? FADE_COOLDOWN_MS : BUMP_COOLDOWN_MS));
+    return 1 - Math.min(1, this.cooling(now) / (MOVE_COOLDOWN[this.move] ?? BUMP_COOLDOWN_MS));
+  }
+
+  /**
+   * The robot's move (shared/robot.js): it stops, and asks the room to throw its hook the way it
+   * faces. The room judges it; its word on the cooldown comes back as hookCool if it refuses.
+   */
+  hook(now) {
+    if (now < this.hookCoolUntil || this.down(now) || now < this.upUntil || now < this.rootedUntil) return false;
+    this.hookCoolUntil = now + HOOK_COOLDOWN_MS;
+    this.rootedUntil = now + HOOK_LIFE_MS;
+    // It stands still to throw: said first, so the room has it standing where it throws.
+    this.steer(0, now);
+    if (this.dirty) this.sentAt = -Infinity;
+    this.step(now);
+    this.send({ t: "hook" });
+    return true;
+  }
+
+  /** The room's word on the hook: it may hook again in `left` milliseconds; the throw is over (it may walk). */
+  hookCool(left, now) {
+    this.hookCoolUntil = now + Math.max(0, left);
+    this.rootedUntil = -Infinity;
+  }
+
+  /** The robot's jump: its legs telescope out (shared/robot.js). */
+  stilts(now) {
+    if (now < this.stiltCoolUntil || this.down(now) || now < this.rootedUntil) return false;
+    this.stiltCoolUntil = now + STILT_COOLDOWN_MS;
+    this.upUntil = now + STILT_MS;
+    this.send({ t: "stilts" });
+    return true;
+  }
+
+  /** The room's word on the legs: up again in `left` milliseconds, and they are down now. */
+  stiltCool(left, now) {
+    this.stiltCoolUntil = now + Math.max(0, left);
+    this.upUntil = -Infinity;
+  }
+
+  /**
+   * The slime's move (shared/slime.js): the press hardens it; held past HOLD_MS (absorb) the
+   * harden just begun turns soft. Returns whether it was sent.
+   */
+  slime(kind, now) {
+    if (this.down(now)) return false;
+    if (kind === "absorb") {
+      if (this.turned || now - this.hardenAt < HOLD_MS - 20) return false;
+      this.turned = true;
+      this.send({ t: "slime", k: "absorb" });
+      return true;
+    }
+    if (now < this.slimeCoolUntil) return false;
+    this.slimeCoolUntil = now + SLIME_COOLDOWN_MS;
+    this.hardenAt = now;
+    this.turned = false;
+    this.send({ t: "slime", k: "harden" });
+    return true;
+  }
+
+  /** The room's word on the slime's move: it may harden again in `left` milliseconds. */
+  slimeCool(left, now) {
+    this.slimeCoolUntil = now + Math.max(0, left);
+    this.turned = true;
   }
 
   /**
