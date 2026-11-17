@@ -8,8 +8,8 @@
 // The rendered picture is of a wall of five boxes, so the server runs without the test game.
 // One page is the room's big screen (1280 x 720), one a player's phone (Dolly) whose window is
 // set to each phone size in turn; Mabel, Fitch and Tom are plain sockets (lobby/test/client.mjs).
-// It shoots: a vote in progress (Dolly in Who Am I?'s light, Mabel and Fitch in Cork & Bell's,
-// Tom in the dark), an emote playing, the Tonight board open, the chart table set off, and each
+// It shoots: a vote in progress (Dolly, Mabel and Fitch in Cork & Bell's light, Tom in the dark
+// by Flood's poster), an emote playing, the Tonight board open, the chart table set off, and each
 // thing that passes the window held at its entry, middle and exit. It checks that the look asked
 // for is the one drawing, what the device fetched, and that no page logged an error.
 //
@@ -118,11 +118,11 @@ try {
       await key(gap > 0 ? "ArrowRight" : "ArrowLeft", Math.max(40, Math.min(1500, (Math.abs(gap) / 430) * 1000)));
     }
   }
-  // Who Am I? is for two players, so with four in the room Cork & Bell is the one game open: three stand in its light and Tom holds out in the dark.
-  const [CORK, WHO] = [boxes.indexOf("Cork & Bell"), boxes.indexOf("Who Am I?")];
+  // Cork & Bell is the one game open on the production wall: three stand in its light and Tom holds out in the dark by Flood's poster.
+  const [CORK, FLOOD] = [boxes.indexOf("Cork & Bell"), boxes.indexOf("Flood")];
   mabel.goto(light(CORK, -60));
   fitch.goto(light(CORK, 62));
-  tom.goto(dark(WHO) + 60);
+  tom.goto(dark(FLOOD) + 60);
   await walkTo(light(CORK, 4));
   await sleep(2500);
   const lit = await screen.evaluate(() => window.__room3d.boxes.map((b) => +b.level.toFixed(2)));
@@ -173,7 +173,7 @@ try {
   await sleep(450);
   await shot(screen, "06-screen-1280x720-chart-knocked");
   fitch.goto(light(CORK, 50));
-  tom.goto(dark(WHO) + 60);
+  tom.goto(dark(FLOOD) + 60);
   await sleep(1500);
 
   // The Tonight board, opened from the wall on the phone.

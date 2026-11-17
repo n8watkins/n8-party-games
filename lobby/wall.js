@@ -3,44 +3,40 @@
 // A box is drawn from a game's manifest (name, blurb, players, devices). There are four kinds:
 //   hosted       a real game the site hosts (games.js), played inside the room: started with the
 //                party's seats, shown by the view its manifest names (`lobby.view`), ended with
-//                places. Cork & Bell is the first. A hosted game with no such view yet hangs as
-//                an outside game whose address is its own page on this site.
-//   outside      a game that is not on the kit and plays on a site of its own, with rooms of its
-//                own. It has a `url` instead of a server definition: when it wins the vote every
-//                page goes there. Who Am I? is one.
+//                places. Cork & Bell is the first. A hosted game must have that view: one without
+//                it is refused when the Worker loads.
 //   test         Coin Flip, a placeholder that plays through the whole seam. It hangs only where
 //                PARTY_TEST_GAMES is "on" (the local environment and the test runs), never in
 //                production.
 //   coming soon  a name and a picture for a game that is not built. Its light stays off.
+//   poster       not a game: the ideas poster that hangs last (shared/vote.js, IDEAS). No light, no vote.
 //
-// The Table (the plain waiting room) has a list instead of a wall: buildTurnWall.
+// Every game on the Floor's wall plays inside the room. Turn-based games (Who Am I?, Paper Masks)
+// belong to the Table (the plain waiting room), which has a list instead of a wall: buildTurnWall.
 import { GAMES, TURN_GAMES } from "../games.js";
 import * as coinFlip from "./games/coin-flip.js";
 import * as countToTen from "../party/games/count-to-ten/index.js";
 import { isTurnBased } from "../party-kit/src/core/turns.js";
-import { boxFromManifest } from "./shared/vote.js";
+import { IDEAS, boxFromManifest } from "./shared/vote.js";
 import { tableEntry } from "./shared/table.js";
 
-
 /**
- * Games that play somewhere else. `players` is what the game itself allows: Who Am I? is for
- * exactly two (MAX_PLAYERS in its engine, and it needs both to start).
+ * The games that are not built yet, in the order they hang after the hosted games. Flood hangs
+ * between Cork & Bell and Tin Derby so the two lights a party can play under stand far apart.
+ * A hosted game with the same id takes its coming-soon box's place on the wall (Tin Derby's),
+ * so the wall keeps its order.
  */
-export const OUTSIDE = [
-  { id: "who-am-i", name: "Who Am I?", blurb: "Ask questions, guess your name", players: { min: 2, max: 2 }, devices: { phone: true, desktop: false }, url: "https://whoami.n8builds.dev/" },
-];
-
-/** A hosted game with the same id takes its coming-soon box's place on the wall (Tin Derby's), so the wall keeps its order. */
 const COMING_SOON = [
-  { id: "tin-derby", name: "Tin Derby", blurb: "Wind up your tin racer and go", players: { min: 2, max: 4 }, devices: { phone: true, desktop: false, sharedScreen: "required" } },
   { id: "flood", name: "Flood", blurb: "Climb before the water rises", players: { min: 1, max: 4 }, devices: { phone: true, desktop: false } },
+  { id: "tin-derby", name: "Tin Derby", blurb: "Wind up your tin racer and go", players: { min: 2, max: 4 }, devices: { phone: true, desktop: false, sharedScreen: "required" } },
   { id: "fox-trouble", name: "Fox Trouble", blurb: "Solve the room together, cause trouble", players: { min: 2, max: 4 }, devices: { phone: true, desktop: false } },
 ];
 
 /**
  * The wall for a list of hosted games: {boxes, games, fields}. `games` holds the server definition
- * of every box that starts inside the room; a box with a `url` needs none. `fields` holds the
- * settings of each such game whose manifest has them (`manifest.settings`).
+ * of every box that starts inside the room. `fields` holds the settings of each such game whose
+ * manifest has them (`manifest.settings`). A hosted game with no view the room can mount is
+ * refused here, when the Worker loads, not when a party votes for it.
  * @param {object[]} hosted  the site's games (games.js)
  * @param {{testGames?: boolean}} [opts]  testGames: also hang Coin Flip, the placeholder
  */
@@ -53,23 +49,19 @@ export function buildWall(hosted, { testGames = false } = {}) {
   const inPlace = new Map();
   const hang = (manifest, box) => (COMING_SOON.some((m) => m.id === manifest.id) ? inPlace.set(manifest.id, box) : boxes.push(box));
   for (const { manifest, game, testGame } of hosted) {
-    if (manifest.lobby?.view) {
-      // It opens inside the room: the room runs `game`, and the page mounts the view from the game's own files.
-      // Where test games are on, a game that has a test-run version of itself (`testGame`: Tin Derby's short race) runs that.
-      hang(manifest, boxFromManifest(manifest, { view: manifest.path + manifest.lobby.view }));
-      games.set(manifest.id, testGames && testGame ? testGame : game);
-      if (manifest.settings) fields.set(manifest.id, manifest.settings);
-    } else {
-      // No view the room can mount yet: it plays on its own page.
-      hang(manifest, boxFromManifest(manifest, { url: manifest.path }));
-    }
+    if (!manifest.lobby?.view) throw new Error(`${manifest.id} cannot hang on the Floor: it has no view for the room (manifest.lobby.view)`);
+    // It opens inside the room: the room runs `game`, and the page mounts the view from the game's own files.
+    // Where test games are on, a game that has a test-run version of itself (`testGame`: Tin Derby's short race) runs that.
+    hang(manifest, boxFromManifest(manifest, { view: manifest.path + manifest.lobby.view }));
+    games.set(manifest.id, testGames && testGame ? testGame : game);
+    if (manifest.settings) fields.set(manifest.id, manifest.settings);
   }
   if (testGames) {
     boxes.push(boxFromManifest(coinFlip.manifest, { test: true }));
     games.set(coinFlip.manifest.id, coinFlip.game);
   }
-  for (const manifest of OUTSIDE) boxes.push(boxFromManifest(manifest));
   for (const manifest of COMING_SOON) boxes.push(inPlace.get(manifest.id) ?? boxFromManifest(manifest, { soon: true }));
+  boxes.push(IDEAS);
   return { boxes, games, fields };
 }
 
@@ -117,7 +109,7 @@ function bothWalls(floor, turn) {
   return { ...floor, games: new Map([...floor.games, ...turn.games]), table: turn.table };
 }
 
-/** Production: the hosted games, the outside games and the coming-soon boxes, and the Table's list. */
+/** Production: the hosted games and the coming-soon boxes, and the Table's list. */
 export const WALL = bothWalls(buildWall(GAMES), buildTurnWall(TURN_GAMES));
 /** Local play and the tests: the same, with Coin Flip on the Floor and Count to ten at the Table. */
 export const TEST_WALL = bothWalls(buildWall(GAMES, { testGames: true }), buildTurnWall(TURN_GAMES, { testGames: true }));
