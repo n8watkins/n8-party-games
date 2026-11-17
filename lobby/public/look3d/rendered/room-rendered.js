@@ -40,6 +40,7 @@ import { boxArt } from "../paint.js";
 import { Room3D } from "../room3d.js";
 import { CAM, D_WALL, FRAME, PX, SPACE, U, WALK, walkX, wallX, wallY } from "../space.js";
 import * as THREE from "../three.js";
+import { drawnLight, poolOf } from "../../shared/world.js";
 import { Ladder } from "./ladder.js";
 import { drawOutsideFirst, farCamera, radialTexture, shellGroup, shellMaterial, windowBox } from "./plate.js";
 import { FELL_BACK_NOTE, rememberRung, rungName, rungOf } from "./switch.js";
@@ -213,7 +214,12 @@ export class RoomRendered extends Room3D {
   box(box, i, L) {
     if (this.plain) return super.box(box, i, L);
     const b = { box, i, cx: L.wall.xs[i], level: 0, aim: 0, gold: 0, goldAim: 0, shown: -1 };
-    b.pool = new THREE.Vector4(walkX(b.cx), SPACE.walkZ, this.drawn.pool * PX, 0);
+    // Only a game that can be played has a lamp and a pool (shared/world.js, hasPool), each as wide as its own.
+    const own = poolOf(L.wall, i);
+    b.pooled = !!own;
+    b.half = own?.half ?? 0;
+    b.drawn = b.pooled ? drawnLight(L.wall, i) : this.drawn;
+    b.pool = new THREE.Vector4(walkX(b.cx), SPACE.walkZ, b.drawn.pool * PX, 0);
     const at = (b.at = this.posterAt(i, L));
     const g = new THREE.Group();
     g.position.set(at.x, at.y, at.z);
@@ -240,8 +246,8 @@ export class RoomRendered extends Room3D {
     // has the lamp's own light on the floor; these make the place to vote plain at a glance.
     const x = walkX(b.cx);
     // To where the room counts and no further on a placed wall (shared/world.js, drawnLight); the wash's soft edge too.
-    const radius = this.drawn.pool * PX;
-    const washSize = radius * (this.drawn.fade > 0 ? 2.3 : 2);
+    const radius = b.drawn.pool * PX;
+    const washSize = radius * (b.drawn.fade > 0 ? 2.3 : 2);
     const light = this.voteLight ?? this.skin.light;
     b.ring = new THREE.Mesh(new THREE.RingGeometry(radius - 0.018, radius + 0.018, 72), new THREE.MeshBasicMaterial({ color: light, transparent: true, opacity: 0.05, blending: THREE.AdditiveBlending, depthWrite: false }));
     b.ring.rotation.x = -Math.PI / 2;
@@ -254,8 +260,8 @@ export class RoomRendered extends Room3D {
     this.stuff.add(b.ring, b.wash);
     // The lamp is the room's own; the room's life swings the group it gives back.
     b.lamp = { swing: this.lamp(b, i) };
-    // A poster that is not a game (the ideas poster): no lamp over it and no place on the floor under it.
-    if (box.poster) b.lamp.swing.visible = b.ring.visible = b.wash.visible = false;
+    // A game that is coming soon, or a poster that is not a game: no lamp over it and no place on the floor under it.
+    if (!b.pooled) b.lamp.swing.visible = b.ring.visible = b.wash.visible = false;
     return b;
   }
 
@@ -266,6 +272,8 @@ export class RoomRendered extends Room3D {
     if (b.box.poster) return void b.art.color.setScalar(0.75);
     const glowing = Math.min(1, b.level * 8);
     b.art.color.setScalar(this.posterShade(glowing, b.gold, b.level));
+    // A coming-soon game's poster, unlit, with nothing on the floor under it.
+    if (!b.pooled) return;
     // The screen's edge: the room's colour while its lamp is on, brighter for the box that leads.
     // (A room whose picture has its own frames, such as the bar's gold ones, has no edge drawn.)
     b.goldFace.opacity = Math.max(b.gold, 0.45 * glowing);
@@ -287,9 +295,9 @@ export class RoomRendered extends Room3D {
       if (!(b.level > 0.002)) continue;
       const d = Math.abs(xw - b.cx);
       // An even wall's lamp reaches well past its pool; a placed wall's ends at the counted edge (shared/world.js, drawnLight).
-      const reach = this.drawn.fade > 0 ? 150 : 0;
-      const lit = reach > 0 ? Math.max(0, Math.min(1, (this.half + reach - d) / reach)) : d <= this.half ? 1 : 0;
-      if (d < best.d) best = { lit: Math.min(1, 0.5 + 0.5 * b.level) * lit, x: b.cx, d };
+      const reach = b.drawn.fade > 0 ? 150 : 0;
+      const lit = reach > 0 ? Math.max(0, Math.min(1, (b.half + reach - d) / reach)) : d <= b.half ? 1 : 0;
+      if (d < best.d) best = { lit: Math.min(1, 0.5 + 0.5 * b.level) * lit, x: b.cx, d, half: b.half };
     }
     return best;
   }
@@ -313,7 +321,7 @@ export class RoomRendered extends Room3D {
       const body = p.body;
       seen.add(body);
       const lamp = this.lampOver(p.rx);
-      const away = lamp.lit > 0 ? Math.max(-1, Math.min(1, (p.rx - lamp.x) / (this.half + 60))) : 0;
+      const away = lamp.lit > 0 ? Math.max(-1, Math.min(1, (p.rx - lamp.x) / (lamp.half + 60))) : 0;
       body.blob.position.x += away * 0.2;
       body.blob.scale.multiplyScalar(1.3);
       body.blob.scale.x *= 1 + Math.abs(away) * 0.6;

@@ -52,7 +52,7 @@ export class TouchSpots {
   build(room) {
     for (const s of this.spots) s.el.remove();
     // Where the room hangs its boxes (shared/rooms.js): the same in every drawing of it.
-    const wall = wallFor(room.room, room.boxes.length);
+    const wall = wallFor(room.room, room.boxes);
     this.wallKey = wall.xs.join();
     // The board opens itself in both drawings; its spot is only the mark (and the press), so the
     // board keeps its own button, its keyboard handling and its place in the tab order.

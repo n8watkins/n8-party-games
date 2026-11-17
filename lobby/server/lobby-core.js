@@ -435,7 +435,7 @@ export class LobbyCore {
    * light lie. Who stands in which light, where pieces arrive and where a knock lands all go by it.
    */
   get wall() {
-    return wallFor(this.room, this.boxes.length);
+    return wallFor(this.room, this.boxes);
   }
 
   /**
@@ -2191,7 +2191,7 @@ export class LobbyCore {
       room: this.room,
       // The wall the pieces' places were laid against, so a room woken after the wall moved (a
       // deploy) carries them across (restore).
-      wall: { xs: this.wall.xs, half: this.wall.half },
+      wall: { xs: this.wall.xs, pools: this.wall.pools.map((p) => ({ id: this.boxes[p.i].id, x: p.x, half: p.half })) },
       mode: this.mode,
       modeAt: this.modeAt,
       hostToken: this.hostToken,
@@ -2294,7 +2294,7 @@ export class LobbyCore {
     // The pieces stood on the wall the room was saved with: a save from before rooms hung their
     // boxes in places of their own stood on the even wall. Where this room's wall is not that one
     // now, every piece is carried across, so nobody's vote changes in the sleep.
-    room.carryAcross(savedWall(data.wall, room.boxes.length), now);
+    room.carryAcross(savedWall(data.wall, room.boxes), now);
     // A room saved before the two waiting rooms is the character room.
     room.mode = isMode(data.mode) ? data.mode : DEFAULT_MODE;
     room.modeAt = typeof data.modeAt === "number" ? data.modeAt : -Infinity;
@@ -2310,11 +2310,25 @@ export class LobbyCore {
   }
 }
 
-/** The wall a room was saved with ({xs, half}, serialize), or the even wall of `n` boxes for a save from before it was kept or one that does not read. */
-function savedWall(saved, n) {
-  const xs = saved?.xs;
-  const good = Array.isArray(xs) && xs.length === n && xs.every(Number.isFinite) && Number.isFinite(saved.half);
-  return good ? { n, xs: [...xs], half: saved.half } : evenWall(n);
+/**
+ * The wall a room was saved with (serialize: {xs, pools: [{id, x, half}]}), its pools matched to
+ * today's boxes by id (a pool whose box is gone is dropped). A save from before pools were kept
+ * by box ({xs, half}, or no wall at all: an even wall) had a pool under every box, on a wall of
+ * as many boxes as today's: the games that could be played then and now (Cork & Bell first, Tin
+ * Derby third) hang in the same places on both, so their pools match by place.
+ */
+function savedWall(saved, boxes) {
+  const n = boxes.length;
+  const xs = Array.isArray(saved?.xs) && saved.xs.length === n && saved.xs.every(Number.isFinite) ? [...saved.xs] : null;
+  if (xs && Array.isArray(saved.pools)) {
+    const pools = saved.pools
+      .map((p) => ({ i: boxes.findIndex((box) => box.id === p?.id), x: p?.x, half: p?.half }))
+      .filter((p) => p.i >= 0 && Number.isFinite(p.x) && Number.isFinite(p.half))
+      .sort((a, b) => a.x - b.x);
+    return { n, xs, pools };
+  }
+  if (xs && Number.isFinite(saved.half)) return { n, xs, pools: xs.map((x, i) => ({ i, x, half: saved.half })) };
+  return evenWall(n);
 }
 
 /** Who was in the party when a saved match began (LobbyCore.partyTokens), or null for a save from before it was kept. */

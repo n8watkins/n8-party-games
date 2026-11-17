@@ -24,6 +24,7 @@ import { Hud } from "../hud.js";
 import { camera } from "../shared/camera.js";
 import { IDEAS, boxFromManifest } from "../shared/vote.js";
 import { hangsOwnBoxes, wallFor } from "../shared/rooms.js";
+import { PIECE_WIDTH, poolOf } from "../shared/world.js";
 import { Room3D } from "./room3d.js";
 
 const query = new URLSearchParams(location.search);
@@ -35,9 +36,9 @@ const YOU = 2;
 
 const BOXES = [
   boxFromManifest({ id: "cork-and-bell", name: "Cork & Bell", blurb: "Pop the targets, ring the bell", players: { min: 1, max: 4 }, devices: { phone: true, desktop: true } }),
-  boxFromManifest({ id: "flood", name: "Flood", blurb: "Climb before the water rises", players: { min: 2, max: 4 }, devices: { phone: true, desktop: false } }),
-  boxFromManifest({ id: "tin-derby", name: "Tin Derby", blurb: "Wind up your tin racer and go", players: { min: 2, max: 4 }, devices: { phone: true, desktop: false, sharedScreen: "required" } }),
-  boxFromManifest({ id: "fox-trouble", name: "Fox Trouble", blurb: "Solve the room together, cause trouble", players: { min: 2, max: 4 }, devices: { phone: true, desktop: false } }),
+  boxFromManifest({ id: "flood", name: "Flood", blurb: "Climb before the water rises", players: { min: 1, max: 4 }, devices: { phone: true, desktop: false } }, { soon: true }),
+  boxFromManifest({ id: "tin-derby", name: "Tin Derby", blurb: "Wind up your tin racer and go", players: { min: 1, max: 4 }, devices: { phone: true, desktop: true } }),
+  boxFromManifest({ id: "fox-trouble", name: "Fox Trouble", blurb: "Solve the room together, cause trouble", players: { min: 2, max: 4 }, devices: { phone: true, desktop: false } }, { soon: true }),
 ];
 const baked = query.get("look") === "baked";
 // &look=real: the room made of rendered layers (./rendered/), the Star Lounge, on the same wall of five (&rung= picks its step down).
@@ -46,13 +47,14 @@ const real = query.get("look") === "real";
 if (baked || real || query.get("boxes") === "5") BOXES.push(IDEAS);
 if (baked && query.get("boxes") === "6") BOXES.splice(1, 0, boxFromManifest({ id: "coin-flip", name: "Coin Flip", blurb: "Test game: luck picks the order", players: { min: 1, max: 4 }, devices: { phone: true, desktop: true } }));
 const N = BOXES.length;
-// The room's wall (shared/rooms.js): where it hangs its boxes and its pools lie.
-const WALL = wallFor(query.get("room") ?? "bar", N);
+// The room's wall (shared/rooms.js): where it hangs its boxes and its pools lie (only under the games that can be played).
+const WALL = wallFor(query.get("room") ?? "bar", BOXES);
 const OWN = hangsOwnBoxes(query.get("room") ?? "bar", N);
-/** A place in box i's light, `off` from its middle (kept inside a narrow pool). */
-const light = (i, off = 0) => Math.round(WALL.xs[i] + Math.sign(off) * Math.min(Math.abs(off), WALL.half - 10));
-/** A place in the dark, `off` past the right edge of box i's light (in the gap before the next, on a narrow wall). */
-const past = (i, off) => Math.round(WALL.xs[i] + WALL.half + (OWN ? (WALL.slot - 2 * WALL.half) / 2 : off));
+const halfAt = (i) => poolOf(WALL, i)?.half ?? 0;
+/** A place in box i's light, `off` from its middle (kept inside its pool). */
+const light = (i, off = 0) => Math.round(WALL.xs[i] + Math.sign(off) * Math.min(Math.abs(off), halfAt(i) - 10));
+/** A place in the dark, `off` past the right edge of box i's light (half a piece past it, on a placed wall). */
+const past = (i, off) => Math.round(WALL.xs[i] + halfAt(i) + (OWN ? PIECE_WIDTH / 2 : off));
 /** Where the room's feature is (look3d/space.js, boardX), in world units. */
 const FEATURE = 1722;
 const SEATS = [
@@ -70,7 +72,7 @@ if (show) {
 
 function fixture() {
   const members = SEATS.map((s, seat) => ({ seat, name: s.name, colour: s.colour, connected: true, x: s.x, d: 0, rev: 1, points: s.points }));
-  const lights = Object.fromEntries(BOXES.map((b) => [b.id, b.poster ? "" : null]));
+  const lights = Object.fromEntries(BOXES.map((b) => [b.id, b.poster ? "" : b.soon ? "Coming soon" : null]));
   const standing = { 0: "cork-and-bell", 1: show ? null : "cork-and-bell", 2: "tin-derby", 3: null };
   const vote = { lights, standing, waiting: show ? [1, 3] : [3], leaders: ["cork-and-bell"], count: null, toss: null };
   if (shot === "count") {
@@ -85,10 +87,11 @@ function fixture() {
     standing[3] = "tin-derby";
     Object.assign(vote, { waiting: [], leaders: ["cork-and-bell", "tin-derby"], toss: { between: ["cork-and-bell", "tin-derby"], winner: "tin-derby", endsIn: 1900, of: 3200 } });
   } else if (shot === "off") {
-    lights.flood = "Coming soon";
+    // Tin Derby's light is off (as for a game this party does not fit): standing in its pool is the dark.
     lights["tin-derby"] = "Needs a big screen";
-    members[2].x = light(3, -10);
-    standing[2] = "fox-trouble";
+    members[2].x = light(2, -10);
+    standing[2] = null;
+    vote.waiting = [2, 3];
   } else if (shot === "live") {
     // The production wall: Cork & Bell and Tin Derby play, Flood and Fox Trouble are coming.
     for (const id of ["flood", "fox-trouble"]) lights[id] = "Coming soon";
@@ -97,13 +100,13 @@ function fixture() {
     standing[2] = "tin-derby";
   } else if (shot === "ends") {
     // Both ends of the wall's games: two in the first box's light, two in the last game's.
-    const last = BOXES.findLastIndex((b) => !b.poster);
+    const last = BOXES.findLastIndex((b) => !b.poster && !b.soon);
     [members[0].x, members[1].x, members[2].x, members[3].x] = [light(0, -36), light(0, 34), light(last, -34), light(last, 36)];
     const [a, b] = [BOXES[0].id, BOXES[last].id];
     Object.assign(vote, { standing: { 0: a, 1: a, 2: b, 3: b }, waiting: [], leaders: [a, b] });
   } else if (shot === "empty") {
     members.length = 0;
-    for (const b of BOXES) lights[b.id] = b.poster ? "" : b.min > 1 ? `Needs ${b.min} players` : "Needs a player";
+    for (const b of BOXES) lights[b.id] = b.poster ? "" : b.soon ? "Coming soon" : b.min > 1 ? `Needs ${b.min} players` : "Needs a player";
     Object.assign(vote, { standing: {}, waiting: [], leaders: [] });
   }
   // The room has been open for `at` seconds: its timed events go by that.

@@ -17,7 +17,7 @@ import { tagLevels } from "./tag-levels.js";
 import { standings } from "./shared/tonight.js";
 import { BADGES, COUNT_MS, playersLabel } from "./shared/vote.js";
 import { wallFor } from "./shared/rooms.js";
-import { ROOM, drawnLight, jumpHeight, posAt } from "./shared/world.js";
+import { ROOM, drawnLight, jumpHeight, poolOf, posAt } from "./shared/world.js";
 
 const GREY = "#9b948b";
 const BADGE_COLOURS = { any: ["#3db8ff", "#06263a"], phones: ["#b79cf7", "#24124d"], screen: ["#ffc93c", "#3a2a00"] };
@@ -57,8 +57,7 @@ export class Scene {
     const n = room.boxes.length;
     this.n = n;
     // The room's wall (shared/rooms.js): where its boxes hang and its pools lie, as the room decides the vote by it.
-    this.wall = wallFor(room.room, n);
-    this.half = this.wall.half;
+    this.wall = wallFor(room.room, room.boxes);
     svg.append(this.defs());
     svg.append(this.backdrop());
     this.layers = { lamps: s("g"), wall: s("g"), cones: s("g"), pools: s("g"), shadows: s("g"), pieces: s("g"), emotes: s("g"), tags: s("g"), stickers: s("g"), over: s("g") };
@@ -193,10 +192,13 @@ export class Scene {
     // A poster that is not a game (the ideas poster) hangs in its frame with no lamp over it, no
     // light on the floor and no sign: it is drawn, and never lit, dimmed or counted.
     const poster = !!box.poster;
+    // Only a game that can be played has a lamp and a pool (shared/world.js, hasPool): a game that
+    // is coming soon keeps its poster and its sign, and has no light at all.
+    const pooled = !!poolOf(this.wall, i);
 
     b.shade = s("path", { d: `M${cx - 17},62 L${cx + 17},62 L${cx + 54},102 L${cx - 54},102 Z` });
     b.bulb = s("ellipse", { cx, cy: 103, rx: 30, ry: 6 });
-    if (!poster) this.layers.lamps.append(s("rect", { x: cx - 2, y: -900, width: 4, height: 962, fill: "#0a0504" }), s("rect", { x: cx - 9, y: 52, width: 18, height: 12, rx: 3, fill: "#0a0504" }), b.shade, b.bulb);
+    if (pooled) this.layers.lamps.append(s("rect", { x: cx - 2, y: -900, width: 4, height: 962, fill: "#0a0504" }), s("rect", { x: cx - 9, y: 52, width: 18, height: 12, rx: 3, fill: "#0a0504" }), b.shade, b.bulb);
 
     // Marked for the tests that check a sign's words fit it (lobby/test/e2e-bar-wall.mjs), and the poster that is not a game.
     const frame = s("g", poster ? { "data-box": i, "data-poster": box.id } : { "data-box": i });
@@ -250,12 +252,13 @@ export class Scene {
 
     // The cone and the pool reach as far as the wall says (shared/world.js, drawnLight): on a placed
     // wall, to where the room counts and no further. The cone's top is never wider than its foot.
-    const { cone, pool } = drawnLight(this.wall);
+    const { cone, pool } = drawnLight(this.wall, i);
     const top = Math.min(54, cone);
     b.cone = s("polygon", { points: `${cx - top},102 ${cx + top},102 ${cx + cone},${ROOM.floorY + 8} ${cx - cone},${ROOM.floorY + 8}`, fill: "url(#g-cone)" });
     b.pool = s("ellipse", { cx, cy: ROOM.floorY + 6, rx: pool, ry: 31 });
     b.ring = s("ellipse", { cx, cy: ROOM.floorY + 6, rx: pool, ry: 31, fill: "none", "stroke-width": 3 });
-    if (poster) return b;
+    // (A box with no pool keeps these out of the page: the vote's colours still set them, unseen.)
+    if (!pooled) return b;
     this.layers.cones.append(b.cone);
     this.layers.pools.append(b.pool, b.ring);
     return b;

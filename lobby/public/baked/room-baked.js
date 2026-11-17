@@ -279,8 +279,10 @@ export class RoomBaked extends Room3D {
     b.glow.visible = false;
     g.add(b.glow);
     this.stuff.add(g);
-    // A poster that is not a game (the ideas poster): its lamp in the plate stays dark, and gives no light.
-    if (box.poster) b.beam.visible = b.halo.visible = false;
+    // A game that is coming soon, or a poster that is not a game (shared/world.js, hasPool): its lamp
+    // in the plate stays dark, and gives no light.
+    b.pooled = L.wall.pools.some((p) => p.i === i);
+    if (!b.pooled) b.beam.visible = b.halo.visible = false;
     return b;
   }
 
@@ -289,6 +291,7 @@ export class RoomBaked extends Room3D {
     if (this.plain) return super.light(b);
     // A poster is never lit: printed paper in the room's own light.
     if (b.box.poster) return void b.art.color.setScalar(0.6);
+    if (!b.pooled) return void b.art.color.setScalar(0.17);
     const level = b.level;
     const glowing = Math.min(1, level * 8);
     const gain = (this.plate.info.lampGain ?? 2.83) * (0.3 * glowing + 0.7 * level);

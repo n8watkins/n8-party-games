@@ -399,7 +399,7 @@ function apply(next) {
   }
   room = next;
   // The places in a whole room message are on the wall of the room it says the party is in.
-  placesWall = wallFor(next.room, next.boxes.length);
+  placesWall = wallFor(next.room, next.boxes);
   // Until the room answers the start link's pick, its older words do not undo it.
   if (pendingRoom) room.room = pendingRoom;
   voteAt = roomSeenAt = performance.now();
@@ -441,8 +441,9 @@ let wallKey = "";
 let wallNow = null;
 /** The wall of the party's room (shared/rooms.js, wallFor): where its lights are. Worked out again only when the room or its boxes change. */
 function wall() {
-  const key = `${room.room}/${room.boxes.length}`;
-  if (key !== wallKey) [wallKey, wallNow] = [key, wallFor(room.room, room.boxes.length)];
+  // Which boxes have a pool goes with the boxes themselves (a coming-soon game has none).
+  const key = `${room.room}/${room.boxes.map((b) => `${b.id}:${b.soon ? 1 : 0}${b.poster ? 1 : 0}`).join()}`;
+  if (key !== wallKey) [wallKey, wallNow] = [key, wallFor(room.room, room.boxes)];
   return wallNow;
 }
 /**

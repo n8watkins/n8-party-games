@@ -70,10 +70,10 @@ describe("a two-seat game voted for by a party of four", () => {
     const core = ctx.room.core;
     // The game was not created: the room is choosing its players on two spots, the game's own light and the next.
     expect(game.calls.created).toEqual([]);
-    expect(core.activity).toMatchObject({ kind: "settings", id: "turns", seats: [], spots: [{ place: "turns", seat: null }, { place: "soon-0", seat: null }] });
-    for (const w of Object.values(ws)) expect(roomOf(w)).toMatchObject({ phase: "settings", choosing: { id: "turns", seats: [], spots: [{ place: "turns", seat: null }, { place: "soon-0", seat: null }], by: 0, fields: [] } });
+    expect(core.activity).toMatchObject({ kind: "settings", id: "turns", seats: [], spots: [{ place: "turns", seat: null }, { place: "spare-0", seat: null }] });
+    for (const w of Object.values(ws)) expect(roomOf(w)).toMatchObject({ phase: "settings", choosing: { id: "turns", seats: [], spots: [{ place: "turns", seat: null }, { place: "spare-0", seat: null }], by: 0, fields: [] } });
     // The spots are the only lights on; everyone starts again in the dark, by the door.
-    expect(roomOf(ws.screen).vote.lights).toEqual({ turns: null, "soon-0": null, "soon-1": "" });
+    expect(roomOf(ws.screen).vote.lights).toEqual({ turns: null, "spare-0": null, "spare-1": "" });
     expect(Object.values(core.standing(Date.now()))).toEqual([null, null, null, null]);
     expect(ctx.alarm.at).toBe(core.activity.endsAt);
 

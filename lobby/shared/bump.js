@@ -111,18 +111,16 @@ export function bumpTarget(x, face, others) {
 export function landingGround(n, lit = null, clear = KNOCK_CLEAR) {
   // `n` is the wall (shared/world.js) or how many boxes hang evenly on it.
   const w = wallOf(n);
-  const half = w.half;
   // Between two lights there may be less dark than twice the margin: then it is the middle of it.
-  const gap = w.n > 1 ? w.slot - 2 * half : Infinity;
-  const margin = Math.min(clear, gap / 2);
+  const margin = Math.min(clear, w.gap / 2);
   const on = lit ? new Set(lit) : null;
   const ground = [];
   let from = ROOM.minX;
-  for (let i = 0; i < w.n; i++) {
-    if (on && !on.has(i)) continue;
-    const centre = w.xs[i];
-    ground.push([from, centre - half - margin]);
-    from = centre + half + margin;
+  // Only a box with a pool has a light at all (world.js, hasPool); of those, the ones that are on.
+  for (const p of w.pools) {
+    if (on && !on.has(p.i)) continue;
+    ground.push([from, p.x - p.half - margin]);
+    from = p.x + p.half + margin;
   }
   ground.push([from, ROOM.maxX]);
   // A stretch that is a single spot (the middle of a narrow gap) may come out a hair inside out.
@@ -161,7 +159,8 @@ export function knockLanding(x, dir, n, lit = null, { distance = KNOCK_DISTANCE,
   if (best !== null) return Math.round(best);
   // On the very edge of a light, with no more dark that way: it stays on its edge, in the dark.
   const w = wallOf(n);
-  const inLight = (lit ?? Array.from({ length: w.n }, (_, i) => i)).some((i) => Math.abs(x - w.xs[i]) <= w.half);
+  const on = lit ? new Set(lit) : null;
+  const inLight = w.pools.some((p) => (!on || on.has(p.i)) && Math.abs(x - p.x) <= p.half);
   return inLight ? Math.round(aim) : x;
 }
 
