@@ -13,13 +13,13 @@ Where it departs from the live game, the departure is listed under "Differences 
 | `rules.js` | `create`, `apply`, `view`, `nextDeadline`, `done`, `result`, `standings`, `cleanOptions` |
 | `deck.js` | The names, the packs, and the live game's rules for dealing two of them (with one more, below) |
 | `deck-data.js` | The live game's 245 names with their hints and pictures. Generated: do not edit |
-| `draws.js` | The match's random draws: SHA-256 of the secret and a count |
+| `../draws.js` | The match's random draws: SHA-256 of the secret and a count (shared with Paper Masks) |
 | `tools/copy-deck.mjs` | Copies the names from a who-am-i checkout again: `node party/games/who-am-i/tools/copy-deck.mjs [checkout]` |
 | `index.js` | `game` (through `../table-game.js`) and `manifest`, ready for `games.js` once the view exists |
 | `test/` | Whole matches, timers and leaving, every refusal, secrecy properties, the names, and the game on the real party room |
 
 Everything is a pure function of plain JSON.
-There is no clock and no hidden randomness: the room passes `now`, and every draw comes from the match's secret (`state.secret`) at a position kept in the state (`state.draws`; `draws.js`).
+There is no clock and no hidden randomness: the room passes `now`, and every draw comes from the match's secret (`state.secret`) at a position kept in the state (`state.draws`; `../draws.js`).
 It is not on the Table's list yet: its entry stays "Coming soon" (`lobby/wall.js`, `TABLE_SOON`) until the page lane adds the view and imports `index.js` in `games.js`.
 
 ## The API

@@ -26,6 +26,8 @@ import { DEFAULT_CHARACTER } from "../shared/characters.js";
 import { EmoteArms, RIG_UNIT } from "./emote-arms.js";
 import { GhostHands, bakeGhost, disposeGhost, dressGhost, emoteGhost, fadeGhost, makeGhost, poseGhost } from "./ghost.js";
 import { SIZE, bakePawn, disposePawn, dressPawn, emotePawn, fadePawn, makePawn, posePawn } from "./pieces.js";
+import { RobotHands, bakeRobot, disposeRobot, dressRobot, emoteRobot, fadeRobot, makeRobot, poseRobot } from "./robot.js";
+import { SlimeHands, bakeSlime, disposeSlime, dressSlime, emoteSlime, fadeSlime, makeSlime, poseSlime } from "./slime.js";
 import * as THREE from "./three.js";
 
 const pawn = {
@@ -52,7 +54,31 @@ const ghost = {
   dispose: disposeGhost,
 };
 
-export const CHARACTER_MODELS = { pawn, ghost };
+const slime = {
+  id: "slime",
+  make: makeSlime,
+  dress: dressSlime,
+  pose: poseSlime,
+  emote: emoteSlime,
+  hands: (body, colour) => new SlimeHands(body, colour),
+  fade: fadeSlime,
+  bake: bakeSlime,
+  dispose: disposeSlime,
+};
+
+const robot = {
+  id: "robot",
+  make: makeRobot,
+  dress: dressRobot,
+  pose: poseRobot,
+  emote: emoteRobot,
+  hands: (body, colour) => new RobotHands(body, colour),
+  fade: fadeRobot,
+  bake: bakeRobot,
+  dispose: disposeRobot,
+};
+
+export const CHARACTER_MODELS = { pawn, ghost, slime, robot };
 
 /** Mirrors the world in the floor (y = 0). */
 const FLIP = new THREE.Matrix4().makeScale(1, -1, 1);

@@ -2,7 +2,7 @@
 // (no ".test.js"). `secretOf` reads the server state, for tests only.
 import { apply, create, isRefusal, nextDeadline, SYSTEM, view } from "../rules.js";
 import { getIdentity } from "../deck.js";
-import { sha256 } from "../draws.js";
+import { sha256 } from "../../draws.js";
 
 export const T0 = 1_000_000;
 

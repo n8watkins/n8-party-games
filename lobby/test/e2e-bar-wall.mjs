@@ -173,6 +173,10 @@ try {
     sockets.push(ann, cy);
     await Promise.all([ann.opened, cy.opened]);
     await sleep(800);
+    // Ann a robot, Cy a slime (the widest piece, and the lowest): each must still read as in or out of a light at the edge.
+    ann.send({ t: "look", c: "robot" });
+    cy.send({ t: "look", c: "slime" });
+    await ann.wait((m) => m.room?.members[ann.seat]?.character === "robot" && m.room?.members[cy.seat]?.character === "slime", 5000, 0);
     // Two players: Cork & Bell and Who Am I? are both lit. Ann just inside Cork & Bell's right edge, Cy just outside Who Am I?'s left edge, in the gap.
     const inside = Math.round(BAR.xs[0] + BAR.half - 3);
     const outside = Math.round(BAR.xs[1] - BAR.half - 4);
