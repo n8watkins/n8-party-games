@@ -12,7 +12,6 @@
 // and a happy squint, and flashes red when it is knocked, where a pawn gets crosses its eyes do
 // too. Its emotes are the ghost's, fitted to its body (./body-rig.js), its hands on jointed arms.
 import { s, set, shade } from "../dom.js";
-import { STILT_RISE } from "../shared/robot.js";
 import { bodyRig } from "./body-rig.js";
 
 const GREY = "#8a8d94";
@@ -192,8 +191,8 @@ export const robot = {
       const step = Math.min(dt, 1 / 30);
       const moving = !!walking && !grounded;
       // Its legs (lobby/shared/robot.js, stiltPose): a squat as the tell, out, a shake, down, a flash.
-      const out = stilt ? Math.max(0, stilt.out) : 0;
-      const lift = out * STILT_RISE * (1 + (stilt?.shake ?? 0));
+      // `stilt.lift`: how high the legs hold it, in room units (the scene works it out from lobby/shared/robot.js).
+      const lift = stilt ? Math.max(0, stilt.lift ?? 0) : 0;
       const squat = stilt ? Math.min(0, stilt.out) * 40 : 0;
       put(a, "legs", a.legs, { display: lift > 0.5 ? null : "none" });
       if (lift > 0.5) {

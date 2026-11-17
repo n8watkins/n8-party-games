@@ -770,7 +770,7 @@ export class Scene {
       const hover = flat.frame(p.actor, {
         now, dt, face: p.face, seat, calm, grounded: pose.dizzy,
         faded, booAt: p.booAt ?? -Infinity, walking: walking && pose.x === null, x: p.rx, voting,
-        stilt, goo, throwing: p.hook ? (p.hook.verdict ? "back" : now - p.hook.at < 150 ? "aim" : "throw") : null,
+        stilt: stilt && { ...stilt, lift: legs * (1 + stilt.shake) }, goo, throwing: p.hook ? (p.hook.verdict ? "back" : now - p.hook.at < 150 ? "aim" : "throw") : null,
       });
       p.legs = legs;
       set(p.g, { transform: poseTransform(p.rx, ROOM.floorY - up - bob - hover, pose) });

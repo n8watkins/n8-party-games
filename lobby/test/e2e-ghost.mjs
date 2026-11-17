@@ -346,12 +346,14 @@ try {
     // that drew before the scare was over; otherwise it is tried again, up to four times, with
     // the lead aimed by how long it took. On a machine so busy that a 3D page takes longer than
     // the scare from its hello to its first picture, nothing can be judged, and that fails.
-    for (const [page, look, firstLead] of [[cy, "flat", 0], [eve, "3d", 450]]) {
+    // The robot's scare begins when the room judges its hook, about a third of a second after the
+    // throw: a negative lead throws first and reloads that much later.
+    for (const [page, look, firstLead] of [[cy, "flat", -300], [eve, "3d", 150]]) {
       let lead = firstLead;
       let seen = null;
       for (let attempt = 0; attempt < 4 && !(seen?.after && seen.inTime); attempt++) {
-        // Aimed so the page first speaks to the room just after the kick, by how long it took last time.
-        if (seen) lead = Math.max(0, lead + seen.spoke - 60);
+        // Aimed so the page first speaks to the room just after the scare began, by how long it took last time.
+        if (seen) lead = lead + seen.spoke - 60;
         await ready(B);
         await calmAgain();
         at = await where();
@@ -361,12 +363,22 @@ try {
         await sleep(300);
         check(!!(await fade(bea, B)), `Bea fades (Ada is a ${character})`);
         // The room's own address, as a reload does, with the look asked for again.
-        const going = page.goto(`${base}/lobby/?${look === "flat" ? "look=flat" : "look=3d&gl=any"}`);
-        await sleep(lead);
+        const reload = () => page.goto(`${base}/lobby/?${look === "flat" ? "look=flat" : "look=3d&gl=any"}`);
         from = ada.seen.length;
-        // The scare begins when the room judges the hook, a moment after the throw.
-        const scared = await goAt();
-        const kickAt = Date.now();
+        let going;
+        let scared;
+        if (lead >= 0) {
+          going = reload();
+          await sleep(lead);
+          scared = await goAt();
+        } else {
+          const thrown = goAt();
+          await sleep(-lead);
+          going = reload();
+          scared = await thrown;
+        }
+        // The scare began when the room's word on the hook came.
+        const kickAt = ada.seen.slice(from).find((m) => m.t === "hk" && m.s === A)?.at ?? Date.now();
         await going;
         await drawn(page, look);
         // Watched from the first frame it draws: how wide its eyes got, and in how many frames.
@@ -396,7 +408,8 @@ try {
     await calmAgain();
     from = ada.seen.length;
     ada.send({ t: "look", c: "robot", v: hex });
-    await ada.wait((m) => m.room?.members[A]?.character === "robot" && m.room.members[A].colour === hex, 4000, from);
+    // A piece that already is that robot is told so (look-ok), with no room view.
+    await ada.wait((m) => (m.room?.members[A]?.character === "robot" && m.room.members[A].colour === hex) || (m.t === "look-ok" && m.c === "robot" && m.v === hex), 4000, from);
     await sleep(LOOK_COOLDOWN_MS);
     // The two ghosts take turns, so one's fade recharges while the other's is used. A picture
     // that a busy machine took after the freeze (the robot had scurried off) is taken again,

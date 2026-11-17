@@ -23,7 +23,7 @@ import { chosenLook, hardware3D, openRoomView, preferFlat } from "./room-view.js
 import { ScreenFit, allowUpright, fitVisible } from "./screen-fit.js";
 import { SlowWatch } from "./slow-room.js";
 import { BUMP_COOLDOWN_MS, IMMUNE_MS, IMPACT_MS, STUN_MS } from "./shared/bump.js";
-import { BOO_EARLY_MS, FADE_COOLDOWN_MS, FADE_MS, SCARE_MS, SPOOK_AGAIN_MS, SPOOK_MS, SPOOK_REACH } from "./shared/ghost.js";
+import { BOO_EARLY_MS, FADE_MS, SCARE_MS, SPOOK_AGAIN_MS, SPOOK_MS, SPOOK_REACH } from "./shared/ghost.js";
 import { moveOf } from "./shared/characters.js";
 import { defineGhostSounds } from "./ghost-sounds.js";
 import { defineMoveSounds } from "./move-sounds.js";
