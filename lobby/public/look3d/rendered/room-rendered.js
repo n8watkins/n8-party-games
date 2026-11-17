@@ -214,7 +214,7 @@ export class RoomRendered extends Room3D {
   light(b) {
     if (this.plain) return super.light(b);
     // A poster is never lit: printed paper in the room's own light.
-    if (b.box.poster) return void b.art.color.setScalar(0.75);
+    if (b.box.poster) return void b.art.color.setScalar(0.62);
     const glowing = Math.min(1, b.level * 8);
     b.art.color.setScalar(0.34 + 0.56 * glowing + 0.22 * b.gold);
     // The screen's edge: the room's colour while its lamp is on, brighter for the box that leads.
