@@ -78,12 +78,13 @@
   opacity: 1;
   animation: spot-hint 1.2s ease-in-out 4;
 }
-/* Outside the board, to the right of its mark: on the board it covered "Tonight" or the scores. */
+/* Outside the board, just right of its edge and a little below its mark: on the board it covered
+   "Tonight" or the scores, and level with the mark a sideways phone's corner buttons hid it. */
 .touch-layer.hinting .spot-board .spot-mark::after {
   content: "tap";
   position: absolute;
-  top: -1px;
-  left: 28px;
+  top: 30px;
+  left: 16px;
   padding: 2px 8px;
   border-radius: 10px;
   background: rgba(23, 16, 12, 0.88);
