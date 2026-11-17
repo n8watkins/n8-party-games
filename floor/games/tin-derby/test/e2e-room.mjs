@@ -222,17 +222,17 @@ try {
     const t0 = Date.now();
     const watched = pages.find((p) => p.name === "screen") ?? pages[0];
     while (!end && Date.now() - t0 < 200_000) {
-      for (const p of [...frames.keys()]) {
-        const f = frames.get(p);
-        try { last.set(p, await look(f)); } catch { /* the frame was taken away, or is reloading */ }
-      }
+      // Every page at once: on a busy machine one after another took long enough to miss the last seconds of a short race.
+      await Promise.all([...frames].map(async ([p, f]) => { try { last.set(p, await look(f)); } catch { /* the frame was taken away, or is reloading */ } }));
       const t = last.get(watched)?.t ?? -9;
       if (still && !countShot && t < 0) { countShot = true; await still("countdown", t); }
       if (still && !mid && t > 25) { mid = true; await still("mid-race", t); }
       if (during) await during(t, frames, last);
-      if (still && [...last.values()].some((l) => l.order.some((o) => o.fin)) && !last.finShot) { last.finShot = true; await still("finish", t); }
+      // Once a car is home (a house car too: the winner's close shot is for whoever wins) the race is near its end: no pause between polls.
+      const home = [...last.values()].some((l) => l.cars.some((c) => c.fin));
+      if (still && home && !last.finShot) { last.finShot = true; await still("finish", t); }
       for (const p of pages) if (!end) end = endOf(p);
-      await sleep(250);
+      if (!home) await sleep(250);
     }
     check(!!end, `${label}: the race ended in the room within ${Math.round((Date.now() - t0) / 1000)} s`);
     if (!end) return { end, last };
@@ -419,7 +419,7 @@ try {
           at.padBack = await frames.get(bo).evaluate(() => window.__derby.app.pad);
         }
         // The big screen's panes, every poll from GO: one per player, each following its own car.
-        if (t > 0.5) { const P = await panesOf(frames.get(scr)).catch(() => null); if (P) { samples++; for (const b of paneFaults(P, names)) faults.add(b); } }
+        if (t > 0.5 && !last.get(scr)?.cars.some((c) => c.fin)) { const P = await panesOf(frames.get(scr)).catch(() => null); if (P) { samples++; for (const b of paneFaults(P, names)) faults.add(b); } }
       };
       const { end, last } = await race("short", code, [ada, bo, stall, nogl, scr], { during });
       if (end) {
@@ -657,9 +657,12 @@ try {
       let samples = 0, mid = false, drop = null, joiner = null, closeSeen = null;
       // With two side by side, Bo's phone drops for a few seconds; with three, a fourth phone joins in the middle.
       const dropper = label === "panes-2" ? phones[1] : null;
-      const during = async (t, frames) => {
+      const during = async (t, frames, last) => {
         const f = frames.get(scr);
-        if (t > 0.5) { const P = await panesOf(f).catch(() => null); if (P) { samples++; for (const b of paneFaults(P, names)) faults.add(b); } }
+        // From the first car home, only the close shot is looked for: the polls go quickly to catch the race's end.
+        const home = last.get(scr)?.cars.some((c) => c.fin);
+        if (home && closeSeen === null) closeSeen = (await panesOf(f).catch(() => null))?.close ?? null;
+        if (t > 0.5 && !home) { const P = await panesOf(f).catch(() => null); if (P) { samples++; for (const b of paneFaults(P, names)) faults.add(b); } }
         if (!mid && t > 9) { mid = true; await shot(scr, `${label}-mid-race`, `the big screen (1920 x 1080), ${names.length} player${names.length > 1 ? "s" : ""}, race time ${t.toFixed(1)} s`); }
         if (dropper && !drop && t > 4) { drop = { at: t }; await dropper.context().setOffline(true); }
         if (drop && !drop.note && t > drop.at + 2.5) {
@@ -681,8 +684,6 @@ try {
       const still = async (when, t) => {
         if (when === "countdown") await shot(scr, `${label}-count`, `the big screen (1920 x 1080), ${names.length} player${names.length > 1 ? "s" : ""}: the count-in, race time ${t.toFixed(1)} s`);
         if (when === "finish") {
-          const sf = (await (await scr.$(FRAME))?.contentFrame()) ?? null;
-          closeSeen = sf ? (await panesOf(sf).catch(() => null))?.close : null;
           await shot(scr, `${label}-finish-close`, `the big screen as the first car finishes: the close shot at the line across the whole screen`);
           await sleep(3200);
           if (await scr.$(FRAME)) await shot(scr, `${label}-finish`, `the big screen a few seconds after the first car finished`);

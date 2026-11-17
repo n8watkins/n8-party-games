@@ -182,9 +182,30 @@ The page finds the room's `you`, `snapshot`, `send` and `now` on its frame eleme
 - **Round five's files**: `art.js`, `table.js` and `sound.js` as they were; `view.js` with the drift renames and `me` (whose warning rings grow with distance); each with an import line from `env.js` and an export line.
   three.js is round five's 0.149.0, served from `page/vendor/`, since the site's Content-Security-Policy allows scripts from the site only; for the same reason the page's fonts fall back to the system's (Arial Black, Arial Narrow) and nothing in it uses a style attribute in markup.
 
-- **The big screen** draws the cars three times their size on the whole-table picture (true size in its close shots), and its names (2.3% of the screen's height), hint and strip grow with the screen.
+- **The big screen's whole table** draws the cars three times their size (true size in its close shots), and its names (2.3% of the screen's height), hint and strip grow with the screen.
 
-Test switches, on the room page's address: `derby-auto=1` (the house's driver holds this phone's hands, through the same path as a thumb), `derby-lag=<ms>` (inputs held back before they are sent), `derby-touch` (thumbs on a computer) and `derby-short` (the page asks for a test run's short race: one lap, a five-second last call).
+### The big screen
+
+The phone is the controller; the big screen is where each player watches their own car (`page/split.js`).
+It has one pane per player in the race (house cars get none), each with that player's own chase camera (the phone's `ChaseRig`), framed in the player's colour, and on it their name, place and lap, the power they hold, who is just ahead and behind and how far, and the spring.
+Every word on it is at least 2% of the screen's height (2.2% to 3.3%), to be read from a sofa.
+
+| Players | Layout | Why |
+| --- | --- | --- |
+| 1 | The whole screen; the table from above and the places small in the bottom right corner | The car large; the corner is cloth and scenery in a chase picture |
+| 2 | Side by side, the table and the places between them at the bottom | Stacked one above the other was tried (`stills-split/panes-2-stacked-*.png`): each pane, 1920 by 540, spent half its width on the room either side and drew the car half the size, with less road ahead; side by side each is 960 by 1080 with the car large and the road long, and each player has a column of the screen as in the grid |
+| 3 | A 2 by 2 grid; the fourth cell holds the table and the places, large | Every pane the same size and shape as with four |
+| 4 | A 2 by 2 grid; the table small in the middle, no list (each pane has its place) | The middle is the inner corners of the panes, clear of each car; the bottom right pane's words go to its right, clear of the table |
+
+- **The count-in** is said once across the whole screen; the table in the middle of four panes makes way for it.
+- **The finish**: the winner's close shot at the line takes the whole screen in either view (the panes' cameras keep following their cars meanwhile), then each finished player's pane says their place over the live picture until the room shows its card.
+- **A dropped phone**: that player's pane carries on, the house driving, and says "The house is driving" over the live picture until the phone is back.
+- **A phone that joins mid-race** watches the whole table and races the next one; the big screen keeps its panes.
+- **The host's choice**: one button (it fades after four quiet seconds; the mouse brings it back) or V switches to the whole table and back, remembered on that screen (`localStorage`).
+- **No hardware 3D**: a screen that draws 3D in software starts on the whole table (one picture a frame, not four; the host can still switch); one that cannot draw 3D at all shows the table from above as a flat drawing with the cars and the places (`page/map.js`), never a black screen.
+- **Drawing four pictures**: the split view draws at most `SPLIT_DPR_CAP` (1.25) pixels per CSS pixel, and the frame-rate governor lowers the resolution of every pane (to half at most) before frames are dropped.
+
+Test switches, on the room page's address: `derby-auto=1` (the house's driver holds this phone's hands, through the same path as a thumb), `derby-lag=<ms>` (inputs held back before they are sent), `derby-touch` (thumbs on a computer), `derby-short` (the page asks for a test run's short race: one lap, a five-second last call) and `derby-tvview=split|table` (the big screen's view, whatever it remembers or draws with).
 The short race is decided by the room, not the page: only the test wall runs `testGame` (`party.js`, `lobby/wall.js`), whose races take `{short: 1}` in the count-in and tell everyone (`{k: "len"}`); production's `game` ignores it (`test/room.test.js`, `test/party-view.test.js`).
 The gate's step (`npm run test:tin-derby`) is one such race with every trouble at once; the whole-race suite is `npm run test:tin-derby:full`, and whole races, determinism and balance are also checked by the unit tests, in seconds.
 They work only where the room has its test games on (`PARTY_TEST_GAMES`, the local environment and the test runs): the view hands them to the page (`partyHost.switches`) only when the wall the server sent has a test box, and the page never reads its own address. In production they do nothing (`test/party-view.test.js`).
