@@ -225,6 +225,18 @@ On the owner's PC on 2026-11-16 (a busy machine: load 11 to 25 on 14 threads), `
 | 40 ms each way (the room's simulated latency) | the phone's own car: exactly where the room put it (190 steps compared); rivals exactly; no input late (275 sent) |
 | 200 ms each way | own car 0.038 car lengths off on average, 0.28 at most (364 steps); rivals 0.0005 on average, 0.047 at most; every one of 593 inputs late, by 4.2 steps (35 ms) on average |
 
+**From a thumb on the phone to the car on the big screen** (`--only=tvlag`): a phone and a big screen, each the same delay from the room both ways, 24 steers (12 presses and 12 releases, half a second apart), timed from the key event on the phone to the first frame each page drew the car holding that steer, on the machine's clock.
+
+| Each way | On the phone | On the big screen |
+| --- | --- | --- |
+| 40 ms | 16 ms median, 23 at most | 113 ms median, 126 for 90%, 141 at most |
+| 200 ms | 13 ms median, 22 at most | 435 ms median, 454 for 90%, 455 at most |
+
+The big screen draws each car from its own copy of the race and the hands the room relays, and it already applies them the moment they arrive, at the step the room gave them, with the same prediction the phone uses (`replica.predict`); what is left is the trip itself: the phone to the room, a wait for the room's next tick (33 ms at most; the kit relays a ticking game's inputs only at its tick), the room to the big screen, and the next frame.
+The one saving inside this page was taken: the phone sends its hands on the thumb's own event rather than at its next frame (before, 26 ms median on the phone, and 113 and 444 ms on the big screen: within the noise of one run there).
+Relaying an input the moment it arrives instead of at the next tick would save about 16 ms more on average; that is the kit's to change.
+What it means: a party in one room, phones and the big screen on the same wifi and a nearby Cloudflare edge (20 to 50 ms each way), sees its steering on the big screen about 0.1 s after the thumb, which is steerable (about what cloud gaming adds); at 200 ms each way (a poor connection) the big screen lags about 0.45 s, too much to steer by, and the phone's own picture (which answers within a frame at any delay) is the one to drive by.
+
 What the 200 ms run means for steering: the phone turns the car the frame the thumb moves, as at 40 ms; the room takes each input 35 ms later than the phone did, so the car is pulled back by a few hundredths of a length, at most a quarter of a length on a hard turn.
 The room runs 0.15 s behind its clock (`NET.DELAY`), so up to about 150 ms one way nothing is late at all.
 

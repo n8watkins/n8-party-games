@@ -290,7 +290,7 @@ const stats = {
   ownErr: { n: 0, sum: 0, max: 0 }, rivalErr: { n: 0, sum: 0, max: 0 },
   predictMs: { n: 0, sum: 0, max: 0 },
   /** Frame to frame, in ms (the big screen's frame rate), and what the last frame drew. */
-  frameMs: { n: 0, sum: 0, max: 0 }, slowFrames: 0, draws: 0, triangles: 0, renderer: "",
+  frameMs: { n: 0, sum: 0, max: 0 }, workMs: { n: 0, sum: 0, max: 0 }, slowFrames: 0, draws: 0, triangles: 0, renderer: "",
 };
 const tally = (t, v) => { t.n++; t.sum += v; if (v > t.max) t.max = v; };
 
@@ -349,7 +349,8 @@ class App {
     if (this.padOk) {
       // Without 3D the switch is not offered: this phone is a controller, and says so.
       $("bpad").hidden = !world;
-      $("bpad").addEventListener("click", () => this.setPad(!this.pad));
+      // A press with a finger or the mouse gives the focus back, so Space drifts again; a keyboard user keeps it.
+      $("bpad").addEventListener("click", (e) => { this.setPad(!this.pad); if (e.detail > 0) e.currentTarget.blur(); });
       this.setPad(!world || store.get(PAD_KEY) === "1", !world);
     }
     this.tags = cars.map((c) => { const t = el("div", "tag"); t.hidden = true; t.style.setProperty("--c", c.colour); $("tags").appendChild(t); return t; });
@@ -786,6 +787,7 @@ class App {
       const dt = Math.min(0.1, raw / 1000);
       this.time += dt;
       stats.frames++;
+      const work0 = performance.now();
       const now = this.host.now();
       this.send(now);
       const st = (this.view = this.raceNow(now));
@@ -858,6 +860,7 @@ class App {
       if (fastness > 0.05) $("speed").style.transform = `translate(${(Math.random() * 4 - 2).toFixed(1)}px, ${(Math.random() * 3).toFixed(1)}px)`;
       if (me) this.sound.run(Math.abs(me.v) * 0.7, racing && Math.abs(me.v) > 0.2, me.drOn ? 1 + me.drLvl : 0);
       this.hint(st);
+      tally(stats.workMs, performance.now() - work0);
       this.govern(raw);
     };
     this.raf = requestAnimationFrame(frame);

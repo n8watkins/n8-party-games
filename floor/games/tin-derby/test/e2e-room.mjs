@@ -780,7 +780,7 @@ try {
 
   // ---------------------------------------------------------------- the big screen's frame rate with four panes
   if (only.has("tvperf")) {
-    const profiles = [["card", {}], ["card, processor 4x slower", { cpu: 4 }], ["software", { software: true }], ["software, whole table", { software: true, view: "table" }]];
+    const profiles = [["card", {}], ["card, processor 4x slower", { cpu: 4 }], ["card, processor 4x slower, whole table", { cpu: 4, view: "table" }], ["software", { software: true }], ["software, whole table", { software: true, view: "table" }]].filter(([name]) => !opt("profile", "") || name === opt("profile", ""));
     for (const [name, prof] of profiles) {
       console.log(`---- tvperf: four players, the big screen at 1920 x 1080 (${name}); the phones are controllers only, so only the big screen draws`);
       const via = prof.software ? await launchBrowser({ software: true, args: ["--use-angle=swiftshader", "--enable-unsafe-swiftshader"] }) : browser;
@@ -791,23 +791,28 @@ try {
         for (const n of ["Ada", "Bo", "Cy", "Di"]) phones.push(await phone(n, pin, "&derby-short=1"));
         const code = await codeOf(pin);
         await vote(code, phones);
-        for (const p of phones) { const f = await derby(p); await f.click("#bpad"); }
+        for (const p of phones) {
+          const f = await derby(p).catch(async (e) => { const v = (await inner(code)).view; await shot(p, `perf-fail-${p.name}`, "no race came up"); throw new Error(`${p.name}: no race (${v.phase}, ${JSON.stringify(v.vote)}): ${e.message}`); });
+          await f.click("#bpad");
+        }
         const sf = await derby(scr);
         if (prof.cpu) { const cdp = await scr.context().newCDPSession(scr); await cdp.send("Emulation.setCPUThrottlingRate", { rate: prof.cpu }); }
         await sf.waitForFunction(() => window.__derby.race.t > 3, null, { timeout: 60000 });
         const m = await sf.evaluate(async () => {
           const gaps = [];
+          window.__derby.stats.workMs = { n: 0, sum: 0, max: 0 }; // the page's own work each frame (the drawing calls included, not the card's)
           let last = performance.now();
           await new Promise((done) => { const end = last + 12000; const tick = (ts) => { gaps.push(ts - last); last = ts; if (ts < end) requestAnimationFrame(tick); else done(); }; requestAnimationFrame(tick); });
           gaps.shift();
           const s = [...gaps].sort((a, b) => a - b), q = (f) => +s[Math.min(s.length - 1, Math.floor(f * s.length))].toFixed(1);
           const d = window.__derby, a = d.app;
-          return { fps: +(1000 / (gaps.reduce((x, y) => x + y, 0) / gaps.length)).toFixed(1), median: q(0.5), p95: q(0.95), p99: q(0.99), over25: gaps.filter((g) => g > 25).length, frames: gaps.length, scale: a.scale, mode: a.mode, panes: a.split?.n, draws: d.stats.draws, triangles: d.stats.triangles, renderer: d.stats.renderer };
+          const wk = d.stats.workMs;
+          return { workAvg: +(wk.sum / Math.max(1, wk.n)).toFixed(1), workMax: +wk.max.toFixed(1), fps: +(1000 / (gaps.reduce((x, y) => x + y, 0) / gaps.length)).toFixed(1), median: q(0.5), p95: q(0.95), p99: q(0.99), over25: gaps.filter((g) => g > 25).length, frames: gaps.length, scale: a.scale, mode: a.mode, panes: a.split?.n, draws: d.stats.draws, triangles: d.stats.triangles, renderer: d.stats.renderer };
         });
         report["tvperf " + name] = m;
         console.log(`     ${JSON.stringify(m)}`);
         await shot(scr, `perf-${name.replace(/[^a-z0-9]+/gi, "-")}`, `the big screen measured (${name}): ${m.fps} frames a second, resolution scale ${m.scale}`);
-        await race(`tvperf ${name}`, code, [...phones, scr]);
+        // A measurement only: the race is left (the other races check how one ends), and the party closed.
       } finally {
         await closeAll();
         if (via !== browser) await via.close().catch(() => {});
