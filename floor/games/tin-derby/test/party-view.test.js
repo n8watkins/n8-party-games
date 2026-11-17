@@ -3,6 +3,7 @@
 import { describe, expect, it } from "vitest";
 import { TEST_WALL, WALL } from "../../../../lobby/wall.js";
 import { mount, switchesFor } from "../page/party-view.js";
+import { game, testGame } from "../party.js";
 
 const ASKED = new URLSearchParams("join=1234&look=flat&derby-auto=1&derby-lag=200&derby-touch&lag=40&derby-=x");
 
@@ -26,6 +27,13 @@ describe("the test switches", () => {
   it("production's wall has no test box, the test wall has one: the server's word the page goes by", () => {
     expect(WALL.boxes.some((b) => b.test)).toBe(false);
     expect(TEST_WALL.boxes.some((b) => b.test === true)).toBe(true);
+  });
+
+  it("production runs the plain game, which never takes a short race; only the test wall runs the one that does", () => {
+    expect(WALL.games.get("tin-derby")).toBe(game);
+    expect(TEST_WALL.games.get("tin-derby")).toBe(testGame);
+    expect(game.create({ seed: 1, seats: [] }).tests).toBeUndefined();
+    expect(testGame.create({ seed: 1, seats: [] }).tests).toBe(true);
   });
 
   it("production ignores every derby-* switch on the address: the house's driver never steers for anyone", () => {

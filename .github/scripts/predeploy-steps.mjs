@@ -13,7 +13,7 @@ export const STEPS = [
   ["a game at the Table, headless browser (test:table)", "test:table"],
   ["Paper Masks at the Table, three whole matches with every secret checked, headless browser (test:paper-masks)", "test:paper-masks"],
   ["the front page's three doors and every way out of them, headless browser (test:home)", "test:home"],
-  ["Tin Derby raced in the party room, headless browser (test:tin-derby)", "test:tin-derby"],
+  ["Tin Derby in the party room, one short race with every trouble at once, headless browser (test:tin-derby)", "test:tin-derby"],
 ];
 
 /**

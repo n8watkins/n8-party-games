@@ -2,7 +2,7 @@
 // to the house and back, late joiners, the end, and whole races through the kit's own room with no browser.
 import { describe, expect, it } from "vitest";
 import { RoomCore } from "../../../../party-kit/src/core/room-core.js";
-import { game, manifest } from "../party.js";
+import { game, manifest, testGame } from "../party.js";
 import { BTN, DT, rules } from "../shared/rules.js";
 import { makeReplica } from "../shared/replica.js";
 import { START, runNet, shownError } from "../tools/net.mjs";
@@ -319,6 +319,41 @@ describe("a page that cannot drive, stalls, or is late", () => {
     expect(net.state.over).toBe(true);
     expect(game.result(net.state).every((r) => r.time > 40)).toBe(true);
   }, LONG);
+});
+
+describe("a test run's short race", () => {
+  const SEATS1 = [{ seat: 0, name: "Ann", kind: "human", colour: "#c8382c" }];
+
+  it("production's game ignores {short: 1}: two laps and the full last call, whatever a page sends", () => {
+    const st = game.create({ seed: 5, seats: SEATS1, now: START });
+    game.input(st, 0, { short: 1 }, START + 100);
+    expect(game.tick(st, START + 200).filter((e) => e.k === "len")).toEqual([]);
+    expect([rules.lapsOf(st), st.call]).toEqual([T.LAPS, undefined]);
+    expect(game.snapshot(st)).not.toHaveProperty("laps");
+  });
+
+  it("the test wall's game takes it in the count-in only, once: one lap and a short last call, told to everyone and in the snapshot", () => {
+    const st = testGame.create({ seed: 5, seats: SEATS1, now: START });
+    const page = makeReplica(rules, JSON.parse(JSON.stringify(testGame.snapshot(st))), { seat: 0 });
+    testGame.input(st, 0, { short: 1 }, START + 100);
+    testGame.input(st, 0, { short: 1 }, START + 110);
+    const ev = testGame.tick(st, START + 200);
+    expect(ev.filter((e) => e.k === "len")).toEqual([{ k: "len", laps: 1, call: 5 }]);
+    page.events(JSON.parse(JSON.stringify(ev)));
+    expect(rules.lapsOf(page.auth)).toBe(1);
+    expect(testGame.snapshot(st)).toMatchObject({ laps: 1, call: 5 });
+    // A whole race: the house drives Ann's car (her page never says another word), one lap, and it is over.
+    let now = START + 200;
+    while (!st.over && now < START + 120_000) { now += 33; testGame.tick(st, now); }
+    expect(st.over).toBe(true);
+    expect((now - START) / 1000).toBeLessThan(T.COUNT_IN + 50);
+    expect(testGame.result(st)[0].time).toBeGreaterThan(15);
+    // Too late: once the race is under way nothing changes its length.
+    const late = testGame.create({ seed: 5, seats: SEATS1, now: START });
+    testGame.tick(late, START + (T.COUNT_IN + 1) * 1000);
+    testGame.input(late, 0, { short: 1 }, START + (T.COUNT_IN + 1) * 1000);
+    expect(rules.lapsOf(late)).toBe(T.LAPS);
+  });
 });
 
 describe("what a phone shows", () => {

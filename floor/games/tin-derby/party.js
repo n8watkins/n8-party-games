@@ -3,6 +3,8 @@
 
 /** The server game definition, for a party room. */
 export { game } from "./shared/rules.js";
+/** The same game for a site's test runs only (a room with its test games on): its races can be made short. */
+export { testGame } from "./shared/rules.js";
 
 export const manifest = {
   id: "tin-derby",

@@ -115,6 +115,10 @@ export function makeRules(T = TUNE, { math: M = dmath, preview: PREVIEW = false 
   }
 
   const carOf = (state, seat) => state.cars.find((c) => c.seat === seat);
+  /** Laps in this race: T.LAPS, or the test runs' short race (takeMessage, `short`). */
+  const lapsOf = (state) => state.laps || T.LAPS;
+  /** The test runs' short race: one lap and a five-second last call. Never where the room has no test games. */
+  const SHORT = { laps: 1, call: 5 };
   const emit = (state, e) => { e.t = state.t; state.ev.push(e); };
   /** The step the race is in at `ms` on the room's clock (step n covers the 1/120 s that ends at n). */
   const stepOf = (state, ms) => Math.floor((ms - state.startAt) / 1000 / DT);
@@ -213,6 +217,16 @@ export function makeRules(T = TUNE, { math: M = dmath, preview: PREVIEW = false 
   function takeMessage(state, seat, data, now) {
     const c = carOf(state, seat);
     if (!c || c.house || state.over || !data || typeof data !== "object") return 0;
+    // A test run's short race ({short: 1}): only where the room was made by the test wall (`state.tests`, set by
+    // testGame, which only a room with PARTY_TEST_GAMES on runs), and only in the count-in, before any car moves.
+    // Everyone is told ({k: "len"}), and the snapshot carries it.
+    if (data.short === 1) {
+      if (state.tests === true && !state.laps && state.n + 1 < START_STEP) {
+        state.laps = SHORT.laps; state.call = SHORT.call; state.rev++;
+        state.net.push({ k: "len", laps: SHORT.laps, call: SHORT.call });
+      }
+      return 0;
+    }
     const H = state.host, i = c.i, hands = readInput(data);
     if (hands) H.gave[i] = false;
     else if (data.house === 1) H.gave[i] = true;
@@ -236,6 +250,7 @@ export function makeRules(T = TUNE, { math: M = dmath, preview: PREVIEW = false 
    */
   function hear(state, e) {
     const R = state.room;
+    if (e.k === "len") { if (!state.laps && Number.isInteger(e.laps) && e.laps > 0 && e.call > 0) { state.laps = e.laps; state.call = e.call; } return; }
     if (e.k !== "i" && e.k !== "a") return;
     if (e.j <= R.count[e.c]) return;
     R.count[e.c] = e.j;
@@ -361,7 +376,7 @@ export function makeRules(T = TUNE, { math: M = dmath, preview: PREVIEW = false 
       const hb = T.HABITS[c.habit] || T.HABITS.ace;
       cap *= hb.pace;
       if (lead > -Infinity && c.house) {
-        const lastLap = lead >= (T.LAPS - 1) * LEN, aim = lastLap && hb.lastAim !== undefined ? hb.lastAim : hb.aim || 0;
+        const lastLap = lead >= (lapsOf(state) - 1) * LEN, aim = lastLap && hb.lastAim !== undefined ? hb.lastAim : hb.aim || 0;
         const gap = clamp((lead + aim - c.s) / T.RUBBER_D, -1, 1);
         // On the last lap it waits less for a player behind it, so a race is won by driving, not by the band.
         // A "lastFree" car (Gus) does not wait at all on the last lap.
@@ -598,9 +613,9 @@ export function makeRules(T = TUNE, { math: M = dmath, preview: PREVIEW = false 
     const lapNow = Math.floor(c.s / LEN);
     if (c.s >= 0 && lapNow > c.lap) {
       c.lap = lapNow;
-      if (!state.endless && lapNow >= T.LAPS && !c.fin) {
+      if (!state.endless && lapNow >= lapsOf(state) && !c.fin) {
         // The moment it crossed the line, between two steps.
-        c.fin = true; c.finT = t - (c.s - T.LAPS * LEN) / Math.max(c.v, 0.05);
+        c.fin = true; c.finT = t - (c.s - lapsOf(state) * LEN) / Math.max(c.v, 0.05);
         state.order.push(c.i); c.place = state.order.length;
         if (state.firstFin < 0) { state.firstFin = c.finT; emit(state, { k: "lastcall", car: c.i }); }
         emit(state, { k: "finish", car: c.i, place: c.place, time: c.finT });
@@ -777,7 +792,7 @@ export function makeRules(T = TUNE, { math: M = dmath, preview: PREVIEW = false 
       for (const c of state.cars) { if (!c.fin) { every = false; if (!c.house) humans = false; } }
       // Once every player is home, the house cars get a few seconds to finish too, so the card shows times.
       if (humans && state.homeAt === null) state.homeAt = t;
-      if (every || (humans && t >= state.homeAt + T.HOUSE_GRACE) || (state.firstFin >= 0 && t >= state.firstFin + T.LAST_CALL) || t >= T.RACE_CAP) { state.over = true; emit(state, { k: "end" }); }
+      if (every || (humans && t >= state.homeAt + T.HOUSE_GRACE) || (state.firstFin >= 0 && t >= state.firstFin + (state.call || T.LAST_CALL)) || t >= T.RACE_CAP) { state.over = true; emit(state, { k: "end" }); }
     }
   }
 
@@ -815,6 +830,8 @@ export function makeRules(T = TUNE, { math: M = dmath, preview: PREVIEW = false 
       boxT: src.boxT.map((row) => row.slice()), toastWarn: src.toastWarn, kettleWarn: src.kettleWarn, eggWarn: src.eggWarn, syrupWarn: src.syrupWarn,
       queue: src.queue.map((e) => e.slice()),
       room: { q: src.room.q.slice(), sent: src.room.sent.map((s) => s.slice()), lastN: src.room.lastN.slice(), count: src.room.count.slice() },
+      // A test run's short race only (absent otherwise, so every other race is as it was, to the bit).
+      ...(src.laps ? { laps: src.laps, call: src.call } : {}),
     };
   }
   /** The whole race as plain JSON: enough to carry on from, in the room or on a page. Shares nothing with `state`.
@@ -892,10 +909,17 @@ export function makeRules(T = TUNE, { math: M = dmath, preview: PREVIEW = false 
     },
     standings,
   };
+  /**
+   * The same game for a room with its test games on (lobby/wall.js hangs it only on the test wall, where
+   * PARTY_TEST_GAMES is "on"): its races take a test run's {short: 1}. Production's wall has `game`, which never does.
+   */
+  const testGame = { ...game, create(ctx) { const state = createRace(ctx); state.tests = true; return state; } };
 
-  return { T, course, house, game, VERSION, DT, SUB, LEN, CAR_KEYS, createRace, carOf, stepOf, readInput, takeInput, takeMessage, hear, hold, enqueue, advance, raceOrder, standings, placeOf, drawItem, dump, load, clone, fingerprint };
+  return { T, course, house, game, testGame, VERSION, DT, SUB, LEN, CAR_KEYS, createRace, carOf, stepOf, readInput, takeInput, takeMessage, hear, hold, enqueue, advance, raceOrder, standings, placeOf, drawItem, dump, load, clone, fingerprint, lapsOf };
 }
 
 /** The rules for the numbers in data/tune.js: what the party room runs. */
 export const rules = makeRules(TUNE);
 export const game = rules.game;
+/** The same, for a room with its test games on only (lobby/wall.js, the test wall): it takes a test run's short race. */
+export const testGame = rules.testGame;

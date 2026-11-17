@@ -97,7 +97,9 @@ const TRAIT_INFO = {
   robot: { badge: "Quick charge", line: "Drift boosts charge faster" },
 };
 const ARROW = (d) => `<svg viewBox="0 0 40 40" aria-hidden="true"><path d="${d < 0 ? "M27 6 L9 20 L27 34 Z" : "M13 6 L31 20 L13 34 Z"}" fill="${CSS.navy}"/></svg>`;
-const lapOf = (c) => clampN(Math.floor(Math.max(0, c.s) / LEN) + 1, 1, TUNE.LAPS);
+/** Laps in the race shown (a test run's short race has one). */
+const lapsIn = (st) => rules.lapsOf(st);
+const lapOf = (c, st) => clampN(Math.floor(Math.max(0, c.s) / LEN) + 1, 1, lapsIn(st));
 /**
  * Where a car's token sits on a strip's line `lw` px long: its share of the lap, kept whole inside the line, so a
  * finished car's token ends against the line's end mark and never runs over what follows the line (the places).
@@ -198,7 +200,7 @@ class Hands {
   /** Once a frame: the strip, who is near, the spring, the power in hand, the chevrons. */
   draw(state, time, order, racing) {
     const c = state.cars[this.i], place = order.indexOf(c) + 1, T = TUNE;
-    this.set(this.lapEl, "lap", c.fin ? "Finished" : `Lap ${lapOf(c)} of ${T.LAPS}`);
+    this.set(this.lapEl, "lap", c.fin ? "Finished" : `Lap ${lapOf(c, state)} of ${lapsIn(state)}`);
     this.set(this.placeEl, "place", ORD[place - 1]);
     const lw = this.lineW || (this.lineW = this.lineEl.clientWidth || 100);
     for (const o of state.cars) { const px = Math.round(alongLine(o, lw, this.toks[o.i]) * 2) / 2; if (this.memo["tok" + o.i] !== px) { this.memo["tok" + o.i] = px; this.toks[o.i].style.transform = `translateX(${px}px)`; } }
@@ -319,6 +321,8 @@ class App {
     gl.addEventListener("webglcontextrestored", () => clearTimeout(this.lostT));
     // The first word: the room drove this car while the page loaded, and hands it back now. Then a beat whenever
     // there is nothing else to say, so a phone that stalls without closing its socket is noticed (README, "In the party room").
+    // A test switch (derby-short): ask for a test run's short race. The room takes it only where its test games are on.
+    if (params.has("short") && this.me >= 0) this.post({ short: 1 });
     this.speak(host.now());
     stats.upAt = +((host.now() - this.replica.auth.startAt) / 1000 - TUNE.COUNT_IN).toFixed(2); // race time the page was up and said so
     this.beatT = setInterval(() => { if (!document.hidden) this.speak(this.host.now()); }, 100);
@@ -518,7 +522,7 @@ class App {
     else if (e.k === "fall") { if (mine) { h.word("OFF THE TABLE!"); S.fall(); buzz([120, 60, 120]); } if (!h) this.tv.cut(this.world, st, e); }
     else if (e.k === "back") { if (mine) h.word("Back on", "small teal"); }
     else if (e.k === "land") { if (mine && e.hard > 2.5) { S.thud(); buzz(18); rig.bump(TUNE.SHAKE_LAND); } }
-    else if (e.k === "lap") { if (mine) { h.word(e.lap >= TUNE.LAPS ? "Last lap!" : `Lap ${e.lap}`, "small teal"); S.beep(990); } }
+    else if (e.k === "lap") { if (mine) { h.word(e.lap >= lapsIn(st) ? "Last lap!" : `Lap ${e.lap}`, "small teal"); S.beep(990); } }
     else if (e.k === "finish") {
       if (h && e.car === me) { h.word(ORD[e.place - 1] + "!", e.place === 1 ? "" : "teal"); S.ding(); buzz([40, 40, 120]); h.releaseAll(); }
       else if (e.place === 1) S.ding();
@@ -615,7 +619,7 @@ class App {
   /** The big screen's strip: the leader's lap, every car along the line, and the places. */
   drawTv(st) {
     const lead = this.order[0];
-    const lapText = st.over ? "Finished" : st.t < 0 ? "Get ready" : `Lap ${lapOf(lead)} of ${TUNE.LAPS}`;
+    const lapText = st.over ? "Finished" : st.t < 0 ? "Get ready" : `Lap ${lapOf(lead, st)} of ${lapsIn(st)}`;
     if (this.tvLap !== lapText) { this.tvLap = lapText; $("tvlap").textContent = lapText; }
     const lw = this.tvLineW || (this.tvLineW = $("tvline").clientWidth || 100);
     for (const c of st.cars) this.tvToks[c.i].style.transform = `translateX(${Math.round(alongLine(c, lw, this.tvToks[c.i]))}px)`;

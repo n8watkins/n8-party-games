@@ -3,10 +3,14 @@
 // raced to the end by the phones themselves (each phone's page drives its own car with the house's driver, through
 // the same path as a thumb: ?derby-auto=1), and handed back to the room's Tonight board.
 //
-//   node floor/games/tin-derby/test/e2e-room.mjs [--base=http://localhost:8791] [--only=solo,two,four,trouble,stalls,look,lag]
+//   node floor/games/tin-derby/test/e2e-room.mjs [--base=http://localhost:8791] [--only=short,solo,two,four,trouble,stalls,look,lag]
 //     [--out=/tmp/claude-tin-derby-room/stills]   where the stills are saved (that folder by default)
 //
-// The races:
+// The races (`npm run test:tin-derby` is the gate's: short; `npm run test:tin-derby:full` is the rest, the suite to run
+// before a change to the game itself):
+//   short     one lap (derby-short, a test run's short race the room takes only where its test games are on): two
+//             phones and a big screen to the finish, with a drop and return, a reload, a phone with no 3D, a phone
+//             that stalls 4 s, and a second big screen that joins late; the result reaches the Tonight board once
 //   solo      one phone and a big screen
 //   two       two phones and a big screen
 //   four      four phones and a big screen
@@ -157,7 +161,7 @@ try {
     frame.evaluate(() => {
       const d = window.__derby, r = d.race;
       const order = d.rules.raceOrder(r).filter((c) => !c.house).map((c) => ({ seat: c.seat, fin: c.fin, finT: c.finT, s: c.s }));
-      return { t: r.t, n: r.n, over: r.over, car: d.car, order, cars: r.cars.map((c) => ({ seat: c.seat, house: c.house, auto: c.auto, character: c.character, name: c.name, fin: c.fin })), stats: JSON.parse(JSON.stringify(d.stats)), mode: document.getElementById("app").dataset.mode };
+      return { t: r.t, n: r.n, over: r.over, laps: d.rules.lapsOf(r), car: d.car, order, cars: r.cars.map((c) => ({ seat: c.seat, house: c.house, auto: c.auto, character: c.character, name: c.name, fin: c.fin })), stats: JSON.parse(JSON.stringify(d.stats)), mode: document.getElementById("app").dataset.mode };
     });
 
   /**
@@ -328,6 +332,64 @@ try {
   const GO = 3 * 120;
   /** Seat by name, from a page's look: the car index. */
   const carOf = (l, name) => l.cars.findIndex((c) => c.name === name);
+
+  // ---------------------------------------------------------------- the gate's short race: everything at once, one lap
+  if (only.has("short")) {
+    console.log("---- short: a one-lap race (derby-short) with two phones and a big screen to the finish; Bo drops, comes back and reloads, a phone with no 3D, a phone that stalls, a second screen joins late");
+    const began = Date.now();
+    const scr = await screenPage();
+    const pin = await startParty(scr);
+    const flat = await launchBrowser({ software: true, args: ["--disable-webgl", "--disable-3d-apis"] });
+    const relay = stallingRelay(new URL(base));
+    try {
+      const ada = await phone("Ada", pin, "&derby-short=1");
+      const bo = await phone("Bo", pin, "&derby-short=1");
+      const nogl = await phone("NoGL", pin, "", { auto: false, context: { hasTouch: true, isMobile: true, via: flat } });
+      nogl.quiet = /WebGL|webgl/;
+      const stall = await phone("Stall", pin, "&derby-short=1", { at: `http://localhost:${relay.port}` });
+      const code = await codeOf(pin);
+      await vote(code, [ada, bo, nogl, stall]);
+      const at = { drop: null, back: null, reload: null, freeze: null };
+      let late = null;
+      const nowT = (frames) => frames.get(scr).evaluate(() => window.__derby.race.t);
+      const during = async (t, frames, last) => {
+        if (at.drop === null && t > 3) { at.drop = await nowT(frames); await bo.context().setOffline(true); }
+        if (at.drop !== null && at.back === null && t > at.drop + 5) { at.back = await nowT(frames); await bo.context().setOffline(false); }
+        if (at.freeze === null && t > 5) { at.freeze = await nowT(frames); relay.freeze(4000); }
+        if (at.back !== null && at.reload === null && t > at.back + 3) {
+          at.reload = t;
+          frames.delete(bo); last.delete(bo);
+          await bo.reload();
+          frames.set(bo, await derby(bo));
+        }
+        if (!late && t > 14) { late = await screenPage("late screen"); await joinScreen(late, pin); frames.set(late, await derby(late)); }
+      };
+      const { end, last } = await race("short", code, [ada, bo, stall, scr], { during });
+      if (end) {
+        const l = last.get(scr), ev = roomEvents(scr), hand = (name) => ev.filter((e) => e.k === "a" && e.c === carOf(l, name)).map((e) => [e.on, +raceT(e.n).toFixed(2)]);
+        const houseAt = (list, t) => { let on = 0; for (const [o, et] of list) if (et <= t) on = o; return on; };
+        check(l.laps === 1 && ev.some((e) => e.k === "len" && e.laps === 1), `short: the race was the test run's one lap (${l.laps})`);
+        // The result on the Tonight board, once.
+        const room = (await inner(code)).view;
+        const points = room.members.filter(Boolean).reduce((n, m) => n + (m.points || 0), 0);
+        check(end.last.rows.length === 4 && points === end.last.rows.reduce((n, r) => n + r.points, 0) && (room.history?.length ?? 1) === 1, `short: the result reached the Tonight board once (${end.last.rows.map((r) => `${r.name} ${r.place}`).join(", ")}; ${points} points in all; ${room.history?.length} game)`);
+        const ng = hand("NoGL"), row = (name) => end.result.find((r) => r.seat === l.cars[carOf(l, name)].seat);
+        check(ng.length === 1 && ng[0][0] === 1 && ng[0][1] <= 0.05 && typeof row("NoGL")?.time === "number", `short: the phone with no 3D: the house's by GO, and home (${JSON.stringify(ng)}, ${JSON.stringify(row("NoGL"))})`);
+        const b = hand("Bo");
+        check(houseAt(b, at.drop + 2) === 1 && b.some(([o, et]) => o === 0 && et > at.back - 0.5), `short: Bo's car was the house's while his phone was away (${at.drop?.toFixed(2)}) and his again on return (${at.back?.toFixed(2)}): ${JSON.stringify(b)}`);
+        check(last.get(bo)?.car >= 0 && (last.get(bo)?.stats.frames ?? 0) > 0, `short: Bo's page came back from its reload (at ${at.reload?.toFixed(1)}) in the same car`);
+        const s = hand("Stall"), sOn = s.find(([o, et]) => o === 1 && et > at.freeze - 0.5);
+        check(!!sOn && sOn[1] - at.freeze < 1.6 && s.some(([o, et]) => o === 0 && et > sOn[1]) && typeof row("Stall")?.time === "number", `short: the stalled phone's car was the house's ${sOn ? (sOn[1] - at.freeze).toFixed(2) : "?"} s after the stall (${at.freeze?.toFixed(2)}), its own again after, and home (${JSON.stringify(s)})`);
+        check(!!late && last.get(late)?.mode === "tvwide", "short: the screen that joined late shows the whole table");
+      }
+      report.short = { seconds: Math.round((Date.now() - began) / 1000) };
+      console.log(`     the short race, party to card: ${report.short.seconds} s`);
+    } finally {
+      relay.close();
+      await closeAll();
+      await flat.close().catch(() => {});
+    }
+  }
 
   // ---------------------------------------------------------------- phones that cannot drive, stall, load late, or switch tabs
   if (only.has("stalls")) {

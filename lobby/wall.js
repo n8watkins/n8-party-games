@@ -52,11 +52,12 @@ export function buildWall(hosted, { testGames = false } = {}) {
   // A hosted game that was coming soon hangs where its coming-soon box hung.
   const inPlace = new Map();
   const hang = (manifest, box) => (COMING_SOON.some((m) => m.id === manifest.id) ? inPlace.set(manifest.id, box) : boxes.push(box));
-  for (const { manifest, game } of hosted) {
+  for (const { manifest, game, testGame } of hosted) {
     if (manifest.lobby?.view) {
       // It opens inside the room: the room runs `game`, and the page mounts the view from the game's own files.
+      // Where test games are on, a game that has a test-run version of itself (`testGame`: Tin Derby's short race) runs that.
       hang(manifest, boxFromManifest(manifest, { view: manifest.path + manifest.lobby.view }));
-      games.set(manifest.id, game);
+      games.set(manifest.id, testGames && testGame ? testGame : game);
       if (manifest.settings) fields.set(manifest.id, manifest.settings);
     } else {
       // No view the room can mount yet: it plays on its own page.
