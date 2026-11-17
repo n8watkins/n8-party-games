@@ -136,6 +136,7 @@ body { margin: 0; }
   #app[data-pad] .tb.brake { right: calc(var(--gr) + 112px); width: 60px; height: 60px; }
   #app[data-pad] .tb.use { width: 72px; height: 72px; bottom: calc(var(--gb) + 122px); }
   #app[data-pad] .held { display: none !important; }
+  .words { top: 45%; } /* the strip and chips take the top third here: words come up under them */
   #app[data-pad] .ring { width: 104px; height: 104px; margin: -52px 0 0 -52px; top: calc(100% - var(--gb) - 64px); }
 }
 /* A controller by force with no big screen any more: the plain card, and nothing to press (the house drives). */

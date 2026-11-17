@@ -725,6 +725,7 @@ try {
       await vote(code, phones);
       const faults = new Set();
       let samples = 0, mid = false, drop = null, joiner = null, closeSeen = null, pad = null;
+      const shots = [];
       // With two side by side, Bo's phone drops for a few seconds; with three, a fourth phone joins in the middle.
       const dropper = label === "panes-2" ? phones[1] : null;
       const during = async (t, frames, last) => {
@@ -733,7 +734,9 @@ try {
         const home = last.get(scr)?.cars.some((c) => c.fin);
         if (home && closeSeen === null) closeSeen = (await panesOf(f).catch(() => null))?.close ?? null;
         if (t > 0.5 && !home) { const P = await panesOf(f).catch(() => null); if (P) { samples++; for (const b of paneFaults(P, names)) faults.add(b); } }
-        if (!mid && t > 9) { mid = true; await shot(scr, `${label}-mid-race`, `the big screen (1920 x 1080), ${names.length} player${names.length > 1 ? "s" : ""}, race time ${t.toFixed(1)} s`); }
+        // Stills are not waited for: a 1920 x 1080 still can take many seconds while the card is shared, and the race
+        // must be watched meanwhile (one run lost 50 s of it to a still). They are all waited for after the race.
+        if (!mid && t > 9) { mid = true; shots.push(shot(scr, `${label}-mid-race`, `the big screen (1920 x 1080), ${names.length} player${names.length > 1 ? "s" : ""}, race time ${t.toFixed(1)} s`)); }
         // With two, Ada's phone is a controller only for a while (a still of it), then draws the race again.
         if (dropper && !pad && t > 2) { pad = { on: true, before: await buttonsOverStrip(frames.get(phones[0])) }; await frames.get(phones[0]).click("#bpad"); }
         if (pad?.on && !pad.shot && t > 6) {
@@ -746,7 +749,7 @@ try {
         if (dropper && !drop && t > 4) { drop = { at: t }; await dropper.context().setOffline(true); }
         if (drop && !drop.note && t > drop.at + 2.5) {
           drop.note = (await panesOf(f)).panes.find((p) => p.name === "Bo")?.note ?? "";
-          await shot(scr, "split-dropped-player", `the big screen, two players: Bo's phone is away and the house drives his car, race time ${t.toFixed(1)} s`);
+          await shot(scr, "split-dropped-player", `the big screen, two players: Bo's phone is away and the house drives his car, race time ${t.toFixed(1)} s`); // waited for: Bo stays away until it is taken
           await dropper.context().setOffline(false);
         }
         if (names.length === 3 && !joiner && t > 5) {
@@ -761,14 +764,14 @@ try {
         }
       };
       const still = async (when, t) => {
-        if (when === "countdown") await shot(scr, `${label}-count`, `the big screen (1920 x 1080), ${names.length} player${names.length > 1 ? "s" : ""}: the count-in, race time ${t.toFixed(1)} s`);
+        if (when === "countdown") shots.push(shot(scr, `${label}-count`, `the big screen (1920 x 1080), ${names.length} player${names.length > 1 ? "s" : ""}: the count-in, race time ${t.toFixed(1)} s`));
         if (when === "finish") {
-          await shot(scr, `${label}-finish-close`, `the big screen as the first car finishes: the close shot at the line across the whole screen`);
-          await sleep(3200);
-          if (await scr.$(FRAME)) await shot(scr, `${label}-finish`, `the big screen a few seconds after the first car finished`);
+          shots.push(shot(scr, `${label}-finish-close`, `the big screen as the first car finishes: the close shot at the line across the whole screen`));
+          shots.push(sleep(3200).then(async () => { if (await scr.$(FRAME).catch(() => null)) await shot(scr, `${label}-finish`, `the big screen a few seconds after the first car finished`); }));
         }
       };
       const { end, last } = await race(label, code, [...phones, scr], { during, still });
+      await Promise.all(shots);
       if (end) {
         check(samples > 5 && faults.size === 0, `${label}: a pane per player, each following its own car, words at least 2% of the height, nothing over anything (${samples} samples${faults.size ? ": " + [...faults].slice(0, 6).join("; ") : ""})`);
         check(phones.every((p) => last.get(p)?.mode === "phone" && !last.get(p)?.pad), `${label}: every phone still draws its own car`);
