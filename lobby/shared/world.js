@@ -145,7 +145,8 @@ export function lightAt(x, wall) {
  * Where the room puts a seat's piece (on arriving, and after a game): always in the dark, and
  * apart from the others. The first two stand by the door. On an even wall the rest stand in the
  * dark gaps between the pools further along; on a placed wall, whose gaps are only about a piece
- * wide, they stand in the wide dark at the far end of the wall instead, and then by the door.
+ * wide, they stand in the wide dark at either end of the wall instead: by the door while there
+ * is room there, then at the far end.
  */
 export function spawnX(seat, wall) {
   if (seat < 2) return 150 + seat * 100;
@@ -160,15 +161,15 @@ const END_SPACING = 150;
 
 /**
  * The arrival spots of seats after the first two on a placed wall, a piece's width clear of the
- * end pools: across the room at the far end first, nearest the pools first (as the even wall
- * spreads them along), then by the door past the first two.
+ * end pools: by the door past the first two, then across the room at the far end, nearest the
+ * pools first.
  */
 function endSpots(w) {
-  const far = [];
-  for (let x = ROOM.maxX - 50; x >= w.xs[w.n - 1] + w.half + PIECE_WIDTH; x -= END_SPACING) far.unshift(x);
   const door = [];
   for (let x = 250 + END_SPACING; x <= w.xs[0] - w.half - PIECE_WIDTH; x += END_SPACING) door.push(x);
-  return [...far, ...door];
+  const far = [];
+  for (let x = ROOM.maxX - 50; x >= w.xs[w.n - 1] + w.half + PIECE_WIDTH; x -= END_SPACING) far.unshift(x);
+  return [...door, ...far];
 }
 
 /**
