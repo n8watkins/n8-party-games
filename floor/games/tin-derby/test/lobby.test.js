@@ -43,7 +43,7 @@ function start(core) {
 describe("Tin Derby in the party room", () => {
   it("hangs with a sign that reads 1-4 and the view its manifest names", () => {
     const core = derbyRoom();
-    expect(core.boxes[0]).toMatchObject({ id: "tin-derby", min: 1, max: 4, url: null, view: "/tin-derby/page/party-view.js" });
+    expect(core.boxes[0]).toMatchObject({ id: "tin-derby", min: 1, max: 4, view: "/tin-derby/page/party-view.js" });
   });
 
   it("gives each player the piece they chose in the room, and the house cars the pieces nobody chose", () => {

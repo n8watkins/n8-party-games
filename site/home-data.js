@@ -73,6 +73,8 @@ export const ROOM_VOTE = [
  * What each game is like, by its id on the wall (or in ONE_DEVICE). A game with no entry here is
  * still listed, with its line from the wall and a plain picture.
  * tile: the square picture; wide: the picture on its card; focus: where the square crops it.
+ * ownSite: where a Table game also plays on a site of its own: the Table door links there while
+ * the Table cannot start it, and offers it as a second way to play once it can.
  */
 export const COPY = {
   "cork-and-bell": { tile: "tile-cork", piece: "pawn" },
@@ -87,6 +89,7 @@ export const COPY = {
     suits: "Friends who know each other well, or are about to.",
   },
   "who-am-i": {
+    ownSite: "https://whoami.n8builds.dev/",
     tile: "tile-who",
     focus: "50% 38%",
     wide: "wide-who",
@@ -95,8 +98,6 @@ export const COPY = {
     about: "Each of you gets a secret identity that only the other player can see: a famous person, a character or a mascot.",
     steps: ["Each of you gets a secret name, shown only on the other's phone.", "Take turns asking questions that can be answered yes or no.", "First to guess their own name wins the round."],
     suits: "Two people on a sofa with ten minutes.",
-    // Played at the Table, and on its own site as well (a second way to play it).
-    site: "https://whoami.n8builds.dev/",
   },
   "hot-potato": {
     tile: "tile-potato",

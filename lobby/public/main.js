@@ -207,7 +207,6 @@ async function enter() {
         // The socket's close normally takes us to the front page at once; never wait on it long.
         setTimeout(() => closed("left"), 1500);
       },
-      away: goAway,
     },
   });
   menu = new RoomMenu(hud.el, { role: link.you.role, seat: link.you.seat, onPick: (id) => link.send({ t: "pick", v: id }), onMode: (v) => link.send({ t: "mode", v }), quiet: modeHop.came });
@@ -240,22 +239,7 @@ async function enter() {
   if (modeHop.said) hud.note(modeHop.said);
 }
 
-/**
- * Leaves for an outside game's own site. The seat is not given up: the room lets it go by its
- * usual rules once the page is gone, and coming straight back finds it again. Only an https
- * address or a page of this site is ever followed.
- */
-function goAway(address) {
-  let url;
-  try {
-    url = new URL(address, location.href);
-  } catch {
-    return;
-  }
-  if (url.protocol !== "https:" && url.origin !== location.origin) return;
-  location.assign(url.href);
-}
-// Coming back with the browser's back button can show the page as it was left, card and all:
+// Coming back with the browser's back button can show the page as it was left:
 // load it afresh, so it rejoins the room or says the party has ended.
 addEventListener("pageshow", (e) => {
   if (e.persisted) location.reload();
@@ -599,12 +583,6 @@ link.on("message", (msg) => {
       // The room turned down this device's change of settings: said on the card, or as a note.
       if (step?.isOpen) step.refused(msg.message);
       else hud?.note(msg.message);
-      break;
-    case "away":
-      // An outside game won the vote: the card says where everyone is going, then goAway runs.
-      stirAt = now;
-      letGo();
-      hud?.away(msg, room.pin);
       break;
     default:
       break;

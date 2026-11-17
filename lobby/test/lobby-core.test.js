@@ -9,7 +9,8 @@ import { COUNT_IN, END_HOLD } from "../../node_modules/cork-and-bell/game/shared
 import { CORKS_PER_ROUND, ROUND_SECONDS } from "../../node_modules/cork-and-bell/game/shared/sim.js";
 import { game as coinFlip, FLIP_MS, manifest as coinFlipManifest } from "../games/coin-flip.js";
 import { BUDGET_CLOSE_MS, DROP_FADE_MS as RECONNECT_GRACE_MS, LobbyCore, MAX_ROOM_LIFE_MS, SCREEN_GRACE_MS, SEAT_HOLD_MS } from "../server/lobby-core.js";
-import { AWAY_MS, COUNT_MS, SETTLE_MS, TOSS_MS, boxFromManifest } from "../shared/vote.js";
+import { WALL } from "../wall.js";
+import { COUNT_MS, SETTLE_MS, TOSS_MS, boxFromManifest } from "../shared/vote.js";
 import { BUMP_COOLDOWN_MS, COOLDOWN_SLACK_MS, IMMUNE_MS, STUN_MS, knockLanding } from "../shared/bump.js";
 import { POSITION_SLACK, boxCentre, lightAt, spawnX } from "../shared/world.js";
 import { turnGame } from "./turn-game.js";
@@ -648,7 +649,7 @@ describe("Cork & Bell through the seam", () => {
 
   it("hangs with a sign that reads 1-4 and a light that is on for one player", () => {
     const core = corkRoom();
-    expect(core.boxes[0]).toMatchObject({ min: 1, max: 4, url: null, view: "/cork-and-bell/game/party-view.js" });
+    expect(core.boxes[0]).toMatchObject({ min: 1, max: 4, view: "/cork-and-bell/game/party-view.js" });
     expect(core.lights()).toEqual({ "cork-and-bell": "Needs a player" });
     seated(core, "Ann");
     expect(core.lights()).toEqual({ "cork-and-bell": null });
@@ -748,73 +749,28 @@ describe("Cork & Bell through the seam", () => {
   });
 });
 
-describe("an outside game", () => {
-  const away = { id: "away", name: "Away", players: { min: 2, max: 2 }, devices: { phone: true, desktop: false }, url: "https://away.example/" };
-  /** Coin Flip and a game that plays on a site of its own, for exactly two. */
-  function outsideRoom() {
-    const boxes = [boxFromManifest(coinFlipManifest, { test: true }), boxFromManifest(away)];
-    return new LobbyCore({ boxes, games: new Map([["coin-flip", coinFlip]]), seed: 7, code: "BCDFGH", now: 1000 });
-  }
+describe("the ideas poster on the production wall", () => {
+  /** A party on the production wall: Cork & Bell, three coming soon and the ideas poster last. */
+  const production = () => new LobbyCore({ ...WALL, seed: 7, code: "BCDFGH", now: 1000 });
+  const POSTER = 4;
 
-  it("has its light on only for a party of the size it takes", () => {
-    const core = outsideRoom();
-    seated(core, "Ann");
-    expect(core.lights().away).toBe("Needs 2 players");
-    seated(core, "Bo");
-    expect(core.lights().away).toBeNull();
-    seated(core, "Cy");
-    expect(core.lights().away).toBe("For 2 players");
-  });
-
-  it("sends everyone to its own site when it wins the count: no game, no points, pieces back by the door", () => {
-    const core = outsideRoom();
+  it("has no light whatever the party, and nobody under it votes", () => {
+    const core = production();
+    expect(core.boxes[POSTER]).toMatchObject({ id: "ideas", poster: true });
+    expect(core.lights().ideas).toBe("");
     seated(core, "Ann");
     seated(core, "Bo");
-    stand(core, 0, 1, 2000);
-    stand(core, 1, 1, 2000);
+    expect(core.lights().ideas).toBe("");
+    stand(core, 0, POSTER, 2000);
+    stand(core, 1, POSTER, 2000);
+    expect(core.standing(2000)).toEqual({ 0: null, 1: null });
     core.evaluate(2000);
-    expect(core.count).not.toBeNull();
-    const out = core.tick(2000 + COUNT_MS);
-    expect(out).toMatchObject({ start: null, close: null, changed: true, away: { id: "away", name: "Away", url: "https://away.example/", in: AWAY_MS } });
-    const view = core.view(2000 + COUNT_MS);
-    expect(view).toMatchObject({ phase: "lobby", game: null, last: null, tonight: { games: 0 } });
-    expect(view.members.filter(Boolean).map((m) => m.points)).toEqual([0, 0]);
-    for (const m of view.members.filter(Boolean)) expect(m).toMatchObject({ x: spawnX(m.seat, 2), rev: 1 });
-    expect(core.round).toBe(0);
-    // Whoever stays is not sent off again the moment they step back into the light.
-    stand(core, 0, 1, 2000 + COUNT_MS + 100);
-    stand(core, 1, 1, 2000 + COUNT_MS + 100);
-    core.evaluate(2000 + COUNT_MS + 200);
     expect(core.count).toBeNull();
-    expect(core.nextWake(2000 + COUNT_MS + 200)).toBe(2000 + COUNT_MS + AWAY_MS + SETTLE_MS);
-  });
-
-  it("is sent to when it wins the toss as well", () => {
-    const core = outsideRoom();
-    seated(core, "Ann");
-    seated(core, "Bo");
-    stand(core, 0, 0, 2000);
-    stand(core, 1, 1, 2000);
-    core.evaluate(2000);
-    core.tick(2000 + COUNT_MS);
-    core.toss.winner = "away";
-    expect(core.tick(2000 + COUNT_MS + TOSS_MS)).toMatchObject({ start: null, away: { id: "away" } });
-  });
-
-  it("leaves the room to empty and close by the usual rule once the pages have gone", () => {
-    const core = outsideRoom();
-    const ann = seated(core, "Ann");
-    const bo = seated(core, "Bo");
-    stand(core, 0, 1, 2000);
-    stand(core, 1, 1, 2000);
-    core.evaluate(2000);
-    const at = 2000 + COUNT_MS;
-    core.tick(at);
-    core.disconnect(ann.token, at + AWAY_MS);
-    core.disconnect(bo.token, at + AWAY_MS);
-    // Their seats are held for a while, in case they come straight back, and then it closes.
-    expect(core.tick(at + AWAY_MS + SEAT_HOLD_MS - 1).close).toBeNull();
-    expect(core.tick(at + AWAY_MS + SEAT_HOLD_MS).close).toBe("empty");
+    // Cork & Bell is the light that counts: the one under the poster is still waited for.
+    stand(core, 0, 0, 2100);
+    core.evaluate(2100);
+    expect(core.count).toBeNull();
+    expect(core.voteView(2100).waiting).toEqual([1]);
   });
 });
 

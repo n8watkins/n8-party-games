@@ -112,15 +112,15 @@ for (const { from } of entries) {
  * (lobby/wall.js, WALL), so a game is "playable now" on it only when the room really plays it. The
  * wall itself is server code (it names every game's server definition), so the page gets this
  * plain list instead: names, lines, player counts and whether each is coming soon. Test games
- * are left out; production has none.
+ * are left out (production has none), and so is the wall's poster, which is not a game.
  */
 export const HOME_WALL_PATH = "home-wall.js";
 
 /** The plain lists the front page reads: {floor, table}. */
 export function homeWall(wall = WALL) {
   const floor = wall.boxes
-    .filter((box) => !box.test)
-    .map(({ id, name, blurb, min, max, soon, url, view }) => ({ id, name, line: blurb, min, max, soon, inRoom: !!view, url: url ?? null }));
+    .filter((box) => !box.test && !box.poster)
+    .map(({ id, name, blurb, min, max, soon, view }) => ({ id, name, line: blurb, min, max, soon, inRoom: !!view }));
   const table = wall.table.filter((entry) => !entry.test).map(({ id, name, pitch, min, max, soon }) => ({ id, name, line: pitch, min, max, soon }));
   return { floor, table };
 }
