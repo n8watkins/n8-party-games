@@ -17,7 +17,7 @@ It hangs on the Floor's wall (`games.js`, `lobby/wall.js`) in the place its comi
 | `shared/replica.js` | A page's copy of the race: feed it snapshots and events, ask it for the race now |
 | `page/` | The page a party room shows (below, "In the party room") |
 | `tools/` | Scripted players, whole races, a made-up network, the measurements, the parity check against the preview, the cost in workerd |
-| `test/` | 145 unit tests: every rule, whole races, balance, determinism, the room, the party room's own rules, the view's test switches, a short smoke; and `e2e-room.mjs`, races in the real party room with real browsers |
+| `test/` | 147 unit tests: every rule, whole races, balance, determinism, the room, the party room's own rules, the view's test switches, a short smoke; and `e2e-room.mjs`, races in the real party room with real browsers |
 
 ## The structure, and why
 
