@@ -150,7 +150,9 @@ try {
   const passed = Math.abs((await where())[E].x - ada.x);
   const asked = (await eve.evaluate(() => window.__out)).filter((m) => m.t === "boo").map((m) => m.to);
   check(passed < 46 || (await where())[E].x > ada.x, `Eve's faded ghost drifts through Ada (${passed} apart after)`);
-  check(!asked.includes(A) && !ada.seen.slice(from).some((m) => m.t === "spook"), `and her page never asks about Ada, spooked a moment ago (it asked about seats ${JSON.stringify(asked)})`);
+  // About Ada only: someone else standing near may be spooked on the way (on the bar's production
+  // wall the four arrive 100 apart by the door, so Cy stands just past Ada).
+  check(!asked.includes(A) && !ada.seen.slice(from).some((m) => m.t === "spook" && m.to === A), `and her page never asks about Ada, spooked a moment ago (it asked about seats ${JSON.stringify(asked)})`);
 
   // ================================================================ a change mid-fade
   section("a ghost that becomes a pawn mid-fade is drawn solid at once, and solid as a ghost again");
