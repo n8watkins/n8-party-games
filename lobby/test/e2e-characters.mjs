@@ -576,7 +576,9 @@ try {
     // stopped as it walked on, is not one): up to five seconds for it.
     let counting = false;
     for (let i = 0; i < 50 && !(counting = !!ada.room.vote?.count); i++) await sleep(100);
-    check(counting, "everyone stands in a light, and the count runs");
+    // When it does not run, what the room has: where each piece is, what it stands in, and which lights are on.
+    const why = counting ? "" : ` (the room has ${JSON.stringify((await where()).filter(Boolean).map((m) => [m.name, m.x, m.character, m.faded ?? 0, m.connected]))}, standing ${JSON.stringify(ada.room.vote?.standing)}, lights ${JSON.stringify(ada.room.vote?.lights)}, light at ${light})`;
+    check(counting, `everyone stands in a light, and the count runs${why}`);
     mark = ada.seen.length;
     await bea.keyboard.press("KeyX");
     await sleep(500);

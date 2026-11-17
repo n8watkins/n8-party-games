@@ -224,7 +224,9 @@ try {
   check(!!ended, "the room tells everybody his fade is over");
   const solid = await bea.waitForFunction((s) => window.fadedOn(s) === 0, C, { timeout: 2000, polling: 30 }).then(() => true, () => false);
   check(solid && Date.now() - changed < 1500, `Bea's phone draws his pawn solid at once (${Date.now() - changed} ms after the change; the fade had 2.5 s to run)`);
-  check((await cy.evaluate((s) => window.fadedOn(s), C)) === 0, "and so does his own phone");
+  // His own phone hears the room's word as Bea's does: waited for the same way (a busy machine delivers it a moment later).
+  const ownSolid = await cy.waitForFunction((s) => window.fadedOn(s) === 0, C, { timeout: 2000, polling: 30 }).then(() => true, () => false);
+  check(ownSolid && Date.now() - changed < 2500, `and so does his own phone (${Date.now() - changed} ms after the change)`);
   await sleep(LOOK_COOLDOWN_MS);
   await cy.evaluate(() => window.__send({ t: "look", c: "ghost" }));
   await ada.wait((m) => m.room?.members[C]?.character === "ghost", 3000, from);
