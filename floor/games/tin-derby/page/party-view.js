@@ -75,6 +75,10 @@ export function mount(container, { room, you, snapshot, send, now, inset = {}, p
   // Set through the style object, never a style attribute: the site's Content-Security-Policy forbids those.
   Object.assign(frame.style, { position: "absolute", inset: "0", width: "100%", height: "100%", border: "0", display: "block", background: "#fbdfaa" });
   frame.partyHost.switches = switchesFor(room, params ?? new URLSearchParams(doc.defaultView?.location.search ?? ""));
+  // A test switch (derby-short): a player's view asks for a test run's short race as it mounts, at the start of the
+  // count-in. The room takes it only in the count-in, and the race page itself can take longer than that to load on a
+  // busy machine (it then raced the full length). The room takes it only where its test games are on.
+  if (you?.role === "player" && new URLSearchParams(frame.partyHost.switches).has("short")) send({ short: 1 });
   const address = new URL(PAGE);
   address.searchParams.set("party", "1");
   frame.src = address.href;

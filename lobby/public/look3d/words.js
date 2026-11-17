@@ -65,7 +65,8 @@ export class Words {
     this.over.replaceChildren();
     this.joinSign(room);
     this.board();
-    this.signs = room.boxes.map((box, i) => this.sign(box, i));
+    // A poster that is not a game (the ideas poster) has no sign under it: its words are on it.
+    this.signs = room.boxes.map((box, i) => (box.poster ? null : this.sign(box, i)));
     this.overlay();
     this.needsFit = true;
   }

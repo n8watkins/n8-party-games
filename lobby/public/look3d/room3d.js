@@ -516,7 +516,7 @@ export class Room3D {
     b.lamp.swing.add(cord);
     add(b.lamp.swing);
     if (!skin.rope) {
-      const flex = add(new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.018, 12, 6), cord.material));
+      const flex = (b.flex = add(new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.018, 12, 6), cord.material)));
       flex.position.set(x, SPACE.lampY + hang + 6, z);
     }
     b.cone = add(new THREE.Mesh(new THREE.CylinderGeometry(0.3, radius, SPACE.lampY, 48, 1, true), coneMat(skin.light)));
@@ -572,6 +572,10 @@ export class Room3D {
     b.glow.position.z = 0.025;
     g.add(b.glow);
     add(g);
+    if (box.poster) {
+      // A poster that is not a game (the ideas poster): no lamp over it and no light under it.
+      for (const thing of [b.lamp.swing, b.flex, b.cone, b.ring, b.spill]) if (thing) thing.visible = false;
+    }
     return b;
   }
 
@@ -1201,6 +1205,8 @@ export class Room3D {
 
   /** Sets a box's lamp, beam, pool edge, picture and frame for its level of light (0 is off). */
   light(b) {
+    // A poster is never lit: it is printed, and shown as the room's light shows a wall.
+    if (b.box.poster) return void b.art.color.setScalar(0.66);
     const level = b.level;
     const glowing = Math.min(1, level * 8);
     const bright = Math.min(1, 0.02 + level * 0.9);
