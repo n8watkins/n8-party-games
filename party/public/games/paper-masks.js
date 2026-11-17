@@ -10,13 +10,19 @@
 // Secrecy, as the rules' README asks of the page:
 //   - Everything people typed (answers, prompts, notes, names) is set with textContent, never as
 //     HTML, and never put in an attribute.
-//   - The author of the card being guessed sees "This one is yours. Keep a straight face." and a
-//     row of blank chips where the names would be. Tapping one sends the decoy tap; nothing is sent
-//     on arrival or on a timer, so the public count moves only on real taps.
+//   - The author of the card being guessed sees the very screen a guesser sees: the same name
+//     chips with the same painted masks, their own used names greyed as anyone's are (the rules'
+//     view gives the author a guesser's chips). Tapping any chip sends the decoy tap instead of a
+//     guess; nothing is sent on arrival or on a timer, so the public count moves only on real
+//     taps. The only cue that the card is theirs is the helper line's last few words, quiet, in
+//     the same place and size as the line every guesser has. Which chip the author tapped is kept
+//     in memory only, never stored: after a reload the rules' view says which to show.
+//   - No "Yours" box during guessing, for anyone: it would repeat the author's card on their phone.
 //   - Who has tapped is a count (dots that fill in order), never names.
 //   - The reader's list marks no card as the reader's own.
-//   - A half-typed answer is kept on this device only (localStorage), per party, seat, round and
-//     prompt, and dropped when writing closes.
+//   - A half-typed answer is kept on this device (localStorage), per party, seat, round and
+//     prompt, while writing is open. Every other Paper Masks draft (another round, another party)
+//     is dropped when the page mounts and on every snapshot, and every draft once writing closes.
 
 const CSS = "/party/games/paper-masks.css";
 const ART = "/party/games/paper-masks/art/";
@@ -85,7 +91,19 @@ const store = {
       // private mode or blocked storage: the draft simply is not kept
     }
   },
+  /** Removes every key that starts with `prefix`, except `keep`. */
+  sweep(prefix, keep = null) {
+    try {
+      for (const k of Object.keys(localStorage)) if (k.startsWith(prefix) && k !== keep) localStorage.removeItem(k);
+    } catch {
+      // blocked storage holds nothing to sweep
+    }
+  },
 };
+
+const DRAFTS = "paper-masks:draft:";
+// What an earlier version of this page kept: which chip an author tapped. Never written now.
+const OLD_DECOYS = "paper-masks:decoy:";
 
 export function mount(container, ctx) {
   const sheet = el("link");
@@ -134,6 +152,8 @@ export function mount(container, ctx) {
   let dealUntil = 0;
   let dealOverlay = null;
   const seenReveals = new Set();
+  /** Which chip this page's author tapped on their own card (card id -> name), in memory only. */
+  const decoyPicks = new Map();
   let firstReveal = true;
   let interval = null;
   let toastTimer = null;
@@ -412,7 +432,14 @@ export function mount(container, ctx) {
 
   // ---------------------------------------------------------------- writing
 
-  const draftKey = () => `paper-masks:draft:${party()}:${me}:${v.round}:${v.prompt?.id ?? ""}`;
+  const draftKey = () => `${DRAFTS}${party()}:${me}:${v.round}:${v.prompt?.id ?? ""}`;
+
+  /** Keeps this round's draft while writing is open for this player, and nothing else of the game's. */
+  function sweepStorage() {
+    const writing = v?.phase === "writing" && v.you?.role === "player" && !meLeft();
+    store.sweep(DRAFTS, writing ? draftKey() : null);
+    store.sweep(OLD_DECOYS);
+  }
 
   function drawWriting(hero, side, keep) {
     promptCard(hero, "big");
@@ -545,8 +572,8 @@ export function mount(container, ctx) {
   function yoursSmall(parent) {
     const step = v.step;
     if (step.yourSkipped) el("p", "pm-hint", "The host skipped your answer. You still guess the others.", parent);
-    // reading: `yours` is your card; guessing: `yours` says the current card is yours, `yourCard` is the card.
-    const card = v.phase === "reading" ? step.yours : step.yourCard;
+    // Reading only: `yours` is your card.
+    const card = step.yours;
     if (!card?.text) return;
     const box = el("div", "pm-yours mini", "", parent);
     el("p", "pm-lab", "Yours", box);
@@ -554,9 +581,6 @@ export function mount(container, ctx) {
   }
 
   // ---------------------------------------------------------------- guessing
-
-  /** Which blank chip the author tapped on a card, kept on this device so a reload shows the same one. */
-  const decoyKey = (card) => `paper-masks:decoy:${party()}:${me}:${card}`;
 
   function drawGuessing(hero, side) {
     const step = v.step;
@@ -571,45 +595,42 @@ export function mount(container, ctx) {
     if (step.talkingOrder) el("p", "pm-hint", `Talking order: ${list(step.talkingOrder.map(nameOf))}`, hero);
 
     const role = v.you?.role;
-    if (step.yours) {
-      // The author's turn to keep a straight face: blank chips where the names would be, and a real tap.
-      el("p", "pm-lab", "This one is yours. Keep a straight face.", side);
-      const n = Math.max(2, step.of - 1);
-      const chosen = Number(store.get(decoyKey(step.card.id)) ?? (step.tapped ? 0 : -1));
-      const chips = el("div", "pm-chips", "", side);
-      for (let i = 0; i < n; i++) {
-        const on = step.tapped && i === chosen;
-        const b = button(`pm-chip blank${on ? " sel" : ""}`, "", chips, () => {
-          store.set(decoyKey(step.card.id), String(i));
-          send({ t: "decoy", card: step.card.id }, "tap");
-        });
-        mask("blank", "", b);
-        el("b", "", "Tap any", b);
-        b.setAttribute("aria-label", "Tap, like everyone else");
-        if (on) el("i", "pm-ok", "", b).setAttribute("aria-hidden", "true");
-        b.disabled = !!sending;
-      }
-      el("p", "pm-hint", step.tapped ? "Done. Nobody can tell from your phone." : "Tap one, like everyone else, so the count gives nothing away.", side);
-    } else if (step.chips.length) {
-      const auto = step.auto;
-      el("p", "pm-lab", auto ? "Filled in for you" : step.guess !== null ? "Your guess" : "Tap one name", side);
+    if (step.chips.length) {
+      // One screen for guessers and for the card's author alike: the view gives both the same
+      // fields. The author's tap sends the decoy instead of a guess, and which chip it was is kept
+      // in memory only (after a reload the view's `guess` says which to show).
+      const author = step.yours;
+      const guess = author ? (step.tapped ? (decoyPicks.get(step.card.id) ?? step.guess) : null) : step.guess;
+      el("p", "pm-lab", step.auto ? "Filled in for you" : guess !== null ? "Your guess" : "Tap one name", side);
       const chips = el("div", "pm-chips", "", side);
       for (const who of step.chips) {
         const used = !step.available.includes(who);
-        const on = step.guess === who;
-        const b = button(`pm-chip${on ? " sel" : ""}${used ? " used" : ""}`, "", chips, () => !on && send({ t: "guess", card: step.card.id, who }, "tap"));
+        const on = guess === who;
+        const b = button(`pm-chip${on ? " sel" : ""}${used ? " used" : ""}`, "", chips, () => {
+          if (on) return;
+          if (!author) return send({ t: "guess", card: step.card.id, who }, "tap");
+          decoyPicks.set(step.card.id, who);
+          send({ t: "decoy", card: step.card.id }, "tap");
+        });
         mask(maskOf(who), "", b);
         el("b", "", nameOf(who), b);
         if (on) el("i", "pm-ok", "", b).setAttribute("aria-hidden", "true");
         b.disabled = used || !!sending;
         b.setAttribute("aria-pressed", String(on));
       }
-      const usedNames = step.chips.filter((c) => !step.available.includes(c)).map(nameOf);
-      const words = [];
-      if (usedNames.length && step.eachNameOnce) words.push(`${list(usedNames)} ${usedNames.length === 1 ? "is" : "are"} already on your sheet.`);
-      if (!step.eachNameOnce) words.push("An answer was skipped, so any name can be used again this round.");
-      words.push(role === "watcher" ? "Your guesses count towards a side score." : "Your guess shows only on your phone.");
-      el("p", "pm-hint", words.join(" "), side);
+      // How many names are used, not which: the greyed chips show which, and a count reads the same
+      // length on every phone with as many used (names differ in length from phone to phone).
+      const used = step.chips.filter((c) => !step.available.includes(c)).length;
+      const hint = el("p", "pm-hint pm-guess-hint", "", side);
+      if (used && step.eachNameOnce) {
+        const n = NUMBER_WORDS[used] ?? String(used);
+        el("span", "", `${used === 1 ? "One name is" : `${n[0].toUpperCase()}${n.slice(1)} names are`} already on your sheet, greyed. `, hint);
+      }
+      if (!step.eachNameOnce) el("span", "", "An answer was skipped, so any name can be used again this round. ", hint);
+      // The last words, on a line of their own: the only cue that this card is the author's, in the
+      // same place and size as every guesser's own last words.
+      if (role === "watcher") el("span", "", "Your guesses count towards a side score.", hint);
+      else el("span", "pm-hint-tail", author ? "Yours: tap any name." : "Only you see your guess.", hint);
     } else if (role === "watcher" || role === "player") {
       el("p", "pm-hint", "Nothing to tap on this one.", side);
     }
@@ -619,7 +640,7 @@ export function mount(container, ctx) {
       if (!step.everyoneGuessed) el("p", "pm-hint", "Next lights up when everyone has tapped.", side);
       if (!v.you.host) button("pm-link", "Ask host to skip this answer", side, () => send({ t: "askSkip", card: step.card.id }, "ask"));
     }
-    yoursSmall(side);
+    // No "Yours" box here, for anyone: on the author's phone it would repeat the card being guessed.
   }
 
   /** The only public fact about who has tapped: how many, as dots that fill from the left. */
@@ -873,6 +894,9 @@ export function mount(container, ctx) {
     }
     if (s.phase !== "reveal") firstReveal = false;
     v = s;
+    sweepStorage();
+    // At the curtain the match is decided: the Table's own "End the game" steps aside for ours.
+    ctx.decided?.(v.phase === "over" && !!v.curtain);
     showNotes();
     draw();
     maybeDeal();

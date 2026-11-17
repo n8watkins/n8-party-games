@@ -15,7 +15,8 @@ This folder is server only: the pure rules and content, the Table's wrapper (`at
 | `test/` | Whole matches, hand-scored rounds, refusals, secrecy properties, the review's leaks, time and drops, the deck, tidying |
 
 Everything is a pure function of plain JSON.
-There is no clock and no hidden randomness: the room passes `now`, and a seeded generator's position is kept in the state (`state.rng`).
+There is no clock and no hidden randomness: the room passes `now`, and every draw comes from the match's secret (`state.secret`, 256 bits from the Table's adapter) at a position kept in the state (`state.draws`; `../draws.js`, shared with Who Am I?).
+The room's 32-bit seed is not used: what one phone sees of a deal was enough to find it by trying every seed (the review of #65 did it in about a minute).
 
 ## The API
 
@@ -82,8 +83,13 @@ Every refusal code: `bad_seats`, `bad_rounds`, `bad_pack`, `bad_option`, `bad_ho
 During guessing the only public fact about who has tapped is a count: `step.taps` out of `step.tapsDue`, where `tapsDue` is every player still in the round, the card's author included.
 The author counts through a decoy tap, so that the count, and the author's thumb, look like everyone else's.
 
-- When `step.yours` is true, the page shows "This one is yours. Keep a straight face." with something to tap that looks and sits like the name chips (for example a row of blank chips, or a "Got it" button where the chips would be).
-  Tapping it sends `{ t: "decoy", card: step.card.id }`.
+- The author's view has exactly the fields a guesser's has: `chips` (every author and the game but themselves, as many as anyone's, after a skip too), `available` (their own used names left out, as anyone's are), `guess` and `auto`.
+  So the page draws the very same screen for both: the same name chips with the same painted masks.
+  When `step.yours` is true, a tap on any chip sends `{ t: "decoy", card: step.card.id }` instead of a guess.
+  The only cue is a few quiet words in the place and size of the line every guesser has.
+- The page keeps which chip the author tapped in memory only, never in storage (anyone who later looked at the phone's storage would learn who wrote the card, even a skipped one).
+  After a reload the view's `guess` names the chip to show: one of the free names, picked by the card's id.
+- On the last card the author, whose names are all used by then, gets one free name, filled in (`auto`), like every guesser there.
 - Do not send the decoy automatically on arrival or on a timer: the count would jump the moment the card appears and point at the author.
   It must take a real tap, like a guess.
 - `step.tapped` tells the page its own tap is in (guess or decoy), so it can show the same "done" state either way.
@@ -121,11 +127,11 @@ The host's view adds `asks` (`[{ id, text }]`) while reading or guessing.
 A watcher (late joiner) and anyone unknown (a big screen) get what a player who wrote nothing gets, with no "yours" marker; a watcher also gets chips and its own guesses.
 Watchers' guesses are not in the tap count.
 
-What a view never holds: another seat's answer before writing closes; any answer text in room mode before guessing reaches it (except the reader's list); a card's author before its reveal; which seats have tapped during guessing; a skipped card's text or author, ever; anyone else's guesses before the reveal; the seed, the generator, the deck or the ghost answers.
+What a view never holds: another seat's answer before writing closes; any answer text in room mode before guessing reaches it (except the reader's list); a card's author before its reveal; which seats have tapped during guessing; a skipped card's text or author, ever; anyone else's guesses before the reveal; the secret or any draw from it, the deck or the ghost answers.
 `test/secrecy.test.js` checks these for every phase and viewer, and checks that two matches in which two seats swapped what they wrote look identical to every other viewer until those cards are revealed (and to the end when they are skipped), including when those two seats tap (one decoys where the other guesses).
 `test/leaks.test.js` holds the independent review's reproductions as regression tests.
 
-Card ids are a hash of a key derived from the seed (apart from the generator), the round and the card's position, so they say nothing about the generator's later draws (the ghost choice, later shuffles) and nothing about who wrote a card or when.
+Card ids are 64 bits of SHA-256 keyed by the secret, under a label of their own with the round and the card's position, so they say nothing about the draws (the ghost choice, later shuffles) and nothing about who wrote a card or when.
 
 ## Scoring
 
@@ -192,13 +198,14 @@ The match itself is the rules exactly; every move in it is theirs.
 `test/at-table.test.js` covers both steps through the Table's adapter.
 
 The page is `party/public/games/paper-masks.js` and `.css`, with the owner's paintings in `party/public/games/paper-masks/art/` (made by `tools/make-art.mjs`, which snaps and cleans the alpha, resizes in premultiplied form and bleeds the edge colour, so no fringe shows) and two self-hosted OFL fonts.
-It renders everything typed as text only, sends the author's decoy tap only on a real tap, shows the tap count as anonymous dots, marks nothing as the reader's own in the list, and keeps a half-typed answer on the device only.
+It renders everything typed as text only, sends the author's decoy tap only on a real tap, shows the tap count as anonymous dots, marks nothing as the reader's own in the list, keeps a half-typed answer on the device only while writing is open (and sweeps any other Paper Masks draft away), and stores nothing about an author's tap.
 `test/e2e-paper-masks.mjs` (`npm run test:paper-masks`, in the pre-deploy gate) plays three whole matches in real browsers and checks every message each page receives, and each page's whole document, against the secrecy rules.
 
 ## For the Table that hosts it
 
-- **The seed must be secret.** Pass a fresh secure seed (`newSeed()` from the kit's `rng.js`), not the room's round seed, which the kit's contract says a game with secrets must not draw them from. Keep the state server side; send only `view`.
-- **Map the kit's hooks:** `create({ seats, now, settings })` calls `create(seats, settings, newSeed(), now)`; `input(state, seat, data, now)` calls `apply` and returns `{ ok: false, error: refused, message }` on a refusal; `nextDeadline` as is; `tick(state, now)` applies `{ t: "tick" }` as `SYSTEM`; `snapshot(state, now, viewer)` is `view(state, viewer.seat)` for a player and `view(state, -1)` for a screen; `isOver` is `done`; `standings` as is. The state is plain JSON, so no `serialize` is needed.
+- **The secret must be secret.** Pass a fresh secret of at least 128 bits from a secure source as `create`'s fifth argument, `{ secret }` (the Table's adapter, `party/games/table-game.js`, passes 256); a shorter one is refused (`bad_secret`). The room's seed is not used. Keep the state server side; send only `view`.
+- **A decided match scores.** `at-table.js` exports `decided(state)`, true while the curtain is up; through the adapter the room then ends the match as finished, scored once, even when the host taps the Table's own End the game. The page also tells the Table (`ctx.decided`) so that button steps aside at the curtain.
+- **Map the kit's hooks:** `create({ seats, now, settings })` calls `create(seats, settings, seed, now, { secret })`; `input(state, seat, data, now)` calls `apply` and returns `{ ok: false, error: refused, message }` on a refusal; `nextDeadline` as is; `tick(state, now)` applies `{ t: "tick" }` as `SYSTEM`; `snapshot(state, now, viewer)` is `view(state, viewer.seat)` for a player and `view(state, -1)` for a screen; `isOver` is `done`; `standings` as is. The state is plain JSON, so no `serialize` is needed.
 - **Leaving.** The kit ends a turn-based game when a seat is gone for good (`abandon`). Paper Masks is meant to go on: the Table should apply `{ t: "leave", seat }` instead and let the match continue (it ends by itself below 3 players).
 - **Late joiners** are `{ t: "join", seat }`; their seat then gets the watcher view and may guess.
 - **The host** of the game is the room's picker; send `{ t: "host", seat }` when it moves.

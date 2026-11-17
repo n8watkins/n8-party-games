@@ -286,6 +286,13 @@
   opacity: 0.88;
   overflow-wrap: anywhere;
 }
+/* A guesser's last words and the author's quiet cue: always one line of their own, the same height. */
+.pm-hint-tail {
+  display: block;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 .pm-nudge {
   font-size: max(13px, calc(var(--u) * 3.5));
   font-weight: 700;
@@ -830,10 +837,6 @@
   color: var(--pm-out);
   background: linear-gradient(180deg, var(--pm-gold-hi), var(--pm-gold) 55%, var(--pm-gold-lo));
   box-shadow: 0 0 0 max(2px, calc(var(--u) * 0.5)) var(--pm-out), inset 0 max(2px, calc(var(--u) * 0.45)) 0 rgba(255, 255, 255, 0.55), 0 0 calc(var(--u) * 4) rgba(255, 200, 100, 0.55);
-}
-.pm-chip.blank b {
-  font-weight: 600;
-  opacity: 0.8;
 }
 .pm-chips.two .pm-chip {
   min-height: max(44px, calc(var(--u) * 11));

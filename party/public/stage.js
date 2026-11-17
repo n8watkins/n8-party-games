@@ -33,8 +33,11 @@ export function viewerAtTable(you, game) {
 /**
  * Mounts the game the room is playing in `box`. `link` is the PartyClient, `room` the room view.
  * Returns the stage: {key, snapshot, events, unmount}. `onError` hears a view that could not load.
+ * `onDecided(true|false)` hears a view that calls the optional `ctx.decided(on)`: its match is
+ * decided and its own final screen is up (with its own way back), so the Table's "End the game"
+ * steps aside. A view that never calls it changes nothing.
  */
-export function mountStage(box, { link, room, snapshot, onError }) {
+export function mountStage(box, { link, room, snapshot, onError, onDecided }) {
   const entry = room.table?.find((e) => e.id === room.game.id) ?? null;
   const mine = { view: null, waiting: [], gone: false };
   const pass = (method, args) => (mine.view ? mine.view[method]?.(...args) : mine.waiting.push([method, args]));
@@ -49,6 +52,9 @@ export function mountStage(box, { link, room, snapshot, onError }) {
     now: () => link.now(),
     inset: { top: 0, right: 0 },
     params: new URLSearchParams(location.search),
+    decided: (on) => {
+      if (!mine.gone) onDecided?.(on === true);
+    },
   };
   viewModule(entry)
     .then((module) => {

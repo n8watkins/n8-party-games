@@ -16,6 +16,10 @@
 // no other prompt and no ghost answer that is not a card. After every step each page's whole
 // document is checked the same way, every answer is rendered as text only, and the author's page
 // sends its decoy tap only when it is clicked: never on arrival, never by itself.
+// The author's guessing screen is compared with a guesser's, element for element and box for box
+// (3 and 8 players, before and after the host skips an answer), with side-by-side stills; once
+// writing closes and at the end of every match no phone's storage holds an answer, a draft or
+// which chip an author tapped; at the final curtain the Table's own "End the game" is hidden.
 // Captioned stills of every phase go to --out, with index.html listing them.
 import { mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -44,7 +48,7 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 
 const PROMPTS = QUESTIONS.map((q) => q.text);
 const GHOSTS = QUESTIONS.flatMap((q) => q.ghosts);
-const SECRET_KEYS = new Set(["author", "authors", "answers", "seed", "rng", "idKey", "deck", "deckPos", "ghostPool", "decoys", "masksFree", "hasRead", "assignedReader", "match", "until"]);
+const SECRET_KEYS = new Set(["author", "authors", "answers", "seed", "secret", "draws", "rng", "idKey", "deck", "deckPos", "ghostPool", "decoys", "masksFree", "hasRead", "assignedReader", "match", "until", "gone"]);
 
 const browser = await launchBrowser();
 const errors = [];
@@ -224,12 +228,166 @@ async function audit(label) {
       const html = dom.html.replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&").replace(/&quot;/g, '"');
       for (const [seat, text] of hiddenFrom(p, s)) pass(!html.includes(text), `${where}: ${nameOfSeat(Number(seat))}'s answer "${text}" is in the page`);
       pass(dom.elementsInAnswers === 0, `${where}: an answer was rendered as markup`);
-      const yours = /This one is yours/.test(dom.text);
-      pass(!yours || (s.phase === "guessing" && s.step.yours), `${where}: says "This one is yours" when it is not`);
+      const yours = /Yours: tap any name|This one is yours/.test(dom.text);
+      pass(!yours || (s.phase === "guessing" && s.step.yours), `${where}: says the card is yours when it is not`);
+      pass(dom.phase !== "guessing" || !dom.html.includes("pm-yours"), `${where}: a "Yours" box during guessing`);
       if (p.screen) pass(!/Yours|This one is yours|Your answer/.test(dom.text) && !dom.html.includes("pm-write"), `${where}: the big screen shows something private`);
       for (const b of skipped) if (b.round === s.round && b.match === matchNo && p.views.length > (b.from.get(p) ?? Infinity)) pass(!html.includes(b.text), `${where}: the skipped answer "${b.text}" is still on the page`);
     }),
   );
+}
+
+/**
+ * Nothing on any phone's storage says who wrote what: no `paper-masks:decoy` key (which chip an
+ * author tapped), no draft once writing is closed, and no answer text, in localStorage or
+ * sessionStorage. `writingOpen` allows this round's own draft while writing is open.
+ */
+async function storageClean(label) {
+  const texts = Object.values(known).flatMap((round) => Object.values(round));
+  await Promise.all(
+    [...live(), tv].filter(Boolean).map(async (p) => {
+      let kept;
+      try {
+        kept = await p.page.evaluate(() => {
+          const all = (s) => Object.keys(s).map((k) => [k, s.getItem(k) ?? ""]);
+          return { local: all(localStorage), session: all(sessionStorage) };
+        });
+      } catch {
+        return; // navigating
+      }
+      for (const [where, pairs] of Object.entries(kept)) {
+        for (const [k, value] of pairs) {
+          pass(!k.startsWith("paper-masks:decoy"), `${label}: ${p.name}'s ${where}Storage keeps which chip an author tapped (${k})`);
+          pass(!k.startsWith("paper-masks:draft:"), `${label}: ${p.name}'s ${where}Storage keeps a draft after writing closed (${k})`);
+          for (const t of texts) pass(!value.includes(t) && !k.includes(t), `${label}: ${p.name}'s ${where}Storage holds the answer "${t}" (${k})`);
+        }
+      }
+    }),
+  );
+}
+
+/** What a phone's game shows, as structure and boxes, for comparing two phones. */
+const shapeOf = (p) =>
+  p.page.evaluate(() => {
+    const body = document.querySelector(".pm-body");
+    // Which chip is selected or greyed follows the names, which differ between any two phones (each
+    // leaves out its own): the counts are compared (`sel`, `used`), not where they fall. The tick
+    // inside the selected chip is left out of the list for the same reason.
+    const els = [...body.querySelectorAll("*")].filter((e) => !e.classList.contains("pm-ok"));
+    const box = (e) => {
+      const r = e.getBoundingClientRect();
+      // a run of text inside a line is as wide as its words (names differ): its width is not compared
+      const inline = e.tagName === "SPAN" && getComputedStyle(e).display === "inline";
+      return [Math.round(r.x), Math.round(r.y), inline ? 0 : Math.round(r.width), Math.round(r.height)];
+    };
+    return {
+      tags: els.map((e) => `${e.tagName}${e.className ? "." + [...e.classList].filter((c) => c !== "sel" && c !== "used").join(".") : ""}`),
+      boxes: els.map(box),
+      inChip: els.map((e) => !!e.closest(".pm-chip") && !e.classList.contains("pm-chip")),
+      height: body.scrollHeight,
+      root: box(document.querySelector(".pm")),
+      chips: [...body.querySelectorAll(".pm-chip")].map((b) => ({ text: b.textContent.trim(), aria: b.getAttribute("aria-label"), pressed: b.getAttribute("aria-pressed"), mask: b.querySelector(".pm-mask")?.dataset.m })),
+      used: body.querySelectorAll(".pm-chip.used").length,
+      sel: body.querySelectorAll(".pm-chip.sel").length,
+      lab: document.querySelector(".pm-side .pm-lab")?.textContent ?? null,
+    };
+  });
+
+/**
+ * The author's phone and a guesser's, side by side: the same screen. Same elements in the same
+ * order with the same classes, the same boxes (a name's own width inside a chip aside), the same
+ * height; every chip a painted mask with a player's name as its accessible name. With `full` off
+ * (the two phones' own roles differ: one reads or hosts, with buttons of its own) only the names
+ * part is compared: the label, the chips and the helper line, box for box from the label down.
+ * Returns false when the two are not comparable now (their used names differ in number), so the
+ * caller looks again.
+ */
+async function sameScreen(author, guesser, label, { full = true } = {}) {
+  let [a, g] = await Promise.all([shapeOf(author), shapeOf(guesser)]);
+  if (a.used !== g.used || a.sel !== g.sel) return false;
+  if (!full) [a, g] = [namesPart(a), namesPart(g)];
+  const players = new Set([...people.map((x) => x.name), "The game"]);
+  check(a.tags.length === g.tags.length && a.tags.every((t, i) => t === g.tags[i]), `${label}: the author's and a guesser's screens have the same elements and classes (${a.tags.length} and ${g.tags.length}${a.tags.length === g.tags.length ? `; first difference: ${a.tags.find((t, i) => t !== g.tags[i])} / ${g.tags.find((t, i) => t !== a.tags[i])}` : ""})`);
+  const off = a.boxes.map((b, i) => (g.boxes[i] && !a.inChip[i] ? Math.max(...b.map((x, k) => Math.abs(x - g.boxes[i][k]))) : 0));
+  const worst = off.indexOf(Math.max(0, ...off));
+  check(Math.max(0, ...off) <= 1, `${label}: the same layout, box for box (worst: ${a.tags[worst]} ${a.boxes[worst]} vs ${g.boxes[worst]})`);
+  if (full) check(a.height === g.height && a.root.join() === g.root.join(), `${label}: the same height (${a.height} and ${g.height}; stage ${a.root} and ${g.root})`);
+  check(a.chips.length === g.chips.length, `${label}: as many chips for the author as for a guesser (${a.chips.length} and ${g.chips.length})`);
+  for (const [who, chips] of [["author", a.chips], ["guesser", g.chips]]) {
+    check(chips.every((c) => players.has(c.text) && c.aria === null && !!c.mask && (c.mask === "blank") === (c.text === "The game")), `${label}: every chip on the ${who}'s phone is a painted mask named for a player (${chips.map((c) => `${c.text}/${c.mask}`).join(", ")})`);
+  }
+  check(a.lab === g.lab, `${label}: the same label over the chips ("${a.lab}" and "${g.lab}")`);
+  return true;
+}
+
+/** The names part of a shape (the label over the chips down to the helper line), boxes from its top. */
+function namesPart(s) {
+  const from = s.tags.findIndex((t) => t === "P.pm-lab");
+  const to = s.tags.findIndex((t) => t.startsWith("P.pm-hint.pm-guess-hint"));
+  const end = to + 1 + s.tags.slice(to + 1).findIndex((t, i) => !s.inChip[to + 1 + i] && !t.startsWith("SPAN"));
+  const pick = (list) => list.slice(from, end > to ? end : s.tags.length);
+  const [x0, y0] = s.boxes[from];
+  return { ...s, tags: pick(s.tags), inChip: pick(s.inChip), boxes: pick(s.boxes).map(([x, y, w, h]) => [x - x0, y - y0, w, h]) };
+}
+
+/** Two phones' stills side by side in one picture, for the owner to look at. */
+async function pairStill(left, right, name, caption) {
+  const [l, r] = await Promise.all([left.page.screenshot(), right.page.screenshot()]);
+  const page = await browser.newPage({ viewport: { width: 860, height: 900 } });
+  const img = (b, who) => `<figure><img src="data:image/png;base64,${b.toString("base64")}"><figcaption>${who}</figcaption></figure>`;
+  await page.setContent(`<style>body{margin:0;padding:12px;background:#111;display:flex;gap:16px;font:600 15px system-ui;color:#eee}figure{margin:0}img{width:400px;display:block}figcaption{padding-top:6px}</style>${img(l, `${left.name} (the author)`)}${img(r, `${right.name} (a guesser)`)}`);
+  await page.waitForFunction(() => [...document.images].every((i) => i.complete));
+  const file = `${String(stills.length + 1).padStart(2, "0")}-${name}.png`;
+  await page.screenshot({ path: `${out}/${file}`, fullPage: true });
+  await page.close();
+  stills.push({ file, caption });
+}
+
+/**
+ * On the card being guessed, before anyone taps: its author's phone against a guesser's. A guesser
+ * with the same role (both plain, neither reading nor hosting) is compared whole; failing one, any
+ * guesser, by the names part. `still` names a side-by-side picture to take. Returns "full",
+ * "names" or null (nothing comparable on this card).
+ */
+async function authorVsGuesser(label, still = null) {
+  const here = inMatch().filter((p) => p.view.phase === "guessing" && !p.clicked.has(p.view.step.card.id));
+  const author = here.find((p) => p.view.step.yours);
+  if (!author) return null;
+  const role = (p) => `${!!p.view.you.reader}/${!!p.view.you.host}`;
+  const guessers = here.filter((p) => p !== author && p.view.step.chips.length && !p.view.step.yours);
+  for (const full of [true, false]) {
+    for (const guesser of guessers.filter((p) => (role(p) === role(author)) === full)) {
+      if (!(await sameScreen(author, guesser, `${label} (${author.name} wrote it, ${guesser.name} guesses)`, { full }))) continue;
+      // Pictures only of two phones of the same role: the whole screen is the same then.
+      if (still && full) await pairStill(author, guesser, still.name, still.caption);
+      return full ? "full" : "names";
+    }
+  }
+  return null;
+}
+
+/** How many times each case was compared: {key: {full, names}}. Each must be compared at least once. */
+const compared = {};
+async function compareCard(key, label, still) {
+  compared[key] ??= { full: 0, names: 0 };
+  const how = await authorVsGuesser(label, compared[key].full === 0 ? still : null);
+  if (how) compared[key][how] += 1;
+}
+
+/** The host skips the answer being guessed, from the phone, as a host does. */
+async function hostSkipsCurrent(host) {
+  const card = host.view.step.card;
+  await tap(host, "Skip this answer");
+  await host.page.waitForSelector(".pm-sheet", { timeout: 5000 });
+  await host.page.locator(".pm-sheet button", { hasText: /^Skip it$/ }).click();
+  // Every phone has moved on to the next answer (or the reveal), then has had a moment to draw it.
+  for (let i = 0; i < 80 && [...live(), tv].filter(Boolean).some((p) => p.view?.phase === "guessing" && p.view.step.card.id === card.id); i++) await wait(100);
+  await wait(600);
+  // The note ("The host skipped an answer") sits over the foot of the stage for a few seconds.
+  await Promise.all(inMatch().map((p) => p.page.waitForFunction(() => document.querySelector(".pm-toast")?.hidden !== false, null, { timeout: 8000 }).catch(() => {})));
+  skipped.push({ match: matchNo, round: host.view.round, text: card.text, from: new Map([...people, tv].filter(Boolean).map((p) => [p, p.views.length])) });
+  await audit("after the host skipped the answer being guessed");
+  return card;
 }
 
 // ------------------------------------------------------------------ looking at the pages
@@ -356,11 +514,15 @@ async function guessCard({ pick = "first" } = {}) {
   for (const p of [...live()].filter((x) => x.view?.phase === "guessing" && x.view.step.card.id === card.id)) {
     const step = p.view.step;
     if (step.yours) {
+      if (step.tapped) continue; // filled in on the last card, as everyone's is
+      // The author taps any name, as a guesser does; the page sends the decoy tap.
       p.clicked.add(card.id);
-      const blanks = p.page.locator(".pm-chip.blank");
-      await blanks.nth(Math.floor(Math.random() * (await blanks.count()))).click();
+      const names = p.page.locator(".pm-chip:not(.used):not([disabled])");
+      await names.nth(Math.floor(Math.random() * (await names.count()))).click();
+      await p.page.waitForFunction(() => !document.querySelector(".pm-busy"), null, { timeout: 8000 }).catch(() => {});
+      pass(p.sent.some((x) => x.d?.t === "decoy" && x.d.card === card.id) && !p.sent.some((x) => x.d?.t === "guess" && x.d.card === card.id), `${p.name} tapped a name on her own card: her page sent the decoy tap, never a guess`);
     } else if (step.chips?.length && step.guess === null) {
-      const choices = p.page.locator(".pm-chip:not(.blank):not(.used):not([disabled])");
+      const choices = p.page.locator(".pm-chip:not(.used):not([disabled])");
       const n = await choices.count();
       if (!n) continue;
       p.clicked.add(card.id);
@@ -380,6 +542,8 @@ async function playRound({ kinds = {}, pick = "first", during = {} } = {}) {
   await writeAll(kinds);
   await allAt("reading", players());
   await audit(`reading r${round}`);
+  // Writing is closed: no phone keeps a draft, an answer or anything else of the round.
+  await storageClean(`writing closed r${round}`);
   await during.reading?.();
   const reader = inMatch().find((p) => p.view.you.reader);
   await tap(reader, "Start guessing");
@@ -410,6 +574,7 @@ async function playRound({ kinds = {}, pick = "first", during = {} } = {}) {
   }
   await allAt("summary", players());
   await audit(`summary r${round}`);
+  await storageClean(`summary r${round}`);
   await during.summary?.();
 }
 
@@ -458,6 +623,7 @@ try {
 
   // ---------------------------------------------------------------- match 1: three players
   if (only.has(1)) {
+    let skipIn1 = null;
     await pickPaperMasks(ann, [["Rounds", "3"]]);
     await still(ann, "setup-host-390x844", "Waiting to start, the host's phone: rounds, prompts, family-safe and call switches, Deal the masks.");
     await still(byName("Bo"), "setup-player-390x844", "Waiting to start, a player's phone: who is dealt in and the host's choices.");
@@ -492,8 +658,22 @@ try {
           check(!!markup && markup.includes("<img src=x"), `markup in an answer shows as plain text: "${markup}"`);
           await fits(reader, "reading, reader");
           await fits(tv, "reading, big screen");
+          // Only round 1 has two plain phones at three players (Ann hosts and reads it). The first
+          // plain player's card is compared whole, then the host skips it, so the second plain
+          // player's card, later on, is compared whole after a skip.
+          const plainSeats = new Set(inMatch().filter((p) => !p.view.you.reader && !p.view.you.host).map((p) => p.seat));
+          const authors = reader.view.step.cards.map((c) => Number(Object.entries(known[1]).find(([, t]) => t === c.text)?.[0] ?? -1));
+          skipIn1 = authors.findIndex((a) => plainSeats.has(a));
         },
         guessing: async (index) => {
+          if (index === skipIn1 && !skipped.some((b) => b.match === matchNo)) {
+            await compareCard("3 players, before a skip", `3 players, answer ${index + 1}`, { name: "pair-3-before-skip", caption: "Three players, guessing: the author's phone and a guesser's, side by side. The same chips with the same painted masks." });
+            await hostSkipsCurrent(ann);
+          }
+          if (inMatch()[0].view.phase !== "guessing") return;
+          const after = skipped.some((b) => b.match === matchNo);
+          if (after) await compareCard("3 players, after a skip", `3 players after a skip, answer ${inMatch()[0].view.step.index + 1}`, { name: "pair-3-after-skip", caption: "Three players, guessing after the host skipped an answer: the author's phone and a guesser's. As many chips on each." });
+          else await compareCard("3 players, before a skip", `3 players, answer ${index + 1}`, { name: "pair-3-before-skip", caption: "Three players, guessing: the author's phone and a guesser's, side by side. The same chips with the same painted masks." });
           // The first card written by a player (one may be the game's own).
           const author = inMatch().find((p) => p.view.step.yours);
           if (!author || stills.some((s) => s.file.includes("guessing-author"))) return;
@@ -501,7 +681,7 @@ try {
           const chips = await guesser.page.locator(".pm-chip b").allTextContents();
           check(chips.includes("The game"), `three players: "The game" is one of the names (${chips.join(", ")})`);
           await still(guesser, "guessing-390x844", `Guessing, answer ${index + 1}: tap one name ("The game" at three players), and the anonymous tap count.`);
-          await still(author, "guessing-author-390x844", "Guessing, the author's phone: keep a straight face, and tap a blank chip like everyone else.");
+          await still(author, "guessing-author-390x844", "Guessing, the author's phone: the same screen as everyone's, with a quiet \"Yours: tap any name.\" where a guesser's line says \"Only you see your guess.\"");
           await still(tv, "guessing-screen-1280x720", "Guessing on the big screen: the answer, who reads and how many have tapped, never who.");
           await fits(guesser, "guessing, guesser");
           await fits(author, "guessing, author");
@@ -531,10 +711,14 @@ try {
     await playRound({ kinds: { Ann: "long", Bo: "unbroken" }, pick: "random" });
     await nextRound();
     await playRound({ pick: "random" });
+    check(!(await ann.page.locator(".stage-head .stop").isHidden()), "during the match the host has the Table's own End the game");
     check((await nextRound()) === "Final scores", "after the third round the host's button says Final scores");
     await allAt("over");
     await wait(1500);
     await audit("the end of match 1");
+    await storageClean("the end of match 1");
+    // The match is decided: the Table's own "End the game" steps aside for the curtain's way back.
+    check(await ann.page.locator(".stage-head .stop").isHidden(), "at the final curtain the Table's own End the game is hidden");
     await still(byName("Bo"), "final-390x844", "The final curtain: the winner, the standings, Best mask and Mind reader.");
     await still(ann, "final-host-390x844", "The final curtain, the host's phone: Back to the Table.");
     await still(tv, "final-screen-1280x720", "The final curtain on the big screen.");
@@ -605,8 +789,7 @@ try {
             // Di taps, then her page reloads: her tap is still hers.
             const s = di.view.step;
             di.clicked.add(s.card.id);
-            if (s.yours) await di.page.locator(".pm-chip.blank").nth(1).click();
-            else await di.page.locator(".pm-chip:not(.blank):not(.used):not([disabled])").first().click();
+            await di.page.locator(".pm-chip:not(.used):not([disabled])").nth(s.yours ? 1 : 0).click();
             await di.page.waitForSelector(".pm-chip.sel", { timeout: 8000 });
             const before = await di.page.locator(".pm-chip.sel b").textContent();
             const at = await di.page.locator(".pm-chip").evaluateAll((els) => els.findIndex((e) => e.classList.contains("sel")));
@@ -614,7 +797,13 @@ try {
             await di.page.waitForSelector(".pm[data-phase=guessing] .pm-chip.sel", { timeout: 20000 });
             const after = await di.page.locator(".pm-chip.sel b").textContent();
             const atAfter = await di.page.locator(".pm-chip").evaluateAll((els) => els.findIndex((e) => e.classList.contains("sel")));
-            check(after === before && at === atAfter, `Di reloaded mid-guessing: her tap is still in ("${before}" at ${at}, then "${after}" at ${atAfter})`);
+            // A guess is the server's: the same name. An author's tap is kept in no storage, so after
+            // a reload the view shows one free name, picked by the card's id: tapped, all the same.
+            if (s.yours) {
+              const free = await di.page.locator(".pm-chip.sel:not(.used)").count();
+              check(free === 1, `Di reloaded mid-guessing on her own card: her tap is still in, one free name shown as tapped ("${before}" at ${at}, then "${after}" at ${atAfter})`);
+            } else check(after === before && at === atAfter, `Di reloaded mid-guessing: her tap is still in ("${before}" at ${at}, then "${after}" at ${atAfter})`);
+            await storageClean("Di's reload mid-guessing");
           }
         },
       },
@@ -645,7 +834,7 @@ try {
           await audit("after the skip");
         },
         guessing: async (index) => {
-          if (index !== 0) return;
+          if (index !== 0) return compareCard("on a call, after a skip", `on a call after a skip, answer ${index + 1}`);
           // Bo leaves the party mid-match (he reads this round): the match goes on without him.
           bo.clicked.add(bo.view.step.card.id);
           await bo.page.click(".top .leave");
@@ -666,6 +855,7 @@ try {
     await allAt("over");
     await wait(1200);
     await audit("the end of match 2");
+    await storageClean("the end of match 2");
     const rows = await ann.page.locator(".pm-board li").allTextContents();
     check(rows.some((r) => /Bo/.test(r) && /left/.test(r)), `Bo keeps a greyed row marked as left (${rows.join(" | ")})`);
     await still(fay, "final-with-leaver-390x844", "The final standings with a player who left (greyed, no place) and one who joined in round 2.");
@@ -712,7 +902,10 @@ try {
           await sizes("writing");
         },
         reading: async () => sizes("reading"),
-        guessing: async (index) => index === 0 && sizes("guessing"),
+        guessing: async (index) => {
+          await compareCard("8 players, before a skip", `8 players, answer ${index + 1}`, { name: "pair-8-before-skip", caption: "Eight players, guessing: the author's phone and a guesser's, side by side. The same seven painted masks with names." });
+          if (index === 0) await sizes("guessing");
+        },
         reveal: async () => {
           const reader = inMatch().find((p) => p.view.you.reader);
           await tap(reader, "Reveal the first one");
@@ -726,16 +919,38 @@ try {
       },
     });
     await nextRound();
-    await playRound({ pick: "random" });
+    await playRound({
+      pick: "random",
+      during: {
+        guessing: async (index) => {
+          if (index === 0 && !skipped.some((b) => b.match === matchNo)) await hostSkipsCurrent(ann);
+          if (inMatch()[0].view.phase === "guessing") await compareCard("8 players, after a skip", `8 players after a skip, answer ${inMatch()[0].view.step.index + 1}`, { name: "pair-8-after-skip", caption: "Eight players, guessing after the host skipped an answer: the author's phone and a guesser's. As many chips on each." });
+        },
+      },
+    });
     await nextRound();
     await playRound({ pick: "random" });
     await nextRound();
     await allAt("over");
     await wait(1500);
     await audit("the end of match 3");
+    await storageClean("the end of match 3");
     await sizes("final");
     await still(cy, "final-8-390x844", "Eight players: the final curtain on a phone.");
     await backToTable(ann);
+  }
+  // Every case was compared: whole screens where two phones of the same role allowed it.
+  const cases = [
+    [1, "3 players, before a skip", "full"],
+    [1, "3 players, after a skip", "full"],
+    [2, "on a call, after a skip", "any"],
+    [3, "8 players, before a skip", "full"],
+    [3, "8 players, after a skip", "full"],
+  ];
+  for (const [match, key, how] of cases) {
+    if (!only.has(match)) continue;
+    const c = compared[key] ?? { full: 0, names: 0 };
+    check(how === "full" ? c.full > 0 : c.full + c.names > 0, `the author's and a guesser's phones were compared: ${key} (${c.full} whole, ${c.names} by the names part)`);
   }
 } finally {
   await browser.close();
