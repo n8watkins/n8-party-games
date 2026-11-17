@@ -85,9 +85,9 @@ check(
 const lights = A.room.vote.lights;
 check(
   A.room.boxes.map((x) => x.id).join() === "cork-and-bell,coin-flip,flood,tin-derby,fox-trouble,ideas" && !("who-am-i" in lights),
-  `the Floor's wall: Cork & Bell, Coin Flip, three coming soon and the ideas poster, and no Who Am I? (${A.room.boxes.map((x) => x.id).join(", ")})`,
+  `the Floor's wall: Cork & Bell, Coin Flip, Flood, Tin Derby, Fox Trouble and the ideas poster, and no Who Am I? (${A.room.boxes.map((x) => x.id).join(", ")})`,
 );
-check(lights["cork-and-bell"] === null && lights["coin-flip"] === null && lights["tin-derby"] === "Coming soon" && lights.flood === "Coming soon" && lights["fox-trouble"] === "Coming soon" && lights.ideas === "", "two lights are on (Cork & Bell, Coin Flip); the coming-soon ones say so, and the ideas poster has no light at all");
+check(lights["cork-and-bell"] === null && lights["coin-flip"] === null && lights["tin-derby"] === null && lights.flood === "Coming soon" && lights["fox-trouble"] === "Coming soon" && lights.ideas === "", "three lights are on (Cork & Bell, Coin Flip, Tin Derby); the coming-soon ones say so, and the ideas poster has no light at all");
 A.send("ping");
 await sleep(300);
 check(A.raw.includes("pong"), "the keep-alive is answered");

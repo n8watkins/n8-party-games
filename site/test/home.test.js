@@ -90,9 +90,9 @@ describe("what the front page says is playable", () => {
   });
 
   it("fails when the page would call a game playable that the wall has as coming soon", async () => {
-    // A wall copy that has gone stale: Tin Derby marked ready while the room has no such game.
-    const stale = { ...WALL, boxes: WALL.boxes.map((b) => (b.id === "tin-derby" ? { ...b, soon: false, view: "/tin-derby/view.js" } : b)) };
-    expect(unbacked(await modelFrom(stale))).toEqual(["room/tin-derby (room): the room does not play it"]);
+    // A wall copy that has gone stale: Flood marked ready while the room has no such game.
+    const stale = { ...WALL, boxes: WALL.boxes.map((b) => (b.id === "flood" ? { ...b, soon: false, view: "/flood/view.js" } : b)) };
+    expect(unbacked(await modelFrom(stale))).toEqual(["room/flood (room): the room does not play it"]);
   });
 
   it("follows the Table's list: Paper Masks is coming soon until the Table can start it", async () => {
@@ -142,12 +142,10 @@ describe("what each door's peek calls Now", () => {
   it("is only a game that plays behind that door: Who Am I? plays on its own site, not in the room or at the Table", async () => {
     const model = await modelFrom(wallWithoutTableGame());
     const room = peekOf("room", model.room);
-    // The room door names only the Floor's games: Who Am I? is not on its wall, and the ideas poster is not a game.
-    expect(ids(room.here)).toEqual(WALL.boxes.filter((b) => !b.soon && !b.poster).map((b) => b.id));
-    expect(ids(room.here)).toContain("cork-and-bell");
+    // Cork & Bell and Tin Derby play in the room. Who Am I? is not on its wall, and the ideas poster is not a game.
+    expect(ids(room.here)).toEqual(["cork-and-bell", "tin-derby"]);
+    expect(ids(room.soon)).toEqual(["flood", "fox-trouble"]);
     expect(ids(room.elsewhere)).toEqual([]);
-    expect([...ids(room.here), ...ids(room.soon)]).not.toContain("who-am-i");
-    expect([...ids(room.here), ...ids(room.soon)]).not.toContain("ideas");
     const table = peekOf("table", model.table);
     expect(ids(table.here)).toEqual([]);
     expect(ids(table.elsewhere)).toEqual(["who-am-i"]);

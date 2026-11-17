@@ -31,7 +31,7 @@ Make each window short and wide to see what a sideways phone sees, or use the br
 
 Coin Flip is a test game.
 It hangs on the wall only where `PARTY_TEST_GAMES` is `"on"`, which is the `local` environment in `wrangler.jsonc` (`npm run dev` and the test runs).
-Production has no such variable, so its wall is Cork & Bell, the three coming-soon boxes (Flood, Tin Derby, Fox Trouble) and the ideas poster, in that order.
+Production has no such variable, so its wall is Cork & Bell, Flood (coming soon), Tin Derby, Fox Trouble (coming soon) and the ideas poster, in that order: the two games a party can play hang a frame apart.
 Who Am I? is not on the Floor's wall: it is a Table game (the Table lists it as coming soon, and the front page's Table door links to its own site until then).
 To see the wall as production hangs it: `npx wrangler dev --local --env local --port 8792 --var PARTY_TEST_GAMES:off`.
 

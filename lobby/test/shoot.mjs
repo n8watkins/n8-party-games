@@ -134,9 +134,9 @@ try {
   await tidy(phone, "phone, alone");
   await shot(screen, "05-screen-one-player");
   const whyNot = await screen.evaluate(() => [...document.querySelectorAll("svg.scene text")].filter((t) => !t.closest("[display=none]")).map((t) => t.textContent).filter((t) => /Needs|coming soon/i.test(t)));
-  check(!whyNot.includes("Needs a player") && whyNot.filter((t) => t === "COMING SOON").length === 3 && !whyNot.includes("Coming soon"), "alone, Cork & Bell can be picked, and three posters say coming soon: " + [...new Set(whyNot)].join(", "));
+  check(!whyNot.includes("Needs a player") && whyNot.filter((t) => t === "COMING SOON").length === 2 && !whyNot.includes("Coming soon"), "alone, Cork & Bell can be picked, and two posters say coming soon: " + [...new Set(whyNot)].join(", "));
   const counts = await screen.evaluate(() => [...document.querySelectorAll("svg.scene text")].filter((t) => !t.closest("[display=none]") && t.getAttribute("display") !== "none").map((t) => t.textContent).filter((t) => /^\d(-\d)? players?$/.test(t)));
-  check(counts.join() === "1-4 players,1-4 players,1-4 players,2-4 players,2-4 players", "every game's sign says plainly how many can play, and the ideas poster has no sign: " + counts.join(", "));
+  check(counts.join() === "1-4 players,1-4 players,1-4 players,1-4 players,2-4 players", "every game's sign says plainly how many can play, and the ideas poster has no sign: " + counts.join(", "));
 
   // Three more players, as sockets.
   const sessions = [];

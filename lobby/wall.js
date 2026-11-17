@@ -23,6 +23,8 @@ import { tableEntry } from "./shared/table.js";
 /**
  * The games that are not built yet, in the order they hang after the hosted games. Flood hangs
  * between Cork & Bell and Tin Derby so the two lights a party can play under stand far apart.
+ * A hosted game with the same id takes its coming-soon box's place on the wall (Tin Derby's),
+ * so the wall keeps its order.
  */
 const COMING_SOON = [
   { id: "flood", name: "Flood", blurb: "Climb before the water rises", players: { min: 1, max: 4 }, devices: { phone: true, desktop: false } },
@@ -43,18 +45,22 @@ export function buildWall(hosted, { testGames = false } = {}) {
   const games = new Map();
   // Each game's settings as its manifest describes them, for the step after the vote.
   const fields = new Map();
-  for (const { manifest, game } of hosted) {
+  // A hosted game that was coming soon hangs where its coming-soon box hung.
+  const inPlace = new Map();
+  const hang = (manifest, box) => (COMING_SOON.some((m) => m.id === manifest.id) ? inPlace.set(manifest.id, box) : boxes.push(box));
+  for (const { manifest, game, testGame } of hosted) {
     if (!manifest.lobby?.view) throw new Error(`${manifest.id} cannot hang on the Floor: it has no view for the room (manifest.lobby.view)`);
     // It opens inside the room: the room runs `game`, and the page mounts the view from the game's own files.
-    boxes.push(boxFromManifest(manifest, { view: manifest.path + manifest.lobby.view }));
-    games.set(manifest.id, game);
+    // Where test games are on, a game that has a test-run version of itself (`testGame`: Tin Derby's short race) runs that.
+    hang(manifest, boxFromManifest(manifest, { view: manifest.path + manifest.lobby.view }));
+    games.set(manifest.id, testGames && testGame ? testGame : game);
     if (manifest.settings) fields.set(manifest.id, manifest.settings);
   }
   if (testGames) {
     boxes.push(boxFromManifest(coinFlip.manifest, { test: true }));
     games.set(coinFlip.manifest.id, coinFlip.game);
   }
-  for (const manifest of COMING_SOON) boxes.push(boxFromManifest(manifest, { soon: true }));
+  for (const manifest of COMING_SOON) boxes.push(inPlace.get(manifest.id) ?? boxFromManifest(manifest, { soon: true }));
   boxes.push(IDEAS);
   return { boxes, games, fields };
 }

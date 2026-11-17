@@ -1,0 +1,282 @@
+/* Layout: one screen, never scrolls. The picture fills it; controls sit over it at the thumbs, clear of the car and the road ahead. */
+:root {
+  --paper: #fbdfaa; --cream: #fdeccb; --navy: #242a3e; --red: #d9301f; --mustard: #f4ab16; --teal: #2a7b70; --orange: #ee6d45;
+  --display: "Bowlby One", "Arial Black", Impact, sans-serif;
+  --ui: "Barlow Condensed", "Arial Narrow", "Helvetica Neue", Arial, sans-serif;
+  --gl: max(16px, env(safe-area-inset-left, 0px)); --gr: max(16px, env(safe-area-inset-right, 0px));
+  --gt: max(8px, env(safe-area-inset-top, 0px)); --gb: max(10px, env(safe-area-inset-bottom, 0px));
+  --seat: var(--red);
+  color-scheme: light;
+}
+html, body { height: 100%; overflow: hidden; overscroll-behavior: none; }
+body { background: var(--paper); color: var(--navy); font-family: var(--ui); font-size: 15px; font-weight: 500; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; touch-action: none; -webkit-tap-highlight-color: transparent; }
+#app { position: fixed; inset: 0; overflow: hidden; padding-left: var(--gl); padding-right: var(--gr); padding-block: var(--gt) var(--gb); background: var(--paper); }
+#stage { position: absolute; inset: 0; overflow: hidden; }
+#gl { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+#tags { position: absolute; inset: 0; pointer-events: none; overflow: hidden; z-index: 7; } /* reviewer fix (round one): names above the hint box */
+.tag { position: absolute; left: 0; top: 0; padding: 1px 7px 2px; border-radius: 9px; background: var(--cream); border: 2px solid var(--navy); font: 700 13px/1.1 var(--ui); letter-spacing: 0.03em; white-space: nowrap; will-change: transform; display: flex; align-items: center; gap: 5px; }
+.tag i { width: 9px; height: 9px; border-radius: 50%; background: var(--c); border: 1.5px solid var(--navy); }
+.tag.lead { background: var(--mustard); }
+.tag.lead::after { content: "leads"; font-size: 11px; text-transform: uppercase; }
+button { font: inherit; color: inherit; }
+button:focus-visible, input:focus-visible, select:focus-visible { outline: 3px solid var(--teal); outline-offset: 2px; }
+
+/* Top row: a quiet title and the hint on the left, the page's few buttons on the right. */
+#brand { position: absolute; left: var(--gl); top: var(--gt); z-index: 6; pointer-events: none; max-width: 62vw; }
+#brand b { display: block; font: 400 15px/1 var(--display); letter-spacing: 0.02em; color: var(--navy); background: var(--cream); border: 2px solid var(--navy); border-radius: 9px; padding: 5px 8px 6px; }
+#hint { position: absolute; left: var(--gl); top: calc(var(--gt) + 64px); z-index: 6; pointer-events: none; max-width: min(30vw, 270px); text-wrap: balance; padding: 2px 8px 3px; font-size: 14px; line-height: 1.15; background: var(--cream); border: 2px solid var(--navy); border-radius: 8px; }
+#hint:empty { display: none; }
+#btns { position: absolute; right: var(--gr); top: var(--gt); z-index: 8; display: flex; gap: 6px; transition: opacity 0.5s; }
+#btns.idle { opacity: 0; } /* on a television the buttons fade off the top-right pane until someone moves the mouse or presses a key */
+.btn { min-width: 48px; min-height: 44px; padding: 0 10px; border: 2px solid var(--navy); border-radius: 12px; background: var(--cream); font: 700 14px/1 var(--ui); letter-spacing: 0.04em; text-transform: uppercase; box-shadow: 2px 2px 0 var(--navy); cursor: pointer; }
+.btn:active { transform: translate(2px, 2px); box-shadow: none; }
+.btn[aria-pressed="true"] { background: var(--mustard); }
+.btn.big { min-height: 52px; padding: 0 22px; font: 400 19px/1 var(--display); background: var(--mustard); letter-spacing: 0.03em; text-transform: none; }
+
+/* A player's own overlay: the race strip, the spring (the boost gauge), the thumbs, words. */
+.hud { position: absolute; left: 0; right: 0; top: 0; height: 100%; pointer-events: none; }
+.topmid { position: absolute; top: var(--gt); left: calc(var(--gl) + 112px); right: calc(var(--gr) + 300px); display: grid; gap: 4px; justify-items: center; }
+.strip { width: min(100%, 360px); box-sizing: border-box; display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 8px; padding: 3px 10px; background: var(--cream); border: 2px solid var(--navy); border-radius: 12px; font: 700 15px/1.1 var(--ui); letter-spacing: 0.03em; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.strip .line { position: relative; height: 22px; margin: 0 9px; }
+.strip .line::before { content: ""; position: absolute; left: 0; right: 0; top: 10px; height: 3px; background: var(--navy); border-radius: 2px; }
+.strip .line::after { content: ""; position: absolute; right: -1px; top: 3px; width: 3px; height: 17px; background: var(--navy); }
+.tok { position: absolute; left: 0; top: 4px; width: 14px; height: 14px; margin-left: -7px; border-radius: 50%; background: var(--c); border: 2px solid var(--navy); will-change: transform; }
+.tok.me { width: 18px; height: 18px; top: 2px; margin-left: -9px; z-index: 2; }
+.strip .place { font: 400 17px/1 var(--display); }
+.near { display: flex; gap: 6px; font: 700 13px/1.1 var(--ui); white-space: nowrap; }
+.near span { padding: 1px 7px 2px; background: var(--cream); border: 2px solid var(--navy); border-radius: 9px; display: flex; align-items: center; gap: 4px; }
+.near span:empty { display: none; }
+.near i { width: 9px; height: 9px; border-radius: 50%; background: var(--c); border: 1.5px solid var(--navy); }
+/* The spring: it winds while you drift and runs down while a boost runs. Bottom left on a computer, top left on a phone (the left thumb steers down there). */
+.gauge { position: absolute; left: calc(var(--gl) - 4px); bottom: calc(var(--gb) - 2px); width: 112px; height: 112px; pointer-events: none; display: grid; place-items: center; }
+.gauge canvas { width: 112px; height: 112px; }
+.gauge .cap { position: absolute; left: 50%; bottom: -3px; transform: translateX(-50%); font: 700 12px/1 var(--ui); letter-spacing: 0.05em; text-transform: uppercase; padding: 2px 7px; background: var(--cream); border: 2px solid var(--navy); border-radius: 8px; white-space: nowrap; }
+.gauge .cap:empty { display: none; }
+#app[data-touch] .gauge { bottom: auto; top: calc(var(--gt) + 40px); left: calc(var(--gl) - 2px); width: 72px; height: 72px; }
+#app[data-touch] .gauge canvas { width: 72px; height: 72px; }
+#app[data-touch] .gauge .cap { bottom: -9px; font-size: 11px; }
+#app[data-touch] #hint { top: calc(var(--gt) + 122px); }
+/* The thumbs (touch only). Left: a steering pad anywhere on the left side, or two big buttons. Right: drift, and a small brake. */
+.steerzone { position: absolute; left: 0; top: 70px; bottom: 0; width: 46%; pointer-events: auto; touch-action: none; display: none; }
+.ring { position: absolute; width: 112px; height: 112px; margin: -56px 0 0 -56px; border-radius: 50%; border: 3px solid var(--navy); background: rgba(253, 236, 203, 0.35); opacity: 0.5; left: calc(var(--gl) + 76px); top: calc(100% - var(--gb) - 70px); }
+.ring.on { opacity: 1; }
+.ring::before, .ring::after { content: ""; position: absolute; top: 50%; width: 0; height: 0; margin-top: -9px; border: 9px solid transparent; }
+.ring::before { left: 8px; border-right: 12px solid var(--navy); border-left-width: 0; }
+.ring::after { right: 8px; border-left: 12px solid var(--navy); border-right-width: 0; }
+.knob { position: absolute; left: 50%; top: 50%; width: 44px; height: 44px; margin: -22px 0 0 -22px; border-radius: 50%; background: var(--seat); border: 3px solid var(--navy); box-shadow: 2px 2px 0 var(--navy); will-change: transform; }
+.ring .lbl { position: absolute; left: 50%; bottom: -24px; transform: translateX(-50%); font: 700 12px/1 var(--ui); letter-spacing: 0.06em; text-transform: uppercase; background: var(--cream); border: 2px solid var(--navy); border-radius: 8px; padding: 2px 6px; white-space: nowrap; }
+.ring.on .lbl { display: none; }
+.tb { position: absolute; pointer-events: auto; touch-action: none; border: 3px solid var(--navy); background: var(--cream); box-shadow: 3px 3px 0 var(--navy); display: none; place-items: center; cursor: pointer; padding: 0; }
+.tb.down { transform: translate(3px, 3px); box-shadow: none; background: var(--mustard); }
+.tb b { font: 400 17px/1 var(--display); letter-spacing: 0.02em; }
+.tb small { display: block; font: 700 10px/1 var(--ui); letter-spacing: 0.06em; text-transform: uppercase; margin-top: 2px; }
+.tb.steer { width: 84px; height: 84px; border-radius: 50%; bottom: calc(var(--gb) + 12px); }
+.tb.steer svg { width: 40px; height: 40px; }
+.tb.sl { left: calc(var(--gl) + 4px); } .tb.sr { left: calc(var(--gl) + 102px); }
+.tb.drift { right: calc(var(--gr) + 2px); bottom: calc(var(--gb) + 14px); width: 108px; height: 108px; border-radius: 50%; background: var(--mustard); }
+.tb.drift.down { background: var(--orange); }
+.tb.brake { right: calc(var(--gr) + 124px); bottom: calc(var(--gb) + 10px); width: 62px; height: 62px; border-radius: 16px; }
+.tb.brake b { font: 700 13px/1 var(--ui); letter-spacing: 0.04em; text-transform: uppercase; }
+#app[data-touch] .tb.drift, #app[data-touch] .tb.brake, #app[data-touch] .tb.use { display: grid; }
+/* Round four: the one new button, Use, sits right above Drift; with no power in hand it is a quiet outline. */
+.tb.use { right: calc(var(--gr) + 16px); bottom: calc(var(--gb) + 134px); width: 80px; height: 80px; border-radius: 50%; background: var(--cream); grid-template-rows: 1fr auto; padding: 4px 0 8px; }
+.tb.use .ico { display: block; width: 40px; height: 40px; }
+.tb.use .ico svg, .slot .ico svg { width: 100%; height: 100%; display: block; }
+.tb.use b { font: 700 12px/1 var(--ui); letter-spacing: 0.06em; text-transform: uppercase; }
+.tb.use.empty { opacity: 0.55; box-shadow: none; border-style: dashed; }
+.tb.use.empty .ico { background: radial-gradient(circle, var(--paper) 0 9px, transparent 10px); }
+.tb.use.ready { background: var(--mustard); animation: ready 1.2s ease-in-out infinite; }
+.tb.use.down { background: var(--orange); }
+@keyframes ready { 50% { box-shadow: 3px 3px 0 var(--navy), 0 0 0 6px rgba(244, 171, 22, 0.45); } }
+/* On a keyboard the power shows large in a slot beside the spring, with its name and its key. */
+.slot { position: absolute; left: calc(var(--gl) + 116px); bottom: calc(var(--gb) + 6px); display: flex; align-items: center; gap: 8px; padding: 4px 10px 4px 4px; background: var(--cream); border: 2px solid var(--navy); border-radius: 12px; font: 400 17px/1 var(--display); letter-spacing: 0.02em; white-space: nowrap; pointer-events: none; }
+.slot .ico { width: 54px; height: 54px; border-radius: 10px; background: var(--paper); }
+/* Round five: on a phone the power you hold shows large right above the Use button, with its name. */
+.held { position: absolute; right: calc(var(--gr) + 12px); bottom: calc(var(--gb) + 222px); width: 88px; display: none; flex-direction: column; align-items: center; gap: 2px; pointer-events: none; }
+.held .ico { width: 58px; height: 58px; padding: 4px; box-sizing: border-box; border-radius: 50%; background: var(--cream); border: 3px solid var(--navy); }
+.held .ico svg { width: 100%; height: 100%; display: block; }
+.held .hname { font: 400 13px/1.05 var(--display); text-align: center; color: var(--navy); background: var(--cream); border: 2px solid var(--navy); border-radius: 8px; padding: 2px 6px 3px; white-space: nowrap; }
+.held.ready .ico { background: var(--mustard); }
+#app[data-touch] .held.on { display: flex; }
+/* The racer's trait badge, beside who is near: the character, its trait in a word, and (the ghost) when it is ready. */
+.near .trait { background: var(--paper); }
+.near .trait .tico { width: 20px; height: 20px; border: 0; border-radius: 0; background: none; display: block; }
+.near .trait .tico svg { width: 100%; height: 100%; display: block; }
+.near .trait small { font: 700 11px/1 var(--ui); letter-spacing: 0.04em; text-transform: uppercase; }
+.near .trait small:empty { display: none; }
+.near .trait.dim { opacity: 0.65; }
+#app[data-phase="over"] :is(.near .trait, .topmid, .held, .gauge, .slot) { display: none; } /* reviewer fix (round five): the spring too; with the car beside the card it sat on the rider */ /* the finish card has the screen and lists the places */
+.near .trait.flash { animation: traitflash 0.7s ease-out; }
+@keyframes traitflash { 0% { background: var(--mustard); transform: scale(1.18); } 100% { background: var(--paper); transform: scale(1); } }
+.traitline { margin: 0; font: 500 13px/1.2 var(--ui); max-width: 290px; }
+.traitline b { font-weight: 700; }
+.traitline span { opacity: 0.75; }
+.slot kbd { min-width: 1.4em; padding: 2px 5px; border: 2px solid var(--navy); border-radius: 6px; background: var(--paper); font: 700 12px/1.1 var(--ui); text-align: center; }
+.slot.empty { opacity: 0.6; }
+.slot.ready { background: var(--mustard); }
+#app[data-touch] .slot { display: none; }
+/* Pepper in your face: the picture greys over for a moment. */
+#pepper { position: absolute; inset: 0; pointer-events: none; opacity: 0; z-index: 5; background: radial-gradient(circle, rgba(70, 62, 66, 0.8) 0 2.5px, transparent 3px) 0 0 / 11px 11px, radial-gradient(ellipse at 50% 55%, rgba(120, 112, 112, 0.35), rgba(80, 72, 76, 0.85) 75%); }
+#app[data-phase="over"] :is(.tb, .steerzone) { display: none !important; } /* the finish card has the screen to itself */
+#app[data-touch][data-steer="pad"] .steerzone { display: block; }
+#app[data-touch][data-steer="buttons"] .tb.steer { display: grid; }
+.chevs { position: absolute; left: 50%; bottom: calc(var(--gb) + 2px); width: 0; height: 0; }
+.chev { position: absolute; left: -22px; bottom: 0; width: 44px; height: 30px; opacity: 0; will-change: transform, opacity; }
+.chev svg { width: 100%; height: 100%; display: block; overflow: visible; }
+.words { position: absolute; left: 50%; top: 33%; width: 0; height: 0; }
+.word { position: absolute; left: 0; top: 0; white-space: nowrap; font: 400 clamp(38px, 15vh, 84px)/1 var(--display); color: var(--red); -webkit-text-stroke: 2.5px var(--navy); paint-order: stroke fill; text-shadow: 4px 4px 0 var(--cream), 5px 5px 0 var(--navy); transform: translate(-50%, -50%); pointer-events: none; }
+.word.small { top: -5vh; font-size: clamp(22px, 7vh, 38px); /* above the car, under the strip */ color: var(--mustard); -webkit-text-stroke-width: 1.5px; text-shadow: 3px 3px 0 var(--cream), 4px 4px 0 var(--navy); }
+.word.teal { color: var(--teal); }
+.word.how { font-size: clamp(18px, 5.4vh, 30px); white-space: normal; width: max-content; max-width: min(78vw, 560px); text-align: center; line-height: 1.05; }
+
+/* Whole-screen layers. */
+#speed { position: absolute; inset: 0; pointer-events: none; opacity: 0; }
+#speed svg { position: absolute; bottom: 0; width: 30%; height: 46%; }
+#speed svg:first-child { left: 0; } #speed svg:last-child { right: 0; transform: scaleX(-1); }
+#flash { position: absolute; inset: 0; pointer-events: none; opacity: 0; box-shadow: inset 0 0 0 10px var(--fc, var(--red)), inset 0 0 60px 10px var(--fc, var(--red)); z-index: 5; }
+#grain { position: absolute; inset: 0; pointer-events: none; z-index: 20; background-size: 220px 220px; }
+#turn { position: absolute; left: 50%; top: calc(var(--gt) + 56px); transform: translateX(-50%); z-index: 6; padding: 4px 10px; background: var(--navy); color: var(--cream); border-radius: 10px; font-size: 14px; white-space: nowrap; pointer-events: none; display: none; transition: opacity 0.6s; }
+#meter { position: absolute; left: 50%; bottom: 2px; transform: translateX(-50%); z-index: 21; padding: 1px 6px; background: var(--navy); color: var(--cream); font: 500 12px/1.3 ui-monospace, Menlo, Consolas, monospace; white-space: nowrap; border-radius: 4px; pointer-events: none; }
+
+/* The start card: who you are, what colour, and how you steer. */
+#app[data-phase="attract"] :is(.hud, #hint) { display: none; }
+/* Beside your car, not over it: the camera shifts the car into the free side while you pick. */
+#startcard { position: absolute; right: var(--gr); bottom: calc(var(--gb) + 6px); z-index: 9; width: min(560px, 66%); max-height: calc(100% - var(--gt) - var(--gb) - 56px); box-sizing: border-box; overflow-y: auto; overscroll-behavior: contain; touch-action: pan-y; display: grid; grid-template-columns: auto 1fr; gap: 6px 16px; padding: 8px 12px 10px; }
+#startcard h3 { margin: 0; font: 700 12px/1 var(--ui); letter-spacing: 0.08em; text-transform: uppercase; }
+#startcard .col { display: grid; gap: 5px; align-content: start; min-width: 0; }
+.picks { display: flex; flex-wrap: wrap; gap: 5px; }
+.who { width: 52px; height: 52px; padding: 2px; border: 2px solid var(--navy); border-radius: 12px; background: var(--paper); cursor: pointer; }
+.who svg { width: 100%; height: 100%; display: block; }
+.who[aria-pressed="true"] { background: var(--mustard); box-shadow: 2px 2px 0 var(--navy); }
+.sw { width: 44px; height: 44px; padding: 0; border: 2px solid var(--navy); border-radius: 50%; background: var(--c); cursor: pointer; }
+.sw[aria-pressed="true"] { box-shadow: 0 0 0 3px var(--cream), 0 0 0 5px var(--navy); }
+.swatches { display: grid; grid-template-columns: repeat(5, 44px); gap: 6px; }
+.rw { display: grid; grid-template-columns: 1fr 44px; gap: 4px; align-items: stretch; }
+.rw .opt { min-height: 44px; text-align: left; padding: 4px 10px; border: 2px solid var(--navy); border-radius: 10px; background: var(--paper); cursor: pointer; font: 500 13px/1.15 var(--ui); }
+.rw .opt b { display: block; font: 700 15px/1.1 var(--ui); letter-spacing: 0.03em; text-transform: uppercase; }
+.rw .opt[aria-pressed="true"] { background: var(--mustard); box-shadow: 2px 2px 0 var(--navy); }
+.star { min-height: 44px; border: 2px solid var(--navy); border-radius: 10px; background: var(--cream); font: 400 22px/1 var(--display); cursor: pointer; padding: 0; }
+.star[aria-pressed="true"] { background: var(--mustard); }
+.rec { font: 500 13px/1.2 var(--ui); margin: 0; }
+.rec b { font-weight: 700; }
+.keys { margin: 0; padding: 0; list-style: none; display: grid; gap: 3px; font: 500 14px/1.2 var(--ui); }
+.keys kbd { display: inline-block; min-width: 1.4em; padding: 1px 5px; margin-right: 2px; border: 2px solid var(--navy); border-radius: 6px; background: var(--paper); font: 700 12px/1.2 var(--ui); text-align: center; }
+#app[data-touch] .forkeys, #app:not([data-touch]) .fortouch { display: none; }
+#bstart { justify-self: stretch; margin-top: 2px; }
+
+/* The television's split view: a chase picture for each car, with its own label, and the map and standings. */
+#panes { position: absolute; inset: 0; pointer-events: none; display: none; }
+#app[data-mode="split"] #panes { display: block; }
+.pane { position: absolute; box-sizing: border-box; border: 3px solid var(--navy); }
+.plabel { position: absolute; left: 10px; top: 10px; display: flex; align-items: center; gap: 8px; padding: 3px 10px 4px; background: var(--cream); border: 2.5px solid var(--navy); border-radius: 12px; font: 700 clamp(14px, 1.6vw, 24px)/1.1 var(--ui); letter-spacing: 0.03em; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.pane.right .plabel { left: auto; right: 10px; }
+.pane.rcol .pspring { left: auto; right: 10px; }
+.plabel i { width: 0.8em; height: 0.8em; border-radius: 50%; background: var(--c); border: 2px solid var(--navy); }
+.plabel b { font: 400 1.15em/1 var(--display); }
+.plabel .pit { width: 1.3em; height: 1.3em; display: block; } .plabel .pit:empty { display: none; } .plabel .pit svg { width: 100%; height: 100%; display: block; }
+.ppep { position: absolute; inset: 0; opacity: 0; background: radial-gradient(circle, rgba(70, 62, 66, 0.8) 0 2.5px, transparent 3px) 0 0 / 11px 11px, radial-gradient(ellipse at 50% 55%, rgba(120, 112, 112, 0.35), rgba(80, 72, 76, 0.85) 75%); }
+.pspring { position: absolute; left: 10px; bottom: 10px; width: clamp(80px, 12vw, 200px); height: clamp(10px, 1.1vw, 16px); border: 2.5px solid var(--navy); border-radius: 8px; background: var(--cream); overflow: hidden; }
+.pspring i { position: absolute; left: 0; top: 0; bottom: 0; width: 0; background: var(--mustard); }
+.pspring.boost i { background: var(--orange); }
+#mapbox { position: absolute; display: none; flex-direction: column; gap: 6px; padding: 8px; background: var(--cream); border: 3px solid var(--navy); border-radius: 16px; box-shadow: 4px 4px 0 var(--navy); pointer-events: none; z-index: 4; }
+#app[data-mode="split"] #mapbox { display: flex; }
+#map { width: 100%; display: block; aspect-ratio: 2.05; }
+#standings { margin: 0; padding: 0; list-style: none; display: grid; gap: 2px; font: 700 clamp(13px, 1.25vw, 20px)/1.15 var(--ui); font-variant-numeric: tabular-nums; }
+#standings li { display: grid; grid-template-columns: 1.6em 1em 1fr auto; gap: 6px; align-items: center; }
+#standings b { font: 400 1em/1 var(--display); }
+#standings i { width: 0.85em; height: 0.85em; border-radius: 50%; background: var(--c); border: 2px solid var(--navy); }
+
+/* The television's whole-table picture: the places along the bottom. */
+#tvbar { position: absolute; left: var(--gl); right: var(--gr); bottom: var(--gb); z-index: 4; display: none; align-items: center; gap: 10px; padding: 5px 12px; background: var(--cream); border: 2px solid var(--navy); border-radius: 14px; font: 700 16px/1.1 var(--ui); letter-spacing: 0.03em; font-variant-numeric: tabular-nums; pointer-events: none; }
+#tvbar .line { position: relative; flex: 1 1 120px; height: 22px; min-width: 60px; }
+#tvbar .line::before { content: ""; position: absolute; left: 0; right: 0; top: 10px; height: 3px; background: var(--navy); }
+#tvbar .line::after { content: ""; position: absolute; right: -1px; top: 3px; width: 3px; height: 17px; background: var(--navy); }
+#tvplaces { display: flex; gap: 10px; flex-wrap: wrap; }
+#tvplaces span { display: flex; align-items: center; gap: 4px; white-space: nowrap; }
+#tvplaces i { width: 12px; height: 12px; border-radius: 50%; background: var(--c); border: 2px solid var(--navy); }
+#tvplaces b { font: 400 15px/1 var(--display); }
+#app[data-mode="tvwide"] #tvbar { display: flex; }
+#app[data-mode="tvwide"] #hint, #app[data-mode="split"] #hint { top: auto; bottom: calc(var(--gb) + 56px); max-width: min(46vw, 380px); } /* reviewer fix (round one): off the far side of the table */
+#app[data-mode="split"] #hint { bottom: auto; top: calc(var(--gt) + 52px); left: auto; right: var(--gr); }
+#app:is([data-mode="tvwide"], [data-mode="split"]) :is(.hud, #speed) { display: none; }
+#app[data-mode="split"] #brand { display: none; }
+#app[data-bare] :is(#brand, #hint, #btns, #huds, #startcard, #turn, #tvbar, #tags, #meter, #panes, #mapbox) { display: none; }
+
+/* Panels. */
+.panel { position: absolute; z-index: 30; background: var(--cream); border: 3px solid var(--navy); border-radius: 16px; box-shadow: 5px 5px 0 var(--navy); }
+#startcard.panel { z-index: 9; }
+#viewmenu { right: var(--gr); top: calc(var(--gt) + 52px); width: min(330px, calc(100% - var(--gl) - var(--gr))); max-height: calc(100% - var(--gt) - var(--gb) - 56px); overflow-y: auto; box-sizing: border-box; padding: 8px; display: grid; gap: 6px; }
+#viewmenu button { min-height: 48px; text-align: left; padding: 5px 12px; border: 2px solid var(--navy); border-radius: 10px; background: var(--paper); cursor: pointer; font-size: 15px; line-height: 1.15; }
+#viewmenu button b { display: block; font: 700 16px/1.1 var(--ui); letter-spacing: 0.04em; text-transform: uppercase; }
+#viewmenu button[aria-pressed="true"] { background: var(--mustard); }
+#viewmenu .row { display: flex; gap: 6px; align-items: center; font: 700 14px/1 var(--ui); }
+#viewmenu .row button { min-width: 48px; text-align: center; }
+#tune { right: var(--gr); top: calc(var(--gt) + 52px); max-height: calc(100% - var(--gt) - var(--gb) - 52px); box-sizing: border-box; width: min(430px, calc(100% - var(--gl) - var(--gr))); padding: 10px 12px; overflow-y: auto; overscroll-behavior: contain; touch-action: pan-y; display: grid; gap: 7px; align-content: start; }
+#tune h2 { margin: 0 auto 0 0; font: 400 17px/1.1 var(--display); }
+#tune .grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 2px 16px; }
+#tune label { display: grid; grid-template-columns: 1fr auto; gap: 0 8px; font: 700 14px/1.2 var(--ui); letter-spacing: 0.03em; }
+#tune label output { font-variant-numeric: tabular-nums; }
+#tune input[type="range"] { grid-column: 1 / -1; width: 100%; height: 34px; margin: 0; accent-color: var(--red); touch-action: pan-x; }
+#tune select { min-height: 44px; font: inherit; border: 2px solid var(--navy); border-radius: 8px; background: var(--paper); padding: 0 6px; }
+#tune .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+#tunetext { margin: 0; padding: 6px 8px; background: var(--paper); border: 2px solid var(--navy); border-radius: 8px; font: 500 12px/1.35 ui-monospace, Menlo, Consolas, monospace; white-space: pre-wrap; -webkit-user-select: text; user-select: text; }
+#card { left: 50%; top: calc(50% + 26px); transform: translate(-50%, -50%); width: min(400px, calc(100% - var(--gl) - var(--gr))); max-height: calc(100% - var(--gt) - var(--gb) - 58px); box-sizing: border-box; overflow-y: auto; padding: 12px 16px 14px; text-align: center; display: grid; gap: 8px; }
+#card h2 { margin: 0; font: 400 26px/1.05 var(--display); color: var(--red); text-wrap: balance; }
+#card ol { list-style: none; margin: 0; padding: 0; display: grid; gap: 3px; font: 700 17px/1.2 var(--ui); font-variant-numeric: tabular-nums; }
+#card li { display: grid; grid-template-columns: 34px 16px 1fr auto; align-items: center; gap: 8px; text-align: left; padding: 2px 8px; border-radius: 8px; }
+#card li.me { background: var(--paper); outline: 2px solid var(--navy); }
+#card li b { font: 400 16px/1 var(--display); }
+#card li i { width: 14px; height: 14px; border-radius: 50%; background: var(--c); border: 2px solid var(--navy); }
+#card p { margin: 0; font-size: 14px; line-height: 1.25; }
+
+@media (max-width: 700px) {
+  .topmid { top: calc(var(--gt) + 50px); left: calc(var(--gl) + 80px); right: var(--gr); } #brand b { margin-top: 13px; } #hint { top: calc(var(--gt) + 112px); max-width: min(46vw, 250px); }
+  /* A small phone: the spring sits under the title, and the hint under the spring, narrow enough to stay clear of your car. */
+  #app[data-touch] .gauge { top: calc(var(--gt) + 54px); }
+  #app[data-touch] #hint { top: calc(var(--gt) + 134px); max-width: min(29vw, 190px); font-size: 13px; }
+}
+@media (max-height: 420px) {
+  #startcard { padding: 6px 10px 8px; gap: 4px 12px; }
+  .who { width: 46px; height: 46px; }
+  .rw .opt { font-size: 12px; padding: 2px 8px; } .rw .opt b { font-size: 14px; }
+  .rec { display: none; }
+  .tb.drift { width: 96px; height: 96px; } .tb.brake { right: calc(var(--gr) + 110px); width: 56px; height: 56px; }
+  .tb.use { width: 70px; height: 70px; bottom: calc(var(--gb) + 118px); right: calc(var(--gr) + 14px); } .tb.use .ico { width: 34px; height: 34px; }
+  .held { bottom: calc(var(--gb) + 194px); right: calc(var(--gr) + 4px); } .held .ico { width: 50px; height: 50px; }
+  .tb.steer { width: 76px; height: 76px; } .tb.sr { left: calc(var(--gl) + 92px); }
+}
+/* Reviewer fix (round five): on a sideways screen the finish card sat over your car; it goes to the right, and the picture slides the car left. */
+@media (orientation: landscape) and (min-aspect-ratio: 6/5) {
+  #app[data-mode="phone"] #card { left: auto; right: var(--gr); top: calc(50% + 22px); transform: translateY(-50%); width: min(360px, 50%); }
+}
+#app[data-phase="over"][data-mode="phone"] #tags { display: none; } /* reviewer fix (round five): a rival's name peeked out from under the finish card */
+/* Reviewer fix (round five): upright, the finish card goes to the top, under the buttons, above your car. */
+@media (orientation: portrait) {
+  #app[data-mode="phone"] #card { top: calc(var(--gt) + 56px); transform: translateX(-50%); }
+}
+@media (max-height: 340px) {
+  /* A short screen: the card runs along the bottom at full width, and the picture lifts your car above it. */
+  #startcard { left: var(--gl); right: var(--gr); width: auto; bottom: calc(var(--gb) + 2px); max-height: calc(100% - var(--gt) - var(--gb) - 50px); }
+  #startcard h3, .rw .opt span { display: none; }
+  .who { width: 44px; height: 44px; }
+  .swatches { gap: 4px; }
+  #card { gap: 4px; padding: 8px 12px 10px; }
+  #card h2 { font-size: 20px; } #card ol { font-size: 15px; gap: 1px; } #card p { font-size: 12px; line-height: 1.15; }
+  .tb.drift { width: 86px; height: 86px; } .tb.brake { right: calc(var(--gr) + 98px); width: 52px; height: 52px; }
+  .tb.use { width: 62px; height: 62px; bottom: calc(var(--gb) + 106px); right: calc(var(--gr) + 12px); padding: 2px 0 5px; } .tb.use .ico { width: 30px; height: 30px; } .tb.use b { font-size: 10px; }
+  .held { bottom: calc(var(--gb) + 172px); right: calc(var(--gr) + 0px); } .held .ico { width: 44px; height: 44px; } .held .hname { font-size: 11.5px; }
+  .traitline { display: none; }
+  .ring { width: 96px; height: 96px; margin: -48px 0 0 -48px; }
+  #app[data-touch] #hint { max-width: min(25vw, 145px); font-size: 12px; line-height: 1.12; }
+}
+@media (orientation: portrait) and (max-width: 600px) {
+  #turn { display: block; top: calc(var(--gt) + 112px); } /* reviewer fix (round two): it covered the lap and place strip */
+  #hint { top: calc(var(--gt) + 150px); max-width: 80vw; }
+  #app[data-touch] #hint { top: calc(var(--gt) + 150px); }
+  #startcard { grid-template-columns: 1fr; width: auto; left: var(--gl); }
+  .tb.brake { right: calc(var(--gr) + 24px); bottom: calc(var(--gb) + 134px); } /* upright, the brake sits over the drift button, clear of the steering */
+  .tb.use { right: calc(var(--gr) + 124px); bottom: calc(var(--gb) + 20px); width: 72px; height: 72px; } /* upright, Use sits beside Drift */
+  .held { right: calc(var(--gr) + 116px); bottom: calc(var(--gb) + 100px); }
+}
+@media (max-width: 480px) { .btn { padding: 0 6px; font-size: 12.5px; letter-spacing: 0; min-width: 44px; } .btn.big { padding: 0 18px; font-size: 19px; } #btns { gap: 4px; } #brand b { font-size: 12.5px; padding: 5px 6px 6px; } }
+@media (prefers-reduced-motion: reduce) { .word { animation: none !important; } }

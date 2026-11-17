@@ -64,7 +64,9 @@
     "lobby:stills:3d": "node lobby/test/shoot-3d-stills.mjs",
     "lobby:measure:3d": "node lobby/test/measure-3d.mjs",
     "test:production": "node party-kit/test/e2e-production.mjs",
-    "test:turnstile": "node party-kit/test/e2e-turnstile.mjs"
+    "test:turnstile": "node party-kit/test/e2e-turnstile.mjs",
+    "test:tin-derby": "node floor/games/tin-derby/test/e2e-room.mjs --only=short",
+    "test:tin-derby:full": "node floor/games/tin-derby/test/e2e-room.mjs --only=solo,two,four,trouble,stalls,look,lag"
   },
   "dependencies": {
     "lean-qr": "^2.7.4"
@@ -74,6 +76,7 @@
     "playwright": "^1.64.1",
     "sharp": "^0.35.5",
     "three": "^0.186.1",
+    "tin-derby": "file:floor/games/tin-derby",
     "vitest": "4.1",
     "wrangler": "^4.157.0"
   },
