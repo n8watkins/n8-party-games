@@ -38,11 +38,12 @@ export const CHARACTERS = ["pawn", "ghost", "slime", "robot"];
 /**
  * The house cars' paints, in the order they are tried: each house car takes the first that is not close to a colour
  * already in the race, so no house car wears a player's colour (they all wore the default red, as the first player does).
- * The first four are none of the party room's colour presets and stand out on the red and cream cloth: lime, sky blue,
- * chocolate, indigo (each at least 112 apart from every preset, as `far` measures; the cloth's red and cream at least
- * 43 apart in CIE Lab). The rest are the presets, for a party that has taken those.
+ * The first four are none of the party room's colour presets and stand out on the red and cream cloth: lime,
+ * chocolate, sky blue, indigo (each at least 112 apart from every preset, as `far` measures; the cloth's red and cream
+ * at least 43 apart in CIE Lab). Sky blue comes third, so with the party room's usual seat colours it is worn only beside
+ * a lone first player, not next to the second seat's enamel blue. The rest are the presets, for a party that has taken those.
  */
-export const HOUSE_COLOURS = ["#9cc43a", "#4a9be0", "#7b4a2c", "#2b2f7a", "#1d1d1d", "#3aa9a0", "#d9619a", "#8a5bc4", "#d9a02a", "#3f7a4a"];
+export const HOUSE_COLOURS = ["#9cc43a", "#7b4a2c", "#4a9be0", "#2b2f7a", "#1d1d1d", "#3aa9a0", "#d9619a", "#8a5bc4", "#d9a02a", "#3f7a4a"];
 const rgbOf = (hex) => { const n = parseInt(String(hex).slice(1), 16) || 0; return [(n >> 16) & 255, (n >> 8) & 255, n & 255]; };
 /** How far apart two colours look, roughly ("redmean"): plain arithmetic and a square root, the same on every engine. */
 export function colourGap(a, b) {
