@@ -176,9 +176,9 @@ try {
         await sleep(200);
       }
     };
-    const watchAll = async (s, ms) => {
-      for (const page of [rob, sam, pat]) await page.evaluate(([s, ms]) => window.watchMoves(s, ms), [s, ms]);
-    };
+    // On every phone at once, and for longer than the move takes: on a busy machine each call into a
+    // page can take a while, and a watch that began late would miss the start of the move.
+    const watchAll = (s, ms) => Promise.all([rob, sam, pat].map((page) => page.evaluate(([s, ms]) => window.watchMoves(s, ms), [s, ms + 1500])));
     const seenOn = (page, s) => page.evaluate((s) => window.__moves[s] ?? {}, s);
     ada.goto(1700);
 
