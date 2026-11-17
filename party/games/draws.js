@@ -1,13 +1,17 @@
-// Who Am I?'s randomness: a stream of draws from the match's secret, so knowing everything a page
-// can see (every id, every name revealed so far, the room's seed) tells nothing about the next draw.
+// The randomness of the Table games that deal secrets (Who Am I?, Paper Masks): a stream of draws
+// from the match's secret, so knowing everything a page can see (every id, every name or answer
+// revealed so far, the room's seed) tells nothing about the next draw.
 //
-// Draw n is SHA-256("who-am-i/draw/<n>/<secret>") read as a number in [0, 1): SHA-256 in counter
-// mode, a pseudorandom function keyed by the secret. The secret is at least 128 bits from the
-// platform's secure source (the Table's adapter draws 256), so the generator's state is the secret
-// itself, and the position is a plain count kept in the state: a restart reproduces the same draws.
+// Draw n of a game is SHA-256("<game>/draw/<n>/<secret>") read as a number in [0, 1): SHA-256 in
+// counter mode, a pseudorandom function keyed by the secret. The secret is at least 128 bits from
+// the platform's secure source (the Table's adapter draws 256), so the generator's state is the
+// secret itself, and the position is a plain count the rules keep in their state: a restart
+// reproduces the same draws. `keyedHex` makes other values from the secret under labels of their
+// own (Paper Masks' card ids), as unrelated to the draws as two draws are to each other.
 //
 // Synchronous on purpose: the rules are pure synchronous functions, and `crypto.subtle.digest` is
-// asynchronous, so SHA-256 is written out here (FIPS 180-4; the tests check it against node:crypto).
+// asynchronous, so SHA-256 is written out here (FIPS 180-4; Who Am I's tests check it against
+// node:crypto).
 
 const K = new Uint32Array([
   0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5, 0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174,
@@ -67,18 +71,25 @@ export function sha256(bytes) {
 }
 
 const encoder = new TextEncoder();
+const hex = (bytes) => Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
 
 /** A secret is at least 128 bits written as hex (the adapter gives 256). */
 export const isSecret = (secret) => typeof secret === "string" && /^[0-9a-f]{32,}$/.test(secret);
 
 /** A fresh 256-bit secret from the platform's secure source, as hex. */
 export function freshSecret() {
-  const bytes = globalThis.crypto.getRandomValues(new Uint8Array(32));
-  return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+  return hex(globalThis.crypto.getRandomValues(new Uint8Array(32)));
 }
 
-/** Draw number `n` (0, 1, 2, ...) from `secret`: a number in [0, 1) with 48 random bits. */
-export function draw(secret, n) {
-  const d = sha256(encoder.encode(`who-am-i/draw/${n}/${secret}`));
-  return (d[0] * 2 ** 40 + d[1] * 2 ** 32 + d[2] * 2 ** 24 + d[3] * 2 ** 16 + d[4] * 2 ** 8 + d[5]) / 2 ** 48;
+/** One game's draws: `draw(secret, n)` is draw number `n` (0, 1, 2, ...), in [0, 1) with 48 random bits. */
+export function drawsFor(game) {
+  return (secret, n) => {
+    const d = sha256(encoder.encode(`${game}/draw/${n}/${secret}`));
+    return (d[0] * 2 ** 40 + d[1] * 2 ** 32 + d[2] * 2 ** 24 + d[3] * 2 ** 16 + d[4] * 2 ** 8 + d[5]) / 2 ** 48;
+  };
+}
+
+/** `chars` hex characters (at most 64) keyed by the secret under `label`: SHA-256("<label>/<secret>"). */
+export function keyedHex(label, secret, chars = 16) {
+  return hex(sha256(encoder.encode(`${label}/${secret}`))).slice(0, chars);
 }

@@ -412,11 +412,14 @@ A Table game keeps the same contract as any turn-based game ("Turn-based games",
   There is no audience at the Table.
 - **The end.** As for any turn-based game, plus one way more: the host sends `{ t: "stop" }` and the game ends with no points and a note, `note { k: "ended", why: "host", seat, name, text }` ("Ann ended Count to ten."), the card's `last.early` saying the same; anyone else is refused, `stop-no { error, message }`.
   Everyone is back at the Table, with the card.
+  A game whose match is already decided though not yet over (a final screen still up, Paper Masks' curtain) says so with the optional `game.decided(state)` (the adapter passes the rules' `decided` on): `stop` then ends it as a finished match, its places scored once, with no `ended` note and no `last.early`.
+  Its view may also call the optional `ctx.decided(true)` so the Table's own "End the game" steps aside while its final screen offers the way back.
 
 Count to ten (`party/games/count-to-ten/`, view in `party/public/games/`) is the test game that shows the whole shape through the same adapter: per-seat secrets from the match's seed, a turn timer on the alarm, `join` (a watcher), `leave` (it goes on, and the last one left wins), `host`, and a view that keeps to `mount`.
 
 The kit-level hooks are open to any turn-based game, not only Table ones: `game.join(state, seat, now)`, `game.leave(state, seat, now)` and `game.host(state, seat, now)` return `false` or `{ ok: false }` to turn it down, otherwise nothing, `true`, events or `{ events }`; one that throws ends the game with no points.
 A game without `leave` ends when a seat is gone for good, through `abandon`, as before.
+A game whose `leave` makes it over with nobody placed (Paper Masks' waiting step, left with two) ends as an abandoned one does: the `ended` note and the card's `last.early` say who left.
 
 ### What hosting a game through this takes
 
