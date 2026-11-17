@@ -138,8 +138,12 @@ try {
     await screen.click("text=Use this as the room's screen");
     await screen.click("text=Show the room here");
     await screen.waitForSelector(look === "flat" ? "svg.scene" : ".look3d canvas", { timeout: 60000 });
+    // The code is written in once the room answers, which a busy machine can draw after the room
+    // itself: read before then it is empty, the join is refused, and the socket waits for ever.
+    await screen.waitForFunction(() => /\d{4}/.test(document.querySelector(".code-digits")?.textContent ?? ""), null, { timeout: 30000 });
     const pin = (await screen.locator(".code-digits").textContent()).trim();
     const host = { pin, ...(await call("POST", "/join/" + pin, { nickname: "Ada" })) };
+    if (!host.token) throw new Error(`Ada could not join the party ${pin}: ${JSON.stringify(host)}`);
     const ada = connect(host);
     await ada.opened;
     const bea = await open(`bea (${look})`);
