@@ -605,6 +605,8 @@ class App {
       let y = p.y;
       const tall = th - 1;
       for (let k = 0; k < placed.length; k += 3) if (Math.abs(placed[k] - x) < (placed[k + 2] + tag.w) / 2 + 2 && Math.abs(placed[k + 1] - y) < tall) { y = placed[k + 1] - th; k = -3; }
+      // Stepped up over the strip and chips: not drawn after all.
+      if (!tv && y - th < (this.tagTop || 0)) { tag.hidden = true; continue; }
       placed.push(x, y, tag.w);
       tag.style.transform = `translate(${Math.round(x)}px, ${Math.round(y)}px) translate(-50%, -100%)`;
     }

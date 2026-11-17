@@ -263,15 +263,18 @@ try {
     const { code, pin, phones } = await party("trouble", ["Ada", "Bo", "Cy"], { screen: false });
     const [ada, bo, cy] = phones;
     let dropped = false, back = false, reloaded = false, late = null;
+    const droppedT = { drop: 0, back: 0 };
     const handed = [];
     const during = async (t, frames, last) => {
       if (!dropped && t > 8) {
         dropped = true;
+        droppedT.drop = t;
         await bo.context().setOffline(true);
         console.log(`     Bo's phone loses its connection at race time ${t.toFixed(1)} s`);
       }
       if (dropped && !back && t > 16) {
         back = true;
+        droppedT.back = t;
         await bo.context().setOffline(false);
         console.log(`     Bo's phone has its connection again at ${t.toFixed(1)} s`);
       }
@@ -295,9 +298,12 @@ try {
     const { end, last } = await race("trouble", code, [ada, bo, cy], { during });
     if (end) {
       const boCar = last.get(ada).cars.findIndex((c) => c.name === "Bo");
-      // From the drop on (a page that loaded slowly is driven by the house until its first word, before that).
-      const hands = handed.filter((e) => e.c === boCar && e.n > (8 + 3) * 120).map((e) => e.on).join();
-      check(hands === "1,0", `trouble: the room handed Bo's car to the house when his phone dropped and back when it returned (${hands || "nothing"})`);
+      // The house had Bo's car while his phone was away, and gave it back once it returned. (It may also have had it for a
+      // moment before: a page drawing in software can go a second without a word, and a page that loads late is the house's until it speaks.)
+      const bo2 = handed.filter((e) => e.c === boCar).sort((a, b) => a.j - b.j);
+      const houseAt = (t) => { let on = 0; for (const e of bo2) if (e.n <= (t + 3) * 120) on = e.on; return on; };
+      const afterBack = bo2.filter((e) => e.n > (droppedT.back + 3) * 120);
+      check(houseAt(droppedT.drop + 4) === 1 && houseAt(droppedT.back - 0.5) === 1 && afterBack.some((e) => e.on === 0), `trouble: the room handed Bo's car to the house when his phone dropped (${droppedT.drop.toFixed(1)}) and back when it returned (${droppedT.back.toFixed(1)}): ${JSON.stringify(bo2.map((e) => [e.on, +(e.n / 120 - 3).toFixed(2)]))}`);
       const boStats = last.get(bo).stats, cyStats = last.get(cy).stats;
       check(boStats.full >= 1 || boStats.restarts >= 1, `trouble: Bo's page started its copy again from the room's full snapshot after the drop (${boStats.full} full, ${boStats.restarts} restarts)`);
       check(last.get(cy).car >= 0 && cyStats.frames > 0, "trouble: Cy's page came back from the reload in the same car");
