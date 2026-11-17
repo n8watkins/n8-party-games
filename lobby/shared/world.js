@@ -145,23 +145,30 @@ export function lightAt(x, wall) {
  * Where the room puts a seat's piece (on arriving, and after a game): always in the dark, and
  * apart from the others. The first two stand by the door. On an even wall the rest stand in the
  * dark gaps between the pools further along; on a placed wall, whose gaps are only about a piece
- * wide, they stand in the wide dark at either end of the wall instead, by the door first.
+ * wide, they stand in the wide dark at the far end of the wall instead, and then by the door.
  */
 export function spawnX(seat, wall) {
   if (seat < 2) return 150 + seat * 100;
   const w = wallOf(wall);
   const ends = w.placed ? endSpots(w) : [];
-  if (ends.length) return ends[seat % ends.length];
+  if (ends.length) return ends[(seat - 2) % ends.length];
   return Math.round(w.xs[Math.min(seat - 1, w.n - 1)] - w.slot / 2);
 }
 
-/** The arrival spots in the dark at either end of a wall, 100 apart and a piece's width clear of the end pools: by the door first, then the far end. */
+/** How far apart arrival spots at the ends of a placed wall are: more than a bump reaches (bump.js, BUMP_REACH), so nobody arrives within a kick of another. */
+const END_SPACING = 150;
+
+/**
+ * The arrival spots of seats after the first two on a placed wall, a piece's width clear of the
+ * end pools: across the room at the far end first, nearest the pools first (as the even wall
+ * spreads them along), then by the door past the first two.
+ */
 function endSpots(w) {
-  const left = [];
-  const right = [];
-  for (let x = 150; x <= w.xs[0] - w.half - PIECE_WIDTH; x += 100) left.push(x);
-  for (let x = ROOM.maxX - 50; x >= w.xs[w.n - 1] + w.half + PIECE_WIDTH; x -= 100) right.unshift(x);
-  return [...left, ...right];
+  const far = [];
+  for (let x = ROOM.maxX - 50; x >= w.xs[w.n - 1] + w.half + PIECE_WIDTH; x -= END_SPACING) far.unshift(x);
+  const door = [];
+  for (let x = 250 + END_SPACING; x <= w.xs[0] - w.half - PIECE_WIDTH; x += END_SPACING) door.push(x);
+  return [...far, ...door];
 }
 
 /**
