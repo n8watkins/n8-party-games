@@ -95,6 +95,8 @@ export const COPY = {
     about: "Each of you gets a secret identity that only the other player can see: a famous person, a character or a mascot.",
     steps: ["Each of you gets a secret name, shown only on the other's phone.", "Take turns asking questions that can be answered yes or no.", "First to guess their own name wins the round."],
     suits: "Two people on a sofa with ten minutes.",
+    // Played at the Table, and on its own site as well (a second way to play it).
+    site: "https://whoami.n8builds.dev/",
   },
   "hot-potato": {
     tile: "tile-potato",

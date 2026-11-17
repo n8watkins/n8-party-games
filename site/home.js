@@ -268,12 +268,16 @@ function actionsOf(g) {
   if (g.status === "table") {
     box.append(link("Start a party at the Table", LINKS.tableStart), joinButton());
     note("You get a code to share. Friends join on their phones, and the host picks this game.");
+    // A second way to play it, where the game also has a site of its own (Who Am I?).
+    if (g.site) {
+      const own = link("Its own site", g.site, true);
+      own.className = "btn btn-alt";
+      box.insertBefore(own, box.lastChild);
+    }
   } else if (g.status === "own-site") {
     const host = new URL(g.href).host;
     box.append(link("Play now", g.href, true));
-    // Who Am I? is both: its own site from the room's wall, and a game the Table plays.
-    const atTable = model.table.some((t) => t.id === g.id && t.status === "table");
-    note(atTable ? `Plays on its own site, ${host}, and here at the Table too: start a party there and the host picks it.` : `Plays today on its own site, ${host}. Coming: play it here at the Table, everyone joining with one code.`);
+    note(`Plays today on its own site, ${host}. Coming: play it here at the Table, everyone joining with one code.`);
   } else if (g.status === "page") {
     box.append(link("Play now", g.href));
     note(g.kind === "device" ? "Plays on this device. Nothing to install, nobody signs up." : "Plays on its own page of this site.");

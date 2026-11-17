@@ -20,7 +20,7 @@ export const isLive = (status) => status !== "soon";
 function game(kind, { id, name, line, min, max }, status, href = null) {
   const copy = COPY[id] ?? {};
   // The room's wall says each game's line in the room's own words; the doors with cards use the page's.
-  return { id, kind, name, line: kind === "room" ? line : (copy.line ?? line), min, max, status, href, tile: copy.tile ?? null, focus: copy.focus ?? "50% 50%", wide: copy.wide ?? null, piece: copy.piece ?? null, about: copy.about ?? line, steps: copy.steps ?? [], suits: copy.suits ?? "" };
+  return { id, kind, name, line: kind === "room" ? line : (copy.line ?? line), min, max, status, href, tile: copy.tile ?? null, focus: copy.focus ?? "50% 50%", wide: copy.wide ?? null, piece: copy.piece ?? null, about: copy.about ?? line, steps: copy.steps ?? [], suits: copy.suits ?? "", site: copy.site ?? null };
 }
 
 /**

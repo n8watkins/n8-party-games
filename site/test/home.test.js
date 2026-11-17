@@ -104,21 +104,10 @@ describe("what the front page says is playable", () => {
     expect(unbacked(model, later)).toEqual([]);
   });
 
-  it("plays Who Am I? at the Table, and still on its own site from the room's wall", async () => {
+  it("plays Who Am I? at the Table, with its own site as a second way to play it", async () => {
     const model = await modelFrom(WALL);
-    expect(model.table.find((g) => g.id === "who-am-i")).toMatchObject({ status: "table", min: 2, max: 2 });
-    const room = model.room.find((g) => g.id === "who-am-i");
-    expect(room.status).toBe("own-site");
-    expect(room.href).toBe(WALL.boxes.find((b) => b.id === "who-am-i").url);
-    expect(room.href).toBe("https://whoami.n8builds.dev/");
+    expect(model.table.find((g) => g.id === "who-am-i")).toMatchObject({ status: "table", min: 2, max: 2, site: "https://whoami.n8builds.dev/" });
     expect(unbacked(model)).toEqual([]);
-  });
-
-  it("would play Who Am I? on its own site again were the Table to lose it", async () => {
-    const without = { ...WALL, table: WALL.table.map((e) => (e.id === "who-am-i" ? { ...e, soon: true } : e)) };
-    const who = (await modelFrom(without)).table.find((g) => g.id === "who-am-i");
-    expect(who.status).toBe("own-site");
-    expect(who.href).toBe(WALL.boxes.find((b) => b.id === "who-am-i").url);
   });
 
   it("gives Hot Potato the player counts of its own rules", () => {
@@ -150,12 +139,10 @@ describe("what each door's peek calls Now", () => {
     expect(ids(peekOf("device", model.device).here)).toEqual(["hot-potato"]);
   });
 
-  it("calls both Table games Now at the Table today, and Who Am I? its own site from the room", async () => {
-    const model = await modelFrom(WALL);
-    const table = peekOf("table", model.table);
+  it("calls both Table games Now at the Table today", async () => {
+    const table = peekOf("table", (await modelFrom(WALL)).table);
     expect(ids(table.here)).toEqual(["paper-masks", "who-am-i"]);
     expect(ids(table.elsewhere)).toEqual([]);
-    expect(ids(peekOf("room", model.room).elsewhere)).toEqual(["who-am-i"]);
   });
 
   it("calls Paper Masks Now at the Table by itself the day the Table can start it", async () => {

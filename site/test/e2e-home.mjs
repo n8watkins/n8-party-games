@@ -373,8 +373,10 @@ try {
   await eve.waitForFunction(() => document.body.dataset.sheet === "open");
   const who = await eve.evaluate(() => {
     const a = document.querySelector("#detail a.btn-go");
-    return { href: a?.href, target: a?.target, text: a?.textContent, focus: document.getElementById("detail").contains(document.activeElement) };
+    const own = [...document.querySelectorAll("#detail a.btn")].find((x) => /Its own site/.test(x.textContent));
+    return { href: a?.href, target: a?.target, text: a?.textContent, own: own ? { href: own.href, target: own.target } : null, focus: document.getElementById("detail").contains(document.activeElement) };
   });
+  check(who.own?.href === "https://whoami.n8builds.dev/" && who.own.target === "_blank", `and offers its own site as a second way to play, in a new tab (${JSON.stringify(who.own)})`);
   // Who Am I? plays at the Table now (its own site stays on the room's wall, as the peek above says).
   check(/Start a party at the Table/.test(who.text ?? "") && new URL(who.href).origin === new URL(base).origin && who.target !== "_blank", `Who Am I?'s card at the Table door starts a party at the Table ("${who.text}", ${who.href})`);
   check(who.focus, "the card takes the focus when it opens");
