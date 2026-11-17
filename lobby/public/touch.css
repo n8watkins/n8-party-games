@@ -78,10 +78,13 @@
   opacity: 1;
   animation: spot-hint 1.2s ease-in-out 4;
 }
+/* Under the mark, not beside it: beside it the word covered the board's "Tonight", and on a sideways
+   phone it sat under the corner buttons. */
 .touch-layer.hinting .spot-board .spot-mark::after {
   content: "tap";
   position: absolute;
-  right: 28px;
+  top: 26px;
+  right: -6px;
   padding: 2px 8px;
   border-radius: 10px;
   background: rgba(23, 16, 12, 0.88);

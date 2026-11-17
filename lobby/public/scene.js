@@ -115,9 +115,11 @@ export class Scene {
       bulbs.append(s("circle", { cx: x, cy: sag(x), r: 17, fill: "url(#g-bulb)" }), s("circle", { cx: x, cy: sag(x), r: 6, fill: "#ffeccb" }));
     }
     g.append(s("path", { d: cable, stroke: "#0a0504", "stroke-width": 2, fill: "none" }), bulbs);
-    // The room fades out at its ends.
-    g.append(s("rect", { x: x0, y: -900, width: -x0 + 4, height: 2900, fill: "#080403", opacity: 0.82 }), s("rect", { x: 0, y: -900, width: 120, height: 2900, fill: "url(#g-edge-l)" }));
-    g.append(s("rect", { x: 1916, y: -900, width: x1 - 1916, height: 2900, fill: "#080403", opacity: 0.82 }), s("rect", { x: 1800, y: -900, width: 120, height: 2900, fill: "url(#g-edge-r)" }));
+    // The room fades out at its ends. The dark past an end starts where the fade has reached it,
+    // not under it: where the two overlapped, a darker line ran down the screen (a sideways
+    // phone's whole room shows past the right end).
+    g.append(s("rect", { x: x0, y: -900, width: -x0, height: 2900, fill: "#080403", opacity: 0.82 }), s("rect", { x: 0, y: -900, width: 120, height: 2900, fill: "url(#g-edge-l)" }));
+    g.append(s("rect", { x: 1920, y: -900, width: x1 - 1920, height: 2900, fill: "#080403", opacity: 0.82 }), s("rect", { x: 1800, y: -900, width: 120, height: 2900, fill: "url(#g-edge-r)" }));
     return g;
   }
 
