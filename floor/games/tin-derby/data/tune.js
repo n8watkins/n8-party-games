@@ -210,6 +210,8 @@ const DATA = {
     QUEUE: 32, // inputs one car may have waiting for their step; more are refused (a flood)
     BEAT: 6, // every this many ticks the room says how far it has got, even when nobody steered (5 times a second)
     CATCH_UP: 480, // the most steps one tick runs when the room fell behind (4 s of race)
+    ALIVE_EVERY: 0.25, // a racing page with nothing new to say still says it is there this often ({h: 1})
+    SILENT: 1, // a seat the room has heard nothing at all from for this long is driven by the house until it speaks again
   },
 
   // ---- The view (drawn only) ----

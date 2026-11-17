@@ -22,6 +22,8 @@ export function makeReplica(rules, snapshot, { seat = null } = {}) {
   let q = me < 0 ? 0 : auth.room.q[me];
   let sent = me < 0 ? [0, 0] : auth.room.sent[me].slice();
   let sentAt = -Infinity;
+  /** When this page last sent anything at all (hands or a beat). */
+  let saidAt = -Infinity;
 
   /** Forgets the inputs the room has read (it says the highest number it has read from each car). */
   function settle() {
@@ -67,16 +69,30 @@ export function makeReplica(rules, snapshot, { seat = null } = {}) {
      * moved, or only the steer has and the last message is less than NET.SEND_EVERY old (the room takes 20 messages
      * a second from a socket; a button is always sent at once).
      */
-    input(now, steer, go, brake, drift, use) {
+    input(now, steer, go, brake, drift, use, { force = false } = {}) {
       if (me < 0 || auth.over) return null;
       const msg = { c: [now, steer, go ? 1 : 0, brake ? 1 : 0, drift ? 1 : 0, use ? 1 : 0], q: q + 1 };
       const inp = rules.readInput(msg);
       if (inp.st === sent[0] && inp.b === sent[1]) return null;
-      if (inp.b === sent[1] && now - sentAt < NET.SEND_EVERY * 1000) return null;
-      q += 1; sent = [inp.st, inp.b]; sentAt = now;
+      // `force`: the page is going away (hidden, closed), so the hands it lets go of are sent now, not a frame later.
+      if (!force && inp.b === sent[1] && now - sentAt < NET.SEND_EVERY * 1000) return null;
+      q += 1; sent = [inp.st, inp.b]; sentAt = saidAt = now;
       msg.c[1] = inp.st;
       pending.push({ q, n: rules.stepOf(auth, now) + 1, st: inp.st, b: inp.b });
       return msg;
+    },
+
+    /**
+     * A sign that this page is still there ({h: 1}), when it has said nothing for NET.ALIVE_EVERY; otherwise null.
+     * The room gives a car to the house when it has heard nothing at all from its page for NET.SILENT, and takes
+     * none from a page that is still loading until its first word: call it once when the page is up and then
+     * every frame (or on a timer) while the race runs.
+     */
+    beat(now) {
+      if (me < 0 || auth.over) return null;
+      if (now - saidAt < NET.ALIVE_EVERY * 1000) return null;
+      saidAt = now;
+      return { h: 1 };
     },
 
     /** The race at `now` on the room's clock, as near as this page can know it: a fresh copy each call, the caller's to keep or drop. */

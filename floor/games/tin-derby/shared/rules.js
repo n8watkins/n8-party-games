@@ -54,6 +54,7 @@ export function makeRules(T = TUNE, { math: M = dmath, preview: PREVIEW = false 
   const { LEN, TAG, wrapU, wrapS, trackAt, locate, EDGE_SIDE, onEdge, sideLimit, groundAt, susanH, toastH, BANK_SIDE, SHAKERS, ARM_TAU, steamAt, toasterAt, eggAt, syrupAt, spillAt, SUSAN_AT, susanThings, cherryPlan } = course;
   const KT = T.KETTLE, CH = T.CHERRY, EG = T.EGG, SY = T.SYRUP, SU = T.SUSAN, TS = T.TOASTER, BK = TAG.bank, NET = T.NET;
   const AHEAD_STEPS = Math.round(NET.AHEAD / DT);
+  const START_STEP = Math.round(T.COUNT_IN / DT); // the step at which the race starts (GO)
 
   function makeCar(i, row, slot) {
     const u = T.LINE_U + slot[0], p = trackAt(u, slot[1], {});
@@ -103,7 +104,10 @@ export function makeRules(T = TUNE, { math: M = dmath, preview: PREVIEW = false 
     state.t = state.n * DT - T.COUNT_IN;
     state.ev = []; // what happened in the steps just run (for a page's picture and sound, and the tests)
     state.net = []; // what the room has to tell everyone at its next tick
-    state.host = { mark: [false, false, false, false], want: [false, false, false, false], ticks: 0 };
+    // The room's own notes on each car's page, never sent: whether its socket was away at the last tick (away), when
+    // it last heard anything from it (heard, ms on its clock; -1 before the first word), whether the page said it
+    // cannot show the race (gave), and whether the house has the car just now (want).
+    state.host = { mark: [false, false, false, false], away: [false, false, false, false], heard: [-1, -1, -1, -1], gave: [false, false, false, false], want: [false, false, false, false], ticks: 0 };
     state.rev = 0;
     state.stats = state.cars.map(newStats);
     return state;
@@ -179,6 +183,42 @@ export function makeRules(T = TUNE, { math: M = dmath, preview: PREVIEW = false 
     if (inp.q) e.q = inp.q;
     state.net.push(e);
     return n;
+  }
+  /**
+   * Should the house drive this player's car just now? When its socket was away at the last tick, when its page
+   * said it cannot show the race, and, once the race is under way, when the room has heard nothing at all from
+   * the page for NET.SILENT (a phone that stalled without closing its socket), or nothing yet (a page still loading).
+   * A racing page says it is there every NET.ALIVE_EVERY even when its hands are still, so a quiet straight is not silence.
+   */
+  function houseWanted(state, c, now) {
+    const H = state.host, i = c.i;
+    if (H.away[i] || H.gave[i]) return true;
+    if (stepOf(state, now - state.delay) < START_STEP) return false; // in the count-in no car moves: nothing to drive yet
+    return H.heard[i] < 0 || now - H.heard[i] > NET.SILENT * 1000;
+  }
+  /** Hands a car to the house or back when what it should be has changed. */
+  function settleHouse(state, c, now) {
+    if (state.over || c.house || c.fin) return;
+    const on = houseWanted(state, c, now);
+    if (on === state.host.want[c.i]) return;
+    state.host.want[c.i] = on;
+    handOver(state, c, on);
+  }
+  /**
+   * Anything a seat's page sends: hands ({c: [...]}), a sign that it is still there ({h: 1}), or word that it cannot
+   * show the race and the house should drive its car ({house: 1}; for its own car only, since the room knows the
+   * seat by the socket). Hands also take the car back from the house. Anything else is not even a sign of life.
+   */
+  function takeMessage(state, seat, data, now) {
+    const c = carOf(state, seat);
+    if (!c || c.house || state.over || !data || typeof data !== "object") return 0;
+    const H = state.host, i = c.i, hands = readInput(data);
+    if (hands) H.gave[i] = false;
+    else if (data.house === 1) H.gave[i] = true;
+    else if (data.h !== 1) return 0;
+    H.heard[i] = now;
+    settleHouse(state, c, now);
+    return hands ? takeInput(state, seat, data, now) : 0;
   }
   /** The room hands a seat to the house (its phone dropped) or back, from the next step, and everyone is told. */
   function handOver(state, c, on) {
@@ -808,8 +848,8 @@ export function makeRules(T = TUNE, { math: M = dmath, preview: PREVIEW = false 
     tickHz: 30,
     snapshotEvery: 30, // a whole race once a second; pages stay in step from the events in between
     create(ctx) { return createRace(ctx); },
-    /** An input from a seat's page: queued for its step, and everyone is told at the next tick. */
-    input(state, seat, data, now) { takeInput(state, seat, data, now); },
+    /** A message from a seat's page (takeMessage): hands are queued for their step, and everyone is told at the next tick. */
+    input(state, seat, data, now) { takeMessage(state, seat, data, now); },
     /**
      * The room calls this each tick for a seat whose phone has dropped. It sends no inputs: it notes that the
      * seat is the house's this tick, and the rules drive the car themselves from the next step (as they drive the
@@ -826,11 +866,9 @@ export function makeRules(T = TUNE, { math: M = dmath, preview: PREVIEW = false 
       state.ev.length = 0;
       for (const c of state.cars) {
         if (c.house) continue;
-        const on = H.mark[c.i];
+        H.away[c.i] = H.mark[c.i];
         H.mark[c.i] = false;
-        if (on === H.want[c.i] || state.over) continue;
-        H.want[c.i] = on;
-        handOver(state, c, on);
+        settleHouse(state, c, now);
       }
       const before = state.n;
       advance(state, Math.min(stepOf(state, now - state.delay), state.n + NET.CATCH_UP));
@@ -854,7 +892,7 @@ export function makeRules(T = TUNE, { math: M = dmath, preview: PREVIEW = false 
     standings,
   };
 
-  return { T, course, house, game, VERSION, DT, SUB, LEN, CAR_KEYS, createRace, carOf, stepOf, readInput, takeInput, hear, hold, enqueue, advance, raceOrder, standings, placeOf, drawItem, dump, load, clone, fingerprint };
+  return { T, course, house, game, VERSION, DT, SUB, LEN, CAR_KEYS, createRace, carOf, stepOf, readInput, takeInput, takeMessage, hear, hold, enqueue, advance, raceOrder, standings, placeOf, drawItem, dump, load, clone, fingerprint };
 }
 
 /** The rules for the numbers in data/tune.js: what the party room runs. */

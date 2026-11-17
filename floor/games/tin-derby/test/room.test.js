@@ -14,6 +14,9 @@ const fresh = () => game.create({ seed: 77, seats: SEATS, now: START, round: 1 }
 /** The room's clock when the race is at step n (the room runs NET.DELAY behind it). */
 const clockAt = (n) => START + n * DT * 1000 + NET.DELAY * 1000 + 0.5;
 const msg = (at, steer = 0, go = 1, brake = 0, drift = 0, use = 0, q) => ({ c: [at, steer, go, brake, drift, use], ...(q ? { q } : {}) });
+const ALIVE = { h: 1 };
+/** A room tick with both players' pages up: each says it is there first, as a racing page does every NET.ALIVE_EVERY. */
+const tick = (st, now) => { for (const seat of [0, 2]) game.input(st, seat, ALIVE, now); return game.tick(st, now); };
 
 describe("the contract", () => {
   it("has every part a party room calls, and a manifest that matches", () => {
@@ -37,16 +40,16 @@ describe("the contract", () => {
 describe("inputs", () => {
   it("an input takes effect at the step of its stamp when it arrives in time, and everyone is told which", () => {
     const st = fresh();
-    game.tick(st, clockAt(400));
+    tick(st, clockAt(400));
     expect(st.n).toBe(400);
     const at = START + 410.5 * DT * 1000; // the page was in step 410 when it applied it: it holds from step 411
     game.input(st, 0, msg(at, 0.5, 1, 0, 0, 0, 1), clockAt(400) + 20);
-    const ev = game.tick(st, clockAt(404));
+    const ev = tick(st, clockAt(404));
     expect(ev).toEqual([{ k: "i", n: 411, c: 0, j: 1, s: 0.5, b: BTN.GO, q: 1 }, { k: "n", n: 404 }]);
     expect(st.cars[0].inSt).toBe(0);
-    game.tick(st, clockAt(410));
+    tick(st, clockAt(410));
     expect(st.cars[0].inSt).toBe(0);
-    game.tick(st, clockAt(411));
+    tick(st, clockAt(411));
     expect(st.cars[0].inSt).toBe(0.5);
     expect(st.cars[0].inB).toBe(BTN.GO);
     expect(st.queue).toHaveLength(0);
@@ -54,11 +57,11 @@ describe("inputs", () => {
 
   it("a late input takes effect at the next step, never in the past; one stamped far ahead is brought back", () => {
     const st = fresh();
-    game.tick(st, clockAt(400));
+    tick(st, clockAt(400));
     game.input(st, 0, msg(START + 100 * DT * 1000, -1), clockAt(400));
     game.input(st, 2, msg(START + 99_999_999, 1), clockAt(400));
     game.input(st, 2, msg("soon", 0.25), clockAt(400)); // no stamp worth the name: the next step
-    const ev = game.tick(st, clockAt(404)).filter((e) => e.k === "i");
+    const ev = tick(st, clockAt(404)).filter((e) => e.k === "i");
     expect(ev[0]).toMatchObject({ c: 0, n: 401 });
     const latest = rules.stepOf(st, clockAt(400)) + 1 + Math.round(NET.AHEAD / DT);
     expect(ev[1]).toMatchObject({ c: 1, n: latest });
@@ -67,24 +70,24 @@ describe("inputs", () => {
 
   it("steering is rounded to steps, so the same hands send nothing twice", () => {
     const st = fresh();
-    game.tick(st, clockAt(400));
+    tick(st, clockAt(400));
     game.input(st, 0, msg(null, 0.52), clockAt(400));
     game.input(st, 0, msg(null, 0.5), clockAt(400));
     game.input(st, 0, msg(null, 0.49), clockAt(400));
     game.input(st, 0, msg(null, 7), clockAt(400));
-    const ev = game.tick(st, clockAt(404)).filter((e) => e.k === "i");
+    const ev = tick(st, clockAt(404)).filter((e) => e.k === "i");
     expect(ev.map((e) => e.s)).toEqual([0.5, 1]);
     expect(ev.map((e) => e.j)).toEqual([1, 2]);
   });
 
   it("a tap of Use is never lost, however short: down and up in the same step still uses the power", () => {
     const st = fresh();
-    game.tick(st, clockAt(400));
+    tick(st, clockAt(400));
     st.cars[0].item = "overwind"; st.cars[0].itemT = 0;
     game.input(st, 0, msg(null, 0, 1), clockAt(400));
     game.input(st, 0, msg(null, 0, 1, 0, 0, 1), clockAt(400));
     game.input(st, 0, msg(null, 0, 1, 0, 0, 0), clockAt(400));
-    game.tick(st, clockAt(404));
+    tick(st, clockAt(404));
     expect(st.ev.filter((e) => e.k === "use")).toEqual([expect.objectContaining({ car: 0, item: "overwind" })]);
     expect(st.cars[0].item).toBe(null);
     expect(st.cars[0].inB).toBe(BTN.GO);
@@ -92,11 +95,11 @@ describe("inputs", () => {
 
   it("says the highest input number it has read from each page, taken or not", () => {
     const st = fresh();
-    game.tick(st, clockAt(400));
+    tick(st, clockAt(400));
     game.input(st, 2, msg(null, 0.5, 1, 0, 0, 0, 7), clockAt(400));
     game.input(st, 2, msg(null, 0.5, 1, 0, 0, 0, 8), clockAt(400)); // nothing new in it: read, not relayed
     expect(game.snapshot(st).room.q).toEqual([0, 8, 0, 0]);
-    expect(game.tick(st, clockAt(404)).filter((e) => e.k === "i")).toHaveLength(1);
+    expect(tick(st, clockAt(404)).filter((e) => e.k === "i")).toHaveLength(1);
   });
 
   it("refuses rubbish without a word: wrong shapes, unknown seats, a house car's seat, a finished race", () => {
@@ -116,7 +119,7 @@ describe("inputs", () => {
 
   it("a flood from one page fills only that car's queue, and the rest is refused", () => {
     const st = fresh();
-    game.tick(st, clockAt(400));
+    tick(st, clockAt(400));
     for (let k = 0; k < 500; k++) game.input(st, 0, msg(START + 99_999_999, (k % 16) / 16), clockAt(400));
     expect(st.queue).toHaveLength(NET.QUEUE);
     game.input(st, 2, msg(null, 1), clockAt(400));
@@ -159,11 +162,11 @@ describe("what the room tells everyone", () => {
 
   it("a snapshot asked for between two ticks holds what has arrived since, and the event that follows is not taken twice", () => {
     const st = fresh();
-    game.tick(st, clockAt(400));
+    tick(st, clockAt(400));
     game.input(st, 0, msg(null, 0.5), clockAt(400) + 5);
     const page = makeReplica(rules, JSON.parse(JSON.stringify(game.snapshot(st, clockAt(400) + 6, { role: "screen" }))));
     expect(page.auth.queue).toHaveLength(1);
-    page.events(JSON.parse(JSON.stringify(game.tick(st, clockAt(404)))));
+    page.events(JSON.parse(JSON.stringify(tick(st, clockAt(404)))));
     expect(page.auth.n).toBe(404);
     expect(rules.fingerprint(page.auth)).toBe(rules.fingerprint(st));
   });
@@ -172,33 +175,33 @@ describe("what the room tells everyone", () => {
 describe("a phone that drops", () => {
   it("the house takes the car from the next step, drives it as it drives its own, and hands it back", () => {
     const st = fresh();
-    game.tick(st, clockAt(480));
+    tick(st, clockAt(480));
     game.input(st, 0, msg(null, -1, 0, 1), clockAt(480)); // Ann is braking hard left when her phone drops
-    let ev = game.tick(st, clockAt(484));
+    let ev = tick(st, clockAt(484));
     expect(st.cars[0].inB).toBe(BTN.BRAKE);
     // The room asks the stand-in each tick the phone is away (it returns no inputs: the rules drive the car).
     expect(game.bot(st, 0, clockAt(488))).toEqual([]);
-    ev = game.tick(st, clockAt(488));
+    ev = tick(st, clockAt(488));
     expect(ev.filter((e) => e.k === "a")).toEqual([{ k: "a", n: 485, c: 0, j: 2, on: 1 }]);
     expect(st.cars[0].auto).toBe(true);
     expect(st.cars[0].inB & BTN.GO).toBe(BTN.GO);
     const s0 = st.cars[0].s;
-    for (let n = 492; n <= 1200; n += 4) { game.bot(st, 0, clockAt(n)); game.input(st, 0, msg(null, 1, 0, 1), clockAt(n)); expect(game.tick(st, clockAt(n)).filter((e) => e.k === "a")).toHaveLength(0); }
+    for (let n = 492; n <= 1200; n += 4) { game.bot(st, 0, clockAt(n)); game.input(st, 0, msg(null, 1, 0, 1), clockAt(n)); expect(tick(st, clockAt(n)).filter((e) => e.k === "a")).toHaveLength(0); }
     expect(st.cars[0].s - s0).toBeGreaterThan(30); // it raced on, whatever a stale page went on sending
     expect(st.cars[0].auto).toBe(true);
     // The phone is back: the room stops asking, and the car is the player's again from the next step.
-    ev = game.tick(st, clockAt(1204));
+    ev = tick(st, clockAt(1204));
     expect(ev.filter((e) => e.k === "a")).toEqual([{ k: "a", n: 1201, c: 0, j: expect.any(Number), on: 0 }]);
     expect(st.cars[0].auto).toBe(false);
     expect([st.cars[0].inSt, st.cars[0].inB]).toEqual([0, BTN.GO]); // rolling straight on until its player says otherwise
     game.input(st, 0, msg(null, 0.5, 1), clockAt(1204));
-    game.tick(st, clockAt(1208));
+    tick(st, clockAt(1208));
     expect(st.cars[0].inSt).toBe(0.5);
   });
 
   it("a car the house is driving for a player paces itself like a house car but is not what the house cars pace themselves by", () => {
     const st = fresh();
-    for (let n = 4; n <= 600; n += 4) { game.bot(st, 0, clockAt(n)); game.tick(st, clockAt(n)); }
+    for (let n = 4; n <= 600; n += 4) { game.bot(st, 0, clockAt(n)); tick(st, clockAt(n)); }
     expect(st.cars[0].auto).toBe(true);
     expect(st.cars[0].cap).toBeCloseTo(T.TOP_SPEED * T.HABITS.ace.pace, 6);
     expect(st.cars[0].house).toBe(false); // it keeps its seat and its place in the result
@@ -225,6 +228,96 @@ describe("a phone that drops", () => {
     for (const v of net.viewers) expect(rules.fingerprint(v.replica.auth)).toBe(rules.fingerprint(net.state));
     // And the race can be made again from nothing but its seed, its seats and what the room relayed.
     expect(shownError(rules, net).truth).toBe(rules.fingerprint(net.state));
+  }, LONG);
+});
+
+describe("a page that cannot drive, stalls, or is late", () => {
+  const handOvers = (ev) => ev.filter((e) => e.k === "a").map((e) => [e.c, e.on]);
+
+  it("{house: 1} gives the sender's own car to the house at once; a beat does not take it back, hands do", () => {
+    const st = fresh();
+    tick(st, clockAt(400));
+    game.input(st, 0, { house: 1 }, clockAt(400) + 3);
+    let ev = tick(st, clockAt(404));
+    expect(ev.filter((e) => e.k === "a")).toEqual([{ k: "a", n: 401, c: 0, j: 1, on: 1 }]);
+    expect(st.cars[0].auto).toBe(true);
+    expect(st.cars[1].auto).toBe(false); // Bo's car is his own
+    // The page goes on saying it is there (the tick helper beats for both seats): the car stays the house's.
+    for (let n = 408; n <= 600; n += 4) expect(handOvers(tick(st, clockAt(n)))).toEqual([]);
+    expect(st.cars[0].auto).toBe(true);
+    // Hands from that page (a reload that can draw): the car is the player's again, handed back before its input.
+    game.input(st, 0, msg(null, 0.5, 1), clockAt(600) + 2);
+    ev = tick(st, clockAt(604));
+    expect(ev.filter((e) => e.k !== "n").map((e) => e.k + e.c + (e.k === "a" ? e.on : ""))).toEqual(["a00", "i0"]);
+    expect(st.cars[0].auto).toBe(false);
+    expect(st.cars[0].inSt).toBe(0.5);
+  });
+
+  it("{house: 1} is refused from anyone but a player in the race, for a house car, once the race is over, or in any other shape; said twice it is one hand-over", () => {
+    const st = fresh();
+    tick(st, clockAt(400));
+    for (const seat of [1, 3, -1, -2, 99, "0", null, undefined]) game.input(st, seat, { house: 1 }, clockAt(400));
+    for (const data of [{ house: true }, { house: "1" }, { house: 2 }, { h: true }, { h: "1" }, { House: 1 }, "house", [1]]) game.input(st, 0, data, clockAt(400));
+    expect(handOvers(tick(st, clockAt(404)))).toEqual([]);
+    for (const c of st.cars) expect(c.auto).toBe(false);
+    game.input(st, 2, { house: 1 }, clockAt(404));
+    game.input(st, 2, { house: 1 }, clockAt(404));
+    game.input(st, 2, { house: 1, h: 1 }, clockAt(405));
+    expect(handOvers(tick(st, clockAt(408)))).toEqual([[1, 1]]);
+    // A page that keeps flipping between "house" and hands makes at most one hand-over a message, all for its own car.
+    let flips = 0;
+    for (let k = 0; k < 40; k++) game.input(st, 2, k % 2 ? { house: 1 } : msg(null, (k % 8) / 8), clockAt(408) + k);
+    for (const [c] of handOvers(tick(st, clockAt(412)))) { expect(c).toBe(1); flips++; }
+    expect(flips).toBeLessThanOrEqual(40);
+    expect(st.cars[0].auto).toBe(false);
+    st.over = true;
+    game.input(st, 0, { house: 1 }, clockAt(412));
+    expect(st.net.filter((e) => e.k === "a")).toEqual([]);
+  });
+
+  it("a phone that stalls for 5 s without closing its socket: the house drives its car within about a second, hands it back when it speaks again, and the car finishes", () => {
+    const net = runNet(rules, { seed: 5, phones: [{ style: "plain", up: 40, down: 40, freezeAt: 12, freezeFor: 5 }, { style: "plain", up: 40, down: 40 }] });
+    const a = net.stats.relay.filter((e) => e.k === "a");
+    expect(a.map((e) => [e.c, e.on])).toEqual([[0, 1], [0, 0]]);
+    const raceT = (n) => n * DT - T.COUNT_IN;
+    // Its last word came at most ALIVE_EVERY before the stall; the room runs DELAY behind its clock.
+    expect(raceT(a[0].n)).toBeGreaterThan(12 + NET.SILENT - NET.ALIVE_EVERY - NET.DELAY - 0.05);
+    expect(raceT(a[0].n)).toBeLessThan(12 + NET.SILENT + 0.2);
+    expect(raceT(a[1].n)).toBeGreaterThan(17 - NET.DELAY - 0.05);
+    expect(raceT(a[1].n)).toBeLessThan(17 + 0.5);
+    expect(net.state.over).toBe(true);
+    expect(net.stats.mismatches).toEqual([]);
+    for (const r of game.result(net.state)) expect(r.time).toBeGreaterThan(40);
+  }, LONG);
+
+  it("no hand-over on a quiet straight: hands that never change (held Up all race) still say the page is there", () => {
+    const net = runNet(rules, { seed: 8, phones: [{ style: "handsoff", up: 60, down: 60, jitter: 40 }, { style: "plain", up: 40, down: 40 }] });
+    expect(net.state.over).toBe(true);
+    expect(net.stats.relay.filter((e) => e.k === "a")).toEqual([]);
+    const [still] = net.stats.up;
+    expect(still.n).toBeLessThanOrEqual(2); // its hands: Up, once
+    // ...and about four beats a second, light enough: well under the room's 20 messages a second.
+    expect(still.beats / net.stats.seconds).toBeGreaterThan(3);
+    expect(still.beats / net.stats.seconds).toBeLessThan(4.5);
+  }, LONG);
+
+  it("a page that loads late: the house drives its car from GO until its first word, then hands it back", () => {
+    const net = runNet(rules, { seed: 2, phones: [{ style: "plain", up: 40, down: 40 }, { style: "plain", up: 40, down: 40, silent: 6 }], until: 15 });
+    const a = net.stats.relay.filter((e) => e.k === "a");
+    expect(a.map((e) => [e.c, e.on])).toEqual([[1, 1], [1, 0]]);
+    expect(Math.abs(a[0].n * DT - T.COUNT_IN)).toBeLessThan(0.05); // from the start of the race, not a step of it parked
+    expect(a[1].n * DT - T.COUNT_IN).toBeGreaterThan(6 - NET.DELAY - 0.05);
+    expect(a[1].n * DT - T.COUNT_IN).toBeLessThan(6.3);
+    // It raced on meanwhile, as far as the house drives in six seconds.
+    const car = net.state.cars[1];
+    expect(car.s).toBeGreaterThan(40);
+  }, LONG);
+
+  it("a page that never says a word at all is the house's for the whole race, and the race ends with its car home", () => {
+    const net = runNet(rules, { seed: 2, phones: [{ style: "plain" }, { style: "plain", silent: true }] });
+    expect(net.stats.relay.filter((e) => e.k === "a").map((e) => [e.c, e.on])).toEqual([[1, 1]]);
+    expect(net.state.over).toBe(true);
+    expect(game.result(net.state).every((r) => r.time > 40)).toBe(true);
   }, LONG);
 });
 
@@ -301,7 +394,8 @@ describe("in the kit's own room, with no browser", () => {
       if (out.snap) { snaps++; page.snapshot(JSON.parse(JSON.stringify(core.snapshotFor({ role: "screen" }, now)))); }
       const m = page.input(now, Math.sin(ticks / 20) * 0.3, 1, 0, 0, 0);
       if (m) expect(core.input(bo.seat, m, now)).toBe(true);
-      // Ann never steers; her phone drops ten seconds in and is back ten seconds later.
+      // Ann never steers, but her page is up and says so; her phone drops ten seconds in and is back ten seconds later.
+      if (!dropped || back) core.input(ann.seat, { h: 1 }, now);
       if (!dropped && ticks === 300) { core.disconnect(ann.token, now); dropped = true; }
       if (dropped && !back && ticks === 600) { core.connect(ann.token, now); back = true; }
       if (out.ended) ended = { now, result: core.result };

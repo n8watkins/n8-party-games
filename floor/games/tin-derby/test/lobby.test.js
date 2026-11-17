@@ -66,12 +66,13 @@ describe("Tin Derby in the party room", () => {
     const ann = seated(core, "Ann");
     seated(core, "Bo");
     let now = start(core);
-    // Ann's phone drops at once: the house drives her car. Bo's phone sends nothing: his car never sets off.
+    // Ann's phone drops at once: the house drives her car. Bo's page is up and says so, but he never steers: his car never sets off.
     core.disconnect(ann.token, now);
     const step = 1000 / game.tickHz;
     let ended = null, snapshots = 0, handed = 0;
     while (!ended && now < 400_000) {
       now += step;
+      core.gameInput(1, { h: 1 }, now);
       const tick = core.gameTick(now);
       handed += tick.events.filter((e) => e.k === "a" && e.on).length;
       if (tick.snapshot) snapshots++;
@@ -83,5 +84,35 @@ describe("Tin Derby in the party room", () => {
     const rows = core.view(now).members.filter(Boolean).map((m) => [m.name, m.points]);
     // Ann's car (the house's) finished; Bo's stood on the grid, so he is second with 2 points.
     expect(rows).toEqual([["Ann", 3], ["Bo", 2]]);
+  });
+
+  it("drives the car of a connected phone whose page never says a word (it never loaded) from GO, and of one that says it cannot show the race", () => {
+    const core = derbyRoom();
+    const ann = seated(core, "Ann");
+    const bo = seated(core, "Bo");
+    let now = start(core);
+    const step = 1000 / game.tickHz;
+    const handed = [];
+    const began = now, GO = 3 * 120; // the step of GO, after the three-second count-in
+    let ended = null, said = false;
+    while (!ended && now < 400_000) {
+      now += step;
+      // Ann's page is up, but has no 3D: it says so once, a second into the count-in. Bo's page never loads.
+      if (!said && now >= began + 1000) { said = true; expect(core.gameInput(ann.seat, { house: 1 }, now)).toBe(true); }
+      const tick = core.gameTick(now);
+      for (const e of tick.events) if (e.k === "a") handed.push([e.c, e.on, e.n]);
+      ended = tick.ended;
+    }
+    // Car 0 is Ann's, car 1 Bo's (the seats in order); neither is ever handed back.
+    expect(handed.map(([c, on]) => [c, on])).toEqual([[0, 1], [1, 1]]);
+    // Ann's car the moment her page said so, in the count-in; Bo's as the race started, not a step later than one tick.
+    expect(handed[0][2]).toBeLessThan(GO);
+    expect(handed[1][2]).toBeGreaterThanOrEqual(GO - 4);
+    expect(handed[1][2]).toBeLessThanOrEqual(GO + 4);
+    expect(ended).toBeTruthy();
+    // Both cars were driven home, so both have places and points.
+    const rows = core.view(now).members.filter(Boolean).map((m) => m.points).sort();
+    expect(rows).toEqual([2, 3]);
+    expect([ann.seat, bo.seat]).toEqual([0, 1]);
   });
 });

@@ -15,7 +15,9 @@ const COLOURS = ["#c8382c", "#2f6f8f", "#d9a02a", "#3f7a4a"];
 /**
  * phones: one a seat, {style, character?, touch?, up, down (ms each way), jitter (ms, added at random to each
  * message), dropAt, backAt (seconds of race clock: the socket closes, and opens again), reload (a fresh page on
- * the way back, not just a new socket), wobble (a thumb that never rests: the steer changes every frame)}.
+ * the way back, not just a new socket), wobble (a thumb that never rests: the steer changes every frame), freezeAt,
+ * freezeFor (seconds: the page stalls without closing its socket, hearing and saying nothing), silent (seconds of
+ * race clock before the page says its first word, as one that loads late; true: it never does)}.
  * screens: [{down, joinAt}] watch without a seat. `check` compares every phone's copy with the room's at every
  * step the room says it has reached. `until` (seconds on the race clock) stops early.
  */
@@ -27,7 +29,7 @@ export function runNet(rules, { seed = 1, phones = [{ style: "plain" }], screens
   const chance = () => rules.course ? hashOf(seed, ++rnd) : 0;
   const hashOf = (a, b) => { let h = (a ^ Math.imul(b | 0, 0x9e3779b1)) >>> 0; h = Math.imul(h ^ (h >>> 16), 0x85ebca6b); h = Math.imul(h ^ (h >>> 13), 0xc2b2ae35); return ((h ^ (h >>> 16)) >>> 0) / 4294967296; };
   const text = (m) => JSON.stringify(m);
-  const stats = { ticks: 0, steps: 0, relay: [], prints: new Map(), down: { ev: 0, snap: 0, evBytes: 0, snapBytes: 0, snapMax: 0, evMax: 0 }, up: phones.map(() => ({ n: 0, bytes: 0 })), mismatches: [], checked: 0, maxQueue: 0, tickSteps: [] };
+  const stats = { ticks: 0, steps: 0, relay: [], prints: new Map(), down: { ev: 0, snap: 0, evBytes: 0, snapBytes: 0, snapMax: 0, evMax: 0 }, up: phones.map(() => ({ n: 0, beats: 0, bytes: 0 })), mismatches: [], checked: 0, maxQueue: 0, tickSteps: [] };
 
   const viewers = [];
   const start = text({ t: "snap", s: game.snapshot(state, START, { role: "screen" }), now: START, full: true });
@@ -83,18 +85,34 @@ export function runNet(rules, { seed = 1, phones = [{ style: "plain" }], screens
       }
     }
   }
+  function up(v, msg, now) {
+    const t = text({ t: "in", d: msg }), u = stats.up[v.i];
+    if (msg.c) u.n++; else u.beats++;
+    u.bytes += t.length;
+    toRoom.push([now + lag(v.p.up || 0, v.p), v.seat, t]);
+    toRoom.sort((a, b) => a[0] - b[0]);
+  }
   function frame(v, now) {
+    // A phone that stalls without closing its socket (freezeAt, freezeFor): it hears nothing and says nothing.
+    const sec = (now - START) / 1000 - T.COUNT_IN;
+    if (v.p.freezeAt !== undefined && sec >= v.p.freezeAt && sec < v.p.freezeAt + (v.p.freezeFor || 0)) return;
     read(v, now);
     if (!v.connected || !v.replica || v.fresh) return;
     const pred = v.replica.predict(now);
     v.shown.set(pred.n, pred.cars.map((c) => [c.x, c.z]));
     const c = pred.cars[v.replica.car];
     if (c.fin || pred.over) return;
-    const m = v.player.frame(pred, c, now);
-    let steer = m.c[1];
-    if (v.p.wobble) steer = Math.max(-1, Math.min(1, steer * 0.6 + Math.sin(now / 90 + v.i) * 0.4));
-    const msg = v.replica.input(now, steer, m.c[2], m.c[3], m.c[4], m.c[5]);
-    if (msg) { const t = text({ t: "in", d: msg }); stats.up[v.i].n++; stats.up[v.i].bytes += t.length; toRoom.push([now + lag(v.p.up || 0, v.p), v.seat, t]); toRoom.sort((a, b) => a[0] - b[0]); }
+    const quiet = v.p.silent !== undefined && sec < (v.p.silent === true ? Infinity : v.p.silent);
+    if (!quiet) {
+      const m = v.player.frame(pred, c, now);
+      let steer = m.c[1];
+      if (v.p.wobble) steer = Math.max(-1, Math.min(1, steer * 0.6 + Math.sin(now / 90 + v.i) * 0.4));
+      const msg = v.replica.input(now, steer, m.c[2], m.c[3], m.c[4], m.c[5]);
+      if (msg) up(v, msg, now);
+    }
+    // A page with nothing new to say still says it is there (`silent`: a page that has not loaded yet says nothing).
+    const beat = quiet ? null : v.replica.beat(now);
+    if (beat) up(v, beat, now);
   }
 
   const api = { state, viewers, stats, connect };
