@@ -46,8 +46,8 @@ export const HOUSE_COLOURS = ["#9cc43a", "#4a9be0", "#7b4a2c", "#2b2f7a", "#1d1d
 const rgbOf = (hex) => { const n = parseInt(String(hex).slice(1), 16) || 0; return [(n >> 16) & 255, (n >> 8) & 255, n & 255]; };
 /** How far apart two colours look, roughly ("redmean"): plain arithmetic and a square root, the same on every engine. */
 export function colourGap(a, b) {
-  const p = rgbOf(a), q = rgbOf(b), r = (p[0] + q[0]) / 2;
-  return Math.sqrt((2 + r / 256) * (p[0] - q[0]) ** 2 + 4 * (p[1] - q[1]) ** 2 + (2 + (255 - r) / 256) * (p[2] - q[2]) ** 2);
+  const p = rgbOf(a), q = rgbOf(b), r = (p[0] + q[0]) / 2, dr = p[0] - q[0], dg = p[1] - q[1], db = p[2] - q[2];
+  return Math.sqrt((2 + r / 256) * dr * dr + 4 * dg * dg + (2 + (255 - r) / 256) * db * db);
 }
 /** The first house paint far enough from every colour the rows so far wear (the last one if none is). */
 function houseColour(rows) {
