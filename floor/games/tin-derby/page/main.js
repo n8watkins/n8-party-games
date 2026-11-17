@@ -352,12 +352,13 @@ class App {
     }
     if (this.me >= 0) { this.hands = new Hands(this, this.me); $("huds").appendChild(this.hands.el); this.hands.paint(cars); }
     $("padinfo").style.setProperty("--c", this.me >= 0 ? cars[this.me].colour : CSS.red);
+    // The switch always answers (a big screen may join after the race began: screensChanged shows it then). A press with
+    // a finger or the mouse gives the focus back, so Space drifts again; a keyboard user keeps it.
+    if (this.me >= 0) $("bpad").addEventListener("click", (e) => { if (!$("bpad").hidden) this.setPad(!this.pad); if (e.detail > 0) e.currentTarget.blur(); });
     if (this.padOk) {
       // Without 3D the switch is not offered: this phone is a controller, and says so.
       $("bpad").hidden = !world;
       this.root.toggleAttribute("data-padok", !!world); // the strip makes room for the switch beside Sound
-      // A press with a finger or the mouse gives the focus back, so Space drifts again; a keyboard user keeps it.
-      $("bpad").addEventListener("click", (e) => { this.setPad(!this.pad); if (e.detail > 0) e.currentTarget.blur(); });
       this.setPad(!world || store.get(PAD_KEY) === "1", !world);
     }
     this.tags = cars.map((c) => { const t = el("div", "tag"); t.hidden = true; t.style.setProperty("--c", c.colour); $("tags").appendChild(t); return t; });
@@ -919,7 +920,7 @@ class App {
   /** Cork & Bell's rule (governor.js): slow frames lower the resolution, a long run of quick ones raises it. */
   govern(ms) {
     if (!this.world || this.pad) return;
-    const say = (this.gov || (this.gov = makeGovernor({ slowMs: TUNE.GOV_SLOW_MS, fastMs: TUNE.GOV_FAST_MS }))).frame(ms);
+    const say = (this.gov || (this.gov = makeGovernor({ slowMs: TUNE.GOV_SLOW_MS }))).frame(ms);
     if (say < 0 && this.scale > 0.5) { this.scale = Math.max(0.5, this.scale - 0.15); this.layout(); }
     if (say > 0 && this.scale < 1) { this.scale = Math.min(1, this.scale + 0.15); this.layout(); }
   }

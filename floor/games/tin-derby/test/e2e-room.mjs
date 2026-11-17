@@ -808,8 +808,20 @@ try {
       const said = await nf.evaluate(() => ({ text: document.getElementById("nopic").innerText.replace(/\s+/g, " ").trim(), sound: !!document.getElementById("bsound").offsetParent, canvas: !!document.getElementById("gl").offsetParent }));
       check(said.text === "This phone can't show the race. The house is driving your car." && !said.sound && !said.canvas, `noscreen: with no big screen, the phone with no 3D says so plainly (no big screen mentioned), with no dead button and no picture (${JSON.stringify(said)})`);
       await shot(nogl, "no-3d-phone-no-screen", "the phone with no 3D (844 x 390, WebGL off) in a party with no big screen: the house drives its car");
-      let lostAt = null, lostSays = null;
+      let lostAt = null, lostSays = null, scr = null, lateSwitch = null;
       const during = async (t, frames, last) => {
+        // A big screen joins once the race is on (after Lost has gone to the house): Ada's phone, which mounted with
+        // none, now offers the Controller only switch, and it works.
+        if (!scr && t > 6) { scr = await screenPage(); await joinScreen(scr, pin); }
+        if (scr && !lateSwitch && t > 10) {
+          const af = frames.get(ada);
+          if (await af.evaluate(() => !document.getElementById("bpad").hidden)) {
+            await af.click("#bpad");
+            lateSwitch = await af.evaluate(() => ({ shown: true, pad: window.__derby.app.pad }));
+            await af.click("#bpad");
+            lateSwitch.after = await af.evaluate(() => window.__derby.app.pad);
+          } else if (t > 20) lateSwitch = { shown: false };
+        }
         if (lostAt === null && t > 3 && frames.has(lost)) { lostAt = t; await frames.get(lost).evaluate(() => window.__derby.app.world.renderer.getContext().getExtension("WEBGL_lose_context").loseContext()); }
         if (lostAt !== null && lostSays === null && frames.has(lost)) {
           lostSays = await frames.get(lost).evaluate(() => (window.__derby.noPicture ? document.getElementById("nopic").innerText.replace(/\s+/g, " ").trim() : null)).catch(() => null);
@@ -821,6 +833,7 @@ try {
         const l = last.get(ada), ev = roomEvents(ada), handed = (name) => ev.filter((e) => e.k === "a" && e.c === carOf(l, name)), row = (name) => end.result.find((r) => r.seat === l.cars[carOf(l, name)].seat);
         const ng = handed("NoGL");
         check(ng.length === 1 && ng[0].on === 1 && ng[0].n <= GO + 4 && typeof row("NoGL")?.time === "number", `noscreen: the room gave its car to the house by GO and the car finished (${JSON.stringify(ng.map((e) => [e.on, +raceT(e.n).toFixed(2)]))})`);
+        check(lateSwitch?.shown === true && lateSwitch.pad === true && lateSwitch.after === false, `noscreen: when a big screen joined mid-race, the phone that began with none offered Controller only, and it switched on and off (${JSON.stringify(lateSwitch)})`);
         const lh = handed("Lost"), final = lh[lh.length - 1];
         check(lostSays === "This phone can't show the race. The house is driving your car." && final?.on === 1 && raceT(final.n) > lostAt - 0.5 && typeof row("Lost")?.time === "number", `noscreen: a phone whose picture was lost for good, with no big screen, says so and gives its car to the house, which brings it home ("${lostSays}"; lost at ${lostAt?.toFixed(1)}; ${JSON.stringify(lh.map((e) => [e.on, +raceT(e.n).toFixed(2)]))}; ${JSON.stringify(row("Lost"))})`);
       }
