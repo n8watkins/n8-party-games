@@ -224,8 +224,8 @@ The 3D wall follows the flat one: a game's name is on its box and nowhere else, 
 - The count is large on the wall (a ring over the leading box) and just above the bottom bar (`public/count-tick.js`). Every second ticks; the last three tick harder: the number turns gold and pops, a phone gives a short buzz, and the page announces `count.tick` and `count.last` as `party-room:sound` events, and the room's sounds tick with it.
 - A tie is settled by a coin toss everybody watches. A phone in the closer view pulls back to the whole room for the count and the toss.
 - A player alone can start: one piece in a light runs the same ten-second count.
-- A game the party cannot play has its light off and says why in a few words ("Needs 2 players", "For 2 players", "Needs a big screen", "Coming soon").
-- Outside games: a game that plays on a site of its own hangs on the wall with an address instead of a hosted game (below).
+- A game the party cannot play has its light off and says why in a few words ("Needs 2 players", "For 2 players", "Needs a big screen"). A game that is coming soon has no light and no pool at all, and says "Coming soon".
+- The last frame holds the ideas poster, which is not a game: no light, no vote (below).
 - A big screen that joins with the code and holds no seat, and a player's view with buttons, a "Whole room / Closer" switch and a "turn your phone" hint when upright.
 - A phone held sideways starts in the closer view, following its own piece (`shared/camera.js`).
   - Whole room shows everything from the tops of the lamps to the pools of light and the pieces' feet, with no empty strip of floor; when the room is narrower than the screen it is set to the left of the buttons in the corner, so they cover nothing on the wall.

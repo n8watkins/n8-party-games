@@ -64,7 +64,12 @@ export class TouchSpots {
         const w = wall.box;
         const at = { x: wall.xs[i] - w / 2, y: POSTER.top, w, h: POSTER.bottom - POSTER.top };
         // A poster that is not a game (the ideas poster) opens its address in a new tab, and the room stays open here.
-        const spot = box.poster ? this.spot(`${box.name} ${box.blurb} Opens ${box.where} in a new tab`, at, () => open(box.link, "_blank", "noopener"), "poster") : this.spot(`About ${box.name}`, at, () => this.poster(box), "poster");
+        // The spot lets go of the focus at once, so an Enter meant for the room (on a laptop) never opens a second tab.
+        const openPoster = () => {
+          open(box.link, "_blank", "noopener");
+          spot.el.blur();
+        };
+        const spot = box.poster ? this.spot(`${box.name} ${box.blurb} Opens ${box.where} in a new tab`, at, openPoster, "poster") : this.spot(`About ${box.name}`, at, () => this.poster(box), "poster");
         spot.box = box;
         spot.i = i;
         return spot;

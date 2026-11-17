@@ -297,6 +297,16 @@ try {
         check(faults.length === 0, `on the ${where}, every sign's words fit it${faults.length ? ": " + faults.join("; ") : ""}`);
       }
       await shot(phone, `${look}-signs-844x390`);
+      if (look === "flat") {
+        // The ideas poster opens the contact page in a new tab and lets go of the focus, so an Enter meant for the room never opens a second.
+        await phone.context().route("https://n8builds.dev/**", (route) => route.fulfill({ contentType: "text/html", body: "<!doctype html><title>stand-in</title>" }));
+        const opened = phone.context().waitForEvent("page", { timeout: 6000 }).catch(() => null);
+        await phone.locator(".spot-poster").last().click();
+        const tab = await opened;
+        const focused = await phone.evaluate(() => document.activeElement?.classList.contains("spot") ?? false);
+        check(tab?.url() === "https://n8builds.dev/#contact" && !focused, `a tap on the ideas poster opens ${tab?.url()} in a new tab, and the spot keeps no focus (${focused})`);
+        await tab?.close();
+      }
       // The whole wall on a sideways phone, and an upright one.
       if (await phone.locator(".zoom-btn").count()) {
         await phone.click(".zoom-btn");
