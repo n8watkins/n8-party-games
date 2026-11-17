@@ -23,6 +23,7 @@ import { mkdirSync } from "node:fs";
 import { resolve } from "node:path";
 import { chromium } from "playwright";
 import { wallFor } from "../shared/rooms.js";
+import { poolOf } from "../shared/world.js";
 import { RENDERED } from "../public/look3d/rendered/switch.js";
 import { partyApi, sleep } from "./client.mjs";
 
@@ -142,11 +143,13 @@ try {
   check(kinds.length === 4 && kinds.filter((k) => k.includes("ghost")).length === 2, "the room draws each character in its colour: " + kinds.join(", "));
 
   // The room's wall (shared/rooms.js): where it hangs its boxes and its pools lie (the bar's are under its painted frames).
-  const WALL = wallFor(roomId, N);
-  /** A place in box i's light, `off` from its middle, kept inside a narrow pool. */
-  const light = (i, off = 0) => Math.round(WALL.xs[i] + Math.sign(off) * Math.min(Math.abs(off), WALL.half - 10));
-  /** A place in the dark past box i's light. */
-  const dark = (i) => Math.round(WALL.xs[i] + WALL.half + 30);
+  // Only the games that can be played have a pool (shared/world.js, hasPool).
+  const WALL = wallFor(roomId, await screen.evaluate(() => window.__room3d.room.boxes));
+  const halfAt = (i) => poolOf(WALL, i)?.half ?? 0;
+  /** A place in box i's light, `off` from its middle, kept inside its pool. */
+  const light = (i, off = 0) => Math.round(WALL.xs[i] + Math.sign(off) * Math.min(Math.abs(off), halfAt(i) - 10));
+  /** A place in the dark past box i's light (under a box with no light, past its middle). */
+  const dark = (i) => Math.round(WALL.xs[i] + halfAt(i) + 30);
   const key = async (k, ms) => {
     await phone.keyboard.down(k);
     await sleep(ms);
@@ -160,15 +163,15 @@ try {
       await key(gap > 0 ? "ArrowRight" : "ArrowLeft", Math.max(40, Math.min(1500, (Math.abs(gap) / 430) * 1000)));
     }
   }
-  // Cork & Bell is the one game open on the production wall: three stand in its light and Tom holds out in the dark by Flood's poster.
-  const [CORK, FLOOD] = [boxes.indexOf("Cork & Bell"), boxes.indexOf("Flood")];
+  // Cork & Bell and Tin Derby are the games that can be played on the production wall: three stand in Cork & Bell's light and Tom holds out in the dark past the ideas poster.
+  const [CORK, FLOOD, DERBY] = [boxes.indexOf("Cork & Bell"), boxes.indexOf("Flood"), boxes.indexOf("Tin Derby")];
   mabel.goto(light(CORK, -60));
   fitch.goto(light(CORK, 62));
   tom.goto(dark(N - 1) + 50);
   await walkTo(light(CORK, 4));
   await sleep(2500);
   const lit = await screen.evaluate(() => window.__room3d.boxes.map((b) => +b.level.toFixed(2)));
-  check(lit[CORK] > 1.3 && lit.every((l, i) => i === CORK || l === 0), "the vote's light is on where the pieces stand, and only the open game's: " + lit.join(", "));
+  check(lit[CORK] > 1.3 && lit[DERBY] > 0 && lit[DERBY] < 0.3 && lit.every((l, i) => i === CORK || i === DERBY || l === 0), "the light is up where the pieces stand, Tin Derby's is on with nobody under it, and the coming-soon posters and the ideas poster have none: " + lit.join(", "));
   const waiting = (await screen.locator(".status-sub").textContent()).replace(/\s+/g, " ").trim();
   check(/Waiting for\s*Tom/.test(waiting), 'a vote in progress: "' + waiting + '"');
   if (roomId === "bar" && lookName === "real") {
@@ -189,7 +192,7 @@ try {
     const under = await screen.evaluate(() => {
       const v = window.__room3d;
       const V = v.camera.position.constructor;
-      return v.boxes.map((b) => {
+      return v.boxes.filter((b) => b.pooled).map((b) => {
         const poster = new V(b.at.x, b.at.y, b.at.z).project(v.camera).x;
         const pool = new V(b.pool.x, 0, b.pool.y).project(v.camera).x;
         return Math.abs(poster - pool) * v.el.clientWidth * 0.5;
