@@ -10,7 +10,8 @@
 // before a change to the game itself):
 //   short     one lap (derby-short, a test run's short race the room takes only where its test games are on): two
 //             phones and a big screen to the finish, with a drop and return, a reload, a phone with no 3D, a phone
-//             that stalls 4 s, and a second big screen that joins late; the result reaches the Tonight board once
+//             that stalls 4 s; the result reaches the Tonight board once. (A late big screen does not fit: a room has
+//             one screen, already there. trouble, in the full set, has it.)
 //   solo      one phone and a big screen
 //   two       two phones and a big screen
 //   four      four phones and a big screen
@@ -124,13 +125,14 @@ try {
     await screen.click("text=Show the room here");
   }
   /** A phone held sideways that joins with a nickname. */
-  async function phone(name, pin, query = "", { viewport = { width: 844, height: 390 }, context = { hasTouch: true, isMobile: true }, auto = true, at = base, before = null } = {}) {
+  async function phone(name, pin, query = "", { viewport = { width: 844, height: 390 }, context = { hasTouch: true, isMobile: true }, auto = true, at = base, before = null, midRace = false } = {}) {
     const page = await open(name, viewport, context);
     if (before) await before(page);
     await page.goto(at + "/lobby/?join=" + pin + "&look=flat" + (auto ? "&derby-auto=1" : "") + query);
     await page.fill("input[name=nickname]", name);
     await page.click("text=Join the party");
-    await page.waitForSelector("svg.scene text");
+    // In the middle of a race the room's own scene is under the race (callers wait for the race's frame instead).
+    if (!midRace) await page.waitForSelector("svg.scene text");
     return page;
   }
   /** Walks each phone's piece into Tin Derby's light with the keyboard, reading where it is from the room. */
@@ -335,7 +337,7 @@ try {
 
   // ---------------------------------------------------------------- the gate's short race: everything at once, one lap
   if (only.has("short")) {
-    console.log("---- short: a one-lap race (derby-short) with two phones and a big screen to the finish; Bo drops, comes back and reloads, a phone with no 3D, a phone that stalls, a second screen joins late");
+    console.log("---- short: a one-lap race (derby-short) with two phones and a big screen to the finish; Bo drops, comes back and reloads, a phone with no 3D, a phone that stalls");
     const began = Date.now();
     const scr = await screenPage();
     const pin = await startParty(scr);
@@ -350,7 +352,6 @@ try {
       const code = await codeOf(pin);
       await vote(code, [ada, bo, nogl, stall]);
       const at = { drop: null, back: null, reload: null, freeze: null };
-      let late = null;
       const nowT = (frames) => frames.get(scr).evaluate(() => window.__derby.race.t);
       const during = async (t, frames, last) => {
         if (at.drop === null && t > 3) { at.drop = await nowT(frames); await bo.context().setOffline(true); }
@@ -362,7 +363,6 @@ try {
           await bo.reload();
           frames.set(bo, await derby(bo));
         }
-        if (!late && t > 14) { late = await screenPage("late screen"); await joinScreen(late, pin); frames.set(late, await derby(late)); }
       };
       const { end, last } = await race("short", code, [ada, bo, stall, scr], { during });
       if (end) {
@@ -372,7 +372,7 @@ try {
         // The result on the Tonight board, once.
         const room = (await inner(code)).view;
         const points = room.members.filter(Boolean).reduce((n, m) => n + (m.points || 0), 0);
-        check(end.last.rows.length === 4 && points === end.last.rows.reduce((n, r) => n + r.points, 0) && (room.history?.length ?? 1) === 1, `short: the result reached the Tonight board once (${end.last.rows.map((r) => `${r.name} ${r.place}`).join(", ")}; ${points} points in all; ${room.history?.length} game)`);
+        check(end.last.rows.length === 4 && points === end.last.rows.reduce((n, r) => n + r.points, 0) && room.tonight?.games === 1 && room.tonight.played?.length === 1, `short: the result reached the Tonight board once (${end.last.rows.map((r) => `${r.name} ${r.place}`).join(", ")}; ${points} points in all; ${room.tonight?.games} game played, ${room.tonight?.played?.length} on the list)`);
         const ng = hand("NoGL"), row = (name) => end.result.find((r) => r.seat === l.cars[carOf(l, name)].seat);
         check(ng.length === 1 && ng[0][0] === 1 && ng[0][1] <= 0.05 && typeof row("NoGL")?.time === "number", `short: the phone with no 3D: the house's by GO, and home (${JSON.stringify(ng)}, ${JSON.stringify(row("NoGL"))})`);
         const b = hand("Bo");
@@ -380,7 +380,6 @@ try {
         check(last.get(bo)?.car >= 0 && (last.get(bo)?.stats.frames ?? 0) > 0, `short: Bo's page came back from its reload (at ${at.reload?.toFixed(1)}) in the same car`);
         const s = hand("Stall"), sOn = s.find(([o, et]) => o === 1 && et > at.freeze - 0.5);
         check(!!sOn && sOn[1] - at.freeze < 1.6 && s.some(([o, et]) => o === 0 && et > sOn[1]) && typeof row("Stall")?.time === "number", `short: the stalled phone's car was the house's ${sOn ? (sOn[1] - at.freeze).toFixed(2) : "?"} s after the stall (${at.freeze?.toFixed(2)}), its own again after, and home (${JSON.stringify(s)})`);
-        check(!!late && last.get(late)?.mode === "tvwide", "short: the screen that joined late shows the whole table");
       }
       report.short = { seconds: Math.round((Date.now() - began) / 1000) };
       console.log(`     the short race, party to card: ${report.short.seconds} s`);
