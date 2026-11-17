@@ -20,7 +20,6 @@
 //
 // A plate is made for one wall (bar/<boxes>/plate.json). A room whose wall has no plate, or a
 // device where the plate does not load, gets the 3D look drawn as it is.
-import { boxCentre } from "../shared/world.js";
 import { boxArt, boxSide } from "../look3d/paint.js";
 import { Reflection } from "../look3d/characters.js";
 import { Room3D } from "../look3d/room3d.js";
@@ -225,7 +224,9 @@ export class RoomBaked extends Room3D {
   /** One game box: its poster in the plate's empty frame, its gold edge, and the light its lamp gives the pieces. */
   box(box, i, L) {
     if (this.plain) return super.box(box, i, L);
-    const b = { box, i, cx: boxCentre(i, L.n), level: 0, aim: 0, gold: 0, goldAim: 0, shown: -1 };
+    // Where the room's wall hangs the box (the plate is of an even wall, and room-view.js gives the
+    // baked look only a wall the room hangs evenly; this reads the wall all the same).
+    const b = { box, i, cx: L.wall.xs[i], level: 0, aim: 0, gold: 0, goldAim: 0, shown: -1 };
     const x = walkX(b.cx);
     const z = SPACE.walkZ;
     const radius = (this.half + 12) * PX;

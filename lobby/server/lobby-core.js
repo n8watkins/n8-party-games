@@ -2316,18 +2316,21 @@ export class LobbyCore {
  * by box ({xs, half}, or no wall at all: an even wall) had a pool under every box, on a wall of
  * as many boxes as today's: the games that could be played then and now (Cork & Bell first, Tin
  * Derby third) hang in the same places on both, so their pools match by place.
+ * A save whose pools carry their boxes' ids is read whatever today's number of boxes: only its
+ * pools are needed to carry the pieces across (world.js, acrossWalls), and the box ids say which
+ * pool is which on today's wall.
  */
 function savedWall(saved, boxes) {
   const n = boxes.length;
-  const xs = Array.isArray(saved?.xs) && saved.xs.length === n && saved.xs.every(Number.isFinite) ? [...saved.xs] : null;
+  const xs = Array.isArray(saved?.xs) && saved.xs.every(Number.isFinite) ? [...saved.xs] : null;
   if (xs && Array.isArray(saved.pools)) {
     const pools = saved.pools
       .map((p) => ({ i: boxes.findIndex((box) => box.id === p?.id), x: p?.x, half: p?.half }))
       .filter((p) => p.i >= 0 && Number.isFinite(p.x) && Number.isFinite(p.half))
       .sort((a, b) => a.x - b.x);
-    return { n, xs, pools };
+    return { n: xs.length, xs, pools };
   }
-  if (xs && Number.isFinite(saved.half)) return { n, xs, pools: xs.map((x, i) => ({ i, x, half: saved.half })) };
+  if (xs && xs.length === n && Number.isFinite(saved.half)) return { n, xs, pools: xs.map((x, i) => ({ i, x, half: saved.half })) };
   return evenWall(n);
 }
 

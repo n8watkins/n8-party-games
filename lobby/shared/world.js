@@ -167,20 +167,33 @@ export function acrossWalls(x, from, to) {
     if (x > a[k] && k < a.length - 1) continue;
     const span = a[k] - a[k - 1];
     const u = span > 0 ? Math.min(1, Math.max(0, (x - a[k - 1]) / span)) : 0;
-    y = clampX(b[k - 1] + u * (b[k] - b[k - 1]));
+    // (An end of a stretch is that end exactly, so a piece on a pool's edge stays on its edge.)
+    y = clampX(u === 1 ? b[k] : u === 0 ? b[k - 1] : b[k - 1] + u * (b[k] - b[k - 1]));
     break;
   }
-  // Was it in the dark, by `from`? Then it stays in the dark: out of a pool only `to` has, by the nearer edge.
-  if (lightAt(x, from) === -1 || !both.has(lightAt(x, from))) {
-    for (const p of to.pools) {
-      if (both.has(p.i) || Math.abs(y - p.x) > p.half) continue;
-      const left = p.x - p.half - 1;
-      const right = p.x + p.half + 1;
-      y = y - left < right - y && left >= ROOM.minX ? left : right <= ROOM.maxX ? right : left;
+  // Nobody's vote changes: a piece in a pool both walls have stays in it, and any other piece stays
+  // in the dark. Where the stretch (or a rounding at an edge) says otherwise, it is set down just
+  // inside that pool, or just outside the pool it landed in, by the nearer edge.
+  const was = lightAt(x, from);
+  const want = both.has(was) ? was : -1;
+  if (lightAt(y, to) !== want) {
+    if (want >= 0) {
+      const p = to.pools.find((q) => q.i === want);
+      y = Math.min(p.x + p.half, Math.max(p.x - p.half, y));
+    } else {
+      for (const p of to.pools) {
+        if (y < p.x - p.half || y > p.x + p.half) continue;
+        const left = p.x - p.half - EDGE_STEP;
+        const right = p.x + p.half + EDGE_STEP;
+        y = y - left < right - y && left >= ROOM.minX ? left : right <= ROOM.maxX ? right : left;
+      }
     }
   }
   return y;
 }
+
+/** How far outside a pool's edge a carried piece is set down, so it is in the dark and not on the edge (which is lit). */
+const EDGE_STEP = 0.01;
 
 /** A wall from either a wall or a number of boxes (an even wall, every box lit). */
 export const wallOf = (wall) => (typeof wall === "number" ? evenWall(wall) : wall);
@@ -188,7 +201,8 @@ export const wallOf = (wall) => (typeof wall === "number" ? evenWall(wall) : wal
 /** Which light an x stands in on a wall (or an even wall of that many boxes): the box's index, or -1 for the dark (a box with no pool is dark). */
 export function lightAt(x, wall) {
   const w = wallOf(wall);
-  for (const p of w.pools) if (Math.abs(x - p.x) <= p.half) return p.i;
+  // Its two edges as every rule works them out (edgesOf, acrossWalls), so a piece on an edge is lit by all of them alike.
+  for (const p of w.pools) if (x >= p.x - p.half && x <= p.x + p.half) return p.i;
   return -1;
 }
 

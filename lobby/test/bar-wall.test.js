@@ -10,9 +10,9 @@ import { describe, expect, it } from "vitest";
 import { LobbyCore } from "../server/lobby-core.js";
 import { ROOMS, ROOM_COOLDOWN_MS, framesFor, hangsOwnBoxes, wallFor } from "../shared/rooms.js";
 import { COUNT_MS, SETTLE_MS, boxFromManifest, spotLights } from "../shared/vote.js";
-import { PIECE_WIDTH, ROOM, drawnLight, evenWall, hasPool, lightAt, poolOf, posAt, spawnX, warmthAt } from "../shared/world.js";
+import { PIECE_WIDTH, ROOM, acrossWalls, drawnLight, evenWall, hasPool, lightAt, poolOf, posAt, spawnX, warmthAt } from "../shared/world.js";
 import { landingGround, knockLanding } from "../shared/bump.js";
-import { WALL } from "../wall.js";
+import { TEST_WALL, WALL } from "../wall.js";
 
 const BAR = wallFor("bar", WALL.boxes);
 const [CORK, FLOOD, DERBY, FOX, IDEAS] = [0, 1, 2, 3, 4];
@@ -245,6 +245,32 @@ describe("a change of room on the production wall", () => {
   });
 });
 
+describe("a piece carried between walls, on and around every pool's edge", () => {
+  const mk = (id, soon = false) => ({ id, soon });
+  const five = ["a", "b", "c", "d", "e"].map((id) => mk(id));
+  const two = [mk("a"), mk("b"), mk("c", true), mk("d", true), { id: "e", poster: true }];
+  const pairs = [
+    [wallFor("bar", WALL.boxes), wallFor("ship", WALL.boxes)],
+    [wallFor("bar", five), wallFor("ship", five)],
+    [wallFor("bar", two), wallFor("ship", two)],
+  ];
+  it("stays in the same light or the same dark, both ways and back again", () => {
+    for (const [p, q] of pairs) {
+      for (const [from, to] of [[p, q], [q, p]]) {
+        const xs = [];
+        for (const pool of from.pools) for (const e of [pool.x - pool.half, pool.x + pool.half]) for (const d of [-1e-9, 0, 1e-9, -0.5, 0.5]) xs.push(e + d);
+        for (let x = ROOM.minX; x <= ROOM.maxX; x += 0.37) xs.push(x);
+        xs.push(ROOM.minX, ROOM.maxX);
+        for (const x of xs) {
+          const y = acrossWalls(x, from, to);
+          expect(lightAt(y, to), `x=${x} -> ${y}`).toBe(lightAt(x, from));
+          expect(lightAt(acrossWalls(y, to, from), from), `x=${x} -> ${y} and back`).toBe(lightAt(x, from));
+        }
+      }
+    }
+  });
+});
+
 describe("a room saved on an older wall, woken on today's", () => {
   /** Saves a party with pieces at `places`, lets `edit` change the save as an older one would be, and wakes it. */
   function wake(places, edit) {
@@ -276,6 +302,27 @@ describe("a room saved on an older wall, woken on today's", () => {
     const { seats, woken } = wake(places, (data) => (data.wall = { xs: frames, half }));
     const counted = (x) => { const i = frames.findIndex((f) => Math.abs(x - f) <= half); return [0, 2].includes(i) ? i : -1; };
     seats.forEach((s, i) => expect(lightAt(woken.members[s.seat].x, BAR), `piece ${i} at ${places[i]}`).toBe(counted(places[i])));
+  });
+
+  it("keeps every vote when the save was made on a wall of another number of boxes (a deploy that adds or takes away a game)", () => {
+    // Today's walls: the test wall (Coin Flip second, six boxes) and the production wall without Fox Trouble (four).
+    const four = { ...WALL, boxes: WALL.boxes.filter((b) => b.id !== "fox-trouble") };
+    for (const room of ["bar", "ship"]) {
+      for (const today of [TEST_WALL, four]) {
+        const now = 1_000_000;
+        const { core, seats } = party(["Ann", "Bo"], now);
+        core.room = room;
+        const [cork, derby] = core.wall.pools;
+        put(core, seats[0].seat, cork.x, now);
+        put(core, seats[1].seat, derby.x, now);
+        const before = core.standing(now);
+        expect(before).toEqual({ [seats[0].seat]: "cork-and-bell", [seats[1].seat]: "tin-derby" });
+        const woken = LobbyCore.restore({ ...today }, JSON.parse(JSON.stringify(core.serialize())), now + 10);
+        // (Woken, nobody is connected yet: which light each stands in is what their vote will be.)
+        const after = Object.fromEntries(seats.map((s) => [s.seat, today.boxes[lightAt(woken.members[s.seat].x, woken.wall)]?.id ?? null]));
+        expect(after, `${room}, woken on ${today.boxes.length} boxes`).toEqual(before);
+      }
+    }
   });
 
   it("keeps a piece that stood in the dark out of a pool its old wall did not have", () => {
