@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Tin Derby</title>
+<link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="party.css">
+<!-- Round five's three.js (0.149.0), as a plain script before the modules: the look the owner tuned. -->
+<script src="vendor/three.min.js"></script>
+<script type="module" src="main.js"></script>
+</head>
+<body>
+<div id="app" data-mode="phone" data-steer="pad" data-phase="race">
+  <div id="stage"><canvas id="gl"></canvas><div id="tags"></div></div>
+  <div id="speed">
+    <svg viewBox="0 0 100 100" preserveAspectRatio="none"><g stroke="#242a3e" stroke-linecap="round" fill="none"><path d="M2 96 L46 58" stroke-width="3.2"/><path d="M4 74 L40 50" stroke-width="2.2"/><path d="M22 99 L58 70" stroke-width="2.6"/><path d="M1 55 L24 42" stroke-width="1.6"/></g></svg>
+    <svg viewBox="0 0 100 100" preserveAspectRatio="none"><g stroke="#242a3e" stroke-linecap="round" fill="none"><path d="M2 96 L46 58" stroke-width="3.2"/><path d="M4 74 L40 50" stroke-width="2.2"/><path d="M22 99 L58 70" stroke-width="2.6"/><path d="M1 55 L24 42" stroke-width="1.6"/></g></svg>
+  </div>
+  <div id="huds"></div>
+  <div id="tvbar"><span id="tvlap">Lap 1 of 2</span><div class="line" id="tvline"></div><div id="tvplaces"></div></div>
+  <div id="flash"></div><div id="pepper"></div>
+  <div id="brand"><b>Tin Derby</b></div>
+  <div id="hint"></div>
+  <div id="count" aria-live="polite"></div>
+  <div id="btns"><button class="btn" id="bsound" type="button" aria-pressed="false">Sound on</button></div>
+  <div id="nopic" role="status" hidden><b></b><p></p></div>
+  <div id="grain"></div>
+</div>
+</body>
+</html>

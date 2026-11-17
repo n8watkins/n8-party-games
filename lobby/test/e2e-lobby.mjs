@@ -83,7 +83,7 @@ check(
   "everyone starts by the door, in the dark, and the room is waiting for all four",
 );
 const lights = A.room.vote.lights;
-check(lights["cork-and-bell"] === null && lights["coin-flip"] === null && lights["who-am-i"] === "For 2 players" && lights["tin-derby"] === "Coming soon" && lights.flood === "Coming soon" && lights["fox-trouble"] === "Coming soon", "two lights are on (Cork & Bell, Coin Flip); Who Am I? is for two, and the rest say Coming soon");
+check(lights["cork-and-bell"] === null && lights["coin-flip"] === null && lights["who-am-i"] === "For 2 players" && lights["tin-derby"] === null && lights.flood === "Coming soon" && lights["fox-trouble"] === "Coming soon", "three lights are on (Cork & Bell, Coin Flip, Tin Derby); Who Am I? is for two, and the rest say Coming soon");
 A.send("ping");
 await sleep(300);
 check(A.raw.includes("pong"), "the keep-alive is answered");

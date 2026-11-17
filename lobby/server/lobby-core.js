@@ -1752,7 +1752,7 @@ export class LobbyCore {
    * (`carry`, or null). A game with neither is created exactly as before.
    */
   createGame(game, id, now, seed, seatNumbers, settings) {
-    const seats = seatNumbers.map((seat) => this.members[seat]).filter(Boolean).map((m) => ({ seat: m.seat, name: m.name, kind: "human", colour: m.colour }));
+    const seats = seatNumbers.map((seat) => this.members[seat]).filter(Boolean).map((m) => ({ seat: m.seat, name: m.name, kind: "human", colour: m.colour, character: m.character }));
     if (!seats.length) {
       if (this.activity.kind === "settings") this.toLobby(now);
       return fail("not_ready", "Nobody is here to play.");
