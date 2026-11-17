@@ -199,7 +199,7 @@ try {
     await sleep(1700);
     for (const [name, page] of [["Sam", sam], ["Pat", pat]]) {
       const pawn = await seenOn(page, P);
-      check(pawn.frights.includes("pull") && !pawn.knocked && pawn.minX < at[P].x - 100, `${name}'s phone draws Pat pulled across the floor, upright, never knocked (${JSON.stringify(pawn)})`);
+      check(pawn.frights.includes("pull") && !pawn.knocked && pawn.minX <= (pulled?.x ?? 0) + 2 && pawn.maxX >= at[P].x - 4,`${name}'s phone draws Pat pulled across the floor, upright, never knocked (${JSON.stringify(pawn)})`);
     }
     const chainFirst = await seenOn(sam, R);
     check(chainFirst.chain && chainFirst.hooks.includes("pull"), `Sam's phone drew Rob's chain out and the pull (${JSON.stringify(chainFirst.hooks)})`);
@@ -222,16 +222,18 @@ try {
     const chainSeen = await seenOn(sam, R);
     check(chainSeen.chain && chainSeen.hooks.length > 0, `Sam's phone drew the chain and the hook out (${JSON.stringify({ chain: chainSeen.chain, hooks: chainSeen.hooks })})`);
     await rested(R, P);
-    await walkTo(pat, P, 900, -1);
+    // Pat out of a kick's reach of Rob (130), well within his hook's.
+    await walkTo(pat, P, 960, -1);
     await walkTo(rob, R, 700, 1);
     await sleep(300);
+    const before = (await where())[P].x;
     mark = ada.seen.length;
     await rob.keyboard.press("KeyX");
     await sleep(110);
     await pat.keyboard.press("KeyX");
     const parried = await after((m) => m.t === "hk" && m.s === R, 3000, mark);
     check(parried?.o === "parry" && parried.to === P, `Pat kicks toward Rob as it arrives: batted away (${JSON.stringify(parried && { o: parried.o })})`);
-    check(Math.abs((await where())[P].x - 900) < 20, "and Pat stays where he was");
+    check(Math.abs((await where())[P].x - before) < 2, "and Pat stays where he was");
 
     section(`${look}: the hook train, and the hook back (a bonk)`);
     await rested(R, P);
@@ -260,6 +262,8 @@ try {
     check(train.frights.includes("pull") && !train.knocked, `Sam's phone draws Pat pulled along, upright (${JSON.stringify(train.frights)})`);
 
     await rested(R, A);
+    // Pat well out of the way, so each robot's hook meets the other first.
+    await walkTo(pat, P, 1450);
     await walkTo(rob, R, 900, -1);
     ada.goto(680);
     ada.send({ t: "m", x: 680, d: 1, r: ada.rev });
@@ -287,18 +291,22 @@ try {
     mark = ada.seen.length;
     await rob.keyboard.press("ArrowUp");
     const up = await after((m) => m.t === "stilts" && m.s === R, 2000, mark);
+    const upAt = Date.now();
     check(up?.for === STILT_MS, `the room tells everybody Rob's legs are up for ${up?.for} ms`);
     await sleep(200);
     await pat.keyboard.press("KeyX");
     const under = await after((m) => m.t === "b" && m.s === P, 2000, mark);
     check(under?.to === -1, `Pat's kick swings through the gap: it hits nobody (${JSON.stringify(under && { to: under.to })})`);
     // A phone reloaded while the legs are up draws them up.
-    const reloadAt = Date.now();
-    await pat.reload();
+    // The room's own address, as a reload of the room's page is (the join link would ask for a name again).
+    await pat.goto(`${base}/lobby/?${lookQuery}`);
     await drawn(pat);
-    const back = Date.now() - reloadAt;
-    const legsAfter = await pat.evaluate((s) => window.movesOn(s)?.legs ?? 0, R);
-    check(back > STILT_MS - 100 || legsAfter > 30, `Pat's phone reloaded mid-legs draws Rob up on them (${Math.round(legsAfter)} units, back ${back} ms in)`);
+    await pat.evaluate((s) => window.watchMoves(s, 400), R);
+    const back = Date.now() - upAt;
+    await sleep(450);
+    const legsAfter = (await seenOn(pat, R)).legs ?? 0;
+    // Judged only if the page drew before the legs came down (a software-drawn 3D page may take longer than that to come back).
+    check(back < STILT_MS - 150 && legsAfter > 30, `Pat's phone reloaded mid-legs draws Rob up on them (${Math.round(legsAfter)} units; it drew ${back} ms after they went up, of ${STILT_MS})`);
     await sleep(Math.max(0, STILT_MS + 200 - back));
     for (const [name, page] of [["Sam", sam], ["Rob", rob]]) {
       const robot = await seenOn(page, R);
@@ -354,10 +362,14 @@ try {
     await sleep(HOLD_MS + 80);
     await sam.keyboard.up("KeyX");
     await after((m) => m.t === "slime" && m.s === S && m.k === "absorb", 2000, mark);
-    await sam.reload();
+    const softAt = Date.now();
+    await sam.goto(`${base}/lobby/?${lookQuery}`);
     await drawn(sam);
-    const ownSoft = await sam.evaluate((s) => window.movesOn(s)?.soft, S);
-    check(ownSoft, "Sam's phone, back from the reload within the absorb, draws Sam soft");
+    await sam.evaluate((s) => window.watchMoves(s, 300), S);
+    const softBack = Date.now() - softAt;
+    await sleep(350);
+    const ownSoft = (await seenOn(sam, S)).soft;
+    check(softBack < ABSORB_MS - 100 && ownSoft, `Sam's phone, back from the reload within the absorb (it drew ${softBack} ms in, of ${ABSORB_MS}), draws Sam soft`);
 
     section(`${look}: Sam walks into Pat and shoves him along`);
     await rested(S, P);
