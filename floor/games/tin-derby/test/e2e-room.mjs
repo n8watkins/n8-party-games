@@ -353,20 +353,24 @@ try {
       await keys.keyboard.down("ArrowUp");
       await keys.keyboard.down("ArrowLeft");
       const during = async (t, frames) => {
-        if (frozeAt === null && t > 12) { frozeAt = t; relay.freeze(5000); console.log(`     Stall's connection holds everything for 5 s from race time ${t.toFixed(1)} s`); }
+        // Each moment is the race time on the room's clock as the page that acts saw it then (`t` here is a poll's, older).
+        if (frozeAt === null && t > 12) {
+          frozeAt = await frames.get(scr).evaluate(() => window.__derby.race.t);
+          relay.freeze(5000);
+          console.log(`     Stall's connection holds everything for 5 s from race time ${frozeAt.toFixed(2)} s`);
+        }
         if (frozeAt !== null && thawAt === null && t > frozeAt + 5) thawAt = t;
         if (hidAt === null && t > 8) {
           // Keys switches to another tab, an arrow still held: the page is hidden.
-          hidAt = t;
-          await frames.get(keys).evaluate(() => { Object.defineProperty(document, "hidden", { configurable: true, get: () => true }); Object.defineProperty(document, "visibilityState", { configurable: true, get: () => "hidden" }); document.dispatchEvent(new Event("visibilitychange")); });
-          console.log(`     Keys switches tab at race time ${t.toFixed(1)} s, holding Up and Left`);
+          hidAt = await frames.get(keys).evaluate(() => { const at = window.__derby.race.t; Object.defineProperty(document, "hidden", { configurable: true, get: () => true }); Object.defineProperty(document, "visibilityState", { configurable: true, get: () => "hidden" }); document.dispatchEvent(new Event("visibilitychange")); return at; });
+          console.log(`     Keys switches tab at race time ${hidAt.toFixed(2)} s, holding Up and Left`);
         }
         if (hidAt !== null && shownAt === null && t > hidAt + 4) {
           shownAt = t;
           await keys.keyboard.up("ArrowLeft");
           await keys.keyboard.up("ArrowUp");
           // Back on the tab; from here the house's driver holds this page's hands, so the race does not wait for the last call.
-          await frames.get(keys).evaluate(() => { delete document.hidden; delete document.visibilityState; window.__derby.app.autoDrive = true; document.dispatchEvent(new Event("visibilitychange")); });
+          shownAt = await frames.get(keys).evaluate(() => { delete document.hidden; delete document.visibilityState; window.__derby.app.autoDrive = true; document.dispatchEvent(new Event("visibilitychange")); return window.__derby.app.replica.auth.t; });
           console.log(`     Keys is back at race time ${t.toFixed(1)} s`);
         }
       };
