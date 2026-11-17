@@ -765,7 +765,7 @@ export function mount(container, ctx) {
       return;
     }
     const row = el("div", "wa-row spread", "", act);
-    el("p", "wa-act-line", v.trade ? `It's ${g}'s move.` : ask ? `${g} is guessing. They will tap I Guessed It when they have it.` : `Give ${g} clues without saying the name.`, row);
+    el("p", "wa-act-line", v.trade ? `It's ${g}'s move.` : ask ? `${g} is guessing. They will tap I Guessed It when they have it.` : `${g} says the guess out loud and taps I Guessed It.`, row);
     // In trade turns the counter is the guesser's own question; otherwise either may tap it.
     if (spokenOn && !v.trade) {
       const b = button("wa-btn secondary", "+1", row, () => send({ t: "count" }, "count"));

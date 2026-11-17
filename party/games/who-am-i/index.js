@@ -21,6 +21,8 @@ export const manifest = {
   // is all it takes to offer that (README, "Who plays").
   players: { min: 2, max: 2 },
   devices: { phone: true, desktop: false, upright: true },
+  // The live game's own mark (its question mark on a purple tile), as the door on the Table's list.
+  art: "/party/games/who-am-i/door.svg",
   public: [],
   table: { view: "games/who-am-i.js" },
 };
