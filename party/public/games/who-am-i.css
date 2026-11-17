@@ -374,9 +374,9 @@
 .wa-btn.block {
   width: 100%;
 }
+/* Grows into the rest of its row, and takes a row of its own rather than squeeze its words. */
 .wa-btn.grow {
-  flex: 1;
-  min-width: 0;
+  flex: 1 0 auto;
   white-space: nowrap;
 }
 .wa-btn.secondary {
@@ -429,7 +429,7 @@
   color: var(--muted);
   font-variant-numeric: tabular-nums;
 }
-.wa-link {
+.wa-textbtn {
   display: block;
   min-height: 44px;
   margin: 0 auto;
@@ -442,7 +442,7 @@
   font-weight: 800;
   cursor: pointer;
 }
-.wa-link:disabled {
+.wa-textbtn:disabled {
   opacity: 0.5;
 }
 .wa-row {
@@ -942,20 +942,28 @@
 }
 
 /* ------------------------------------------------------------ notes */
+/* The note floats at the top of the screen. It is a sibling of .wa, not inside it: the stage's
+   container query makes it the box a fixed element would be placed in. */
 .wa-toast {
   position: fixed;
-  left: 50%;
+  left: 16px;
+  right: 16px;
   top: max(12px, env(safe-area-inset-top));
   z-index: 40;
-  width: min(calc(100% - 32px), 420px);
-  transform: translateX(-50%);
+  max-width: 420px;
+  margin: 0 auto;
   padding: 12px 16px;
   border-radius: 16px;
-  background: var(--ink);
-  color: var(--paper);
-  font-size: 14px;
-  font-weight: 700;
+  background: #1d1a2e;
+  color: #fff8ef;
+  font: 700 14px/1.4 "WA Nunito", "Nunito", "Segoe UI", system-ui, sans-serif;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
+}
+@media (prefers-color-scheme: dark) {
+  .wa-toast {
+    background: #f2eefb;
+    color: #16141f;
+  }
 }
 .wa-toast[hidden] {
   display: none;
@@ -1003,6 +1011,10 @@
   .wa-pic.lg {
     height: 34dvh;
   }
+  /* Sideways there is no room to keep the buttons over the page: they follow the log. */
+  .wa:not([data-big="screen"]) .wa-act {
+    position: static;
+  }
   .wa-hero .wa-logo {
     width: 44px;
     height: 44px;
@@ -1016,7 +1028,8 @@
 .wa[data-big="screen"] {
   height: var(--wa-h, 70vh);
   overflow: hidden;
-  font-size: 20px;
+  /* Type grows with the screen: read from across the room on a 1080p television too. */
+  font-size: clamp(18px, 1.2vw, 28px);
   padding: 16px;
   gap: 16px;
 }
@@ -1033,21 +1046,48 @@
   box-shadow: var(--shadow);
 }
 .wa[data-big="screen"] .wa-bar {
-  font-size: 18px;
+  font-size: clamp(18px, 1.3vw, 26px);
+}
+.wa[data-big="screen"] .wa-bar > .wa-logo {
+  width: 1.6em;
+  height: 1.6em;
 }
 .wa[data-big="screen"] .wa-score b {
-  font-size: 24px;
+  font-size: clamp(24px, 1.9vw, 38px);
 }
 .wa[data-big="screen"] .wa-name {
-  font-size: 30px;
+  font-size: clamp(30px, 2.8vw, 54px);
 }
 .wa[data-big="screen"] .wa-note,
 .wa[data-big="screen"] .wa-hint,
 .wa[data-big="screen"] .wa-act-line {
-  font-size: 18px;
+  font-size: clamp(18px, 1.3vw, 26px);
+}
+.wa[data-big="screen"] .wa-lab {
+  font-size: clamp(12px, 0.9vw, 18px);
 }
 .wa[data-big="screen"] .wa-title {
-  font-size: 40px;
+  font-size: clamp(36px, 3vw, 60px);
+}
+.wa[data-big="screen"] .wa-turn .wa-logo {
+  width: clamp(72px, 7vw, 132px);
+  height: clamp(72px, 7vw, 132px);
+}
+.wa[data-big="screen"] .wa-board-n {
+  font-size: clamp(30px, 2.6vw, 52px);
+}
+.wa[data-big="screen"] .wa-board-words span {
+  font-size: clamp(12px, 0.9vw, 18px);
+}
+.wa[data-big="screen"] .wa-empty {
+  margin: auto 0;
+  font-size: clamp(18px, 1.4vw, 28px);
+}
+/* On a short screen the reveal keeps the two names big; the scores are in the bar already. */
+@media (max-height: 800px) {
+  .wa[data-big="screen"][data-phase="reveal"] .wa-board {
+    display: none;
+  }
 }
 .wa[data-big="screen"][data-wide="two"] {
   display: grid;
@@ -1064,11 +1104,11 @@
   grid-area: board;
 }
 .wa[data-big="screen"] .wa-tag {
-  font-size: 16px;
+  font-size: clamp(16px, 1.1vw, 22px);
   padding: 4px 12px;
 }
 .wa[data-big="screen"] .wa-bubble {
-  font-size: 20px;
+  font-size: clamp(20px, 1.5vw, 30px);
 }
 .wa[data-big="screen"][data-wide="two"] .wa-main {
   display: contents;
@@ -1095,10 +1135,10 @@
   grid-template-columns: 1fr 1fr;
 }
 .wa[data-big="screen"] .wa-pic.md {
-  height: min(150px, 22vh);
+  height: 20vh;
 }
 .wa[data-big="screen"] .wa-rev-words .wa-name {
-  font-size: 30px;
+  font-size: clamp(30px, 2.8vw, 54px);
 }
 .wa[data-big="screen"] .wa-hero .wa-logo {
   width: 72px;

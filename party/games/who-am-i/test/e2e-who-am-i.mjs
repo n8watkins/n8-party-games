@@ -21,7 +21,7 @@
 // names) is compared element for element and box for box, outside the other player's card.
 // Pictures are served by the test in place of upload.wikimedia.org, which the page must load with
 // no referrer and the site's CSP must allow. Captioned stills of every phase go to --out.
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { launchBrowser } from "../../../../lobby/test/browser.mjs";
 import { IDENTITIES } from "../deck.js";
@@ -32,6 +32,8 @@ const base = opt("base", "http://localhost:8791");
 const out = resolve(opt("out", "/tmp/claude-who-am-i-table/stills"));
 const only = new Set(opt("only", "1,2,3").split(",").map(Number));
 mkdirSync(out, { recursive: true });
+// This suite's own stills from an earlier run (numbered, so a shorter run would leave old ones beside the new).
+for (const f of readdirSync(out)) if (/^\d\d-.*\.png$/.test(f)) rmSync(resolve(out, f));
 
 const problems = [];
 const check = (ok, what) => {
@@ -62,6 +64,12 @@ function holds(text, name) {
   if (urls.some((u) => text.includes(u))) return `its picture address`;
   for (const w of words) if (new RegExp(`(^|[^\\p{L}\\p{N}])${escapeRe(w)}($|[^\\p{L}\\p{N}])`, "iu").test(text)) return `"${w}"`;
   return null;
+}
+
+// The check finds a name as text, inside a sentence, as an alias and as a picture address.
+{
+  const zelda = IDENTITIES.find((i) => i.aliases.length && i.picture);
+  check(!!holds(`Hello ${zelda.name}!`, zelda.name) && !!holds(`so: ${zelda.aliases[0]}.`, zelda.name) && !!holds(`<img src="${zelda.picture.imageUrl}">`, zelda.name) && !holds("Nothing here", zelda.name), `the secrecy check finds a name in its every form (${zelda.name})`);
 }
 
 // A plain portrait served in place of every Wikimedia picture.
@@ -225,8 +233,11 @@ async function audit(label) {
         dom = await p.page.evaluate(() => {
           const root = document.querySelector(".wa");
           const all = (s) => Object.keys(s).map((k) => [k, s.getItem(k) ?? ""]);
+          // Everything a page shows or holds: every text and every attribute's value (the markup's own
+          // tag names aside, so a <link> is not taken for a name).
+          const attrs = [...document.querySelectorAll("*")].flatMap((e) => [...e.attributes].map((a) => a.value));
           return {
-            html: document.documentElement.outerHTML,
+            html: `${document.documentElement.textContent}\n${attrs.join("\n")}`,
             phase: root?.dataset.phase ?? null,
             markup: [...document.querySelectorAll(".wa-qtext, .wa-question, .wa-hint span, .wa-name")].filter((e) => e.childElementCount > 0).length,
             store: [...all(localStorage), ...all(sessionStorage), ["cookie", document.cookie]],
@@ -247,7 +258,7 @@ async function audit(label) {
       const names = forbidden(p, s, matchNo);
       if (!names) return;
       const where = `${label}, ${p.name}'s page (${s.phase} r${s.round})`;
-      const html = dom.html.replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&amp;/g, "&");
+      const html = dom.html;
       for (const [seat, name] of names) {
         const found = holds(html, name);
         pass(!found, `${where}: ${p.name}'s page holds ${roleOf(p) === "player" ? "their own name" : `seat ${seat}'s name`} (${name}, as ${found})`);
@@ -317,7 +328,7 @@ async function fits(p, label, { screen = p.screen } = {}) {
       if (r.width && r.height && (r.height < 44 || r.width < 44)) small.push(`${e.className || e.tagName}: ${Math.round(r.width)}x${Math.round(r.height)}`);
     }
     const frame = root.getBoundingClientRect();
-    const cut = [...root.querySelectorAll("p, li, button, h2, .wa-card")]
+    const cut = [...root.querySelectorAll("p, li, button, h2, .wa-card, .wa-board-row, .wa-pic")]
       // (the log keeps its newest entries in view and lets older ones go up out of sight; a note
       // floats over the top of the screen for a few seconds)
       .filter((e) => e.checkVisibility() && !e.closest(".wa-logbox") && !e.closest(".wa-toast"))
@@ -336,6 +347,9 @@ async function fits(p, label, { screen = p.screen } = {}) {
         return r.width && (r.right > Math.min(frame.right, innerWidth) + 1 || r.left < -1);
       })
       .map((e) => e.className || e.tagName);
+    // What sticks out past the stage's own box, when it scrolls sideways inside (for the message).
+    const past = root.scrollWidth > root.clientWidth + 1 ? [...root.querySelectorAll("*")].filter((e) => e.getBoundingClientRect().right > frame.left + root.clientWidth + 1 && !e.closest(".wa-suggest > *")).map((e) => `${e.className || e.tagName}@${Math.round(e.getBoundingClientRect().right)}`).slice(0, 5) : [];
+    wide.push(...past);
     return { cut: cut.slice(0, 4), cutCount: cut.length, sw: document.documentElement.scrollWidth, sh: document.documentElement.scrollHeight, w: innerWidth, h: innerHeight, rootWide: root.scrollWidth - root.clientWidth, wide: wide.slice(0, 4), small };
   });
   check(m.sw <= m.w && m.rootWide <= 1 && !m.wide.length, `${label}: nothing scrolls sideways (${m.sw} in ${m.w}, inner ${m.rootWide}${m.wide.length ? `, wide: ${m.wide.join(", ")}` : ""})`);
@@ -504,6 +518,11 @@ try {
     await audit("reveal r1");
     await still(bo, "reveal-390x844", "The big reveal: both names with their pictures, each result, hints and questions, the scores.");
     await fits(bo, "reveal, Bo");
+    // Reduced motion: the reveal's cards and the log's newest entry do not move.
+    await bo.page.emulateMedia({ reducedMotion: "reduce" });
+    const moving = await bo.page.evaluate(() => [...document.querySelectorAll(".wa *")].filter((e) => parseFloat(getComputedStyle(e).animationDuration) > 0.001 || parseFloat(getComputedStyle(e).transitionDuration) > 0.001).length);
+    check(moving === 0, `with reduced motion nothing in the game animates (${moving} elements do)`);
+    await bo.page.emulateMedia({ reducedMotion: null });
     await nextRound(bo);
     await allAt("playing");
     await wait(400);

@@ -178,7 +178,8 @@ export function mount(container, ctx) {
   const status = el("p", "wa-vh", "", root);
   status.setAttribute("role", "status");
   status.setAttribute("aria-live", "polite");
-  const toast = el("p", "wa-toast", "", root);
+  // Beside the stage, not in it: fixed to the screen (the stage is a container, which would hold it).
+  const toast = el("p", "wa-toast", "", container);
   toast.setAttribute("aria-live", "polite");
   toast.hidden = true;
 
@@ -674,7 +675,7 @@ export function mount(container, ctx) {
     pass.disabled = !!sending || (v.trade && !!waiting);
     const g = button("wa-btn lg grow", "I Guessed It", row, () => send({ t: "guess" }, "guess"));
     g.disabled = !!sending || (v.trade && !!waiting);
-    if (v.trade) button("wa-link", "Give up this round", act, () => send({ t: "skip" }, "skip")).disabled = !!sending;
+    if (v.trade) button("wa-textbtn", "Give up this round", act, () => send({ t: "skip" }, "skip")).disabled = !!sending;
   }
 
   function askPanel(t, spokenOn) {
@@ -718,7 +719,7 @@ export function mount(container, ctx) {
       draw(true);
     });
     if (spokenOn && !(v.trade && t.moveAsked)) {
-      const b = button("wa-link", "+1 asked out loud", act, () => send({ t: "count" }, "count"));
+      const b = button("wa-textbtn", "+1 asked out loud", act, () => send({ t: "count" }, "count"));
       b.setAttribute("aria-label", "+1, count one more question asked out loud");
       b.disabled = !!sending;
     }
@@ -921,6 +922,7 @@ export function mount(container, ctx) {
       removeEventListener("resize", resized);
       observer?.disconnect();
       root.remove();
+      toast.remove();
       sheet.remove();
     },
   };
