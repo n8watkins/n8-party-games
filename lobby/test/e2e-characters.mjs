@@ -16,7 +16,7 @@
 //                     Lighter up and Huh?; a cuff on the pointing hand; none for Fuming); then a
 //                     slime does each (hands on arms of its goo) and a robot (hands on jointed arms)
 //   a knock           a ghost that is bumped squeezes its eyes shut (it never gets crosses); a
-//                     knocked slime's eyes swirl or squeeze shut, a robot's are crosses
+//                     knocked slime's eyes squeeze shut, a robot's are crosses
 //   a reconnect       the phone reloads and is still its ghost; the choice is back on a new party
 //   the same choice   a second player picks the same character and colour, and the room lets them
 //   a bad choice      an unknown character and a bad colour are refused, to the sender only

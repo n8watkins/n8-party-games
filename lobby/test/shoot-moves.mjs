@@ -326,7 +326,8 @@ try {
         ["release", 130],
         ["Pat kicks", 250],
         ["bounces off", 380],
-        ["Pat knocked back", 600],
+        ["Pat knocked back: a wince (> <)", 560],
+        ["lying, eyes squeezed shut", 640],
         ["soft again", 1250],
       ]);
       check((await said(rob, (m) => m.t === "b" && m.s === pat.seat, mark))?.bo === ada.seat, `${look} ${device}: the kick bounces off the hardened slime`);

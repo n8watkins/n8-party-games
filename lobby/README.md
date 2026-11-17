@@ -162,7 +162,7 @@ The 3D look also loads two small fonts of its own (`public/look3d/fonts/`, with 
 
 Pieces move with weight in the 3D look: they lean into a walk, rock from foot to foot, stretch in the air and squash on landing (`public/look3d/pieces.js`).
 The bump is the shared one (`shared/bump.js`): the 3D look draws the same states at the same moments as the flat drawing, from the same poses, in `bumpPose` in that file under the heading "THE BUMP, DRAWN".
-The bumper is picked up by its head and kicks with its base; whoever it hits is squashed, thrown feet first, lies on the floor with crosses for eyes, gets up and flickers while it cannot be knocked again.
+The bumper is picked up by its head and kicks with its base; whoever it hits is squashed, thrown feet first, lies on the floor with its eyes squeezed shut in a wince (> <; a robot's are crosses), gets up and flickers while it cannot be knocked again.
 There is a burst of sparks where the blow lands, dust where the piece comes down, a small jolt of the picture, and a ring under your own piece that fills as your bump recharges.
 The 3D wall follows the flat one: a game's name is on its box and nowhere else, the sign under it says one thing about the game, how many play and on what, and the Tonight board opens when it is tapped.
 
@@ -454,7 +454,7 @@ The picker, the room's check, the wheel's pictures and every draw site pick it u
 ### The ghost
 
 A white sheet with a hem dipped in the player's colour, scalloped along its edge, and two nub arms.
-It hangs above the floor and bobs, its hem trails behind it, and it squeezes its eyes shut when it is knocked over, where the pawn gets crosses.
+It hangs above the floor and bobs, its hem trails behind it, and it squeezes its eyes shut when it is knocked over.
 In the 3D and baked looks the sheet keeps its own white under any room's light: it takes only how bright the light is, never its hue, part of it glows by itself, and a cool rim outlines it (`SHEET_LIGHT` in `public/look3d/ghost.js`).
 It hangs a little higher there than in the flat drawing, over one soft shadow, so the air under it shows from the whole room.
 Its idle hover, bob and breath are laid on outside its springs, so an idle ghost is never "moving" (`STILL`; `test/ghost-model.test.js`).
@@ -467,12 +467,8 @@ Its emotes are in `public/characters/ghost-rig.js`, with the fits the owner chos
 - Its hands are two fifths larger than a pawn's (`GHOST.hand`) and held close to the sheet, so they read at phone size.
 - On a very pale colour the hands get a dark outline, because they would be lost against the white sheet.
 
-Not built yet, and where each goes:
-
-- The ghost's own move (fade, the scare, boo with its cap).
-  `CHARACTERS[].move` is `"kick"` for every character until then, so a ghost bumps as a pawn does.
-  The model already draws a faded ghost: set `piece.faded` on the piece's record (`fadeK` in `public/look3d/ghost.js`); the flat drawing needs the same.
-- Squeezed-shut eyes for every knocked piece: `flat.dizzy` in `public/characters/pawn.js` and the crosses in `public/look3d/pieces.js`.
+Its own move is above ("The ghost's move: the fade, the scare and boo").
+A knocked pawn's eyes squeeze shut too, as a wince (> <), in both looks, and so do a knocked slime's; only the robot keeps its crosses (`test/knocked-eyes.test.js`).
 
 ### The slime and the robot
 
@@ -480,7 +476,7 @@ Both are the landing scene's, which the owner approved in the character previews
 
 The slime is a soft dome that sags outward at its foot, two drips at the foot, a wet highlight, and two big eyes low on its front.
 It is a shade lighter than the player's colour with a darker rim and a gloss streak, front and back (the Tin Derby reviewer's fix for a dome that read as nothing from behind), so it reads on a light wall and a dark floor alike.
-It has no feet: it creeps, squashing and stretching as it goes, its top drags behind when it sets off, runs on and wobbles back when it stops, it flattens when it is knocked over and its eyes squeeze shut (swirls in the flat look).
+It has no feet: it creeps, squashing and stretching as it goes, its top drags behind when it sets off, runs on and wobbles back when it stops, it flattens when it is knocked over and its eyes squeeze shut (a wince, > <, in both looks).
 Its hands are joined on with arms of its own goo, in the body's own material in the 3D looks, so they are lit and reddened as it is.
 Fuming turns it red and swells it.
 

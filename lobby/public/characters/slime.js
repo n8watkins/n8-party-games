@@ -123,9 +123,9 @@ function face() {
   const white = (cx) => s("ellipse", { cx, cy: SLIME.eyeY, rx: 8.6, ry: 11.8, fill: "#fff", stroke: INK, "stroke-width": 1.6 });
   const whites = s("g", { display: "none", class: "slime-wide" }, white(-SLIME.eyeX), white(SLIME.eyeX));
   const open = s("g", {}, whites, eye(-SLIME.eyeX), eye(SLIME.eyeX), glint(-SLIME.eyeX), glint(SLIME.eyeX));
-  // Knocked over: two little swirls for eyes.
-  const swirl = (cx) => `M${cx},${SLIME.eyeY} m-1,0 a2.5,2.5 0 1,1 3,2 a5,5 0 1,1 -6,-6 a7,7 0 0,1 9,0`;
-  const dizzy = s("path", { d: `${swirl(-SLIME.eyeX)} ${swirl(SLIME.eyeX)}`, stroke: INK, "stroke-width": 2.6, "stroke-linecap": "round", fill: "none", display: "none", class: "slime-dizzy" });
+  // Knocked over: its eyes squeezed shut, a wince (> <), as in the 3D look (the owner's pick: "oof", never hurt).
+  const wince = (cx, point) => `M${cx - point * 5.5},${SLIME.eyeY - 6.5} L${cx + point * 4},${SLIME.eyeY} L${cx - point * 5.5},${SLIME.eyeY + 6.5}`;
+  const dizzy = s("path", { d: `${wince(-SLIME.eyeX, 1)} ${wince(SLIME.eyeX, -1)}`, stroke: INK, "stroke-width": 3, "stroke-linecap": "round", "stroke-linejoin": "round", fill: "none", display: "none", class: "slime-dizzy" });
   return { g: s("g", {}, open, dizzy), open, dizzy, whites };
 }
 
@@ -153,7 +153,7 @@ export const slime = {
       limbs: "goo",
       // The emote's face is drawn for a pawn's head: on a slime it sits much lower, larger, and slides toward the piece it is turned to.
       face: { dy: SLIME.eyeY + 113, turn: 12, scale: 1.55 },
-      /** Knocked over mid-emote, its own swirls stay and the emote's face is not drawn (as in the 3D look). */
+      /** Knocked over mid-emote, its own squeezed-shut eyes stay and the emote's face is not drawn (as in the 3D look). */
       ownKnockedFace: true,
       tint(parent) {
         parent.append(s("path", { d: SLIME_DOME }));
@@ -239,7 +239,7 @@ export const slime = {
       // Fuming swells it, about its middle.
       const puff = 1 + pose.ghost.puff;
       set(a.inner, { transform: `${bodyTransform(pose.body)} translate(0,-30) scale(${puff.toFixed(3)}) translate(0,30)` });
-      // Knocked over, it keeps its swirls (figure.ownKnockedFace: the emote draws no face then).
+      // Knocked over, it keeps its squeezed-shut eyes (figure.ownKnockedFace: the emote draws no face then).
       set(a.face.g, { display: a.dizzy ? null : "none" });
     },
     still(colour) {

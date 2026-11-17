@@ -7,7 +7,7 @@
 // It is one of the characters (./characters.js; lobby/README.md, "Characters"): the same handles
 // as the pawn (pieces.js: group, tilt, turn, mat, blob, ring, colour, lit, fade, air, dizzy, skin), the
 // same moments from the room (a walk, a jump, a bump's pose from lobby/shared/bump.js), its own
-// way of showing them. Where the pawn gets crosses for eyes, the ghost squeezes its eyes shut.
+// way of showing them. Knocked over, the ghost squeezes its eyes shut.
 //
 // Cost: a ghost is five draws (the sheet; the nubs as one instanced mesh; the eyes; their
 // glints; the mouth) plus its shadow, about what a pawn is. The sheet's
