@@ -1,7 +1,6 @@
 // Who Am I? at the Table: the server side, on the Table's list through games.js (TURN_GAMES),
 // in place of its "coming soon" entry (lobby/wall.js, TABLE_SOON). Its view is
-// party/public/games/who-am-i.js. The Floor's wall still lists the live game at whoami.n8builds.dev
-// as an outside game (lobby/wall.js, OUTSIDE).
+// party/public/games/who-am-i.js. It is a Table game only: the Floor and the Table are separate.
 //
 // Server only: nothing in party/games is ever copied to the site (scripts/build-public.mjs).
 import * as rules from "./rules.js";

@@ -22,7 +22,7 @@ Where it departs from the live game, the departure is listed under "Differences 
 Everything is a pure function of plain JSON.
 There is no clock and no hidden randomness: the room passes `now`, and every draw comes from the match's secret (`state.secret`) at a position kept in the state (`state.draws`; `../draws.js`).
 It is on the Table's list (`games.js`, `TURN_GAMES`), in place of its "Coming soon" entry (`lobby/wall.js`, `TABLE_SOON`).
-The Floor's wall still lists the live game at whoami.n8builds.dev as an outside game (`lobby/wall.js`, `OUTSIDE`), so the front page offers both: the Table door plays it here, the room door opens its own site.
+It is a Table game only (the owner's decision of 2026-11-16: the Floor and the Table are separate; its outside-game entry on the Floor's wall goes in its own pull request). The front page's Table door plays it here, and its card links the live game at whoami.n8builds.dev as a second way to play (`site/home-data.js`, `site`).
 
 ## The API
 
