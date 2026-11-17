@@ -800,11 +800,11 @@ try {
       check(said.text === "This phone can't show the race. The house is driving your car." && !said.sound && !said.canvas, `noscreen: with no big screen, the phone with no 3D says so plainly (no big screen mentioned), with no dead button and no picture (${JSON.stringify(said)})`);
       await shot(nogl, "no-3d-phone-no-screen", "the phone with no 3D (844 x 390, WebGL off) in a party with no big screen: the house drives its car");
       let lostAt = null, lostSays = null;
-      const during = async (t, frames) => {
+      const during = async (t, frames, last) => {
         if (lostAt === null && t > 3 && frames.has(lost)) { lostAt = t; await frames.get(lost).evaluate(() => window.__derby.app.world.renderer.getContext().getExtension("WEBGL_lose_context").loseContext()); }
         if (lostAt !== null && lostSays === null && frames.has(lost)) {
           lostSays = await frames.get(lost).evaluate(() => (window.__derby.noPicture ? document.getElementById("nopic").innerText.replace(/\s+/g, " ").trim() : null)).catch(() => null);
-          if (lostSays !== null) frames.delete(lost); // it shows the race no more
+          if (lostSays !== null) { frames.delete(lost); last.delete(lost); } // it shows the race no more: not compared at the end
         }
       };
       const { end, last } = await race("noscreen", code, [ada, lost], { during });
@@ -834,7 +834,11 @@ try {
       const code = await codeOf(pin);
       await vote(code, [ada, nogl]);
       const at = { reload: null, back: null, close: null, blind: null, join: null, unblind: null, blindDuringReload: false };
-      const blindOf = (frames) => frames.get(nogl).evaluate(() => ({ blind: !!window.__derby.app.blind, text: document.getElementById("nopic").hidden ? "" : document.getElementById("nopic").innerText.replace(/\s+/g, " ").trim(), t: window.__derby.race.t }));
+      const blindOf = (frames) => frames.get(nogl).evaluate(() => ({ blind: !!window.__derby.app.blind, text: document.getElementById("nopic").hidden ? "" : document.getElementById("nopic").innerText.replace(/\s+/g, " ").trim(), t: window.__derby.race.t })).catch(async (e) => {
+        // Say what the phone's page shows instead of its race, then fail plainly.
+        const was = await nogl.evaluate((sel) => ({ frames: document.querySelectorAll(sel).length, url: location.href, card: !!document.querySelector(".card-back .card"), text: document.body.innerText.slice(0, 200) }), FRAME).catch(() => null);
+        throw new Error(`the no-3D phone's race went (${e.message}): ${JSON.stringify(was)}`);
+      });
       const during = async (t, frames) => {
         if (at.reload === null && t > 3) { at.reload = t; await scr.reload(); await derby(scr); at.back = (await blindOf(frames)).t; }
         if (at.back !== null && at.close === null && t < at.back + 11) at.blindDuringReload ||= (await blindOf(frames)).blind;
