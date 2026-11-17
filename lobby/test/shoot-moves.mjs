@@ -61,7 +61,8 @@ function holdBack() {
 function strip(files, captions, title, to) {
   try {
     const inputs = files.flatMap((f) => ["-i", f]);
-    const esc = (t) => t.replace(/[:\\']/g, (c) => "\\" + c);
+    // An apostrophe cannot be escaped inside drawtext's quotes: the typographic one reads the same.
+    const esc = (t) => t.replace(/'/g, "’").replace(/[:\\]/g, (c) => "\\" + c);
     const each = files.map((_, i) => `[${i}:v]pad=iw:ih+44:0:0:color=0x140e0a,drawtext=text='${esc(captions[i])}':fontcolor=0xf3ecd9:fontsize=20:x=(w-text_w)/2:y=h-32[f${i}]`).join(";");
     const stack = `${files.map((_, i) => `[f${i}]`).join("")}hstack=inputs=${files.length}[row];[row]pad=iw:ih+46:0:46:color=0x140e0a,drawtext=text='${esc(title)}':fontcolor=0xf4b453:fontsize=24:x=16:y=12`;
     execFileSync("ffmpeg", ["-y", "-loglevel", "error", ...inputs, "-filter_complex", `${each};${stack}`, to]);
@@ -127,11 +128,12 @@ try {
       };
       await become(rob, "robot");
       await become(ada, "robot");
-      // The action on the floor's left, Bea's own piece (the phone's camera follows it) standing by behind it.
+      // The action on the floor's left, Bea's own piece (the phone's camera follows it) standing by
+      // just behind it, so an upright phone frames all of it; every hook flies away from her.
       const X = 620;
       if (bea) {
         const B = rob.room.members.find((m) => m?.name === "Bea").seat;
-        const gap = X - 170 - (await debug())[B].x;
+        const gap = X - 60 - (await debug())[B].x;
         await bea.keyboard.down(gap > 0 ? "ArrowRight" : "ArrowLeft");
         await sleep(Math.max(60, (Math.abs(gap) / 430) * 1000));
         await bea.keyboard.up(gap > 0 ? "ArrowRight" : "ArrowLeft");
@@ -242,9 +244,9 @@ try {
       await sleep(6200);
 
       // ------------------------------------------------ the hook train
-      await place(ada, X - 140, 1);
-      await place(rob, X + 40, 1);
-      await place(pat, X + 200, -1);
+      await place(ada, X, 1);
+      await place(rob, X + 80, 1);
+      await place(pat, X + 240, -1);
       mark = rob.seen.length;
       await story("4-hook-train", "The hook train", '"t":"(hk|hook)"', async () => {
         rob.send({ t: "hook" });
@@ -267,8 +269,8 @@ try {
       await sleep(6200);
 
       // ------------------------------------------------ the bonk
-      await place(ada, X - 40, 1);
-      await place(rob, X + 200, -1);
+      await place(ada, X + 20, 1);
+      await place(rob, X + 240, -1);
       await place(pat, 1600);
       mark = rob.seen.length;
       await story("5-hook-back-bonk", "The hook back: a bonk", '"t":"hk"', async () => {
@@ -355,8 +357,8 @@ try {
 
       // ------------------------------------------------ heavy: the shove
       await place(rob, 1600);
-      await place(ada, X - 40, 1);
-      await place(pat, X + 60, 1);
+      await place(ada, X, 1);
+      await place(pat, X + 100, 1);
       mark = rob.seen.length;
       await story("9-shove", "Heavy: the slime shoves", '"t":"shove"', async () => {
         ada.send({ t: "m", x: ada.x, d: 1, r: ada.rev });
