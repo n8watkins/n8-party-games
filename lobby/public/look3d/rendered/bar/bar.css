@@ -15,7 +15,7 @@
   align-items: center;
   column-gap: calc(var(--m) * 0.05);
   row-gap: calc(var(--m) * 0.02);
-  padding: calc(var(--m) * 0.045);
+  padding: calc(var(--m) * 0.045) calc(var(--m) * 0.045) calc(var(--m) * 0.06);
   background: none;
   border: 0;
   border-radius: 0;
@@ -36,8 +36,8 @@
   grid-column: 2;
   grid-row: 1 / span 3;
   box-sizing: border-box;
-  width: calc(var(--m) * 1.11);
-  height: calc(var(--m) * 1.11);
+  width: calc(var(--m) * 1.1);
+  height: calc(var(--m) * 1.1);
   margin: 0;
   padding: calc(var(--m) * 0.03);
   border-radius: calc(var(--m) * 0.02);
