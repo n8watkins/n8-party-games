@@ -95,8 +95,9 @@ A turn that runs out while the players are here is ordinary play: in a spoken ma
 - **Gone for good** (left the party, or the phone gone past the room's grace) reaches the rules as `{ t: "leave", seat }`:
   - a watcher just goes;
   - before the match begins, the table goes on without the seat (the default pair is worked out again), and ends with no points below two;
-  - one of the two players, in a match not yet decided: **they forfeit**, and the player who stayed is first whatever the score (the owner's rule of 2026-11-15); the unfinished round's names are revealed to everyone;
-  - the same, but the player who stayed is not here either: nobody is there to win it, so the match ends with no places (`ended.how: "abandoned"`);
+  - one of the two players, in a match not yet decided: **they forfeit**, and the player who stayed is first whatever the score (the owner's rule of 2026-11-15), even with their page hidden at that moment (another app, a locked phone: "something's gotta make you forfeit, go with something safe"); the unfinished round's names are revealed to everyone, and the room's card says it plainly ("Bo left, so Ann wins.");
+  - the same, but the player who stayed has no phone connected either: nobody is there to win it, so the match ends with no places (`ended.how: "abandoned"`);
+  - on the reveal that decided the match, whoever goes keeps the place the match gave them (the room keeps a seat that goes once the game says `decided`; `test/leaving-at-the-end.test.js`).
   - one of the two players, on the reveal of the round that decided the match: the match ends with its real places, the one who left placed with the rest (as the contract asks of a decided match).
 - **The host** is the room's picker; when it moves the room sends `{ t: "host", seat }`, and the rules pass it to the first player still here when the host's seat goes.
 
@@ -228,7 +229,7 @@ That is no help in a game: you do not know which of 245 names you were dealt.
 7. **The timer:** 90 s by default, and "no timer" still has a 5-minute backstop (live: no timer by default, and none at all when off).
 8. **Absent phones:** the live timer pauses while a player is disconnected or away and the host may confirm their own guess after the other has been gone 30 s. Here the timer runs, the guesser (host or not) may confirm their own guess once the other phone has been gone 30 s, and an unanswered guess lapses after 2 minutes.
 9. **Idle tables end:** four timed-out moves in a row with no player here end a trade round, and a round with no player here at all ends the match with no points (the live game would go on until its room expired).
-10. **Leaving:** a player who leaves forfeits and the other is first, or nobody places when the other is not here either (live: leaving sends the room back to its lobby).
+10. **Leaving:** a player who leaves forfeits and the other is first, even with a hidden page, or nobody places when the other has no phone connected either (live: leaving sends the room back to its lobby).
 11. **Dealing:** two names are never dealt together when one's name, hints or picture names the other (live: only names that could be mistaken for each other are kept apart); and whether the pack reshuffles is decided before the draw.
 12. **Question text:** a tab or line break in a typed question becomes a space (live: removed, joining the words on either side); more invisible characters are removed (the soft hyphen, the Arabic letter mark, U+2060 to U+2064, tag characters, and the zero-width joiner outside emoji), a character keeps at most three combining marks, and a turn's log keeps its latest 50 entries.
 13. **No version numbers or expected-version checks:** the room's answered inputs (ids) do that job.
@@ -243,7 +244,7 @@ That is no help in a game: you do not know which of 245 names you were dealt.
 - **A turn, the other player:** the name to answer as, big, with its picture and credit; Yes, No, Sort of, Don't know for a typed question; Not quite or Yes, correct for a guess; "+1" in keep-going Ask.
 - **A watcher and the big screen:** whose turn it is, the log, the scores, the timer; never a name. The big screen fills the rest of the screen and never scrolls (the turn on the left, the log on the right).
 - **The reveal:** both names with pictures, each result, hints and questions, the scores, Next round (either player), and the time until it goes on by itself. On the reveal that decides the match: who won, and Back to the Table.
-- **Secrecy on the page:** nothing is stored on the device (no names, hints, questions or drafts; a half-typed question lives in its box only); every name and question is set as text; pictures load only from `https://upload.wikimedia.org/` with no referrer; the site's CSP allows that one host for images only (`scripts/build-public.mjs`, `PICTURE_HOST`; `party-kit/test/deploy-config.test.js`).
+- **Secrecy on the page:** nothing is stored on the device (no names, hints, questions or drafts; a half-typed question lives in its box only); every name and question is set as text; pictures load only from `https://upload.wikimedia.org/` with no referrer; the site's CSP allows that one host, for images only, on the Table's pages (`/party/*`) only (`scripts/build-public.mjs`, `PICTURE_HOST` and `TABLE_PAGES`; `party-kit/test/deploy-config.test.js`).
 - `test/e2e-who-am-i.mjs` checks every message each page receives, and each page's whole document and storage, after every step; and compares a player's screen in the same role in two rounds (two different own names), element for element and box for box.
 
 ### Differences from the live game's screens

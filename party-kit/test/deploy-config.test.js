@@ -108,27 +108,36 @@ describe("the public folder", () => {
     expect(headersFile([])).toContain("X-Frame-Options: DENY");
   });
 
-  it("lets pages show pictures from Wikimedia's upload host (Who Am I?) and from no other outside host", () => {
+  it("lets only the Table's pages show pictures from Wikimedia's upload host (Who Am I?), with the same policy otherwise", () => {
     const headers = readFileSync(join(OUT, "_headers"), "utf8");
-    const img = headers.match(/img-src ([^;]*);/)?.[1];
-    expect(img).toBe("'self' data: blob: https://upload.wikimedia.org");
+    const rules = headers.split(/\n(?=\/)/);
+    const csp = (rule) => rule.match(/^ {2}Content-Security-Policy: (.*)$/m)?.[1];
+    // Everywhere else: no outside picture host.
+    expect(csp(rules[0]).match(/img-src ([^;]*);/)[1]).toBe("'self' data: blob:");
+    // The Table (/party/*): the site-wide policy detached and sent again with only img-src widened.
+    const table = rules.find((rule) => rule.startsWith("/party/*\n"));
+    expect(table).toBeDefined();
+    expect(table.split("\n")).toEqual(["/party/*", "  ! Content-Security-Policy", `  Content-Security-Policy: ${csp(table)}`, ...(table.endsWith("\n") ? [""] : [])]);
+    expect(csp(table)).toBe(csp(rules[0]).replace("img-src 'self' data: blob:;", "img-src 'self' data: blob: https://upload.wikimedia.org;"));
     // Pictures are only pictures: no script, style, frame or connection may come from there.
     for (const directive of ["default-src", "script-src", "style-src", "connect-src", "frame-src", "font-src"]) {
-      expect(headers.match(new RegExp(`${directive} ([^;]*);`))?.[1] ?? "").not.toContain("wikimedia");
+      expect(csp(table).match(new RegExp(`${directive} ([^;]*)`))?.[1] ?? "").not.toContain("wikimedia");
     }
+    expect(rules.filter((rule) => rule.includes("wikimedia"))).toEqual([table]);
     // The kit's default adds none, and only a bare https origin is taken.
     expect(headersFile([])).toContain("img-src 'self' data: blob:;");
-    expect(() => headersFile([], { images: ["http://upload.wikimedia.org"] })).toThrow();
-    expect(() => headersFile([], { images: ["https://a.example; script-src *"] })).toThrow();
+    expect(headersFile([])).not.toContain("! Content-Security-Policy");
+    expect(() => headersFile([], { images: { "/x/*": ["http://upload.wikimedia.org"] } })).toThrow();
+    expect(() => headersFile([], { images: { "/x/*": ["https://a.example; script-src *"] } })).toThrow();
   });
 
   it("lets only Hot Potato and its hearing test use the microphone, and changes nothing else for them", () => {
     const headers = readFileSync(join(OUT, "_headers"), "utf8");
-    const rules = headers.split(/\n(?=\/)/);
+    const rules = headers.split(/\n(?=\/)/).filter((rule) => !rule.startsWith("/party/*\n"));
     expect(rules).toHaveLength(3);
     expect(rules[0]).toContain("Permissions-Policy: camera=(), microphone=(), geolocation=(), payment=(), usb=()");
     expect(rules[1]).toBe("/lab/hot-potato/*\n  ! Permissions-Policy\n  Permissions-Policy: camera=(), microphone=(self), geolocation=(), payment=(), usb=()");
-    expect(rules[2]).toBe("/one-device/hot-potato/*\n  ! Permissions-Policy\n  Permissions-Policy: camera=(), microphone=(self), geolocation=(), payment=(), usb=()\n");
+    expect(rules[2].trimEnd()).toBe("/one-device/hot-potato/*\n  ! Permissions-Policy\n  Permissions-Policy: camera=(), microphone=(self), geolocation=(), payment=(), usb=()");
     expect(headersFile([])).not.toContain("microphone=(self)");
   });
 
