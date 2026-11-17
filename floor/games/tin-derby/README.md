@@ -17,7 +17,7 @@ It hangs on the Floor's wall (`games.js`, `lobby/wall.js`) in the place its comi
 | `shared/replica.js` | A page's copy of the race: feed it snapshots and events, ask it for the race now |
 | `page/` | The page a party room shows (below, "In the party room") |
 | `tools/` | Scripted players, whole races, a made-up network, the measurements, the parity check against the preview, the cost in workerd |
-| `test/` | 134 unit tests: every rule, whole races, balance, determinism, the room, the party room's own rules, a short smoke; and `e2e-room.mjs`, races in the real party room with real browsers |
+| `test/` | 145 unit tests: every rule, whole races, balance, determinism, the room, the party room's own rules, the view's test switches, a short smoke; and `e2e-room.mjs`, races in the real party room with real browsers |
 
 ## The structure, and why
 
@@ -79,12 +79,24 @@ draw(race, race.cars[replica.car]);
 - A tap of Use shorter than a frame must be held by the page until one frame has sent it (the preview's reviewed `app.js` does this). Once sent it cannot be lost: down and up in the same step still fires.
 - On a touch screen the preview holds `go` at 1 unless braking.
 
+### The other two messages, and when the house drives
+
+```js
+{ h: 1 }      // "still here": replica.beat(now) gives it when the page has said nothing for NET.ALIVE_EVERY (0.25 s)
+{ house: 1 }  // "this page cannot show the race: let the house drive my car"
+```
+
+- The room drives a player's car with the house while its socket is away (`game.bot`), while its page has said `{house: 1}` (until that page sends hands again), and, once the race is under way, while it has heard nothing at all from the page for `NET.SILENT` (1 s) or nothing yet (a page still loading).
+  The next word from the page hands the car back, from the next step.
+- So a racing page says hello as soon as it is up, sends a beat whenever it has nothing else to say, and on `visibilitychange` (hidden), `pagehide` and `blur` lets go of every key and sends that at once (`input(..., { force: true })`); hidden, it says nothing more, and the house has the car within a second.
+- The room knows the seat by the socket, so `{house: 1}` can only ever give away the sender's own car; it is refused for a house car, a seat not in the race, a finished race, and in any other shape (`test/room.test.js`).
+
 ### The events (`game.tick`)
 
 | Event | Meaning |
 | --- | --- |
 | `{ k: "i", n, c, j, s, b, q? }` | Car `c` holds steer `s` and buttons `b` (1 go, 2 brake, 4 drift, 8 use) from step `n` |
-| `{ k: "a", n, c, j, on }` | From step `n` car `c` is driven by the house (`on: 1`, its phone dropped) or is its player's again (`on: 0`) |
+| `{ k: "a", n, c, j, on }` | From step `n` car `c` is driven by the house (`on: 1`: its phone dropped, went silent, or cannot show the race) or is its player's again (`on: 0`) |
 | `{ k: "n", n }` | The room has run up to step `n` |
 
 Bumps, spins, laps, pick-ups and the finish are not sent.
@@ -107,7 +119,7 @@ The state it gives:
 | `.x`, `.z`, `.y` | car lengths | On the table, and height above the cloth |
 | `.h`, `.mh` | radians | The way it points, and the way it moves (they differ in a slide or a spin) |
 | `.v`, `.vy`, `.cap` | car lengths a second | Speed, vertical speed, top speed just now |
-| `.u`, `.lat`, `.s` | car lengths | Along the loop (0 to 300.27), across it (+ infield), and distance raced (`s / LEN` is laps) |
+| `.u`, `.lat`, `.s` | car lengths | Along the loop (0 to 298.26, `LEN`), across it (+ infield), and distance raced (`s / LEN` is laps) |
 | `.st`, `.inSt`, `.inB` | | The wheel, and what the driver holds |
 | `.air`, `.fallT`, `.spinT`, `.sneezeT`, `.wobT`, `.boostT`, `.boostKind`, `.phaseT`, `.safeT` | s | What it is doing |
 | `.drOn`, `.drDir`, `.drT`, `.drLvl` | | The drift |
@@ -156,14 +168,20 @@ The page finds the room's `you`, `snapshot`, `send` and `now` on its frame eleme
 - **Anyone else** (a phone that joined in the middle of a race) watches the big screen's picture and is told it races in the next one.
 - **The count-in** is the 3, 2, 1 and GO of the race itself (three seconds); a page that comes up later joins the race where it is.
 - **The end**: once every player is home (and the house cars have had their few seconds) the room ends the game, puts the places on the Tonight board and shows its card; the page is taken away.
-- **A dropped phone**: the room's `bot` hands its car to the house (the car paces itself), and back when the phone returns; the returning page starts its replica again from the full snapshot the room sends it, and says "the house is driving your car" meanwhile.
+- **A dropped phone**: the room's `bot` hands its car to the house (the car paces itself), and back when the phone returns and its page speaks; the returning page starts its replica again from the full snapshot the room sends it, and says "the house is driving your car" meanwhile.
+- **A phone that stalls** with its socket still open, or is put away (another tab or app): the room has heard nothing from it for a second, so the house drives its car until it speaks again. A key held when the page was hidden is let go of first.
+- **A page that loads late**: the house drives its car from GO until the page's first word; the page then says "Race under way" (and the big screen, which shows no count it missed).
+- **A phone that cannot show the race** (no WebGL, a context that cannot be made, or one lost and not restored within 1.5 s): it says `{house: 1}` and shows one plain card, "This phone can't show the race. The house is driving your car. Watch the big screen.", with no picture and no buttons.
 - **A reload** comes back to the same car from the room's full snapshot.
 - **Kept honest**: at every snapshot that is of the same step as its replica (once a second), the page compares the two by `rules.fingerprint`; on any difference, or when the numbered events show it missed one, it starts again from the snapshot.
   A page more than two seconds behind the room's clock (it was asleep) draws the room's word and waits for the next snapshot rather than running the race forward in one frame.
 - **Round five's files**: `art.js`, `table.js` and `sound.js` as they were; `view.js` with the drift renames and `me` (whose warning rings grow with distance); each with an import line from `env.js` and an export line.
   three.js is round five's 0.149.0, served from `page/vendor/`, since the site's Content-Security-Policy allows scripts from the site only; for the same reason the page's fonts fall back to the system's (Arial Black, Arial Narrow) and nothing in it uses a style attribute in markup.
 
-Test switches, on the room page's address: `derby-auto=1` (the house's driver holds this phone's hands, through the same path as a thumb) and `derby-lag=<ms>` (inputs held back before they are sent).
+- **The big screen** draws the cars three times their size on the whole-table picture (true size in its close shots), and its names (2.3% of the screen's height), hint and strip grow with the screen.
+
+Test switches, on the room page's address: `derby-auto=1` (the house's driver holds this phone's hands, through the same path as a thumb), `derby-lag=<ms>` (inputs held back before they are sent) and `derby-touch` (thumbs on a computer).
+They work only where the room has its test games on (`PARTY_TEST_GAMES`, the local environment and the test runs): the view hands them to the page (`partyHost.switches`) only when the wall the server sent has a test box, and the page never reads its own address. In production they do nothing (`test/party-view.test.js`).
 The room page's own `lag=<ms>` delays that phone's socket both ways on a local server.
 
 ### Measured in the party room
@@ -220,7 +238,7 @@ Numbers: two changed, to close the loop.
 The west straight is 10, not 12: the bank is 28 across (radius 14) and the far end was 30 (9 + 12 + 9), so the last corner ended 2 lengths outside the start of the home straight, and in 20 races 137 of 142 crossings moved a car 2 across the road at the seam (5 put it against the wall).
 The syrup bottle is at 292, not 294, so it stays at the same point of the shortened corner.
 `test/course.test.js` checks the loop closes and that nobody is moved at the seam.
-Otherwise `data/tune.js` is the reviewed copy's `tune.js` (Gus's pace 0.78), with one new block, `NET`, for the room: `DELAY` 0.15, `AHEAD` 0.1, `STEER_STEPS` 16, `SEND_EVERY` 0.066, `QUEUE` 32, `BEAT` 6, `CATCH_UP` 480.
+Otherwise `data/tune.js` is the reviewed copy's `tune.js` (Gus's pace 0.78), with one new block, `NET`, for the room: `DELAY` 0.15, `AHEAD` 0.1, `STEER_STEPS` 16, `SEND_EVERY` 0.066, `QUEUE` 32, `BEAT` 6, `CATCH_UP` 480, `ALIVE_EVERY` 0.25, `SILENT` 1.
 `tools/parity.mjs <the preview's folder>` runs the preview's `sim.js` beside these rules and compares every car at every frame: with the engine's maths and the rules below switched off they agree exactly (100,000 frames).
 
 Rules that differ, on purpose:
@@ -262,7 +280,7 @@ node floor/games/tin-derby/tools/race.mjs all 120      # the balance sweep
 node floor/games/tin-derby/tools/measure.mjs           # the measurements above
 node floor/games/tin-derby/tools/fingerprints.mjs --write   # after a meant change to rules or numbers
 node floor/games/tin-derby/tools/parity.mjs /path/to/preview
-npm run test:tin-derby -- --base=http://localhost:8791   # races in the party room, real browsers (about 6 minutes)
+npm run test:tin-derby -- --base=http://localhost:8791   # races in the party room, real browsers (about 10 minutes in software)
 node floor/games/tin-derby/test/e2e-room.mjs --only=lag --base=...   # the 40 and 200 ms runs above
 node floor/games/tin-derby/tools/workerd-cost.mjs --base=... --pid=<workerd pid>   # the cost in workerd above
 ```

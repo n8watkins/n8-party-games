@@ -63,7 +63,7 @@
     "lobby:measure:3d": "node lobby/test/measure-3d.mjs",
     "test:production": "node party-kit/test/e2e-production.mjs",
     "test:turnstile": "node party-kit/test/e2e-turnstile.mjs",
-    "test:tin-derby": "node floor/games/tin-derby/test/e2e-room.mjs --only=solo,two,four,trouble"
+    "test:tin-derby": "node floor/games/tin-derby/test/e2e-room.mjs --only=solo,two,four,trouble,stalls,look"
   },
   "dependencies": {
     "lean-qr": "^2.7.4"

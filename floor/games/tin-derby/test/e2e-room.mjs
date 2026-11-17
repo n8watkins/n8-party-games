@@ -3,7 +3,7 @@
 // raced to the end by the phones themselves (each phone's page drives its own car with the house's driver, through
 // the same path as a thumb: ?derby-auto=1), and handed back to the room's Tonight board.
 //
-//   node floor/games/tin-derby/test/e2e-room.mjs [--base=http://localhost:8791] [--only=solo,two,four,trouble,lag]
+//   node floor/games/tin-derby/test/e2e-room.mjs [--base=http://localhost:8791] [--only=solo,two,four,trouble,stalls,look,lag]
 //     [--stills=/tmp/claude-tin-derby-room/stills]
 //
 // The races:
@@ -426,7 +426,7 @@ try {
     const [upWords, smallWords] = await Promise.all([wordsMove(upF), wordsMove(smallF)]);
     check(upWords.words > 0 && upWords.moved, `look: the count-in's big words pop and tilt on a phone (${JSON.stringify(upWords)})`);
     check(smallWords.words > 0 && !smallWords.moved, `look: ... and only fade where the phone asks for reduced motion (${JSON.stringify(smallWords)})`);
-    let lostAt = null, lostSays = null, overlaps = 0, samples = 0;
+    let lostAt = null, lostSays = null, lostGaveUp = null, overlaps = 0, samples = 0;
     const layout = { up: null, tv: null };
     const during = async (t, frames, last) => {
       if (lostAt === null && t > 10) {
@@ -434,11 +434,16 @@ try {
         await frames.get(lost).evaluate(() => window.__derby.app.world.renderer.getContext().getExtension("WEBGL_lose_context").loseContext());
         console.log(`     Lost's picture is taken away at race time ${t.toFixed(1)} s`);
       }
-      if (lostAt !== null && lostSays === null && t > lostAt + 4) {
-        lostSays = await frames.get(lost).evaluate(() => (window.__derby.noPicture ? document.getElementById("nopic").innerText.replace(/\s+/g, " ").trim() : "")).catch(() => "");
-        // It shows the race no more: its copy is not compared with the room's at the end.
-        frames.delete(lost);
-        last.delete(lost);
+      if (lostAt !== null && lostSays === null && frames.has(lost)) {
+        // The page waits 1.5 s for the context to come back (longer here: a page drawing in software is slow to hear it).
+        const says = await frames.get(lost).evaluate(() => (window.__derby.noPicture ? document.getElementById("nopic").innerText.replace(/\s+/g, " ").trim() : null)).catch(() => null);
+        if (says !== null || t > lostAt + 15) {
+          lostSays = says ?? "";
+          lostGaveUp = t;
+          // It shows the race no more: its copy is not compared with the room's at the end.
+          frames.delete(lost);
+          last.delete(lost);
+        }
       }
       if (t > 4 && samples < 40) {
         samples++;
@@ -470,8 +475,10 @@ try {
       check(layout.tv && layout.tv.tag >= 0.02 * layout.tv.h && layout.tv.hint >= 0.02 * layout.tv.h, `look: the big screen's names and hint are at least 2% of its height (${JSON.stringify(layout.tv)})`);
       check(finTok && finTok.toks.every((r) => r <= finTok.line + 1) && finTok.places >= finTok.line, `look: on the big screen's strip every token stays on its line, clear of the places (${JSON.stringify(finTok)})`);
       const l = last.get(scr), lc = carOf(l, "Lost"), ev = roomEvents(scr).filter((e) => e.k === "a" && e.c === lc);
-      check(lostSays === "This phone can't show the race. The house is driving your car. Watch the big screen.", `look: the phone whose picture was lost says so plainly ("${lostSays}")`);
-      check(ev.length === 1 && ev[0].on === 1 && raceT(ev[0].n) - lostAt < 3.5, `look: a phone whose picture was lost for good gave its car to the house (${JSON.stringify(ev.map((e) => [e.on, +raceT(e.n).toFixed(2)]))}, lost at ${lostAt?.toFixed(1)})`);
+      check(lostSays === "This phone can't show the race. The house is driving your car. Watch the big screen.", `look: the phone whose picture was lost says so plainly, ${lostGaveUp !== null ? (lostGaveUp - lostAt).toFixed(1) : "?"} s after ("${lostSays}")`);
+      // The house has it for good once the page gives up (before that, a page stuck drawing in software may go quiet for a second and be handed over and back).
+      const final = ev[ev.length - 1];
+      check(ev.length >= 1 && final.on === 1 && raceT(final.n) - lostAt < 8, `look: a phone whose picture was lost for good gave its car to the house (${JSON.stringify(ev.map((e) => [e.on, +raceT(e.n).toFixed(2)]))}, lost at ${lostAt?.toFixed(1)})`);
       const row = end.result.find((r) => r.seat === l.cars[lc].seat);
       check(typeof row?.time === "number", `look: ... and its car finished (${JSON.stringify(row)})`);
     }

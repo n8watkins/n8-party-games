@@ -37,7 +37,7 @@ const buzz = (p) => { try { if (navigator.vibrate && navigator.userActivation?.h
 const finePointer = (() => { try { return matchMedia("(hover: hover) and (pointer: fine)").matches; } catch (e) { return false; } })();
 const NAMES = { pawn: "Pawn", ghost: "Ghost", slime: "Slime", robot: "Robot" };
 /** How much larger the big screen draws each car on its whole-table picture (view.js, sizeCars). */
-const TV_CAR_SIZE = 2.6;
+const TV_CAR_SIZE = 3;
 /** How long a lost WebGL context may take to come back before this phone gives its car to the house. */
 const LOST_WAIT_MS = 1500;
 
