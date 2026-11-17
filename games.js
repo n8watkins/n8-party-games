@@ -11,6 +11,16 @@ import * as paperMasks from "./party/games/paper-masks/index.js";
 
 export const GAMES = [corkAndBell, tinDerby];
 
+/**
+ * The high score boards (worker.js): each game whose manifest has `scores`, with the most a round
+ * can score and the game's `scoreRun` where it exports one. A board with `scoreRun` chalks up only
+ * runs it handed out a seed for, played again by the game's own code, never a score a page sends
+ * (party-kit/src/worker/score-logic.js). Cork & Bell's has one.
+ */
+export const SCORE_BOARDS = Object.fromEntries(
+  GAMES.filter(({ manifest }) => manifest.scores).map((g) => [g.manifest.id, { max: g.manifest.scores.max, ...(typeof g.scoreRun === "function" && { scoreRun: g.scoreRun }) }]),
+);
+
 // The games played at the Table (the party's plain waiting room, /party/): turn-based games
 // (`tickHz: 0`) that keep the same contract, plus `manifest.table.view`, the module under the
 // game's public path that shows it at the Table. lobby/wall.js (buildTurnWall) hangs them on the

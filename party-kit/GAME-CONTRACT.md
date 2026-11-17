@@ -40,6 +40,7 @@ export const manifest = {
 | `manifest.devices` | What it is played on, for the lobby to show: `phone`, `desktop`, `sharedScreen` (a screen that holds no seat), and `sideways` (`"preferred"`, `"required"` or `false`). Optional `upright: true`: the game is laid out for a phone held upright, and the party room stops asking for sideways while it is played ("An upright game"). |
 | `manifest.audience` | Optional. `true`: a party larger than `players.max` may vote for the game; its players are chosen on spots and everyone else watches as its audience ("Fewer seats than the party"). |
 | `manifest.scores` | Optional. `{ max }`: the game has a high score board, and no round can score more than `max`. The host binds the kit's `ScoreBoard` and answers `/api/party/scores/<id>`. |
+| `scoreRun` | Optional, beside `game` and `manifest`, for a game with a board: `scoreRun(run) -> score \| null` plays a run again from what its page sent and the seed the board handed out (`run.seed`). The host passes it to the board (`{ max, scoreRun }`, `games.js` `SCORE_BOARDS`), which then hands out each run's seed and chalks up only this score, never one a page sends (party-kit README, "The score board"). Cork & Bell's is `game/shared/run.js`. |
 | `manifest.public` | Files and folders the browser loads, relative to the package root. Nothing else in the package is served. |
 | `manifest.settings` | Optional, and required with `game.settings`: the choices the host is offered after the vote ("Settings after the vote"). |
 
@@ -305,7 +306,7 @@ export function preload() {}     // optional: fetch the big files while the vote
 | `inputId()` | A new id for `send`, unique for this seat for the whole game, also across reloads (`PartyClient.nextInputId`). |
 | `now()` | The room's clock in ms. |
 | `inset` | `{ top, right }` in CSS pixels: the corner where the room's own door button stays on top of the view. |
-| `params` | The room page's query as it was opened, for a game's own test switches. |
+| `params` | The room page's query as it was opened, for a game's own test switches. A view honours them only where the room has its test games on, which it reads from the wall the server sent (a box with `test: true`, hung only where `PARTY_TEST_GAMES` is `"on"`), never from the address: in production nobody can have a game play, or change a round, for them by adding a switch to the room's link (Tin Derby's and Cork & Bell's `switchesFor`). |
 
 The room's page (`lobby/public/main.js`) imports the module from the address on the game's box (`view`, which is `manifest.path + manifest.lobby.view`) the first time it is needed, and calls `preload` when a count begins for that game.
 Whatever the room says before the module has arrived is kept and handed over in order.

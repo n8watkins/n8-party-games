@@ -16,7 +16,7 @@ import { MAX_TOKEN_LENGTH } from "./hello-logic.js";
 import { isPin, PIN_DIRECTORY_NAME } from "./pin-logic.js";
 import { allowRequest } from "./rate-limiter.js";
 import { fullMessage, roomBudgetState } from "./room-budget.js";
-import { MAX_SCORE_BODY_BYTES, cleanInitials, scoreBoard, validScore } from "./score-board.js";
+import { MAX_RUN_BODY_BYTES, MAX_SCORE_BODY_BYTES, cleanInitials, scoreBoard, validScore } from "./score-board.js";
 import { botCheckEnabled, verifyBotCheck } from "./turnstile.js";
 
 export { createPartyRoom } from "./room.js";
@@ -59,9 +59,12 @@ async function resolveRoom(env, value) {
  *   GET  /api/party/qr.svg?text=<this site's join link>                                  a QR code as SVG
  *   GET  /api/party/config                                                               {publicOrigin, simLatency, turnstileSiteKey}
  *   GET  /api/party/scores/:game                                                         -> {top: [{name, score, at}]}
- *   POST /api/party/scores/:game       {name: "ABC", score}                              -> {top, place}
+ *   POST /api/party/scores/:game/runs                                                    -> {run, seed}  (a game with scoreRun)
+ *   POST /api/party/scores/:game       {name: "ABC", run, ...what scoreRun reads}        -> {top, place, score}  (a game with scoreRun)
+ *   POST /api/party/scores/:game       {name: "ABC", score}                              -> {top, place}  (a game without)
  *
- * `options.scores` names the games that have a score board and the most one round can score.
+ * `options.scores` names the games that have a score board: {max} (the most one round can score)
+ * and, for a game that can play a run again, `scoreRun(run) -> score | null` (score-logic.js).
  *
  * A site with a second kind of room (the party site's lobby) calls this once more with
  * `options.prefix` (its own path, "/api/lobby"), `options.rooms` (that room class's binding) and
@@ -150,19 +153,43 @@ async function route(request, env, url, options) {
     return result.ok ? json(result) : error(result.error, result.message);
   }
 
-  if (parts[0] === "scores" && parts.length === 2 && (method === "GET" || method === "POST")) {
+  if (parts[0] === "scores" && (parts.length === 2 || (parts.length === 3 && parts[2] === "runs")) && (method === "GET" || method === "POST")) {
     const rules = Object.hasOwn(options.scores ?? {}, parts[1]) ? options.scores[parts[1]] : null;
     const board = rules ? scoreBoard(env, parts[1]) : null;
     if (!board) return error("not_found", "There is no score board for that.");
+    /** The game plays a run again to score it (score-logic.js): its board takes runs, never bare scores. */
+    const replays = typeof rules.scoreRun === "function";
+    if (parts.length === 3) {
+      // A run is handed out when a page is about to start one: its seed comes from here, never from the page.
+      if (method !== "POST" || !replays) return error("not_found", "There is no score board for that.");
+      const allowed = await Promise.all([allowRequest(env, request, "run_short"), allowRequest(env, request, "run_long")]);
+      if (!allowed.every(Boolean)) return error("rate_limited", "Too many runs from this connection. Try again later.");
+      return json({ ok: true, ...(await board.startRun()) });
+    }
     // Reading is cheap and the same for everyone: a browser may keep it for a little while.
     if (method === "GET") return json({ ok: true, top: await board.top() }, 200, { "Cache-Control": "public, max-age=20" });
     const allowed = await Promise.all([allowRequest(env, request, "score_short"), allowRequest(env, request, "score_long")]);
     if (!allowed.every(Boolean)) return error("rate_limited", "Too many scores from this connection. Try again later.");
-    const body = await readBody(request, MAX_SCORE_BODY_BYTES);
+    const body = await readBody(request, replays ? MAX_RUN_BODY_BYTES : MAX_SCORE_BODY_BYTES);
     if (!body) return error("bad_request", "Expected a small JSON body.");
     const name = cleanInitials(body.name);
     if (!name) return error("bad_name", "Three letters, and not those three.");
-    // The score comes from the browser and cannot be trusted. It can at least be possible.
+    if (replays) {
+      // The run this board handed out, once; then the game plays it again, and that is the score.
+      // Whatever score the page claims is never read.
+      const ticket = await board.takeRun(body.run);
+      if (!ticket) return error("bad_request", "That run was not handed out here, or has been sent already.");
+      let score = null;
+      try {
+        // What the page sent is the game's to read; the seed is the board's, whatever the page says.
+        score = rules.scoreRun({ ...body, seed: ticket.seed });
+      } catch {
+        score = null;
+      }
+      if (!validScore(score, rules.max)) return error("bad_request", "That is not a run a page could have played, or it scored nothing.");
+      return json({ ok: true, score, ...(await board.submit(name, score)) });
+    }
+    // A bare score comes from the browser and cannot be trusted. It can at least be possible.
     if (!validScore(body.score, rules.max)) return error("bad_request", "That is not a score a round can reach.");
     return json({ ok: true, ...(await board.submit(name, body.score)) });
   }

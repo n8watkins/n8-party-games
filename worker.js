@@ -5,7 +5,7 @@
 import { createPartyRoom, PinDirectory, RateLimiter, RoomBudget, ScoreBoard, handlePartyApi } from "./party-kit/src/worker/index.js";
 import { json } from "./party-kit/src/worker/http.js";
 import { partyFullMessage, roomBudgetReport } from "./party-kit/src/worker/room-budget.js";
-import { GAMES } from "./games.js";
+import { GAMES, SCORE_BOARDS } from "./games.js";
 import { createLobbyRoom } from "./lobby/server/lobby-room.js";
 import { wallFor } from "./lobby/wall.js";
 
@@ -21,8 +21,8 @@ export { PinDirectory, RateLimiter, RoomBudget, ScoreBoard };
 /** Where the party room's API lives. The same guards as the kit's own API apply to it. */
 const LOBBY_API = "/api/lobby";
 
-/** The games with a high score board (their manifest says so), and the most a round of each can score. */
-const SCORES = Object.fromEntries(GAMES.filter(({ manifest }) => manifest.scores).map(({ manifest }) => [manifest.id, { max: manifest.scores.max }]));
+/** The games with a high score board, and how each board takes a score (games.js). */
+const SCORES = SCORE_BOARDS;
 /** Local test runs (the "local" environment) get a board of their own, so they never chalk up on a game's. */
 const TEST_SCORES = { ...SCORES, "e2e-test": { max: 1000 } };
 
