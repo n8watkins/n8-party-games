@@ -869,8 +869,10 @@ class App {
   /** Cork & Bell's rule: forty slow frames in a row lower the resolution, six hundred fast ones raise it. */
   govern(ms) {
     if (!this.world || this.pad) return;
-    if (ms > TUNE.GOV_SLOW_MS) { this.slow++; this.fast = 0; } else { this.slow = 0; if (ms < TUNE.GOV_FAST_MS) this.fast++; else this.fast = 0; }
-    if (this.slow >= 40 && this.scale > 0.5) { this.scale = Math.max(0.5, this.scale - 0.15); this.slow = 0; this.layout(); }
+    // Slow frames are counted, and timed too: at a few frames a second, forty in a row would take half a minute
+    // (three in a row at least, so one long frame, a picture's first, is not taken for a slow screen).
+    if (ms > TUNE.GOV_SLOW_MS) { this.slow++; this.slowMs = (this.slowMs || 0) + ms; this.fast = 0; } else { this.slow = 0; this.slowMs = 0; if (ms < TUNE.GOV_FAST_MS) this.fast++; else this.fast = 0; }
+    if ((this.slow >= 40 || (this.slow >= 3 && this.slowMs >= 1500)) && this.scale > 0.5) { this.scale = Math.max(0.5, this.scale - 0.15); this.slow = 0; this.slowMs = 0; this.layout(); }
     if (this.fast >= 600 && this.scale < 1) { this.scale = Math.min(1, this.scale + 0.15); this.fast = 0; this.layout(); }
   }
 
