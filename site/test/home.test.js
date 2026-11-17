@@ -27,7 +27,8 @@ function servedPage(path) {
 /**
  * Every way the page could be wrong about a game, against the real wall: [] when it is right.
  * A game is "room" only if the wall hangs it with a view the room plays, "table" only if the
- * Table's list can start it, "own-site" only to the wall's own address for it, and "page" only
+ * Table's list can start it, "own-site" only for a Table game the Table cannot start yet (and
+ * never one on the Floor), and "page" only
  * to a page the site serves.
  */
 function unbacked(model, wall = WALL) {
@@ -38,7 +39,8 @@ function unbacked(model, wall = WALL) {
     const why = `${g.kind}/${g.id} (${g.status})`;
     if (g.status === "room" && !(box(g.id) && !box(g.id).soon && box(g.id).view && wall.games.has(g.id))) bad.push(`${why}: the room does not play it`);
     if (g.status === "table" && !(entry(g.id) && !entry(g.id).soon && wall.games.has(g.id))) bad.push(`${why}: the Table cannot start it`);
-    if (g.status === "own-site" && !wall.boxes.some((b) => b.id === g.id && !b.soon && b.url === g.href)) bad.push(`${why}: the wall has no such address for it`);
+    // A game on its own site is a Table game the Table cannot start yet, linked to an https address, and never a Floor game.
+    if (g.status === "own-site" && !(g.kind === "table" && entry(g.id)?.soon && !box(g.id) && /^https:\/\//.test(g.href ?? ""))) bad.push(`${why}: it is not a Table game waiting for the Table`);
     if (g.status === "page" && !servedPage(g.href)) bad.push(`${why}: the site does not serve ${g.href}`);
     if (g.status === "soon" && g.kind !== "device" && ((box(g.id) && !box(g.id).soon && g.kind === "room") || (entry(g.id) && !entry(g.id).soon && g.kind === "table"))) bad.push(`${why}: it plays, but the page says it is coming`);
   }
@@ -61,7 +63,9 @@ describe("the wall the front page reads", () => {
     const ids = (w) => [...w.floor, ...w.table].map((g) => g.id);
     expect(ids(homeWall(WALL))).not.toContain("coin-flip");
     expect(ids(homeWall(TEST_WALL))).toEqual(ids(homeWall(WALL)));
-    expect(homeWall(WALL).floor.map((g) => g.id)).toEqual(WALL.boxes.map((b) => b.id));
+    // Every box but the poster, which is not a game.
+    expect(homeWall(WALL).floor.map((g) => g.id)).toEqual(WALL.boxes.filter((b) => !b.poster).map((b) => b.id));
+    expect(homeWall(WALL).floor.map((g) => g.id)).not.toContain("ideas");
   });
 
   it("carries each game's players and whether it is coming soon, as the wall has them", async () => {
@@ -104,10 +108,18 @@ describe("what the front page says is playable", () => {
     expect(unbacked(model, later)).toEqual([]);
   });
 
-  it("plays Who Am I? on its own site while the Table does not have it", async () => {
-    const who = (await modelFrom(WALL)).table.find((g) => g.id === "who-am-i");
+  it("plays Who Am I? on its own site while the Table does not have it, and never lists it in the room", async () => {
+    const model = await modelFrom(WALL);
+    const who = model.table.find((g) => g.id === "who-am-i");
     expect(who.status).toBe("own-site");
-    expect(who.href).toBe(WALL.boxes.find((b) => b.id === "who-am-i").url);
+    expect(who.href).toBe("https://whoami.n8builds.dev/");
+    expect(model.room.some((g) => g.id === "who-am-i")).toBe(false);
+  });
+
+  it("lists the room's games and not the wall's poster, which is not a game", async () => {
+    const model = await modelFrom(WALL);
+    expect(model.room.map((g) => g.id)).toEqual(["cork-and-bell", "flood", "tin-derby", "fox-trouble"]);
+    expect(model.room.map((g) => g.status)).toEqual(model.room.map((g) => (WALL.boxes.find((b) => b.id === g.id).soon ? "soon" : "room")));
   });
 
   it("gives Hot Potato the player counts of its own rules", () => {
@@ -130,9 +142,10 @@ describe("what each door's peek calls Now", () => {
   it("is only a game that plays behind that door: Who Am I? plays on its own site, not in the room or at the Table", async () => {
     const model = await modelFrom(wallWithoutTableGame());
     const room = peekOf("room", model.room);
-    // Tin Derby plays in the room too, as Cork & Bell does.
+    // Cork & Bell and Tin Derby play in the room. Who Am I? is not on its wall, and the ideas poster is not a game.
     expect(ids(room.here)).toEqual(["cork-and-bell", "tin-derby"]);
-    expect(ids(room.elsewhere)).toEqual(["who-am-i"]);
+    expect(ids(room.soon)).toEqual(["flood", "fox-trouble"]);
+    expect(ids(room.elsewhere)).toEqual([]);
     const table = peekOf("table", model.table);
     expect(ids(table.here)).toEqual([]);
     expect(ids(table.elsewhere)).toEqual(["who-am-i"]);

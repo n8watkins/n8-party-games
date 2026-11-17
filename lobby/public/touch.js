@@ -60,7 +60,9 @@ export class TouchSpots {
       this.spot("Show the code large", JOIN_SIGN, () => this.codeSheet(), "sign"),
       ...room.boxes.map((box, i) => {
         const w = boxWidth(n);
-        const spot = this.spot(`About ${box.name}`, { x: boxCentre(i, n) - w / 2, y: POSTER.top, w, h: POSTER.bottom - POSTER.top }, () => this.poster(box), "poster");
+        const at = { x: boxCentre(i, n) - w / 2, y: POSTER.top, w, h: POSTER.bottom - POSTER.top };
+        // A poster that is not a game (the ideas poster) opens its address in a new tab, and the room stays open here.
+        const spot = box.poster ? this.spot(`${box.name} ${box.blurb} Opens ${box.where} in a new tab`, at, () => open(box.link, "_blank", "noopener"), "poster") : this.spot(`About ${box.name}`, at, () => this.poster(box), "poster");
         spot.box = box;
         return spot;
       }),
@@ -166,8 +168,8 @@ export class TouchSpots {
     const facts = h("p", "poster-facts", "", card);
     h("span", "", playersLabel(box.min, box.max), facts);
     h("span", `poster-badge badge-${box.badge}`, BADGES[box.badge], facts);
-    h("p", "poster-how", box.soon ? "Coming soon: it cannot be played yet." : box.url ? "Stand under its lamp to vote. It opens on its own site." : "Stand under its lamp to vote.", card);
-    if (!box.soon && !box.url && !box.test) {
+    h("p", "poster-how", box.soon ? "Coming soon: it cannot be played yet." : "Stand under its lamp to vote.", card);
+    if (!box.soon && !box.test) {
       const best = h("p", "poster-best", "", card);
       best.hidden = true;
       fetch(`/api/party/scores/${encodeURIComponent(box.id)}`)

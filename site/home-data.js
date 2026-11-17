@@ -73,6 +73,8 @@ export const ROOM_VOTE = [
  * What each game is like, by its id on the wall (or in ONE_DEVICE). A game with no entry here is
  * still listed, with its line from the wall and a plain picture.
  * tile: the square picture; wide: the picture on its card; focus: where the square crops it.
+ * ownSite: where a Table game that is not at the Table yet plays today (the Table door links
+ * there until the Table can start it).
  */
 export const COPY = {
   "cork-and-bell": { tile: "tile-cork", piece: "pawn" },
@@ -87,6 +89,7 @@ export const COPY = {
     suits: "Friends who know each other well, or are about to.",
   },
   "who-am-i": {
+    ownSite: "https://whoami.n8builds.dev/",
     tile: "tile-who",
     focus: "50% 38%",
     wide: "wide-who",
