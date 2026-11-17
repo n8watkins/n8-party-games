@@ -4,7 +4,7 @@
 // the same path as a thumb: ?derby-auto=1), and handed back to the room's Tonight board.
 //
 //   node floor/games/tin-derby/test/e2e-room.mjs [--base=http://localhost:8791] [--only=solo,two,four,trouble,stalls,look,lag]
-//     [--stills=/tmp/claude-tin-derby-room/stills]
+//     [--out=/tmp/claude-tin-derby-room/stills]   where the stills are saved (that folder by default)
 //
 // The races:
 //   solo      one phone and a big screen
@@ -31,7 +31,8 @@ const args = process.argv.slice(2);
 const opt = (k, d) => (args.find((a) => a.startsWith("--" + k + "=")) ?? "--" + k + "=" + d).split("=").slice(1).join("=");
 const base = opt("base", "http://localhost:8791");
 const only = new Set(opt("only", "solo,two,four,trouble,stalls,look,lag").split(","));
-const stills = opt("stills", "");
+// Where the stills go: outside every folder the local build watches (lobby/test/predeploy-writes.test.js).
+const stills = opt("out", "/tmp/claude-tin-derby-room/stills");
 if (stills) mkdirSync(resolve(stills), { recursive: true });
 const { api } = partyApi(base);
 const problems = [];

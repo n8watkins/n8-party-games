@@ -22,8 +22,7 @@
 // which chip an author tapped; at the final curtain the Table's own "End the game" is hidden.
 // Captioned stills of every phase go to --out, with index.html listing them.
 import { mkdirSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { resolve } from "node:path";
 import { launchBrowser } from "../../../../lobby/test/browser.mjs";
 import { QUESTIONS } from "../questions.js";
 import { tidyAnswer } from "../text.js";
@@ -31,7 +30,7 @@ import { tidyAnswer } from "../text.js";
 const args = process.argv.slice(2);
 const opt = (k, d) => (args.find((a) => a.startsWith("--" + k + "=")) ?? "--" + k + "=" + d).split("=").slice(1).join("=");
 const base = opt("base", "http://localhost:8791");
-const out = resolve(opt("out", join(tmpdir(), "paper-masks-stills")));
+const out = resolve(opt("out", "/tmp/claude-paper-masks-table/shots"));
 const only = new Set(opt("only", "1,2,3").split(",").map(Number));
 mkdirSync(out, { recursive: true });
 

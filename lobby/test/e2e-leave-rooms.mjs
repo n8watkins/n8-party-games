@@ -96,7 +96,9 @@ try {
   await shot(host, "01-laptop-corner-with-words");
   await sleep(9500);
   check((await host.locator(".corner.folded").count()) === 1, "and folds to its pictures a few seconds later");
-  const flatLoads = await host.evaluate(() => performance.getEntriesByType("resource").filter((r) => /look3d|three\.module/.test(r.name)).length);
+  // The 3D look's drawing code only: room-view.js imports look3d/rendered/switch.js, plain logic
+  // that decides which look a device gets and draws nothing, so the flat room fetches it too.
+  const flatLoads = await host.evaluate(() => performance.getEntriesByType("resource").filter((r) => /three\.module|\/look3d\/(?!rendered\/switch\.js)/.test(r.name)).length);
   check(flatLoads === 0 && (await host.locator("svg.scene").count()) === 1, `(${flatLoads} 3D files, ${await host.locator("svg.scene").count()} flat scene) a device without hardware 3D draws the flat room and fetches none of the 3D look`);
 
   const watcher = connect(await call("POST", "/join/" + pin, { nickname: "Wes" }));
@@ -139,8 +141,10 @@ try {
   await sleep(400);
   await shot(host, "04-laptop-picker-host");
   check(/Everyone in the party sees the room you choose/.test(await host.locator(".picker-line").textContent()), "the host is told their pick moves everyone");
+  // Counted from before the tap: the relay can reach the watcher before the click returns.
+  const beforePick = watcher.seen.length;
   await host.click(".room-card[data-room=camp]");
-  const moved = await watcher.wait((m) => m.t === "pick", 5000).catch(() => null);
+  const moved = await watcher.wait((m) => m.t === "pick", 5000, beforePick).catch(() => null);
   check(moved?.v === "camp" && moved.by === 0, "the host's pick is one relayed message: " + JSON.stringify(moved && { v: moved.v, by: moved.by }));
   await tv.waitForFunction(() => window.__room3d?.skin.id === "camp", null, { timeout: 30000 }).catch(() => {});
   await phone.waitForFunction(() => window.__room3d?.skin.id === "camp", null, { timeout: 30000 }).catch(() => {});
@@ -219,7 +223,7 @@ try {
   await leaver.waitForURL(base + "/", { timeout: 8000 });
   const left = await chip(leaver);
   check(left?.startsWith(`You left party ${pin}.`) && /Rejoin/.test(left), `leaving lands on the front page with a line and Rejoin: "${left}"`);
-  check((await leaver.locator("text=Start a party").count()) > 0, "the front page offers Start a party and Join with a code beside it");
+  check((await leaver.locator(".door").count()) === 3 && (await leaver.locator("#joinOpen").count()) === 1, "the front page offers its three doors and Join with a code beside them");
   await shot(leaver, "12-phone-front-you-left");
   await leaver.click(".note-act");
   await leaver.waitForSelector(".bar", { timeout: 15000 });
@@ -313,9 +317,9 @@ try {
   check(front.url() === base + "/" && (await front.locator(".note-chip").count()) === 0 && !(await front.evaluate(() => window.__seen)), "a party that has gone: no chip, no flash, the page stays");
 
   // ---------------------------------------------------------------- the way in: a wrong code, a full party, a second screen
-  await front.goto(base + "/");
-  await front.fill("#join", "0001");
-  await front.click(".join button");
+  // The party room's own way in, with a code typed (the front page checks a code before it comes
+  // here, and says a wrong one itself: site/test/e2e-home.mjs).
+  await front.goto(base + "/lobby/?join=0001");
   await front.fill("input[name=nickname]", "Gus");
   await sleep(600);
   const unknown = await front.locator(".door-who").textContent();

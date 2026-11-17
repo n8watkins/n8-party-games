@@ -44,5 +44,5 @@ export default defineConfig({
       { find: /^\/cork-and-bell\/game\/vendor\/three\.module\.js$/, replacement: "three" },
     ],
   },
-  test: { include: ["party-kit/test/**/*.test.js", "lobby/test/**/*.test.js", "lab/**/*.test.js", "party/games/**/test/**/*.test.js", "floor/games/**/test/**/*.test.js", "one-device/**/*.test.js"], environment: "node" },
+  test: { include: ["party-kit/test/**/*.test.js", "lobby/test/**/*.test.js", "lab/**/*.test.js", "party/games/**/test/**/*.test.js", "one-device/**/*.test.js", "site/**/*.test.js", "floor/games/**/test/**/*.test.js"], environment: "node" },
 });
