@@ -12,7 +12,9 @@
 </head>
 <body>
 <div id="app" data-mode="phone" data-steer="pad" data-phase="race">
-  <div id="stage"><canvas id="gl"></canvas><div id="tags"></div></div>
+  <div id="stage"><canvas id="gl"></canvas><div id="tags"></div><div id="panes"></div>
+    <div id="mapbox"><canvas id="map" width="400" height="195"></canvas><ol id="standings"></ol></div></div>
+  <div id="padinfo"><span class="pdot"></span><b class="pplace"></b><span class="plap"></span><p class="pline"></p><p class="phouse"></p></div>
   <div id="speed">
     <svg viewBox="0 0 100 100" preserveAspectRatio="none"><g stroke="#242a3e" stroke-linecap="round" fill="none"><path d="M2 96 L46 58" stroke-width="3.2"/><path d="M4 74 L40 50" stroke-width="2.2"/><path d="M22 99 L58 70" stroke-width="2.6"/><path d="M1 55 L24 42" stroke-width="1.6"/></g></svg>
     <svg viewBox="0 0 100 100" preserveAspectRatio="none"><g stroke="#242a3e" stroke-linecap="round" fill="none"><path d="M2 96 L46 58" stroke-width="3.2"/><path d="M4 74 L40 50" stroke-width="2.2"/><path d="M22 99 L58 70" stroke-width="2.6"/><path d="M1 55 L24 42" stroke-width="1.6"/></g></svg>
@@ -23,7 +25,7 @@
   <div id="brand"><b>Tin Derby</b></div>
   <div id="hint"></div>
   <div id="count" aria-live="polite"></div>
-  <div id="btns"><button class="btn" id="bsound" type="button" aria-pressed="false">Sound on</button></div>
+  <div id="btns"><button class="btn" id="bpad" type="button" aria-pressed="false" hidden>Controller only</button><button class="btn" id="bview" type="button" hidden>Whole table</button><button class="btn" id="bsound" type="button" aria-pressed="false">Sound on</button></div>
   <div id="nopic" role="status" hidden><b></b><p></p></div>
   <div id="grain"></div>
 </div>

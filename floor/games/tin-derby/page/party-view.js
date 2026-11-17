@@ -52,6 +52,11 @@ export function mount(container, { room, you, snapshot, send, now, inset = {}, p
   frame.partyHost = {
     room,
     you,
+    /**
+     * Big screens in the party when the race was mounted (the room view's `screens`). With one, a player's car is
+     * on it, so a phone may be a controller only (main.js). Read once: a reload reads it again.
+     */
+    screens: Math.max(0, Number(room?.screens) || 0),
     snapshot,
     inset: { top: inset.top ?? 0, right: inset.right ?? 0 },
     now,
