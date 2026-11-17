@@ -1,6 +1,7 @@
-// Who Am I? at the Table: the server side, ready for games.js (TURN_GAMES) once its view exists.
-// Not on the Table's list yet: it stays "coming soon" (lobby/wall.js, TABLE_SOON) until the page
-// lane adds party/public/games/who-am-i.js and imports this module in games.js.
+// Who Am I? at the Table: the server side, on the Table's list through games.js (TURN_GAMES),
+// in place of its "coming soon" entry (lobby/wall.js, TABLE_SOON). Its view is
+// party/public/games/who-am-i.js. The Floor's wall still lists the live game at whoami.n8builds.dev
+// as an outside game (lobby/wall.js, OUTSIDE).
 //
 // Server only: nothing in party/games is ever copied to the site (scripts/build-public.mjs).
 import * as rules from "./rules.js";
