@@ -237,7 +237,8 @@ The one saving inside this page was taken: the phone sends its hands on the thum
 Relaying an input the moment it arrives instead of at the next tick would save about 16 ms more on average; that is the kit's to change.
 What it means: a party in one room, phones and the big screen on the same wifi and a nearby Cloudflare edge (20 to 50 ms each way), sees its steering on the big screen about 0.1 s after the thumb, which is steerable (about what cloud gaming adds); at 200 ms each way (a poor connection) the big screen lags about 0.45 s, too much to steer by, and the phone's own picture (which answers within a frame at any delay) is the one to drive by.
 
-**The big screen's frame rate** (`--only=tvperf`): four players, the big screen at 1920 by 1080, the phones switched to controller only so the big screen is the only page drawing; 12 seconds of frames mid-race. The owner's PC was busy with other work throughout (load 8 to 30 on 14 threads), so the slow-processor figures are pessimistic.
+**The big screen's frame rate** (`--only=tvperf`): four players, the big screen at 1920 by 1080, the phones switched to controller only so the big screen is the only page drawing; 12 seconds of frames mid-race.
+The owner's PC was busy with other work throughout (load 8 to 30 on 14 threads).
 
 | Drawn by | View | Frames a second | 95% of frames within | The page's own work a frame | Draw calls, triangles |
 | --- | --- | --- | --- | --- | --- |
@@ -249,8 +250,9 @@ What it means: a party in one room, phones and the big screen on the same wifi a
 | SwiftShader | whole table | 7 | 0.27 s | 2.2 ms | 71, 115,000 |
 
 There is no laptop graphics chip to try here: a slow laptop is stood in for by Chrome's processor throttling (4x), and a machine with no graphics card by SwiftShader.
-The four panes are not limited by pixels on the card (its busiest engine stayed under a third), so lowering their resolution, which the governor does after 40 slow frames in a row, does little; where the processor is the limit the frames come unevenly rather than steadily slow, and the host's whole-table button is the remedy.
-A screen that draws 3D in software starts on the whole table by itself.
+Between the 30 and the 60 frames a second with the processor slowed, two things changed and are not told apart: the machine was quieter, and the panes now share one working-out of the scene's matrices a frame.
+On the card the four panes are not limited by pixels (its busiest engine stayed under a third); where the processor is the limit, frames come unevenly rather than steadily slow, and lowering the resolution does little: the host's whole-table button is the remedy.
+In software the pixels are the limit: the governor lowers every pane's resolution (to half at most) after 40 slow frames in a row, or after a second and a half of slow frames, so at 1.4 frames a second it acts within seconds; the SwiftShader rows were measured before that second rule and at full resolution, and a screen that draws in software starts on the whole table by itself anyway.
 
 What the 200 ms run means for steering: the phone turns the car the frame the thumb moves, as at 40 ms; the room takes each input 35 ms later than the phone did, so the car is pulled back by a few hundredths of a length, at most a quarter of a length on a hard turn.
 The room runs 0.15 s behind its clock (`NET.DELAY`), so up to about 150 ms one way nothing is late at all.
