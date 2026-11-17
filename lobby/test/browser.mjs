@@ -49,11 +49,20 @@ if (cardOff && process.env.TEST_GPU === "1") console.log("(TEST_NO_GPU=1: TEST_G
 export const gpu = process.env.TEST_GPU === "1" && !cardOff;
 
 /**
+ * A test browser is silent and has no sound device behind it. --mute-audio alone still opens the
+ * machine's device (WSLg's PulseAudio here), and on a busy machine that device can fail under a page
+ * ("The AudioContext encountered an error from the audio device or the WebAudio renderer"), which a
+ * suite's "no page reported an error" check then rightly fails on. With --disable-audio-output the
+ * browser plays into nothing: an AudioContext still runs and its clock still advances.
+ */
+export const QUIET = ["--mute-audio", "--disable-audio-output"];
+
+/**
  * chromium.launch with the scripts' usual settings (headless, muted), plus the caller's
  * Playwright launch options. Returns the Browser; its close() also stops the private display.
  */
 export async function launchBrowser({ args = [], software = false, ...options } = {}) {
-  if (!gpu || software) return chromium.launch({ headless: true, ...options, args: ["--mute-audio", ...args] });
+  if (!gpu || software) return chromium.launch({ headless: true, ...options, args: [...QUIET, ...args] });
 
   if (!existsSync("/dev/dxg")) throw new Error("TEST_GPU=1 needs WSL2's /dev/dxg (the graphics card); unset TEST_GPU to draw in software");
   await holdCard();
@@ -66,7 +75,7 @@ export async function launchBrowser({ args = [], software = false, ...options } 
       headless: true,
       ...options,
       env,
-      args: ["--mute-audio", ...args.filter((a) => !SOFTWARE_ONLY.has(a)), ...GPU_ARGS],
+      args: [...QUIET, ...args.filter((a) => !SOFTWARE_ONLY.has(a)), ...GPU_ARGS],
     });
     const renderer = await rendererOf(browser);
     if (!/D3D12/.test(renderer))
