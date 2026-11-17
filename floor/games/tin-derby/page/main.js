@@ -320,6 +320,7 @@ class App {
     // The first word: the room drove this car while the page loaded, and hands it back now. Then a beat whenever
     // there is nothing else to say, so a phone that stalls without closing its socket is noticed (README, "In the party room").
     this.speak(host.now());
+    stats.upAt = +((host.now() - this.replica.auth.startAt) / 1000 - TUNE.COUNT_IN).toFixed(2); // race time the page was up and said so
     this.beatT = setInterval(() => { if (!document.hidden) this.speak(this.host.now()); }, 100);
     this.loop();
   }

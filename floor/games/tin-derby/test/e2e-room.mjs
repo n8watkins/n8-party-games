@@ -386,7 +386,7 @@ try {
         // The late page: the house drove its car from GO until it came up, then handed it back; the page said the race was under way.
         const lt = hand("Late"), lateSaid = last.get(late)?.stats.lateWord;
         check(lt.length >= 2 && lt[0].on === 1 && Math.abs(lt[0].n - GO) <= 8 && lt[1].on === 0, `stalls: the late page's car was the house's from GO until the page came up (${JSON.stringify(lt.map((e) => [e.on, +raceT(e.n).toFixed(2)]))})`);
-        check(typeof lateSaid === "number" && lateSaid > 0, `stalls: ... and the page said "Race under way" when it came up (race time ${lateSaid})`);
+        check(typeof lateSaid === "number" && lateSaid > 0, `stalls: ... and the page said "Race under way" when it came up (race time ${lateSaid}; it said hello at ${last.get(late)?.stats.upAt})`);
         // The stalled phone: the house's within about a second, its own again after, and home with a time.
         const st = hand("Stall").filter((e) => raceT(e.n) > frozeAt - 1);
         const onT = st[0] && raceT(st[0].n);
