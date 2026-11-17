@@ -24,6 +24,7 @@ import { CSS, clampN, grainUrl } from "./art.js";
 import { World, ChaseRig, TvRig } from "./view.js";
 import { Sound } from "./sound.js";
 import { Split } from "./split.js";
+import { makeGovernor } from "./governor.js";
 
 const $ = (id) => document.getElementById(id);
 const el = (tag, cls, html) => { const e = document.createElement(tag); if (cls) e.className = cls; if (html !== undefined) e.innerHTML = html; return e; };
@@ -865,14 +866,12 @@ class App {
     this.raf = requestAnimationFrame(frame);
   }
 
-  /** Cork & Bell's rule: forty slow frames in a row lower the resolution, six hundred fast ones raise it. */
+  /** Cork & Bell's rule (governor.js): slow frames lower the resolution, a long run of quick ones raises it. */
   govern(ms) {
     if (!this.world || this.pad) return;
-    // Slow frames are counted, and timed too: at a few frames a second, forty in a row would take half a minute
-    // (three in a row at least, so one long frame, a picture's first, is not taken for a slow screen).
-    if (ms > TUNE.GOV_SLOW_MS) { this.slow++; this.slowMs = (this.slowMs || 0) + ms; this.fast = 0; } else { this.slow = 0; this.slowMs = 0; if (ms < TUNE.GOV_FAST_MS) this.fast++; else this.fast = 0; }
-    if ((this.slow >= 40 || (this.slow >= 3 && this.slowMs >= 1500)) && this.scale > 0.5) { this.scale = Math.max(0.5, this.scale - 0.15); this.slow = 0; this.slowMs = 0; this.layout(); }
-    if (this.fast >= 600 && this.scale < 1) { this.scale = Math.min(1, this.scale + 0.15); this.fast = 0; this.layout(); }
+    const say = (this.gov || (this.gov = makeGovernor({ slowMs: TUNE.GOV_SLOW_MS, fastMs: TUNE.GOV_FAST_MS }))).frame(ms);
+    if (say < 0 && this.scale > 0.5) { this.scale = Math.max(0.5, this.scale - 0.15); this.layout(); }
+    if (say > 0 && this.scale < 1) { this.scale = Math.min(1, this.scale + 0.15); this.layout(); }
   }
 
   /** No more 3D on this page (the picture was lost for good): everything that drew it goes. */
