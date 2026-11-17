@@ -32,9 +32,9 @@ const check = (ok, what) => {
 };
 
 const N = 6;
-const [CORK, COIN, WHO] = [0, 1, 2];
-/** Where the outside game lives. No test goes there: the browser is handed a stand-in page for the address. */
-const WHO_SITE = "https://whoami.n8builds.dev/";
+const [CORK, COIN] = [0, 1];
+/** Where the ideas poster sends a tap. No test goes there: the browser is handed a stand-in page for the address. */
+const IDEAS_SITE = "https://n8builds.dev/";
 const light = (i, off = 0) => Math.round(boxCentre(i, N) + off);
 const dark = (i) => Math.round(boxCentre(i, N) + lightHalf(N) + 22);
 
@@ -44,7 +44,7 @@ try {
   const errors = [];
   async function open(name, viewport, extra = {}) {
     const context = await browser.newContext({ viewport, deviceScaleFactor: 1, ...extra });
-    await context.route(WHO_SITE + "**", (route) => route.fulfill({ contentType: "text/html", body: "<!doctype html><title>stand-in</title><p>A stand-in for the outside game's site.</p>" }));
+    await context.route(IDEAS_SITE + "**", (route) => route.fulfill({ contentType: "text/html", body: "<!doctype html><title>stand-in</title><p>A stand-in for the contact page.</p>" }));
     const page = await context.newPage();
     page.on("pageerror", (e) => errors.push(`${name}: ${e.message}`));
     page.on("console", (m) => m.type() === "error" && errors.push(`${name}: ${m.text()}`));
@@ -134,9 +134,9 @@ try {
   await tidy(phone, "phone, alone");
   await shot(screen, "05-screen-one-player");
   const whyNot = await screen.evaluate(() => [...document.querySelectorAll("svg.scene text")].filter((t) => !t.closest("[display=none]")).map((t) => t.textContent).filter((t) => /Needs|coming soon/i.test(t)));
-  check(whyNot.filter((t) => t === "Needs 2 players").length === 1 && !whyNot.includes("Needs a player") && whyNot.filter((t) => t === "COMING SOON").length === 3 && !whyNot.includes("Coming soon"), "alone, Who Am I? says it needs two, Cork & Bell can be picked, and three posters say coming soon: " + [...new Set(whyNot)].join(", "));
+  check(!whyNot.includes("Needs a player") && whyNot.filter((t) => t === "COMING SOON").length === 3 && !whyNot.includes("Coming soon"), "alone, Cork & Bell can be picked, and three posters say coming soon: " + [...new Set(whyNot)].join(", "));
   const counts = await screen.evaluate(() => [...document.querySelectorAll("svg.scene text")].filter((t) => !t.closest("[display=none]") && t.getAttribute("display") !== "none").map((t) => t.textContent).filter((t) => /^\d(-\d)? players?$/.test(t)));
-  check(counts.join() === "1-4 players,1-4 players,2-4 players,1-4 players,2-4 players", "every other sign says plainly how many can play: " + counts.join(", "));
+  check(counts.join() === "1-4 players,1-4 players,1-4 players,2-4 players,2-4 players", "every game's sign says plainly how many can play, and the ideas poster has no sign: " + counts.join(", "));
 
   // Three more players, as sockets.
   const sessions = [];
@@ -309,9 +309,10 @@ try {
   await sleep(300);
   await shot(screen, "33-screen-dolly-left");
 
-  // ---------------------------------------------------------------- an outside game wins the vote
-  // A new party of two, the size Who Am I? takes: a phone held sideways and one held upright,
-  // with a big screen. Winning the vote sends all three to the game's own site.
+  // ---------------------------------------------------------------- the ideas poster
+  // A new party of two: a phone held sideways and one held upright, with a big screen. The poster
+  // that hangs last is not a game: standing under it is standing in the dark, and a tap on it on
+  // a phone opens the contact page in a new tab while the room stays open.
   const screen2 = await open("screen 2", { width: 1920, height: 1080 });
   await screen2.goto(base + "/lobby/?start");
   await screen2.click("text=Use this as the room's screen");
@@ -350,33 +351,24 @@ try {
   await sleep(700);
   await shot(screen2, "34-screen-party-of-two");
   await tidy(screen2, "big screen, party of two");
-  const lit = await screen2.evaluate(() => [...document.querySelectorAll("svg.scene text")].filter((t) => !t.closest("[display=none]")).map((t) => t.textContent));
-  check(lit.includes("ON ITS OWN SITE") && lit.filter((t) => t === "Who Am I?").length === 1 && !lit.includes("Needs 2 players"), "Who Am I?'s light is on for two, its poster says it is on its own site, and its name is written once");
-  await walk(ada, watcher, 0, light(WHO, -40));
-  await walk(bea, watcher, 1, light(WHO, 40));
-  await screen2.waitForFunction(() => /opens in/.test(document.querySelector(".status-main")?.textContent ?? ""), null, { timeout: 8000 });
-  await sleep(250);
-  await shot(screen2, "35-screen-count-who-am-i");
-  await shot(ada, "36-phone-count-who-am-i");
-  await tidy(ada, "phone, count for an outside game");
-  check(/Who Am I\? opens in \d+\./.test(await screen2.locator(".status-main").textContent()), "the count says it opens, not starts");
-  for (const page of [screen2, ada, bea]) await page.waitForSelector(".card.away", { timeout: 13000 });
-  await sleep(350);
-  await shot(screen2, "37-screen-off-to-who-am-i");
-  await shot(ada, "38-phone-off-to-who-am-i");
-  await shot(bea, "39-upright-off-to-who-am-i");
-  for (const [page, name] of [[screen2, "big screen"], [ada, "phone"], [bea, "upright phone"]]) await tidy(page, name + ", off to an outside game");
-  const said = await ada.locator(".card.away").innerText();
-  check(said.includes("Off to Who Am I?") && said.includes("whoami.n8builds.dev") && said.includes(pin2) && /does not work there/.test(said) && /No Tonight points/.test(said), "the card says where everyone is going, that the code does not carry over, and that nobody scores");
-  check(/Go now \([1-6]\)/.test(said), "and counts down before it goes");
-  // The upright phone chooses to stay: it is still in the room when the others have gone.
-  await bea.click("text=Stay in the room");
-  await Promise.all([screen2, ada].map((page) => page.waitForURL(WHO_SITE + "**", { timeout: 10000 })));
-  check([screen2, ada].every((page) => page.url() === WHO_SITE), "then the big screen and the phone go to " + WHO_SITE);
-  await sleep(1200);
-  check(new URL(bea.url()).pathname === "/lobby/" && (await bea.locator(".card.away").count()) === 0 && (await bea.locator("svg.scene").count()) === 1, "a phone that chose to stay is still in the room after the count");
-  const board2 = watcher.seen.findLast((m) => m.room)?.room;
-  check(board2.tonight.games === 0 && board2.members.filter(Boolean).every((m) => m.points === 0) && !watcher.seen.some((m) => m.t === "start"), "no game started in the room and nobody scored");
+  const words = await screen2.evaluate(() => [...document.querySelectorAll("svg.scene [data-poster=ideas] text")].map((t) => t.textContent));
+  check(["GOT A GAME", "IDEA?", "n8builds.dev"].every((w) => words.includes(w)) && !words.some((w) => /@/.test(w)), `the ideas poster asks for ideas and shows the short address, and no email address: ${words.join(" / ")}`);
+  const ideasX = Math.round(boxCentre(5, N));
+  await walk(ada, watcher, 0, ideasX - 40);
+  await walk(bea, watcher, 1, ideasX + 40);
+  await sleep(2500);
+  await shot(screen2, "35-screen-under-the-ideas-poster");
+  await shot(ada, "36-phone-under-the-ideas-poster");
+  await tidy(screen2, "big screen, under the ideas poster");
+  const view2 = watcher.seen.findLast((m) => m.room)?.room;
+  check(view2.vote.lights.ideas === "" && view2.vote.standing[0] === null && view2.vote.standing[1] === null && !view2.vote.count, "standing under the poster is standing in the dark: no light, no vote, no count");
+  // A tap on the poster on a phone opens the contact page in a new tab; the room stays on this one.
+  const opened = ada.context().waitForEvent("page", { timeout: 6000 }).catch(() => null);
+  await ada.locator(".spot-poster").last().tap();
+  const tab = await opened;
+  await tab?.waitForLoadState().catch(() => {});
+  check(tab?.url() === "https://n8builds.dev/#contact" && new URL(ada.url()).pathname === "/lobby/", `a tap on the poster opens the contact page in a new tab (${tab?.url()}) and the room stays open`);
+  await tab?.close();
   clearInterval(watcher.timer);
 
   // ---------------------------------------------------------------- the wall as production hangs it
@@ -404,11 +396,11 @@ try {
     await tidy(wall, "big screen, production wall");
     await tidy(pocket, "phone, production wall");
     const words = await wall.evaluate(() => [...document.querySelectorAll("svg.scene text")].filter((t) => !t.closest("[display=none]")).map((t) => t.textContent));
-    check(dee.room.boxes.map((b) => b.id).join() === "cork-and-bell,who-am-i,tin-derby,flood,fox-trouble", "production hangs five boxes: Cork & Bell, Who Am I?, Tin Derby, Flood and Fox Trouble");
-    check(!words.some((t) => /coin flip|test game/i.test(t)), "and no test game");
-    const once = ["Cork & Bell", "Who Am I?", "FLOOD"].every((name) => words.filter((t) => t === name).length === 1) && words.filter((t) => ["TIN", "DERBY", "FOX", "TROUBLE"].includes(t)).length === 4;
+    check(dee.room.boxes.map((b) => b.id).join() === "cork-and-bell,flood,tin-derby,fox-trouble,ideas", "production hangs five: Cork & Bell, Flood, Tin Derby, Fox Trouble and the ideas poster, and no Who Am I?");
+    check(!words.some((t) => /coin flip|test game|who am i/i.test(t)), "and no test game, and no Who Am I?");
+    const once = ["Cork & Bell", "FLOOD"].every((name) => words.filter((t) => t === name).length === 1) && words.filter((t) => ["TIN", "DERBY", "FOX", "TROUBLE"].includes(t)).length === 4;
     check(once, "every game's name is written once, on its poster");
-    check(dee.room.vote.lights["cork-and-bell"] === null && dee.room.vote.lights["who-am-i"] === null, "with two players both Cork & Bell and Who Am I? can be picked");
+    check(dee.room.vote.lights["cork-and-bell"] === null && dee.room.vote.lights.ideas === "", "with two players Cork & Bell can be picked, and the ideas poster has no light");
     dee.ws.close();
   }
 

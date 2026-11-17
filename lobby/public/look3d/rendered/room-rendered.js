@@ -205,12 +205,16 @@ export class RoomRendered extends Room3D {
     this.stuff.add(b.ring, b.wash);
     // The lamp is the room's own; the room's life swings the group it gives back.
     b.lamp = { swing: this.lamp(b, i) };
+    // A poster that is not a game (the ideas poster): no lamp over it and no place on the floor under it.
+    if (box.poster) b.lamp.swing.visible = b.ring.visible = b.wash.visible = false;
     return b;
   }
 
   /** A box's lamp changed its level of light: its poster and gold edge here; the lamp itself is set every frame (tick). */
   light(b) {
     if (this.plain) return super.light(b);
+    // A poster is never lit: printed paper in the room's own light.
+    if (b.box.poster) return void b.art.color.setScalar(0.75);
     const glowing = Math.min(1, b.level * 8);
     b.art.color.setScalar(0.34 + 0.56 * glowing + 0.22 * b.gold);
     // The screen's edge: the room's colour while its lamp is on, brighter for the box that leads.
