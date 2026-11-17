@@ -73,7 +73,7 @@
     "lean-qr": "^2.7.4"
   },
   "devDependencies": {
-    "cork-and-bell": "github:n8watkins/cork-and-bell#237beab03a8e5582f1d893b92c61f387b50b0fed",
+    "cork-and-bell": "github:n8watkins/cork-and-bell#5344f7e3d369f42ae703859159ea17b6092c447d",
     "playwright": "^1.64.1",
     "sharp": "^0.35.5",
     "three": "^0.186.1",
