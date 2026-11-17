@@ -141,8 +141,10 @@ try {
   await sleep(400);
   await shot(host, "04-laptop-picker-host");
   check(/Everyone in the party sees the room you choose/.test(await host.locator(".picker-line").textContent()), "the host is told their pick moves everyone");
+  // Counted from before the tap: the relay can reach the watcher before the click returns.
+  const beforePick = watcher.seen.length;
   await host.click(".room-card[data-room=camp]");
-  const moved = await watcher.wait((m) => m.t === "pick", 5000).catch(() => null);
+  const moved = await watcher.wait((m) => m.t === "pick", 5000, beforePick).catch(() => null);
   check(moved?.v === "camp" && moved.by === 0, "the host's pick is one relayed message: " + JSON.stringify(moved && { v: moved.v, by: moved.by }));
   await tv.waitForFunction(() => window.__room3d?.skin.id === "camp", null, { timeout: 30000 }).catch(() => {});
   await phone.waitForFunction(() => window.__room3d?.skin.id === "camp", null, { timeout: 30000 }).catch(() => {});
