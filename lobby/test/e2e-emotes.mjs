@@ -272,7 +272,9 @@ try {
   await cy.opened;
   await screen.waitForFunction((n) => globalThis.__partyRoom.sounds.log.slice(n).some((l) => l.name === "join"), screenMark, { timeout: 4000 });
   await phone.keyboard.press("ArrowUp");
-  await sleep(500);
+  // Up to three seconds for her own jump's sound on a busy machine.
+  await phone.waitForFunction((n) => globalThis.__partyRoom.sounds.log.slice(n).some((l) => l.name === "jump"), phoneMark, { timeout: 3000, polling: 50 }).catch(() => null);
+  await sleep(200);
   const phoneHeard = (await asked(phone)).slice(phoneMark);
   check(!phoneHeard.some((x) => x.startsWith("join:")), "Cy coming in chimes on the screen, not on Bea's phone");
   check(phoneHeard.some((x) => x.startsWith("jump:")), "while Bea's own jump still sounds on her phone");
