@@ -654,7 +654,7 @@ try {
       const code = await codeOf(pin);
       await vote(code, phones);
       const faults = new Set();
-      let samples = 0, mid = false, drop = null, joiner = null, closeSeen = null;
+      let samples = 0, mid = false, drop = null, joiner = null, closeSeen = null, pad = null;
       // With two side by side, Bo's phone drops for a few seconds; with three, a fourth phone joins in the middle.
       const dropper = label === "panes-2" ? phones[1] : null;
       const during = async (t, frames, last) => {
@@ -664,6 +664,14 @@ try {
         if (home && closeSeen === null) closeSeen = (await panesOf(f).catch(() => null))?.close ?? null;
         if (t > 0.5 && !home) { const P = await panesOf(f).catch(() => null); if (P) { samples++; for (const b of paneFaults(P, names)) faults.add(b); } }
         if (!mid && t > 9) { mid = true; await shot(scr, `${label}-mid-race`, `the big screen (1920 x 1080), ${names.length} player${names.length > 1 ? "s" : ""}, race time ${t.toFixed(1)} s`); }
+        // With two, Ada's phone is a controller only for a while (a still of it), then draws the race again.
+        if (dropper && !pad && t > 2) { pad = { on: true }; await frames.get(phones[0]).click("#bpad"); }
+        if (pad?.on && !pad.shot && t > 6) {
+          pad.shot = true;
+          await shot(phones[0], "phone-controller-only", `Ada's phone (844 x 390) switched to controller only: no picture, big thumbs, place and power, race time ${t.toFixed(1)} s`);
+          await frames.get(phones[0]).click("#bpad");
+          pad.back = await frames.get(phones[0]).evaluate(() => ({ pad: window.__derby.app.pad, stage: getComputedStyle(document.getElementById("stage")).visibility, kept: localStorage.getItem("tin-derby-controller-only") }));
+        }
         if (dropper && !drop && t > 4) { drop = { at: t }; await dropper.context().setOffline(true); }
         if (drop && !drop.note && t > drop.at + 2.5) {
           drop.note = (await panesOf(f)).panes.find((p) => p.name === "Bo")?.note ?? "";
@@ -695,6 +703,7 @@ try {
         check(phones.every((p) => last.get(p)?.mode === "phone" && !last.get(p)?.pad), `${label}: every phone still draws its own car`);
         check(closeSeen === true, `${label}: the winner's close shot took the whole big screen (${closeSeen})`);
         if (dropper) check(/^The house is driving/.test(drop?.note ?? ""), `${label}: Bo's pane said the house was driving while his phone was away ("${drop?.note}")`);
+        if (dropper) check(pad?.back?.pad === false && pad.back.stage === "visible" && pad.back.kept === "0", `${label}: Ada's phone came back from controller only to drawing the race, and remembers that (${JSON.stringify(pad?.back)})`);
         if (names.length === 3) check(joiner && joiner.car === -1 && joiner.mode === "tvwide" && /next one/.test(joiner.hint) && joiner.panes === 3, `${label}: a phone that joined mid-race watches the whole table and races next time; the big screen keeps its three panes (${JSON.stringify(joiner && { car: joiner.car, mode: joiner.mode, hint: joiner.hint, panes: joiner.panes })})`);
       }
       await closeAll();

@@ -168,13 +168,14 @@ class Hands {
       const dx = e.clientX - this.px0, R = 48, dead = 5;
       this.padSteer = Math.abs(dx) < dead ? 0 : clampN((dx - Math.sign(dx) * dead) / (R - dead), -1, 1);
       this.knob.style.transform = `translateX(${Math.round(clampN(dx, -R, R))}px)`;
+      this.app.handsMoved();
     });
-    const padUp = (e) => { if (e.pointerId !== this.padPtr) return; this.padPtr = null; this.padSteer = 0; this.knob.style.transform = ""; this.ring.classList.remove("on"); this.ring.style.left = this.ring.style.top = ""; };
+    const padUp = (e) => { if (e.pointerId !== this.padPtr) return; this.padPtr = null; this.padSteer = 0; this.knob.style.transform = ""; this.ring.classList.remove("on"); this.ring.style.left = this.ring.style.top = ""; this.app.handsMoved(); };
     this.zone.addEventListener("pointerup", padUp); this.zone.addEventListener("pointercancel", padUp);
     // Hold buttons: left, right, drift, brake, use. Each follows its own finger, so two thumbs never fight.
     const hold = (sel, key) => {
       const b = q(sel), ptrs = new Set();
-      const set = () => { this.touch[key] = ptrs.size > 0; b.classList.toggle("down", ptrs.size > 0); };
+      const set = () => { this.touch[key] = ptrs.size > 0; b.classList.toggle("down", ptrs.size > 0); this.app.handsMoved(); };
       b.addEventListener("pointerdown", (e) => { e.preventDefault(); this.app.touchSeen(); ptrs.add(e.pointerId); if (key === "use") this.usePending = true; try { b.setPointerCapture(e.pointerId); } catch (err) { /* fine */ } set(); });
       for (const t of ["pointerup", "pointercancel", "lostpointercapture"]) b.addEventListener(t, (e) => { ptrs.delete(e.pointerId); set(); });
       this.releasers.push(() => { ptrs.clear(); set(); });
@@ -462,6 +463,13 @@ class App {
     if (this.wanted.size > 64) this.wanted.delete(this.wanted.keys().next().value);
     this.post(msg);
   }
+  /**
+   * A thumb or a key moved: the hands go to the room now, not at the next frame. The big screen draws this car from
+   * what the room relays, so a frame's wait here would be a frame more between the thumb and the car on the screen.
+   */
+  handsMoved() {
+    if (!this.autoDrive && !this.gone) this.send(this.host.now());
+  }
   /** A beat ({h: 1}) when this page has said nothing for a while (replica.beat): the room then knows it is still here. */
   speak(now) {
     if (!this.hands || this.me < 0 || this.out) return;
@@ -586,6 +594,7 @@ class App {
       e.preventDefault();
       if (down && !this.sound.on && this.sound.enable()) this.soundButton();
       this.hands.keys[act] = down;
+      this.handsMoved();
       if (act === "use" && down && !e.repeat) this.hands.usePending = true;
     };
     window.addEventListener("keydown", (e) => keys(e, true));

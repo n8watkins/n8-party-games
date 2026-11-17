@@ -15,9 +15,9 @@ It hangs on the Floor's wall (`games.js`, `lobby/wall.js`) in the place its comi
 | `shared/house.js` | The house cars' driver |
 | `shared/dmath.js` | sin, cos, atan2 built from exact operations only |
 | `shared/replica.js` | A page's copy of the race: feed it snapshots and events, ask it for the race now |
-| `page/` | The page a party room shows (below, "In the party room") |
+| `page/` | The page a party room shows (below, "In the party room"); `split.js` and `map.js` are the big screen's panes and its flat table |
 | `tools/` | Scripted players, whole races, a made-up network, the measurements, the parity check against the preview, the cost in workerd |
-| `test/` | 150 unit tests: every rule, whole races, balance, determinism, the room, the party room's own rules, the view's test switches, a short smoke; and `e2e-room.mjs`, races in the real party room with real browsers |
+| `test/` | 152 unit tests: every rule, whole races, balance, determinism, the room, the party room's own rules, the view's test switches, a short smoke; and `e2e-room.mjs`, races in the real party room with real browsers |
 
 ## The structure, and why
 
@@ -310,5 +310,7 @@ node floor/games/tin-derby/tools/parity.mjs /path/to/preview
 npm run test:tin-derby -- --base=http://localhost:8791        # the gate's step: one short race in the party room, every trouble at once
 npm run test:tin-derby:full -- --base=http://localhost:8791   # whole races, real browsers: run this before a change to the game itself (about 10 minutes)
 node floor/games/tin-derby/test/e2e-room.mjs --only=lag --base=...   # the 40 and 200 ms runs above
+node floor/games/tin-derby/test/e2e-room.mjs --only=panes --panes=1,2,3,4 --out=... --base=...   # the big screen's split view, with stills
+node floor/games/tin-derby/test/e2e-room.mjs --only=tvlag,tvperf --base=...   # thumb to big screen, and the big screen's frame rate (below)
 node floor/games/tin-derby/tools/workerd-cost.mjs --base=... --pid=<workerd pid>   # the cost in workerd above
 ```
