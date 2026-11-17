@@ -392,8 +392,10 @@ try {
         await sleep(1600);
         const shown = await page.evaluate(() => window.__fright);
         const wide = shown.scared > 0.5;
-        // The page drew in time to see the scare: its first frame came before the scared piece was up again.
-        const inTime = back < HOOK_SCARE_MS - 250;
+        // The page drew in time to see the scare: its first frame came before the scared piece was up
+        // again. `back` is measured from here, after the test's own calls into a busy page; a frame
+        // it drew wide-eyed (the watch starts with the page's own frames) shows it was in time too.
+        const inTime = back < HOOK_SCARE_MS - 250 || wide;
         seen = { scared, after, inTime, wide, shown, back, spoke: firstSend - kickAt };
         if (after && shots) await page.screenshot({ path: `${shots}/${look}-${character}-reloaded-mid-scare.png` });
         await sleep(1500);
