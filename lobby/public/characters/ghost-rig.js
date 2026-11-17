@@ -554,10 +554,15 @@ export function wispHalf(u, cuff) {
   return WISP.root + (WISP.wrist - WISP.root) * Math.pow(u, 0.7);
 }
 
-/** How a hand is joined to the ghost: "wisp" (the whole arm), "cuff" (a short trail) or null (it floats). */
+/**
+ * How a hand is joined to the body: "wisp" (the whole arm: a wisp of the ghost's sheet, or the
+ * slime's goo, which is drawn the same way in its own colour), "cuff" (a short trail), "rod" (the
+ * robot's jointed arm, ./body-rig.js) or null (it floats).
+ */
 export function joinOf(pose, hand) {
   const limb = pose.ghost?.limb;
-  if (limb === "wisp") return "wisp";
+  if (limb === "wisp" || limb === "goo") return "wisp";
+  if (limb === "rod") return "rod";
   return limb === "float" && hand.cuff ? "cuff" : null;
 }
 

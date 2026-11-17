@@ -34,13 +34,15 @@ function seatedRoom(...names) {
 }
 
 describe("the list of characters and colours", () => {
-  it("has the pawn as the default and the ghost as the second character", () => {
-    expect(CHARACTERS.map((c) => c.id)).toEqual(["pawn", "ghost"]);
+  it("has the pawn as the default, then the ghost, the slime and the robot", () => {
+    expect(CHARACTERS.map((c) => c.id)).toEqual(["pawn", "ghost", "slime", "robot"]);
     expect(DEFAULT_CHARACTER).toBe("pawn");
-    expect(isCharacter("ghost")).toBe(true);
-    for (const bad of ["slime", "", "Ghost", null, undefined, 3, {}, ["ghost"], "__proto__", "constructor"]) expect(isCharacter(bad), String(bad)).toBe(false);
-    expect(characterOr("robot")).toBe("pawn");
-    expect(characterOr("ghost")).toBe("ghost");
+    for (const id of ["ghost", "slime", "robot"]) {
+      expect(isCharacter(id), id).toBe(true);
+      expect(characterOr(id), id).toBe(id);
+    }
+    for (const bad of ["dragon", "", "Ghost", "Slime", "ROBOT", " robot", null, undefined, 3, {}, ["ghost"], ["slime"], "__proto__", "constructor"]) expect(isCharacter(bad), String(bad)).toBe(false);
+    expect(characterOr("dragon")).toBe("pawn");
   });
 
   it("offers the four seat colours first, and every preset is a colour the room keeps as it is", () => {
@@ -70,7 +72,9 @@ describe("the list of characters and colours", () => {
     expect(readLook({ c: "ghost" })).toEqual({ character: "ghost" });
     expect(readLook({ v: "#3AA9A0" })).toEqual({ colour: "#3aa9a0" });
     expect(readLook({ c: "pawn", v: "#3aa9a0" })).toEqual({ character: "pawn", colour: "#3aa9a0" });
-    expect(readLook({ c: "slime", v: "#3aa9a0" }).error).toMatch(/character/);
+    expect(readLook({ c: "slime", v: "#3aa9a0" })).toEqual({ character: "slime", colour: "#3aa9a0" });
+    expect(readLook({ c: "robot" })).toEqual({ character: "robot" });
+    expect(readLook({ c: "dragon", v: "#3aa9a0" }).error).toMatch(/character/);
     expect(readLook({ c: "ghost", v: "blue" }).error).toMatch(/colour/);
     expect(readLook({}).error).toBeTruthy();
     expect(readLook(null).error).toBeTruthy();
@@ -107,9 +111,32 @@ describe("the room's rules for a choice", () => {
     expect(core.members[0]).toMatchObject({ character: "ghost", colour: "#d9619a" });
   });
 
+  it("takes the slime and the robot by the same rules as the ghost: the cooldown, its slack, a repeat that is no change", () => {
+    const { core } = seatedRoom("Ann", "Bo");
+    expect(core.setLook(0, { c: "slime", v: "#3aa9a0" }, 2000)).toEqual({ ok: true, changed: true });
+    expect(core.setLook(1, { c: "robot" }, 2000)).toEqual({ ok: true, changed: true });
+    expect(core.view(2000).members.slice(0, 2).map((m) => [m.character, m.colour])).toEqual([
+      ["slime", "#3aa9a0"],
+      ["robot", SEAT_COLOURS[1]],
+    ]);
+    expect(core.setLook(0, { c: "slime" }, 2001)).toEqual({ ok: true, changed: false });
+    const early = core.setLook(0, { c: "robot" }, 2000 + LOOK_COOLDOWN_MS - LOOK_SLACK_MS - 1);
+    expect(early.ok).toBe(false);
+    expect(early.wait).toBe(LOOK_SLACK_MS + 1);
+    expect(core.members[0].character).toBe("slime");
+    // Inside the slack it is taken; from the slime to the robot to the ghost and back to a pawn.
+    expect(core.setLook(0, { c: "robot" }, 2000 + LOOK_COOLDOWN_MS - LOOK_SLACK_MS + 10)).toEqual({ ok: true, changed: true });
+    expect(core.setLook(0, { c: "ghost" }, 4000)).toEqual({ ok: true, changed: true });
+    expect(core.setLook(0, { c: "pawn" }, 5000)).toEqual({ ok: true, changed: true });
+    // Kept through a sleep, as any choice is.
+    core.setLook(1, { c: "slime", v: "#8a5bc4" }, 6000);
+    const woken = LobbyCore.restore(wall(), structuredClone(JSON.parse(JSON.stringify(core.serialize()))), 7000);
+    expect(woken.view(7000).members[1]).toMatchObject({ character: "slime", colour: "#8a5bc4" });
+  });
+
   it("refuses an unknown character or a bad colour and changes nothing, even when the other part is good", () => {
     const { core } = seatedRoom("Ann");
-    for (const bad of [{ c: "slime" }, { c: "slime", v: "#d9619a" }, { c: "ghost", v: "pink" }, { c: 7 }, { v: null }, {}, null]) {
+    for (const bad of [{ c: "dragon" }, { c: "dragon", v: "#d9619a" }, { c: "ghost", v: "pink" }, { c: "slime", v: "pink" }, { c: "Robot" }, { c: 7 }, { v: null }, {}, null]) {
       const out = core.setLook(0, bad, 2000);
       expect(out.ok, JSON.stringify(bad)).toBe(false);
       expect(out.why.length).toBeGreaterThan(0);
@@ -157,7 +184,7 @@ describe("the room's rules for a choice", () => {
     const { core } = seatedRoom("Ann", "Bo", "Cy");
     const saved = structuredClone(core.serialize());
     delete saved.members[0].character;
-    saved.members[1].character = "robot";
+    saved.members[1].character = "dragon";
     saved.members[1].colour = "not a colour";
     saved.members[2].character = "ghost";
     saved.members[2].colour = "#D9619A";
@@ -202,7 +229,7 @@ describe("a choice on the real room", () => {
   it("refuses a bad or unknown choice to the page that sent it only, with what the piece still is", async () => {
     const { ctx, say, ws } = await party();
     const [a, b, s] = mark(ws.ann, ws.bo, ws.screen);
-    say(ws.bo, { t: "look", c: "slime", v: "#8a5bc4" });
+    say(ws.bo, { t: "look", c: "dragon", v: "#8a5bc4" });
     say(ws.bo, { t: "look", c: "ghost", v: "javascript:alert(1)" });
     say(ws.bo, { t: "look" });
     await settle();
