@@ -473,8 +473,9 @@ try {
     const still = async (when, t) => {
       if (when === "mid-race") { await shot(scr, "screen-1920-mid-race", `the big screen (1920 x 1080) at race time ${t.toFixed(1)} s`); await shot(up, "upright-phone", `the upright phone (390 x 844) at race time ${t.toFixed(1)} s`); await shot(small, "small-phone", `the small phone (568 x 320, reduced motion) at race time ${t.toFixed(1)} s`); }
       if (when === "finish") {
-        await sleep(1500);
-        await shot(scr, "screen-1920-finish", `the big screen (1920 x 1080) as the first car finishes, race time ${t.toFixed(1)} s`);
+        await shot(scr, "screen-1920-finish-close", `the big screen (1920 x 1080) as the first car finishes (its close shot at the line), race time ${t.toFixed(1)} s`);
+        await sleep(4000); // past the close shot: the whole table again, a car home
+        await shot(scr, "screen-1920-finish", `the big screen (1920 x 1080) a few seconds after the first car finished`);
         finTok = await (await scr.$(FRAME)).contentFrame().then((f) => f.evaluate(() => { const line = document.getElementById("tvline").getBoundingClientRect(), places = document.getElementById("tvplaces").getBoundingClientRect(); return { line: line.right, places: places.left, toks: [...document.querySelectorAll("#tvline .tok")].map((e) => e.getBoundingClientRect().right) }; }));
       }
     };
