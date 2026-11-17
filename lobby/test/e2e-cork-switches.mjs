@@ -39,7 +39,8 @@ const check = (ok, what) => {
   console.log((ok ? "ok   " : "FAIL ") + what);
   if (!ok) problems.push(what);
 };
-const started = Date.now();
+/** When the checks began: after the browser is up (with TEST_GPU=1 it may first wait for a card slot). */
+let started = Date.now();
 const lap = (what) => console.log(`     (${what}: ${((Date.now() - started) / 1000).toFixed(1)} s)`);
 const FRAME = 'iframe[title="Cork & Bell"]';
 /** Round seconds the party room's page is left alone for: the game's bot fires its first cork within about two. */
@@ -55,6 +56,8 @@ if (config.simLatency || config.testGames !== false) {
 
 const errors = [];
 const browser = await launchBrowser({ args: ["--use-angle=swiftshader", "--enable-unsafe-swiftshader"] }); // with TEST_GPU=1 the browser draws on the card
+lap("browser up");
+started = Date.now();
 const open = async (name, viewport, extra = {}) => {
   const page = await (await browser.newContext({ viewport, deviceScaleFactor: 1, ...extra })).newPage();
   page.on("pageerror", (e) => errors.push(`${name}: ${e.message}`));
