@@ -11,6 +11,7 @@ export const STEPS = [
   ["the switch between the Floor and the Table, over sockets (test:mode)", "test:mode"],
   ["the Floor and the Table side by side, headless browser (test:two-rooms)", "test:two-rooms"],
   ["a game at the Table, headless browser (test:table)", "test:table"],
+  ["Paper Masks at the Table, three whole matches with every secret checked, headless browser (test:paper-masks)", "test:paper-masks"],
 ];
 
 /**
