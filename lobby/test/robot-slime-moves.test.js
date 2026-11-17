@@ -172,12 +172,15 @@ describe("the robot's and the slime's rules, as numbers", () => {
 });
 
 describe("a slide never puts a piece in another light (shared/moves.js)", () => {
-  // The production wall (five boxes) and the test wall (six), with every light on and with some off.
-  const walls = [["production", WALL.boxes.length], ["test", TEST_WALL.boxes.length], ["one box", 1]];
+  // The production wall (five boxes), the test wall (six), the Floor's coming four-box wall and a
+  // single box, with every light on, every other one, a single pool, two pools far apart, and none:
+  // a box with no pool (a coming-soon poster) is only more dark, so a pool is never assumed per box.
+  const walls = [["production", WALL.boxes.length], ["test", TEST_WALL.boxes.length], ["four-box", 4], ["one box", 1]];
   for (const [name, n] of walls) {
     it(`on the ${name} wall (${n} boxes)`, () => {
       const faults = [];
-      const lits = [Array.from({ length: n }, (_, i) => i), Array.from({ length: n }, (_, i) => i).filter((i) => i % 2 === 0), []];
+      const every = Array.from({ length: n }, (_, i) => i);
+      const lits = [every, every.filter((i) => i % 2 === 0), [n - 1], [...new Set([0, n - 1])], []];
       for (const lit of lits) {
         for (let from = ROOM.minX; from <= ROOM.maxX; from += 23) {
           for (let to = ROOM.minX; to <= ROOM.maxX; to += 37) {
@@ -481,6 +484,43 @@ describe("the room's judgement of the hook", () => {
     expect(core.members[0].hook).toBeNull();
     expect(core.drainMoves()).toEqual([{ t: "hk", s: 0, o: "off" }]);
   });
+});
+
+describe("on a wall whose pools are only some of its boxes (coming-soon posters have none)", () => {
+  /** A wall of four boxes of which only the playable ones (`playable`, by place) have a light. */
+  function wallOf(playable) {
+    const boxes = [0, 1, 2, 3].map((i) =>
+      playable.includes(i)
+        ? boxFromManifest({ ...coinFlipManifest, id: `play-${i}`, players: { min: 1, max: 4 } }, { test: true })
+        : boxFromManifest({ id: `soon-${i}`, name: `Soon ${i}`, players: { min: 1, max: 4 }, devices: { phone: true } }, { soon: true }),
+    );
+    return { boxes, games: new Map(boxes.filter((b) => b.id.startsWith("play")).map((b) => [b.id, coinFlip])) };
+  }
+  for (const [name, playable] of [["one pool", [1]], ["two pools", [0, 3]]]) {
+    it(`never pulls or shoves a piece into a pool (${name}), and lets it rest under a poster with none`, () => {
+      const core = party(["Ann", "Bo"], wallOf(playable));
+      expect(core.litPlaces()).toEqual(playable);
+      be(core, 0, "robot");
+      const n = 4;
+      // A pull from the dark toward a robot standing in the first pool: it stops in the dark short of it.
+      const pool = boxCentre(playable[0], n);
+      const half = lightHalf(n);
+      place(core, 0, Math.round(pool), 1000, -1);
+      place(core, 1, Math.round(pool - half - 140), 1000);
+      core.hook(0, 2000);
+      run(core, 2000, 2600);
+      expect(lightAt(core.members[1].x, n) === -1 || !playable.includes(lightAt(core.members[1].x, n))).toBe(true);
+      expect(core.members[1].x).toBeLessThan(pool - half);
+      // A piece under an unlit poster is in the dark: a hook may leave it there.
+      const unlit = [0, 1, 2, 3].find((i) => !playable.includes(i));
+      core.members[0].hookAt = -Infinity;
+      Object.assign(core.members[1], { stunUntil: 0, immuneUntil: 0 });
+      place(core, 0, Math.round(boxCentre(unlit, n)), 9000, 1);
+      place(core, 1, Math.round(boxCentre(unlit, n) + 180), 9000);
+      core.hook(0, 9100);
+      expect(run(core, 9100, 9700)[0]).toMatchObject({ o: "pull", x: Math.round(boxCentre(unlit, n)) + HOOK_HOLD });
+    });
+  }
 });
 
 describe("the room's judgement of the legs, the harden and the shove", () => {
