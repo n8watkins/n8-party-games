@@ -239,7 +239,14 @@ What it means: a party in one room, phones and the big screen on the same wifi a
 
 **The big screen's frame rate** (`--only=tvperf`): four players, the big screen at 1920 by 1080, the phones switched to controller only so the big screen is the only page drawing; 12 seconds of frames mid-race. The owner's PC was busy with other work throughout (load 8 to 30 on 14 threads), so the slow-processor figures are pessimistic.
 
-PERF_TABLE
+| Drawn by | View | Frames a second | 95% of frames within | The page's own work a frame | Draw calls, triangles |
+| --- | --- | --- | --- | --- | --- |
+| The graphics card (RX 7800 XT) | four panes | 59.3 (the display's 60) | 16.8 ms | 1.5 ms (12.5 at most) | 227, 404,000 |
+| The card, the processor 4x slower | four panes | 60 | 16.7 ms | 6.6 ms (13.3 at most) | 216, 399,000 |
+| The same, an earlier run (load 30, each pane still working out the scene's matrices) | four panes | 30, unevenly (127 of 363 frames over 25 ms) | 100 ms | not measured | 216, 371,000 |
+| The card, the processor 4x slower | whole table | 60 | 16.8 ms | 4.0 ms | 74, 116,000 |
+| SwiftShader (no graphics card) | four panes | 1.4 | 1.6 s | 9.9 ms | 207, 394,000 |
+| SwiftShader | whole table | 7 | 0.27 s | 2.2 ms | 71, 115,000 |
 
 There is no laptop graphics chip to try here: a slow laptop is stood in for by Chrome's processor throttling (4x), and a machine with no graphics card by SwiftShader.
 The four panes are not limited by pixels on the card (its busiest engine stayed under a third), so lowering their resolution, which the governor does after 40 slow frames in a row, does little; where the processor is the limit the frames come unevenly rather than steadily slow, and the host's whole-table button is the remedy.

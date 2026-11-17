@@ -246,7 +246,7 @@ try {
     for (const p of frames.keys()) {
       await p.waitForFunction((sel) => !document.querySelector(sel), FRAME, { timeout: 15000 }).catch(() => {});
       const back = await p.evaluate((sel) => ({ frames: document.querySelectorAll(sel).length, card: !!document.querySelector(".card-back .card") }), FRAME);
-      check(back.frames === 0 && back.card, `${label}, ${p.name}: the game is taken away and the room shows its result card`);
+      check(back.frames === 0 && back.card, `${label}, ${p.name}: the game is taken away and the room shows its result card${back.frames === 0 && back.card ? "" : ` (${back.frames} frames, card ${back.card})`}`);
     }
     return { end, last };
   }
