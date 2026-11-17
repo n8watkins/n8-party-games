@@ -44,13 +44,16 @@ import { copyState, deadlineOf, gameProblems, inputOutcome, isTurnBased, loadSta
 import { viewerFor } from "../../party-kit/src/core/views.js";
 import { IDLE_SHUTDOWN_MS, NAME_MAX, SEAT_COLOURS, STALE_ROOM_MS, cleanName, randomToken } from "../../party-kit/src/core/room-core.js";
 import { AWAY_MS, COUNT_MS, SETTLE_MS, TOSS_MS, leaders, pointsForPlace, spotLights, standingsFromRows, tally, whyNot } from "../shared/vote.js";
-import { IMMUNE_MS, bumpTarget, cooldownLeft, isDown, isSafe, knockLanding, knocked, mayBump } from "../shared/bump.js";
+import { COOLDOWN_SLACK_MS, IMMUNE_MS, bumpTarget, cooldownLeft, isDown, isSafe, knockLanding, knocked, mayBump } from "../shared/bump.js";
 import { BOO_LATE_MS, FADE_MS, SCARE_LANDING, SPOOK_FAR, SPOOK_LANDING, fadeLeft, isFaded, mayFade, maySpook, scared, spooked } from "../shared/ghost.js";
+import { HOOK_SCARE_MS, slideLanding } from "../shared/moves.js";
+import { BONK_MS, HOOK_BACK_MS, HOOK_HOLD, HOOK_LATE_MS, HOOK_LIFE_MS, PULLED_SAFE_MS, PULL_MS, STILT_MS, TRAIN_MS, battedAway, firstCatch, hookEndsAt, hookLeft, isUp, jumpedOver, mayHook, mayStilt, stiltLeft } from "../shared/robot.js";
+import { ABSORB_MS, HARDEN_MS, SHOVE_FAR, SHOVE_LATE_MS, SHOVE_STEP, isHard, isSoft, mayShove, maySlime, shoved, slimeLeft } from "../shared/slime.js";
 import { DEFAULT_ROOM, ROOM_COOLDOWN_MS, isRoom, roomLocked } from "../shared/rooms.js";
 import { COLOUR_PRESETS, DEFAULT_CHARACTER, LOOK_COOLDOWN_MS, LOOK_SLACK_MS, characterOr, cleanColour, moveOf, readLook } from "../shared/characters.js";
 import { record } from "../shared/tonight.js";
 import { DURING_PLAY, cooldownLeft as emoteLeft, mayEmote, relayEmote, tooEager, waitMessage } from "../../party-kit/client/emotes.js";
-import { POSITION_SLACK, clampX, lightAt, posAt, spawnX } from "../shared/world.js";
+import { JUMP_MS, POSITION_SLACK, clampX, lightAt, posAt, spawnX } from "../shared/world.js";
 import { DEFAULT_MODE, MODE_COOLDOWN_MS, isMode, modeLocked, modeNote } from "../shared/mode.js";
 import { PLAY_BEAT_MS, tableWhyNot } from "../shared/table.js";
 
@@ -167,6 +170,8 @@ export class LobbyCore {
     /** token -> {seat, name, points, at}: seats of dropped players held after their piece faded (SEAT_HOLD_MS). */
     this.held = new Map();
     this.notes = [];
+    /** What the room did to a move on its own (a hook dropped when its robot was knocked): relayed to everybody by the room (drainMoves). */
+    this.moveRelays = [];
     this.voteKey = "";
     this.createdAt = now;
     this.emptySince = now;
@@ -667,6 +672,11 @@ export class LobbyCore {
     return this.notes.splice(0);
   }
 
+  /** What the room did to the characters' moves by itself since the last call (a hook dropped), for everybody. */
+  drainMoves() {
+    return this.moveRelays.splice(0);
+  }
+
   // ---------------------------------------------------------------- the lobby
 
   /**
@@ -697,7 +707,13 @@ export class LobbyCore {
     if (d) m.face = d;
     this.lastActive = now;
     const relay = { t: "m", s: seat, x: Math.round(x), d };
-    if (data.j) relay.j = 1;
+    if (data.j) {
+      relay.j = 1;
+      // A jump clears a robot's hook (shared/robot.js, jumpedOver): the room keeps when it heard
+      // the last, and only one a jump's length after the one before (a page jumps no faster). A
+      // robot's jump is its stilt legs, a message of its own.
+      if (moveOf(m.character) !== "hook" && !(now - (m.jumpAt ?? -Infinity) < JUMP_MS - COOLDOWN_SLACK_MS)) m.jumpAt = now;
+    }
     return { relay, fix };
   }
 
@@ -711,10 +727,13 @@ export class LobbyCore {
     // Only a piece whose move is the kick kicks (a ghost fades instead: fade).
     if (!m || moveOf(m.character) !== "kick" || this.activity.kind !== "lobby" || this.plainRoom() || !mayBump(m, now).ok) return null;
     m.bumpAt = now;
+    // Which way it kicked: a kick toward a robot as its hook arrives bats the hook away (shared/robot.js).
+    m.bumpFace = m.face;
     this.lastActive = now;
-    // A piece on the floor, or just up from it, cannot be knocked: nobody is kept down.
+    // A piece on the floor, or just up from it, cannot be knocked: nobody is kept down. A robot up
+    // on its legs is not there to kick: the kick swings through the gap (shared/robot.js).
     const others = this.present()
-      .filter((o) => o.seat !== seat && !isSafe(o, now))
+      .filter((o) => o.seat !== seat && !isSafe(o, now) && !isUp(o, now))
       .map((o) => ({ seat: o.seat, x: posAt(o, now) }));
     const to = bumpTarget(posAt(m, now), m.face, others);
     if (to === -1) return { t: "b", s: seat, f: m.face, to: -1 };
@@ -726,6 +745,13 @@ export class LobbyCore {
       Object.assign(m, scared(now, IMMUNE_MS));
       return { t: "b", s: seat, f: m.face, to: -1, sc: to, x: m.x, rev: m.rev };
     }
+    // A kick into a hardened slime bounces off: the kicker is knocked back itself, a kick's
+    // distance the other way (shared/slime.js). `bo` is the slime.
+    if (isHard(o, now)) {
+      this.throwPiece(m, -m.face, now);
+      Object.assign(m, knocked(now), { fright: null });
+      return { t: "b", s: seat, f: m.face, to: -1, bo: to, x: m.x, rev: m.rev };
+    }
     this.throwPiece(o, m.face, now);
     Object.assign(o, knocked(now), { fright: null });
     return { t: "b", s: seat, f: m.face, to, x: o.x, rev: o.rev };
@@ -736,12 +762,54 @@ export class LobbyCore {
    * is on (one that is off is dark already). `reach` is how far (knockLanding): a kick's by default.
    */
   throwPiece(o, dir, now, reach) {
-    const lights = this.lights();
-    const lit = this.boxes.map((box, i) => (lights[box.id] === null ? i : -1)).filter((i) => i >= 0);
-    o.x = knockLanding(posAt(o, now), dir, this.boxes.length, lit, reach);
+    o.x = knockLanding(posAt(o, now), dir, this.landingWall(), this.litPlaces(), reach);
     o.d = 0;
     o.t = now;
     o.rev += 1;
+    this.interrupt(o, now);
+  }
+
+  /** The wall pieces land by (shared/world.js): what knockLanding and slideLanding are handed. */
+  landingWall() {
+    return this.boxes.length;
+  }
+
+  /** The places on the wall whose lights are on (one that is off is dark). */
+  litPlaces() {
+    const lights = this.lights();
+    return this.boxes.map((box, i) => (lights[box.id] === null ? i : -1)).filter((i) => i >= 0);
+  }
+
+  /**
+   * The room drags a piece across the floor toward `to`, upright (a hook's pull, a slime's shove):
+   * it may leave its light, but never comes to rest in another light that is on
+   * (shared/moves.js, slideLanding). Returns where it came to rest.
+   */
+  slidePiece(o, to, now) {
+    o.x = slideLanding(posAt(o, now), clampX(to), this.landingWall(), this.litPlaces());
+    o.d = 0;
+    o.t = now;
+    o.rev += 1;
+    return o.x;
+  }
+
+  /**
+   * A piece the room has just thrown (knocked, scared, spooked) stops what it was doing: a robot's
+   * legs drop and its hook, still out, is dropped (every page hears `hk` "off"); a slime's harden
+   * or absorb ends.
+   */
+  interrupt(o, now) {
+    if (isUp(o, now)) o.stiltsUntil = now;
+    if (isSoft(o, now)) o.softUntil = now;
+    if (isHard(o, now)) o.hardUntil = now;
+    this.dropHook(o);
+  }
+
+  /** A robot's hook, still out, is dropped: every page winds it back. */
+  dropHook(m) {
+    if (!m.hook) return;
+    m.hook = null;
+    this.moveRelays.push({ t: "hk", s: m.seat, o: "off" });
   }
 
   /** For a bump the room refused: how long until that piece may bump, as the message for its page. */
@@ -808,6 +876,227 @@ export class LobbyCore {
     return { ok: true, relay: { t: "spook", s: seat, to, x: o.x, rev: o.rev } };
   }
 
+  // ---------------------------------------------------------------- the robot and the slime
+
+  /** Whether the pieces have their own time: the room, not a game, its settings or the Table. */
+  floorTime() {
+    return this.activity.kind === "lobby" && !this.plainRoom();
+  }
+
+  /**
+   * The robot's move: it throws its hook the way it faces (lobby/shared/robot.js). The room stops
+   * the robot where it is and judges the hook by its own clock: it wakes HOOK_LATE_MS after the
+   * tip reaches the first piece in its way (or the end of its reach), and says what came of it to
+   * everybody then (dueHooks). Returns {relay} for everybody now, or {ok: false, why, wait, bad}
+   * for that page only. `bad`: no real page asks that (not a robot, or its cooldown far from
+   * over), so it counts against the socket's rate limit.
+   */
+  hook(seat, now) {
+    const m = this.members[seat];
+    if (!m) return { ok: false, why: "You are not in this party." };
+    const hooks = moveOf(m.character) === "hook";
+    const may = mayHook(m, now, { hooks, lobby: this.floorTime(), up: isUp(m, now), hooking: !!m.hook, slack: COOLDOWN_SLACK_MS });
+    if (!may.ok) return { ...may, bad: (!hooks && !(now - (m.lookAt ?? -Infinity) <= SHOVE_LATE_MS)) || (!!may.cooling && tooEager(may.wait)) };
+    const x0 = posAt(m, now);
+    // It stands still to throw: the room says so to every page with the hook.
+    Object.assign(m, { x: x0, d: 0, t: now, hookAt: now });
+    const dir = m.face || 1;
+    m.hook = { at: now, x0, dir, past: [] };
+    m.hook.judgeAt = this.nextCatch(m, now) + HOOK_LATE_MS;
+    this.lastActive = now;
+    return { ok: true, relay: { t: "hook", s: seat, f: dir, x: Math.round(x0) } };
+  }
+
+  /** The pieces a robot's hook can catch: everyone else who is not down, just up or being pulled, and not one it has flown past. */
+  hookTargets(m, now) {
+    return this.present()
+      .filter((o) => o.seat !== m.seat && !isSafe(o, now) && !m.hook.past.includes(o.seat))
+      .map((o) => ({ seat: o.seat, at: (t) => posAt(o, t) }));
+  }
+
+  /** When the tip of a robot's hook will next reach a piece, as the room sees everyone now (or the end of its reach). */
+  nextCatch(m, now) {
+    const hit = firstCatch(m.hook, this.hookTargets(m, now), now, hookEndsAt(m.hook));
+    return hit ? hit.t : hookEndsAt(m.hook);
+  }
+
+  /**
+   * Judges every hook whose time has come (call it on every wake-up, and before anything that
+   * looks at the pieces). Returns the messages for everybody: `hk` with what came of each.
+   */
+  dueHooks(now) {
+    const out = [];
+    const due = () => this.present().filter((m) => m.hook && m.hook.judgeAt <= now).sort((a, b) => a.hook.judgeAt - b.hook.judgeAt);
+    for (let guard = 0; guard < 16; guard++) {
+      const [m] = due();
+      if (!m) break;
+      const relay = this.judgeHook(m, now);
+      if (relay) out.push(relay);
+    }
+    if (out.length) this.lastActive = now;
+    return out;
+  }
+
+  /** One robot's hook, judged: what it caught and what came of it (shared/robot.js). Returns `hk` for everybody, or null when it is not time yet. */
+  judgeHook(m, now) {
+    const hook = m.hook;
+    // Not the pieces' time any more (a game started, the party went to the Table), or long gone (a sleep): dropped.
+    if (!this.floorTime() || moveOf(m.character) !== "hook" || now - hook.at > HOOK_LIFE_MS + 5000) {
+      m.hook = null;
+      return { t: "hk", s: m.seat, o: "off" };
+    }
+    const seen = Math.min(now - HOOK_LATE_MS, hookEndsAt(hook));
+    const hit = firstCatch(hook, this.hookTargets(m, now), hook.at, seen);
+    if (!hit) {
+      // Nothing yet: someone may still walk into it, or it reaches the end and winds back.
+      if (now - HOOK_LATE_MS >= hookEndsAt(hook)) {
+        m.hook = null;
+        return { t: "hk", s: m.seat, o: "miss" };
+      }
+      hook.judgeAt = this.nextCatch(m, now - HOOK_LATE_MS) + HOOK_LATE_MS;
+      return null;
+    }
+    const o = this.members[hit.seat];
+    const strikeAt = hit.t;
+    const ox = posAt(o, now);
+    const robotX = posAt(m, now);
+    const side = Math.sign(ox - robotX) || hook.dir;
+    const base = { t: "hk", s: m.seat, to: o.seat, hx: Math.round(ox) };
+    // A jump clears it (a robot has no jump: its legs are its jump, and they do not): it flies on.
+    if (moveOf(o.character) !== "hook" && jumpedOver(o.jumpAt, strikeAt)) {
+      hook.past.push(o.seat);
+      hook.judgeAt = this.nextCatch(m, Math.max(hook.at, now - HOOK_LATE_MS)) + HOOK_LATE_MS;
+      if (hook.judgeAt <= now) hook.judgeAt = now + 1;
+      return { ...base, o: "jumped", go: 1 };
+    }
+    m.hook = null;
+    // A faded ghost: it passes through, and the robot is scared off the other way (shared/ghost.js).
+    if (this.faded(o, now)) {
+      this.throwPiece(m, -side, now, SCARE_LANDING);
+      Object.assign(m, { stunUntil: now + HOOK_SCARE_MS, immuneUntil: now + HOOK_SCARE_MS + IMMUNE_MS, fright: "hookscare" });
+      return { ...base, o: "scare", x: m.x, rev: m.rev };
+    }
+    // A pawn's kick as it arrives bats it away.
+    if (moveOf(o.character) === "kick" && battedAway(o.bumpAt, o.bumpFace, ox, robotX, strikeAt)) return { ...base, o: "parry" };
+    // A hardened slime: it clangs off.
+    if (isHard(o, now)) return { ...base, o: "clang" };
+    // An absorbing slime: it sticks, and the robot is dragged to the slime.
+    if (isSoft(o, now)) {
+      this.slidePiece(m, ox - side * HOOK_HOLD, now);
+      this.interrupt(m, now);
+      Object.assign(m, { stunUntil: now + PULL_MS, immuneUntil: now + PULL_MS + PULLED_SAFE_MS, fright: "pull" });
+      return { ...base, o: "stuck", x: m.x, rev: m.rev };
+    }
+    // The hook back: a robot whose own hook is out at this one, or that pulled this one a moment
+    // ago. Both are yanked to the middle and bonk heads (the owner's pick: a bonk, no swap).
+    const back = o.hook && Math.sign(robotX - posAt(o, now)) === o.hook.dir;
+    if (moveOf(o.character) === "hook" && (back || (o.pulled?.seat === m.seat && now - o.pulled.at <= HOOK_BACK_MS))) {
+      if (o.hook) o.hook = null;
+      const mid = (robotX + ox) / 2;
+      this.slidePiece(m, mid - side * (HOOK_HOLD / 2), now);
+      this.slidePiece(o, mid + side * (HOOK_HOLD / 2), now);
+      for (const r of [m, o]) {
+        this.interrupt(r, now);
+        Object.assign(r, { stunUntil: now + BONK_MS, immuneUntil: now + BONK_MS + PULLED_SAFE_MS, fright: "bonk" });
+      }
+      return { ...base, o: "bonk", x: m.x, rev: m.rev, ox: o.x, orev: o.rev };
+    }
+    // The pull: dragged across the floor to the robot, upright.
+    const from = ox;
+    this.slidePiece(o, robotX + side * HOOK_HOLD, now);
+    const moved = o.x - from;
+    // Its legs drop and whatever it was doing ends; a hook it has out keeps flying from where it now is (hooked while hooking).
+    if (isUp(o, now)) o.stiltsUntil = now;
+    if (isSoft(o, now)) o.softUntil = now;
+    if (o.hook) o.hook.x0 += moved;
+    Object.assign(o, { stunUntil: now + PULL_MS, immuneUntil: now + PULL_MS + PULLED_SAFE_MS, fright: "pull" });
+    m.pulled = { seat: o.seat, at: now };
+    const relay = { ...base, o: "pull", x: o.x, rev: o.rev };
+    // The hook train: a robot pulled while it drags a catch brings the catch along behind it.
+    const catchOf = o.pulled && now - o.pulled.at <= TRAIN_MS ? this.members[o.pulled.seat] : null;
+    if (catchOf && catchOf.seat !== m.seat) {
+      const behind = Math.sign(posAt(catchOf, now) - from) || side;
+      this.slidePiece(catchOf, o.x + behind * HOOK_HOLD, now);
+      Object.assign(catchOf, { stunUntil: now + PULL_MS, immuneUntil: now + PULL_MS + PULLED_SAFE_MS, fright: "pull" });
+      o.pulled = null;
+      relay.tr = { s: catchOf.seat, x: catchOf.x, rev: catchOf.rev };
+    }
+    return relay;
+  }
+
+  /**
+   * The robot's stilt legs (its jump): up for STILT_MS, over a kick and over pieces. Returns
+   * {relay} for everybody, or {ok: false, why, wait, bad} for that page only.
+   */
+  stilts(seat, now) {
+    const m = this.members[seat];
+    if (!m) return { ok: false, why: "You are not in this party." };
+    const hooks = moveOf(m.character) === "hook";
+    // Its legs work wherever the pieces walk, as a jump does.
+    const may = mayStilt(m, now, { hooks, lobby: this.piecesWalk(), hooking: !!m.hook, slack: COOLDOWN_SLACK_MS });
+    if (!may.ok) return { ...may, bad: (!hooks && !(now - (m.lookAt ?? -Infinity) <= SHOVE_LATE_MS)) || (!!may.cooling && tooEager(may.wait)) };
+    Object.assign(m, { stiltAt: now, stiltsUntil: now + STILT_MS });
+    this.lastActive = now;
+    return { ok: true, relay: { t: "stilts", s: seat, for: STILT_MS } };
+  }
+
+  /**
+   * The slime's move: `kind` "harden" (the press) or "absorb" (the press held: the harden just
+   * begun turns soft). Returns {relay} for everybody, or {ok: false, why, wait, bad} for that page
+   * only (lobby/shared/slime.js).
+   */
+  slime(seat, kind, now) {
+    const m = this.members[seat];
+    if (!m) return { ok: false, why: "You are not in this party." };
+    const slimes = moveOf(m.character) === "harden";
+    if (kind !== "harden" && kind !== "absorb") return { ok: false, why: "That is not a move.", bad: true };
+    const may = maySlime(m, kind, now, { slimes, lobby: this.floorTime(), slack: COOLDOWN_SLACK_MS });
+    if (!may.ok) return { ...may, bad: (!slimes && !(now - (m.lookAt ?? -Infinity) <= SHOVE_LATE_MS)) || (!!may.cooling && tooEager(may.wait)) };
+    if (kind === "harden") Object.assign(m, { slimeAt: now, hardUntil: now + HARDEN_MS, softUntil: 0, slimeTurned: false });
+    else Object.assign(m, { hardUntil: now, softUntil: now + ABSORB_MS, slimeTurned: true });
+    this.lastActive = now;
+    return { ok: true, relay: { t: "slime", s: seat, k: kind, for: kind === "harden" ? HARDEN_MS : ABSORB_MS } };
+  }
+
+  /**
+   * The heavy slime: walking, it says it touched the piece in seat `to`, and the room checks it
+   * (shared/slime.js, mayShove: close enough and in front by the room's own reckoning, walking,
+   * not a slime, a robot up on its legs or a faded ghost, not shoved a moment ago). The piece is
+   * pushed a step on, upright: out of its light perhaps, but never into another
+   * (shared/moves.js). Returns {relay} or {ok: false, why, bad}; `bad`: no real page sends it.
+   */
+  shove(seat, to, now) {
+    const m = this.members[seat];
+    if (!m) return { ok: false, why: "You are not in this party." };
+    const slimes = moveOf(m.character) === "harden";
+    const real = Number.isInteger(to) && to !== seat && to >= 0 && to < this.members.length;
+    if (!slimes) return { ok: false, why: "Only a slime shoves.", bad: !(now - (m.lookAt ?? -Infinity) <= SHOVE_LATE_MS) };
+    if (!real) return { ok: false, why: "Nobody there.", bad: true };
+    const o = this.members[to];
+    if (!o || !this.floorTime()) return { ok: false, why: "Nobody there.", bad: false };
+    if (isDown(m, now) || isHard(m, now) || isSoft(m, now)) return { ok: false, why: "Not now.", bad: false };
+    const sx = posAt(m, now);
+    const x = posAt(o, now);
+    const may = mayShove(sx, m.d, { ...o, x, slime: moveOf(o.character) === "harden", up: isUp(o, now), faded: this.faded(o, now) }, now);
+    if (!may.ok) return { ...may, bad: Math.abs(x - sx) > SHOVE_FAR };
+    // Nowhere to go (a wall, or a light it may not be pushed into): it stays, and nothing is said.
+    if (Math.abs(slideLanding(x, clampX(x + m.d * SHOVE_STEP), this.landingWall(), this.litPlaces()) - x) < 1) return { ok: false, why: "It will not go further.", bad: false };
+    this.slidePiece(o, x + m.d * SHOVE_STEP, now);
+    // A robot shoved with its hook out throws it from where it now stands.
+    if (o.hook) o.hook.x0 += o.x - x;
+    Object.assign(o, shoved(now));
+    this.lastActive = now;
+    return { ok: true, relay: { t: "shove", s: seat, to, x: o.x, rev: o.rev } };
+  }
+
+  /** Every move a piece has going ends (a change of character, a switch of room): its hook is dropped. */
+  endMoves(m, now) {
+    if (isUp(m, now)) m.stiltsUntil = now;
+    if (isHard(m, now)) m.hardUntil = now;
+    if (isSoft(m, now)) m.softUntil = now;
+    this.dropHook(m);
+  }
+
   /**
    * An emote from a player (the kit's rules: party-kit/client/emotes.js). Returns {relay} for
    * everybody else, or {refused, wait} for the sender: too soon, or not allowed while the game
@@ -847,6 +1136,8 @@ export class LobbyCore {
     // (lobby-room.js looks at the vote again and tells every page the fade is over: `unfaded`).
     const unfaded = character !== m.character && this.faded(m, now);
     if (unfaded) m.fadedUntil = now;
+    // Whatever else its move had going ends too: a robot's legs and hook, a slime's harden.
+    if (character !== m.character) this.endMoves(m, now);
     Object.assign(m, { character, colour, lookAt: now });
     this.lastActive = now;
     return { ok: true, changed: true, ...(unfaded ? { unfaded: true } : {}) };
@@ -890,6 +1181,12 @@ export class LobbyCore {
     }
     const party = this.party();
     return Object.fromEntries(this.boxes.map((box) => [box.id, whyNot(box, party)]));
+  }
+
+  /** Whether every connected player stands in a light that counts: what the count needs to run on. */
+  standingAll(now) {
+    const standing = this.standing(now);
+    return this.connected().every((m) => standing[m.seat]);
   }
 
   /**
@@ -981,6 +1278,9 @@ export class LobbyCore {
    */
   tick(now) {
     const out = { start: null, chosen: false, away: null, close: null, changed: false };
+    // A robot's hook whose time has come is judged first: a voter pulled out of the light just
+    // before the count ends stops it, as a kick would (shared/robot.js). `hooks`: what came of each.
+    out.hooks = this.dueHooks(now);
     const inLobby = this.activity.kind === "lobby";
     const choosing = this.activity.kind === "settings";
     if (choosing && this.choosingFails(now)) out.changed = true;
@@ -1009,6 +1309,9 @@ export class LobbyCore {
         // Somebody may have left during the toss; a game the party can no longer play does not start.
         if (this.lights()[this.toss.winner] === null) out.start = this.toss.winner;
         this.toss = null;
+        out.changed = true;
+      } else if (this.count && now >= this.count.endsAt && out.hooks.length && !this.standingAll(now)) {
+        // A hook judged just now pulled a voter out of the light: the count stops (evaluate).
         out.changed = true;
       } else if (this.count && now >= this.count.endsAt) {
         const top = leaders(
@@ -1093,6 +1396,7 @@ export class LobbyCore {
   sendAway(id, now) {
     const box = this.boxes.find((b) => b.id === id);
     for (const m of this.present()) {
+      this.endMoves(m, now);
       m.x = spawnX(m.seat, this.boxes.length);
       m.d = 0;
       m.t = now;
@@ -1187,6 +1491,9 @@ export class LobbyCore {
       const m = host?.role === "player" ? this.members[host.seat] : null;
       if (typeof this.turnGame().host === "function" && m && !m.connected && m.droppedAt + HOST_GRACE_MS > now) at = Math.min(at, m.droppedAt + HOST_GRACE_MS);
     }
+    // A robot's hook is judged when its tip reaches a piece (shared/robot.js): one wake-up a hook.
+    // Whatever the room is doing: one still out when the party left the room is dropped then.
+    for (const m of this.present()) if (m.hook) at = Math.min(at, m.hook.judgeAt);
     return at === Infinity ? null : Math.max(at, now + 20);
   }
 
@@ -1316,6 +1623,8 @@ export class LobbyCore {
     for (const m of this.present()) {
       // A faded ghost's fade ends here (a switch of waiting room, players chosen on spots).
       if ((m.fadedUntil ?? 0) > now) m.fadedUntil = now;
+      // And so do a robot's legs and hook and a slime's harden.
+      this.endMoves(m, now);
       m.x = spawnX(m.seat, this.boxes.length);
       m.d = 0;
       m.t = now;
@@ -1476,6 +1785,8 @@ export class LobbyCore {
       this.notes.push({ k: "cancelled", text: `${this.nameOf(id)} could not start.` });
       return fail("bad_game", `${id} could not start: ${err?.message ?? err}`);
     }
+    // A robot's hook still out, its legs, a slime's harden: all over when a game starts.
+    for (const m of this.present()) this.endMoves(m, now);
     this.activity = { kind: "game", id, state, startedAt: now, ticks: 0, seats: seats.map((s) => s.seat), party };
     if (isTurnBased(game)) {
       // The host's seat as the game was last told it (a game with a `host` hook hears of a change: turnUpkeep).
@@ -2020,6 +2331,7 @@ export class LobbyCore {
     this.keepCarry(game, a, ending);
     this.activity = { kind: "lobby" };
     for (const m of this.present()) {
+      this.endMoves(m, now);
       m.x = spawnX(m.seat, this.boxes.length);
       m.d = 0;
       m.t = now;
@@ -2141,10 +2453,30 @@ export class LobbyCore {
    */
   bumpView(m, now) {
     const faded = this.faded(m, now) ? m.fadedUntil - now : 0;
-    const fadeCool = moveOf(m.character) === "fade" ? fadeLeft(m.fadeAt, now) : 0;
+    const move = moveOf(m.character);
+    const fadeCool = move === "fade" ? fadeLeft(m.fadeAt, now) : 0;
     const safe = Math.max(0, (m.immuneUntil ?? 0) - now);
     const spookedFor = Math.max(0, (m.spookedUntil ?? 0) - now);
+    // The robot's and the slime's moves (shared/robot.js, shared/slime.js), for a page that arrives
+    // in the middle: how long until each may be used again, how far into its legs it is
+    // (`stilts`, since they went up), how long it stays hard or soft, and a hook still out (`hook`:
+    // how long since it was thrown, and which way).
+    const hookCool = move === "hook" ? hookLeft(m.hookAt, now) : 0;
+    const stiltCool = move === "hook" ? stiltLeft(m.stiltAt, now) : 0;
+    const slimeCool = move === "harden" ? slimeLeft(m.slimeAt, now) : 0;
+    const hard = isHard(m, now) ? m.hardUntil - now : 0;
+    const soft = isSoft(m, now) ? m.softUntil - now : 0;
+    const moves = {
+      ...(hookCool > 0 ? { hookCool } : {}),
+      ...(stiltCool > 0 ? { stiltCool } : {}),
+      ...(slimeCool > 0 ? { slimeCool } : {}),
+      ...(isUp(m, now) ? { stilts: now - m.stiltAt } : {}),
+      ...(hard > 0 ? { hard } : {}),
+      ...(soft > 0 ? { soft } : {}),
+      ...(m.hook ? { hook: { in: now - m.hook.at, f: m.hook.dir } } : {}),
+    };
     return {
+      ...moves,
       cool: cooldownLeft(m.bumpAt ?? -Infinity, now),
       down: Math.max(0, (m.stunUntil ?? 0) - now),
       safe,

@@ -62,9 +62,10 @@ describe("the ghost's rules, as numbers", () => {
     expect(SPOOK_MS).toBeLessThan(STUN_MS);
   });
 
-  it("makes the ghost's move the fade, and every other character's the kick", () => {
+  it("makes the ghost's move the fade, and only the pawn's the kick", () => {
     expect(moveOf("ghost")).toBe("fade");
-    for (const c of CHARACTERS.filter((c) => c.id !== "ghost")) expect(moveOf(c.id), c.id).toBe("kick");
+    // Only the pawn kicks (the slime's and the robot's moves: robot-slime-moves.test.js).
+    expect(CHARACTERS.filter((c) => moveOf(c.id) === "kick").map((c) => c.id)).toEqual(["pawn"]);
     expect(moveOf("not-a-character")).toBe("kick");
   });
 

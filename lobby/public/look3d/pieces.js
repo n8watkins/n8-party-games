@@ -12,7 +12,7 @@
 import * as THREE from "./three.js";
 import { PX, SPACE, walkX } from "./space.js";
 import { IMMUNE_MS, IMPACT_MS, PIECE_HEAD, PIECE_PIVOT, STUN_MS, attackPose, impactPoint, knockPose } from "../shared/bump.js";
-import { SCARE, SPOOK, frightPose, frightResumed } from "../shared/ghost.js";
+import { isMoved, moved, movedPose, movedResumed } from "../shared/moves.js";
 import { JUMP_MS, WALK_SPEED, jumpHeight } from "../shared/world.js";
 
 /** How big a piece is beside the room. */
@@ -174,12 +174,12 @@ const HEAD_SCALE = (0.9 * SIZE) / PX / PIECE_HEAD;
 export function bumpPose(piece, now, calm = false) {
   const f = piece.fright;
   if (f) {
-    const pose = frightPose(now - f.at, f.from, f.to, f.how, f.safeFor, calm);
+    const pose = movedPose(f, now - f.at, calm);
     if (pose.state === "up") piece.fright = null;
     // Until the kick reaches the ghost the kicker's own kick is drawn (below).
     else if (pose.state !== "standing") {
       if (pose.face) piece.face = pose.face;
-      return { ...UPRIGHT, x: pose.x, dx: pose.dx, lift: pose.lift, lean: -pose.tilt * RAD, sx: pose.sx, sy: pose.sy, state: pose.state, safe: pose.state === "safe", scared: pose.scared, pale: pose.pale };
+      return { ...UPRIGHT, x: pose.x, dx: pose.dx, lift: pose.lift, lean: -pose.tilt * RAD, sx: pose.sx, sy: pose.sy, state: pose.state, safe: pose.state === "safe", scared: pose.scared, pale: pose.pale, dizzy: !!pose.dizzy };
     }
   }
   const k = piece.knock;
@@ -223,22 +223,22 @@ export function startKnock(piece, to, at) {
 }
 
 /**
- * A ghost frightened a piece, which runs from where it is drawn to `to` (lobby/shared/ghost.js):
- * `kind` "scare" (it kicked a faded ghost; `at` is when its kick began) or "spook" (a faded ghost
- * drifted through it; `at` is now).
+ * The room moved a piece some other way than a kick, from where it is drawn to `to`
+ * (lobby/shared/moves.js): `kind` "scare" (it kicked a faded ghost; `at` is when its kick began),
+ * "spook", "hookscare", "pull", "bonk" or "shove" (`at` is now).
  */
 export function startFright(piece, to, at, kind) {
-  piece.fright = { at, from: piece.rx, to, how: kind === "scare" ? SCARE : SPOOK, safeFor: IMMUNE_MS };
+  piece.fright = moved(kind, piece.rx, to, at);
   piece.knock = null;
 }
 
 /**
  * The room says a piece is on the floor or just up from it (for a page that arrived in the
- * middle): knocked, or scared or spooked (`fright`), drawn as what it is.
+ * middle): knocked, or moved another way (`fright`, lobby/shared/moves.js), drawn as what it is.
  */
 export function resumeKnock(piece, x, down, safe, now, fright) {
   if (piece.knock || piece.fright || !(safe > 0)) return;
-  if (fright) return void (piece.fright = frightResumed(x, down, safe, fright, now));
+  if (isMoved(fright)) return void (piece.fright = movedResumed(x, down, safe, fright, now));
   piece.knock = { at: now - (STUN_MS - down), from: x, to: x, safeFor: safe - down, burst: true, dust: true };
 }
 
