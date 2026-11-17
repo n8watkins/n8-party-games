@@ -45,6 +45,8 @@ const NAMES = { pawn: "Pawn", ghost: "Ghost", slime: "Slime", robot: "Robot" };
 const TV_CAR_SIZE = 3;
 /** How long a lost WebGL context may take to come back before this phone gives its car to the house. */
 const LOST_WAIT_MS = 1500;
+/** How long a phone that is a controller by force waits for a big screen that went (a reload is back well within it). */
+const SCREEN_GONE_MS = 10000;
 /** What this device remembers (the frame shares the site's storage): the big screen's view, a phone's controller-only switch. */
 const store = {
   get(k) { try { return localStorage.getItem(k); } catch (e) { return null; } },
@@ -370,6 +372,7 @@ class App {
     } catch (e) { window.addEventListener("resize", () => this.layout()); }
     host.on("events", (list) => this.heard(list));
     host.on("snapshot", (s, at, full) => this.snapshot(s, full));
+    host.on("screens", (n) => this.screensChanged(n));
     host.dispose = () => this.dispose();
     host.ready();
     // If the picture goes (the browser took the WebGL context back) and does not come back, this phone cannot race:
@@ -443,10 +446,11 @@ class App {
   /**
    * The hands, sent as the room takes them: only what changed, and a steer at most 15 times a second (the replica
    * decides); and a beat when there was nothing else to say. `force`: the page is letting go (hidden, closed, out
-   * of focus), so the hands as they are now, all released, go at once.
+   * of focus), so the hands as they are now, all released, go at once. `again`: they go even if unchanged (a page
+   * taking its car back from the house, which only hands do).
    */
-  send(now, force = false) {
-    if (!this.hands || this.me < 0 || this.out) return;
+  send(now, force = false, again = false) {
+    if (!this.hands || this.me < 0 || this.out || this.blind) return;
     const car = this.replica.auth.cars[this.me];
     if (car.fin) return;
     let r;
@@ -456,7 +460,7 @@ class App {
       rules.house.drive(p, p.cars[this.me], out);
       r = [out.st, out.b & BTN.GO ? 1 : 0, out.b & BTN.BRAKE ? 1 : 0, out.b & BTN.DRIFT ? 1 : 0, out.b & BTN.USE ? 1 : 0];
     } else r = this.hands.reading();
-    const msg = this.replica.input(now, ...r, { force });
+    const msg = this.replica.input(now, ...r, { force, again });
     if (!msg) return this.speak(now);
     if (r[4]) this.hands.usePending = false;
     stats.sent++;
@@ -547,16 +551,57 @@ class App {
    * place and the power in hand. The player's choice is remembered on this phone; `forced`: this phone cannot draw
    * in 3D at all, so it is a controller and the switch is not offered.
    */
-  setPad(on, forced = false) {
+  setPad(on, forced = false, remember = true) {
     this.pad = !!on;
+    this.forcedPad = !!forced;
     this.root.toggleAttribute("data-pad", this.pad);
     $("bpad").setAttribute("aria-pressed", String(this.pad));
     $("padinfo").querySelector(".pline").textContent = forced ? "This phone can't show the race. Steer here: your car is on the big screen." : "Your car is on the big screen. Steer here.";
     if (forced) this.root.dataset.flat = "1";
-    else store.set(PAD_KEY, this.pad ? "1" : "0");
+    else if (remember) store.set(PAD_KEY, this.pad ? "1" : "0");
     // The picture again: the camera starts behind the car, not where it was when the picture stopped.
     if (!this.pad) { this.rig?.reset(); this.layout?.(); }
     this.padKey = "";
+  }
+  /**
+   * The party's big screens came or went (the room's updates, party-view.js). The switch is offered only while there is
+   * one; a phone that chose controller only gets its picture back when the last one goes. A phone that cannot draw
+   * (a controller by force) would be steering blind: after SCREEN_GONE_MS with none (a big screen reloading is back
+   * well within it) it gives its car to the house and says so, and takes the car back the moment a screen returns.
+   */
+  screensChanged(n) {
+    this.screens = n;
+    if (this.me < 0 || this.out || this.gone) return;
+    const any = n > 0;
+    if (this.world) {
+      $("bpad").hidden = !any;
+      this.root.toggleAttribute("data-padok", any);
+      if (!any && this.pad) this.setPad(false, false, false);
+      this.padOk = any;
+      return;
+    }
+    if (!this.forcedPad) return;
+    clearTimeout(this.goneT);
+    if (any) this.setBlind(false);
+    else this.goneT = setTimeout(() => this.setBlind(true), SCREEN_GONE_MS);
+  }
+  /** A controller by force with no big screen to watch: the house drives its car until a screen is back. */
+  setBlind(on) {
+    if (!!this.blind === on) return;
+    this.hands?.releaseAll();
+    if (on) {
+      this.blind = true;
+      this.post({ house: 1 });
+    } else {
+      this.blind = false;
+      this.send(this.host.now(), true, true); // its hands, at once, even unchanged: the room gives the car back from the next step
+    }
+    this.root.toggleAttribute("data-blind", on);
+    const box = $("nopic");
+    box.querySelector("b").textContent = "No big screen now.";
+    box.querySelector("p").textContent = "This phone can't show the race, so the house is driving your car until a big screen is back.";
+    box.hidden = !on;
+    stats.blind = (stats.blind || 0) + (on ? 1 : 0);
   }
   /** The controller's own words: the place, the lap, and the house when it has the car. */
   drawPad(st, c) {
@@ -906,8 +951,10 @@ function noPicture(host, race) {
   const app = $("app");
   app.dataset.mode = "nopicture";
   const box = $("nopic");
-  box.querySelector("b").textContent = player ? "This phone can't show the race." : "This screen can't show the race.";
-  box.querySelector("p").textContent = mine ? "The house is driving your car. Watch the big screen." : "Watch it on the big screen.";
+  box.querySelector("b").textContent = player || you.seat >= 0 ? "This phone can't show the race." : "This screen can't show the race.";
+  // The big screen is mentioned only where the party has one.
+  const screen = (Number(host.screens) || 0) > 0;
+  box.querySelector("p").textContent = mine ? (screen ? "The house is driving your car. Watch the big screen." : "The house is driving your car.") : screen ? "Watch it on the big screen." : "You race in the next one.";
   box.hidden = false;
   $("hint").textContent = "";
   $("huds").textContent = "";

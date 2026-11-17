@@ -1,7 +1,7 @@
 // Every rule of the race, one at a time: a car is put where the rule bites and the steps are run.
 import { describe, expect, it } from "vitest";
 import { retune } from "../data/tune.js";
-import { makeRules, rules } from "../shared/rules.js";
+import { HOUSE_COLOURS, colourGap, makeRules, rules } from "../shared/rules.js";
 import { wrapA } from "../shared/dmath.js";
 import { BTN, DT, GO, of, stage } from "./stage.js";
 
@@ -12,13 +12,19 @@ const two = (a = "robot", b = "robot", more = {}) => stage({ seats: [{ seat: 0, 
 const off = (c) => wrapA(c.h - C.trackAt(c.u, 0, {}).th);
 
 describe("the start", () => {
-  it("paints each house car a colour of its own, never close to a player's (the party room's first seats are red and blue)", () => {
-    const rgb = (h) => [1, 3, 5].map((k) => parseInt(h.slice(k, k + 2), 16));
-    const gap = (a, b) => rgb(a).reduce((n, v, k) => n + Math.abs(v - rgb(b)[k]), 0);
-    for (const seats of [[{ seat: 0, name: "Ada", colour: "#c8382c" }], [{ seat: 0, name: "Ada", colour: "#c8382c" }, { seat: 1, name: "Bo", colour: "#2f6f8f" }], [{ seat: 0, name: "Ada" }, { seat: 1, name: "Bo", colour: "#565b66" }, { seat: 2, name: "Cy", colour: "#3f7a4a" }]]) {
-      const cars = rules.createRace({ seed: 1, seats }).cars;
-      for (const h of cars.filter((c) => c.house)) for (const o of cars) if (o !== h) expect(gap(h.colour, o.colour), `${h.name} ${h.colour} beside ${o.name} ${o.colour}`).toBeGreaterThan(120);
+  it("paints each house car a colour of its own, never close to a player's, whatever presets the players took", () => {
+    // The party room's colour presets (lobby/shared/characters.js); its first seats wear the first four.
+    const PRESETS = ["#c8382c", "#2f6f8f", "#d9a02a", "#3f7a4a", "#d9662b", "#8a5bc4", "#d9619a", "#3aa9a0", "#f4ead4", "#565b66"];
+    // Every way one to three players can wear the presets: their house cars stand apart from them and from each other.
+    const sets = [];
+    for (let a = 0; a < 10; a++) { sets.push([a]); for (let b = a + 1; b < 10; b++) { sets.push([a, b]); for (let c = b + 1; c < 10; c++) sets.push([a, b, c]); } }
+    for (const set of sets) {
+      const cars = rules.createRace({ seed: 1, seats: set.map((k, s) => ({ seat: s, name: "P" + s, colour: PRESETS[k] })) }).cars;
+      for (const h of cars.filter((c) => c.house)) for (const o of cars) if (o !== h) expect(colourGap(h.colour, o.colour), `${h.name} ${h.colour} beside ${o.name} ${o.colour}`).toBeGreaterThan(110);
     }
+    // With the first seat's colour the house paints are the ones made for the cloth, none of them a preset.
+    expect(rules.createRace({ seed: 1, seats: [{ seat: 0, name: "Ada", colour: PRESETS[0] }] }).cars.filter((c) => c.house).map((c) => c.colour)).toEqual(HOUSE_COLOURS.slice(0, 3));
+    for (const c of HOUSE_COLOURS.slice(0, 4)) expect(PRESETS).not.toContain(c);
     // A colour asked for (the `house` rows) is kept.
     expect(rules.createRace({ seed: 1, seats: [{ seat: 0, name: "Ada" }], house: [{ colour: "#010203" }] }).cars[1].colour).toBe("#010203");
   });

@@ -309,6 +309,7 @@ export function preload() {}     // optional: fetch the big files while the vote
 
 The room's page (`lobby/public/main.js`) imports the module from the address on the game's box (`view`, which is `manifest.path + manifest.lobby.view`) the first time it is needed, and calls `preload` when a count begins for that game.
 Whatever the room says before the module has arrived is kept and handed over in order.
+A view may also give `room(view)`: the page then calls it with each new room view while the game is up (a big screen joining or leaving, members coming and going); a view without it is not called, and one that throws is logged and the room's page carries on (`tellRoom` in `lobby/shared/stage.js`).
 While a view with `full` is up, the room's bars are put away and the room is not drawn; the door button, the notes and the word about the connection stay on top, so "Leave the party" works in every game and is drawn once, for a phone held sideways.
 At `end` the page calls `unmount`, hides the container and shows the room's own card.
 

@@ -1,10 +1,10 @@
 {
-  "plain, seed 1": "60b9e11b0b539bc2 4169 [{\"seat\":0,\"place\":1,\"time\":61.467}]",
-  "sloppy ghost, seed 2": "adec9a07084483c6 4295 [{\"seat\":0,\"place\":1,\"time\":67.043}]",
-  "hands off, seed 3": "c72144eaaee50697 4453 [{\"seat\":0,\"place\":1,\"time\":69.528}]",
-  "thumb robot, seed 4": "a71b3ef5000f35ca 3773 [{\"seat\":0,\"place\":1,\"time\":54.873}]",
-  "two players, seed 5": "b6fa8e1ec2b12ff8 4385 [{\"seat\":0,\"place\":1,\"time\":62.148},{\"seat\":1,\"place\":2,\"time\":65.585}]",
-  "three players, seed 6": "f28066d4da071ba6 4282 [{\"seat\":1,\"place\":1,\"time\":61.18},{\"seat\":0,\"place\":2,\"time\":67.465},{\"seat\":2,\"place\":3,\"time\":68.355}]",
+  "plain, seed 1": "acd3d7b26404ea75 4169 [{\"seat\":0,\"place\":1,\"time\":61.467}]",
+  "sloppy ghost, seed 2": "fd126d7c2f177644 4295 [{\"seat\":0,\"place\":1,\"time\":67.043}]",
+  "hands off, seed 3": "a0db2da9b09dfad5 4453 [{\"seat\":0,\"place\":1,\"time\":69.528}]",
+  "thumb robot, seed 4": "631f4444a344de13 3773 [{\"seat\":0,\"place\":1,\"time\":54.873}]",
+  "two players, seed 5": "f956b924d3ac5f97 4385 [{\"seat\":0,\"place\":1,\"time\":62.148},{\"seat\":1,\"place\":2,\"time\":65.585}]",
+  "three players, seed 6": "a4e2e73881b84722 4282 [{\"seat\":1,\"place\":1,\"time\":61.18},{\"seat\":0,\"place\":2,\"time\":67.465},{\"seat\":2,\"place\":3,\"time\":68.355}]",
   "four players, seed 7": "d0b410fe0805a4c7 4108 [{\"seat\":1,\"place\":1,\"time\":58.11},{\"seat\":3,\"place\":2,\"time\":63.017},{\"seat\":0,\"place\":3,\"time\":63.621},{\"seat\":2,\"place\":4,\"time\":65.458}]",
   "four players, seed 4000000000": "dbae745e80e3a1cd 4130 [{\"seat\":0,\"place\":1,\"time\":56.421},{\"seat\":1,\"place\":2,\"time\":62.344},{\"seat\":3,\"place\":3,\"time\":63.391},{\"seat\":2,\"place\":4,\"time\":65.82}]"
 }
