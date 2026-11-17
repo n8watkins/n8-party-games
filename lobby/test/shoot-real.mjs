@@ -9,8 +9,8 @@
 // boxes, so the server runs without the test game. One page is the room's big screen (1280 x 720),
 // one a player's phone (Dolly) whose window is set to each phone size in turn; Mabel (a violet
 // ghost), Fitch (a teal pawn) and Tom (a cream ghost) are plain sockets (lobby/test/client.mjs).
-// It shoots: a vote in progress (Dolly, Mabel and Fitch in Cork & Bell's light, Tom in the dark),
-// an emote playing, the Tonight board open, the room's own moment (the Star Lounge's chart table
+// It shoots: a vote in progress (Dolly, Mabel and Fitch in Cork & Bell's light, Tom in the dark
+// by Flood's poster), an emote playing, the Tonight board open, the room's own moment (the Star Lounge's chart table
 // set off; the bar's lightning), and each thing that passes the window held at its entry, middle
 // and exit. It checks that the look asked for is the one drawing, that nothing passing changes a
 // pixel that is not glass, what the device fetched, that the ladder and the fall back work, and
@@ -160,8 +160,8 @@ try {
       await key(gap > 0 ? "ArrowRight" : "ArrowLeft", Math.max(40, Math.min(1500, (Math.abs(gap) / 430) * 1000)));
     }
   }
-  // Who Am I? is for two players, so with four in the room Cork & Bell is the one game open: three stand in its light and Tom holds out in the dark.
-  const [CORK, WHO] = [boxes.indexOf("Cork & Bell"), boxes.indexOf("Who Am I?")];
+  // Cork & Bell is the one game open on the production wall: three stand in its light and Tom holds out in the dark by Flood's poster.
+  const [CORK, FLOOD] = [boxes.indexOf("Cork & Bell"), boxes.indexOf("Flood")];
   mabel.goto(light(CORK, -60));
   fitch.goto(light(CORK, 62));
   tom.goto(dark(N - 1) + 50);
@@ -242,7 +242,7 @@ try {
     await sleep(450);
     await shot(screen, "06-screen-1280x720-chart-knocked");
     fitch.goto(light(CORK, 50));
-    tom.goto(dark(WHO) + 60);
+    tom.goto(dark(FLOOD) + 60);
     await sleep(1500);
   } else if (lookName === "real") {
     // The bar's lightning, held at its brightest: one soft cold glow over the street and by the windows.

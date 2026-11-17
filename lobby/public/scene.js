@@ -67,7 +67,8 @@ export class Scene {
     this.joinSign(room);
     this.door();
     this.board();
-    this.signs = this.planSigns(room.boxes, this.wall.box);
+    // Posters have no sign, so only the games' signs are planned.
+    this.signs = this.planSigns(room.boxes.filter((box) => !box.poster), this.wall.box);
     this.boxes = room.boxes.map((box, i) => this.box(box, i, n));
     this.overlay();
     this.bumpLayer();
@@ -189,13 +190,16 @@ export class Scene {
     const x = cx - w / 2;
     const compact = this.opts.compact;
     const b = { box, cx, w, on: null, gold: null };
+    // A poster that is not a game (the ideas poster) hangs in its frame with no lamp over it, no
+    // light on the floor and no sign: it is drawn, and never lit, dimmed or counted.
+    const poster = !!box.poster;
 
     b.shade = s("path", { d: `M${cx - 17},62 L${cx + 17},62 L${cx + 54},102 L${cx - 54},102 Z` });
     b.bulb = s("ellipse", { cx, cy: 103, rx: 30, ry: 6 });
-    this.layers.lamps.append(s("rect", { x: cx - 2, y: -900, width: 4, height: 962, fill: "#0a0504" }), s("rect", { x: cx - 9, y: 52, width: 18, height: 12, rx: 3, fill: "#0a0504" }), b.shade, b.bulb);
+    if (!poster) this.layers.lamps.append(s("rect", { x: cx - 2, y: -900, width: 4, height: 962, fill: "#0a0504" }), s("rect", { x: cx - 9, y: 52, width: 18, height: 12, rx: 3, fill: "#0a0504" }), b.shade, b.bulb);
 
-    // Marked for the tests that check a sign's words fit it (lobby/test/e2e-bar-wall.mjs).
-    const frame = s("g", { "data-box": i });
+    // Marked for the tests that check a sign's words fit it (lobby/test/e2e-bar-wall.mjs), and the poster that is not a game.
+    const frame = s("g", poster ? { "data-box": i, "data-poster": box.id } : { "data-box": i });
     frame.append(s("rect", { x: x - 8, y: POSTER.top - 8, width: w + 16, height: POSTER.height + 16, rx: 3, fill: "#120a07", stroke: "#2e1c13", "stroke-width": 2 }));
     const clip = `clip-${i}`;
     frame.append(s("clipPath", { id: clip }, s("rect", { width: w, height: POSTER.height })));
@@ -208,12 +212,12 @@ export class Scene {
       art.append(ribbon);
     }
     // A band across the foot of the poster says what kind of box it is, when it is not a game
-    // that simply starts here: not built yet, or played on a site of its own.
+    // that simply starts here: not built yet, or a poster with an address to go to.
     const band = (text, spacing) => [
       s("rect", { y: POSTER.height - 46, width: w, height: 46, fill: "#120b08", opacity: 0.94 }),
       label(text, { x: w / 2, y: POSTER.height - 17, "font-size": 16, fill: "#f6ead2", "text-anchor": "middle", "letter-spacing": spacing, class: "t-mono t-bold", "data-fit": w - 20 }),
     ];
-    if (box.url) art.append(...band(box.url.startsWith("https://") ? "ON ITS OWN SITE" : "ON ITS OWN PAGE", 3));
+    if (poster) art.append(...band(box.where, 1));
     b.dim = s("rect", { width: w, height: POSTER.height, fill: "#0d0705", opacity: 0 });
     art.append(b.dim);
     if (box.soon) art.append(...band("COMING SOON", 4));
@@ -241,7 +245,7 @@ export class Scene {
     b.reason = pill("Coming soon", compact ? 21 : 14, "#fbe3da", "#7a1d12");
     b.chip = pill("HEADS", compact ? 22 : 16, "#f4b453", "#1e1410");
     set(b.chip.g, { display: "none" });
-    frame.append(b.sign, ...b.blurbs, b.badge.g, b.players, b.reason.g, b.chip.g);
+    if (!poster) frame.append(b.sign, ...b.blurbs, b.badge.g, b.players, b.reason.g, b.chip.g);
     this.layers.wall.append(frame);
 
     // The cone and the pool reach as far as the wall says (shared/world.js, drawnLight): on a placed
@@ -249,9 +253,10 @@ export class Scene {
     const { cone, pool } = drawnLight(this.wall);
     const top = Math.min(54, cone);
     b.cone = s("polygon", { points: `${cx - top},102 ${cx + top},102 ${cx + cone},${ROOM.floorY + 8} ${cx - cone},${ROOM.floorY + 8}`, fill: "url(#g-cone)" });
-    this.layers.cones.append(b.cone);
     b.pool = s("ellipse", { cx, cy: ROOM.floorY + 6, rx: pool, ry: 31 });
     b.ring = s("ellipse", { cx, cy: ROOM.floorY + 6, rx: pool, ry: 31, fill: "none", "stroke-width": 3 });
+    if (poster) return b;
+    this.layers.cones.append(b.cone);
     this.layers.pools.append(b.pool, b.ring);
     return b;
   }
@@ -376,6 +381,8 @@ export class Scene {
     this.vote = vote;
     this.voteAt = now;
     for (const b of this.boxes) {
+      // A poster is never lit and never dimmed.
+      if (b.box.poster) continue;
       const why = vote.lights[b.box.id];
       // Lit in the lobby, and as a spot while a game's players are chosen on spots.
       const on = why === null && (this.room.phase === "lobby" || !!this.room.choosing?.spots);
@@ -750,9 +757,7 @@ export class Scene {
     const round = 2 * Math.PI * 60;
     set(o.arc, { "stroke-dasharray": `${((left / COUNT_MS) * round).toFixed(1)} ${round.toFixed(1)}` });
     o.digit.textContent = String(Math.max(1, Math.ceil(left / 1000)));
-    // An outside game does not start here: it opens on a site of its own.
-    const lead = vote.leaders.length === 1 && this.room.boxes.find((b) => b.id === vote.leaders[0]);
-    const verb = lead?.url ? "OPENS IN" : vote.leaders.length > 1 ? "TOSS IN" : "STARTS IN";
+    const verb = vote.leaders.length > 1 ? "TOSS IN" : "STARTS IN";
     if (o.verb.textContent !== verb) o.verb.textContent = verb;
   }
 

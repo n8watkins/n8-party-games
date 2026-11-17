@@ -10,9 +10,6 @@
 //   game    One of the hosted games, started with the party's seats. When it is over its
 //           places become points on the Tonight board and everyone is back in the lobby.
 //
-// An outside game (a box with a `url`) is never an activity: when it wins the vote the room says
-// so, every page goes to the game's own site, and the room is left to empty and close.
-//
 // Nothing here ticks while people merely stand around: the room is told where a piece is and
 // which way it walks, and works out the rest (lobby/shared/world.js). Everything that depends
 // on time (the count, the toss, a dropped phone's grace, closing) is a wake-up: nextWake().
@@ -43,7 +40,7 @@ import { applyChange, carryFor, carryOf, checkSettings, fieldDefaults, hasCarry,
 import { copyState, deadlineOf, gameProblems, inputOutcome, isTurnBased, loadState, saveState, stateKey } from "../../party-kit/src/core/turns.js";
 import { viewerFor } from "../../party-kit/src/core/views.js";
 import { IDLE_SHUTDOWN_MS, NAME_MAX, SEAT_COLOURS, STALE_ROOM_MS, cleanName, randomToken } from "../../party-kit/src/core/room-core.js";
-import { AWAY_MS, COUNT_MS, SETTLE_MS, TOSS_MS, leaders, pointsForPlace, spotLights, standingsFromRows, tally, whyNot } from "../shared/vote.js";
+import { COUNT_MS, SETTLE_MS, TOSS_MS, leaders, pointsForPlace, spotLights, standingsFromRows, tally, whyNot } from "../shared/vote.js";
 import { IMMUNE_MS, bumpTarget, cooldownLeft, isDown, isSafe, knockLanding, knocked, mayBump } from "../shared/bump.js";
 import { BOO_LATE_MS, FADE_MS, SCARE_LANDING, SPOOK_FAR, SPOOK_LANDING, fadeLeft, isFaded, mayFade, maySpook, scared, spooked } from "../shared/ghost.js";
 import { DEFAULT_ROOM, ROOM_COOLDOWN_MS, isRoom, roomLocked, wallFor } from "../shared/rooms.js";
@@ -1006,13 +1003,12 @@ export class LobbyCore {
   }
 
   /**
-   * A wake-up: lets time-dependent things happen. Returns {start, away, close, changed}: `start`
-   * is the game the vote chose (the room then calls startGame, or refuseStart when the hosting
-   * allowance is spent), `away` is set instead when the vote chose an outside game (sendAway),
-   * `close` is why the room should shut, `changed` that the view moved on.
+   * A wake-up: lets time-dependent things happen. Returns {start, close, changed}: `start` is the
+   * game the vote chose (the room then calls startGame, or refuseStart when the hosting allowance
+   * is spent), `close` is why the room should shut, `changed` that the view moved on.
    */
   tick(now) {
-    const out = { start: null, chosen: false, away: null, close: null, changed: false };
+    const out = { start: null, chosen: false, close: null, changed: false };
     const inLobby = this.activity.kind === "lobby";
     const choosing = this.activity.kind === "settings";
     if (choosing && this.choosingFails(now)) out.changed = true;
@@ -1055,10 +1051,6 @@ export class LobbyCore {
       if (out.start) {
         this.count = null;
         this.toss = null;
-        if (this.boxes.find((box) => box.id === out.start)?.url) {
-          out.away = this.sendAway(out.start, now);
-          out.start = null;
-        }
       }
     }
     if (inLobby && this.beat && now >= this.beat.at) {
@@ -1079,7 +1071,7 @@ export class LobbyCore {
     // move the party to another room or the other waiting room: the budget check comes between.
     if (out.start) this.starting = out.start;
     if (this.emptySince !== null && now - this.emptySince >= this.emptyLimit(now)) out.close = "empty";
-    else if ((inLobby || this.activity.kind === "settings") && !out.start && !out.away) {
+    else if ((inLobby || this.activity.kind === "settings") && !out.start) {
       if (now - this.lastActive >= this.staleLimit()) out.close = "stale";
       else if (now - this.createdAt >= MAX_ROOM_LIFE_MS) out.close = "expired";
       else if (this.closing && now >= this.closing.at) out.close = this.closing.reason;
@@ -1114,25 +1106,6 @@ export class LobbyCore {
   /** The vote's winner was started, or will not be (the budget, an error, a refusal): the room may be switched again. */
   startDone() {
     this.starting = null;
-  }
-
-  /**
-   * An outside game won the vote. Nothing starts here and nobody scores: every page is told
-   * where it is going and goes. The pieces are put back by the door and the room rests, so
-   * anyone who chooses to stay is not sent off again at once. Once the pages have gone the room
-   * is empty, and closes by the usual rule a minute later.
-   */
-  sendAway(id, now) {
-    const box = this.boxes.find((b) => b.id === id);
-    for (const m of this.present()) {
-      m.x = spawnX(m.seat, this.wall);
-      m.d = 0;
-      m.t = now;
-      m.rev += 1;
-    }
-    this.holdUntil = now + AWAY_MS + SETTLE_MS;
-    this.lastActive = now;
-    return { id, name: box.name, url: box.url, in: AWAY_MS };
   }
 
   /** The hosting allowance is spent: no game starts, and the room will close after a few minutes. */
@@ -1473,7 +1446,7 @@ export class LobbyCore {
    * (`carry`, or null). A game with neither is created exactly as before.
    */
   createGame(game, id, now, seed, seatNumbers, settings) {
-    const seats = seatNumbers.map((seat) => this.members[seat]).filter(Boolean).map((m) => ({ seat: m.seat, name: m.name, kind: "human", colour: m.colour }));
+    const seats = seatNumbers.map((seat) => this.members[seat]).filter(Boolean).map((m) => ({ seat: m.seat, name: m.name, kind: "human", colour: m.colour, character: m.character }));
     if (!seats.length) {
       if (this.activity.kind === "settings") this.toLobby(now);
       return fail("not_ready", "Nobody is here to play.");

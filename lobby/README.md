@@ -26,12 +26,13 @@ Make each window short and wide to see what a sideways phone sees, or use the br
 6. Click the Tonight board on the wall to open it large; click anywhere, press Escape or go back to close it.
 7. Stand one piece in each lit light for a tie and its coin toss.
 8. Stand both pieces in Cork & Bell's light: the battle starts for the two of you inside the room, each window shows its own stall (a third window as the room's screen shows both), and when the round is over (at ninety seconds, or sooner once both of you have spent all your corks) both are back by the door with the scores on a card and points on the Tonight board. One piece alone in that light gets a round to itself.
-9. Stand both pieces in Who Am I?'s light: "Opens in 10" counts down, a card says where everyone is going, and both windows go to its own site.
+9. Stand both pieces under the last poster, "Got a game idea?": it has no light, so nothing counts down. On a touch screen a tap on it opens the contact form on n8builds.dev in a new tab.
 10. Close one window to see the piece turn grey at once, and fade twelve seconds later.
 
 Coin Flip is a test game.
 It hangs on the wall only where `PARTY_TEST_GAMES` is `"on"`, which is the `local` environment in `wrangler.jsonc` (`npm run dev` and the test runs).
-Production has no such variable, so its wall is Cork & Bell, Who Am I? and the three coming-soon boxes (Tin Derby, Flood, Fox Trouble).
+Production has no such variable, so its wall is Cork & Bell, Flood (coming soon), Tin Derby, Fox Trouble (coming soon) and the ideas poster, in that order: the two games a party can play hang a frame apart.
+Who Am I? is not on the Floor's wall: it is a Table game (the Table lists it as coming soon, and the front page's Table door links to its own site until then).
 To see the wall as production hangs it: `npx wrangler dev --local --env local --port 8792 --var PARTY_TEST_GAMES:off`.
 
 For a big screen, open a third window, choose "Use this as the room's screen" and type the code.
@@ -209,7 +210,7 @@ The 3D wall follows the flat one: a game's name is on its box and nowhere else, 
   | The allowance is spent | "Party rooms are closed for today. Each game still plays on its own page." |
   | Everyone left, or a saved seat whose room is gone | "Party 1234 has ended." |
 
-  A wrong code is said in the way in as soon as all four digits are typed, a full party says so with "Start a party instead" beside it, a second screen is offered a seat, and "Stay in the room" on an outside game's card leaves you in the live room.
+  A wrong code is said in the way in as soon as all four digits are typed, a full party says so with "Start a party instead" beside it and a second screen is offered a seat.
 - The door button and Rooms say what they do ("Leave", "Stop showing" on the room's screen, "Rooms") for the first nine seconds a device is in the room, then fold to their pictures.
 - What can be touched on the wall looks it (`public/touch.js`): the Tonight board, each poster, the join sign and, in 3D, the room's own feature answer a tap with a press of light and give a hand cursor on a laptop. The first time a device is in a room a small round mark pulses on each of them and the board's says "tap"; after that the marks are gone (a laptop shows one under the pointer), and the boards keep their own small arrow. A poster opens a small card beside it: its line, players, devices, "Stand under its lamp to vote" and a high score where the game keeps one; it closes by itself after seven seconds or as soon as the piece moves. The join sign opens the code and QR code large, for showing a friend. The room's feature (the jukebox, the globe, the claw...) plays the reaction a bump by it would, on that device only and at most every second and a half. None of it sends anything to the room.
 - Game boxes from each game's manifest. The name is on the poster, once. The sign under it has one line about the game, how many can play ("1-4 players") and the device badge (cyan any device, violet a phone each, amber phones and a big screen). Every sign says how many can play, the coming-soon ones too. On a phone, with five boxes or more, a sign is too narrow for the line of words at a size worth reading, so it keeps the count and the badge and the words are left to bigger screens.
@@ -297,22 +298,17 @@ Both are the same party: the same room object, the same code, the same seats and
 - A room saved before this restores on the Floor. The join link and the QR code still lead to `/lobby/?join=`, whose door seats a newcomer and sends them on to the Table when the party is there.
 - `npm test` covers the rules (`test/mode.test.js`) and the switch on the real room class (`test/party-room-mode.test.js`). `npm run test:mode` switches two players and a screen both ways over real sockets, with a reconnect in the middle and a newcomer at the Table. `npm run test:two-rooms` does it in real pages (headless and muted) and takes stills at 390x844, 844x390, 320x568 and 1280x720.
 
-## Outside games
+## Only games played in the room, and one poster
 
-An outside game is not on the kit: it has a site and rooms of its own.
-In `wall.js` it is an entry with a `url` where a hosted game has a server definition (`OUTSIDE`), and its poster says "ON ITS OWN SITE".
-Who Am I? (`https://whoami.n8builds.dev/`) is the first.
+Every game on the Floor's wall is played inside the room.
+There are no outside games any more: Who Am I? used to hang here and send a party of two to its own site, and it now belongs to the Table.
+A hosted game whose manifest names no view for the room is refused when the Worker loads (`wall.js`, `buildWall`), not hung with an address.
 
-- Its light follows the same rule as any game's: on when the party is a size the game takes. Who Am I? is for exactly two players (its engine's `MAX_PLAYERS`, and it needs both to start), so with one player its sign says "Needs 2 players" and with three or four "For 2 players".
-- The count reads "Who Am I? opens in 10", not "starts".
-- When it wins the count or the coin toss, the room sends every page `away { id, name, url, in }`. Every player's page and the big screen show a card, "Off to Who Am I?", for six seconds (`AWAY_MS`) and then go to the address. The card says the party's code does not work there (one of them makes a room on that site and the others join it) and that nobody scores. "Go now" goes at once; "Stay in the room" keeps that one device here.
-- Nothing starts in the room, so nothing ticks and no room time is spent: it costs the one wake-up that ended the count.
-- The Tonight board gets no points from an outside game, and it does not count as a game played.
-- Afterwards the party room is left alone. The pieces are put back by the door, and a new count cannot start for twelve seconds, so anyone who stayed is not sent off again at once. Once the pages have gone the room is empty: the pieces fade after twelve seconds, their seats are held two minutes more, and the room closes when they are let go, by the usual rules. Coming back to the room's address inside that time finds the same seat and points; after it, the party has ended and a new one is started.
-- The page only ever follows an `https` address or a page of this site, and only one that came from the room's own wall.
+The last frame holds a poster that is not a game (`shared/vote.js`, `posterBox` and `IDEAS`): "Got a game idea? Tell me. I might build it.", with `n8builds.dev` along its foot.
 
-A hosted game whose manifest names no view for the room would hang the same way, with its own page on this site as the address.
-Cork & Bell did until it got one.
+- It has no lamp, no light and no sign in any look (flat, 3D, baked, rendered), and its light in the room view is `""` (off, with nothing to say), so standing under it is standing in the dark: no vote, no count, never a spot.
+- On a touch screen a tap on it opens the contact form, `https://n8builds.dev/#contact`, in a new tab; the room stays open. No email address is printed in the room.
+- The front page leaves it out: it is not under "On the wall tonight" or in the room door's peek.
 
 ## Cork & Bell in the room
 
@@ -527,7 +523,6 @@ None of it sends a message or sets a timer in the room: every sound comes from s
 - In 3D an emote has no face of its own (the pawn's eyes stay as they are); the flat room draws its face.
 - Ambience for the rooms other than the bar and the star lounge is only what they share with those two; the always-on beds (a fire, an engine hum) are not built.
 - Coin Flip is a placeholder for local play and the tests, marked "TEST GAME" on its box. Tin Derby, Flood and Fox Trouble are names and pictures only.
-- A party's code, seats and points do not carry over to an outside game's site.
 - No piece skins, no abilities, no chat bubbles, no walking through the door, no "host starts" setting. The flat drawing has one room, whichever the party picks.
 - No buzz on phones whose browser has none (Safari on an iPhone).
 - "Back to the room" in the middle of a game: a round runs until the game calls time (at ninety seconds, or once every stall has spent its corks), and a player can still leave the party.
@@ -582,7 +577,6 @@ The room's own sounds add nothing: they are played from what each page already h
 
 For scale: a room that is awake all the time, as a game's own room is during a round, uses 461 GB-seconds per room-hour, and the 10% buys 87 hours of that.
 The second column is a keen party that starts a vote every half minute, measured before Cork & Bell opened in the room (a vote for it then sent everyone to its own page).
-An outside game winning the vote costs one wake-up and no duration: nothing is played in the room.
 
 **A round of Cork & Bell is what a party room costs.**
 The room is awake for all of a round, as the game's own room is: at most 94.6 seconds (the count-in, up to ninety seconds and the hold at the end), which is at most 12.1 GB-seconds, whether one plays or four.
@@ -664,8 +658,8 @@ A lobby nobody touches costs nothing: no timer, no messages, nothing counted, an
 - `node lobby/test/shoot-characters.mjs [--looks=flat,3d,baked,real] [--only=line,emotes,colours,motion]` (with a server running; for `real`, one with `--var PARTY_TEST_GAMES:off`) takes stills of the four characters side by side on an upright phone and a laptop, lit and in the dark, the slime and the robot doing each emote, in each of the ten preset colours, and walking, stopping and bumped.
 - `node lobby/test/shoot-emotes.mjs [--look=3d|flat] [--room=bar]` takes a still of every emote at its best moment on a big screen and on a phone held sideways at the closer view, and checks that each one's word is over the right piece, in view, and large enough to read on the phone.
 - `npm run test:feel` (with `npm run dev` running) goes through how the room feels in real pages and over sockets: the way in on a phone and on a wide screen, one screen per room and its grace, the four buttons, the cooldown ring and the room enforcing it, the bump frame by frame, that nobody can be kept on the floor, the board opening and closing with the vote carrying on, and that a bump sets no timer. It takes stills of each, the bump's with the page's clock held still.
-- `npm run test:lobby` (with `npm run dev` running) puts four socket players through an evening (when the coin toss picks Cork & Bell, a whole round of it over sockets, which makes the run a minute and a half longer), sends a party of two off to an outside game, then checks that a lobby nobody touches goes silent: no messages, no timer, nothing added to the budget.
-- `npm run lobby:shots` drives real pages in a headless, muted browser and takes a still of every state on a big screen, a sideways phone and an upright one, checking that no text spills out of its place and that no card runs off a screen. It follows an outside game all the way to its address (the browser is handed a stand-in page, so no test touches the real site), and with `--plain=<a server with the test games off>` it also takes the wall as production hangs it. Stills land in `lobby/test/shots/`, which is not committed; a chosen few are in `lobby/shots/`.
+- `npm run test:lobby` (with `npm run dev` running) puts four socket players through an evening (when the coin toss picks Cork & Bell, a whole round of it over sockets, which makes the run a minute and a half longer), stands a party of two under the ideas poster (no light, no count), then checks that a lobby nobody touches goes silent: no messages, no timer, nothing added to the budget.
+- `npm run lobby:shots` drives real pages in a headless, muted browser and takes a still of every state on a big screen, a sideways phone and an upright one, checking that no text spills out of its place and that no card runs off a screen. It taps the ideas poster on a phone and checks the contact page opens in a new tab (the browser is handed a stand-in page, so no test touches the real site), and with `--plain=<a server with the test games off>` it also takes the wall as production hangs it. Stills land in `lobby/test/shots/`, which is not committed; a chosen few are in `lobby/shots/`.
 - `npm run test:cork` plays Cork & Bell inside the room in real pages (headless and muted): a party of three and a big screen, clicks that fire, a reload in the middle, the end, that nothing of the game is left on the page, a party of one, and what the two rounds cost. It takes about four minutes. With `-- --win=1` it uses the game's own tool to drive Chrome on the Windows side, on the real graphics card. Without it, Playwright's browser in WSL draws WebGL in software and its pages run seconds behind the room, so the run says so and leaves out the reload, the door sheet and the stills; everything the room decides is checked either way.
 - `npm run test:frames` checks in a real browser who may frame the site: a page on another origin is refused for the room, the game and the front page, and a page of the site itself is not (the party room frames a game's page).
 - `npm run test:leave-rooms` (with `npm run dev` running) goes through every way out of the room in real pages and the room picker on two 3D devices: leaving from a sideways phone, an upright one and the room's screen, Rejoin and Show it again, a seat given up after a drop, a screen whose place was taken, the lines for a room that closed, a rejoin that cannot work, a wrong code, a full party, a second screen, "Stay in the room"; and that the host's pick reaches every device with the lights going down and up, a guest's does not, nothing changes during the count or a game, a latecomer gets the party's room, a start link's `?room=` is the starting room, it survives the room sleeping, and a device without hardware 3D loads none of it. It takes about four minutes.

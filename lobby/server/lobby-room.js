@@ -808,11 +808,6 @@ export function createLobbyRoom(wallFor) {
         // will close. `chosen`: the settings step's time ran out, and the game starts with its picks.
         await this.launch(out.start, out.chosen);
         if (this.core !== core) return;
-      } else if (out.away) {
-        // An outside game won: every page hears where it is going, and goes. Nothing is asked of
-        // the budget and nothing is billed but this wake-up: the game is played somewhere else.
-        this.broadcast({ t: "away", ...out.away });
-        this.changed(now);
       } else if (out.close) {
         this.bill(now);
         return this.destroy(out.close);

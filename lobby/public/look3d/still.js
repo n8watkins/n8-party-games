@@ -22,7 +22,7 @@
 // room uses. A live room never reads this file: its boxes come from the game list.
 import { Hud } from "../hud.js";
 import { camera } from "../shared/camera.js";
-import { boxFromManifest } from "../shared/vote.js";
+import { IDEAS, boxFromManifest } from "../shared/vote.js";
 import { hangsOwnBoxes, wallFor } from "../shared/rooms.js";
 import { Room3D } from "./room3d.js";
 
@@ -35,15 +35,15 @@ const YOU = 2;
 
 const BOXES = [
   boxFromManifest({ id: "cork-and-bell", name: "Cork & Bell", blurb: "Pop the targets, ring the bell", players: { min: 1, max: 4 }, devices: { phone: true, desktop: true } }),
-  boxFromManifest({ id: "who-am-i", name: "Who Am I?", blurb: "Ask questions, guess your name", players: { min: 2, max: 2 }, devices: { phone: true, desktop: false } }),
-  boxFromManifest({ id: "tin-derby", name: "Tin Derby", blurb: "Wind up your tin racer and go", players: { min: 2, max: 4 }, devices: { phone: true, desktop: false, sharedScreen: "required" } }),
   boxFromManifest({ id: "flood", name: "Flood", blurb: "Climb before the water rises", players: { min: 2, max: 4 }, devices: { phone: true, desktop: false } }),
+  boxFromManifest({ id: "tin-derby", name: "Tin Derby", blurb: "Wind up your tin racer and go", players: { min: 2, max: 4 }, devices: { phone: true, desktop: false, sharedScreen: "required" } }),
+  boxFromManifest({ id: "fox-trouble", name: "Fox Trouble", blurb: "Solve the room together, cause trouble", players: { min: 2, max: 4 }, devices: { phone: true, desktop: false } }),
 ];
 const baked = query.get("look") === "baked";
 // &look=real: the room made of rendered layers (./rendered/), the Star Lounge, on the same wall of five (&rung= picks its step down).
 const real = query.get("look") === "real";
-// The baked and rendered looks are shown on today's wall of five boxes (&boxes=6 adds the local test game's box).
-if (baked || real || query.get("boxes") === "5") BOXES.push(boxFromManifest({ id: "fox-trouble", name: "Fox Trouble", blurb: "Solve the room together, cause trouble", players: { min: 2, max: 4 }, devices: { phone: true, desktop: false } }));
+// The baked and rendered looks are shown on today's wall of five: the four games and the ideas poster (&boxes=6 adds the local test game's box).
+if (baked || real || query.get("boxes") === "5") BOXES.push(IDEAS);
 if (baked && query.get("boxes") === "6") BOXES.splice(1, 0, boxFromManifest({ id: "coin-flip", name: "Coin Flip", blurb: "Test game: luck picks the order", players: { min: 1, max: 4 }, devices: { phone: true, desktop: true } }));
 const N = BOXES.length;
 // The room's wall (shared/rooms.js): where it hangs its boxes and its pools lie.
@@ -70,7 +70,7 @@ if (show) {
 
 function fixture() {
   const members = SEATS.map((s, seat) => ({ seat, name: s.name, colour: s.colour, connected: true, x: s.x, d: 0, rev: 1, points: s.points }));
-  const lights = Object.fromEntries(BOXES.map((b) => [b.id, null]));
+  const lights = Object.fromEntries(BOXES.map((b) => [b.id, b.poster ? "" : null]));
   const standing = { 0: "cork-and-bell", 1: show ? null : "cork-and-bell", 2: "tin-derby", 3: null };
   const vote = { lights, standing, waiting: show ? [1, 3] : [3], leaders: ["cork-and-bell"], count: null, toss: null };
   if (shot === "count") {
@@ -85,24 +85,25 @@ function fixture() {
     standing[3] = "tin-derby";
     Object.assign(vote, { waiting: [], leaders: ["cork-and-bell", "tin-derby"], toss: { between: ["cork-and-bell", "tin-derby"], winner: "tin-derby", endsIn: 1900, of: 3200 } });
   } else if (shot === "off") {
-    lights["who-am-i"] = "For up to 2 players";
+    lights.flood = "Coming soon";
     lights["tin-derby"] = "Needs a big screen";
     members[2].x = light(3, -10);
-    standing[2] = "flood";
+    standing[2] = "fox-trouble";
   } else if (shot === "live") {
-    for (const id of ["tin-derby", "flood", "fox-trouble"]) if (id in lights) lights[id] = "Coming soon";
-    members[2].x = light(1, 10);
-    members[3].x = past(1, 70);
-    standing[2] = "who-am-i";
+    // The production wall: Cork & Bell and Tin Derby play, Flood and Fox Trouble are coming.
+    for (const id of ["flood", "fox-trouble"]) lights[id] = "Coming soon";
+    members[2].x = light(2, 10);
+    members[3].x = past(2, 70);
+    standing[2] = "tin-derby";
   } else if (shot === "ends") {
-    // Both ends of the wall: two in the first box's light, two in the last's.
-    const last = N - 1;
+    // Both ends of the wall's games: two in the first box's light, two in the last game's.
+    const last = BOXES.findLastIndex((b) => !b.poster);
     [members[0].x, members[1].x, members[2].x, members[3].x] = [light(0, -36), light(0, 34), light(last, -34), light(last, 36)];
     const [a, b] = [BOXES[0].id, BOXES[last].id];
     Object.assign(vote, { standing: { 0: a, 1: a, 2: b, 3: b }, waiting: [], leaders: [a, b] });
   } else if (shot === "empty") {
     members.length = 0;
-    for (const b of BOXES) lights[b.id] = b.min > 1 ? `Needs ${b.min} players` : "Needs a player";
+    for (const b of BOXES) lights[b.id] = b.poster ? "" : b.min > 1 ? `Needs ${b.min} players` : "Needs a player";
     Object.assign(vote, { standing: {}, waiting: [], leaders: [] });
   }
   // The room has been open for `at` seconds: its timed events go by that.
@@ -143,7 +144,7 @@ if (show) {
 }
 
 const bare = query.get("bare") === "1";
-const hud = bare ? null : new Hud(app, { role, seat: YOU, on: { steer() {}, jump() {}, bump() {}, zoom() {}, leave() {}, away() {} } });
+const hud = bare ? null : new Hud(app, { role, seat: YOU, on: { steer() {}, jump() {}, bump() {}, zoom() {}, leave() {} } });
 const zoom = query.get("zoom") === "closer" ? "closer" : "room";
 const walk = query.get("walk") === "1";
 // The count and the toss are held at their moment unless the still is asked to run.
