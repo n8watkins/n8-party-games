@@ -1,8 +1,8 @@
 // Cork & Bell's test switches on this site. In the party room, cork-auto (the game's bot plays your
 // seat) and the other cork-* switches reach the game's page only where the wall the server sent
 // has test games on, never from the address alone. On the game's own page, the high score board
-// chalks up only a run it handed out the seed for, played again by the game's own code: a score
-// typed into an address (?state=end&score=...) or posted bare gets nowhere.
+// chalks up only the score of the run the page sends, played again by the game's own code, and
+// each run once: a score typed into an address (?state=end&score=...) or posted bare gets nowhere.
 // lobby/test/e2e-cork-switches.mjs checks the same in real pages against the production settings.
 import { describe, expect, it, vi } from "vitest";
 
@@ -21,6 +21,7 @@ const cork = await import("cork-and-bell");
 const { mount, switchesFor } = await import("../../node_modules/cork-and-bell/game/party-view.js");
 const { LocalSession } = await import("../../node_modules/cork-and-bell/game/session.js");
 const { game: battle } = await import("../../node_modules/cork-and-bell/game/shared/battle.js");
+const { RUN_VERSION } = await import("../../node_modules/cork-and-bell/game/shared/run.js");
 const { boardEnv, postScore } = await import("../../party-kit/test/score-board-env.js");
 
 const ASKED = new URLSearchParams("join=1234&look=flat&cork-auto=1&cork-quality=low&cork-grid=row&auto=1&seed=7");
@@ -63,29 +64,33 @@ describe("Cork & Bell's high score board on this site", () => {
     expect(rules.max).toBe(cork.manifest.scores.max);
   });
 
-  it("chalks up a run played on the seed it handed out, at the score the page showed, once", async () => {
-    const { env } = boardEnv();
-    const { run, seed } = await post(env, "cork-and-bell/runs");
-    // The page's solo run on that seed (game/main.js startLocal), the game's bot standing in for the player's hands.
+  /** The page's solo run (game/main.js startLocal), the game's bot standing in for the player's hands, as the page sends it. */
+  function played(seed) {
     const session = new LocalSession({ seed, seats: [{ seat: 0, name: "You", kind: "human" }], mySeat: 0, countIn: 1.2 });
     for (let i = 0; !session.over && i < 20000; i++) {
       for (const input of battle.bot(session.state, 0, session.now)) session.fire(input.f[1], input.f[2]);
       session.advance(0.016 + (i % 5) * 0.004);
     }
-    const shown = session.sims[0].score;
+    return { run: JSON.parse(JSON.stringify({ seed, countIn: session.countIn, shots: session.shots, v: RUN_VERSION })), shown: session.sims[0].score };
+  }
+
+  it("chalks up a run at the score the page showed, whatever score it claims, and the same run once", async () => {
+    const { env, board } = boardEnv();
+    const { run, shown } = played(3_141_592_653);
     expect(shown).toBeGreaterThan(0);
-    const body = JSON.parse(JSON.stringify({ name: "ANN", run, countIn: session.countIn, shots: session.shots, score: rules.max }));
-    expect(await post(env, "cork-and-bell", body)).toMatchObject({ status: 200, ok: true, score: shown, place: 0 });
-    expect((await post(env, "cork-and-bell", { ...body, name: "BOB" })).status).toBe(400);
+    expect(await post(env, "cork-and-bell", { name: "ANN", ...run, score: rules.max })).toMatchObject({ status: 200, ok: true, score: shown, place: 0 });
+    expect(await post(env, "cork-and-bell", { name: "BOB", ...run })).toMatchObject({ status: 409, error: "already_chalked" });
+    expect(await board.top()).toEqual([{ name: "ANN", score: shown, at: expect.any(Number) }]);
   });
 
-  it("refuses a score with no run behind it, as ?state=end&score=... once sent, and a run it never handed out", async () => {
+  it("refuses a score with no run behind it (as ?state=end&score=... once sent), a made-up run, and a run of another version of the rules", async () => {
     const { env, board } = boardEnv();
-    expect((await post(env, "cork-and-bell", { name: "ZZZ", score: rules.max })).status).toBe(400);
-    expect((await post(env, "cork-and-bell", { name: "ZZZ", run: "made-up", countIn: 0, shots: [] })).status).toBe(400);
-    // A run on a seed of the page's own (?seed=7) is a run the board never handed out either.
-    const { run } = await post(env, "cork-and-bell/runs");
-    expect((await post(env, "cork-and-bell", { name: "ZZZ", run, seed: 7, countIn: 0, shots: [] })).status).toBe(400);
+    expect(await post(env, "cork-and-bell", { name: "ZZZ", score: rules.max })).toMatchObject({ status: 400, error: "bad_request" });
+    expect((await post(env, "cork-and-bell", { name: "ZZZ", seed: 7, countIn: 0, shots: [[5, 0, 1], [1, 0, 1]], v: RUN_VERSION })).status).toBe(400);
+    expect((await post(env, "cork-and-bell", { name: "ZZZ", seed: 7, countIn: 0, shots: [], v: RUN_VERSION })).status).toBe(400);
+    const { run } = played(99);
+    expect((await post(env, "cork-and-bell", { name: "ZZZ", ...run, v: RUN_VERSION + 1 })).status).toBe(400);
+    expect((await post(env, "cork-and-bell", { name: "ZZZ", ...run, v: undefined })).status).toBe(400);
     expect(await board.top()).toEqual([]);
   });
 });
