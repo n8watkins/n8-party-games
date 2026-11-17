@@ -238,8 +238,8 @@ export class RoomBar extends RoomRendered {
     this.stuff.add(pivot);
     // Its light on the pieces under it, and its beam down to the pool.
     // To the pool's drawn edge (shared/world.js, drawnLight): on the bar's placed wall that is where the room counts, and the light stops there.
-    const tight = this.light.fade === 0;
-    const radius = this.light.pool * (WALK / U) + (tight ? 0 : 0.04);
+    const tight = this.drawn.fade === 0;
+    const radius = this.drawn.pool * (WALK / U) + (tight ? 0 : 0.04);
     const colour = new THREE.Color(0xffd9a6);
     const spot = new THREE.SpotLight(colour, 0, 0, Math.atan((radius + (tight ? 0 : 0.1)) / bottom), 0.4, 0);
     spot.position.set(x, bottom, z);

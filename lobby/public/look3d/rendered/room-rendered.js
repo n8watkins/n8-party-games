@@ -213,7 +213,7 @@ export class RoomRendered extends Room3D {
   box(box, i, L) {
     if (this.plain) return super.box(box, i, L);
     const b = { box, i, cx: L.wall.xs[i], level: 0, aim: 0, gold: 0, goldAim: 0, shown: -1 };
-    b.pool = new THREE.Vector4(walkX(b.cx), SPACE.walkZ, this.light.pool * PX, 0);
+    b.pool = new THREE.Vector4(walkX(b.cx), SPACE.walkZ, this.drawn.pool * PX, 0);
     const at = (b.at = this.posterAt(i, L));
     const g = new THREE.Group();
     g.position.set(at.x, at.y, at.z);
@@ -240,8 +240,8 @@ export class RoomRendered extends Room3D {
     // has the lamp's own light on the floor; these make the place to vote plain at a glance.
     const x = walkX(b.cx);
     // To where the room counts and no further on a placed wall (shared/world.js, drawnLight); the wash's soft edge too.
-    const radius = this.light.pool * PX;
-    const washSize = radius * (this.light.fade > 0 ? 2.3 : 2);
+    const radius = this.drawn.pool * PX;
+    const washSize = radius * (this.drawn.fade > 0 ? 2.3 : 2);
     const light = this.voteLight ?? this.skin.light;
     b.ring = new THREE.Mesh(new THREE.RingGeometry(radius - 0.018, radius + 0.018, 72), new THREE.MeshBasicMaterial({ color: light, transparent: true, opacity: 0.05, blending: THREE.AdditiveBlending, depthWrite: false }));
     b.ring.rotation.x = -Math.PI / 2;
@@ -283,7 +283,7 @@ export class RoomRendered extends Room3D {
       if (!(b.level > 0.002)) continue;
       const d = Math.abs(xw - b.cx);
       // An even wall's lamp reaches well past its pool; a placed wall's ends at the counted edge (shared/world.js, drawnLight).
-      const reach = this.light.fade > 0 ? 150 : 0;
+      const reach = this.drawn.fade > 0 ? 150 : 0;
       const lit = reach > 0 ? Math.max(0, Math.min(1, (this.half + reach - d) / reach)) : d <= this.half ? 1 : 0;
       if (d < best.d) best = { lit: Math.min(1, 0.5 + 0.5 * b.level) * lit, x: b.cx, d };
     }

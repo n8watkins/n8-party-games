@@ -268,7 +268,7 @@ export class Room3D {
     const L = (this.L = layout(wallFor(room.room ?? this.skin.id, room.boxes.length)));
     this.half = L.wall.half;
     // How far its light is drawn (shared/world.js, drawnLight): on a placed wall, to the counted edge and no further.
-    this.light = drawnLight(L.wall);
+    this.drawn = drawnLight(L.wall);
     this.shell(L);
     this.doorway(L);
     this.bulbs();
@@ -500,7 +500,7 @@ export class Room3D {
     const b = { box, i, cx: L.wall.xs[i], level: 0, aim: 0, gold: 0, goldAim: 0, shown: -1, lead: null };
     const x = walkX(b.cx);
     const z = SPACE.walkZ;
-    const radius = this.light.pool * PX;
+    const radius = this.drawn.pool * PX;
     b.pool = new THREE.Vector4(x, z, radius, 0);
 
     // The lamp, its cord, its beam and the edge of its pool.
