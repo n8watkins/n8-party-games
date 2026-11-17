@@ -43,7 +43,16 @@ function pageHelpers() {
   const send = WebSocket.prototype.send;
   WebSocket.prototype.send = function (data) {
     window.__ws = this;
+    // A message the test holds back on its way to the room (a slow network): {test, ms}.
+    const late = window.__late;
+    if (late && typeof data === "string" && late.test.test(data)) return void setTimeout(() => send.call(this, data), late.ms);
     return send.call(this, data);
+  };
+  // Frames held back (a page that stalls drawing) until performance.now() reaches window.__stallUntil.
+  const raf = window.requestAnimationFrame.bind(window);
+  window.requestAnimationFrame = (cb) => {
+    const wait = (window.__stallUntil ?? 0) - performance.now();
+    return wait > 0 ? setTimeout(() => raf(cb), wait) : raf(cb);
   };
   window.__send = (m) => window.__ws.send(JSON.stringify(m));
   const view = () => globalThis.__partyRoom?.view;
@@ -298,6 +307,18 @@ try {
     const upAt = Date.now();
     check(up?.for === STILT_MS, `the room tells everybody Rob's legs are up for ${up?.for} ms`);
     await sleep(200);
+    if (look === "flat") {
+      // Up on its legs, the robot's name tag stays clear of the row of signs over the boxes.
+      const overlap = await sam.evaluate((s) => {
+        const v = globalThis.__partyRoom.view;
+        const tag = v.pieces.get(s).tag.getBoundingClientRect();
+        return v.boxes.some((b) => {
+          const r = b.sign.getBoundingClientRect();
+          return tag.left < r.right && tag.right > r.left && tag.top < r.bottom - 1 && tag.bottom > r.top;
+        });
+      }, R);
+      check(!overlap, "Rob's name tag, lifted with his legs, stays clear of the signs");
+    }
     await pat.keyboard.press("KeyX");
     const under = await after((m) => m.t === "b" && m.s === P, 2000, mark);
     check(under?.to === -1, `Pat's kick swings through the gap: it hits nobody (${JSON.stringify(under && { to: under.to })})`);
@@ -383,6 +404,38 @@ try {
     const ownSoft = (await seenOn(sam, S)).soft;
     // Soft until ABSORB_MS, then melting (SLIME's MELT_MS): a page that drew within the absorb must show it.
     check(softBack < ABSORB_MS && ownSoft, `Sam's phone, back from the reload within the absorb (it drew ${softBack} ms in, of ${ABSORB_MS}), draws Sam soft`);
+
+    section(`${look}: a hold survives a page that stalls drawing; an absorb the room refuses is taken back on Sam's own phone`);
+    await rested(S);
+    // Sam's page draws no frame for 900 ms from the press: the hold still turns soft (a timer, not a frame).
+    mark = ada.seen.length;
+    await sam.evaluate(() => (window.__stallUntil = performance.now() + 900));
+    await sam.keyboard.down("KeyX");
+    await sleep(HOLD_MS + 120);
+    await sam.keyboard.up("KeyX");
+    const stalled = await after((m) => m.t === "slime" && m.s === S && m.k === "absorb", 2000, mark);
+    check(stalled?.for === ABSORB_MS, `held while the page drew nothing: Sam still goes soft (${stalled?.k ?? "no absorb"})`);
+    await sleep(1400);
+    await rested(S);
+    // The absorb reaches the room 0.75 s late, after the harden it would turn: refused (slime-no),
+    // and Sam's own phone takes back the soft it drew at once, not when its own absorb would have ended.
+    await sam.evaluate(() => {
+      window.__late = { test: /"k":"absorb"/, ms: 750 };
+      window.__pressAt = performance.now();
+    });
+    mark = ada.seen.length;
+    await sam.keyboard.down("KeyX");
+    await sleep(HOLD_MS + 120);
+    await sam.keyboard.up("KeyX");
+    const drewSoft = await sam.evaluate((s) => window.movesOn(s)?.soft, S);
+    // When, after the press, Sam's phone stopped drawing him soft: by about 1.05 s with the refusal,
+    // 1.44 s (its own absorb's end and melt) without it.
+    const backAt = await sam
+      .waitForFunction((s) => !window.movesOn(s)?.soft && performance.now() - window.__pressAt, S, { timeout: 4000, polling: 15 })
+      .then((h) => h.jsonValue())
+      .catch(() => null);
+    await sam.evaluate(() => (window.__late = null));
+    check(drewSoft && backAt !== null && backAt < 1250 && !ada.seen.slice(mark).some((m) => m.t === "slime" && m.k === "absorb"), `the late absorb is refused, and Sam's phone, which drew it soft (${drewSoft}), stops ${Math.round(backAt ?? -1)} ms after the press`);
 
     section(`${look}: Sam walks into Pat and shoves him along`);
     await rested(S, P);

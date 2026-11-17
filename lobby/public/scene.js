@@ -800,7 +800,7 @@ export class Scene {
       }
       const others = ordered.filter((o) => o !== p && !o.leaving).map((o) => o.rx);
       const drawn = hookNow(p, now, p.rx, p.hook.verdict ? null : hookStop(p.rx, p.hook.dir, others));
-      this.moves.hook(p.seat, drawn, p.rx, p.hook?.dir ?? p.face, p.legs ?? 0);
+      this.moves.hook(p.seat, drawn, p.rx, p.hook?.dir ?? p.face, p.legs ?? 0, p.colour);
     }
     this.moves.frame(now);
     const mine = own ? this.pieces.get(this.opts.own) : null;
@@ -809,9 +809,13 @@ export class Scene {
     // Name tags that would sit on top of each other step up instead.
     tagLevels(ordered, (p) => p.tagW, (p) => p.up, () => this.tagSize + 20);
     const bounds = view ? { left: view.x, right: view.x + view.width } : null;
+    // A robot up on its stilt legs lifts its tag with it, but never into the row of signs over the
+    // boxes: the tag stops just under it (over the robot's head) while the legs are out.
+    const signsEnd = Math.max(SIGN_TOP, ...this.boxes.map((b) => b.rowY2 + (this.opts.compact ? 30 : 24))) + 8 + this.tagSize + 14;
     for (const p of ordered) {
       p.level += (p.want - p.level) * Math.min(1, dt * 12);
-      set(p.tag, { transform: `translate(${p.rx.toFixed(1)}, ${(ROOM.floorY - 156 - p.up - p.level * (this.tagSize + 20)).toFixed(1)})` });
+      const tagY = ROOM.floorY - 156 - p.up - p.level * (this.tagSize + 20);
+      set(p.tag, { transform: `translate(${p.rx.toFixed(1)}, ${(p.legs > 0 ? Math.max(tagY, signsEnd) : tagY).toFixed(1)})` });
       this.express(p, now, bounds);
     }
     this.paint(now);

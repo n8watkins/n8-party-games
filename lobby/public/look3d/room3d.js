@@ -1162,7 +1162,7 @@ export class Room3D {
       }
       const others = ordered.filter((o) => o !== p && !o.leaving).map((o) => o.rx);
       const drawn = hookNow(p, now, p.rx, p.hook.verdict ? null : hookStop(p.rx, p.hook.dir, others));
-      if (this.hooks.hook(p.seat, drawn, p.rx, p.hook?.dir ?? p.face, p.body.legs ?? 0)) busy = true;
+      if (this.hooks.hook(p.seat, drawn, p.rx, p.hook?.dir ?? p.face, p.body.legs ?? 0, p.member?.colour)) busy = true;
     }
     // Name tags that would sit on top of each other step up instead.
     tagLevels(ordered, (p) => p.tag.w, (p) => p.up, (p) => (p.tag.h || 30) + 6);

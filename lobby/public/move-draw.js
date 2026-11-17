@@ -23,8 +23,11 @@ export class MoveDraw {
     this.sparks = [];
   }
 
-  /** One robot's hook for this frame: `drawn` from hookDrawn (null: put away), `x` where the robot is drawn, `lift` how far up its legs hold it. */
-  hook(seat, drawn, x, dir, lift = 0) {
+  /**
+   * One robot's hook for this frame: `drawn` from hookDrawn (null: put away), `x` where the robot
+   * is drawn, `lift` how far up its legs hold it, `colour` its player's (the tell is drawn in it).
+   */
+  hook(seat, drawn, x, dir, lift = 0, colour = GLOW) {
     let h = this.hooks.get(seat);
     if (!drawn) {
       if (h) {
@@ -36,7 +39,9 @@ export class MoveDraw {
     }
     if (!h) {
       h = {
-        aim: s("rect", { height: 8, rx: 4, fill: GLOW, "pointer-events": "none" }),
+        // The tell: a bold band along the floor in the robot's own colour, edged in light, ending in
+        // an arrow head, so at phone size it reads as "a hook is coming this way", never as a kick's wind-up.
+        aim: s("g", { "pointer-events": "none", class: "hook-tell" }, s("rect", { height: 16, rx: 8, "stroke-width": 3 }), s("path", { "stroke-width": 3, "stroke-linejoin": "round" })),
         under: s("path", { fill: "none", stroke: DARK, "stroke-width": 8, "stroke-linecap": "round" }),
         chain: s("path", { fill: "none", stroke: STEEL, "stroke-width": 5, "stroke-dasharray": "7 4", "stroke-linecap": "round" }),
         head: s("path", { d: "M0,0 h10 a9,9 0 1,1 -9,12", fill: "none", stroke: STEEL, "stroke-width": 5, "stroke-linecap": "round" }),
@@ -49,9 +54,15 @@ export class MoveDraw {
       this.hooks.set(seat, h);
     }
     set(h.g, { "data-state": drawn.state });
-    // The tell: a line of light along the floor as far as the hook reaches.
+    // The tell: a band along the floor as far as the hook reaches, in the robot's colour, pulsing.
     const reach = HOOK_HAND + HOOK_RANGE;
-    set(h.aim, { x: (dir > 0 ? x : x - reach).toFixed(1), y: ROOM.floorY - 2, width: reach, opacity: (drawn.aim * 0.55).toFixed(2), display: drawn.aim > 0 ? null : "none" });
+    set(h.aim, { opacity: (0.35 + drawn.aim * 0.6).toFixed(2), display: drawn.aim > 0 ? null : "none" });
+    if (drawn.aim > 0) {
+      const [band, head] = h.aim.children;
+      const end = x + dir * reach;
+      set(band, { x: (dir > 0 ? x + 24 : end).toFixed(1), y: ROOM.floorY - 6, width: reach - 24, fill: colour, stroke: GLOW });
+      set(head, { d: `M${(end + dir * 4).toFixed(1)},${ROOM.floorY + 2} l${-dir * 22},-16 v32 z`, fill: colour, stroke: GLOW });
+    }
     const fromX = x + dir * 20;
     const fromY = ROOM.floorY - CHEST - lift;
     const toY = ROOM.floorY - drawn.y;

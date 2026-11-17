@@ -180,6 +180,11 @@ export function refusedOwn(p, what, now) {
   if (what === "hook" && p.hook && !p.hook.verdict) judgeHook(p, { o: "off" }, now, null);
   if (what === "stilts") dropStilts(p, now);
   if (what === "slime") endGoo(p, now);
+  // A refused absorb: the turn this page drew is taken back, and the harden runs on.
+  if (what === "absorb" && p.goo && p.goo.turnAt !== null) {
+    p.goo.turnAt = null;
+    p.goo.softFor = 0;
+  }
 }
 
 /**

@@ -606,11 +606,14 @@ link.on("message", (msg) => {
       if (msg.s !== link.you?.seat || !isPlayer()) moveSound(msg.k === "absorb" ? "slime-absorb" : "slime-harden", msg.s);
       break;
     case "slime-no":
-      // A held press the room did not turn soft (it came late) is only a harden: nothing is said.
       if (msg.k === "harden") {
         pilot?.slimeCool(msg.wait ?? 0, now);
         if (isPlayer()) scene.ownRefused("slime", now);
         if (!(msg.wait > 0 && msg.wait < 400)) hud?.note(msg.why);
+      } else if (isPlayer()) {
+        // A hold the room did not turn soft: the slime this page drew soft is hard again for the
+        // rest of its harden (as the room has it), and nothing is said.
+        scene.ownRefused("absorb", now);
       }
       break;
     case "shove":
@@ -918,19 +921,21 @@ function jump() {
 /** What the player's own character's move button does (shared/characters.js): "kick", "fade", "hook" or "harden". */
 const ownMove = () => moveOf(room?.members[link.you?.seat]?.character);
 
-/** When the move button went down and is still held (a slime's hold turns its harden soft), or null. */
-let pressedAt = null;
+/**
+ * A slime's press held: the timer that turns its harden soft HOLD_MS after the press (a timer, not
+ * a frame, so a page that stalls a moment or draws slowly never loses the hold), or null.
+ */
+let holdTimer = null;
 
 /**
  * The move button. A kick: the wind-up starts the moment the button goes down; the room decides
  * whether the blow lands. A fade (a ghost's move): it fades on this phone at once, and the room
  * says so to everybody, or takes it back (fade-no). A hook (a robot's): it winds up at once and
  * the room judges where it lands. A harden (a slime's): it hardens at once; held, it goes soft
- * (frame: absorb).
+ * (holdMove: absorb).
  */
 function bump() {
   const now = performance.now();
-  pressedAt = now;
   const move = ownMove();
   if (move === "fade") return fadeNow(now);
   if (!canMove() || room.phase !== "lobby") return;
@@ -945,6 +950,8 @@ function bump() {
     if (pilot.slime("harden", now)) {
       scene.ownSlime("harden", now);
       moveSound("slime-harden", link.you.seat);
+      clearTimeout(holdTimer);
+      holdTimer = setTimeout(holdMove, HOLD_MS);
     }
     return;
   }
@@ -956,13 +963,15 @@ function bump() {
 
 /** The move button came up: a slime's press was a tap. */
 function unbump() {
-  pressedAt = null;
+  clearTimeout(holdTimer);
+  holdTimer = null;
 }
 
-/** A slime's move button held past HOLD_MS: the harden just begun turns soft (absorb). */
-function holdMove(now) {
-  if (pressedAt === null || now - pressedAt < HOLD_MS || ownMove() !== "harden" || !pilot || !canMove()) return;
-  pressedAt = null;
+/** A slime's move button still held HOLD_MS after the press: the harden just begun turns soft (absorb). */
+function holdMove() {
+  holdTimer = null;
+  const now = performance.now();
+  if (ownMove() !== "harden" || !pilot || !canMove()) return;
   if (pilot.slime("absorb", now)) {
     scene.ownSlime("absorb", now);
     moveSound("slime-absorb", link.you.seat);
@@ -1144,10 +1153,7 @@ function frame(t) {
     hud.pad?.setMove(pilot.move);
     hud.pad?.show({ cooling: pilot.cooling(now), down: pilot.down(now), of: MOVE_COOLDOWN[pilot.move] ?? BUMP_COOLDOWN_MS });
     if (pilot.move === "fade") drift(now);
-    if (pilot.move === "harden") {
-      holdMove(now);
-      heavy(now);
-    }
+    if (pilot.move === "harden") heavy(now);
   }
   if (hud.wheel) {
     const wait = emoteWait(now);

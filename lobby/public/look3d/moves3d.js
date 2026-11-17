@@ -53,8 +53,12 @@ export class Hooks3D {
     this.steel = new THREE.MeshStandardMaterial({ color: STEEL, roughness: 0.28, metalness: 0.75, emissive: 0x2a2e36, emissiveIntensity: 0.9 });
   }
 
-  /** One robot's hook for this frame: `drawn` from hookDrawn (null: put away), `x` where the robot is drawn, `lift` how far its legs hold it up (world units). */
-  hook(seat, drawn, x, dir, lift = 0) {
+  /**
+   * One robot's hook for this frame: `drawn` from hookDrawn (null: put away), `x` where the robot
+   * is drawn, `lift` how far its legs hold it up (world units), `colour` its player's ("#rrggbb":
+   * the tell is drawn in it).
+   */
+  hook(seat, drawn, x, dir, lift = 0, colour = null) {
     let h = this.hooks.get(seat);
     if (!drawn) {
       if (h) {
@@ -78,12 +82,19 @@ export class Hooks3D {
       h = { group, aim, chain, head };
       this.hooks.set(seat, h);
     }
-    // The tell: a line of light along the floor, as far as the hook reaches.
+    // The tell: a bold band along the floor as far as the hook reaches, in the robot's colour made
+    // bright, pulsing: at phone size it reads as a hook coming, never as a kick's wind-up.
     const reach = (HOOK_HAND + HOOK_RANGE) * PX;
     h.aim.visible = drawn.aim > 0;
-    h.aim.material.opacity = drawn.aim * 0.5;
-    h.aim.position.set(walkX(x) + (dir * reach) / 2, 0.012, SPACE.walkZ);
-    h.aim.scale.set(reach, 0.07, 1);
+    if (h.aim.visible) {
+      if (colour && h.colour !== colour) {
+        h.colour = colour;
+        h.aim.material.color.set(colour).lerp(GLOW, 0.35);
+      }
+      h.aim.material.opacity = 0.35 + drawn.aim * 0.55;
+      h.aim.position.set(walkX(x) + (dir * reach) / 2, 0.014, SPACE.walkZ);
+      h.aim.scale.set(reach, 0.16, 1);
+    }
     // The chain, link by link, from its chest to the hook.
     A.set(walkX(x + dir * 20), (CHEST + lift) * PX, Z);
     B.set(walkX(drawn.tip), drawn.y * PX, Z);

@@ -76,7 +76,8 @@ function onTap(button, action) {
     action();
   });
   button.addEventListener("keydown", (e) => {
-    if (e.key === "Enter" || e.key === " ") action();
+    // A key held down repeats: only its first press acts (a slime's held button must not harden again).
+    if ((e.key === "Enter" || e.key === " ") && !e.repeat) action();
   });
 }
 
@@ -112,7 +113,16 @@ export class Controls {
     onTap(this.jump, on.jump);
     this.bump = control(right, "bump");
     onTap(this.bump, on.bump);
-    // A slime's button is held to go soft (lobby/shared/slime.js): the page hears it come up.
+    // A slime's button is held to go soft (lobby/shared/slime.js): the page hears it come up. The
+    // finger is captured, so a thumb that drifts off the button while it holds does not end the
+    // hold, and the button takes no gesture of its own (touch-action: none, lobby.css .round).
+    this.bump.addEventListener("pointerdown", (e) => {
+      try {
+        this.bump.setPointerCapture?.(e.pointerId);
+      } catch {
+        // A pointer the browser no longer knows (a made-up event): nothing to hold.
+      }
+    });
     for (const type of ["pointerup", "pointercancel"]) this.bump.addEventListener(type, () => on.unbump?.());
     this.bump.addEventListener("keyup", (e) => (e.key === "Enter" || e.key === " ") && on.unbump?.());
     // The cooldown ring: a track, and an arc that sweeps round as the move recharges.
