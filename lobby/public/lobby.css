@@ -1019,6 +1019,85 @@ input {
   outline-offset: 2px;
 }
 
+/* The way in for the Table, from the front page (/table/): the front page's blue and its two
+   faces (site/site.css, self-hosted under /fonts/, downloaded only by this page), so starting a
+   party there looks like the page it came from. The party room's own way in is unchanged. */
+@font-face {
+  font-family: "Baloo 2";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 400 800;
+  src: url("/fonts/baloo-2.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Nunito";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 200 1000;
+  src: url("/fonts/nunito.woff2") format("woff2");
+}
+.door[data-room="turn-based"] {
+  /* By night: the front page's navy. */
+  --ground: #08102a;
+  --field: #111d44;
+  --edge: #2c3d78;
+  --ink: #eef2ff;
+  --soft: #b4c0e3;
+  --amber: #f7c24a;
+  --amber-ink: #2a1606;
+  --focus: #8fb8ff;
+  --display: "Baloo 2", "Arial Rounded MT Bold", "Trebuchet MS", system-ui, sans-serif;
+  background: radial-gradient(120% 90% at 50% 0%, #172552 0%, var(--ground) 70%);
+  color: var(--ink);
+  font-family: "Nunito", "Segoe UI", system-ui, -apple-system, Roboto, sans-serif;
+  color-scheme: dark;
+}
+@media (prefers-color-scheme: light) {
+  .door[data-room="turn-based"] {
+    /* By day: the front page's pale blue. */
+    --ground: #dfe8fb;
+    --field: #f9fbff;
+    --edge: #b3c3e6;
+    --ink: #0d1733;
+    --soft: #3b4a72;
+    --amber: #f4b630;
+    --focus: #1f5fd6;
+    background: radial-gradient(120% 90% at 50% 0%, #edf2fd 0%, var(--ground) 70%);
+    color-scheme: light;
+  }
+}
+.door[data-room="turn-based"] .brand,
+.door[data-room="turn-based"] .door-title {
+  color: var(--ink);
+}
+.door[data-room="turn-based"] .door-title {
+  font-weight: 800;
+}
+.door[data-room="turn-based"] .input,
+.door[data-room="turn-based"] .role,
+.door[data-room="turn-based"] .door-note {
+  border-color: var(--edge);
+  background: var(--field);
+}
+.door[data-room="turn-based"] .role.picked {
+  border-color: var(--amber);
+}
+.door[data-room="turn-based"] .button {
+  font-family: var(--display);
+  font-size: 19px;
+  box-shadow: 0 4px 0 var(--amber-ink);
+}
+/* A tap target of 44 pixels at least. */
+.door[data-room="turn-based"] .door-swap {
+  min-height: 44px;
+}
+.door[data-room="turn-based"] .input:focus-visible,
+.door[data-room="turn-based"] .button:focus-visible,
+.door[data-room="turn-based"] .plain:focus-visible,
+.door[data-room="turn-based"] .door-swap:focus-visible {
+  outline: 3px solid var(--focus);
+}
+
 /* ------------------------------------------------------------ an upright phone */
 @media (orientation: portrait) and (max-width: 560px) {
   .hud-player .bar-player {

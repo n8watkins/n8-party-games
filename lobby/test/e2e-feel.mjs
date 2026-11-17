@@ -85,26 +85,32 @@ try {
     ["upright phone", UPRIGHT],
     ["sideways phone", PHONE],
   ]) {
+    // The front page (site/, its own suite is site/test/e2e-home.mjs): joining with a code is in
+    // the bar above the three doors; the room door's Start a party leads to the way in below.
     const front = await open("front", ...device);
     await front.goto(base + "/");
-    const [join, start, minor] = [await top(front, "form.join"), await top(front, "a.start"), await top(front, "a.minor")];
-    check(join !== null && start !== null && join < start, `${label}, front page: joining with a code comes first, starting a party second`);
-    check(minor !== null && minor > start && (await front.locator("a.minor").textContent()) === "Use this phone as the room's screen", `${label}, front page: being the room's screen is a small link below`);
-    const [joinSize, minorSize] = await front.evaluate(() => [parseFloat(getComputedStyle(document.querySelector(".join .button")).fontSize), parseFloat(getComputedStyle(document.querySelector("a.minor")).fontSize)]);
-    check(minorSize < joinSize, `${label}, front page: and it is smaller than the buttons (${minorSize}px against ${joinSize}px)`);
-    if (label === "upright phone") {
-      await shot(front, "f01-upright-front-page");
-      await front.click("a.minor");
-      await front.waitForSelector(".door-title");
-      check((await front.locator(".door .button").textContent()) === "Show the room here" && (await front.locator(".door-swap").textContent()) === "Play on this phone instead", "its link opens the way in as the screen, with the way back to playing one tap away");
-    } else await shot(front, "f02-sideways-front-page");
+    await front.waitForSelector("body[data-ready]");
+    const [join, firstDoor] = [await top(front, "#joinOpen"), await top(front, ".door")];
+    check(join !== null && firstDoor !== null && join < firstDoor, `${label}, front page: joining with a code comes first, above the doors`);
+    await shot(front, label === "upright phone" ? "f01-upright-front-page" : "f02-sideways-front-page");
     await front.context().close();
   }
   const wideFront = await open("front", { width: 1280, height: 800 });
   await wideFront.goto(base + "/");
-  check((await top(wideFront, "a.start")) < (await top(wideFront, "form.join")) && !(await wideFront.locator("a.minor").isVisible()), "a wide screen's front page leads with starting a party, as before");
+  await wideFront.waitForSelector("body[data-ready]");
+  check((await wideFront.locator(".door").count()) === 3 && (await wideFront.locator("#joinOpen").isVisible()), "a wide screen's front page shows the three doors and the way to join");
   await shot(wideFront, "f03-wide-front-page");
   await wideFront.context().close();
+  {
+    // A phone that starts a party is offered being the room's screen as a small link on the way in.
+    const front = await open("front", ...UPRIGHT);
+    await front.goto(base + "/lobby/?start");
+    await front.waitForSelector(".door-swap");
+    await front.click(".door-swap");
+    await front.waitForSelector(".door-title");
+    check((await front.locator(".door .button").textContent()) === "Show the room here" && (await front.locator(".door-swap").textContent()) === "Play on this phone instead", "a phone's way in offers the room's screen as a link, with the way back to playing one tap away");
+    await front.context().close();
+  }
 
   const door = await open("door", ...UPRIGHT);
   await door.goto(base + "/lobby/?start");
