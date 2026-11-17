@@ -86,9 +86,9 @@ describe("what the front page says is playable", () => {
   });
 
   it("fails when the page would call a game playable that the wall has as coming soon", async () => {
-    // A wall copy that has gone stale: Tin Derby marked ready while the room has no such game.
-    const stale = { ...WALL, boxes: WALL.boxes.map((b) => (b.id === "tin-derby" ? { ...b, soon: false, view: "/tin-derby/view.js" } : b)) };
-    expect(unbacked(await modelFrom(stale))).toEqual(["room/tin-derby (room): the room does not play it"]);
+    // A wall copy that has gone stale: Flood marked ready while the room has no such game.
+    const stale = { ...WALL, boxes: WALL.boxes.map((b) => (b.id === "flood" ? { ...b, soon: false, view: "/flood/view.js" } : b)) };
+    expect(unbacked(await modelFrom(stale))).toEqual(["room/flood (room): the room does not play it"]);
   });
 
   it("follows the Table's list: Paper Masks is coming soon until the Table can start it", async () => {
@@ -130,7 +130,8 @@ describe("what each door's peek calls Now", () => {
   it("is only a game that plays behind that door: Who Am I? plays on its own site, not in the room or at the Table", async () => {
     const model = await modelFrom(wallWithoutTableGame());
     const room = peekOf("room", model.room);
-    expect(ids(room.here)).toEqual(["cork-and-bell"]);
+    // Tin Derby plays in the room too, as Cork & Bell does.
+    expect(ids(room.here)).toEqual(["cork-and-bell", "tin-derby"]);
     expect(ids(room.elsewhere)).toEqual(["who-am-i"]);
     const table = peekOf("table", model.table);
     expect(ids(table.here)).toEqual([]);

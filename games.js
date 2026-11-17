@@ -5,10 +5,12 @@
 // To host another game: add it to devDependencies (a git dependency pinned to a tag or a
 // commit), import it here, and add it to the list. The build and the Worker read this list.
 import * as corkAndBell from "cork-and-bell";
+// Tin Derby is still a folder of this repository (floor/games/tin-derby), installed as a package by a file: dependency until it moves to its own.
+import * as tinDerby from "tin-derby";
 import * as paperMasks from "./party/games/paper-masks/index.js";
 import * as whoAmI from "./party/games/who-am-i/index.js";
 
-export const GAMES = [corkAndBell];
+export const GAMES = [corkAndBell, tinDerby];
 
 // The games played at the Table (the party's plain waiting room, /party/): turn-based games
 // (`tickHz: 0`) that keep the same contract, plus `manifest.table.view`, the module under the

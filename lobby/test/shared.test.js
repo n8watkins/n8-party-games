@@ -107,34 +107,35 @@ describe("which games the party can play", () => {
     expect(standingsFromRows(null)).toEqual([]);
   });
 
-  it("hangs Cork & Bell, Who Am I? and three coming-soon boxes on the production wall, and no test game", () => {
+  it("hangs Cork & Bell, Who Am I?, Tin Derby and two coming-soon boxes on the production wall, and no test game", () => {
     expect(WALL.boxes.map((b) => b.id)).toEqual(["cork-and-bell", "who-am-i", "tin-derby", "flood", "fox-trouble"]);
     // Cork & Bell opens inside the room, from the view its own manifest names, and also plays alone.
     expect(WALL.boxes[0]).toMatchObject({ name: "Cork & Bell", blurb: "Pop the targets, ring the bell", badge: "any", min: 1, max: 4, soon: false, url: null, view: "/cork-and-bell/game/party-view.js" });
     expect(WALL.boxes[1]).toMatchObject({ name: "Who Am I?", badge: "phones", min: 2, max: 2, soon: false, url: "https://whoami.n8builds.dev/" });
+    // Tin Derby hangs where its coming-soon box hung, and opens inside the room too.
+    expect(WALL.boxes[2]).toMatchObject({ name: "Tin Derby", badge: "any", min: 1, max: 4, soon: false, url: null, view: "/tin-derby/page/party-view.js" });
     expect(WALL.boxes.filter((b) => b.soon).map((b) => [b.name, b.badge, playersLabel(b.min, b.max)])).toEqual([
-      ["Tin Derby", "screen", "2-4 players"],
       ["Flood", "phones", "1-4 players"],
       ["Fox Trouble", "phones", "2-4 players"],
     ]);
     expect(WALL.boxes.some((b) => b.test)).toBe(false);
     for (const b of WALL.boxes) expect(b.blurb.length, b.id).toBeGreaterThan(5);
     // The games that can start: the Floor's and the Table's. No test game in production, on the Floor or at the Table.
-    // Who Am I? is both: the Floor's outside game (its own site) and a game the Table plays.
-    expect([...WALL.games.keys()]).toEqual(["cork-and-bell", "paper-masks", "who-am-i"]);
+    expect([...WALL.games.keys()]).toEqual(["cork-and-bell", "tin-derby", "paper-masks", "who-am-i"]);
     expect(WALL.table.map((e) => [e.id, e.soon])).toEqual([
       ["paper-masks", false],
       ["who-am-i", false],
     ]);
     expect(WALL.table.some((e) => e.test)).toBe(false);
     expect(WALL.games.get("cork-and-bell").tickHz).toBe(30);
+    expect(WALL.games.get("tin-derby").tickHz).toBe(30);
   });
 
   it("adds Coin Flip and Count to ten only where the environment switches test games on", () => {
     expect(TEST_WALL.table.filter((e) => e.test).map((e) => e.id)).toEqual(["count-to-ten"]);
     expect(TEST_WALL.boxes.map((b) => b.id)).toEqual(["cork-and-bell", "coin-flip", "who-am-i", "tin-derby", "flood", "fox-trouble"]);
     expect(TEST_WALL.boxes[1]).toMatchObject({ test: true, min: 1, url: null, view: null });
-    expect([...TEST_WALL.games.keys()]).toEqual(["cork-and-bell", "coin-flip", "paper-masks", "who-am-i", "count-to-ten"]);
+    expect([...TEST_WALL.games.keys()]).toEqual(["cork-and-bell", "tin-derby", "coin-flip", "paper-masks", "who-am-i", "count-to-ten"]);
     expect(wallFor({ PARTY_TEST_GAMES: "on" })).toBe(TEST_WALL);
     expect(wallFor({ PARTY_TEST_GAMES: "off" })).toBe(WALL);
     expect(wallFor({})).toBe(WALL);

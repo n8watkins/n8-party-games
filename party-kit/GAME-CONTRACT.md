@@ -87,7 +87,7 @@ In a turn-based game (`tickHz: 0`) nothing ticks either: the room wakes for an i
 ### Start: with the party's seats
 
 When the vote's count ends, the room calls `game.create({ seed, seats, now, round })`; a game with settings is first given a settings step ("Settings after the vote"), and its `create` also gets `settings`; a game with `carry` also gets `carry` ("What a rematch carries").
-`seats` is one entry for each player in the party, `{ seat, name, kind: "human", colour }`, with the seat numbers and colours they have in the lobby; for a game with an audience voted for by a larger party, one for each player chosen on its spots ("Fewer seats than the party").
+`seats` is one entry for each player in the party, `{ seat, name, kind: "human", colour, character }`, with the seat numbers, colours and characters (the piece each chose) they have in the lobby; for a game with an audience voted for by a larger party, one for each player chosen on its spots ("Fewer seats than the party").
 Seat numbers are the room's and may have gaps (seats 0 and 2 when seat 1 left earlier), and there may be only one: the room does not look at `game.minSeats`, since the wall already kept the light off for a party the game does not take.
 There is no waiting room and no ready step: the vote was the ready step (a game with settings has the settings step, and its players are the party as it was when the vote ended; a game whose players are chosen on spots has that step, and its players are the pieces on the spots at Start).
 `seed` is the game's own, drawn fresh from the platform's secure source for each game, so nothing a game shows its players leads to the room's seed or to another game's draw.
