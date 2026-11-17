@@ -29,13 +29,15 @@ The global rules file (branches, pull requests, no merging without the owner's w
   Without it nothing changes, and CI on GitHub's runners (no card) never sets it.
   If the card or Xvfb is missing, or WebGL still draws in software, the run fails at once with the reason.
 - The card is shared with the owner's desktop and with Blender renders.
-  Four GPU test jobs may draw at once (`DEFAULT_CARD_SLOTS` in `lobby/test/browser.mjs`; one lock file per slot, `/tmp/test-gpu-1.lock` to `/tmp/test-gpu-4.lock`).
-  A fifth waits its turn, first come first served, and says so: "waiting for a card slot, 2 ahead".
-  `TEST_GPU_JOBS=N` changes the number of slots; do not raise it to get around a wait.
-  Why four (measured on the owner's RX 7800 XT on 2026-11-15, `GPU-PLAYBOOK.md` in the private ops repo): copies of `e2e-room-pick` at once scale almost in step up to six, fail now and then from eight, and at twelve some browsers do not get the card at all; heavy drawing fills the card at three or four, past which the owner's desktop shares a full card.
-  Four is half the point where failures start, takes about 3 GB of the 10 GB of video memory free, and 2.6 of the 14 CPU threads.
-  A plain `flock /tmp/test-gpu-1.lock <command>` holds one slot of the four, not the card: up to three tests still draw beside it.
-  Work that needs the card to itself (a render, an image or language model) runs through the owner's `gpu-run --kind blender|image|model`, which holds every slot, so no test draws beside it.
+  The card counts browsers, not jobs: three card browsers may draw at once, each holding one token (`DEFAULT_CARD_SLOTS` in `lobby/test/browser.mjs`; one lock file per token, `/tmp/test-gpu-1.lock` to `/tmp/test-gpu-3.lock`).
+  A fourth waits its turn, first come first served, and says so: "waiting for a card token, 2 ahead".
+  `TEST_GPU_JOBS=N` changes the number of tokens; the owner raises it (4, 5) as measured runs allow; do not raise it to get around a wait.
+  Why (measured on the owner's RX 7800 XT on 2026-11-15, `GPU-PLAYBOOK.md` in the private ops repo): real suites ran fine to about six browsers at once and failed now and then from eight; heavy drawing fills the card at three or four, past which the owner's desktop shares a full card.
+  Under a job that holds tokens (`gpu-run`, or the gate), a browser draws only on that job's tokens (`TEST_GPU_TOKENS`), never on more.
+  The gate side by side holds three tokens itself, so at most three of its card browsers draw at once; the steps without a card browser run beside them.
+  Under `gpu-run`, give the gate its three: `gpu-run --tokens 3 --kind browser-test -- npm run predeploy`.
+  A plain `flock /tmp/test-gpu-1.lock <command>` holds one token, not the card: the other tokens still draw beside it.
+  Work that needs the card to itself (a render, an image or language model) runs through the owner's `gpu-run --kind blender|image|model`, which holds every token, so no test draws beside it.
   `TEST_NO_GPU=1` keeps every test off the card, whatever else is set: the one switch when the card is busy or misbehaves.
 - Some browsers stay on software even with `TEST_GPU=1`: the still tools (`shoot*.mjs`, `weigh-baked.mjs`), whose pictures are for a person or compared with earlier ones; the browsers that stand for a device without hardware 3D (`e2e-feel`, `e2e-emotes`, the plain browser in `e2e-leave-rooms`), since a card gets the 3D look instead of the flat one; and `party-kit/test/e2e-turnstile.mjs`, which ships to game repos.
   GPU pixels differ from software ones and can change with a driver update, so any stored-image comparison must run on software.

@@ -90,62 +90,149 @@ export async function launchBrowser({ args = [], software = false, ...options } 
 }
 
 /**
- * How many test processes may draw on the card at once, unless TEST_GPU_JOBS says otherwise.
- * Measured on the owner's RX 7800 XT on 2026-11-15 (GPU-PLAYBOOK.md in the ops repo, "How many
- * jobs at once"): copies of e2e-room-pick scale almost in step up to six at once, fail now and
- * then from eight, and at twelve some browsers do not get the card at all; heavy drawing fills
- * the card at three or four. Four is half the point where failures start and leaves the
- * owner's desktop room on the card.
+ * The card's token pool: how many headless WebGL browser processes may draw on the card at once,
+ * unless TEST_GPU_JOBS says otherwise. Measured on the owner's RX 7800 XT on 2026-11-15
+ * (GPU-PLAYBOOK.md in the ops repo, "How many jobs at once"): real suites ran fine to about six
+ * browsers at once and failed now and then from eight. The pool starts at three, and the owner
+ * raises it (four, five) with TEST_GPU_JOBS as measured runs allow.
  * gpu-run (the owner's dotfiles) uses the same default; keep the two in step.
  */
-export const DEFAULT_CARD_SLOTS = 4;
+export const DEFAULT_CARD_SLOTS = 3;
 
 /**
- * The card is shared with the owner's desktop and with other GPU work (Blender renders), so
- * only TEST_GPU_JOBS processes (default DEFAULT_CARD_SLOTS) may use it for tests at once. A
- * process takes one of the machine-wide locks /tmp/test-gpu-<n>.lock (one per slot) before its
- * first GPU browser and keeps it until it exits; others wait their turn, first come first
- * served, and say how many are ahead of them. The lock is a kernel flock held by a small child
- * (flock ... cat) that reads this process's stdin pipe: when this process ends, however it ends,
- * the pipe closes and the lock is released.
+ * The card is shared with the owner's desktop and with other GPU work (Blender renders), so only
+ * so many browsers may draw on it for tests at once. Each one holds a token: a process takes one
+ * before its first GPU browser and keeps it until it exits (every test script draws with one
+ * browser process), and others wait their turn, first come first served, saying how many are
+ * ahead of them.
  *
- * A plain `flock /tmp/test-gpu-1.lock <command>` holds one slot of the four, not the card: up to
- * three tests still draw beside it. Work that needs the card to itself (a render, an image or
- * language model) runs through `gpu-run --kind blender|image|model`, which holds every slot.
+ * Where the tokens come from:
+ * - Under a job that holds tokens (gpu-run, or the pre-deploy gate), TEST_GPU_TOKENS names them,
+ *   and a process draws only on those: it claims one ("<token>.use"), so the processes below one
+ *   job never draw more than the job holds, and takes nothing from the card's own pool.
+ * - Otherwise from the card's pool, /tmp/test-gpu-<n>.lock, n = 1 to TEST_GPU_JOBS (default
+ *   DEFAULT_CARD_SLOTS), the files gpu-run takes too.
+ * - Under a gpu-run from before the token pool (TEST_GPU_SLOT_HELD=1 and no TEST_GPU_TOKENS),
+ *   as that gpu-run expects: any free file of 1 to its TEST_GPU_JOBS, which is one more than its
+ *   pool, without queueing.
+ *
+ * Tokens are taken all at once or not at all, so nobody sits on some while waiting for others,
+ * and the one taking them holds the pool's gate file meanwhile, so a job that needs several is
+ * not overtaken by single ones that come after it. Every lock is a kernel flock held by a small
+ * child (flock ... cat) that reads this process's stdin pipe: when this process ends, however it
+ * ends, the pipe closes and the lock is released.
+ *
+ * A plain `flock /tmp/test-gpu-1.lock <command>` holds one token, not the card: the other tokens
+ * still draw beside it. Work that needs the card to itself (a render, an image or language model)
+ * runs through `gpu-run --kind blender|image|model`, which holds every token.
  */
 const LOCK_DIR = process.env.TEST_GPU_LOCK_DIR || "/tmp"; // another folder only for the helper's own tests
+
+/** Where this process's tokens come from (see above): { tokens, gate, queue, inherited, what }. */
+function cardPool() {
+  const inherited = (process.env.TEST_GPU_TOKENS ?? "").split(":").filter(Boolean);
+  if (inherited.length)
+    return {
+      tokens: inherited.map((t) => t + ".use"),
+      gate: inherited[0] + ".gate",
+      queue: inherited[0] + ".queue",
+      inherited: true,
+      what: inherited.length > 1 ? `the ${inherited.length} tokens this job holds` : "the one token this job holds",
+    };
+  const legacy = process.env.TEST_GPU_SLOT_HELD === "1";
+  const n = Math.max(1, Number(process.env.TEST_GPU_JOBS) || DEFAULT_CARD_SLOTS);
+  return {
+    tokens: Array.from({ length: n }, (_, i) => join(LOCK_DIR, `test-gpu-${i + 1}.lock`)),
+    gate: legacy ? null : join(LOCK_DIR, "test-gpu-gate.lock"),
+    queue: legacy ? null : join(LOCK_DIR, "test-gpu-queue"),
+    inherited: false,
+    what: n > 1 ? `the card's ${n} tokens` : "the card's one token",
+  };
+}
+
 let cardHeld = null;
+/** Takes one card token for this process (once; later calls wait for the same one). */
 export function holdCard() {
-  cardHeld ??= (async () => {
-    const jobs = Math.max(1, Number(process.env.TEST_GPU_JOBS) || DEFAULT_CARD_SLOTS);
-    if (!which("flock")) throw new Error("TEST_GPU=1 needs flock (util-linux) to share the graphics card");
-    // Under gpu-run, which already holds a slot for this job and adds one for it to take
-    // (TEST_GPU_SLOT_HELD=1), the slot is not queued for: it is this job's own. Otherwise a
-    // free slot is taken at once when nobody is waiting, and the line is joined only when
-    // every slot is in use (or others are already waiting), so jobs that start together do not
-    // line up behind each other for free slots.
-    const held = process.env.TEST_GPU_SLOT_HELD === "1";
-    if ((held || waiting() === 0) && (await takeSlot(jobs))) return;
-    const queue = held ? { ahead: () => 0, leave: () => {} } : await joinQueue();
-    try {
-      for (let said = -1; ; ) {
-        const ahead = queue.ahead();
-        if (ahead === 0 && (await takeSlot(jobs))) return;
-        if (ahead !== said) {
-          console.log(
-            said < 0
-              ? `(waiting for a card slot, ${ahead} ahead: all ${jobs} slot${jobs > 1 ? "s are" : " is"} in use; TEST_GPU_JOBS changes the number of slots)`
-              : `(waiting for a card slot, ${ahead} ahead)`,
-          );
-          said = ahead;
-        }
-        await new Promise((r) => setTimeout(r, 500));
-      }
-    } finally {
-      queue.leave();
-    }
-  })();
+  cardHeld ??= holdTokens(1);
   return cardHeld;
+}
+
+/**
+ * Takes `want` card tokens (at most all there are) and holds them for the life of this process.
+ * Resolves to their paths: put them in TEST_GPU_TOKENS for the processes this one starts, and
+ * those draw only on them. The pre-deploy gate uses it to cap its own browsers.
+ */
+export async function holdTokens(want) {
+  if (!which("flock")) throw new Error("TEST_GPU=1 needs flock (util-linux) to share the graphics card");
+  const pool = cardPool();
+  want = Math.max(1, Math.min(want, pool.tokens.length));
+  // A free token is taken at once when nobody is waiting, and the line is joined only when too
+  // few are free (or others are already waiting), so jobs that start together do not line up
+  // behind each other for free tokens.
+  if (!pool.queue || waiting(pool.queue) === 0) {
+    // Another taker holds the gate only for the moment it takes its tokens, unless it is waiting
+    // for tokens itself: so a busy gate is tried again for a short while before joining the line.
+    for (const until = Date.now() + 2000; ; ) {
+      const got = await gather(pool, want, { keepGate: false });
+      if (Array.isArray(got)) return got;
+      if (got !== GATE_BUSY || Date.now() > until) break;
+      await new Promise((r) => setTimeout(r, 50));
+    }
+  }
+  const queue = pool.queue ? await joinQueue(pool.queue) : { ahead: () => 0, leave: () => {} };
+  const gate = { held: null };
+  try {
+    for (let said = -1; ; ) {
+      const ahead = queue.ahead();
+      if (ahead === 0) {
+        // First in line: hold the gate from now on, so nobody takes tokens before this one.
+        const got = await gather(pool, want, { keepGate: true, gate });
+        if (Array.isArray(got)) return got;
+      }
+      if (ahead !== said) {
+        const n = pool.tokens.length;
+        const why = want > 1 ? `it needs ${want} of ${pool.what}` : n > 1 ? `all ${pool.what} are in use` : `${pool.what} is in use`;
+        const hint = pool.inherited ? "" : "; TEST_GPU_JOBS changes the number";
+        console.log(said < 0 ? `(waiting for a card token, ${ahead} ahead: ${why}${hint})` : `(waiting for a card token, ${ahead} ahead)`);
+        said = ahead;
+      }
+      await new Promise((r) => setTimeout(r, 500));
+    }
+  } finally {
+    gate.held?.release();
+    queue.leave();
+  }
+}
+
+const GATE_BUSY = "gate busy";
+
+/**
+ * One try at `want` tokens of `pool`, all or nothing, under its gate. Resolves to the paths held,
+ * GATE_BUSY when someone else holds the gate, or null when too few tokens are free. With keepGate
+ * the gate stays held (in gate.held) after a failed try, so the next try is still first; it is
+ * let go by the caller.
+ */
+async function gather(pool, want, { keepGate, gate = { held: null } }) {
+  if (pool.gate && !gate.held) {
+    gate.held = await lockFile(pool.gate);
+    if (!gate.held) return GATE_BUSY;
+  }
+  const held = [];
+  try {
+    for (const path of pool.tokens) {
+      const lock = await lockFile(path);
+      if (!lock) continue;
+      held.push({ path, lock });
+      if (held.length === want) return held.map((h) => h.path);
+    }
+    for (const h of held) h.lock.release();
+    return null;
+  } finally {
+    if (!keepGate || held.length === want) {
+      gate.held?.release();
+      gate.held = null;
+    }
+  }
 }
 
 /**
@@ -179,16 +266,11 @@ function isLocked(file) {
   return spawnSync("flock", ["-n", "-E", "200", file, "true"], { stdio: "ignore" }).status === 200;
 }
 
-/** Takes the first free slot of 1..jobs and keeps it for the life of this process. */
-async function takeSlot(jobs) {
-  for (let n = 1; n <= jobs; n++) if (await lockFile(join(LOCK_DIR, `test-gpu-${n}.lock`))) return true;
-  return false;
-}
-
 /**
- * The line of processes waiting for a slot: one empty file per waiter in /tmp/test-gpu-queue,
- * named by when it started waiting and its process id. Only the first in line tries for a slot,
- * so a job that has waited longest goes next.
+ * The line of processes waiting for tokens: one empty file per waiter in the pool's queue folder
+ * (/tmp/test-gpu-queue for the card's pool, "<first token>.queue" for a job's own), named by when
+ * it started waiting and its process id. Only the first in line tries for tokens, so a job that
+ * has waited longest goes next.
  *
  * A waiter holds a flock on its own file while it waits, and a file nobody holds a lock on no
  * longer counts and is removed by whoever sees it. That is what makes a waiter killed outright
@@ -198,19 +280,18 @@ async function takeSlot(jobs) {
  * A waiter locks its file under a dot name and only then renames it into line, so nobody ever
  * sees a fresh file before its lock is held.
  */
-const QUEUE = join(LOCK_DIR, "test-gpu-queue");
 
-/** How many live waiters are in line before `me` (every one when `me` is left out). */
-function waiting(me = "~") {
+/** How many live waiters are in line in `queue` before `me` (every one when `me` is left out). */
+function waiting(queue, me = "~") {
   let names;
   try {
-    names = readdirSync(QUEUE);
+    names = readdirSync(queue);
   } catch {
     return 0;
   }
   let n = 0;
   for (const name of names) {
-    const file = join(QUEUE, name);
+    const file = join(queue, name);
     if (name.startsWith(".")) {
       // A waiter killed between locking its file and putting it in line; never in line itself.
       try {
@@ -228,33 +309,33 @@ function waiting(me = "~") {
   return n;
 }
 
-async function joinQueue() {
+async function joinQueue(queue) {
   const me = `${String(Date.now()).padStart(15, "0")}-${process.pid}`;
   const noQueue = { ahead: () => 0, leave: () => {} }; // every waiter simply tries
   let lock;
   try {
-    mkdirSync(QUEUE, { recursive: true, mode: 0o1777 });
-    writeFileSync(join(QUEUE, "." + me), "");
-    lock = await lockFile(join(QUEUE, "." + me));
+    mkdirSync(queue, { recursive: true, mode: 0o1777 });
+    writeFileSync(join(queue, "." + me), "");
+    lock = await lockFile(join(queue, "." + me));
     if (!lock) throw new Error("could not lock its own queue file");
-    renameSync(join(QUEUE, "." + me), join(QUEUE, me));
+    renameSync(join(queue, "." + me), join(queue, me));
   } catch {
     lock?.release();
     for (const name of ["." + me, me])
       try {
-        unlinkSync(join(QUEUE, name));
+        unlinkSync(join(queue, name));
       } catch {}
     return noQueue;
   }
   const leave = () => {
     try {
-      unlinkSync(join(QUEUE, me));
+      unlinkSync(join(queue, me));
     } catch {}
     lock.release();
     process.off("exit", leave);
   };
   process.on("exit", leave);
-  return { ahead: () => waiting(me), leave };
+  return { ahead: () => waiting(queue, me), leave };
 }
 
 /** The full path of a program on PATH, or null. */
