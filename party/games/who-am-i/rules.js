@@ -8,7 +8,7 @@
 // Everything here is a pure function of plain JSON: no clock, no platform APIs, no hidden
 // randomness. Every draw (the names, who starts) comes from the match's secret (`state.secret`,
 // at least 128 bits the Table's adapter takes from the platform's secure source) through
-// draws.js, at a position kept in the state (`state.draws`). The room's `seed` is not used: a page
+// party/games/draws.js, at a position kept in the state (`state.draws`). The room's `seed` is not used: a page
 // may learn it. The state is server only: a page gets `view(state, seat)` and nothing else.
 //
 //   create(seats, options, seed, now, { secret })  -> state | refusal
@@ -24,7 +24,9 @@
 // table is idle, when a guesser may confirm their own guess, and whether a leave can be a forfeit.
 
 import { DIFFICULTIES, PACK_IDS, PACKS, drawPair, getIdentity, publicIdentity } from "./deck.js";
-import { draw, freshSecret, isSecret } from "./draws.js";
+import { drawsFor, freshSecret, isSecret } from "../draws.js";
+
+const draw = drawsFor("who-am-i");
 
 export const GAME_ID = "who-am-i";
 /** Seats the module takes: two play, the rest watch. The Table's wall decides what a party may start. */

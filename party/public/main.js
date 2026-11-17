@@ -49,6 +49,8 @@ let askedTimer = null;
 let bye = null;
 /** The game's view while this page shows one (stage.js), or null. */
 let stage = null;
+/** Set while the game's view says its match is decided (its final screen is up): "End the game" steps aside. */
+let decided = false;
 /** The last game's card ({...room.last}), shown on the list until it is put away or the next game starts. */
 let card = null;
 /** The round of the card this page put away, so a reload does not bring it back. */
@@ -252,7 +254,7 @@ function update() {
   document.documentElement.classList.toggle("staged", staged);
   ui.stageWrap.hidden = !staged;
   ui.grid.hidden = staged;
-  ui.stop.hidden = !host;
+  ui.stop.hidden = !host || decided;
   if (staged) ui.stageName.textContent = room.game.name;
   updateGames(host);
 }
@@ -437,13 +439,25 @@ function startStage(snapshot) {
   if (stage || !showsGame()) return;
   // A new game: the last card has had its moment.
   card = null;
+  decided = false;
   update();
-  stage = mountStage(ui.stageBox, { link, room, snapshot, onError: (err) => note(`The game could not be shown: ${err.message}`) });
+  stage = mountStage(ui.stageBox, {
+    link,
+    room,
+    snapshot,
+    onError: (err) => note(`The game could not be shown: ${err.message}`),
+    onDecided: (on) => {
+      if (on === decided) return;
+      decided = on;
+      update();
+    },
+  });
 }
 
 function endStage() {
   stage?.unmount();
   stage = null;
+  decided = false;
 }
 
 // ---------------------------------------------------------------- notes and refusals
@@ -583,6 +597,7 @@ link.on("room", (next) => {
   if (picked && (room.starting || room.phase === "playing")) pickAnswered("");
   // The view on show belongs to a game that is over, or to another one (a reconnect across games).
   if (stage && (stageStale(stage.key, room) || !showsGame())) endStage();
+  stage?.room(room);
   update();
 });
 

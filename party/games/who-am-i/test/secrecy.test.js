@@ -7,7 +7,9 @@ import { describe, expect, it } from "vitest";
 import { createHash } from "node:crypto";
 import { TURN_FORMATS, apply, create, isRefusal, nextDeadline, view } from "../rules.js";
 import { getIdentity, normalizeName, packIdentities, pairable } from "../deck.js";
-import { draw, sha256 } from "../draws.js";
+import { drawsFor, sha256 } from "../../draws.js";
+
+const draw = drawsFor("who-am-i");
 import { QUESTIONS, pickOf, randomMatch, testRandom } from "./random-match.js";
 import { T0, Table, must, testSecret } from "./table.js";
 

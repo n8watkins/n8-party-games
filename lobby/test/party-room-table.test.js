@@ -112,17 +112,18 @@ describe("the Table's list", () => {
     const r = await table({ players: 2 });
     const list = r.core().view(Date.now()).table;
     expect(list.map((e) => [e.id, e.min, e.max, e.soon, e.test, e.why])).toEqual([
+      ["paper-masks", 3, 8, false, false, "Needs 3 or more"],
       [GAME, 2, 8, false, true, null],
-      ["paper-masks", 3, 8, true, false, "Coming soon"],
       ["who-am-i", 2, 2, true, false, "Coming soon"],
     ]);
-    expect(list[0]).toMatchObject({ name: "Count to ten", view: "/party/games/count-to-ten.js", art: null });
+    expect(list[0]).toMatchObject({ name: "Paper Masks", view: "/party/games/paper-masks.js", art: "/party/games/paper-masks/art/door-480.webp" });
+    expect(list[1]).toMatchObject({ name: "Count to ten", view: "/party/games/count-to-ten.js", art: null });
     for (const e of list) expect(e.pitch.length, e.id).toBeGreaterThan(10);
 
     // Bo's phone drops: one player here, so the test game needs two.
     r.ctx.room.webSocketClose(r.ws.bo, 1001, "");
     await settle();
-    expect(r.core().view(Date.now()).table[0].why).toBe("Needs 2 or more");
+    expect(r.core().view(Date.now()).table[1].why).toBe("Needs 2 or more");
 
     // Back on the Floor there is no list, and no word of a game starting.
     r.ws.bo = await r.connect(r.tokens.bo);
@@ -161,7 +162,7 @@ describe("who may start a Table game", () => {
     expect(since(r.ws.screen)).toEqual([{ t: "play-no", error: "not_host", message: "Only the one who started the party picks the game." }]);
     expect(since(r.ws.ann)).toEqual([
       { t: "play-no", error: "not_found", message: "That game is not on the Table's list." },
-      { t: "play-no", error: "not_ready", message: "Paper Masks: Coming soon." },
+      { t: "play-no", error: "party_size", message: "Paper Masks: Needs 3 or more." },
       { t: "play-no", error: "not_ready", message: "Who Am I?: Coming soon." },
       { t: "play-no", error: "not_found", message: "That game is not on the Table's list." },
     ]);
@@ -467,6 +468,22 @@ describe("a Table game, played to the end", () => {
     expect(r.core().members[2]).toBeNull();
   });
 
+  it("gives the card a reason when a leave ends a game that places nobody (Paper Masks' waiting step, left with two)", async () => {
+    const r = await table({ players: 3 });
+    await play(r, "paper-masks");
+    expect(r.core().activity.state.at).toBe("setup");
+    const since = from(r.ws.ann, r.ws.screen);
+    r.say(r.ws.cy, { t: "leave" });
+    await settle();
+    expect(r.core().activity.kind).toBe("lobby");
+    const text = "Cy left the party, so Paper Masks ended.";
+    for (const ws of [r.ws.ann, r.ws.screen]) {
+      const got = since(ws);
+      expect(got.find((m) => m.t === "note" && m.k === "ended")).toMatchObject({ why: "left", seat: 2, name: "Cy", text });
+      expect(got.find((m) => m.t === "end").last).toMatchObject({ name: "Paper Masks", rows: [], early: { seat: 2, name: "Cy", why: "left", text } });
+    }
+  });
+
   it("tells the game when the host's controls pass on while the host's phone is gone", async () => {
     const r = await table({ players: 3, screen: false });
     await play(r);
@@ -515,6 +532,67 @@ describe("the host ends a Table game", () => {
       expect(end.room).toMatchObject({ phase: "lobby", mode: "turn-based" });
     }
     expect(r.ctx.store.get("lobby").game).toBeNull();
+  });
+
+  it("scores a match the game says is decided (Paper Masks' final curtain) once, instead of throwing it away", async () => {
+    const r = await table({ players: 3 });
+    await play(r, "paper-masks");
+    const say = (who, d) => r.say(r.ws[who], { t: "in", d, id: ++ids });
+    const state = () => r.core().activity.state;
+    say("ann", { t: "choose", rounds: 3 });
+    say("ann", { t: "begin" });
+    await settle();
+    // Play the three rounds from the seats' own views, as the phones do.
+    for (let i = 0; i < 200 && state().at === "match"; i++) {
+      const m = state().match;
+      const viewOf = (seat) => r.core().games.get("paper-masks").snapshot(state(), 0, { role: "player", seat });
+      if (m.phase === "writing") for (const seat of [0, 1, 2]) say(key(seat), { t: "answer", text: `Words of ${NAMES[seat]} in round ${m.round.n}` });
+      else if (m.phase === "reading") say(key(m.round.reader), { t: "startGuessing" });
+      else if (m.phase === "guessing") {
+        for (const seat of [0, 1, 2]) {
+          const v = viewOf(seat).step;
+          if (v.yours) say(key(seat), { t: "decoy", card: v.card.id });
+          else if (v.guess === null) say(key(seat), { t: "guess", card: v.card.id, who: v.available[0] });
+        }
+        await settle();
+        say(key(state().match.round.reader), { t: "next" });
+      } else if (m.phase === "reveal") say(key(m.round.reader), { t: "reveal" });
+      else if (m.phase === "summary") say(key(m.host), { t: "nextRound" });
+      await settle();
+    }
+    expect(state().at).toBe("curtain");
+    const places = r.core().games.get("paper-masks").standings(state());
+    expect(places).toHaveLength(3);
+    const before = [0, 1, 2].map((s) => r.core().members[s].points);
+    const since = from(r.ws.ann, r.ws.bo);
+    // The host taps the Table's own "End the game" instead of the curtain's Back to the Table.
+    r.say(r.ws.ann, { t: "stop" });
+    await settle();
+    expect(r.core().activity.kind).toBe("lobby");
+    const end = since(r.ws.bo).find((m) => m.t === "end");
+    expect(end.last).not.toHaveProperty("early");
+    expect(end.last.rows.map((row) => [row.seat, row.place])).toEqual(places.map((p) => [p.seat, p.place]).sort((a, b) => a[1] - b[1] || a[0] - b[0]));
+    expect(since(r.ws.bo).some((m) => m.t === "note" && m.k === "ended")).toBe(false);
+    const after = [0, 1, 2].map((s) => r.core().members[s].points);
+    const gained = after.map((p, i) => p - before[i]);
+    expect(gained.reduce((a, b) => a + b, 0)).toBeGreaterThan(0);
+    for (const row of end.last.rows) expect(gained[row.seat]).toBe(row.points);
+    // Scored once: the curtain's own deadline coming later changes nothing.
+    await vi.advanceTimersByTimeAsync(200_000);
+    expect([0, 1, 2].map((s) => r.core().members[s].points)).toEqual(after);
+    expect(r.core().history.filter((h) => h.name === "Paper Masks")).toHaveLength(1);
+  });
+
+  it("still throws away a game that is not decided: Paper Masks mid-match ends with no points", async () => {
+    const r = await table({ players: 3 });
+    await play(r, "paper-masks");
+    r.say(r.ws.ann, { t: "in", d: { t: "begin" }, id: ++ids });
+    await settle();
+    expect(r.core().activity.state.at).toBe("match");
+    r.say(r.ws.ann, { t: "stop" });
+    await settle();
+    expect(r.core().last).toMatchObject({ name: "Paper Masks", rows: [], early: { why: "host", name: "Ann" } });
+    expect([0, 1, 2].map((s) => r.core().members[s].points)).toEqual([0, 0, 0]);
   });
 
   it("is refused when no game is on", async () => {

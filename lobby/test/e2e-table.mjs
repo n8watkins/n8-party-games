@@ -88,7 +88,9 @@ try {
   await ann.waitForSelector(".game.test button.game-row");
   check((await bo.locator(".game.test").count()) === 0, "the test game is hidden without #dev: Bo does not see it");
   const soon = await bo.locator(".game.off .game-why").allTextContents();
-  check(soon.join() === "Coming soon,Coming soon", `Paper Masks and Who Am I? are listed as coming soon: ${soon.join(", ")}`);
+  check(soon.join() === "Coming soon", `Who Am I? is listed as coming soon: ${soon.join(", ")}`);
+  const masks = await bo.locator(".game", { hasText: "Paper Masks" }).count();
+  check(masks === 1 && (await bo.locator(".game.off", { hasText: "Paper Masks" }).count()) === 0, "Paper Masks is listed and playable for three");
   check((await bo.locator("button.game-row").count()) === 0, "Bo is not the host: no game is a button for him");
   await ann.waitForFunction(() => !document.querySelector(".line.noting"), null, { timeout: 8000 });
   await shot(ann, "10-table-list-host-dev-390x844");

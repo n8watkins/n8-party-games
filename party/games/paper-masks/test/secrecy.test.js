@@ -200,7 +200,7 @@ function swapRun(n, seed, A, B, { skipAB, abTap = false }) {
       for (const seat of t0.guessers().filter((s) => s !== A && s !== B)) {
         both((t) => {
           const v = t.view(seat);
-          if (v.step.chips.length && v.step.guess === null) t.do(seat, { t: "guess", card: v.step.card.id, who: v.step.available[0] });
+          if (!v.step.yours && v.step.chips.length && v.step.guess === null) t.do(seat, { t: "guess", card: v.step.card.id, who: v.step.available[0] });
         });
       }
       // A and B tap too: on a card by one of them, its author sends the decoy and the other
