@@ -359,9 +359,14 @@ function grown(op, box, s = POSTER_SCALE) {
 
 // ---------------------------------------------------------------- the join sign by the door (option B)
 
-/** The sign, in painting pixels, and the cream panel on it that the room's live words (code, QR) sit on. */
-const SIGN = { x: 266, y: 176, w: 258, h: 150 };
-const PANEL = { x: SIGN.x + 13, y: SIGN.y + 13, w: SIGN.w - 26, h: SIGN.h - 26 };
+/**
+ * The sign, in painting pixels, and the cream panel on it that the room's live words (code, QR) sit on.
+ * As large as the wall by the door allows, so the QR on it scans from a sofa (about the flat
+ * look's size on the screen): from the pillar by the door to just short of the wall lamp, and from
+ * the shelf it hangs from to just above the table lamp.
+ */
+const SIGN = { x: 248, y: 158, w: 278, h: 172 };
+const PANEL = { x: SIGN.x + 10, y: SIGN.y + 10, w: SIGN.w - 20, h: SIGN.h - 20 };
 
 function signSvg() {
   const { x, y, w, h } = SIGN;

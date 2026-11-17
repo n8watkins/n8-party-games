@@ -194,7 +194,8 @@ export class Scene {
     b.bulb = s("ellipse", { cx, cy: 103, rx: 30, ry: 6 });
     this.layers.lamps.append(s("rect", { x: cx - 2, y: -900, width: 4, height: 962, fill: "#0a0504" }), s("rect", { x: cx - 9, y: 52, width: 18, height: 12, rx: 3, fill: "#0a0504" }), b.shade, b.bulb);
 
-    const frame = s("g");
+    // Marked for the tests that check a sign's words fit it (lobby/test/e2e-bar-wall.mjs).
+    const frame = s("g", { "data-box": i });
     frame.append(s("rect", { x: x - 8, y: POSTER.top - 8, width: w + 16, height: POSTER.height + 16, rx: 3, fill: "#120a07", stroke: "#2e1c13", "stroke-width": 2 }));
     const clip = `clip-${i}`;
     frame.append(s("clipPath", { id: clip }, s("rect", { width: w, height: POSTER.height })));
@@ -229,11 +230,14 @@ export class Scene {
     b.blurbs = lines.map((line, k) => label(line, { x: cx, y: firstY + k * plan.step, "font-size": plan.size, "text-anchor": "middle", class: "t-ui t-semi", "data-fit": w - 18 }));
     b.rowY = SIGN_TOP + (plan.lines ? (compact ? 33 : 30) + (plan.lines - 1) * plan.step + (compact ? 34 : 30) : compact ? 30 : 24);
     b.rowY2 = plan.stacked ? b.rowY + (compact ? 40 : 27) : b.rowY;
-    b.sign = s("rect", { x, y: SIGN_TOP, width: w, height: b.rowY2 - SIGN_TOP + (compact ? 30 : 24), rx: 7, "stroke-width": 2 });
+    b.sign = s("rect", { x, y: SIGN_TOP, width: w, height: b.rowY2 - SIGN_TOP + (compact ? 30 : 24), rx: 7, "stroke-width": 2, "data-sign": "" });
+    for (const el of b.blurbs) el.setAttribute("data-sign-part", "");
     const [badgeFill, badgeInk] = BADGE_COLOURS[box.badge];
     // The longest badge is cut short where a sign is too narrow to hold it at a size worth reading.
     b.badge = pill(plan.tight && box.badge === "screen" ? "Big screen" : BADGES[box.badge], compact ? 21 : 13.5, badgeFill, badgeInk);
-    b.players = label(playersLabel(box.min, box.max), { "font-size": compact ? 22 : 13.5, fill: "#cdbfa6", class: "t-ui t-semi" });
+    // How many play: smaller where a narrow sign (a phone's, under the bar's frames) has no room for it at its size.
+    b.players = label(playersLabel(box.min, box.max), { "font-size": compact ? 22 : 13.5, fill: "#cdbfa6", class: "t-ui t-semi", "data-sign-part": "", "data-fit": w - 14 });
+    b.badge.g.setAttribute("data-sign-part", "");
     b.reason = pill("Coming soon", compact ? 21 : 14, "#fbe3da", "#7a1d12");
     b.chip = pill("HEADS", compact ? 22 : 16, "#f4b453", "#1e1410");
     set(b.chip.g, { display: "none" });
@@ -282,14 +286,23 @@ export class Scene {
    */
   planSigns(boxes, w) {
     const compact = this.opts.compact;
-    const size = compact ? 24 : 17;
-    const chars = Math.floor((w - 18) / (size * 0.56));
-    const needed = Math.max(1, ...boxes.map((box) => wrap(box.blurb, chars).length));
-    const lines = compact ? (needed > 2 ? 0 : 2) : Math.min(3, needed);
+    // A narrow sign (a wall of many boxes, or the bar's, under its painted frames) takes its words
+    // a size or two smaller rather than more lines than it has room for; when even the smallest
+    // needs more, it keeps the count and the badge only, as a phone's does.
+    const most = compact ? 2 : 3;
+    const sizes = compact ? [24] : [17, 15, 13.5];
+    const fits = (size) => {
+      const chars = Math.floor((w - 18) / (size * 0.56));
+      return { size, chars, needed: Math.max(1, ...boxes.map((box) => wrap(box.blurb, chars).length)) };
+    };
+    const tried = sizes.map(fits);
+    const pick = tried.find((t) => t.needed <= most) ?? tried.at(-1);
+    const { size, chars, needed } = pick;
+    const lines = needed > most ? 0 : compact ? 2 : needed;
     // The widest row any sign needs: the longest badge and "2-4 players", at about 0.6 of the size a letter.
     const badge = Math.max(...boxes.map((box) => BADGES[box.badge].length)) * (compact ? 21 : 13.5) * 0.6 + (compact ? 30 : 20);
     const count = 11 * (compact ? 22 : 13.5) * 0.58;
-    return { size, step: compact ? 29 : 22, chars, lines, stacked: badge + 10 + count > w - 14, tight: BADGES.screen.length * (compact ? 21 : 13.5) * 0.6 + (compact ? 30 : 20) > w - 12 };
+    return { size, step: compact ? 29 : Math.round(size * 1.3), chars, lines, stacked: badge + 10 + count > w - 14, tight: BADGES.screen.length * (compact ? 21 : 13.5) * 0.6 + (compact ? 30 : 20) > w - 12 };
   }
 
   /** What floats over the room: the count ring and the coin toss. */

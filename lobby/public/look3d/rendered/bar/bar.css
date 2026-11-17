@@ -4,6 +4,9 @@
    look3d/look3d.css; the room places each element (left, top, width and height) in world units. */
 
 /* ------------------------------------------------------------ the join sign by the door */
+/* The QR as tall as the panel, so it scans from across the room (about the flat look's size on
+   the screen); the words to its left: what to do, the code, and the address, which may break
+   after a dot. */
 .bar-real .l3-join {
   box-sizing: border-box;
   display: grid;
@@ -11,8 +14,8 @@
   grid-template-rows: auto 1fr auto;
   align-items: center;
   column-gap: calc(var(--m) * 0.05);
-  row-gap: calc(var(--m) * 0.03);
-  padding: calc(var(--m) * 0.06) calc(var(--m) * 0.07);
+  row-gap: calc(var(--m) * 0.02);
+  padding: calc(var(--m) * 0.045);
   background: none;
   border: 0;
   border-radius: 0;
@@ -21,20 +24,22 @@
   text-align: center;
 }
 .bar-real .l3-join small {
-  grid-column: 1 / span 2;
+  grid-column: 1;
   grid-row: 1;
-  font: 800 calc(var(--m) * 0.074) / 1 var(--text);
-  letter-spacing: 0.1em;
+  font: 800 calc(var(--m) * 0.066) / 1.2 var(--text);
+  letter-spacing: 0.08em;
   color: #6b4226;
-  white-space: nowrap;
+  white-space: normal;
+  text-wrap: balance;
 }
 .bar-real .l3-qr {
   grid-column: 2;
-  grid-row: 2 / span 2;
-  width: calc(var(--m) * 0.6);
-  height: calc(var(--m) * 0.6);
+  grid-row: 1 / span 3;
+  box-sizing: border-box;
+  width: calc(var(--m) * 1.11);
+  height: calc(var(--m) * 1.11);
   margin: 0;
-  padding: calc(var(--m) * 0.025);
+  padding: calc(var(--m) * 0.03);
   border-radius: calc(var(--m) * 0.02);
   background: #f6e6c4;
   /* The QR on cream, a touch warm, as if printed. */
@@ -43,7 +48,7 @@
 .bar-real .l3-pin {
   grid-column: 1;
   grid-row: 2;
-  font: 400 calc(var(--m) * 0.42) / 1 var(--title);
+  font: 400 calc(var(--m) * 0.3) / 1 var(--title);
   letter-spacing: 0.02em;
   color: #3b2416;
 }
@@ -51,7 +56,8 @@
   grid-column: 1;
   grid-row: 3;
   margin: 0;
-  font: 600 calc(var(--m) * 0.075 * var(--fit, 1)) / 1.1 var(--text);
+  font: 600 calc(var(--m) * 0.066 * var(--fit, 1)) / 1.15 var(--text);
+  white-space: normal;
   color: #6b4226;
 }
 

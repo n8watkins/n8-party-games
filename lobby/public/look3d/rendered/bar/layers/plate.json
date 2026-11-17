@@ -1337,16 +1337,16 @@
   "shrink": 0.7
  },
  "sign": {
-  "x": 266,
-  "y": 176,
-  "w": 258,
-  "h": 150
+  "x": 248,
+  "y": 158,
+  "w": 278,
+  "h": 172
  },
  "panel": {
-  "x": 279,
-  "y": 189,
-  "w": 232,
-  "h": 124
+  "x": 258,
+  "y": 168,
+  "w": 258,
+  "h": 152
  },
  "board": {
   "x": 1428,
@@ -1355,12 +1355,12 @@
   "h": 184
  },
  "sizes": {
-  "base.webp": 136566,
+  "base.webp": 135902,
   "lights.webp": 12204,
   "frames.webp": 31292,
   "front.webp": 34756,
   "street-left.webp": 83230,
   "street-right.webp": 88306,
-  "env.webp": 4314
+  "env.webp": 4300
  }
 }
