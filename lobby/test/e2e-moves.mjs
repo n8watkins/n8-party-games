@@ -320,7 +320,11 @@ try {
     // ================================================================ the slime
     section(`${look}: Sam taps Harden and Pat's kick bounces off; every phone draws the gem`);
     await rested(S, P);
+    // Rob out of the way first: the heavy slime walking over to 1000 would push him along in front
+    // of it, into Pat's kick (and Pat it pushes along too, so he walks back after).
+    await walkTo(rob, R, 1500);
     await walkTo(sam, S, 1000);
+    await rested(P);
     await walkTo(pat, P, 920, 1);
     await sleep(300);
     await watchAll(S, 1200);
