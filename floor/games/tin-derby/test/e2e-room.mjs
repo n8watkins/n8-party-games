@@ -180,6 +180,15 @@ try {
   /** The big screen's panes, from the page's own state (main.js, paneCheck). */
   const panesOf = (frame) => frame.evaluate(() => window.__derby.panes());
   const overlap = (a, b) => a.x < b.r && b.x < a.r && a.y < b.b && b.y < a.b;
+  /** On a phone: the page's buttons (Controller only, Sound) that cover the strip or the chips under it, by name. */
+  const buttonsOverStrip = (frame) => frame.evaluate(() => {
+    const box = (e) => { const r = e.getBoundingClientRect(); return { x: r.left, y: r.top, r: r.right, b: r.bottom, t: (e.className || e.id || e.textContent).toString().slice(0, 16) }; };
+    const btns = [...document.querySelectorAll("#btns .btn")].filter((e) => e.offsetParent !== null).map(box);
+    const words = [...document.querySelectorAll("#brand b, .topmid .strip, .topmid .near span, #padinfo :is(.pplace, .plap, .pline)")].filter((e) => e.offsetParent !== null && e.getBoundingClientRect().width).map(box);
+    const out = [];
+    for (const b of btns) for (const w of words) if (b.x < w.r && w.x < b.r && b.y < w.b && w.y < b.b) out.push(`${b.t} over ${w.t}`);
+    return out;
+  });
   /**
    * The big screen's split view at one moment: a pane per player and no more, each pane's camera behind that
    * player's own car with the car in the pane, every word at least 2% of the screen's height, inside its own pane,
@@ -642,6 +651,7 @@ try {
         if (viewSwitch[2].mode !== "tvwide") { await sf.click("#bview"); viewSwitch.push(await read()); }
       }
       if (t > 6 && !layout.up) {
+        layout.covered = [...(await buttonsOverStrip(frames.get(up))).map((s) => "upright: " + s), ...(await buttonsOverStrip(frames.get(small))).map((s) => "small: " + s)];
         layout.up = await frames.get(up).evaluate(() => [...document.querySelectorAll(".topmid .strip, .topmid .near span")].filter((e) => e.offsetParent).map((e) => { const r = e.getBoundingClientRect(); return { k: e.className || e.textContent.slice(0, 12), l: Math.round(r.left), r: Math.round(r.right) }; }));
         layout.tv = await frames.get(scr).evaluate(() => { const g = document.querySelector(".tag:not([hidden])"); return { h: innerHeight, tag: g ? parseFloat(getComputedStyle(g).fontSize) : 0, hint: parseFloat(getComputedStyle(document.getElementById("hint")).fontSize) }; });
       }
@@ -663,6 +673,7 @@ try {
       const vs = viewSwitch ?? [], soft = /SwiftShader|llvmpipe/i.test(vs[0]?.renderer ?? "");
       check(vs.length >= 3 && vs[0].mode === (soft ? "tvwide" : "split") && vs[1].mode !== vs[0].mode && vs[2].mode === vs[0].mode && vs[vs.length - 1].mode === "tvwide" && vs[vs.length - 1].kept === "table" && vs[1].kept === (vs[1].mode === "split" ? "split" : "table"),
         `look: the big screen starts on ${soft ? "the whole table (it draws in software)" : "the split view"}, and its one button switches the view each press and remembers it (${JSON.stringify(vs.map((v) => [v.mode, v.kept, v.button]))})`);
+      check(layout.covered && layout.covered.length === 0, `look: on the upright and the small phone (each with the Controller only switch) no button covers the strip or chips (${JSON.stringify(layout.covered)})`);
       check(layout.up && layout.up.every((b) => b.l >= 0 && b.r <= 390), `look: the upright phone's strip and chips fit its 390 px (${JSON.stringify(layout.up)})`);
       check(overlaps === 0, `look: on the small phone no rival's name covered the strip or chips (${samples} frames sampled, ${overlaps} overlaps)`);
       check(layout.tv && layout.tv.tag >= 0.02 * layout.tv.h && layout.tv.hint >= 0.02 * layout.tv.h, `look: the big screen's names and hint are at least 2% of its height (${JSON.stringify(layout.tv)})`);
@@ -704,9 +715,10 @@ try {
         if (t > 0.5 && !home) { const P = await panesOf(f).catch(() => null); if (P) { samples++; for (const b of paneFaults(P, names)) faults.add(b); } }
         if (!mid && t > 9) { mid = true; await shot(scr, `${label}-mid-race`, `the big screen (1920 x 1080), ${names.length} player${names.length > 1 ? "s" : ""}, race time ${t.toFixed(1)} s`); }
         // With two, Ada's phone is a controller only for a while (a still of it), then draws the race again.
-        if (dropper && !pad && t > 2) { pad = { on: true }; await frames.get(phones[0]).click("#bpad"); }
+        if (dropper && !pad && t > 2) { pad = { on: true, before: await buttonsOverStrip(frames.get(phones[0])) }; await frames.get(phones[0]).click("#bpad"); }
         if (pad?.on && !pad.shot && t > 6) {
           pad.shot = true;
+          pad.during = await buttonsOverStrip(frames.get(phones[0]));
           await shot(phones[0], "phone-controller-only", `Ada's phone (844 x 390) switched to controller only: no picture, big thumbs, place and power, race time ${t.toFixed(1)} s`);
           await frames.get(phones[0]).click("#bpad");
           pad.back = await frames.get(phones[0]).evaluate(() => ({ pad: window.__derby.app.pad, stage: getComputedStyle(document.getElementById("stage")).visibility, kept: localStorage.getItem("tin-derby-controller-only") }));
@@ -742,6 +754,7 @@ try {
         check(phones.every((p) => last.get(p)?.mode === "phone" && !last.get(p)?.pad), `${label}: every phone still draws its own car`);
         check(closeSeen === true, `${label}: the winner's close shot took the whole big screen (${closeSeen})`);
         if (dropper) check(/^The house is driving/.test(drop?.note ?? ""), `${label}: Bo's pane said the house was driving while his phone was away ("${drop?.note}")`);
+        if (dropper) check(pad && !pad.before?.length && !pad.during?.length, `${label}: on Ada's phone (844 x 390) no button covers the strip, the chips or the controller's words, drawing the race or not (${JSON.stringify(pad && [pad.before, pad.during])})`);
         if (dropper) check(pad?.back?.pad === false && pad.back.stage === "visible" && pad.back.kept === "0", `${label}: Ada's phone came back from controller only to drawing the race, and remembers that (${JSON.stringify(pad?.back)})`);
         if (names.length === 3) check(joiner && joiner.car === -1 && joiner.mode === "tvwide" && /next one/.test(joiner.hint) && joiner.panes === 3, `${label}: a phone that joined mid-race watches the whole table and races next time; the big screen keeps its three panes (${JSON.stringify(joiner && { car: joiner.car, mode: joiner.mode, hint: joiner.hint, panes: joiner.panes })})`);
       }

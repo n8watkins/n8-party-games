@@ -124,6 +124,9 @@ body { margin: 0; }
   #app[data-pad] .held { right: calc(var(--gr) + 140px); bottom: calc(var(--gb) + 128px); }
 }
 #bpad[aria-pressed="true"] { background: var(--mustard); }
+/* With the Controller only switch beside Sound, the strip and chips stop short of the wider row of buttons (a narrow
+   screen already puts them under the buttons). */
+@media (min-width: 701px) { #app[data-padok] .topmid { right: calc(var(--gr) + 410px); } }
 
 /* A page that cannot show the race (no 3D here, or the picture was lost): one plain card, in the game's look. */
 #nopic { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); z-index: 9; box-sizing: border-box; width: min(440px, calc(100% - var(--gl) - var(--gr))); padding: 18px 20px 20px; text-align: center; background: var(--cream); border: 3px solid var(--navy); border-radius: 16px; box-shadow: 5px 5px 0 var(--navy); }

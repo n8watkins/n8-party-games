@@ -349,6 +349,7 @@ class App {
     if (this.padOk) {
       // Without 3D the switch is not offered: this phone is a controller, and says so.
       $("bpad").hidden = !world;
+      this.root.toggleAttribute("data-padok", !!world); // the strip makes room for the switch beside Sound
       // A press with a finger or the mouse gives the focus back, so Space drifts again; a keyboard user keeps it.
       $("bpad").addEventListener("click", (e) => { this.setPad(!this.pad); if (e.detail > 0) e.currentTarget.blur(); });
       this.setPad(!world || store.get(PAD_KEY) === "1", !world);
