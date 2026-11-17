@@ -886,6 +886,15 @@ export function done(state) {
 }
 
 /**
+ * True while the reveal of the round that decided the match is up: the match is over in all but
+ * the tap to its end, and `standings` are already its final word. Through the Table's adapter the
+ * room then scores it (once) even when the host taps the Table's own "End the game" there.
+ */
+export function decided(state) {
+  return state.phase === "reveal" && state.summary?.matchOver === true;
+}
+
+/**
  * The final rows, best first: seat, score, correct, skips, hints, place, left. A player who forfeits
  * (left a match not yet decided) has no place, and the one who stayed is first whatever the score.
  * Ties share a place. A match that ended before it began has no rows. Readable mid-match.
@@ -912,9 +921,12 @@ export function result(state) {
   return rows;
 }
 
-/** Places for the party's Tonight board: place 1 is best, ties share; a forfeit has none. */
+/**
+ * Places for the party's Tonight board: place 1 is best, ties share; a forfeit has none. Given once
+ * the match is over, and already on the reveal that decided it (`decided`).
+ */
 export function standings(state) {
-  if (state.phase !== "over") return [];
+  if (state.phase !== "over" && !decided(state)) return [];
   return result(state)
     .filter((r) => r.place !== null)
     .map((r) => ({ seat: r.seat, place: r.place }));
