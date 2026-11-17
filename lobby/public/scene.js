@@ -220,7 +220,8 @@ export class Scene {
       label(text, { x: w / 2, y: POSTER.height - 17, "font-size": 16, fill: "#f6ead2", "text-anchor": "middle", "letter-spacing": spacing, class: "t-mono t-bold", "data-fit": w - 20 }),
     ];
     if (poster) art.append(...band(box.where, 1));
-    b.dim = s("rect", { width: w, height: POSTER.height, fill: "#0d0705", opacity: 0 });
+    // A poster is printed paper in the room's own light: a little dim, so it never reads as a lit game.
+    b.dim = s("rect", { width: w, height: POSTER.height, fill: "#0d0705", opacity: poster ? 0.3 : 0 });
     art.append(b.dim);
     if (box.soon) art.append(...band("COMING SOON", 4));
     b.goldFrame = s("rect", { x: x - 8, y: POSTER.top - 8, width: w + 16, height: POSTER.height + 16, rx: 3, fill: "none", stroke: "#f4b453", "stroke-width": 6, display: "none" });

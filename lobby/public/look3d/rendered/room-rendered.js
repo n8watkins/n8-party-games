@@ -269,7 +269,7 @@ export class RoomRendered extends Room3D {
   light(b) {
     if (this.plain) return super.light(b);
     // A poster is never lit: printed paper in the room's own light.
-    if (b.box.poster) return void b.art.color.setScalar(0.75);
+    if (b.box.poster) return void b.art.color.setScalar(0.62);
     const glowing = Math.min(1, b.level * 8);
     b.art.color.setScalar(this.posterShade(glowing, b.gold, b.level));
     // A coming-soon game's poster, unlit, with nothing on the floor under it.

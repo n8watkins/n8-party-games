@@ -1122,7 +1122,7 @@ export class Room3D {
   /** Sets a box's lamp, beam, pool edge, picture and frame for its level of light (0 is off). */
   light(b) {
     // A poster is never lit: it is printed, and shown as the room's light shows a wall.
-    if (b.box.poster) return void b.art.color.setScalar(0.82);
+    if (b.box.poster) return void b.art.color.setScalar(0.66);
     const level = b.level;
     const glowing = Math.min(1, level * 8);
     const bright = Math.min(1, 0.02 + level * 0.9);
