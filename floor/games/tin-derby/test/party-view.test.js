@@ -63,4 +63,17 @@ describe("the test switches", () => {
   it("a room view with no wall, or a malformed one, gives no switches", () => {
     for (const room of [null, undefined, {}, { boxes: null }, { boxes: [{ test: "yes" }] }, { boxes: [null, 7] }]) expect(switchesFor(room, ASKED)).toBe("");
   });
+
+  it("derby-short: a player's view asks for the short race as it mounts (the race page may load after GO), once; a screen, or production, never does", () => {
+    const short = new URLSearchParams("join=1234&derby-short=1");
+    const mountWith = (wall, you) => {
+      const sent = [];
+      const v = mount(fakeContainer(), { ...ctx(wall, short), you, send: (d) => sent.push(d) });
+      v.unmount();
+      return sent;
+    };
+    expect(mountWith(TEST_WALL, { role: "player", seat: 0 })).toEqual([{ short: 1 }]);
+    expect(mountWith(TEST_WALL, { role: "screen", seat: -1 })).toEqual([]);
+    expect(mountWith(WALL, { role: "player", seat: 0 })).toEqual([]);
+  });
 });

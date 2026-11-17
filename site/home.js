@@ -97,7 +97,7 @@ function face(g, cls) {
 /** The chip that says what can be done with a game. */
 function stateChip(g, { room = false } = {}) {
   if (g.status === "soon") return h("span", "chip soon", "Coming soon");
-  if (g.status === "own-site") return h("span", "chip live", "", room ? "Lamp on: opens its own site" : "Play now on its own site");
+  if (g.status === "own-site") return h("span", "chip live", "", "Play now on its own site");
   return h("span", "chip live", room ? "Lamp on" : "Play now");
 }
 /** Players, what the game needs (not on the room's wall: the room door says it once), and what can be done. */
@@ -105,9 +105,9 @@ const metaOf = (g, opts = {}) => h("span", "meta", "", h("span", "chip", "", ICO
 
 // ---------------------------------------------------------------- the three doors
 
-/** Where a game that plays somewhere other than behind its door plays, in two words. */
-const ELSEWHERE = { "own-site": "Own site", page: "Own page" };
-const elsewhereWords = (g) => (g.status === "own-site" ? `${g.name} on its own site` : `${g.name} on its own page`);
+/** Where a game that plays somewhere other than behind its door plays, in two words: only on its own site (Who Am I? until the Table has it). */
+const ELSEWHERE = { "own-site": "Own site" };
+const elsewhereWords = (g) => `${g.name} on its own site`;
 
 function drawDoors() {
   const doors = $("doors");

@@ -17,7 +17,7 @@ It hangs on the Floor's wall (`games.js`, `lobby/wall.js`) in the place its comi
 | `shared/replica.js` | A page's copy of the race: feed it snapshots and events, ask it for the race now |
 | `page/` | The page a party room shows (below, "In the party room"); `split.js` and `map.js` are the big screen's panes and its flat table |
 | `tools/` | Scripted players, whole races, a made-up network, the measurements, the parity check against the preview, the cost in workerd |
-| `test/` | 152 unit tests: every rule, whole races, balance, determinism, the room, the party room's own rules, the view's test switches, a short smoke; and `e2e-room.mjs`, races in the real party room with real browsers |
+| `test/` | 153 unit tests: every rule, whole races, balance, determinism, the room, the party room's own rules, the view's test switches, a short smoke; and `e2e-room.mjs`, races in the real party room with real browsers |
 
 ## The structure, and why
 
@@ -205,7 +205,7 @@ Every word on it is at least 2% of the screen's height (2.2% to 3.3%), to be rea
 - **No hardware 3D**: a screen that draws 3D in software starts on the whole table (one picture a frame, not four; the host can still switch); one that cannot draw 3D at all shows the table from above as a flat drawing with the cars and the places (`page/map.js`), never a black screen.
 - **Drawing four pictures**: the split view draws at most `SPLIT_DPR_CAP` (1.25) pixels per CSS pixel, and the frame-rate governor lowers the resolution of every pane (to half at most) before frames are dropped.
 
-Test switches, on the room page's address: `derby-auto=1` (the house's driver holds this phone's hands, through the same path as a thumb), `derby-lag=<ms>` (inputs held back before they are sent), `derby-touch` (thumbs on a computer), `derby-short` (the page asks for a test run's short race: one lap, a five-second last call) and `derby-tvview=split|table` (the big screen's view, whatever it remembers or draws with).
+Test switches, on the room page's address: `derby-auto=1` (the house's driver holds this phone's hands, through the same path as a thumb), `derby-lag=<ms>` (inputs held back before they are sent), `derby-touch` (thumbs on a computer), `derby-short` (a player's view asks for a test run's short race as it mounts, before the race page has loaded: one lap, a five-second last call) and `derby-tvview=split|table` (the big screen's view, whatever it remembers or draws with).
 The short race is decided by the room, not the page: only the test wall runs `testGame` (`party.js`, `lobby/wall.js`), whose races take `{short: 1}` in the count-in and tell everyone (`{k: "len"}`); production's `game` ignores it (`test/room.test.js`, `test/party-view.test.js`).
 The gate's step (`npm run test:tin-derby`) is one such race with every trouble at once; the whole-race suite is `npm run test:tin-derby:full`, and whole races, determinism and balance are also checked by the unit tests, in seconds.
 They work only where the room has its test games on (`PARTY_TEST_GAMES`, the local environment and the test runs): the view hands them to the page (`partyHost.switches`) only when the wall the server sent has a test box, and the page never reads its own address. In production they do nothing (`test/party-view.test.js`).
