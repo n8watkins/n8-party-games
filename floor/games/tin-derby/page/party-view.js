@@ -14,6 +14,23 @@
 const PAGE = new URL("./index.html", import.meta.url);
 
 /**
+ * The test switches a run asks for on the room's address, as derby-<name> (derby-auto: the house's driver holds
+ * this phone's hands; derby-lag=<ms>: inputs held back that long; derby-touch: thumbs on a computer), handed to the
+ * page as a query string (`partyHost.switches`). Only where the room has its test games on: the server hangs a
+ * test box on the wall (`test: true`, lobby/wall.js) only where PARTY_TEST_GAMES is "on", never in production, so
+ * there anyone adding ?derby-auto=1 to the address gets nothing.
+ * @param {object} room  the room's view, as the server sent it (its `boxes`)
+ * @param {URLSearchParams} asked  the room page's address
+ * @returns {string}
+ */
+export function switchesFor(room, asked) {
+  const tests = Array.isArray(room?.boxes) && room.boxes.some((box) => box?.test === true);
+  const out = new URLSearchParams();
+  if (tests) for (const [key, value] of asked) if (key.startsWith("derby-") && key.length > 6) out.set(key.slice(6), value);
+  return out.toString();
+}
+
+/**
  * @param {HTMLElement} container  an empty box laid over the room's page; the race fills it
  * @param {object} ctx  room, you, snapshot, send, now, inset, params (GAME-CONTRACT.md, "In the browser")
  */
@@ -50,17 +67,16 @@ export function mount(container, { room, you, snapshot, send, now, inset = {}, p
     },
     /** Set by the page: frees the WebGL context and the sound at once, instead of when the frame is collected. */
     dispose: null,
+    /** The test switches, where the room allows them (switchesFor), as a query string; "" otherwise. */
+    switches: "",
   };
   frame.title = "Tin Derby";
   frame.setAttribute("allow", "autoplay; fullscreen; screen-wake-lock");
   // Set through the style object, never a style attribute: the site's Content-Security-Policy forbids those.
   Object.assign(frame.style, { position: "absolute", inset: "0", width: "100%", height: "100%", border: "0", display: "block", background: "#fbdfaa" });
+  frame.partyHost.switches = switchesFor(room, params ?? new URLSearchParams(doc.defaultView?.location.search ?? ""));
   const address = new URL(PAGE);
   address.searchParams.set("party", "1");
-  // A test run can ask for switches on the room's address, as derby-<name>: derby-auto (the page drives
-  // itself), derby-lag=<ms> (inputs held back that long before they are sent), derby-meter.
-  const asked = params ?? new URLSearchParams(doc.defaultView?.location.search ?? "");
-  for (const [key, value] of asked) if (key.startsWith("derby-")) address.searchParams.set(key.slice(6), value);
   frame.src = address.href;
   container.append(frame);
   // Keys steer too, and they go to whichever document has the focus.

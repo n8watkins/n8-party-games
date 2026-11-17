@@ -11,11 +11,17 @@
 //   two       two phones and a big screen
 //   four      four phones and a big screen
 //   trouble   three phones: one drops its connection and comes back, one reloads, and the big screen joins late
+//   stalls    four phones: one with no 3D (its car is the house's), one whose page loads late (the house drives it
+//             from GO until it comes up), one whose connection stalls for 5 s without closing (the house's within
+//             about a second, then its own again), and a keyboard player who switches tabs holding an arrow
+//   look      the big screen at 1920 x 1080, an upright phone, a small one with reduced motion, and a phone whose
+//             WebGL context is lost for good: sizes, overlaps, the strip's tokens, still words, the lost picture
 //   lag       one phone with 40 ms, then 200 ms, of delay each way (the room's simulated latency): how far what the
 //             phone showed was from what the room made of the same moment, and how many inputs came too late
 // After every race: each page agreed with the room on the finishing order, no page's copy of the race differed from
 // the room's at any snapshot, and the room took the game away again and showed its card.
 import { mkdirSync } from "node:fs";
+import net from "node:net";
 import { resolve } from "node:path";
 import { launchBrowser } from "../../../../lobby/test/browser.mjs";
 import { partyApi, sleep } from "../../../../lobby/test/client.mjs";
@@ -24,7 +30,7 @@ import { boxCentre } from "../../../../lobby/shared/world.js";
 const args = process.argv.slice(2);
 const opt = (k, d) => (args.find((a) => a.startsWith("--" + k + "=")) ?? "--" + k + "=" + d).split("=").slice(1).join("=");
 const base = opt("base", "http://localhost:8791");
-const only = new Set(opt("only", "solo,two,four,trouble,lag").split(","));
+const only = new Set(opt("only", "solo,two,four,trouble,stalls,look,lag").split(","));
 const stills = opt("stills", "");
 if (stills) mkdirSync(resolve(stills), { recursive: true });
 const { api } = partyApi(base);
@@ -38,19 +44,48 @@ const FRAME = 'iframe[title="Tin Derby"]';
 const errors = [];
 const report = {};
 
+/**
+ * A local relay in front of the site for one phone: everything passes straight through, until freeze(ms) holds
+ * every byte both ways for that long without closing anything (a phone that stalls with its socket still open).
+ */
+function stallingRelay(target) {
+  let until = 0;
+  const pipe = (from, to) => {
+    const queue = [];
+    let timer = null;
+    const drain = () => {
+      timer = null;
+      while (queue.length && Date.now() >= until) { const b = queue.shift(); if (!to.destroyed) to.write(b); }
+      if (queue.length) timer = setTimeout(drain, Math.max(5, until - Date.now()));
+    };
+    from.on("data", (b) => { queue.push(b); if (!timer) drain(); });
+    from.on("close", () => { const end = () => (queue.length ? setTimeout(end, 20) : to.destroy()); end(); });
+    from.on("error", () => {});
+  };
+  const server = net.createServer((client) => {
+    const site = net.connect(Number(target.port) || 80, target.hostname);
+    site.on("error", () => client.destroy());
+    client.on("error", () => site.destroy());
+    pipe(client, site);
+    pipe(site, client);
+  }).listen(0);
+  return { get port() { return server.address().port; }, freeze(ms) { until = Date.now() + ms; }, close() { server.close(); } };
+}
+
 const browser = await launchBrowser({ args: ["--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--autoplay-policy=no-user-gesture-required"] });
 const contexts = new Set();
 try {
   /** A page of its own (its own storage, so its own seat), with what it complained of kept, and the bytes its sockets received. */
-  async function open(name, viewport, extra = {}) {
-    const context = await browser.newContext({ viewport, deviceScaleFactor: 1, ...extra });
+  async function open(name, viewport, { via = browser, ...extra } = {}) {
+    const context = await via.newContext({ viewport, deviceScaleFactor: 1, ...extra });
     contexts.add(context);
     const page = await context.newPage();
     page.name = name;
     page.down = [];
     page.on("websocket", (ws) => ws.on("framereceived", (f) => page.down.push([Date.now(), typeof f.payload === "string" ? Buffer.byteLength(f.payload) : f.payload.length, typeof f.payload === "string" ? f.payload : ""])));
     page.on("pageerror", (e) => errors.push(`${name}: ${e.message}`));
-    page.on("console", (m) => m.type() === "error" && !/WebSocket|ERR_|net::/.test(m.text()) && errors.push(`${name}: ${m.text()}`));
+    // page.quiet: what a page is expected to complain of (three.js says so when it cannot make a WebGL context).
+    page.on("console", (m) => m.type() === "error" && !/WebSocket|ERR_|net::/.test(m.text()) && !(page.quiet && page.quiet.test(m.text())) && errors.push(`${name}: ${m.text()}`));
     return page;
   }
   const closeAll = async () => {
@@ -84,9 +119,10 @@ try {
     await screen.click("text=Show the room here");
   }
   /** A phone held sideways that joins with a nickname. */
-  async function phone(name, pin, query = "") {
-    const page = await open(name, { width: 844, height: 390 }, { hasTouch: true, isMobile: true });
-    await page.goto(base + "/lobby/?join=" + pin + "&look=flat&derby-auto=1" + query);
+  async function phone(name, pin, query = "", { viewport = { width: 844, height: 390 }, context = { hasTouch: true, isMobile: true }, auto = true, at = base, before = null } = {}) {
+    const page = await open(name, viewport, context);
+    if (before) await before(page);
+    await page.goto(at + "/lobby/?join=" + pin + "&look=flat" + (auto ? "&derby-auto=1" : "") + query);
     await page.fill("input[name=nickname]", name);
     await page.click("text=Join the party");
     await page.waitForSelector("svg.scene text");
@@ -259,12 +295,185 @@ try {
     const { end, last } = await race("trouble", code, [ada, bo, cy], { during });
     if (end) {
       const boCar = last.get(ada).cars.findIndex((c) => c.name === "Bo");
-      const hands = handed.filter((e) => e.c === boCar).map((e) => e.on).join();
+      // From the drop on (a page that loaded slowly is driven by the house until its first word, before that).
+      const hands = handed.filter((e) => e.c === boCar && e.n > (8 + 3) * 120).map((e) => e.on).join();
       check(hands === "1,0", `trouble: the room handed Bo's car to the house when his phone dropped and back when it returned (${hands || "nothing"})`);
       const boStats = last.get(bo).stats, cyStats = last.get(cy).stats;
       check(boStats.full >= 1 || boStats.restarts >= 1, `trouble: Bo's page started its copy again from the room's full snapshot after the drop (${boStats.full} full, ${boStats.restarts} restarts)`);
       check(last.get(cy).car >= 0 && cyStats.frames > 0, "trouble: Cy's page came back from the reload in the same car");
       check(!!late && last.get(late)?.mode === "tvwide", "trouble: the big screen that joined late shows the whole table");
+    }
+    await closeAll();
+  }
+
+  /** Everything the room told one page's sockets, as events (the hand-overs, the inputs, how far it got). */
+  const roomEvents = (page) => {
+    const out = [];
+    for (const [, , s] of page.down) {
+      if (!s.includes('"ev"')) continue;
+      try { const m = JSON.parse(s); if (m.t === "ev") out.push(...m.ev); } catch { /* not one message */ }
+    }
+    return out;
+  };
+  const raceT = (n) => n / 120 - 3;
+  const GO = 3 * 120;
+  /** Seat by name, from a page's look: the car index. */
+  const carOf = (l, name) => l.cars.findIndex((c) => c.name === name);
+
+  // ---------------------------------------------------------------- phones that cannot drive, stall, load late, or switch tabs
+  if (only.has("stalls")) {
+    console.log("---- stalls: a phone with no 3D, a page that loads late, a phone that stalls for 5 s, a keyboard player who switches tabs");
+    const scr = await screenPage();
+    const pin = await startParty(scr);
+    // A phone without 3D at all: WebGL off in its browser.
+    const flat = await launchBrowser({ software: true, args: ["--disable-webgl", "--disable-3d-apis"] });
+    try {
+      const nogl = await phone("NoGL", pin, "", { auto: false, context: { hasTouch: true, isMobile: true, via: flat } });
+      nogl.quiet = /WebGL|webgl/;
+      // A page whose race files take six seconds to arrive.
+      const late = await phone("Late", pin, "", { before: (p) => p.route("**/tin-derby/page/**", async (route) => { await sleep(6000); await route.continue(); }) });
+      // A phone whose connection stalls without closing (its traffic held both ways for 5 s): through a local relay.
+      const relay = stallingRelay(new URL(base));
+      const frozen = await phone("Stall", pin, "", { at: `http://localhost:${relay.port}` });
+      // A keyboard player at a computer (no thumbs), driving by hand.
+      const keys = await phone("Keys", pin, "", { auto: false, viewport: { width: 1024, height: 600 }, context: {} });
+      const code = await codeOf(pin);
+      await vote(code, [nogl, late, frozen, keys]);
+      // The page with no 3D: it says so plainly and nothing else is on it.
+      const nf = await (await nogl.waitForSelector(FRAME, { timeout: 60000 })).contentFrame();
+      await nf.waitForFunction(() => window.__derby?.noPicture, null, { timeout: 60000 });
+      const said = await nf.evaluate(() => ({ text: document.getElementById("nopic").innerText.replace(/\s+/g, " ").trim(), sound: !!document.getElementById("bsound").offsetParent, canvas: !!document.getElementById("gl").offsetParent }));
+      check(said.text === "This phone can't show the race. The house is driving your car. Watch the big screen.", `stalls: the phone with no 3D says so plainly ("${said.text}")`);
+      check(!said.sound && !said.canvas, "stalls: ... with no dead Sound on button and no picture");
+      await shot(nogl, "no-3d-phone", "the phone with no 3D (844 x 390, WebGL off): the house drives its car");
+      let frozeAt = null, thawAt = null, hidAt = null, shownAt = null;
+      const kf = () => derby(keys);
+      const keysFrame = await kf();
+      await keysFrame.evaluate(() => window.focus());
+      await keys.keyboard.down("ArrowUp");
+      await keys.keyboard.down("ArrowLeft");
+      const during = async (t, frames) => {
+        if (frozeAt === null && t > 12) { frozeAt = t; relay.freeze(5000); console.log(`     Stall's connection holds everything for 5 s from race time ${t.toFixed(1)} s`); }
+        if (frozeAt !== null && thawAt === null && t > frozeAt + 5) thawAt = t;
+        if (hidAt === null && t > 8) {
+          // Keys switches to another tab, an arrow still held: the page is hidden.
+          hidAt = t;
+          await frames.get(keys).evaluate(() => { Object.defineProperty(document, "hidden", { configurable: true, get: () => true }); Object.defineProperty(document, "visibilityState", { configurable: true, get: () => "hidden" }); document.dispatchEvent(new Event("visibilitychange")); });
+          console.log(`     Keys switches tab at race time ${t.toFixed(1)} s, holding Up and Left`);
+        }
+        if (hidAt !== null && shownAt === null && t > hidAt + 4) {
+          shownAt = t;
+          await keys.keyboard.up("ArrowLeft");
+          await keys.keyboard.up("ArrowUp");
+          // Back on the tab; from here the house's driver holds this page's hands, so the race does not wait for the last call.
+          await frames.get(keys).evaluate(() => { delete document.hidden; delete document.visibilityState; window.__derby.app.autoDrive = true; document.dispatchEvent(new Event("visibilitychange")); });
+          console.log(`     Keys is back at race time ${t.toFixed(1)} s`);
+        }
+      };
+      const { end, last } = await race("stalls", code, [scr, late, frozen, keys], { during });
+      relay.close();
+      if (end) {
+        const l = last.get(scr), ev = roomEvents(scr), hand = (name) => ev.filter((e) => e.k === "a" && e.c === carOf(l, name));
+        const rowOf = (name) => end.result.find((r) => r.seat === l.cars[carOf(l, name)].seat);
+        // The phone with no 3D: the house's from the count-in, never handed back, and home with a time.
+        const ng = hand("NoGL");
+        check(ng.length === 1 && ng[0].on === 1 && ng[0].n <= GO + 4, `stalls: the room gave the no-3D phone's car to the house by GO (${JSON.stringify(ng.map((e) => [e.on, +raceT(e.n).toFixed(2)]))})`);
+        check(typeof rowOf("NoGL")?.time === "number", `stalls: ... and the car finished (${JSON.stringify(rowOf("NoGL"))})`);
+        // The late page: the house drove its car from GO until it came up, then handed it back; the page said the race was under way.
+        const lt = hand("Late"), lateSaid = last.get(late)?.stats.lateWord;
+        check(lt.length >= 2 && lt[0].on === 1 && Math.abs(lt[0].n - GO) <= 8 && lt[1].on === 0, `stalls: the late page's car was the house's from GO until the page came up (${JSON.stringify(lt.map((e) => [e.on, +raceT(e.n).toFixed(2)]))})`);
+        check(typeof lateSaid === "number" && lateSaid > 0, `stalls: ... and the page said "Race under way" when it came up (race time ${lateSaid})`);
+        // The stalled phone: the house's within about a second, its own again after, and home with a time.
+        const st = hand("Stall").filter((e) => raceT(e.n) > frozeAt - 1);
+        const onT = st[0] && raceT(st[0].n);
+        check(st.length >= 2 && st[0].on === 1 && onT - frozeAt < 1.6 && st[1].on === 0, `stalls: the stalled phone's car was the house's ${onT !== undefined ? (onT - frozeAt).toFixed(2) : "?"} s after the stall began (race time ${frozeAt?.toFixed(1)}), and handed back at ${st[1] ? raceT(st[1].n).toFixed(1) : "never"} (${JSON.stringify(st.map((e) => [e.on, +raceT(e.n).toFixed(2)]))})`);
+        check(typeof rowOf("Stall")?.time === "number", `stalls: ... and the car finished (${JSON.stringify(rowOf("Stall"))})`);
+        // The keyboard player: Left and Up let go of the moment the tab was hidden, the house's within about a second, its own on the way back.
+        const kc = carOf(l, "Keys"), kin = ev.filter((e) => e.k === "i" && e.c === kc && raceT(e.n) > hidAt - 0.5);
+        const letGo = kin.find((e) => e.s === 0 && e.b === 0);
+        check(!!letGo && raceT(letGo.n) - hidAt < 0.6, `stalls: the keyboard player's held arrows were let go of when the tab was hidden (${letGo ? (raceT(letGo.n) - hidAt).toFixed(2) + " s later" : "never"})`);
+        const kh = hand("Keys").filter((e) => raceT(e.n) > hidAt - 0.5);
+        check(kh.length >= 2 && kh[0].on === 1 && raceT(kh[0].n) - hidAt < 1.6 && kh[1].on === 0 && raceT(kh[1].n) >= shownAt - 0.5, `stalls: ... the house drove the car while the tab was hidden and handed it back on return (${JSON.stringify(kh.map((e) => [e.on, +raceT(e.n).toFixed(2)]))}; hidden ${hidAt?.toFixed(1)}, back ${shownAt?.toFixed(1)})`);
+      }
+    } finally {
+      await closeAll();
+      await flat.close().catch(() => {});
+    }
+  }
+
+  // ---------------------------------------------------------------- the big screen at 1920 x 1080, an upright phone, a small one, and a lost picture
+  if (only.has("look")) {
+    console.log("---- look: the big screen at 1920 x 1080, an upright phone (390 x 844), a small one with reduced motion (568 x 320), and a phone whose picture is lost");
+    const scr = await open("screen", { width: 1920, height: 1080 });
+    const pin = await startParty(scr);
+    const up = await phone("Upright", pin, "", { viewport: { width: 390, height: 844 } });
+    const small = await phone("Small", pin, "", { viewport: { width: 568, height: 320 }, context: { hasTouch: true, isMobile: true, reducedMotion: "reduce" } });
+    const lost = await phone("Lost", pin);
+    lost.quiet = /WebGL|context/i;
+    const code = await codeOf(pin);
+    await vote(code, [up, small, lost]);
+    /** Whether the big words that came up in the next few seconds moved (scale, tilt, drift) or only faded. */
+    const wordsMove = (frame) => frame.evaluate(async () => {
+      const seen = { words: 0, moved: false };
+      // The count-in's 3, 2, 1 and GO, or the first words of the race: up to 20 s, a second past the first word seen.
+      for (let k = 0, stop = 200; k < stop; k++) {
+        for (const w of document.querySelectorAll(".words .word")) { if (!seen.words) stop = k + 10; seen.words++; for (const a of w.getAnimations()) if (a.effect.getKeyframes().some((f) => f.transform)) seen.moved = true; }
+        await new Promise((r) => setTimeout(r, 100));
+      }
+      return seen;
+    });
+    const [upF, smallF] = [await derby(up), await derby(small)];
+    const [upWords, smallWords] = await Promise.all([wordsMove(upF), wordsMove(smallF)]);
+    check(upWords.words > 0 && upWords.moved, `look: the count-in's big words pop and tilt on a phone (${JSON.stringify(upWords)})`);
+    check(smallWords.words > 0 && !smallWords.moved, `look: ... and only fade where the phone asks for reduced motion (${JSON.stringify(smallWords)})`);
+    let lostAt = null, lostSays = null, overlaps = 0, samples = 0;
+    const layout = { up: null, tv: null };
+    const during = async (t, frames, last) => {
+      if (lostAt === null && t > 10) {
+        lostAt = t;
+        await frames.get(lost).evaluate(() => window.__derby.app.world.renderer.getContext().getExtension("WEBGL_lose_context").loseContext());
+        console.log(`     Lost's picture is taken away at race time ${t.toFixed(1)} s`);
+      }
+      if (lostAt !== null && lostSays === null && t > lostAt + 4) {
+        lostSays = await frames.get(lost).evaluate(() => (window.__derby.noPicture ? document.getElementById("nopic").innerText.replace(/\s+/g, " ").trim() : "")).catch(() => "");
+        // It shows the race no more: its copy is not compared with the room's at the end.
+        frames.delete(lost);
+        last.delete(lost);
+      }
+      if (t > 4 && samples < 40) {
+        samples++;
+        // The small phone: no rival's name over the strip and chips.
+        overlaps += await frames.get(small).evaluate(() => {
+          const boxes = [...document.querySelectorAll(".topmid .strip, .topmid .near span")].map((e) => e.getBoundingClientRect()).filter((q) => q.width);
+          const hit = (r) => boxes.some((q) => r.left < q.right && q.left < r.right && r.top < q.bottom && q.top < r.bottom);
+          return [...document.querySelectorAll(".tag:not([hidden])")].filter((g) => hit(g.getBoundingClientRect())).length;
+        });
+      }
+      if (t > 6 && !layout.up) {
+        layout.up = await frames.get(up).evaluate(() => [...document.querySelectorAll(".topmid .strip, .topmid .near span")].filter((e) => e.offsetParent).map((e) => { const r = e.getBoundingClientRect(); return { k: e.className || e.textContent.slice(0, 12), l: Math.round(r.left), r: Math.round(r.right) }; }));
+        layout.tv = await frames.get(scr).evaluate(() => { const g = document.querySelector(".tag:not([hidden])"); return { h: innerHeight, tag: g ? parseFloat(getComputedStyle(g).fontSize) : 0, hint: parseFloat(getComputedStyle(document.getElementById("hint")).fontSize) }; });
+      }
+    };
+    let finTok = null;
+    const still = async (when, t) => {
+      if (when === "mid-race") { await shot(scr, "screen-1920-mid-race", `the big screen (1920 x 1080) at race time ${t.toFixed(1)} s`); await shot(up, "upright-phone", `the upright phone (390 x 844) at race time ${t.toFixed(1)} s`); await shot(small, "small-phone", `the small phone (568 x 320, reduced motion) at race time ${t.toFixed(1)} s`); }
+      if (when === "finish") {
+        await sleep(1500);
+        await shot(scr, "screen-1920-finish", `the big screen (1920 x 1080) as the first car finishes, race time ${t.toFixed(1)} s`);
+        finTok = await (await scr.$(FRAME)).contentFrame().then((f) => f.evaluate(() => { const line = document.getElementById("tvline").getBoundingClientRect(), places = document.getElementById("tvplaces").getBoundingClientRect(); return { line: line.right, places: places.left, toks: [...document.querySelectorAll("#tvline .tok")].map((e) => e.getBoundingClientRect().right) }; }));
+      }
+    };
+    const { end, last } = await race("look", code, [scr, up, small, lost], { during, still });
+    if (end) {
+      check(layout.up && layout.up.every((b) => b.l >= 0 && b.r <= 390), `look: the upright phone's strip and chips fit its 390 px (${JSON.stringify(layout.up)})`);
+      check(overlaps === 0, `look: on the small phone no rival's name covered the strip or chips (${samples} frames sampled, ${overlaps} overlaps)`);
+      check(layout.tv && layout.tv.tag >= 0.02 * layout.tv.h && layout.tv.hint >= 0.02 * layout.tv.h, `look: the big screen's names and hint are at least 2% of its height (${JSON.stringify(layout.tv)})`);
+      check(finTok && finTok.toks.every((r) => r <= finTok.line + 1) && finTok.places >= finTok.line, `look: on the big screen's strip every token stays on its line, clear of the places (${JSON.stringify(finTok)})`);
+      const l = last.get(scr), lc = carOf(l, "Lost"), ev = roomEvents(scr).filter((e) => e.k === "a" && e.c === lc);
+      check(lostSays === "This phone can't show the race. The house is driving your car. Watch the big screen.", `look: the phone whose picture was lost says so plainly ("${lostSays}")`);
+      check(ev.length === 1 && ev[0].on === 1 && raceT(ev[0].n) - lostAt < 3.5, `look: a phone whose picture was lost for good gave its car to the house (${JSON.stringify(ev.map((e) => [e.on, +raceT(e.n).toFixed(2)]))}, lost at ${lostAt?.toFixed(1)})`);
+      const row = end.result.find((r) => r.seat === l.cars[lc].seat);
+      check(typeof row?.time === "number", `look: ... and its car finished (${JSON.stringify(row)})`);
     }
     await closeAll();
   }

@@ -17,6 +17,8 @@ const LOC = {};
 /** The ground's height under a point on the table (the rules' own), searching near u. */
 const groundXZ = (x, z, u, w) => { locate(x, z, u, LOC); return groundAt(LOC.u, LOC.lat, w); };
 const DUMMY = new THREE.Object3D();
+/** The whole-table picture's angle above the table, in degrees (TvRig). */
+const TV_ELEVATION = 62;
 
 class World {
   constructor(canvas, clothUrl, looks) {
@@ -385,6 +387,13 @@ class World {
     }
     for (const v of this.cars) v.group.visible = true;
   }
+  /**
+   * The party room's big screen: every car (and its shadow) drawn `s` times its size, since at true size a car on the
+   * whole-table picture is a speck from across a room. Only the picture changes; call it after sync, each frame.
+   */
+  sizeCars(s) {
+    for (const v of this.cars) { v.group.scale.setScalar(s); v.ground.scale.x *= s; v.ground.scale.z *= s; }
+  }
   /** Where a car is on the screen, for name tags. Returns null when it is behind the camera. Reuses `out`. */
   project(i, view, lift = 0.95, out = {}) {
     const p = this.tmp.copy(this.cars[i].pos); p.y += lift; p.project(view.cam);
@@ -501,9 +510,11 @@ class TvRig {
       this.view.close = true;
       return this.view;
     }
-    // Far enough back to hold the whole table; a narrow screen widens the lens instead of leaving the room.
-    const { x0, x1, z0, z1 } = TABLE, mx = (x0 + x1) / 2, mz = (z0 + z1) / 2, hw = (x1 - x0) / 2 + 1, hd = (z1 - z0) / 2 + 1;
-    const el = (52 * Math.PI) / 180, vf = 30, tv = Math.tan((vf * Math.PI) / 360);
+    // Far enough back to hold the whole table and the chair at its end (table.js); a narrow screen widens the lens
+    // instead of leaving the room. The party room's big screen looks down steeply enough that the far wall stays out
+    // of the picture (at 52 degrees its lower edge showed as a strip along the top).
+    const { x0, z0, z1 } = TABLE, x1 = TABLE.x1 + 8, mx = (x0 + x1) / 2, mz = (z0 + z1) / 2, hw = (x1 - x0) / 2 + 1, hd = (z1 - z0) / 2 + 1;
+    const el = (TV_ELEVATION * Math.PI) / 180, vf = 30, tv = Math.tan((vf * Math.PI) / 360);
     const dW = hw / (tv * aspect) + hd * Math.cos(el), dD = (hd * Math.sin(el) + 3) / tv + hd * Math.cos(el) * 0.3;
     const dist = Math.max(dW, dD) * 0.98;
     cam.fov = vf;
