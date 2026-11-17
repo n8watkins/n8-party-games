@@ -11,14 +11,15 @@
 //                   and solid again as a ghost
 //   a reload        a page reloaded in the middle of a scare draws it as a scare (wide eyes), not
 //                   a knock; a ghost's page reloaded mid-fade still spooks for the rest of its fade
-//   every body      a slime and a robot are scared (they kick a faded ghost) and spooked (a faded
-//                   ghost drifts through them), drawn wide-eyed and pale in the flat look and in
-//                   3D, and a page of either look reloaded mid-scare draws the scare
+//   every body      a robot is scared (its hook goes through a faded ghost; only the pawn kicks),
+//                   a slime and a robot are spooked (a faded ghost drifts through them), drawn
+//                   wide-eyed and pale in the flat look and in 3D, and a page of either look
+//                   reloaded mid-scare draws the robot's scare
 //
 //   --shots=DIR     stills of each fright, in each look
 import { mkdirSync } from "node:fs";
 import { COLOUR_PRESETS, LOOK_COOLDOWN_MS } from "../shared/characters.js";
-import { SCARE_MS } from "../shared/ghost.js";
+import { HOOK_SCARE_MS } from "../shared/moves.js";
 import { apart, meanColour, paintBox } from "./pixels.mjs";
 import { launchBrowser } from "./browser.mjs";
 import { partyApi, sleep } from "./client.mjs";
@@ -127,10 +128,24 @@ try {
       const m = c.seen.at(-1);
       if (m?.t === "spook" && m.to === c.seat) [c.x, c.rev] = [m.x, m.rev];
       if (m?.t === "b" && m.sc !== undefined && m.s === c.seat) [c.x, c.rev] = [m.x, m.rev];
+      // A robot's hook through a faded ghost scares the robot off (shared/robot.js).
+      if (m?.t === "hk" && m.s === c.seat && Number.isFinite(m.x)) [c.x, c.rev] = [m.x, m.rev];
     };
     sockets.push(c);
     return c;
   }
+  /**
+   * Ada goes at the faded ghost in front of her with her move: a pawn kicks it, a robot throws its
+   * hook into it (only the pawn kicks; lobby/shared/robot.js). Resolves {to, sc} as a kick's
+   * answer reads (`sc`: the ghost, when she was scared off), or null.
+   */
+  const goAt = async () => {
+    const mark = ada.seen.length;
+    const robot = ada.room?.members[ada.seat]?.character === "robot";
+    ada.send({ t: robot ? "hook" : "b" });
+    const m = await ada.wait((m) => m.s === ada.seat && (robot ? m.t === "hk" : m.t === "b"), 2000, mark).catch(() => null);
+    return m && (robot ? { to: m.to, sc: m.o === "scare" ? m.to : undefined } : { to: m.to, sc: m.sc });
+  };
 
   section("a party of four: Ada (a bare socket), Bea, Eve and Cy (phones)");
   const host = await call("POST", "/rooms", { nickname: "Ada" });
@@ -257,7 +272,7 @@ try {
   check(late?.to === A, `walking through Ada after the reload, Eve's ghost spooks her (${JSON.stringify(late && { to: late.to })})`);
 
   // ================================================================ every body
-  section("a slime and a robot are scared and spooked, drawn so in the flat look and in 3D");
+  section("a robot is scared and a slime and a robot spooked, drawn so in the flat look and in 3D");
   // The room is full (four), so Eve's phone, her ghost's, turns to the 3D look: Cy's stays flat.
   await eve.goto(`${base}/lobby/?look=3d&gl=any`);
   await drawn(eve, "3d");
@@ -287,20 +302,19 @@ try {
     await ada.wait((m) => m.room?.members[A]?.character === character, 4000, from);
     await sleep(LOOK_COOLDOWN_MS);
 
-    // Scared: Ada, facing Bea's faded ghost, kicks it.
-    await ready(B);
-    at = await where();
-    ada.goto(at[B].x - 60);
-    ada.send({ t: "m", x: at[B].x - 60, d: 1, r: ada.rev });
-    ada.send({ t: "m", x: at[B].x - 60, d: 0, r: ada.rev });
-    await sleep(300);
-    check(!!(await fade(bea, B)), `Bea fades (Ada is a ${character})`);
-    const kick = await watched(character, "scared", async () => {
-      const mark = ada.seen.length;
-      ada.send({ t: "b" });
-      return ada.wait((m) => m.t === "b" && m.s === A, 2000, mark).catch(() => null);
-    });
-    check(kick?.sc === B, `Ada's ${character} kicked Bea's faded ghost and was scared (${JSON.stringify(kick && { to: kick.to, sc: kick.sc })})`);
+    // Scared: Ada's robot, facing Bea's faded ghost, throws its hook into it. (Only the pawn kicks,
+    // so a slime is never scared: a slime is only spooked, below.)
+    if (character === "robot") {
+      await ready(B);
+      at = await where();
+      ada.goto(at[B].x - 60);
+      ada.send({ t: "m", x: at[B].x - 60, d: 1, r: ada.rev });
+      ada.send({ t: "m", x: at[B].x - 60, d: 0, r: ada.rev });
+      await sleep(300);
+      check(!!(await fade(bea, B)), `Bea fades (Ada is a ${character})`);
+      const kick = await watched(character, "scared", goAt);
+      check(kick?.sc === B, `Ada's ${character} hooked Bea's faded ghost and was scared (${JSON.stringify(kick && { to: kick.to, sc: kick.sc })})`);
+    }
 
     // Spooked: Eve's faded ghost drifts through Ada.
     await ready(E);
@@ -317,8 +331,8 @@ try {
     check(spook?.to === A, `Eve's faded ghost spooked Ada's ${character} (${JSON.stringify(spook && { to: spook.to })})`);
   }
 
-  section("a page of either look reloaded mid-scare draws a scared slime and robot");
-  for (const character of ["robot", "slime"]) {
+  section("a page of either look reloaded mid-scare draws a scared robot (its hook went through a faded ghost)");
+  for (const character of ["robot"]) {
     await calmAgain();
     if ((await where())[A].character !== character) {
       from = ada.seen.length;
@@ -350,9 +364,9 @@ try {
         const going = page.goto(`${base}/lobby/?${look === "flat" ? "look=flat" : "look=3d&gl=any"}`);
         await sleep(lead);
         from = ada.seen.length;
+        // The scare begins when the room judges the hook, a moment after the throw.
+        const scared = await goAt();
         const kickAt = Date.now();
-        ada.send({ t: "b" });
-        const scared = await ada.wait((m) => m.t === "b" && m.s === A, 2000, from).catch(() => null);
         await going;
         await drawn(page, look);
         // Watched from the first frame it draws: how wide its eyes got, and in how many frames.
@@ -365,14 +379,14 @@ try {
         const shown = await page.evaluate(() => window.__fright);
         const wide = shown.scared > 0.5;
         // The page drew in time to see the scare: its first frame came before the scared piece was up again.
-        const inTime = back < SCARE_MS - 250;
+        const inTime = back < HOOK_SCARE_MS - 250;
         seen = { scared, after, inTime, wide, shown, back, spoke: firstSend - kickAt };
         if (after && shots) await page.screenshot({ path: `${shots}/${look}-${character}-reloaded-mid-scare.png` });
         await sleep(1500);
       }
       const { scared, after, inTime, wide, shown, back } = seen;
-      check(scared?.sc === B, `Ada's ${character} kicked Bea's faded ghost (${JSON.stringify(scared && { to: scared.to, sc: scared.sc })})`);
-      const missed = !after ? "; it was back before the kick every time" : !inTime ? `; it never drew within the ${SCARE_MS} ms scare, so nothing was judged` : "";
+      check(scared?.sc === B, `Ada's ${character} hooked Bea's faded ghost (${JSON.stringify(scared && { to: scared.to, sc: scared.sc })})`);
+      const missed = !after ? "; it was back before the kick every time" : !inTime ? `; it never drew within the ${HOOK_SCARE_MS} ms scare, so nothing was judged` : "";
       check(after && inTime && wide && shown.character === character, `${look}: a page that arrived in the middle of the scare (drawn ${back} ms after the kick${missed}) draws Ada's ${character} scared (wide eyes), not knocked (${JSON.stringify(shown)})`);
     }
   }
@@ -404,8 +418,7 @@ try {
       const before = await meanColour(eve, await paintBox(eve, A, -1));
       if (!(await fade(ghost, G))) check(false, `the ghost fades for ${name}`);
       from = ada.seen.length;
-      ada.send({ t: "b" });
-      const kick = await ada.wait((m) => m.t === "b" && m.s === A, 2000, from).catch(() => null);
+      const kick = await goAt();
       // Frozen at its palest: wide-eyed and still.
       const frozen = await eve.waitForFunction((s) => window.frightOn(s).pale > 0.95 && window.frightOn(s).scared > 0.95, A, { timeout: 2000, polling: 16 }).then(() => true, () => false);
       const box = await paintBox(eve, A, -1);

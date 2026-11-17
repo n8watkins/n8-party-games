@@ -33,12 +33,18 @@ export const HOLD_MS = 280;
 /** The room takes an absorb only this soon after the harden it turns (a page sends it at HOLD_MS). */
 export const ABSORB_TURN_MS = 700;
 
-/** A slime touches a piece when their middles are this close, and pushes it this far on each touch, over SHOVE_MS. */
+/**
+ * A slime touches a piece when their middles are this close, and pushes it at least this far on
+ * each touch, over SHOVE_MS, and at least SHOVE_AHEAD in front of itself: so a slime that keeps
+ * walking keeps pushing the piece along in front of it, one shove after another, and never walks
+ * through it.
+ */
 export const SHOVE_REACH = 70;
 export const SHOVE_STEP = 60;
+export const SHOVE_AHEAD = 110;
 export const SHOVE_MS = 200;
 /** A piece is not shoved again for this long after a shove (by any slime): the slime catches up with it as it walks. */
-export const SHOVE_AGAIN_MS = 320;
+export const SHOVE_AGAIN_MS = SHOVE_MS;
 /** The room believes a slime that says it touched a piece this much further off than it works out. */
 export const SHOVE_SLACK = 70;
 /** Further than this no page says it touched a piece (the most the room believes a position is off on top). */

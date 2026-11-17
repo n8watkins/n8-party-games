@@ -117,6 +117,8 @@ defineRoomSounds();
 /** The room's own sounds, while the room is on the page. */
 let roomSounds = null;
 globalThis.__partyRoom = { sounds, defineSound };
+// The room view as drawn now, either look (the tests read its pieces' moves: move-state.js).
+Object.defineProperty(globalThis.__partyRoom, "view", { get: () => scene });
 for (const type of ["pointerdown", "keydown"]) addEventListener(type, () => sounds.unlock(), { capture: true, passive: true });
 sounds.onChange(() => roomSounds?.warm());
 /** When this player last sent an emote, by this page's clock: the room has the last word (its "wait"). */

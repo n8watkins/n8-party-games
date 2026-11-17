@@ -48,7 +48,7 @@ import { COOLDOWN_SLACK_MS, IMMUNE_MS, bumpTarget, cooldownLeft, isDown, isSafe,
 import { BOO_LATE_MS, FADE_MS, SCARE_LANDING, SPOOK_FAR, SPOOK_LANDING, fadeLeft, isFaded, mayFade, maySpook, scared, spooked } from "../shared/ghost.js";
 import { HOOK_SCARE_MS, slideLanding } from "../shared/moves.js";
 import { BONK_MS, HOOK_BACK_MS, HOOK_HOLD, HOOK_LATE_MS, HOOK_LIFE_MS, PULLED_SAFE_MS, PULL_MS, STILT_MS, TRAIN_MS, battedAway, firstCatch, hookEndsAt, hookLeft, isUp, jumpedOver, mayHook, mayStilt, stiltLeft } from "../shared/robot.js";
-import { ABSORB_MS, HARDEN_MS, SHOVE_FAR, SHOVE_LATE_MS, SHOVE_STEP, isHard, isSoft, mayShove, maySlime, shoved, slimeLeft } from "../shared/slime.js";
+import { ABSORB_MS, HARDEN_MS, SHOVE_AHEAD, SHOVE_FAR, SHOVE_LATE_MS, SHOVE_STEP, isHard, isSoft, mayShove, maySlime, shoved, slimeLeft } from "../shared/slime.js";
 import { DEFAULT_ROOM, ROOM_COOLDOWN_MS, isRoom, roomLocked } from "../shared/rooms.js";
 import { COLOUR_PRESETS, DEFAULT_CHARACTER, LOOK_COOLDOWN_MS, LOOK_SLACK_MS, characterOr, cleanColour, moveOf, readLook } from "../shared/characters.js";
 import { record } from "../shared/tonight.js";
@@ -1079,9 +1079,11 @@ export class LobbyCore {
     const x = posAt(o, now);
     const may = mayShove(sx, m.d, { ...o, x, slime: moveOf(o.character) === "harden", up: isUp(o, now), faded: this.faded(o, now) }, now);
     if (!may.ok) return { ...may, bad: Math.abs(x - sx) > SHOVE_FAR };
+    // A step on, and in front of the slime: it keeps pushing what it walks into (shared/slime.js).
+    const dest = m.d > 0 ? Math.max(x + SHOVE_STEP, sx + SHOVE_AHEAD) : Math.min(x - SHOVE_STEP, sx - SHOVE_AHEAD);
     // Nowhere to go (a wall, or a light it may not be pushed into): it stays, and nothing is said.
-    if (Math.abs(slideLanding(x, clampX(x + m.d * SHOVE_STEP), this.landingWall(), this.litPlaces()) - x) < 1) return { ok: false, why: "It will not go further.", bad: false };
-    this.slidePiece(o, x + m.d * SHOVE_STEP, now);
+    if (Math.abs(slideLanding(x, clampX(dest), this.landingWall(), this.litPlaces()) - x) < 1) return { ok: false, why: "It will not go further.", bad: false };
+    this.slidePiece(o, dest, now);
     // A robot shoved with its hook out throws it from where it now stands.
     if (o.hook) o.hook.x0 += o.x - x;
     Object.assign(o, shoved(now));
