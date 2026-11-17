@@ -144,13 +144,19 @@ try {
   await player.waitForFunction(() => window.__cab.mode === "solo", null, { timeout: 30000 });
   const ticketed = await player.evaluate(() => !!window.__cab.session.run);
   check(ticketed, "a run started from the start board is played on a seed the board handed out");
-  // The player's hands: the game's own bot aims, and the page fires through the same call a click does.
+  // The player's hands: the game's own bot aims, and the page fires through the same call a click
+  // does. The mouse moves over the stall meanwhile, as a player's does: a stall left alone for a
+  // minute goes back to the house.
   await player.evaluate(async () => {
     const { game } = await import("/cork-and-bell/game/shared/battle.js");
+    const stage = document.getElementById("stage");
+    let n = 0;
     const hands = () => {
       const s = window.__cab.session;
       if (window.__cab.mode !== "solo" || s.over) return;
       for (const input of game.bot(s.state, 0, s.now)) s.fire(input.f[1], input.f[2]);
+      n += 1;
+      stage.dispatchEvent(new PointerEvent("pointermove", { clientX: 300 + (n % 40), clientY: 160, pointerType: "mouse", bubbles: true }));
       requestAnimationFrame(hands);
     };
     requestAnimationFrame(hands);
