@@ -5,7 +5,7 @@
 //
 // Leaving: a player and the room's screen leave and land on the front page with a line and the
 // way back in, which works; a seat given up after a drop, a screen whose place was taken, a
-// wrong code, a full party, a second screen and "Stay in the room" each end with a clear next
+// wrong code, a full party and a second screen each end with a clear next
 // step; the lines for a room that closed (untouched, four hours, allowance) are what the front
 // page says; and a rejoin that cannot work shows nothing and never moves the page.
 // Rooms: the host's pick reaches every device, others' taps do not apply, nothing changes
@@ -31,9 +31,8 @@ const check = (ok, what) => {
   if (!ok) problems.push(what);
 };
 const N = 6;
-const [COIN, WHO] = [1, 2];
+const COIN = 1;
 const light = (i, off = 0) => Math.round(boxCentre(i, N) + off);
-const WHO_SITE = "https://whoami.n8builds.dev/";
 
 // Two browsers: a plain one, which stands for a device without hardware 3D and so gets the flat
 // room (it stays on software even with TEST_GPU=1, or it would get the 3D look), and one that
@@ -45,7 +44,6 @@ const timers = [];
 try {
   async function open(name, viewport, extra = {}, threeD = false) {
     const context = await (threeD ? soft : browser).newContext({ viewport, deviceScaleFactor: 1, ...extra });
-    await context.route(WHO_SITE + "**", (route) => route.fulfill({ contentType: "text/html", body: "<!doctype html><title>stand-in</title>" }));
     const page = await context.newPage();
     page.on("pageerror", (e) => errors.push(`${name}: ${e.message}`));
     page.on("console", (m) => m.type() === "error" && !/Failed to load resource/.test(m.text()) && errors.push(`${name}: ${m.text()}`));
@@ -353,20 +351,7 @@ try {
   const offered = await second.locator(".door-card").innerText();
   check(!/Show the room here/.test(offered) && /Join/.test(offered), "a second screen is not offered the screen, only a seat");
   await shot(second, "20-laptop-second-screen");
-
-  // ---------------------------------------------------------------- the outside game's send-off: "Stay in the room"
   for (const c of filler) c.ws.close();
-  await sleep(800);
-  // Ada and Wes stand in Who Am I?'s light; Ada stays.
-  watcher.goto(light(WHO, 40));
-  await walkAda(light(WHO, -40));
-  // The walk, then the ten-second count, then the card.
-  await host.waitForSelector(".card.away", { timeout: 30000 }).catch(() => {});
-  check((await host.locator(".card.away").count()) === 1, "an outside game's send-off card comes up");
-  await host.click("text=Stay in the room");
-  await sleep(7000);
-  check(host.url().startsWith(base + "/lobby/") && (await host.locator(".bar").count()) === 1 && (await host.locator(".card").count()) === 0, "Stay in the room keeps you in the live room, with nothing over it");
-  await shot(host, "21-laptop-stayed");
 } finally {
   for (const t of timers) clearInterval(t);
   await browser.close();

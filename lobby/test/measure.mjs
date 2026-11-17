@@ -71,8 +71,8 @@ let shots = 0;
 let voting = false;
 const callVote = voteEvery > 0 ? setInterval(() => (voting = true), voteEvery * 1000) : null;
 clients[0].ws.addEventListener("message", (e) => {
-  // A game played here ends; an outside game sends everyone off (these players stay, as a page may).
-  if (typeof e.data === "string" && (e.data.startsWith('{"t":"end"') || e.data.startsWith('{"t":"away"'))) voting = false;
+  // A game played here ends.
+  if (typeof e.data === "string" && e.data.startsWith('{"t":"end"')) voting = false;
 });
 
 /** One scripted player: picks somewhere to go, walks there, stands a while, now and then jumps or bumps. */
@@ -162,7 +162,7 @@ const keepAlive = setInterval(() => {
 let games = 0;
 let seenTo = 0;
 const progress = setInterval(() => {
-  games += clients[0].seen.slice(seenTo).filter((m) => m.t === "end" || m.t === "away").length;
+  games += clients[0].seen.slice(seenTo).filter((m) => m.t === "end").length;
   seenTo = clients[0].seen.length;
   console.log(`     ${Math.round((Date.now() - started) / 60_000)} min: ${sentAt.length} messages, ${games} games`);
 }, 60_000);
@@ -172,7 +172,7 @@ if (callVote) clearInterval(callVote);
 voting = false;
 if (clients[0].room?.phase === "playing") await clients[0].wait((m) => m.t === "end", 120_000).catch(() => null);
 [...timers, keepAlive, progress].forEach((t) => t && clearInterval(t));
-games += clients[0].seen.slice(seenTo).filter((m) => m.t === "end" || m.t === "away").length;
+games += clients[0].seen.slice(seenTo).filter((m) => m.t === "end").length;
 const seconds = (Date.now() - started) / 1000;
 const ends = clients[0].seen.filter((m) => m.t === "end");
 const tossed = clients[0].seen.filter((m) => m.t === "vote" && m.vote.toss).length;
@@ -209,7 +209,7 @@ const f = (n, d = 1) => n.toLocaleString("en-US", { maximumFractionDigits: d, mi
 
 console.log(`
 What ${players} players wandering and voting for ${f(seconds / 60, 1)} minutes cost
-(${games} votes won. Games played in the room: ${playedLine}. Sent off to an outside game: ${games - ends.length}. Coin tosses: ${tossed}. Corks fired: ${shots}.)
+(${games} votes won. Games played in the room: ${playedLine}. Coin tosses: ${tossed}. Corks fired: ${shots}.)
 
   Messages to the room      ${f(messages, 0)} in all, ${f(messages / seconds, 2)} a second (${f(messages / seconds / players, 2)} per player)
   Keep-alives               ${f(pings, 0)} (one per player every 20 seconds, answered without waking the room)
