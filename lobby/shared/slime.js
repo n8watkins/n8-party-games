@@ -30,8 +30,12 @@ export const ABSORB_MS = 1000;
 export const SLIME_COOLDOWN_MS = 5000;
 /** The button held this long after the press turns the harden into an absorb. */
 export const HOLD_MS = 280;
-/** The room takes an absorb only this soon after the harden it turns (a page sends it at HOLD_MS). */
-export const ABSORB_TURN_MS = 700;
+/**
+ * The room takes an absorb any time in the harden it turns (a page sends it HOLD_MS after the
+ * press, from a timer, not a frame): so a slow network or a page that stalls a moment never loses a
+ * hold the player made. A turn later than this is a script's, and is refused.
+ */
+export const ABSORB_TURN_MS = HARDEN_MS;
 
 /**
  * A slime touches a piece when their middles are this close, and pushes it at least this far on

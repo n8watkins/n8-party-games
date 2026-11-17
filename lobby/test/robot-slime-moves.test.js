@@ -20,7 +20,7 @@ import { ABSORB_MS, ABSORB_TURN_MS, HARDEN_MS, HOLD_MS, SHOVE_AGAIN_MS, SHOVE_MS
 import { COUNT_MS, boxFromManifest } from "../shared/vote.js";
 import { POSITION_SLACK, ROOM, boxCentre, lightAt, lightHalf, posAt } from "../shared/world.js";
 import { TEST_WALL, WALL } from "../wall.js";
-import { dropFakeRuntime, openRoom, settle, useFakeRuntime, walkTo } from "./fake-room.js";
+import { dropFakeRuntime, fakeCtx, fakeEnv, openRoom, settle, useFakeRuntime, walkTo } from "./fake-room.js";
 import { turnGame } from "./turn-game.js";
 
 vi.mock("cloudflare:workers", () => ({
@@ -436,8 +436,9 @@ describe("the room's judgement of the hook", () => {
     const endsAt = core.count.endsAt;
     // The slime goes soft, and the robot's hook sticks to it as the count ends: the robot is dragged
     // out of its light toward the slime, and never into the slime's light.
-    core.slime(1, "harden", endsAt - 500);
-    core.slime(1, "absorb", endsAt - 500 + HOLD_MS);
+    // Soft before the hook is thrown, so it is soft when the tip gets there.
+    core.slime(1, "harden", endsAt - 700);
+    core.slime(1, "absorb", endsAt - 700 + HOLD_MS);
     core.hook(0, endsAt - 400);
     expect(core.members[0].hook.judgeAt).toBeLessThanOrEqual(endsAt);
     core.members[0].hook.judgeAt = endsAt;
@@ -483,6 +484,100 @@ describe("the room's judgement of the hook", () => {
     core.setLook(0, { c: "pawn" }, 9050);
     expect(core.members[0].hook).toBeNull();
     expect(core.drainMoves()).toEqual([{ t: "hk", s: 0, o: "off" }]);
+  });
+});
+
+describe("found in review of #69", () => {
+  /** Rob (a robot) in the second pool facing left, Pat at the first pool's right edge, Sam beside Rob: all three vote, the count runs. */
+  function countWithHook() {
+    const n = TEST_WALL.boxes.length;
+    const core = party(["Rob", "Pat", "Sam"], TEST_WALL);
+    be(core, 0, "robot");
+    const [c0, c1] = [boxCentre(0, n), boxCentre(1, n)];
+    expect(core.litPlaces().slice(0, 2)).toEqual([0, 1]);
+    place(core, 1, Math.round(c0 + 17), 1000);
+    place(core, 2, Math.round(c1 + 63), 1000);
+    place(core, 0, Math.round(c1 - 17), 1000, -1);
+    expect(core.count).not.toBeNull();
+    return { core, n, endsAt: core.count.endsAt };
+  }
+
+  for (const before of [293, 252]) {
+    it(`stops the count for a hook that reaches a voter ${before} ms before the count ends (the count waits for it to be judged)`, () => {
+      const { core, n, endsAt } = countWithHook();
+      core.hook(0, endsAt - before);
+      const judgeAt = core.members[0].hook.judgeAt;
+      expect(judgeAt - HOOK_LATE_MS).toBeLessThanOrEqual(endsAt);
+      expect(judgeAt).toBeGreaterThan(endsAt);
+      // The count's own moment comes first: the room waits, and wakes for the hook instead.
+      const atEnd = core.tick(endsAt);
+      expect(atEnd.start).toBeNull();
+      expect(core.count).not.toBeNull();
+      expect(core.nextWake(endsAt)).toBe(judgeAt);
+      // The hook pulls Pat out of his light, toward Rob's (never into it): the count stops, no game starts.
+      const out = core.tick(judgeAt);
+      expect(out.hooks[0]).toMatchObject({ o: "pull", to: 1 });
+      expect(lightAt(core.members[1].x, n)).toBe(-1);
+      expect(out.start).toBeNull();
+      core.evaluate(judgeAt);
+      expect(core.count).toBeNull();
+      expect(core.activity.kind).toBe("lobby");
+    });
+  }
+
+  it("still ends the count on time for a hook that reaches its voter only after the end", () => {
+    const { core, endsAt } = countWithHook();
+    core.hook(0, endsAt - 100);
+    expect(core.members[0].hook.judgeAt - HOOK_LATE_MS).toBeGreaterThan(endsAt);
+    expect(core.tick(endsAt).start).toBe(core.boxes[1].id);
+  });
+
+  it("judges a hook by what the piece was doing when the tip reached it: a harden heard 144 ms after that is too late", () => {
+    const core = party(["Rob", "Sam"]);
+    be(core, 0, "robot");
+    be(core, 1, "slime");
+    place(core, 0, 1200, 1000, 1);
+    place(core, 1, 1500, 1000);
+    core.hook(0, 2000);
+    const judgeAt = core.members[0].hook.judgeAt;
+    // Sam walks into the line 20 ms after the throw: the tip meets him sooner than the room worked out at the throw.
+    core.move(1, { x: 1500, d: -1, r: core.members[1].rev }, 2020);
+    const strike = firstCatch(core.members[0].hook, [{ seat: 1, at: (t) => posAt(core.members[1], t) }], 2000, 3000).t;
+    expect(strike + HOOK_LATE_MS).toBeLessThan(judgeAt);
+    core.slime(1, "harden", strike + 144);
+    const [hk] = run(core, strike + 145, judgeAt + 10);
+    expect(hk).toMatchObject({ o: "pull", to: 1 });
+    // Heard within the allowance, a harden still clangs.
+    const again = party(["Rob", "Sam"]);
+    be(again, 0, "robot");
+    be(again, 1, "slime");
+    place(again, 0, 1200, 1000, 1);
+    place(again, 1, 1500, 1000);
+    again.hook(0, 2000);
+    again.move(1, { x: 1500, d: -1, r: again.members[1].rev }, 2020);
+    again.slime(1, "harden", strike + 60);
+    expect(run(again, strike + 61, judgeAt + 10)[0]).toMatchObject({ o: "clang" });
+  });
+
+  it("drags a hook train's catch only if nothing has moved it since it was caught, and by the rules of a pull", () => {
+    const core = party(["Ann", "Bo", "Cy"]);
+    be(core, 0, "robot");
+    be(core, 1, "robot");
+    place(core, 1, 400, 1000, 1);
+    place(core, 0, 650, 1000, 1);
+    place(core, 2, 850, 1000);
+    core.hook(0, 2000);
+    run(core, 2000, 2400);
+    const pulledAt = core.members[0].pulled.at;
+    // The catch is knocked by something else before Bo's hook reaches Ann: it is not dragged along.
+    core.throwPiece(core.members[2], 1, pulledAt + 10);
+    const kickedTo = core.members[2].x;
+    core.members[1].hookAt = -Infinity;
+    core.hook(1, pulledAt - HOOK_AIM_MS - 60);
+    const hk = run(core, pulledAt - 100, pulledAt + 600).find((m) => m.s === 1);
+    expect(hk).toMatchObject({ o: "pull", to: 0 });
+    expect(hk.tr).toBeUndefined();
+    expect(core.members[2].x).toBe(kickedTo);
   });
 });
 
@@ -807,6 +902,58 @@ describe("the robot's and the slime's moves on the real room", () => {
     expect(core.activity.kind).not.toBe("lobby");
     expect(Date.now() - endsAt).toBeLessThan(COUNT_MS);
   });
+});
+
+describe("the count's last moment on the real room (review of #69, reproduction B)", () => {
+  beforeEach(useFakeRuntime);
+  afterEach(dropFakeRuntime);
+
+  for (const lead of [293, 252]) {
+    it(`a hook thrown ${lead} ms before the count ends, reaching a voter before it, stops the count: no game starts`, async () => {
+      // The local wall (Coin Flip and the rest), its first two lights on, with three players.
+      const Room = createLobbyRoom(() => TEST_WALL);
+      const ctx = fakeCtx();
+      ctx.keepAlive = true;
+      ctx.room = new Room(ctx, fakeEnv());
+      await settle();
+      const say = (ws, msg) => ctx.room.webSocketMessage(ws, JSON.stringify(msg));
+      const connect = async (token) => {
+        const res = await ctx.room.fetch(new Request("https://room/ws", { headers: { Upgrade: "websocket" } }));
+        expect(res.status).toBe(101);
+        const ws = ctx.sockets.at(-1);
+        say(ws, { t: "hello", token });
+        return ws;
+      };
+      const tokens = [await ctx.room.create({ code: "BCDFGH", nickname: "Rob", as: "player" })];
+      for (const name of ["Pat", "Sam"]) tokens.push(await ctx.room.join({ nickname: name, as: "player" }));
+      const ws = [];
+      for (const t of tokens) ws.push(await connect(t.token));
+      await settle();
+      say(ws[0], { t: "look", c: "robot" });
+      await vi.advanceTimersByTimeAsync(LOOK_COOLDOWN_MS);
+      const core = ctx.room.core;
+      const n = core.boxes.length;
+      const [c0, c1] = [boxCentre(0, n), boxCentre(1, n)];
+      await walkTo(say, ctx, ws[1], 1, Math.round(c0 + 17));
+      await walkTo(say, ctx, ws[2], 2, Math.round(c1 + 63));
+      await walkTo(say, ctx, ws[0], 0, Math.round(c1 - 17));
+      say(ws[0], { t: "m", x: Math.round(c1 - 17), d: -1, r: core.members[0].rev });
+      say(ws[0], { t: "m", x: Math.round(c1 - 17), d: 0, r: core.members[0].rev });
+      await settle();
+      expect(core.count).not.toBeNull();
+      const endsAt = core.count.endsAt;
+      await vi.advanceTimersByTimeAsync(endsAt - lead - Date.now());
+      const from = ws[1].frames.length;
+      say(ws[0], { t: "hook" });
+      await vi.advanceTimersByTimeAsync(lead + 600);
+      const heard = ws[1].messages().slice(from);
+      expect(heard.find((m) => m.t === "hk")).toMatchObject({ o: "pull", to: 1 });
+      expect(heard.some((m) => m.t === "start")).toBe(false);
+      expect(core.activity.kind).toBe("lobby");
+      expect(core.count).toBeNull();
+      expect(lightAt(core.members[1].x, n)).toBe(-1);
+    });
+  }
 });
 
 describe("faded ghosts and the new moves", () => {

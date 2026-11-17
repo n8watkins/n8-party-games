@@ -955,20 +955,31 @@ export class LobbyCore {
     }
     const o = this.members[hit.seat];
     const strikeAt = hit.t;
+    // The hook is judged by what the piece was doing when the tip reached it (`strikeAt`), with
+    // HOOK_LATE_MS for the network: a harden, an absorb or a fade the room heard later than that
+    // does not count, however late the room wakes for it (a piece that walked into the hook is met
+    // earlier than the room first worked out).
+    const heard = (start) => (start ?? -Infinity) <= strikeAt + HOOK_LATE_MS;
+    const fadedThen = moveOf(o.character) === "fade" && strikeAt < (o.fadedUntil ?? 0) && heard(o.fadeAt);
+    const hardThen = strikeAt < (o.hardUntil ?? 0) && heard(o.slimeAt);
+    const softThen = strikeAt < (o.softUntil ?? 0) && heard(o.softAt);
+    // Down, just up or being pulled when the tip got there: it passes over it, as over a jump.
+    const passed = isSafe(o, strikeAt) && !fadedThen;
     const ox = posAt(o, now);
     const robotX = posAt(m, now);
     const side = Math.sign(ox - robotX) || hook.dir;
     const base = { t: "hk", s: m.seat, to: o.seat, hx: Math.round(ox) };
     // A jump clears it (a robot has no jump: its legs are its jump, and they do not): it flies on.
-    if (moveOf(o.character) !== "hook" && jumpedOver(o.jumpAt, strikeAt)) {
+    const jumped = moveOf(o.character) !== "hook" && jumpedOver(o.jumpAt, strikeAt);
+    if (jumped || passed) {
       hook.past.push(o.seat);
       hook.judgeAt = this.nextCatch(m, Math.max(hook.at, now - HOOK_LATE_MS)) + HOOK_LATE_MS;
       if (hook.judgeAt <= now) hook.judgeAt = now + 1;
-      return { ...base, o: "jumped", go: 1 };
+      return jumped ? { ...base, o: "jumped", go: 1 } : null;
     }
     m.hook = null;
     // A faded ghost: it passes through, and the robot is scared off the other way (shared/ghost.js).
-    if (this.faded(o, now)) {
+    if (fadedThen) {
       this.throwPiece(m, -side, now, SCARE_LANDING);
       Object.assign(m, { stunUntil: now + HOOK_SCARE_MS, immuneUntil: now + HOOK_SCARE_MS + IMMUNE_MS, fright: "hookscare" });
       return { ...base, o: "scare", x: m.x, rev: m.rev };
@@ -976,9 +987,9 @@ export class LobbyCore {
     // A pawn's kick as it arrives bats it away.
     if (moveOf(o.character) === "kick" && battedAway(o.bumpAt, o.bumpFace, ox, robotX, strikeAt)) return { ...base, o: "parry" };
     // A hardened slime: it clangs off.
-    if (isHard(o, now)) return { ...base, o: "clang" };
+    if (hardThen) return { ...base, o: "clang" };
     // An absorbing slime: it sticks, and the robot is dragged to the slime.
-    if (isSoft(o, now)) {
+    if (softThen) {
       this.slidePiece(m, ox - side * HOOK_HOLD, now);
       this.interrupt(m, now);
       Object.assign(m, { stunUntil: now + PULL_MS, immuneUntil: now + PULL_MS + PULLED_SAFE_MS, fright: "pull" });
@@ -1000,25 +1011,36 @@ export class LobbyCore {
     }
     // The pull: dragged across the floor to the robot, upright.
     const from = ox;
-    this.slidePiece(o, robotX + side * HOOK_HOLD, now);
-    const moved = o.x - from;
-    // Its legs drop and whatever it was doing ends; a hook it has out keeps flying from where it now is (hooked while hooking).
-    if (isUp(o, now)) o.stiltsUntil = now;
-    if (isSoft(o, now)) o.softUntil = now;
-    if (o.hook) o.hook.x0 += moved;
-    Object.assign(o, { stunUntil: now + PULL_MS, immuneUntil: now + PULL_MS + PULLED_SAFE_MS, fright: "pull" });
-    m.pulled = { seat: o.seat, at: now };
+    this.pulledTo(o, robotX + side * HOOK_HOLD, now);
+    m.pulled = { seat: o.seat, at: now, rev: o.rev };
     const relay = { ...base, o: "pull", x: o.x, rev: o.rev };
-    // The hook train: a robot pulled while it drags a catch brings the catch along behind it.
-    const catchOf = o.pulled && now - o.pulled.at <= TRAIN_MS ? this.members[o.pulled.seat] : null;
-    if (catchOf && catchOf.seat !== m.seat) {
-      const behind = Math.sign(posAt(catchOf, now) - from) || side;
-      this.slidePiece(catchOf, o.x + behind * HOOK_HOLD, now);
-      Object.assign(catchOf, { stunUntil: now + PULL_MS, immuneUntil: now + PULL_MS + PULLED_SAFE_MS, fright: "pull" });
-      o.pulled = null;
-      relay.tr = { s: catchOf.seat, x: catchOf.x, rev: catchOf.rev };
+    // The hook train: a robot pulled while it drags a catch brings the catch along behind it, by
+    // the rules of a pull: only a catch that nothing has moved since this robot caught it (not
+    // kicked, spooked or shoved meanwhile), and not one that has hardened, gone soft or faded since.
+    const caught = o.pulled && now - o.pulled.at <= TRAIN_MS ? this.members[o.pulled.seat] : null;
+    const still = caught && caught.seat !== m.seat && caught.rev === o.pulled.rev && !isHard(caught, now) && !isSoft(caught, now) && !this.faded(caught, now);
+    o.pulled = null;
+    if (still) {
+      const behind = Math.sign(posAt(caught, now) - from) || side;
+      this.pulledTo(caught, o.x + behind * HOOK_HOLD, now);
+      relay.tr = { s: caught.seat, x: caught.x, rev: caught.rev };
     }
     return relay;
+  }
+
+  /**
+   * A piece a hook drags across the floor to `to` (a pull, or the catch of a hook train): it lands
+   * by the room's rule (slidePiece), its legs drop and whatever it was doing ends, and a hook it has
+   * out keeps flying from where it now is (hooked while hooking). Then it slides, upright.
+   */
+  pulledTo(o, to, now) {
+    const from = posAt(o, now);
+    this.slidePiece(o, to, now);
+    if (isUp(o, now)) o.stiltsUntil = now;
+    if (isSoft(o, now)) o.softUntil = now;
+    if (isHard(o, now)) o.hardUntil = now;
+    if (o.hook) o.hook.x0 += o.x - from;
+    Object.assign(o, { stunUntil: now + PULL_MS, immuneUntil: now + PULL_MS + PULLED_SAFE_MS, fright: "pull" });
   }
 
   /**
@@ -1050,7 +1072,7 @@ export class LobbyCore {
     const may = maySlime(m, kind, now, { slimes, lobby: this.floorTime(), slack: COOLDOWN_SLACK_MS });
     if (!may.ok) return { ...may, bad: (!slimes && !(now - (m.lookAt ?? -Infinity) <= SHOVE_LATE_MS)) || (!!may.cooling && tooEager(may.wait)) };
     if (kind === "harden") Object.assign(m, { slimeAt: now, hardUntil: now + HARDEN_MS, softUntil: 0, slimeTurned: false });
-    else Object.assign(m, { hardUntil: now, softUntil: now + ABSORB_MS, slimeTurned: true });
+    else Object.assign(m, { hardUntil: now, softAt: now, softUntil: now + ABSORB_MS, slimeTurned: true });
     this.lastActive = now;
     return { ok: true, relay: { t: "slime", s: seat, k: kind, for: kind === "harden" ? HARDEN_MS : ABSORB_MS } };
   }
@@ -1182,6 +1204,11 @@ export class LobbyCore {
     return Object.fromEntries(this.boxes.map((box) => [box.id, whyNot(box, party)]));
   }
 
+  /** Whether a robot's hook still to be judged reached (or will reach) a piece by `t`, as the room works it out now. */
+  hookBefore(t) {
+    return this.present().some((m) => m.hook && m.hook.judgeAt - HOOK_LATE_MS <= t);
+  }
+
   /** Whether every connected player stands in a light that counts: what the count needs to run on. */
   standingAll(now) {
     const standing = this.standing(now);
@@ -1311,6 +1338,9 @@ export class LobbyCore {
       } else if (this.count && now >= this.count.endsAt && out.hooks.length && !this.standingAll(now)) {
         // A hook judged just now pulled a voter out of the light: the count stops (evaluate).
         out.changed = true;
+      } else if (this.count && now >= this.count.endsAt && this.hookBefore(this.count.endsAt)) {
+        // A hook that reached a voter by the count's end is judged first (a kick at that moment
+        // stops the count, and so must a hook): the count ends when it is, a third of a second late at most.
       } else if (this.count && now >= this.count.endsAt) {
         const top = leaders(
           tally(this.standing(now)),
@@ -1436,7 +1466,8 @@ export class LobbyCore {
     if (this.activity.kind === "lobby") {
       at = Math.min(at, this.lastActive + this.staleLimit(), this.createdAt + MAX_ROOM_LIFE_MS);
       if (this.closing) at = Math.min(at, this.closing.at);
-      if (this.count) at = Math.min(at, this.count.endsAt);
+      // The count's end, unless a hook that reached someone by then is still to be judged: then that (below).
+      if (this.count && !(this.count.endsAt <= now && this.hookBefore(this.count.endsAt))) at = Math.min(at, this.count.endsAt);
       if (this.toss) at = Math.min(at, this.toss.endsAt);
       // The Table's starting beat ends: the picked game starts.
       if (this.beat) at = Math.min(at, this.beat.at);
