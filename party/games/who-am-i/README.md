@@ -4,23 +4,25 @@ Each of two players is dealt a secret name: a famous person, a character or a br
 Your phone shows the name the other player is guessing, never your own.
 You ask yes/no questions (or listen to clues), guess who you are, and the other player confirms the guess.
 
-This folder is the pure rules and the names only: no page, no server wiring.
+This folder is the pure rules and the names (server only); the page is `party/public/games/who-am-i.js` and `.css` (see "At the Table: the page").
 It is the live game at whoami.n8builds.dev (`n8watkins/who-am-i`, `src/worker/engine.ts` and `src/worker/content`) remade in the shape every Table game keeps (`party-kit/GAME-CONTRACT.md`, "Games at the Table"; Paper Masks set it).
 Where it departs from the live game, the departure is listed under "Differences from the live game".
 
 | File | What it is |
 | --- | --- |
-| `rules.js` | `create`, `apply`, `view`, `nextDeadline`, `done`, `result`, `standings`, `cleanOptions` |
+| `rules.js` | `create`, `apply`, `view`, `nextDeadline`, `done`, `decided`, `result`, `standings`, `cleanOptions` |
 | `deck.js` | The names, the packs, and the live game's rules for dealing two of them (with one more, below) |
 | `deck-data.js` | The live game's 245 names with their hints and pictures. Generated: do not edit |
 | `../draws.js` | The match's random draws: SHA-256 of the secret and a count (shared with Paper Masks) |
 | `tools/copy-deck.mjs` | Copies the names from a who-am-i checkout again: `node party/games/who-am-i/tools/copy-deck.mjs [checkout]` |
-| `index.js` | `game` (through `../table-game.js`) and `manifest`, ready for `games.js` once the view exists |
+| `index.js` | `game` (through `../table-game.js`) and `manifest`, listed in `games.js` (`TURN_GAMES`) |
 | `test/` | Whole matches, timers and leaving, every refusal, secrecy properties, the names, and the game on the real party room |
+| `test/e2e-who-am-i.mjs` | Three whole matches in real browsers with every secret checked (`npm run test:who-am-i`, in the pre-deploy gate) |
 
 Everything is a pure function of plain JSON.
 There is no clock and no hidden randomness: the room passes `now`, and every draw comes from the match's secret (`state.secret`) at a position kept in the state (`state.draws`; `../draws.js`).
-It is not on the Table's list yet: its entry stays "Coming soon" (`lobby/wall.js`, `TABLE_SOON`) until the page lane adds the view and imports `index.js` in `games.js`.
+It is on the Table's list (`games.js`, `TURN_GAMES`), in place of its "Coming soon" entry (`lobby/wall.js`, `TABLE_SOON`).
+The Floor's wall still lists the live game at whoami.n8builds.dev as an outside game (`lobby/wall.js`, `OUTSIDE`), so the front page offers both: the Table door plays it here, the room door opens its own site.
 
 ## The API
 
@@ -100,6 +102,7 @@ A turn that runs out while the players are here is ordinary play: in a spoken ma
 ### Scoring into the Tonight board
 
 `standings(state)` gives the room its places, and the room turns them into points (3 for first, 2 for second).
+They are given once the match is over, and already on the reveal of the round that decided it: `decided(state)` is true there, so through the Table's adapter the host's own "End the game" on that screen ends the match as finished and scores it once (`test/at-table.test.js`), and the page asks the Table to hide that button there (`ctx.decided`).
 The winner of a decided match is first and the other second; a tie shares first.
 A forfeit places only the player who stayed; an idle or abandoned match, or one that ended before it began, places nobody.
 `result(state)` is a list of rows, best first, `{ seat, score, correct, skips, hints, left, place, forfeit? }`, so the room's end card shows each player's score beside their place.
@@ -230,8 +233,31 @@ That is no help in a game: you do not know which of 245 names you were dealt.
 13. **No version numbers or expected-version checks:** the room's answered inputs (ids) do that job.
 14. **Pictures:** on for every name that has one; the live site's switch (`PICTURES=off`) is `PICTURES_ON` in `deck.js` here, since the rules see no environment.
 
+## At the Table: the page
+
+`party/public/games/who-am-i.js` and `.css`, with Nunito (OFL, `party/public/games/who-am-i/fonts/`), in the live game's look: its purple, its question-mark mark, the "Answer as" headband card, chat bubbles for questions and amber rows for hints, light or dark with the phone's setting.
+
+- **Setup:** the host's form (category, level, mode, turns and questions for Ask, match, timer, hints, the pick for a table of more than two) with Start the game and the time left; everyone else sees the choices as they stand.
+- **A turn, the guesser:** the other player's name small at the top, "Your name: hidden", the log, and at the bottom the suggested questions, a box, "+1 asked out loud", Hint, Pass (trade) or Give up, and I Guessed It. While a guess waits: the time left to confirm it, and, once the other phone has been away 30 s (`selfConfirmAt`), Confirm it myself.
+- **A turn, the other player:** the name to answer as, big, with its picture and credit; Yes, No, Sort of, Don't know for a typed question; Not quite or Yes, correct for a guess; "+1" in keep-going Ask.
+- **A watcher and the big screen:** whose turn it is, the log, the scores, the timer; never a name. The big screen fills the rest of the screen and never scrolls (the turn on the left, the log on the right).
+- **The reveal:** both names with pictures, each result, hints and questions, the scores, Next round (either player), and the time until it goes on by itself. On the reveal that decides the match: who won, and Back to the Table.
+- **Secrecy on the page:** nothing is stored on the device (no names, hints, questions or drafts; a half-typed question lives in its box only); every name and question is set as text; pictures load only from `https://upload.wikimedia.org/` with no referrer; the site's CSP allows that one host for images only (`scripts/build-public.mjs`, `PICTURE_HOST`; `party-kit/test/deploy-config.test.js`).
+- `test/e2e-who-am-i.mjs` checks every message each page receives, and each page's whole document and storage, after every step; and compares a player's screen in the same role in two rounds (two different own names), element for element and box for box.
+
+### Differences from the live game's screens
+
+- No lobby, ready buttons, invite or QR code: the Table does that. The host's choices are a setup step in the match.
+- No rematch, share card or "Change settings" at the end: Back to the Table, where the host picks again.
+- No sound toggle, theme switch or footer: the Table has its own bar; the theme follows the phone.
+- Pack tiles are plain choice buttons (no pack art); a name with no picture shows its initials on a pack colour, not the live portrait art.
+- The guesser's view of the other player's name is a small card that is always open (live: a collapsible row).
+- The opponent-away banner is replaced by the self-confirm countdown, which is what the rules time from.
+- Watchers and the big screen are new: the live game has neither.
+
 ## What was not checked
 
-- Nothing was seen in a browser or on a phone: there is no page yet.
+- The page was seen in headless Chromium only (Android user agent, touch), not on a real phone or in Safari.
+- Pictures were served by the test in place of upload.wikimedia.org (the CSP and no-referrer were checked against them); the real addresses were not loaded.
 - The deck was copied from who-am-i `main` at `7afaad4` (199 pictures of 245, as live); the pictures' addresses were not fetched.
 - How a locked phone behaves at the Table (away with its socket open, or dropped) decides whether a talking game survives phones put down on the table: locked phones are not here, so both locked for a whole round end the match as idle; one dropped for two minutes forfeits. That needs one real-phone check.

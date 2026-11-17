@@ -318,14 +318,24 @@ async function fits(p, label, { screen = p.screen } = {}) {
     }
     const frame = root.getBoundingClientRect();
     const cut = [...root.querySelectorAll("p, li, button, h2, .wa-card")]
-      .filter((e) => e.checkVisibility() && !e.closest(".wa-logbox"))
+      // (the log keeps its newest entries in view and lets older ones go up out of sight; a note
+      // floats over the top of the screen for a few seconds)
+      .filter((e) => e.checkVisibility() && !e.closest(".wa-logbox") && !e.closest(".wa-toast"))
       .filter((e) => {
         const r = e.getBoundingClientRect();
         return r.height && (r.bottom > frame.bottom + 1 || r.top < frame.top - 1 || r.right > frame.right + 1 || r.left < frame.left - 1);
       })
       .map((e) => `${e.className || e.tagName}: ${(e.textContent ?? "").slice(0, 24)}`);
     // Anything wider than the stage, apart from the suggestions' own row, which slides sideways by design (as live).
-    const wide = [...root.querySelectorAll("*")].filter((e) => !e.closest(".wa-suggest") && e.getBoundingClientRect().right > frame.right + 1 && e.checkVisibility()).map((e) => e.className || e.tagName);
+    // The stage itself, and everything in it, inside the screen's width too.
+    const stage = root.closest(".stage") ?? root;
+    const wide = [stage, ...stage.querySelectorAll("*")]
+      .filter((e) => !e.closest(".wa-suggest") && e.checkVisibility())
+      .filter((e) => {
+        const r = e.getBoundingClientRect();
+        return r.width && (r.right > Math.min(frame.right, innerWidth) + 1 || r.left < -1);
+      })
+      .map((e) => e.className || e.tagName);
     return { cut: cut.slice(0, 4), cutCount: cut.length, sw: document.documentElement.scrollWidth, sh: document.documentElement.scrollHeight, w: innerWidth, h: innerHeight, rootWide: root.scrollWidth - root.clientWidth, wide: wide.slice(0, 4), small };
   });
   check(m.sw <= m.w && m.rootWide <= 1 && !m.wide.length, `${label}: nothing scrolls sideways (${m.sw} in ${m.w}, inner ${m.rootWide}${m.wide.length ? `, wide: ${m.wide.join(", ")}` : ""})`);

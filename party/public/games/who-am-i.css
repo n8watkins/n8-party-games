@@ -57,7 +57,11 @@
   color: var(--ink);
   font: 600 16px/1.4 "WA Nunito", "Nunito", "Segoe UI", system-ui, sans-serif;
   color-scheme: light;
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
+  /* The stage is as wide as the Table gives it, whatever its content would like (the suggested
+     questions' row is wider than a phone by design), and its parts can ask how wide that is. */
+  container-type: inline-size;
+  container-name: wa;
   -webkit-font-smoothing: antialiased;
 }
 @media (prefers-color-scheme: dark) {
@@ -105,6 +109,17 @@
   flex-direction: column;
   gap: 12px;
   min-width: 0;
+}
+/* Every one-column grid is exactly as wide as its box, whatever a long word inside would like. */
+.wa-top,
+.wa-who,
+.wa-set,
+.wa-form,
+.wa-group,
+.wa-answer,
+.wa-head,
+.wa-rev {
+  grid-template-columns: minmax(0, 1fr);
 }
 .wa-vh {
   position: absolute;
@@ -756,6 +771,8 @@
   bottom: 0;
   z-index: 5;
   display: grid;
+  /* One column exactly as wide as the stage: the suggestions' row slides inside it, never widens it. */
+  grid-template-columns: minmax(0, 1fr);
   gap: 10px;
   margin: 0 -12px;
   padding: 12px 12px max(12px, env(safe-area-inset-bottom));
@@ -948,8 +965,28 @@
   cursor: progress;
 }
 
-/* ------------------------------------------------------------ wider phones and a phone sideways */
-@media (min-width: 600px) {
+/* ------------------------------------------------------------ narrow phones, wider phones, a phone sideways */
+@container wa (max-width: 340px) {
+  /* The bar takes two lines: the round and the scores, then what has been asked and the timer. */
+  .wa-bar {
+    flex-wrap: wrap;
+    row-gap: 2px;
+  }
+  .wa-bar > .wa-logo {
+    display: none;
+  }
+  .wa-bar-end:not(:empty) {
+    flex-basis: 100%;
+    justify-content: space-between;
+  }
+  .wa-scores {
+    justify-content: flex-end;
+  }
+  .wa-name.big {
+    font-size: 26px;
+  }
+}
+@container wa (min-width: 560px) {
   .wa-reveal {
     grid-template-columns: 1fr 1fr;
   }
@@ -1015,11 +1052,23 @@
 .wa[data-big="screen"][data-wide="two"] {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr);
-  grid-template-rows: auto minmax(0, 1fr) auto;
+  grid-template-rows: auto auto auto auto minmax(0, 1fr);
   grid-template-areas:
     "bar bar"
     "top log"
-    "act log";
+    "act log"
+    "board log"
+    ". log";
+}
+.wa[data-big="screen"][data-wide="two"] .wa-board {
+  grid-area: board;
+}
+.wa[data-big="screen"] .wa-tag {
+  font-size: 16px;
+  padding: 4px 12px;
+}
+.wa[data-big="screen"] .wa-bubble {
+  font-size: 20px;
 }
 .wa[data-big="screen"][data-wide="two"] .wa-main {
   display: contents;

@@ -603,6 +603,8 @@ export function mount(container, ctx) {
     }
 
     drawLog(t, mine, guesser);
+    // The big screen has room for the scores beside the log, as the reveal shows them.
+    if (bigScreen) scoreboard(main);
 
     // What this phone can do now.
     if (!amPlayer()) return watcherActions(t, guesser, judge, waiting);
@@ -788,7 +790,6 @@ export function mount(container, ctx) {
 
   function drawReveal() {
     const r = v.reveal;
-    root.dataset.wide = bigScreen ? "two" : "";
     const head = el("div", "wa-head", "", main);
     if (r.matchOver) {
       const won = winners(v.players);
