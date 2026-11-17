@@ -352,7 +352,11 @@ try {
     await sam.keyboard.down("KeyX");
     await sleep(HOLD_MS + 120);
     const soft = await after((m) => m.t === "slime" && m.s === S && m.k === "absorb", 2000, mark);
-    check(soft?.for === ABSORB_MS, `held: the room tells everybody Sam went soft (${soft?.k})`);
+    // When it did not: what the room said about Sam's moves meanwhile, and what Sam's own page thought.
+    const softWhy = soft
+      ? ""
+      : `; the room said ${JSON.stringify(ada.seen.slice(mark).filter((m) => (m.s === S && m.t !== "m") || m.t === "vote").map((m) => m.t + (m.k ? ":" + m.k : "") + (m.t === "vote" ? (m.vote.count ? ":count" : "") : "")))}, Sam's room record ${JSON.stringify((await where())[S])}, his page ${JSON.stringify(await sam.evaluate(() => ({ phase: globalThis.__partyRoom?.view?.room?.phase, note: document.querySelector(".note")?.textContent ?? null, active: document.activeElement?.tagName })))}`;
+    check(soft?.for === ABSORB_MS, `held: the room tells everybody Sam went soft (${soft?.k}${softWhy})`);
     // Sam's own phone, reloaded while soft, draws itself soft.
     await rob.keyboard.press("KeyX");
     const stuck = await after((m) => m.t === "hk" && m.s === R, 3000, mark);
