@@ -56,6 +56,8 @@ const VIEW_KEY = "tin-derby-big-screen-view"; // "split" or "table"
 const PAD_KEY = "tin-derby-controller-only"; // "1" or "0"
 /** The camera stand-in on a phone that draws no picture: what the race's events ask of a camera, done to nothing. */
 const NO_RIG = { kick: 0, bump() {}, reset() {} };
+/** Whether a big screen starts on the split view when its host has not chosen: not for now (the owner's call), the whole table. */
+const SPLIT_BY_DEFAULT = false;
 /** WebGL that draws on the processor, not a graphics card: four pictures a frame would be too slow there. */
 const SOFTWARE_GL = /SwiftShader|llvmpipe|softpipe|Software Rasterizer|Basic Render/i;
 
@@ -220,11 +222,12 @@ class Hands {
   draw(state, time, order, racing) {
     const c = state.cars[this.i], place = order.indexOf(c) + 1, T = TUNE;
     this.set(this.lapEl, "lap", c.fin ? "Finished" : `Lap ${lapOf(c, state)} of ${lapsIn(state)}`);
-    this.set(this.placeEl, "place", ORD[place - 1]);
+    // Before GO the grid order is no place, and nobody is ahead or behind yet: they show from GO.
+    this.set(this.placeEl, "place", state.t < 0 ? "" : ORD[place - 1]);
     const lw = this.lineW || (this.lineW = this.lineEl.clientWidth || 100);
     for (const o of state.cars) { const px = Math.round(alongLine(o, lw, this.toks[o.i]) * 2) / 2; if (this.memo["tok" + o.i] !== px) { this.memo["tok" + o.i] = px; this.toks[o.i].style.transform = `translateX(${px}px)`; } }
     const near = (node, key, o, word) => {
-      const d = o && !c.fin ? Math.abs(o.s - c.s) : -1, text = d >= 0 ? `${o.name} ${d < 9.95 ? d.toFixed(1) : Math.round(d)} ${word}` : "";
+      const d = o && !c.fin && state.t >= 0 ? Math.abs(o.s - c.s) : -1, text = d >= 0 ? `${o.name} ${d < 9.95 ? d.toFixed(1) : Math.round(d)} ${word}` : "";
       if (this.memo[key] === o?.i + text) return;
       this.memo[key] = o?.i + text;
       node.textContent = text;
@@ -278,7 +281,7 @@ class Hands {
       let op = 0, tx = 0, sc = 1;
       if (o !== c && racing && !c.fin) {
         const ds = c.s - o.s, closing = o.v - c.v;
-        if (ds > 0.2 && ds < 6 && closing > 0.6) { const close = 1 - clampN((ds - 0.9) / 5, 0, 1); op = 0.45 + 0.55 * close; sc = 0.7 + close; tx = clampN((o.lat - c.lat) * 60, -150, 150); }
+        if (ds > 0.2 && ds < 6 && closing > 0.6) { const close = 1 - clampN((ds - 0.9) / 5, 0, 1); op = 0.45 + 0.55 * close; sc = 0.7 + close; const reach = Math.min(150, (this.app.w || 800) * 0.13); tx = clampN((o.lat - c.lat) * 60, -reach, reach); } // kept between the thumbs, clear of Brake on a small phone
       }
       const sig2 = `${op.toFixed(2)}|${Math.round(tx)}|${sc.toFixed(2)}`;
       if (this.memo["ch" + o.i] !== sig2) { this.memo["ch" + o.i] = sig2; ch.style.opacity = op.toFixed(2); ch.style.transform = `translateX(${Math.round(tx)}px) scale(${sc.toFixed(2)})`; }
@@ -520,14 +523,14 @@ class App {
   soundButton() { $("bsound").setAttribute("aria-pressed", String(this.sound.on)); $("bsound").textContent = this.sound.on ? "Sound off" : "Sound on"; }
 
   /**
-   * The big screen's view at the start: the host's last choice on this screen, else the split view, unless this
-   * screen draws 3D on its processor (four pictures a frame would crawl there): then the whole table, one picture.
-   * A test switch (derby-tvview=split|table) decides it outright.
+   * The big screen's view at the start: the host's last choice on this screen, else the default (SPLIT_BY_DEFAULT:
+   * the whole table for now, the owner's standing choice), and never the split view by default on a screen that draws
+   * 3D on its processor (four pictures a frame would crawl there). A test switch (derby-tvview=split|table) decides it outright.
    */
   tvView() {
     const asked = params.get("tvview") || store.get(VIEW_KEY);
     if (asked === "split" || asked === "table") return asked === "split" ? "split" : "tvwide";
-    return SOFTWARE_GL.test(stats.renderer) ? "tvwide" : "split";
+    return SPLIT_BY_DEFAULT && !SOFTWARE_GL.test(stats.renderer) ? "split" : "tvwide";
   }
   /** The host switched the big screen's view (one button): the split view or the whole table, remembered on this screen. */
   setView(mode, remember = false) {
@@ -605,7 +608,9 @@ class App {
   }
   /** The controller's own words: the place, the lap, and the house when it has the car. */
   drawPad(st, c) {
-    const place = this.order.indexOf(c) + 1;
+    // Before GO there is no place yet: the count-in's numbers have the middle of the screen to themselves.
+    const place = st.t < 0 ? 0 : this.order.indexOf(c) + 1;
+    $("padinfo").classList.toggle("counting", st.t < 0);
     const lap = c.fin ? "Home" : st.t < 0 ? "Get ready" : `Lap ${lapOf(c, st)} of ${lapsIn(st)}`;
     const line = c.auto && st.t >= 0 && !c.fin ? "The house is driving your car for a moment." : "";
     const key = `${place}|${lap}|${line}`;

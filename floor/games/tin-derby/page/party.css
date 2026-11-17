@@ -102,6 +102,7 @@ body { margin: 0; }
 #padinfo p { margin: 0; font: 600 clamp(14px, 4vh, 19px)/1.2 var(--ui); text-wrap: balance; }
 #padinfo .phouse { color: var(--red); font-weight: 700; }
 #padinfo .phouse:empty { display: none; }
+#padinfo.counting :is(.pdot, .pplace) { visibility: hidden; } /* the count-in's numbers have the middle to themselves */
 #app[data-pad] .ring { width: 140px; height: 140px; margin: -70px 0 0 -70px; left: calc(var(--gl) + 90px); top: calc(100% - var(--gb) - 84px); opacity: 0.85; }
 #app[data-pad] .knob { width: 56px; height: 56px; margin: -28px 0 0 -28px; }
 #app[data-pad] .tb.drift { width: 132px; height: 132px; }
@@ -124,6 +125,19 @@ body { margin: 0; }
   #app[data-pad] .held { right: calc(var(--gr) + 140px); bottom: calc(var(--gb) + 128px); }
 }
 #bpad[aria-pressed="true"] { background: var(--mustard); }
+/* A short or narrow phone: the switch says just "Controller", so the row of buttons stays small. */
+#bpad .short { display: none; }
+@media (max-height: 420px), (max-width: 480px) { #bpad .long { display: none; } #bpad .short { display: inline; } }
+/* The smallest phones (568 x 320): Use sits clear of Drift's ring, and as a controller the power shows on Use alone. */
+@media (max-height: 340px) {
+  .tb.use { bottom: calc(var(--gb) + 114px); }
+  .held { bottom: calc(var(--gb) + 180px); }
+  #app[data-pad] .tb.drift { width: 96px; height: 96px; }
+  #app[data-pad] .tb.brake { right: calc(var(--gr) + 112px); width: 60px; height: 60px; }
+  #app[data-pad] .tb.use { width: 72px; height: 72px; bottom: calc(var(--gb) + 122px); }
+  #app[data-pad] .held { display: none !important; }
+  #app[data-pad] .ring { width: 104px; height: 104px; margin: -52px 0 0 -52px; top: calc(100% - var(--gb) - 64px); }
+}
 /* A controller by force with no big screen any more: the plain card, and nothing to press (the house drives). */
 #app[data-blind] :is(#huds, #padinfo, #hint) { display: none; }
 /* With the Controller only switch beside Sound, the strip and chips stop short of the wider row of buttons (a narrow

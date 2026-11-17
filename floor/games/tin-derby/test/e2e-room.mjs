@@ -3,7 +3,7 @@
 // raced to the end by the phones themselves (each phone's page drives its own car with the house's driver, through
 // the same path as a thumb: ?derby-auto=1), and handed back to the room's Tonight board.
 //
-//   node floor/games/tin-derby/test/e2e-room.mjs [--base=http://localhost:8791] [--only=short,solo,two,four,panes,trouble,stalls,noscreen,look,lag,tvlag,tvperf]
+//   node floor/games/tin-derby/test/e2e-room.mjs [--base=http://localhost:8791] [--only=short,solo,two,four,panes,trouble,stalls,noscreen,screens,look,lag,tvlag,tvperf]
 //     [--out=/tmp/claude-tin-derby-room/stills]   where the stills are saved (that folder by default)
 //
 // The races (`npm run test:tin-derby` is the gate's: short; `npm run test:tin-derby:full` is the rest but tvperf, the
@@ -23,7 +23,9 @@
 //   stalls    four phones: one with no 3D (a controller), one whose page loads late (the house drives it from GO
 //             until it comes up), one whose connection stalls for 5 s without closing (the house's within about a
 //             second, then its own again), and a keyboard player who switches tabs holding an arrow
-//   noscreen  no big screen: a phone with no 3D shows its plain card and the house drives its car
+//   noscreen  no big screen: a phone with no 3D, and one whose picture is lost, show the plain card and the house drives their cars
+//   screens   a phone with no 3D drives by the big screen; the screen reloads (nothing lost), leaves for good (the house
+//             takes the car after 10 s, the phone says so), and another screen joins (the phone takes its car back)
 //   look      the big screen at 1920 x 1080 (its default view and the host's button), an upright phone, a small one
 //             with reduced motion, and a phone whose WebGL context is lost for good (it becomes a controller)
 //   lag       one phone with 40 ms, then 200 ms, of delay each way (the room's simulated latency): how far what the
@@ -44,7 +46,7 @@ import { boxCentre } from "../../../../lobby/shared/world.js";
 const args = process.argv.slice(2);
 const opt = (k, d) => (args.find((a) => a.startsWith("--" + k + "=")) ?? "--" + k + "=" + d).split("=").slice(1).join("=");
 const base = opt("base", "http://localhost:8791");
-const only = new Set(opt("only", "solo,two,four,panes,trouble,stalls,noscreen,look,lag,tvlag").split(","));
+const only = new Set(opt("only", "solo,two,four,panes,trouble,stalls,noscreen,screens,look,lag,tvlag").split(","));
 // Where the stills go: outside every folder the local build watches (lobby/test/predeploy-writes.test.js).
 const stills = opt("out", "/tmp/claude-tin-derby-room/stills");
 if (stills) mkdirSync(resolve(stills), { recursive: true });
@@ -230,9 +232,11 @@ try {
     let end = null, mid = false, countShot = false;
     const t0 = Date.now();
     const watched = pages.find((p) => p.name === "screen") ?? pages[0];
+    const seenAt = new Map();
+    let endAt = 0;
     while (!end && Date.now() - t0 < 200_000) {
       // Every page at once: on a busy machine one after another took long enough to miss the last seconds of a short race.
-      await Promise.all([...frames].map(async ([p, f]) => { try { last.set(p, await look(f)); } catch { /* the frame was taken away, or is reloading */ } }));
+      await Promise.all([...frames].map(async ([p, f]) => { try { last.set(p, await look(f)); seenAt.set(p, Date.now()); } catch { /* the frame was taken away, or is reloading */ } }));
       const t = last.get(watched)?.t ?? -9;
       if (still && !countShot && t < 0) { countShot = true; await still("countdown", t); }
       if (still && !mid && t > 25) { mid = true; await still("mid-race", t); }
@@ -240,7 +244,7 @@ try {
       // Once a car is home (a house car too: the winner's close shot is for whoever wins) the race is near its end: no pause between polls.
       const home = [...last.values()].some((l) => l.cars.some((c) => c.fin));
       if (still && home && !last.finShot) { last.finShot = true; await still("finish", t); }
-      for (const p of pages) if (!end) end = endOf(p);
+      for (const p of pages) if (!end) { end = endOf(p); if (end) endAt = Date.now(); }
       if (!home) await sleep(250);
     }
     check(!!end, `${label}: the race ended in the room within ${Math.round((Date.now() - t0) / 1000)} s`);
@@ -248,7 +252,7 @@ try {
     // Each page's own last word, once its copy has reached the end too: a poll can be a second old on a busy machine,
     // and two cars the last call caught side by side can swap places in it.
     for (const [p, f] of frames) {
-      try { await f.waitForFunction(() => window.__derby.race.over, null, { timeout: 5000 }); last.set(p, await look(f)); } catch { /* taken away already: its last poll stands */ }
+      try { await f.waitForFunction(() => window.__derby.race.over, null, { timeout: 5000 }); last.set(p, await look(f)); seenAt.set(p, endAt); } catch { /* taken away already: its last poll stands */ }
     }
     const roomOrder = end.result.map((r) => r.seat).join();
     for (const [p, l] of last) {
@@ -258,8 +262,11 @@ try {
       // at a page can catch exactly (the page goes the moment the race ends): those may differ only in the seconds
       // after the last look.
       const home = l.order.filter((o) => o.fin).map((o) => o.seat), roomSeats = end.result.map((r) => r.seat);
-      const settled = home.length === roomSeats.length ? seen === roomOrder : home.every((s, k) => roomSeats[k] === s) && !end.result.slice(0, home.length).some((r) => typeof r.time !== "number");
-      check(settled, `${label}, ${p.name}: the page's finishing order (${seen}; home ${home.join() || "none"}) is the room's (${roomOrder})`);
+      // The page must have been seen near the end: at the end itself, with a car home, or within 3 s of it (with no
+      // car home at a look long before the end, the comparison would prove nothing).
+      const ago = endAt - (seenAt.get(p) ?? 0), near = l.over || home.length > 0 || ago < 3000;
+      const settled = near && (l.over || home.length === roomSeats.length ? seen === roomOrder : home.every((s, k) => roomSeats[k] === s) && !end.result.slice(0, home.length).some((r) => typeof r.time !== "number"));
+      check(settled, `${label}, ${p.name}: the page's finishing order (${seen}; home ${home.join() || "none"}; ${l.over ? "seen at the end" : `last seen ${(ago / 1000).toFixed(1)} s before it`}) is the room's (${roomOrder})`);
       check(l.stats.diverged === 0, `${label}, ${p.name}: its copy of the race matched the room's at every snapshot it could check (${l.stats.compared} checked, ${l.stats.diverged} differed, ${l.stats.gaps} gaps, ${l.stats.restarts} restarts, ${l.stats.full} full snapshots)`);
     }
     // Every page that showed the race, a big screen that joined late included.
@@ -677,8 +684,9 @@ try {
     const { end, last } = await race("look", code, [scr, up, small, lost], { during, still });
     if (end) {
       const vs = viewSwitch ?? [], soft = /SwiftShader|llvmpipe/i.test(vs[0]?.renderer ?? "");
-      check(vs.length >= 3 && vs[0].mode === (soft ? "tvwide" : "split") && vs[1].mode !== vs[0].mode && vs[2].mode === vs[0].mode && vs[vs.length - 1].mode === "tvwide" && vs[vs.length - 1].kept === "table" && vs[1].kept === (vs[1].mode === "split" ? "split" : "table"),
-        `look: the big screen starts on ${soft ? "the whole table (it draws in software)" : "the split view"}, and its one button switches the view each press and remembers it (${JSON.stringify(vs.map((v) => [v.mode, v.kept, v.button]))})`);
+      // The whole table is the default for now (the owner's choice), on a graphics card or not; the button reaches the split view.
+      check(vs.length >= 3 && vs[0].mode === "tvwide" && vs[0].kept === null && vs[1].mode === "split" && vs[1].kept === "split" && vs[2].mode === "tvwide" && vs[2].kept === "table",
+        `look: the big screen starts on the whole table${soft ? " (drawing in software)" : ""}, and its one button switches to the split view and back, remembered each press (${JSON.stringify(vs.map((v) => [v.mode, v.kept, v.button]))})`);
       check(layout.covered && layout.covered.length === 0, `look: on the upright and the small phone (each with the Controller only switch) no button covers the strip or chips (${JSON.stringify(layout.covered)})`);
       check(layout.up && layout.up.every((b) => b.l >= 0 && b.r <= 390), `look: the upright phone's strip and chips fit its 390 px (${JSON.stringify(layout.up)})`);
       check(overlaps === 0, `look: on the small phone no rival's name covered the strip or chips (${samples} frames sampled, ${overlaps} overlaps)`);
@@ -770,7 +778,7 @@ try {
 
   // ---------------------------------------------------------------- no big screen: a phone with no 3D gives its car to the house
   if (only.has("noscreen")) {
-    console.log("---- noscreen: two phones and no big screen; one has no 3D, so the house drives its car");
+    console.log("---- noscreen: three phones and no big screen; one has no 3D and one loses its picture, so the house drives their cars");
     const flat = await launchBrowser({ software: true, args: ["--disable-webgl", "--disable-3d-apis"] });
     try {
       const ada = await open("Ada", { width: 844, height: 390 }, { hasTouch: true, isMobile: true });
@@ -781,17 +789,70 @@ try {
       const pin = await ada.evaluate(() => [...document.querySelectorAll("svg.scene text")].map((t) => t.textContent).find((t) => /^\d{4}$/.test(t)));
       const nogl = await phone("NoGL", pin, "", { auto: false, context: { hasTouch: true, isMobile: true, via: flat } });
       nogl.quiet = /WebGL|webgl/;
+      // A phone whose picture is lost for good mid-race, with no big screen to drive by: its car goes to the house.
+      const lost = await phone("Lost", pin, "&derby-short=1");
+      lost.quiet = /WebGL|context/i;
       const code = await codeOf(pin);
-      await vote(code, [ada, nogl]);
+      await vote(code, [ada, nogl, lost]);
       const nf = await (await nogl.waitForSelector(FRAME, { timeout: 60000 })).contentFrame();
       await nf.waitForFunction(() => window.__derby?.noPicture, null, { timeout: 60000 });
       const said = await nf.evaluate(() => ({ text: document.getElementById("nopic").innerText.replace(/\s+/g, " ").trim(), sound: !!document.getElementById("bsound").offsetParent, canvas: !!document.getElementById("gl").offsetParent }));
-      check(said.text === "This phone can't show the race. The house is driving your car. Watch the big screen." && !said.sound && !said.canvas, `noscreen: with no big screen, the phone with no 3D says so plainly, with no dead button and no picture (${JSON.stringify(said)})`);
+      check(said.text === "This phone can't show the race. The house is driving your car." && !said.sound && !said.canvas, `noscreen: with no big screen, the phone with no 3D says so plainly (no big screen mentioned), with no dead button and no picture (${JSON.stringify(said)})`);
       await shot(nogl, "no-3d-phone-no-screen", "the phone with no 3D (844 x 390, WebGL off) in a party with no big screen: the house drives its car");
-      const { end, last } = await race("noscreen", code, [ada]);
+      let lostAt = null, lostSays = null;
+      const during = async (t, frames) => {
+        if (lostAt === null && t > 3 && frames.has(lost)) { lostAt = t; await frames.get(lost).evaluate(() => window.__derby.app.world.renderer.getContext().getExtension("WEBGL_lose_context").loseContext()); }
+        if (lostAt !== null && lostSays === null && frames.has(lost)) {
+          lostSays = await frames.get(lost).evaluate(() => (window.__derby.noPicture ? document.getElementById("nopic").innerText.replace(/\s+/g, " ").trim() : null)).catch(() => null);
+          if (lostSays !== null) frames.delete(lost); // it shows the race no more
+        }
+      };
+      const { end, last } = await race("noscreen", code, [ada, lost], { during });
       if (end) {
-        const l = last.get(ada), ng = roomEvents(ada).filter((e) => e.k === "a" && e.c === carOf(l, "NoGL"));
-        check(ng.length === 1 && ng[0].on === 1 && ng[0].n <= GO + 4 && typeof end.result.find((r) => r.seat === l.cars[carOf(l, "NoGL")].seat)?.time === "number", `noscreen: the room gave its car to the house by GO and the car finished (${JSON.stringify(ng.map((e) => [e.on, +raceT(e.n).toFixed(2)]))})`);
+        const l = last.get(ada), ev = roomEvents(ada), handed = (name) => ev.filter((e) => e.k === "a" && e.c === carOf(l, name)), row = (name) => end.result.find((r) => r.seat === l.cars[carOf(l, name)].seat);
+        const ng = handed("NoGL");
+        check(ng.length === 1 && ng[0].on === 1 && ng[0].n <= GO + 4 && typeof row("NoGL")?.time === "number", `noscreen: the room gave its car to the house by GO and the car finished (${JSON.stringify(ng.map((e) => [e.on, +raceT(e.n).toFixed(2)]))})`);
+        const lh = handed("Lost"), final = lh[lh.length - 1];
+        check(lostSays === "This phone can't show the race. The house is driving your car." && final?.on === 1 && raceT(final.n) > lostAt - 0.5 && typeof row("Lost")?.time === "number", `noscreen: a phone whose picture was lost for good, with no big screen, says so and gives its car to the house, which brings it home ("${lostSays}"; lost at ${lostAt?.toFixed(1)}; ${JSON.stringify(lh.map((e) => [e.on, +raceT(e.n).toFixed(2)]))}; ${JSON.stringify(row("Lost"))})`);
+      }
+    } finally {
+      await closeAll();
+      await flat.close().catch(() => {});
+    }
+  }
+
+  // ---------------------------------------------------------------- the big screen reloads, then leaves, then another comes
+  if (only.has("screens")) {
+    console.log("---- screens: a phone with no 3D drives by the big screen; the screen reloads (nothing lost), leaves for good (the house takes the car), and another joins (the phone takes it back)");
+    const flat = await launchBrowser({ software: true, args: ["--disable-webgl", "--disable-3d-apis"] });
+    try {
+      let scr = await screenPage();
+      const pin = await startParty(scr);
+      const ada = await phone("Ada", pin);
+      const nogl = await phone("NoGL", pin, "", { context: { hasTouch: true, isMobile: true, via: flat } });
+      nogl.quiet = /WebGL|webgl/;
+      const code = await codeOf(pin);
+      await vote(code, [ada, nogl]);
+      const at = { reload: null, back: null, close: null, blind: null, join: null, unblind: null, blindDuringReload: false };
+      const blindOf = (frames) => frames.get(nogl).evaluate(() => ({ blind: !!window.__derby.app.blind, text: document.getElementById("nopic").hidden ? "" : document.getElementById("nopic").innerText.replace(/\s+/g, " ").trim(), t: window.__derby.race.t }));
+      const during = async (t, frames) => {
+        if (at.reload === null && t > 3) { at.reload = t; await scr.reload(); await derby(scr); at.back = (await blindOf(frames)).t; }
+        if (at.back !== null && at.close === null && t < at.back + 11) at.blindDuringReload ||= (await blindOf(frames)).blind;
+        if (at.back !== null && at.close === null && t > at.back + 11) { at.close = t; await scr.close(); }
+        if (at.close !== null && at.blind === null) { const b = await blindOf(frames); if (b.blind) at.blind = b; }
+        if (at.blind && at.join === null && t > at.close + 17) { at.join = t; scr = await screenPage("screen2"); await joinScreen(scr, pin); }
+        if (at.join !== null && at.unblind === null) { const b = await blindOf(frames); if (!b.blind) at.unblind = b; }
+      };
+      const { end, last } = await race("screens", code, [ada, nogl], { during });
+      if (end) {
+        const l = last.get(ada), ev = roomEvents(ada), c = carOf(l, "NoGL");
+        const hand = ev.filter((e) => e.k === "a" && e.c === c).map((e) => [e.on, +raceT(e.n).toFixed(2)]);
+        const inputs = (from, to) => ev.filter((e) => e.k === "i" && e.c === c && raceT(e.n) > from && raceT(e.n) < to).length;
+        check(!at.blindDuringReload && !hand.some(([o, et]) => o === 1 && et > 1 && et < at.close), `screens: while the big screen reloaded (${at.reload?.toFixed(1)} to ${at.back?.toFixed(1)}) the no-3D phone kept driving its car (house ${JSON.stringify(hand)}; ${inputs(at.reload, at.close)} inputs)`);
+        const off = hand.find(([o, et]) => o === 1 && et > at.close);
+        check(!!at.blind && at.blind.text === "No big screen now. This phone can't show the race, so the house is driving your car until a big screen is back." && !!off && off[1] - at.close >= 9 && off[1] - at.close < 14, `screens: with the big screen gone for good (${at.close?.toFixed(1)}), the phone said so and the house took its car ${off ? (off[1] - at.close).toFixed(1) : "?"} s later ("${at.blind?.text}")`);
+        const on = off && hand.find(([o, et]) => o === 0 && et > off[1]);
+        check(!!at.unblind && !!on && on[1] > at.join - 1 && inputs(on[1], 999) >= 3 && typeof end.result.find((r) => r.seat === l.cars[c].seat)?.time === "number", `screens: when another big screen joined (${at.join?.toFixed(1)}) the phone took its car back (${on ? on[1] : "never"}) and drove it home (${inputs(on?.[1] ?? 999, 999)} inputs after)`);
       }
     } finally {
       await closeAll();

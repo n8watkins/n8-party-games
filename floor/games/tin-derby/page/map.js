@@ -54,12 +54,23 @@ export class TableMap {
   draw(st) {
     const x = this.cv.getContext("2d"), k = this.W / 400;
     x.clearRect(0, 0, this.W, this.H); x.drawImage(this.base, 0, 0);
+    // Where each dot goes: on its car; cars running together are eased apart (a few passes), so each dot stays whole
+    // instead of a pile, and no dot goes more than its own width from its car.
+    const P = (this.dots || (this.dots = st.cars.map(() => ({ x: 0, y: 0, x0: 0, y0: 0, r: 0 }))));
+    st.cars.forEach((c, i) => { this.at(c.x, c.z, this.pt); Object.assign(P[i], { x: this.pt.x, y: this.pt.y, x0: this.pt.x, y0: this.pt.y, r: (c.house ? 8 : 14) * k }); });
+    for (let pass = 0; pass < 4; pass++) for (let i = 0; i < P.length; i++) for (let j = i + 1; j < P.length; j++) {
+      const a = P[i], b = P[j], dx = b.x - a.x, dy = b.y - a.y, d = Math.hypot(dx, dy), want = a.r + b.r;
+      if (d >= want) continue;
+      const ux = d > 0.01 ? dx / d : 1, uy = d > 0.01 ? dy / d : 0, push = (want - d) / 2;
+      a.x -= ux * push; a.y -= uy * push; b.x += ux * push; b.y += uy * push;
+    }
+    for (const p of P) { const dx = p.x - p.x0, dy = p.y - p.y0, d = Math.hypot(dx, dy), max = 2 * p.r; if (d > max) { p.x = p.x0 + (dx / d) * max; p.y = p.y0 + (dy / d) * max; } }
     // The house cars first, so the players' dots sit on top.
     for (const pass of [true, false]) for (const c of st.cars) {
       if (c.house !== pass) continue;
-      this.at(c.x, c.z, this.pt);
-      x.beginPath(); x.arc(this.pt.x, this.pt.y, (c.house ? 7.5 : 9) * k, 0, 7); x.fillStyle = c.colour; x.fill(); x.lineWidth = 2.5 * k; x.strokeStyle = NAVY; x.stroke();
-      if (!c.house) { x.beginPath(); x.arc(this.pt.x, this.pt.y, 13.5 * k, 0, 7); x.lineWidth = 2.5 * k; x.stroke(); }
+      const p = P[c.i];
+      x.beginPath(); x.arc(p.x, p.y, (c.house ? 7.5 : 9) * k, 0, 7); x.fillStyle = c.colour; x.fill(); x.lineWidth = 2.5 * k; x.strokeStyle = NAVY; x.stroke();
+      if (!c.house) { x.beginPath(); x.arc(p.x, p.y, 13.5 * k, 0, 7); x.lineWidth = 2.5 * k; x.stroke(); }
     }
   }
 }

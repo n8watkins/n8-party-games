@@ -71,7 +71,8 @@ export class Split {
     if (n === 1) { mw = Math.min(w * 0.24, h * 0.42); mx = w - mw - 16; my = h - mw / MAP_ASPECT - listH(4) - 30; }
     else if (n === 2) { mw = Math.min(w * 0.22, 420); mx = w / 2 - mw / 2; my = h - mw / MAP_ASPECT - listH(4) - 30; }
     else if (n === 3) { const r = R.length > 3 ? R[3] : { x: half(w), y: half(h), w: w - half(w), h: h - half(h) }; mw = Math.min(r.w * 0.86, (r.h - listH(4) - 40) * MAP_ASPECT); mx = r.x + (r.w - mw) / 2; my = r.y + (r.h - mw / MAP_ASPECT - listH(4) - 20) / 2; }
-    else { mw = Math.min(w * 0.18, 340); mx = w / 2 - mw / 2; my = h / 2 - mw / MAP_ASPECT / 2 - 8; list = false; }
+    // Four: the middle, large enough to read across a room (it covers only the panes' inner corners, clear of each car).
+    else { mw = Math.min(w * 0.26, 520); mx = w / 2 - mw / 2; my = h / 2 - mw / MAP_ASPECT / 2 - 8; list = false; }
     Object.assign(mb.style, { left: Math.round(mx) + "px", top: Math.round(my) + "px", width: Math.round(mw) + "px" });
     mb.classList.toggle("nolist", !list);
     mb.classList.toggle("cell", n === 3);
