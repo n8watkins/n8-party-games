@@ -234,6 +234,8 @@ export function create(seats, options = {}, seed = 0, now = 0, { secret = freshS
     // Who is here (connected, page shown), as the room last said; everyone is, until it says not.
     here: Object.fromEntries(pool.map((s) => [key(s), true])),
     goneSince: {},
+    // Seats whose phone is not connected at all (a hidden page is still connected).
+    unlinked: {},
     options: clean,
     host,
     phase: "setup",
@@ -276,6 +278,8 @@ const opponentOf = (state, seat) => state.players.find((p) => p.seat !== seat) ?
 const key = (seat) => String(seat);
 /** Whether a seat is here: connected and its page shown (a seat the room never spoke of is). */
 const isHere = (state, seat) => state.here[key(seat)] !== false;
+/** Whether a seat's phone is connected at all, its page shown or hidden (a seat the room never spoke of is). */
+const isLinked = (state, seat) => state.unlinked?.[key(seat)] !== true;
 const anyPlayerHere = (state) => state.players.some((p) => !p.left && isHere(state, p.seat));
 
 function note(state, k, extra = {}) {
@@ -731,6 +735,10 @@ const SYSTEM_MOVES = {
     const s = move.seat;
     if (!Number.isInteger(s) || s < 0) return refuse("bad_move");
     const here = move.connected === true && move.away !== true;
+    // Connected at all (a hidden page included): what decides whether a leave is a forfeit.
+    state.unlinked ??= {};
+    if (move.connected === true) delete state.unlinked[key(s)];
+    else state.unlinked[key(s)] = true;
     if (isHere(state, s) === here) return;
     state.here[key(s)] = here;
     if (here) {
@@ -746,7 +754,9 @@ const SYSTEM_MOVES = {
    * A seat is gone for good. A watcher just goes. Before the match, the table goes on without it
    * (and ends, with no points, below two). One of the two players: a match already decided ends
    * with its real places; otherwise the player who left forfeits and the one who stayed is first,
-   * when they are here. With nobody here, nobody is there to win it: it ends with no places.
+   * even with their page hidden for now (another app, a locked phone): the owner's rule, something
+   * must make a leave a forfeit. Only when the one who stayed has no phone connected either is
+   * nobody there to win it: it ends with no places.
    */
   leave(state, seat, move) {
     const s = move.seat;
@@ -768,7 +778,8 @@ const SYSTEM_MOVES = {
     p.left = true;
     note(state, "left", { seat: s });
     if (state.phase === "reveal" && state.summary.matchOver) return endMatch(state, "decided");
-    if (!anyPlayerHere(state)) return endMatch(state, "abandoned", s);
+    const stayer = state.players.find((x) => !x.left);
+    if (!stayer || !isLinked(state, stayer.seat)) return endMatch(state, "abandoned", s);
     endMatch(state, "forfeit", s);
   },
 

@@ -467,7 +467,8 @@ describe("a Table game, played to the end", () => {
     await vi.advanceTimersByTimeAsync(TURN_GRACE_MS + 100);
     expect(r.core().activity.kind).toBe("lobby");
     expect(r.core().last).toMatchObject({ name: "Count to ten", rows: [{ seat: 1, place: 1, points: 3 }] });
-    expect(r.core().last).not.toHaveProperty("early");
+    // The seat that went is not placed and the one left is: the card says why it won.
+    expect(r.core().last.early).toMatchObject({ seat: 2, why: "gone", text: "Cy did not come back, so Bo wins." });
     await vi.advanceTimersByTimeAsync(DROP_FADE_MS + 100);
     expect(r.core().members[2]).toBeNull();
   });
@@ -585,6 +586,48 @@ describe("the host ends a Table game", () => {
     await vi.advanceTimersByTimeAsync(200_000);
     expect([0, 1, 2].map((s) => r.core().members[s].points)).toEqual(after);
     expect(r.core().history.filter((h) => h.name === "Paper Masks")).toHaveLength(1);
+  });
+
+  it("keeps the place of a player who leaves the party at Paper Masks' final curtain: the match was decided before they went", async () => {
+    const r = await table({ players: 3 });
+    await play(r, "paper-masks");
+    const say = (who, d) => r.say(r.ws[who], { t: "in", d, id: ++ids });
+    const state = () => r.core().activity.state;
+    say("ann", { t: "choose", rounds: 3 });
+    say("ann", { t: "begin" });
+    await settle();
+    for (let i = 0; i < 200 && state().at === "match"; i++) {
+      const m = state().match;
+      const viewOf = (seat) => r.core().games.get("paper-masks").snapshot(state(), 0, { role: "player", seat });
+      if (m.phase === "writing") for (const seat of [0, 1, 2]) say(key(seat), { t: "answer", text: `Words of ${NAMES[seat]} in round ${m.round.n}` });
+      else if (m.phase === "reading") say(key(m.round.reader), { t: "startGuessing" });
+      else if (m.phase === "guessing") {
+        for (const seat of [0, 1, 2]) {
+          const v = viewOf(seat).step;
+          if (v.yours) say(key(seat), { t: "decoy", card: v.card.id });
+          else if (v.guess === null) say(key(seat), { t: "guess", card: v.card.id, who: v.available[0] });
+        }
+        await settle();
+        say(key(state().match.round.reader), { t: "next" });
+      } else if (m.phase === "reveal") say(key(m.round.reader), { t: "reveal" });
+      else if (m.phase === "summary") say(key(m.host), { t: "nextRound" });
+      await settle();
+    }
+    expect(state().at).toBe("curtain");
+    const places = r.core().games.get("paper-masks").standings(state());
+    expect(places.map((p) => p.seat).sort()).toEqual([0, 1, 2]);
+    // Cy leaves the party at the curtain; then the host closes it.
+    r.say(r.ws.cy, { t: "leave" });
+    await settle();
+    expect(r.core().activity.kind).toBe("game");
+    const since = from(r.ws.bo);
+    say("ann", { t: "close" });
+    await settle();
+    await vi.advanceTimersByTimeAsync(1000);
+    const end = since(r.ws.bo).find((m) => m.t === "end");
+    expect(end.last.rows.map((row) => [row.seat, row.place]).sort()).toEqual(places.map((p) => [p.seat, p.place]).sort());
+    const cy = end.last.rows.find((row) => row.seat === 2);
+    expect(r.core().remembered.get("cy")).toBe(cy.points);
   });
 
   it("still throws away a game that is not decided: Paper Masks mid-match ends with no points", async () => {

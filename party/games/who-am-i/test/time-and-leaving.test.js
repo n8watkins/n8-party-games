@@ -251,12 +251,14 @@ describe("leaving", () => {
     expect(result(t.state).every((r) => r.place === null && !r.forfeit)).toBe(true);
     // The second leave changes nothing: the match is over.
     expect(t.act(SYSTEM, { t: "leave", seat: 1 })).toMatchObject({ refused: "over" });
-    // An away page is not here either; a stayer who is here still wins the forfeit.
+    // A stayer whose page is only hidden (another app, a locked phone) is still there: the owner's
+    // rule is that a leave is a forfeit, so they win it. Only a phone not connected at all is gone.
     const u = new Table([0, 1], {}, 47);
     u.begin();
     u.presence(1, true, true);
     u.do(SYSTEM, { t: "leave", seat: 0 });
-    expect(u.state.ended.how).toBe("abandoned");
+    expect(u.state.ended.how).toBe("forfeit");
+    expect(standings(u.state)).toEqual([{ seat: 1, place: 1 }]);
     const w = new Table([0, 1], {}, 48);
     w.begin();
     w.presence(0, false);
