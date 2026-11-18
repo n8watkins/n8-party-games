@@ -1720,16 +1720,24 @@ export class LobbyCore {
     const places = gone && game.standings ? game.standings(a.state) : null;
     if (gone && Array.isArray(places) && !places.some((p) => p?.place >= 1)) {
       out.ended = this.finishGame(now, { standings: [], result: game.result ? game.result(a.state) : null, early: this.endedByGoing(gone.seat, gone.why) });
+    } else if (gone && Array.isArray(places) && !places.some((p) => p?.seat === gone.seat && p.place >= 1)) {
+      // The seat that went forfeits and the game places the rest (Who Am I?): the card says so.
+      const winners = places.filter((p) => p?.place === 1).map((p) => this.members[p.seat]?.name ?? a.names?.[p.seat] ?? "The other player");
+      out.ended = this.finishGame(now, { standings: places, result: game.result ? game.result(a.state) : null, early: this.endedByGoing(gone.seat, gone.why, winners) });
     } else out.ended = this.finishGame(now);
     return out;
   }
 
-  /** A seat gone for good ended the game being played: everyone's note, and the card's `early`. */
-  endedByGoing(seat, why) {
+  /**
+   * A seat gone for good ended the game being played: everyone's note, and the card's `early`.
+   * `winners` (names) when the game gave the match to those who stayed: "Bo left, so Ann wins."
+   */
+  endedByGoing(seat, why, winners = null) {
     const a = this.activity;
     const name = this.members[seat]?.name ?? a.names?.[seat] ?? "A player";
     const gameName = this.nameOf(a.id);
-    const text = why === "left" ? `${name} left the party, so ${gameName} ended.` : `${name} did not come back, so ${gameName} ended.`;
+    const went = why === "left" ? `${name} left` : `${name} did not come back`;
+    const text = winners?.length ? `${went}, so ${winners.join(" and ")} ${winners.length > 1 ? "win" : "wins"}.` : why === "left" ? `${name} left the party, so ${gameName} ended.` : `${name} did not come back, so ${gameName} ended.`;
     this.notes.push({ k: "ended", why, seat, name, colour: seatColour(seat), text });
     return { seat, name, why, text };
   }
@@ -1761,6 +1769,8 @@ export class LobbyCore {
       // A game without a `leave` hook ends when a seat is gone for good (abandon). One with it is
       // told (a Table game's `{t: "leave", seat}`) and goes on without that seat, or ends by itself.
       if (typeof game.leave !== "function") return this.abandonGame(game, seat, why, now);
+      // A match the game had decided before the seat went keeps that seat's place (finishGame).
+      if (typeof game.decided === "function" && game.decided(a.state) === true) (a.kept ??= []).push(seat);
       const out = this.callHook(game, "leave", seat, now);
       if (out.error) return this.stopGame(game, "error", now);
       a.seats = a.seats.filter((s) => s !== seat);
@@ -2005,7 +2015,7 @@ export class LobbyCore {
     for (const { seat, place } of places ?? []) {
       const m = this.members[seat];
       const name = m?.name ?? a.names?.[seat];
-      if (!name || !a.seats.includes(seat) || !(place >= 1) || rows.some((r) => r.seat === seat)) continue;
+      if (!name || !(a.seats.includes(seat) || a.kept?.includes(seat)) || !(place >= 1) || rows.some((r) => r.seat === seat)) continue;
       const points = pointsForPlace(place);
       if (m) m.points += points;
       else this.rememberPoints(name, points);
