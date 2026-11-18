@@ -1,0 +1,153 @@
+/* The bar made real (rendered/bar/room.js): the room's words laid on its painting. The join code
+   on the cream panel of the wooden sign by the door, the scores chalked on the painted board, and
+   each poster's sign as a small brass plate under its frame. Sizes in metres of wall (--m), as in
+   look3d/look3d.css; the room places each element (left, top, width and height) in world units. */
+
+/* ------------------------------------------------------------ the join sign by the door */
+/* The QR as tall as the panel, so it scans from across the room (about the flat look's size on
+   the screen); the words to its left: what to do, the code, and the address, which may break
+   after a dot. */
+.bar-real .l3-join {
+  box-sizing: border-box;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  grid-template-rows: auto 1fr auto;
+  align-items: center;
+  column-gap: calc(var(--m) * 0.05);
+  row-gap: calc(var(--m) * 0.02);
+  padding: calc(var(--m) * 0.045) calc(var(--m) * 0.045) calc(var(--m) * 0.06);
+  background: none;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  color: #4a2e1c;
+  text-align: center;
+}
+.bar-real .l3-join small {
+  grid-column: 1;
+  grid-row: 1;
+  font: 800 calc(var(--m) * 0.066) / 1.2 var(--text);
+  letter-spacing: 0.08em;
+  color: #6b4226;
+  white-space: normal;
+  text-wrap: balance;
+}
+.bar-real .l3-qr {
+  grid-column: 2;
+  grid-row: 1 / span 3;
+  box-sizing: border-box;
+  width: calc(var(--m) * 1.1);
+  height: calc(var(--m) * 1.1);
+  margin: 0;
+  padding: calc(var(--m) * 0.03);
+  border-radius: calc(var(--m) * 0.02);
+  background: #f6e6c4;
+  /* The QR on cream, a touch warm, as if printed. */
+  filter: sepia(0.35) contrast(1.05);
+}
+.bar-real .l3-pin {
+  grid-column: 1;
+  grid-row: 2;
+  font: 400 calc(var(--m) * 0.3) / 1 var(--title);
+  letter-spacing: 0.02em;
+  color: #3b2416;
+}
+.bar-real .l3-addr {
+  grid-column: 1;
+  grid-row: 3;
+  margin: 0;
+  font: 600 calc(var(--m) * 0.066 * var(--fit, 1)) / 1.15 var(--text);
+  white-space: normal;
+  color: #6b4226;
+}
+
+/* ------------------------------------------------------------ the Tonight board, chalked on the painted one */
+.bar-real .l3-board {
+  box-sizing: border-box;
+  overflow: hidden;
+  padding: calc(var(--m) * 0.07) calc(var(--m) * 0.12) calc(var(--m) * 0.06);
+  background: none;
+  border: 0;
+  box-shadow: none;
+  color: rgba(244, 240, 228, 0.92);
+  /* Chalk: soft at its edges, never crisp. */
+  text-shadow: 0 0 calc(var(--k) * 1.2px) rgba(244, 240, 228, 0.55);
+}
+.bar-real .l3-board h3 {
+  font-size: calc(var(--m) * 0.24);
+}
+.bar-real .l3-rule {
+  height: calc(var(--k) * 2px);
+  margin: calc(var(--m) * 0.025) 18% calc(var(--m) * 0.04);
+  background: rgba(244, 240, 228, 0.5);
+}
+.bar-real .l3-rows {
+  min-height: 0;
+}
+.bar-real .l3-line {
+  grid-template-columns: calc(var(--m) * 0.13) calc(var(--m) * 0.12) 1fr auto;
+  font-size: calc(var(--m) * 0.19);
+  line-height: 1.15;
+}
+.bar-real .l3-line i {
+  width: calc(var(--m) * 0.075);
+  height: calc(var(--m) * 0.075);
+  box-shadow: 0 0 0 calc(var(--k) * 1px) rgba(243, 238, 223, 0.6);
+}
+/* A busy evening: more names, smaller chalk, so the board holds them. */
+.bar-real .l3-rows:has(.l3-line:nth-child(5)) .l3-line {
+  font-size: calc(var(--m) * 0.15);
+}
+.bar-real .l3-rows:has(.l3-line:nth-child(7)) .l3-line {
+  font-size: calc(var(--m) * 0.12);
+}
+.bar-real .l3-nobody {
+  padding-top: calc(var(--m) * 0.12);
+  font-size: calc(var(--m) * 0.17);
+}
+.bar-real .l3-board small {
+  margin-top: calc(var(--m) * 0.04);
+  font-size: calc(var(--m) * 0.1);
+}
+
+/* ------------------------------------------------------------ the sign under each poster: a small brass plate */
+.bar-real .l3-sign {
+  height: calc(var(--m) * 0.42);
+  padding: 0 calc(var(--m) * 0.04);
+  background: linear-gradient(180deg, #a7814a, #7a5a2c);
+  border: calc(var(--k) * 1px) solid rgba(60, 36, 12, 0.7);
+  border-radius: calc(var(--k) * 3px);
+  box-shadow:
+    inset 0 calc(var(--k) * 1px) 0 rgba(255, 230, 180, 0.35),
+    0 calc(var(--k) * 2px) calc(var(--k) * 5px) rgba(30, 12, 2, 0.45);
+}
+.bar-real .l3-sign .l3-about {
+  display: none;
+}
+.bar-real .l3-sign .l3-row {
+  margin-top: 0;
+  gap: calc(var(--m) * 0.035 * var(--fit, 1));
+}
+.bar-real .l3-sign .l3-seats {
+  font-size: calc(var(--m) * 0.085 * var(--fit, 1));
+  color: #2a1808;
+}
+.bar-real .l3-sign .l3-need {
+  padding: calc(var(--m) * 0.02) calc(var(--m) * 0.05);
+  font-size: calc(var(--m) * 0.08 * var(--fit, 1));
+}
+.bar-real .l3-sign .l3-why {
+  font-size: calc(var(--m) * 0.08 * var(--fit, 1));
+}
+.bar-real .l3-sign.shut {
+  background: linear-gradient(180deg, #5a4630, #3e2e1c);
+  border-style: dashed;
+}
+.bar-real .l3-sign.off {
+  opacity: 0.6;
+}
+.bar-real .l3-sign.lead {
+  background: linear-gradient(180deg, #f2cf7e, #c99a42);
+  border-color: #fff4d6;
+  box-shadow: 0 0 calc(var(--m) * 0.2) rgba(255, 214, 140, 0.6);
+}

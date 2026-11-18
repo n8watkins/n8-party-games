@@ -43,11 +43,11 @@ import { IDLE_SHUTDOWN_MS, NAME_MAX, SEAT_COLOURS, STALE_ROOM_MS, cleanName, ran
 import { COUNT_MS, SETTLE_MS, TOSS_MS, leaders, pointsForPlace, spotLights, standingsFromRows, tally, whyNot } from "../shared/vote.js";
 import { IMMUNE_MS, bumpTarget, cooldownLeft, isDown, isSafe, knockLanding, knocked, mayBump } from "../shared/bump.js";
 import { BOO_LATE_MS, FADE_MS, SCARE_LANDING, SPOOK_FAR, SPOOK_LANDING, fadeLeft, isFaded, mayFade, maySpook, scared, spooked } from "../shared/ghost.js";
-import { DEFAULT_ROOM, ROOM_COOLDOWN_MS, isRoom, roomLocked } from "../shared/rooms.js";
+import { DEFAULT_ROOM, ROOM_COOLDOWN_MS, isRoom, roomLocked, wallFor } from "../shared/rooms.js";
 import { COLOUR_PRESETS, DEFAULT_CHARACTER, LOOK_COOLDOWN_MS, LOOK_SLACK_MS, characterOr, cleanColour, moveOf, readLook } from "../shared/characters.js";
 import { record } from "../shared/tonight.js";
 import { DURING_PLAY, cooldownLeft as emoteLeft, mayEmote, relayEmote, tooEager, waitMessage } from "../../party-kit/client/emotes.js";
-import { POSITION_SLACK, clampX, lightAt, posAt, spawnX } from "../shared/world.js";
+import { POSITION_SLACK, acrossWalls, clampX, evenWall, lightAt, posAt, sameWall, spawnX } from "../shared/world.js";
 import { DEFAULT_MODE, MODE_COOLDOWN_MS, isMode, modeLocked, modeNote } from "../shared/mode.js";
 import { PLAY_BEAT_MS, tableWhyNot } from "../shared/table.js";
 
@@ -235,7 +235,7 @@ export class LobbyCore {
       character: DEFAULT_CHARACTER,
       connected: false,
       droppedAt: now, // not connected yet: the socket follows the join
-      x: spawnX(seat, this.boxes.length),
+      x: spawnX(seat, this.wall),
       d: 0,
       t: now,
       face: 1,
@@ -431,6 +431,14 @@ export class LobbyCore {
   }
 
   /**
+   * The wall of the party's room (shared/rooms.js, wallFor): where its boxes hang and its pools of
+   * light lie. Who stands in which light, where pieces arrive and where a knock lands all go by it.
+   */
+  get wall() {
+    return wallFor(this.room, this.boxes);
+  }
+
+  /**
    * The party moves to another room. Only the host's taps apply, never during a count, a coin
    * toss or a game, and not again within a few seconds. Returns {ok, room, by} or {ok: false, why}.
    */
@@ -446,10 +454,33 @@ export class LobbyCore {
     if (locked) return { ok: false, why: locked };
     if (id === this.room) return { ok: false, why: "The party is in that room already." };
     if (now - this.roomAt < ROOM_COOLDOWN_MS) return { ok: false, why: "Wait a moment before changing it again." };
+    const before = this.wall;
     this.room = id;
     this.roomAt = now;
     this.lastActive = now;
-    return { ok: true, room: id, by: this.identify(token).seat };
+    // A room that hangs its boxes elsewhere carries every piece with its pool: nobody's vote changes.
+    const moved = this.carryAcross(before, now);
+    // And the room rests a moment, as after a switch of waiting room, so no count starts on the change itself.
+    this.holdUntil = Math.max(this.holdUntil, now + SETTLE_MS);
+    return { ok: true, room: id, by: this.identify(token).seat, moved };
+  }
+
+  /**
+   * The party's wall changed from `from` (shared/rooms.js, wallFor): each piece is moved with the
+   * floor (shared/world.js, acrossWalls), so one in a pool stands in that same pool and one in the
+   * dark in that same stretch of dark, and its page takes the new place (rev). Returns whether any
+   * piece moved: false when the two walls have their pools in the same places.
+   */
+  carryAcross(from, now) {
+    const to = this.wall;
+    if (sameWall(from, to)) return false;
+    for (const m of this.members) {
+      if (!m) continue;
+      m.x = acrossWalls(posAt(m, now), from, to);
+      m.t = now;
+      m.rev += 1;
+    }
+    return true;
   }
 
   // ---------------------------------------------------------------- the two waiting rooms
@@ -735,7 +766,7 @@ export class LobbyCore {
   throwPiece(o, dir, now, reach) {
     const lights = this.lights();
     const lit = this.boxes.map((box, i) => (lights[box.id] === null ? i : -1)).filter((i) => i >= 0);
-    o.x = knockLanding(posAt(o, now), dir, this.boxes.length, lit, reach);
+    o.x = knockLanding(posAt(o, now), dir, this.wall, lit, reach);
     o.d = 0;
     o.t = now;
     o.rev += 1;
@@ -895,9 +926,10 @@ export class LobbyCore {
    */
   standing(now) {
     const lights = this.lights();
+    const wall = this.wall;
     const out = {};
     for (const m of this.present()) {
-      const box = this.boxes[lightAt(posAt(m, now), this.boxes.length)];
+      const box = this.boxes[lightAt(posAt(m, now), wall)];
       out[m.seat] = box && lights[box.id] === null && !this.faded(m, now) ? box.id : null;
     }
     return out;
@@ -1289,7 +1321,7 @@ export class LobbyCore {
     for (const m of this.present()) {
       // A faded ghost's fade ends here (a switch of waiting room, players chosen on spots).
       if ((m.fadedUntil ?? 0) > now) m.fadedUntil = now;
-      m.x = spawnX(m.seat, this.boxes.length);
+      m.x = spawnX(m.seat, this.wall);
       m.d = 0;
       m.t = now;
       m.rev += 1;
@@ -1993,7 +2025,7 @@ export class LobbyCore {
     this.keepCarry(game, a, ending);
     this.activity = { kind: "lobby" };
     for (const m of this.present()) {
-      m.x = spawnX(m.seat, this.boxes.length);
+      m.x = spawnX(m.seat, this.wall);
       m.d = 0;
       m.t = now;
       m.rev += 1;
@@ -2157,6 +2189,9 @@ export class LobbyCore {
       lastActive: this.lastActive,
       emptySince: this.emptySince,
       room: this.room,
+      // The wall the pieces' places were laid against, so a room woken after the wall moved (a
+      // deploy) carries them across (restore).
+      wall: { xs: this.wall.xs, pools: this.wall.pools.map((p) => ({ id: this.boxes[p.i].id, x: p.x, half: p.half })) },
       mode: this.mode,
       modeAt: this.modeAt,
       hostToken: this.hostToken,
@@ -2256,6 +2291,10 @@ export class LobbyCore {
     // counted from then and not from every time the room wakes up.
     room.emptySince = data.emptySince ?? now;
     room.room = isRoom(data.room) ? data.room : DEFAULT_ROOM;
+    // The pieces stood on the wall the room was saved with: a save from before rooms hung their
+    // boxes in places of their own stood on the even wall. Where this room's wall is not that one
+    // now, every piece is carried across, so nobody's vote changes in the sleep.
+    room.carryAcross(savedWall(data.wall, room.boxes), now);
     // A room saved before the two waiting rooms is the character room.
     room.mode = isMode(data.mode) ? data.mode : DEFAULT_MODE;
     room.modeAt = typeof data.modeAt === "number" ? data.modeAt : -Infinity;
@@ -2269,6 +2308,30 @@ export class LobbyCore {
     else if (data.choosing) room.restoreChoosing(data.choosing);
     return room;
   }
+}
+
+/**
+ * The wall a room was saved with (serialize: {xs, pools: [{id, x, half}]}), its pools matched to
+ * today's boxes by id (a pool whose box is gone is dropped). A save from before pools were kept
+ * by box ({xs, half}, or no wall at all: an even wall) had a pool under every box, on a wall of
+ * as many boxes as today's: the games that could be played then and now (Cork & Bell first, Tin
+ * Derby third) hang in the same places on both, so their pools match by place.
+ * A save whose pools carry their boxes' ids is read whatever today's number of boxes: only its
+ * pools are needed to carry the pieces across (world.js, acrossWalls), and the box ids say which
+ * pool is which on today's wall.
+ */
+function savedWall(saved, boxes) {
+  const n = boxes.length;
+  const xs = Array.isArray(saved?.xs) && saved.xs.every(Number.isFinite) ? [...saved.xs] : null;
+  if (xs && Array.isArray(saved.pools)) {
+    const pools = saved.pools
+      .map((p) => ({ i: boxes.findIndex((box) => box.id === p?.id), x: p?.x, half: p?.half }))
+      .filter((p) => p.i >= 0 && Number.isFinite(p.x) && Number.isFinite(p.half))
+      .sort((a, b) => a.x - b.x);
+    return { n: xs.length, xs, pools };
+  }
+  if (xs && xs.length === n && Number.isFinite(saved.half)) return { n, xs, pools: xs.map((x, i) => ({ i, x, half: saved.half })) };
+  return evenWall(n);
 }
 
 /** Who was in the party when a saved match began (LobbyCore.partyTokens), or null for a save from before it was kept. */
