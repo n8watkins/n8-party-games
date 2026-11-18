@@ -6,9 +6,9 @@
 // (lobby/test/predeploy-steps.test.js).
 export const STEPS = [
   ["room, over sockets (test:room)", "test:room"],
-  ["party room, over sockets (test:lobby)", "test:lobby"],
-  ["Cork & Bell in the party room, headless browser (test:cork)", "test:cork"],
-  ["Hot Potato, headless browser (test:hot-potato)", "test:hot-potato"],
+  ["party room, over sockets, a round of Cork & Bell played until the corks run out (test:lobby)", "test:lobby"],
+  ["Cork & Bell in the party room, the battle and the round alone side by side, headless browser (test:cork)", "test:cork"],
+  ["Hot Potato, its cases four at a time in one browser, headless (test:hot-potato)", "test:hot-potato"],
   ["Hot Potato's hearing test, headless browser (test:hearing)", "test:hearing"],
   ["the switch between the Floor and the Table, over sockets (test:mode)", "test:mode"],
   ["the Floor and the Table side by side, headless browser (test:two-rooms)", "test:two-rooms"],

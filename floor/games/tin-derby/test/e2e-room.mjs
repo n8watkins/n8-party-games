@@ -372,13 +372,17 @@ try {
       const troubles = (async () => {
         const sf = await derby(scr);
         while (at.reload === null) {
-          const r = await sf.evaluate(() => { const x = window.__derby.race; return { t: x.t, over: x.over, own: Object.fromEntries(x.cars.map((c) => [c.name, !c.house && !c.auto])) }; }).catch(() => null);
+          // t: the race as the big screen draws it (predicted, ahead of the room); room: how far the room's own word has got.
+          const r = await sf.evaluate(() => { const d = window.__derby, x = d.race; return { t: x.t, room: d.app.replica.auth.t, over: x.over, own: Object.fromEntries(x.cars.map((c) => [c.name, !c.house && !c.auto])) }; }).catch(() => null);
           if (!r || r.over) return;
           if (at.drop === null && r.t > 3 && r.own.Bo) { at.drop = r.t; await bo.context().setOffline(true); }
           if (at.drop !== null && at.back === null && r.t > at.drop + 5) { at.back = r.t; await bo.context().setOffline(false); }
           if (at.freeze === null && r.t > 5 && r.own.Stall) { at.freeze = r.t; relay.freeze(4000); }
           if (at.back !== null && r.t > at.back + 3 && r.own.Bo && maps) {
             at.reload = r.t;
+            // The room's events carry its own steps, which run behind the big screen's drawn race: the reload is placed
+            // on the room's clock by the step its word had reached (the room cannot hand the car over before that).
+            at.reloadRoom = r.room;
             maps.frames.delete(bo); maps.last.delete(bo);
             // Not awaited: a slow reload must not stop the other pages being watched. (Drawn in software on a loaded
             // machine, the reloaded race page can take 10 s to come up and then hold its thread for 10 s more; on the
@@ -406,8 +410,10 @@ try {
         check(houseAt(b, at.drop + 2) === 1 && b.some(([o, et]) => o === 0 && et > at.back - 0.5), `short: Bo's car was the house's while his phone was away (${at.drop?.toFixed(2)}) and his again on return (${at.back?.toFixed(2)}): ${JSON.stringify(b)}`);
         // Came back: the room took Bo's car back from the house for his reloaded page (only his seat's own word does
         // that), and, where the test saw that page racing before the end, it drew from that car.
-        const lb = last.get(bo), backAfterReload = at.reload !== null && b.find(([o, et]) => o === 0 && et > at.reload);
-        check(!!backAfterReload && (!lb || (lb.car >= 0 && lb.stats.frames > 0)), `short: Bo's page came back from its reload (at ${at.reload?.toFixed(1)}) in the same car (${backAfterReload ? `the room's at ${backAfterReload[1]}` : "never"}; ${lb ? `seen racing, car ${lb.car}, ${lb.stats.frames} frames` : "not seen racing before the end"})`);
+        // The hand-over for the reload is the first to the house at or after the room's step then; the hand-back is the next one back.
+        const reloadOff = at.reload !== null && b.find(([o, et]) => o === 1 && et >= at.reloadRoom);
+        const lb = last.get(bo), backAfterReload = !!reloadOff && b.find(([o, et]) => o === 0 && et >= reloadOff[1]);
+        check(!!backAfterReload && (!lb || (lb.car >= 0 && lb.stats.frames > 0)), `short: Bo's page came back from its reload (at ${at.reload?.toFixed(1)} drawn, ${at.reloadRoom?.toFixed(2)} on the room's clock) in the same car (${backAfterReload ? `the room's at ${backAfterReload[1]}` : "never"}; ${lb ? `seen racing, car ${lb.car}, ${lb.stats.frames} frames` : "not seen racing before the end"})`);
         const s = hand("Stall"), sOn = s.find(([o, et]) => o === 1 && et > at.freeze - 0.5);
         // Home: over the line, or, when the last call closed the race first, driven on from the hand-back: at least 40
         // along the table and a quarter of what Ada's car, the untroubled phone driven the same way, made in that time.

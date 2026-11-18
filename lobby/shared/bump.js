@@ -14,7 +14,7 @@
 //
 // The poses are offsets and angles in world units and degrees, so any drawing (the SVG room of
 // today, a 3D room later) can show them: lobby/public/bump-draw.js is the thin part that does.
-import { ROOM, boxCentre, clampX, lightHalf } from "./world.js";
+import { ROOM, clampX, wallOf } from "./world.js";
 
 /** How far in front of a piece a bump reaches (a piece just behind its back counts too). */
 export const BUMP_REACH = 130;
@@ -109,18 +109,18 @@ export function bumpTarget(x, face, others) {
  * [[from, to]], left to right.
  */
 export function landingGround(n, lit = null, clear = KNOCK_CLEAR) {
-  const half = lightHalf(n);
+  // `n` is the wall (shared/world.js) or how many boxes hang evenly on it.
+  const w = wallOf(n);
   // Between two lights there may be less dark than twice the margin: then it is the middle of it.
-  const gap = n > 1 ? boxCentre(1, n) - boxCentre(0, n) - 2 * half : Infinity;
-  const margin = Math.min(clear, gap / 2);
+  const margin = Math.min(clear, w.gap / 2);
   const on = lit ? new Set(lit) : null;
   const ground = [];
   let from = ROOM.minX;
-  for (let i = 0; i < n; i++) {
-    if (on && !on.has(i)) continue;
-    const centre = boxCentre(i, n);
-    ground.push([from, centre - half - margin]);
-    from = centre + half + margin;
+  // Only a box with a pool has a light at all (world.js, hasPool); of those, the ones that are on.
+  for (const p of w.pools) {
+    if (on && !on.has(p.i)) continue;
+    ground.push([from, p.x - p.half - margin]);
+    from = p.x + p.half + margin;
   }
   ground.push([from, ROOM.maxX]);
   // A stretch that is a single spot (the middle of a narrow gap) may come out a hair inside out.
@@ -128,8 +128,8 @@ export function landingGround(n, lit = null, clear = KNOCK_CLEAR) {
 }
 
 /**
- * Where a piece knocked from `x` in direction `dir` (-1 or 1) lands, in a room of `n` boxes
- * of which the `lit` ones are on (null: all of them).
+ * Where a piece knocked from `x` in direction `dir` (-1 or 1) lands, on wall `n` (shared/world.js:
+ * a wall, or how many boxes hang evenly on it) of whose lights the `lit` ones are on (null: all of them).
  * It is thrown about KNOCK_DISTANCE and always comes down in the dark: the nearest spot to
  * that distance which is clear of every pool of light and at least KNOCK_MIN away. So a knock
  * always puts a piece out of the light it stood in and never into another one. It stops at the
@@ -158,8 +158,9 @@ export function knockLanding(x, dir, n, lit = null, { distance = KNOCK_DISTANCE,
   }
   if (best !== null) return Math.round(best);
   // On the very edge of a light, with no more dark that way: it stays on its edge, in the dark.
-  const half = lightHalf(n);
-  const inLight = (lit ?? Array.from({ length: n }, (_, i) => i)).some((i) => Math.abs(x - boxCentre(i, n)) <= half);
+  const w = wallOf(n);
+  const on = lit ? new Set(lit) : null;
+  const inLight = w.pools.some((p) => (!on || on.has(p.i)) && Math.abs(x - p.x) <= p.half);
   return inLight ? Math.round(aim) : x;
 }
 

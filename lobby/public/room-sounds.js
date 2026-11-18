@@ -20,7 +20,7 @@
 // room is drawn; a sound asked for before that is simply not played.
 import { defineSound } from "/party-kit/client/sounds.js";
 import { EMOTES } from "/party-kit/client/emotes.js";
-import { JUMP_MS, boxCentre, lightHalf } from "./shared/world.js";
+import { JUMP_MS, lightAt } from "./shared/world.js";
 
 const FILES = new URL("./sounds/", import.meta.url);
 
@@ -114,7 +114,7 @@ export class RoomSounds {
    * Every frame, for every piece: where it is, so steps and lights can be heard. Steps follow the
    * distance walked, never in the air, and never quicker than STEP_MS.
    * @param {{seat: number, x: number}[]} pieces
-   * @param {number} lights  how many boxes (and pools of light) the wall has
+   * @param {number | object} lights  the room's wall (shared/rooms.js, wallFor), or how many boxes hang evenly on it
    */
   frame(pieces, lights, now) {
     if (this.where.playing()) return;
@@ -192,11 +192,4 @@ export class RoomSounds {
     window.removeEventListener("party-room:sound", this.onRoom);
     this.pieces.clear();
   }
-}
-
-/** Which pool of light a piece stands in (its box's index), or -1 between them. */
-function lightAt(x, n) {
-  const half = lightHalf(n);
-  for (let i = 0; i < n; i++) if (Math.abs(x - boxCentre(i, n)) <= half) return i;
-  return -1;
 }

@@ -5,10 +5,16 @@
 // phone and desktop sizes; it takes stills of every stage of the potato. It says nothing about
 // how well a real device hears, or how a real phone feels in the hand.
 //
-//   node one-device/hot-potato/test/e2e-game.mjs --base=http://localhost:8930 [--shots=/tmp/claude-hot-potato-game/shots]
+//   node one-device/hot-potato/test/e2e-game.mjs --base=http://localhost:8930 [--shots=/tmp/claude-hot-potato-game/shots] [--lanes=4] [--only=fallback|layout]
+//
+// Its cases share nothing, so they run four at a time in one browser (most of their time is the
+// game's own fuses and bursts, waited out in real time); --lanes=1 (test:hot-potato:full) runs
+// them one after another, the way to tell a case that fails on its own from one that fails only
+// beside the others.
 //
 // Run it against a built site (npm run dev, or wrangler dev on your own port), through
 // `devguard slot --`.
+import { AsyncLocalStorage } from "node:async_hooks";
 import { mkdirSync } from "node:fs";
 import { launchBrowser } from "../../../lobby/test/browser.mjs";
 import { FACES, HEATS, REACTIONS } from "../public/specimen-draw.js";
@@ -19,11 +25,20 @@ const SHOTS = arg("shots", "/tmp/claude-hot-potato-game/shots");
 const URL = `${BASE}/one-device/hot-potato/`;
 mkdirSync(SHOTS, { recursive: true });
 
+// Every case below opens pages of its own and shares nothing with the others, so they run side
+// by side in one browser, --lanes at a time (default 4; --lanes=1 runs them one after another,
+// as test:hot-potato:full does). Each line says which case it is from.
+const LANES = Math.max(1, Number(arg("lanes", "4")) || 1);
+const where = new AsyncLocalStorage();
 let failures = 0;
 const check = (ok, what) => {
-  console.log(`${ok ? "ok  " : "FAIL"} ${what}`);
+  const name = where.getStore();
+  console.log(`${ok ? "ok  " : "FAIL"} ${name && LANES > 1 ? `[${name}] ` : ""}${what}`);
   if (!ok) failures++;
 };
+/** The cases, in the order they are written: [group, name, run]. */
+const TASKS = [];
+const task = (group, name, run) => TASKS.push([group, name, run]);
 
 /**
  * The fake recogniser, as Chrome behaves: each start() takes the next scripted session from
@@ -442,7 +457,7 @@ const ONLY = arg("only", "");
 // R. A microphone that is on but hears nothing, a recogniser that never says a final word, and the
 //    word box with the on-screen keyboard up. Answers are spoken: the word box comes up by itself
 //    only when the microphone cannot be used, never as a choice.
-if (!ONLY || ONLY === "fallback") {
+{
   /** A turn in which the recogniser runs and hears nothing: the fuse is cut short once it is lit. */
   const deafTurn = async (page) => {
     await waitReady(page);
@@ -457,7 +472,7 @@ if (!ONLY || ONLY === "fallback") {
     return box;
   };
   const DEAF = /microphone hears nothing/i;
-  muted: {
+  task("fallback", "muted microphone", async () => {
     const { context, page, errors } = await open({ width: 390, height: 844 });
     await start(page, "cities", 3);
     // Two turns in a row with the microphone on and nothing heard: no box yet.
@@ -477,7 +492,7 @@ if (!ONLY || ONLY === "fallback") {
     if (!(await page.isVisible("#g-typed"))) {
       check(false, "a muted microphone: with no word box the turn cannot be played (the rest of this check is skipped)");
       await context.close();
-      break muted;
+      return;
     }
     // The on-screen keyboard up (the page is resized by it: interactive-widget=resizes-content):
     // the word box, the word to follow and whose turn stay on screen and clear of each other.
@@ -523,9 +538,9 @@ if (!ONLY || ONLY === "fallback") {
     check(!(await deafTurn(page)), "after speech, one silent turn does not bring the box back");
     check(errors.length === 0, `muted microphone: no console errors ${errors.join(" | ")}`);
     await context.close();
-  }
+  });
   // A new round starts on voice: the count of silent turns does not carry over.
-  {
+  task("fallback", "new round on voice", async () => {
     const { context, page, errors } = await open({ width: 390, height: 844 });
     await start(page, "cities", 2);
     await deafTurn(page);
@@ -537,10 +552,10 @@ if (!ONLY || ONLY === "fallback") {
     check(!(await deafTurn(page)), "a muted microphone: the next round starts on voice again");
     check(errors.length === 0, `new round: no console errors ${errors.join(" | ")}`);
     await context.close();
-  }
+  });
   // A quiet pause is not a deaf microphone: a session that ends in silence, then the word, in one
   // turn; and silent turns that are not in a row.
-  {
+  task("fallback", "quiet pause", async () => {
     const { context, page, errors } = await open({ width: 390, height: 844 });
     await start(page, "cities", 3);
     await waitReady(page);
@@ -561,10 +576,10 @@ if (!ONLY || ONLY === "fallback") {
     check(pattern.every((b) => !b), `silent turns not in a row never bring up the box (${pattern.join(", ")})`);
     check(errors.length === 0, `quiet pause: no console errors ${errors.join(" | ")}`);
     await context.close();
-  }
+  });
   // A recogniser that hears the word but never says it is final (Safari can end that way): what it
   // heard is judged, and the turn does not run out of time.
-  {
+  task("fallback", "partial words", async () => {
     const { context, page, errors } = await open({ width: 390, height: 844 });
     await start(page, "cities", 2);
     await waitReady(page);
@@ -583,19 +598,14 @@ if (!ONLY || ONLY === "fallback") {
     check(!r2.last.ok && r2.last.reason !== "slow", `a partial word that is wrong is refused for what it is (${r2.last.reason}: ${r2.last.why})`);
     check(errors.length === 0, `partial words: no console errors ${errors.join(" | ")}`);
     await context.close();
-  }
-  if (ONLY === "fallback") {
-    await browser.close();
-    console.log(failures ? `\n${failures} check(s) failed` : "\nall checks passed");
-    process.exit(failures ? 1 : 0);
-  }
+  });
 }
 
 // 0. The responsive layout, at every size it is designed for, on every key screen: phones and
 //    tablets (touch) in one round, laptops, desktops and the extremes (mouse and keyboard) in
 //    another. The window is resized in place for each size, so this is also a resize in the middle
 //    of every screen: the round goes on untouched.
-for (const [kind, sizes] of [["touch", PHONES], ["desktop", DESKTOPS]]) {
+for (const [kind, sizes] of [["touch", PHONES], ["desktop", DESKTOPS]]) task("layout", `${kind} layout walk`, async () => {
   const touch = kind === "touch";
   const first = dims(sizes[0]);
   const context = await browser.newContext({ viewport: first, deviceScaleFactor: 1, hasTouch: touch, isMobile: touch, ...(touch ? { userAgent: PIXEL } : {}) });
@@ -685,11 +695,11 @@ for (const [kind, sizes] of [["touch", PHONES], ["desktop", DESKTOPS]]) {
   for (const [s, list] of Object.entries(sizes_)) console.log(`     ${s}: ${list.join("; ")}`);
   check(errors.length === 0, `${kind} layout walk: no console errors ${errors.join(" | ")}`);
   await context.close();
-}
+});
 
 // 0b. Turning a phone in the middle of a listening turn, and resizing a desktop window: the turn
 //     goes on, the fuse keeps burning, and the potato refits its new box at once.
-for (const [kind, from, to] of [["phone turned", "390x844", "844x390"], ["phone turned back", "844x390", "390x844"], ["window resized", "1280x720", "900x700"], ["window maximised", "1024x640", "1920x1080"]]) {
+for (const [kind, from, to] of [["phone turned", "390x844", "844x390"], ["phone turned back", "844x390", "390x844"], ["window resized", "1280x720", "900x700"], ["window maximised", "1024x640", "1920x1080"]]) task("layout", kind, async () => {
   const phone = kind.startsWith("phone");
   const { context, page, errors } = await open(dims(from), [fake], { phone });
   await start(page, "animals", 2);
@@ -720,12 +730,7 @@ for (const [kind, from, to] of [["phone turned", "390x844", "844x390"], ["phone 
   check((await round(page)).chain.includes("elephant"), `${kind}: the word said across the change counts`);
   check(errors.length === 0, `${kind}: no console errors ${errors.join(" | ")}`);
   await context.close();
-}
-if (arg("only", "") === "layout") {
-  await browser.close();
-  console.log(failures ? `\n${failures} check(s) failed` : "\nall checks passed");
-  process.exit(failures ? 1 : 0);
-}
+});
 
 // 1. Layout: the start screen, a turn listening, a verdict with its appeal, the pause and the end,
 //    at an upright phone, a small phone, a sideways phone and a desktop window.
@@ -736,7 +741,7 @@ const SIZES = [
   ["844x390", { width: 844, height: 390 }],
   ["1280x720", { width: 1280, height: 720 }],
 ];
-for (const [name, viewport] of SIZES) {
+for (const [name, viewport] of SIZES) task("rest", `${name} screens`, async () => {
   const { context, page, errors } = await open(viewport);
   const look = async (what) => {
     const side = await noSideways(page, viewport.width);
@@ -794,11 +799,11 @@ for (const [name, viewport] of SIZES) {
   check((await page.evaluate(() => window.__hotPotato.art.look().draws)) === endDraws, `${name}: on the end screen, once the burst has settled, the potato is not redrawn`);
   check(errors.length === 0, `${name}: no console errors ${errors.join(" | ")}`);
   await context.close();
-}
+});
 
 // 2. A whole round of cities on a phone, by voice and taps, to the burst, with a still of every
 //    stage of the potato.
-{
+task("rest", "phone round", async () => {
   const { context, page, errors } = await open({ width: 390, height: 844 });
   await start(page, "cities", 3);
   const faces = [];
@@ -920,11 +925,11 @@ for (const [name, viewport] of SIZES) {
   check((await page.getAttribute("#game", "data-screen")) === "start", "End this round goes back to the setup");
   check(errors.length === 0, `phone round: no console errors ${errors.join(" | ")}`);
   await context.close();
-}
+});
 
 // 3. Animals on a desktop with the keyboard: a dead end, a plural, then misses to the burst; the
 //    choice of category and players is remembered.
-{
+task("rest", "desktop keyboard round", async () => {
   const context = await browser.newContext({ viewport: { width: 1280, height: 720 } });
   const { page, errors } = await open({ width: 1280, height: 720 }, [fake], { context });
   await start(page, "animals", 2);
@@ -959,10 +964,10 @@ for (const [name, viewport] of SIZES) {
   const again = await open({ width: 1280, height: 720 }, [fake], { context });
   check((await again.page.getAttribute('#s-cats [data-cat="animals"]', "aria-pressed")) === "true" && (await again.page.textContent("#s-n")) === "2", "the category and the number of players are remembered");
   await context.close();
-}
+});
 
 // 4. Pause and a hidden page: the fuse waits, listening stops, and starts again on Go on.
-{
+task("rest", "pause and hidden page", async () => {
   const { context, page, errors } = await open({ width: 1280, height: 720 });
   await start(page, "countries", 4);
   await waitReady(page);
@@ -1008,10 +1013,10 @@ for (const [name, viewport] of SIZES) {
   check(f.chain.at(-1) === "Germany" && f.need === "n", `after Go on the word is heard again (Germany; Y is a dead end, so N: ${f.need})`);
   check(errors.length === 0, `pause: no console errors ${errors.join(" | ")}`);
   await context.close();
-}
+});
 
 // 5. No speech recognition (Firefox): it says so and the round is played by typing.
-{
+task("rest", "no speech recognition", async () => {
   const { context, page, errors } = await open({ width: 390, height: 844 }, [fake, noSpeech]);
   check(/cannot listen/.test(await page.textContent("#s-note")), "a browser that cannot listen says so on the start screen");
   await page.screenshot({ path: `${SHOTS}/390-typed-start.png` });
@@ -1055,10 +1060,10 @@ for (const [name, viewport] of SIZES) {
   check((await page.getAttribute("#game", "data-screen")) === "end", "a whole round is played to the end by typing");
   check(errors.length === 0, `typed: no console errors ${errors.join(" | ")}`);
   await context.close();
-}
+});
 
 // 6. The microphone refused: it goes on by typing, and says how to allow it.
-{
+task("rest", "microphone refused", async () => {
   const { context, page, errors } = await open({ width: 390, height: 844 });
   await start(page, "cities", 2);
   await waitReady(page);
@@ -1090,11 +1095,11 @@ for (const [name, viewport] of SIZES) {
   check(/microphone is blocked/.test(await page.textContent("#s-note")), "the start screen says the microphone is blocked, and how to allow it");
   check(errors.length === 0, `mic blocked: no console errors ${errors.join(" | ")}`);
   await context.close();
-}
+});
 
 // 7. Listening that fails (no connection to the speech service): typing takes over; with storage
 //    refused and reduced motion.
-{
+task("rest", "listening fails", async () => {
   const { context, page, errors } = await open({ width: 390, height: 844 }, [fake, noStorage], { reducedMotion: "reduce" });
   await start(page, "food", 2);
   await waitReady(page);
@@ -1123,10 +1128,10 @@ for (const [name, viewport] of SIZES) {
   check(look.stage === 3 && Math.abs(look.growth - 0.75) < 0.001, `reduced motion: the potato changes at once, without the bounce (stage ${look.stage}, growth ${look.growth.toFixed(3)})`);
   check(errors.length === 0, `reduced motion, no storage: no console errors ${errors.join(" | ")}`);
   await context.close();
-}
+});
 
 // 8. Broken recognisers: the turn never hangs, and listening is not restarted without end.
-for (const broken of ["silent", "abort-at-once", "start-then-abort"]) {
+for (const broken of ["silent", "abort-at-once", "start-then-abort"]) task("rest", `broken recogniser: ${broken}`, async () => {
   const { context, page, errors } = await open({ width: 390, height: 844 }, [fake, `window.__broken = ${JSON.stringify(broken)};`]);
   await start(page, "cities", 2);
   await waitReady(page);
@@ -1153,11 +1158,11 @@ for (const broken of ["silent", "abort-at-once", "start-then-abort"]) {
   await page.screenshot({ path: `${SHOTS}/390-broken-${broken}.png` });
   check(errors.length === 0, `${broken}: no console errors ${errors.join(" | ")}`);
   await context.close();
-}
+});
 
 // 9. The plain, faceless potato kept for comparison (#plain): it still draws the same parts at
 //    every stage, rests on the start screen, and plays a round on the same screens.
-{
+task("rest", "#plain", async () => {
   const { context, page, errors } = await open({ width: 390, height: 844 }, [fake], { hash: "#plain" });
   check((await page.locator("#pot [data-part]").count()) === 0 && (await page.locator("#pot .body").count()) === 1, "#plain draws the faceless potato instead of the Specimen");
   await page.waitForTimeout(500);
@@ -1174,7 +1179,7 @@ for (const broken of ["silent", "abort-at-once", "start-then-abort"]) {
   await page.screenshot({ path: `${SHOTS}/390-plain.png` });
   check(errors.length === 0, `#plain: no console errors ${errors.join(" | ")}`);
   await context.close();
-}
+});
 
 // 10. The start screen's note (cannot listen, microphone blocked) on sideways phones: everything
 //     inside the screen and nothing over anything, the title included.
@@ -1195,7 +1200,7 @@ const startFits = (page) =>
     return bad;
   });
 const IPHONE = "Mozilla/5.0 (iPhone; CPU iPhone OS 19_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/19.0 Mobile/15E148 Safari/604.1";
-for (const [w, h] of [[568, 320], [667, 375], [740, 340], [844, 390]]) {
+for (const [w, h] of [[568, 320], [667, 375], [740, 340], [844, 390]]) task("rest", `${w}x${h} start notes`, async () => {
   const viewport = { width: w, height: h };
   const { context, page, errors } = await open(viewport, [fake, noSpeech]);
   await page.evaluate(() => document.fonts.ready);
@@ -1218,10 +1223,10 @@ for (const [w, h] of [[568, 320], [667, 375], [740, 340], [844, 390]]) {
   check(/microphone is blocked/.test(await blocked.page.textContent("#s-note")) && bad2.length === 0, `${w}x${h}: the start screen fits with "microphone is blocked" ${bad2.join(" | ")}`);
   await blocked.page.screenshot({ path: `${SHOTS}/${w}x${h}-start-blocked.png` });
   await ctx.close();
-}
+});
 
 // 11. A typed turn at 320 wide: the word box and "Say it" both inside the screen.
-{
+task("rest", "320 typed turn", async () => {
   const { context, page, errors } = await open({ width: 320, height: 568 }, [fake, noSpeech]);
   await start(page, "cities", 2);
   await waitReady(page);
@@ -1233,12 +1238,12 @@ for (const [w, h] of [[568, 320], [667, 375], [740, 340], [844, 390]]) {
   await page.screenshot({ path: `${SHOTS}/320x568-typed-turn.png` });
   check(errors.length === 0, `320 typed: no console errors ${errors.join(" | ")}`);
   await context.close();
-}
+});
 
 // 12. A verdict: the appeal stays clearly visible all through it; a pause and Go on within the
 //     settling moment after it put the keyboard on something visible and enabled, then on the go
 //     button once it can be pressed.
-{
+task("rest", "verdict and pause", async () => {
   const { context, page, errors } = await open({ width: 1280, height: 720 });
   await start(page, "cities", 3);
   await say(page, word("Leopold", 0.4));
@@ -1275,14 +1280,14 @@ for (const [w, h] of [[568, 320], [667, 375], [740, 340], [844, 390]]) {
   check(b.shown && b.settling && b.id === "gi" && then === "g-go", `with no appeal, the keyboard waits on the screen and then takes the go button (${b.id}, then ${then})`);
   check(errors.length === 0, `verdict and pause: no console errors ${errors.join(" | ")}`);
   await context.close();
-}
+});
 
 // 13. At the last stage and through the burst, he stays inside the screen, and the flash is a light
 //     one. He is framed big (style.css): he himself (body, face, sprouts), the bulbs, the tray's
 //     lights and the burst's "BREACH!" must stay on screen; the rig's outer parts (tubes, clamp
 //     ends, tray corners), the splat's outermost spikes (a few pixels on a narrow phone) and the
 //     flying chunks may run off the sides.
-for (const viewport of [{ width: 390, height: 844 }, { width: 320, height: 568 }, { width: 568, height: 320 }, { width: 844, height: 390 }, { width: 1280, height: 720 }]) {
+for (const viewport of [{ width: 390, height: 844 }, { width: 320, height: 568 }, { width: 568, height: 320 }, { width: 844, height: 390 }, { width: 1280, height: 720 }]) task("rest", `${viewport.width}x${viewport.height} burst`, async () => {
   const name = `${viewport.width}x${viewport.height}`;
   const { context, page, errors } = await open(viewport);
   await start(page, "cities", 2);
@@ -1320,7 +1325,29 @@ for (const viewport of [{ width: 390, height: 844 }, { width: 320, height: 568 }
   check(burst.flash <= 0.45, `${name}: the burst's flash is a light one, never a blank screen (at most ${burst.flash.toFixed(2)} white)`);
   check(errors.length === 0, `${name} burst: no console errors ${errors.join(" | ")}`);
   await context.close();
-}
+});
+
+// --only=fallback or --only=layout runs that group alone (as it always did); otherwise every case.
+// The longest cases go first, so the lanes finish together (the times are from the cases' own
+// lines in a run; a case not listed counts as short).
+const LONG = ["touch layout walk", "desktop layout walk", "phone round", "desktop keyboard round", "muted microphone"];
+const chosen = TASKS.filter(([group]) => !ONLY || group === ONLY || !["fallback", "layout"].includes(ONLY));
+const rank = (name) => (LONG.includes(name) ? LONG.indexOf(name) : LONG.length);
+const queue = LANES > 1 ? [...chosen].sort((a, b) => rank(a[1]) - rank(b[1])) : [...chosen];
+const took = [];
+const runOne = async ([, name, run]) => {
+  const t0 = Date.now();
+  try {
+    await where.run(name, run);
+  } catch (err) {
+    where.run(name, () => check(false, `the case stopped: ${err?.stack ?? err}`));
+  }
+  took.push([name, Date.now() - t0]);
+};
+await Promise.all(Array.from({ length: Math.min(LANES, queue.length) }, async () => {
+  while (queue.length) await runOne(queue.shift());
+}));
+console.log(`\n${took.length} cases, ${LANES} at a time; the longest: ${[...took].sort((a, b) => b[1] - a[1]).slice(0, 5).map(([n, ms]) => `${n} ${(ms / 1000).toFixed(0)} s`).join(", ")}`);
 
 await browser.close();
 console.log(failures ? `\n${failures} check(s) failed` : "\nall checks passed");
