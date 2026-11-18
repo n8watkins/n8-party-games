@@ -18,8 +18,9 @@ export const SEND_GAP_MS = 60;
 
 export class Pilot {
   /**
-   * @param {{lights: number, send: (message: object) => void, x?: number, rev?: number}} opts
-   *   lights: how many boxes hang on the wall. send: puts a message on the socket.
+   * @param {{lights: number | object, send: (message: object) => void, x?: number, rev?: number}} opts
+   *   lights: the room's wall (shared/rooms.js, wallFor), or how many boxes hang evenly on it.
+   *   send: puts a message on the socket.
    *   Until setLit says otherwise every light counts as on.
    */
   constructor({ lights, send, x = 0, rev = 0 }) {
@@ -51,6 +52,12 @@ export class Pilot {
   zoneAt(x) {
     const i = lightAt(x, this.lights);
     return i !== -1 && this.lit && !this.lit.has(i) ? -1 : i;
+  }
+
+  /** The party is in a room whose boxes hang somewhere else (shared/rooms.js, wallFor): which light the piece is in is worked out afresh. */
+  setWall(wall, now) {
+    this.lights = wall;
+    this.step(now);
   }
 
   /** The room said which lights are on (their places on the wall). Standing in one that just changed is news. */

@@ -3,17 +3,21 @@
 // First a party of three and a big screen: they vote for it, the game is mounted over the room
 // on every device, a player fires with real clicks, reloads in the middle and comes back to
 // their stall, the round ends, the game is taken away again and the places are on the Tonight
-// board. Then a party of one plays a round alone, and a big screen joins in the middle of it.
-// The browser is headless and muted, and is closed at the end whatever happens.
+// board. Meanwhile, in a room of its own, a party of one plays a round alone, and a big screen
+// joins in the middle of it. The browser is headless and muted, and is closed at the end
+// whatever happens.
 //
-//   node lobby/test/e2e-cork.mjs [--base=http://localhost:8791] [--out=lobby/test/shots] [--win=1]
+//   node lobby/test/e2e-cork.mjs [--base=http://localhost:8791] [--out=lobby/test/shots] [--win=1] [--apart=1]
 //
-// It takes about four minutes: there are two rounds of up to ninety seconds (the game's
-// ROUND_SECONDS). The battle runs its full time, as a battle ends early only once every
-// stall is out of corks and two of its stalls never spend theirs;
-// the round played alone ends sooner, once its one stall (the game's bot) has spent them. It
-// reads the room budget's books before and after (the local server's debug door), so the run
-// also says what each round cost, and checks that it is what each round lasted.
+// There are two rounds of up to ninety seconds (the game's ROUND_SECONDS). The battle runs its
+// full time, as a battle ends early only once every stall is out of corks and two of its stalls
+// never spend theirs; the round played alone ends sooner, once its one stall (the game's bot) has
+// spent them. The two rounds are played at the same time (about two and a half minutes in all),
+// except in a browser that draws in software, or with --apart=1 (test:cork:full), where the round
+// alone comes after the battle (about four minutes). It reads the room budget's books before and
+// after (the local server's debug door), so the run also says what the rounds cost, and checks
+// that it is what they lasted: each round's on its own when they are played apart, both together
+// when they overlap.
 //
 // Playwright's browser in WSL draws WebGL in software, a few frames a second, so the pages are
 // kept few and small (a 960 x 540 screen, phones at one pixel per pixel) and one of the three
@@ -252,6 +256,12 @@ try {
   // out there, and said so; everything the room decides is checked either way.
   const slow = loadedIn > 15_000;
   if (slow) console.log(`     (the game took ${(loadedIn / 1000).toFixed(0)} seconds to come up: this browser draws in software. The reload in the middle, the door sheet and the stills are left out; run with --win=1 for all of it.)`);
+  // Where the pages keep up, the party of one plays its round now, in a room of its own, while
+  // this battle runs its ninety seconds: the two share nothing but the server's books (counted
+  // together below). A browser that draws in software plays it after the battle, as one more set
+  // of pages beside these would slow them all.
+  const alone = slow || opt("apart", "0") === "1" ? null : playAlone();
+  alone?.catch(() => {}); // (awaited below; a failure is reported there)
   // A context to check afterwards: the game's WebGL context, held from the room's page.
   for (const page of [screen, ada, cy]) await holdContext(page);
   const seats = {};
@@ -397,6 +407,30 @@ try {
   bea.ws.close();
 
   // ================================================================ a party of one
+  // Played at the same time as the battle where the pages keep up (playAlone above), else now.
+  const { loneTook } = await (alone ?? playAlone());
+  await sleep(3000);
+  const after = await books();
+  if (before && afterOne && after) {
+    const first = (afterOne.dayUsed - before.dayUsed) / ROOM_MEMORY_GB;
+    const both = (after.dayUsed - before.dayUsed) / ROOM_MEMORY_GB;
+    // A room is held awake, and counted second for second, from a round's start to its end, and
+    // asleep otherwise, where an event (a join, a step, a vote) counts only the few milliseconds
+    // it took. So each round's awake time is its own length, never less (the room must not
+    // under-count), and more only by those events: never by a timer left running after the round
+    // ended, early or not, which would add every second until the books were read.
+    const AROUND = 1;
+    const fair = (awake, took, around = AROUND) => awake >= took - 0.05 && awake <= took + around;
+    if (alone) {
+      // The two rounds overlapped, so the one count of the server's books holds both: together
+      // they are what the two rounds lasted, each second for second.
+      check(fair(both, took + loneTook, 2 * AROUND), `each round was counted against the room budget second for second: ${both.toFixed(1)} awake seconds for the battle and the round played alone, which lasted ${took.toFixed(1)} and ${loneTook.toFixed(1)} (at most ${AROUND} s more a round is allowed, for what happened around them)`);
+    } else {
+      check(fair(first, took) && fair(both - first, loneTook), `each round was counted against the room budget second for second: ${first.toFixed(1)} awake seconds for the battle, which lasted ${took.toFixed(1)}, and ${(both - first).toFixed(1)} for the round played alone, which lasted ${loneTook.toFixed(1)} (at most ${AROUND} s more is allowed, for what happened around the rounds)`);
+    }
+    console.log(`     one round costs ${(took * ROOM_MEMORY_GB).toFixed(1)} GB-seconds of room time, however many play.`);
+  }
+  async function playAlone() {
   const lone = await open("alone", { width: 844, height: 390 }, { hasTouch: true });
   await lone.goto(base + "/lobby/?start&look=flat&cork-auto=1&cork-quality=low");
   await lone.fill("input[name=nickname]", "Sol");
@@ -456,22 +490,7 @@ try {
   await lone.waitForSelector(FRAME, { state: "detached", timeout: 90000 });
   const loneLeft = await leftBehind(lone);
   check(loneLeft.frames === 0 && loneLeft.canvases === 0 && loneLeft.lost === true, "and its game was taken away");
-
-  // ================================================================ what it cost
-  await sleep(3000);
-  const after = await books();
-  if (before && afterOne && after) {
-    const first = (afterOne.dayUsed - before.dayUsed) / ROOM_MEMORY_GB;
-    const both = (after.dayUsed - before.dayUsed) / ROOM_MEMORY_GB;
-    // A room is held awake, and counted second for second, from a round's start to its end, and
-    // asleep otherwise, where an event (a join, a step, a vote) counts only the few milliseconds
-    // it took. So each round's awake time is its own length, never less (the room must not
-    // under-count), and more only by those events: never by a timer left running after the round
-    // ended, early or not, which would add every second until the books were read.
-    const AROUND = 1;
-    const fair = (awake, took) => awake >= took - 0.05 && awake <= took + AROUND;
-    check(fair(first, took) && fair(both - first, loneTook), `each round was counted against the room budget second for second: ${first.toFixed(1)} awake seconds for the battle, which lasted ${took.toFixed(1)}, and ${(both - first).toFixed(1)} for the round played alone, which lasted ${loneTook.toFixed(1)} (at most ${AROUND} s more is allowed, for what happened around the rounds)`);
-    console.log(`     one round costs ${(first * ROOM_MEMORY_GB).toFixed(1)} GB-seconds of room time, however many play.`);
+  return { loneTook };
   }
 
   // The handshake as real pages did it, reloads and late joiners included: every socket's first

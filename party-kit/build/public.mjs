@@ -61,14 +61,18 @@ function inlineScriptHashes(files) {
  * `frames` is who may put this site's pages in a frame. "none" (the default): nobody. "self": the
  * site's own pages, and only those, which a site needs when one of its pages shows another of
  * its pages in a frame (the party room mounts a game's page that way). No other site ever may.
+ *
+ * `images` maps a site path ("/party/*") to the outside origins (https only) its pages may show
+ * pictures from; none by default. Those pages get the very same policy with only img-src widened.
  */
-export function headersFile(scriptHashes, { frames = "none", microphone = [] } = {}) {
+export function headersFile(scriptHashes, { frames = "none", microphone = [], images = {} } = {}) {
   const own = frames === "self";
-  const csp = [
+  for (const origins of Object.values(images)) for (const origin of origins) if (!/^https:\/\/[a-z0-9.-]+$/.test(origin)) throw new Error(`Not an https origin for img-src: ${origin}`);
+  const csp = (extra = []) => [
     "default-src 'self'",
     `script-src 'self' ${scriptHashes.join(" ")} ${TURNSTILE} ${WEB_ANALYTICS_SCRIPT}`.replace(/\s+/g, " "),
     "style-src 'self'",
-    "img-src 'self' data: blob:",
+    ["img-src 'self' data: blob:", ...extra].join(" "),
     "font-src 'self'",
     `connect-src 'self' ${WEB_ANALYTICS_REPORT}`,
     `frame-src ${own ? "'self' " : ""}${TURNSTILE}`,
@@ -81,7 +85,7 @@ export function headersFile(scriptHashes, { frames = "none", microphone = [] } =
   const policy = (mic) => `camera=(), microphone=${mic}, geolocation=(), payment=(), usb=()`;
   return [
     "/*",
-    `  Content-Security-Policy: ${csp}`,
+    `  Content-Security-Policy: ${csp()}`,
     "  X-Content-Type-Options: nosniff",
     `  X-Frame-Options: ${own ? "SAMEORIGIN" : "DENY"}`,
     "  Referrer-Policy: strict-origin-when-cross-origin",
@@ -89,6 +93,8 @@ export function headersFile(scriptHashes, { frames = "none", microphone = [] } =
     // A path in `microphone` may use the microphone on this site's own pages: the site-wide
     // policy is detached ("!") and the same one sent with only microphone=(self) changed.
     ...microphone.flatMap((path) => [path, "  ! Permissions-Policy", `  Permissions-Policy: ${policy("(self)")}`]),
+    // A path in `images` may show pictures from its outside origins: the same, detached and resent.
+    ...Object.entries(images).flatMap(([path, origins]) => [path, "  ! Content-Security-Policy", `  Content-Security-Policy: ${csp(origins)}`]),
     "",
   ].join("\n");
 }
@@ -96,10 +102,11 @@ export function headersFile(scriptHashes, { frames = "none", microphone = [] } =
 /**
  * Empties `out` and fills it from `entries`: each `{from, to}` copies the file or folder at the
  * absolute path `from` to the site path `to` (no leading slash). Writes the `_headers` file.
- * Returns every file written as `{path, bytes}`, sorted by path. `frames` and `microphone` (the
- * site paths, such as "/lab/x/*", whose pages may use the microphone) are passed to headersFile.
+ * Returns every file written as `{path, bytes}`, sorted by path. `frames`, `microphone` (the
+ * site paths, such as "/lab/x/*", whose pages may use the microphone) and `images` (site path ->
+ * the outside origins its pages may show pictures from) are passed to headersFile.
  */
-export function buildPublic({ out, entries, frames = "none", microphone = [] }) {
+export function buildPublic({ out, entries, frames = "none", microphone = [], images = {} }) {
   rmSync(out, { recursive: true, force: true });
   mkdirSync(out, { recursive: true });
   for (const { from, to } of entries) {
@@ -113,7 +120,7 @@ export function buildPublic({ out, entries, frames = "none", microphone = [] }) 
   const files = walk(out);
   const tooBig = files.filter((f) => statSync(f).size > MAX_FILE_BYTES);
   if (tooBig.length) throw new Error(`Over the 25 MiB per-file limit: ${tooBig.map((f) => relative(out, f)).join(", ")}`);
-  writeFileSync(join(out, "_headers"), headersFile(inlineScriptHashes(files), { frames, microphone }));
+  writeFileSync(join(out, "_headers"), headersFile(inlineScriptHashes(files), { frames, microphone, images }));
   return files.map((f) => ({ path: relative(out, f).split(sep).join("/"), bytes: statSync(f).size })).sort((a, b) => a.path.localeCompare(b.path));
 }
 

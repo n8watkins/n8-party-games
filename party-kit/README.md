@@ -168,13 +168,22 @@ Messages the kit does not know are passed on as the `message` event.
 A game gets a high score board by naming itself to the API: `handlePartyApi(request, env, { scores: { "my-game": { max: 243300 } } })`, with the `PARTY_SCORES` binding and the `ScoreBoard` class exported.
 Nobody signs in.
 A score goes up under three capital letters, and the obvious rude three-letter words are refused.
-Scores come from the browser, so they cannot be trusted; the board only keeps abuse cheap and bounded.
-A score must be a whole number no higher than `max` (the most a round of the game can reach), the body is at most 128 bytes, the origin check applies, and one connection may post 6 scores in ten minutes and 60 in a day.
+A score the browser sends cannot be trusted.
+So a game that can play a run again names its `scoreRun(run) -> score | null` too (`{ "my-game": { max, scoreRun } }`), and its board never takes a score at all.
+The page plays a run on a seed of its own and at the end sends the run itself: its letters, its `seed` (0 to 2^32 - 1) and what its player did, as the game's `scoreRun` reads it.
+The Worker plays it again with the game's own code and chalks up that score, never one the page claims; a run `scoreRun` will not score (it returns null) is refused with `bad_request`.
+The board keeps each row's seed (never shown: `GET` gives `{name, score, at}`), so the same run sent again is refused with 409 `already_chalked`.
+Rows stored before seeds were kept have none, and read back unchanged.
+So a score typed into an address, a bare score or a run sent twice gets nowhere.
+What this proves is that the run keeps to the game's rules; it does not prove a person played it, since a script can play the game's own code as well as a page can.
+A run's body is at most 16 KB.
+A game without `scoreRun` posts a bare score, and the board only keeps abuse cheap and bounded: a whole number no higher than `max` (the most a round of the game can reach), in a body of at most 128 bytes.
+Either way the origin check applies, and one connection may post 6 scores in ten minutes and 60 in a day.
 Only the ten best are kept, and a score that does not make the ten writes nothing.
 
 The board is one Durable Object per game that wakes for a single read or write: no timer, no socket, no alarm.
 It costs nothing while nobody plays and it does not count against the room budget.
-Posting a score is one Worker request and three Durable Object requests (two rate-limit windows and the board).
+Posting a score or a run is one Worker request and three Durable Object requests (two rate-limit windows and the board).
 Reading the board is one Worker request and one Durable Object request, and browsers may keep the answer for 20 seconds.
 
 ### The game object
@@ -300,9 +309,10 @@ The plain logic is `src/core/audience.js`: `hasAudience`, `isUpright`, `needsSpo
 | `POST /api/party/join/:pinOrCode` `{nickname, as?}` | `{code, pin, token, seat, role}` |
 | `GET /api/party/rooms/:code/ws` (`?lag=150` in tests) | WebSocket; its first message is `hello {token}` ("The socket handshake") |
 | `GET /api/party/qr.svg?text=<this site's join link>` | A QR code as SVG (only `<origin>/<path>?join=<PIN or code>`) |
-| `GET /api/party/config` | `{publicOrigin, simLatency, turnstileSiteKey}` |
+| `GET /api/party/config` | `{publicOrigin, simLatency, testGames, turnstileSiteKey}` (`testGames`: `PARTY_TEST_GAMES` is `"on"`, so a game's page may honour its own test switches) |
 | `GET /api/party/scores/:game` | `{top: [{name, score, at}]}`: the game's ten best, best first |
-| `POST /api/party/scores/:game` `{name: "ABC", score}` | `{top, place}` (`place` is -1 when the score did not make the ten) |
+| `POST /api/party/scores/:game` `{name: "ABC", seed, ...}` | `{top, place, score}`: the run played again and chalked up (a game with `scoreRun`); 400 `bad_request` when it will not score, 409 `already_chalked` when that run is on the board |
+| `POST /api/party/scores/:game` `{name: "ABC", score}` | `{top, place}` (`place` is -1 when the score did not make the ten; a game without `scoreRun`) |
 
 The two requests that hand out a seat (`POST .../rooms` and `POST .../join/:pinOrCode`) must carry the client's mark, the header `X-Party-Protocol: 2`; `PartyClient` sends it.
 Without it the answer is 426 `page_outdated`, "This page is out of date. Reload it to play.", and no seat is made.

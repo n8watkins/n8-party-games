@@ -173,10 +173,12 @@ async function stopGroup(pgid, grace = 5000) {
 /**
  * A local Worker on `port`, in its own process group so it can be stopped whole. With
  * `persist`, its Durable Objects live in that folder instead of the repo's .wrangler/state.
- * With `quiet`, its output is kept (the last lines) instead of printed.
+ * With `quiet`, its output is kept (the last lines) instead of printed. `env` is the wrangler
+ * environment: "local", or "" for the production settings (as DEPLOY.md starts them by hand).
  */
-function startWorker(port, { persist = null, quiet = false } = {}) {
-  const args = ["wrangler", "dev", "--local", "--env", "local", "--port", String(port)];
+function startWorker(port, { persist = null, quiet = false, env = "local" } = {}) {
+  const args = ["wrangler", "dev", "--local", `--env=${env}`, "--port", String(port)];
+  if (env === "") args.push("--local-upstream", `localhost:${port}`);
   if (persist) args.push("--persist-to", persist);
   const child = spawn("npx", args, {
     stdio: ["ignore", "pipe", "pipe"],
@@ -259,13 +261,30 @@ async function oneAfterAnother() {
     return;
   }
   // Stop at the first failure: the later scripts only add noise once the room is broken.
-  for (const [name, script] of STEPS) {
+  for (const [name, script, options] of STEPS) {
     console.log(`\n=== ${name} ===`);
     const t = Date.now();
-    const c = await run(npm, ["run", script, "--", `--base=${worker.base}`]);
+    // A step that asks for an environment of its own gets a fresh Worker for it, with empty storage.
+    const own = options?.env === undefined ? null : await ownWorker(await freePort(port + 1), options.env);
+    const c = own?.ok === false ? 1 : await run(npm, ["run", script, "--", `--base=${(own ?? worker).base}`]);
+    await own?.stop();
     results.push({ name, status: c === 0 ? "ok" : "FAIL", seconds: seconds(t) });
     if (c !== 0) break;
   }
+}
+
+/** A Worker of a step's own, in `env`, with an empty storage folder; stop() also removes the folder. */
+async function ownWorker(p, env) {
+  const persist = mkdtempSync(join(tmpdir(), `predeploy-${p}-`));
+  const worker = startWorker(p, { persist, quiet: true, env });
+  const stop = async () => {
+    await worker.stop();
+    rmSync(persist, { recursive: true, force: true });
+  };
+  cleanups.push(stop);
+  const ok = await worker.ready();
+  if (!ok) console.log(`The step's own Worker did not come up on ${worker.base}:\n${worker.log().split("\n").slice(-20).join("\n")}`);
+  return { base: worker.base, ok, stop };
 }
 
 /** Side by side, each step against a local Worker of its own (TEST_GPU=1 only). */
@@ -285,7 +304,7 @@ async function sideBySideSteps() {
   for (let i = 0; i < STEPS.length; i++) {
     const p = await freePort(stepPort(port, i));
     const persist = mkdtempSync(join(tmpdir(), `predeploy-${p}-`));
-    const worker = startWorker(p, { persist, quiet: true });
+    const worker = startWorker(p, { persist, quiet: true, env: STEPS[i][2]?.env ?? "local" });
     cleanups.push(async () => {
       await worker.stop();
       rmSync(persist, { recursive: true, force: true });

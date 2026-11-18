@@ -126,10 +126,10 @@ describe("which games the party can play", () => {
     expect(WALL.boxes.some((b) => b.test)).toBe(false);
     for (const b of WALL.boxes) expect(b.blurb.length, b.id).toBeGreaterThan(5);
     // The games that can start: the Floor's and the Table's. No test game in production, on the Floor or at the Table.
-    expect([...WALL.games.keys()]).toEqual(["cork-and-bell", "tin-derby", "paper-masks"]);
+    expect([...WALL.games.keys()]).toEqual(["cork-and-bell", "tin-derby", "paper-masks", "who-am-i"]);
     expect(WALL.table.map((e) => [e.id, e.soon])).toEqual([
       ["paper-masks", false],
-      ["who-am-i", true],
+      ["who-am-i", false],
     ]);
     expect(WALL.table.some((e) => e.test)).toBe(false);
     expect(WALL.games.get("cork-and-bell").tickHz).toBe(30);
@@ -140,7 +140,7 @@ describe("which games the party can play", () => {
     expect(TEST_WALL.table.filter((e) => e.test).map((e) => e.id)).toEqual(["count-to-ten"]);
     expect(TEST_WALL.boxes.map((b) => b.id)).toEqual(["cork-and-bell", "coin-flip", "flood", "tin-derby", "fox-trouble", "ideas"]);
     expect(TEST_WALL.boxes[1]).toMatchObject({ test: true, min: 1, view: null });
-    expect([...TEST_WALL.games.keys()]).toEqual(["cork-and-bell", "tin-derby", "coin-flip", "paper-masks", "count-to-ten"]);
+    expect([...TEST_WALL.games.keys()]).toEqual(["cork-and-bell", "tin-derby", "coin-flip", "paper-masks", "who-am-i", "count-to-ten"]);
     expect(wallFor({ PARTY_TEST_GAMES: "on" })).toBe(TEST_WALL);
     expect(wallFor({ PARTY_TEST_GAMES: "off" })).toBe(WALL);
     expect(wallFor({})).toBe(WALL);

@@ -14,6 +14,11 @@ import { createRequire } from "node:module";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { KIT_CLIENT_PATH, buildPublic, kitClientEntry, report } from "../party-kit/build/public.mjs";
+
+/** Where Who Am I?'s pictures load from: the one outside host any page of this site may show images from. */
+export const PICTURE_HOST = "https://upload.wikimedia.org";
+/** The Table's pages (party/public, served at /party/): the only ones that may. */
+export const TABLE_PAGES = "/party/*";
 import { GAMES, TURN_GAMES } from "../games.js";
 import { WALL } from "../lobby/wall.js";
 
@@ -146,8 +151,10 @@ export function build(out = OUT) {
   // The party room shows a hosted game by putting the game's own page in a frame, so this site's
   // pages may be framed by this site's pages, and by nobody else.
   // Hot Potato (one-device/hot-potato) and its hearing test (lab/hot-potato) listen through the
-  // microphone; no other page may.
-  const files = buildPublic({ out, entries, frames: "self", microphone: ["/lab/hot-potato/*", "/one-device/hot-potato/*"] });
+  // microphone; no other page may. Who Am I? at the Table shows each name's picture straight from
+  // Wikimedia, as its own site does (party/games/who-am-i/README.md, "For the page builder"): the
+  // Table's pages, and only those, may load pictures from there.
+  const files = buildPublic({ out, entries, frames: "self", microphone: ["/lab/hot-potato/*", "/one-device/hot-potato/*"], images: { [TABLE_PAGES]: [PICTURE_HOST] } });
   const text = homeWallModule();
   writeFileSync(join(out, HOME_WALL_PATH), text);
   return [...files, { path: HOME_WALL_PATH, bytes: Buffer.byteLength(text) }].sort((a, b) => a.path.localeCompare(b.path));
