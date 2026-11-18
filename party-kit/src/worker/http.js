@@ -36,6 +36,7 @@ export const STATUS = {
   room_full: 409,
   screen_taken: 409,
   in_progress: 409,
+  already_chalked: 409,
   too_large: 413,
   rate_limited: 429,
   internal: 500,

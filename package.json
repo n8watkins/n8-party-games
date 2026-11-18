@@ -64,6 +64,7 @@
     "lobby:shots": "node lobby/test/shoot.mjs",
     "lobby:measure": "node lobby/test/measure.mjs",
     "test:cork:3d": "node lobby/test/e2e-cork-3d.mjs",
+    "test:cork:switches": "node lobby/test/e2e-cork-switches.mjs",
     "lobby:shots:3d": "node lobby/test/shoot-3d.mjs",
     "lobby:shots:bump": "node lobby/test/shoot-bump.mjs",
     "lobby:stills:3d": "node lobby/test/shoot-3d-stills.mjs",
@@ -77,7 +78,7 @@
     "lean-qr": "^2.7.4"
   },
   "devDependencies": {
-    "cork-and-bell": "github:n8watkins/cork-and-bell#e2922e5327a739941ccf0c76f5d77c20094639ad",
+    "cork-and-bell": "github:n8watkins/cork-and-bell#a07625506f63de880aea177a492e9fb4a9929b49",
     "playwright": "^1.64.1",
     "sharp": "^0.35.5",
     "three": "^0.186.1",
