@@ -357,6 +357,48 @@ describe("on the party room, two phones and a big screen", () => {
     expect(r.state().notes.some((n) => n.k === "self_confirmed")).toBe(true);
   });
 
+  it("scores a decided match once when the host taps the Table's own End the game on its last reveal", async () => {
+    const r = await party({ players: 2 });
+    await play(r);
+    await send(r, "ann", { t: "begin" });
+    // First to 3: right guesses, confirmed, until the reveal that decides the match.
+    for (let i = 0; i < 20 && !rules.decided(r.state()); i++) {
+      const s = r.state();
+      if (s.phase === "reveal") await send(r, "ann", { t: "next" });
+      else {
+        await send(r, key(s.turn.seat), { t: "guess" });
+        await send(r, key(1 - s.turn.seat), { t: "confirm" });
+      }
+    }
+    expect(rules.decided(r.state())).toBe(true);
+    const places = game.standings(r.state());
+    expect(places).toHaveLength(2);
+    const since = from(r.ws.ann, r.ws.bo);
+    r.say(r.ws.ann, { t: "stop" });
+    await settle();
+    expect(r.core().activity.kind).toBe("lobby");
+    const end = since(r.ws.bo).find((m) => m.t === "end");
+    expect(end.last).not.toHaveProperty("early");
+    expect(end.last.rows.map((row) => [row.seat, row.place]).sort()).toEqual(places.map((p) => [p.seat, p.place]).sort());
+    const after = [0, 1].map((s) => r.core().members[s].points);
+    expect(after.sort()).toEqual([2, 3]);
+    // Scored once: the reveal's own deadline coming later changes nothing.
+    await vi.advanceTimersByTimeAsync(rules.TIMERS.reveal + 5000);
+    expect([0, 1].map((s) => r.core().members[s].points).sort()).toEqual(after);
+    expect(r.core().history.filter((h) => h.name === "Who Am I?")).toHaveLength(1);
+  });
+
+  it("still throws away a match that is not decided when the host ends it from the Table", async () => {
+    const r = await party({ players: 2 });
+    await play(r);
+    await send(r, "ann", { t: "begin" });
+    r.say(r.ws.ann, { t: "stop" });
+    await settle();
+    expect(r.core().activity.kind).toBe("lobby");
+    expect(r.core().last).toMatchObject({ rows: [], early: { why: "host" } });
+    expect([0, 1].map((s) => r.core().members[s].points)).toEqual([0, 0]);
+  });
+
   it("ends with a forfeit when a player leaves the party mid-round, and shows that round's names to the one who stayed", async () => {
     const r = await party({ players: 2 });
     const since = from(r.ws.ann, r.ws.screen);

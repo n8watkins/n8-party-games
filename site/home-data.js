@@ -73,8 +73,8 @@ export const ROOM_VOTE = [
  * What each game is like, by its id on the wall (or in ONE_DEVICE). A game with no entry here is
  * still listed, with its line from the wall and a plain picture.
  * tile: the square picture; wide: the picture on its card; focus: where the square crops it.
- * ownSite: where a Table game that is not at the Table yet plays today (the Table door links
- * there until the Table can start it).
+ * ownSite: where a Table game also plays on a site of its own: the Table door links there while
+ * the Table cannot start it, and offers it as a second way to play once it can.
  */
 export const COPY = {
   "cork-and-bell": { tile: "tile-cork", piece: "pawn" },

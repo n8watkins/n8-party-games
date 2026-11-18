@@ -113,17 +113,19 @@ describe("the Table's list", () => {
     const list = r.core().view(Date.now()).table;
     expect(list.map((e) => [e.id, e.min, e.max, e.soon, e.test, e.why])).toEqual([
       ["paper-masks", 3, 8, false, false, "Needs 3 or more"],
+      ["who-am-i", 2, 2, false, false, null],
       [GAME, 2, 8, false, true, null],
-      ["who-am-i", 2, 2, true, false, "Coming soon"],
     ]);
     expect(list[0]).toMatchObject({ name: "Paper Masks", view: "/party/games/paper-masks.js", art: "/party/games/paper-masks/art/door-480.webp" });
-    expect(list[1]).toMatchObject({ name: "Count to ten", view: "/party/games/count-to-ten.js", art: null });
+    expect(list[1]).toMatchObject({ name: "Who Am I?", view: "/party/games/who-am-i.js" });
+    expect(list[2]).toMatchObject({ name: "Count to ten", view: "/party/games/count-to-ten.js", art: null });
     for (const e of list) expect(e.pitch.length, e.id).toBeGreaterThan(10);
 
-    // Bo's phone drops: one player here, so the test game needs two.
+    // Bo's phone drops: one player here, so the test game needs two, and Who Am I? exactly two.
     r.ctx.room.webSocketClose(r.ws.bo, 1001, "");
     await settle();
-    expect(r.core().view(Date.now()).table[1].why).toBe("Needs 2 or more");
+    expect(r.core().view(Date.now()).table[2].why).toBe("Needs 2 or more");
+    expect(r.core().view(Date.now()).table[1].why).toBe("Needs exactly 2");
 
     // Back on the Floor there is no list, and no word of a game starting.
     r.ws.bo = await r.connect(r.tokens.bo);
@@ -149,13 +151,15 @@ describe("the Table's list", () => {
 
 describe("who may start a Table game", () => {
   it("only the host, only at the Table, only a game on the list that can be played by the party as it is", async () => {
-    const r = await table({ players: 2 });
+    // A game still coming: none is on the real list now, so this one is hung for the test.
+    const later = tableEntry({ id: "later", name: "Later", pitch: "A game that is not built yet", players: { min: 2, max: 2 } }, { soon: true });
+    const r = await table({ players: 2, wall: { ...TEST_WALL, table: [...TEST_WALL.table, later] } });
     const since = from(r.ws.ann, r.ws.bo, r.ws.screen);
     r.say(r.ws.bo, { t: "play", id: GAME });
     r.say(r.ws.screen, { t: "play", id: GAME });
     r.say(r.ws.ann, { t: "play", id: "nope" });
     r.say(r.ws.ann, { t: "play", id: "paper-masks" });
-    r.say(r.ws.ann, { t: "play", id: "who-am-i" });
+    r.say(r.ws.ann, { t: "play", id: "later" });
     r.say(r.ws.ann, { t: "play", id: 7 });
     await settle();
     expect(since(r.ws.bo)).toEqual([{ t: "play-no", error: "not_host", message: "Only the one who started the party picks the game." }]);
@@ -163,7 +167,7 @@ describe("who may start a Table game", () => {
     expect(since(r.ws.ann)).toEqual([
       { t: "play-no", error: "not_found", message: "That game is not on the Table's list." },
       { t: "play-no", error: "party_size", message: "Paper Masks: Needs 3 or more." },
-      { t: "play-no", error: "not_ready", message: "Who Am I?: Coming soon." },
+      { t: "play-no", error: "not_ready", message: "Later: Coming soon." },
       { t: "play-no", error: "not_found", message: "That game is not on the Table's list." },
     ]);
     expect(r.core().starting).toBeNull();
@@ -463,7 +467,8 @@ describe("a Table game, played to the end", () => {
     await vi.advanceTimersByTimeAsync(TURN_GRACE_MS + 100);
     expect(r.core().activity.kind).toBe("lobby");
     expect(r.core().last).toMatchObject({ name: "Count to ten", rows: [{ seat: 1, place: 1, points: 3 }] });
-    expect(r.core().last).not.toHaveProperty("early");
+    // The seat that went is not placed and the one left is: the card says why it won.
+    expect(r.core().last.early).toMatchObject({ seat: 2, why: "gone", text: "Cy did not come back, so Bo wins." });
     await vi.advanceTimersByTimeAsync(DROP_FADE_MS + 100);
     expect(r.core().members[2]).toBeNull();
   });
@@ -581,6 +586,48 @@ describe("the host ends a Table game", () => {
     await vi.advanceTimersByTimeAsync(200_000);
     expect([0, 1, 2].map((s) => r.core().members[s].points)).toEqual(after);
     expect(r.core().history.filter((h) => h.name === "Paper Masks")).toHaveLength(1);
+  });
+
+  it("keeps the place of a player who leaves the party at Paper Masks' final curtain: the match was decided before they went", async () => {
+    const r = await table({ players: 3 });
+    await play(r, "paper-masks");
+    const say = (who, d) => r.say(r.ws[who], { t: "in", d, id: ++ids });
+    const state = () => r.core().activity.state;
+    say("ann", { t: "choose", rounds: 3 });
+    say("ann", { t: "begin" });
+    await settle();
+    for (let i = 0; i < 200 && state().at === "match"; i++) {
+      const m = state().match;
+      const viewOf = (seat) => r.core().games.get("paper-masks").snapshot(state(), 0, { role: "player", seat });
+      if (m.phase === "writing") for (const seat of [0, 1, 2]) say(key(seat), { t: "answer", text: `Words of ${NAMES[seat]} in round ${m.round.n}` });
+      else if (m.phase === "reading") say(key(m.round.reader), { t: "startGuessing" });
+      else if (m.phase === "guessing") {
+        for (const seat of [0, 1, 2]) {
+          const v = viewOf(seat).step;
+          if (v.yours) say(key(seat), { t: "decoy", card: v.card.id });
+          else if (v.guess === null) say(key(seat), { t: "guess", card: v.card.id, who: v.available[0] });
+        }
+        await settle();
+        say(key(state().match.round.reader), { t: "next" });
+      } else if (m.phase === "reveal") say(key(m.round.reader), { t: "reveal" });
+      else if (m.phase === "summary") say(key(m.host), { t: "nextRound" });
+      await settle();
+    }
+    expect(state().at).toBe("curtain");
+    const places = r.core().games.get("paper-masks").standings(state());
+    expect(places.map((p) => p.seat).sort()).toEqual([0, 1, 2]);
+    // Cy leaves the party at the curtain; then the host closes it.
+    r.say(r.ws.cy, { t: "leave" });
+    await settle();
+    expect(r.core().activity.kind).toBe("game");
+    const since = from(r.ws.bo);
+    say("ann", { t: "close" });
+    await settle();
+    await vi.advanceTimersByTimeAsync(1000);
+    const end = since(r.ws.bo).find((m) => m.t === "end");
+    expect(end.last.rows.map((row) => [row.seat, row.place]).sort()).toEqual(places.map((p) => [p.seat, p.place]).sort());
+    const cy = end.last.rows.find((row) => row.seat === 2);
+    expect(r.core().remembered.get("cy")).toBe(cy.points);
   });
 
   it("still throws away a game that is not decided: Paper Masks mid-match ends with no points", async () => {

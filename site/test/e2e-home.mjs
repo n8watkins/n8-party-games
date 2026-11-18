@@ -119,9 +119,10 @@ try {
     ),
   );
   check(!peeks.room.chips.some((c) => c.startsWith("Who Am I?") || /idea/i.test(c)) && !/Who Am I|idea/i.test(peeks.room.line + peeks.room.said) && peeks.room.chips.includes("Cork & Bell=Now"), `the room door calls Cork & Bell Now, and names neither Who Am I? (a Table game) nor the ideas poster: ${peeks.room.chips.join(", ")}`);
-  check(peeks.table.chips.includes("Who Am I?=Own site") && !peeks.table.chips.includes("Who Am I?=Now"), `the table door does not call Who Am I? Now: ${peeks.table.chips.join(", ")}`);
+  // Who Am I? plays at the Table now.
+  check(peeks.table.chips.includes("Who Am I?=Now") && !peeks.table.chips.includes("Who Am I?=Own site"), `the table door calls Who Am I? Now: ${peeks.table.chips.join(", ")}`);
   check(playsAtTable ? peeks.table.chips.includes("Paper Masks=Now") : !peeks.table.chips.some((c) => c.endsWith("=Now")), `the table door calls a game Now only when the Table plays one (${playsAtTable ? "it does" : "none yet"})`);
-  check(/Who Am I\? on its own site/.test(peeks.table.line) && /Who Am I\? on its own site, playable now/.test(peeks.table.said), `the table door's line says where Who Am I? plays: "${peeks.table.line}"`);
+  check(/Who Am I\?/.test(peeks.table.line) && !/own site/.test(peeks.table.line) && /Who Am I\?, playable now/.test(peeks.table.said), `the table door's line names Who Am I? as played there: "${peeks.table.line}"`);
 
   await ann.tap(".door[data-kind=room]");
   await inView(ann, "room");
@@ -373,9 +374,12 @@ try {
   await eve.waitForFunction(() => document.body.dataset.sheet === "open");
   const who = await eve.evaluate(() => {
     const a = document.querySelector("#detail a.btn-go");
-    return { href: a?.href, target: a?.target, focus: document.getElementById("detail").contains(document.activeElement) };
+    const own = [...document.querySelectorAll("#detail a.btn")].find((x) => /Its own site/.test(x.textContent));
+    return { href: a?.href, target: a?.target, text: a?.textContent, own: own ? { href: own.href, target: own.target } : null, focus: document.getElementById("detail").contains(document.activeElement) };
   });
-  check(who.href === "https://whoami.n8builds.dev/" && who.target === "_blank", "Who Am I?'s card plays it on its own site, in a new tab");
+  // Who Am I? plays at the Table now, with its own site as a second way to play it.
+  check(/Start a party at the Table/.test(who.text ?? "") && new URL(who.href).origin === new URL(base).origin && who.target !== "_blank", `Who Am I?'s card at the Table door starts a party at the Table ("${who.text}", ${who.href})`);
+  check(who.own?.href === "https://whoami.n8builds.dev/" && who.own.target === "_blank", `and offers its own site as a second way to play, in a new tab (${JSON.stringify(who.own)})`);
   check(who.focus, "the card takes the focus when it opens");
   await eve.waitForTimeout(600);
   await shot(eve, "11-who-am-i-card-390x844-dark");
