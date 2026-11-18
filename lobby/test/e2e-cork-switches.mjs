@@ -32,7 +32,8 @@
 // The local test server (npm run dev) honours the switches: lobby/test/e2e-cork.mjs uses
 // ?cork-auto=1 there. The browser is headless and muted, and is closed whatever happens.
 import { launchBrowser } from "./browser.mjs";
-import { boxCentre } from "../shared/world.js";
+import { wallFor } from "../shared/rooms.js";
+import { poolOf } from "../shared/world.js";
 import { partyApi, sleep } from "./client.mjs";
 
 const args = process.argv.slice(2);
@@ -120,7 +121,9 @@ try {
   await watcher.wait((m) => m.room?.members[0]?.connected, 8000, 0);
   const boxes = watcher.room.boxes;
   check(!boxes.some((b) => b.test), "the wall the server sent has no test games on it (production)");
-  const light = Math.round(boxCentre(boxes.findIndex((b) => b.id === "cork-and-bell"), boxes.length));
+  // The middle of Cork & Bell's pool on this room's wall: production's five boxes hang in the bar's
+  // frames (a placed wall), not evenly spaced as on the test wall (shared/rooms.js, wallFor).
+  const light = Math.round(poolOf(wallFor(watcher.room.room, boxes), boxes.findIndex((b) => b.id === "cork-and-bell")).x);
   for (let i = 0; i < 14; i++) {
     await sleep(120);
     const gap = light - (watcher.seen.findLast((m) => m.t === "m" && m.s === 0)?.x ?? watcher.room.members[0].x);
