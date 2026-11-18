@@ -94,3 +94,24 @@ describe("Cork & Bell's high score board on this site", () => {
     expect(await board.top()).toEqual([]);
   });
 });
+
+describe("the site's Worker (worker.js)", () => {
+  /** A bare score to the kit's e2e-test board through the site's own Worker, with these switches. */
+  async function testBoard(vars) {
+    const { default: site } = await import("../../worker.js");
+    const { env } = boardEnv();
+    const request = new Request("https://party.test/api/party/scores/e2e-test", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "CF-Connecting-IP": "203.0.113.8" },
+      body: JSON.stringify({ name: "ANN", score: 5 }),
+    });
+    return (await site.fetch(request, { ...env, ...vars })).status;
+  }
+
+  it("has the e2e-test board only where PARTY_TEST_GAMES is on, whatever PARTY_SIM_LATENCY says", async () => {
+    expect(await testBoard({ PARTY_TEST_GAMES: "on", PARTY_SIM_LATENCY: "on" })).toBe(200);
+    expect(await testBoard({ PARTY_TEST_GAMES: "on", PARTY_SIM_LATENCY: "off" })).toBe(200);
+    expect(await testBoard({ PARTY_TEST_GAMES: "off", PARTY_SIM_LATENCY: "on" })).toBe(404);
+    expect(await testBoard({ PARTY_SIM_LATENCY: "off" })).toBe(404);
+  });
+});

@@ -23,7 +23,10 @@ const LOBBY_API = "/api/lobby";
 
 /** The games with a high score board, and how each board takes a score (games.js). */
 const SCORES = SCORE_BOARDS;
-/** Local test runs (the "local" environment) get a board of their own, so they never chalk up on a game's. */
+/**
+ * Local test runs get a board of their own, so they never chalk up on a game's: only where
+ * PARTY_TEST_GAMES is "on" (the local environment), the one switch every test-only thing follows.
+ */
 const TEST_SCORES = { ...SCORES, "e2e-test": { max: 1000 } };
 
 /**
@@ -42,7 +45,7 @@ export default {
     if (env.PARTY_DEBUG === "on" && request.method === "GET" && (url.pathname === `${LOBBY_API}/debug` || url.pathname.startsWith(`${LOBBY_API}/debug/`))) return debug(url, env);
     const lobby = await handlePartyApi(request, env, { prefix: LOBBY_API, rooms: env.PARTY_LOBBIES, fullMessage: partyFullMessage });
     if (lobby) return lobby;
-    const scores = env.PARTY_SIM_LATENCY === "on" ? TEST_SCORES : SCORES;
+    const scores = env.PARTY_TEST_GAMES === "on" ? TEST_SCORES : SCORES;
     return (await handlePartyApi(request, env, { scores })) ?? env.ASSETS.fetch(request);
   },
 };

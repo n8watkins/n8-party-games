@@ -15,14 +15,19 @@
 // 2. ?auto=1&host=1 on the game's own page: once the page has the server's /config, it has asked
 //    for no room and made none.
 // 3. Practice runs: ?state=end&score=<the most a round can score>, ?seed=7 and ?view=wide end
-//    without the high score entry. The board's API refuses a bare score, a made-up run, a run of
-//    another version of the rules and a body over 16 KB: the board stays empty.
+//    without the high score entry. The board's API refuses a bare score, a made-up run and a body
+//    over 16 KB: the board stays empty.
 // 4. A real run from the start board still goes on the board, at exactly the score the page
 //    showed: the page's own session is played to the end at once (the game's bot fires through the
 //    page's fire call, then the round moves on 1/60 s), so the round takes a second or two, not 90.
 //    The same run sent again, now claiming the most a round can score, is turned away.
-// The board's API is posted to six times in all: the production limit is six scores per address in
-// ten minutes.
+// Every POST to the board counts against the production limit, six per address in ten minutes
+// (party-kit limit-logic.js, score_short), and this script and its pages share one address. It
+// makes five (BOARD_POSTS), counted as they go: a sixth would still pass, a seventh would be a
+// 429 that fails some other check for a reason nobody would guess, so going past the limit stops
+// the run at once and says why. What else the board refuses (a run of another version of the
+// rules, a throwing scoreRun, and so on) is in the unit tests (party-kit/test/score-runs.test.js,
+// lobby/test/cork-test-switches.test.js), which have no limit.
 //
 // The local test server (npm run dev) honours the switches: lobby/test/e2e-cork.mjs uses
 // ?cork-auto=1 there. The browser is headless and muted, and is closed whatever happens.
@@ -61,10 +66,31 @@ started = Date.now();
 const open = async (name, viewport, extra = {}) => {
   const page = await (await browser.newContext({ viewport, deviceScaleFactor: 1, ...extra })).newPage();
   page.on("pageerror", (e) => errors.push(`${name}: ${e.message}`));
+  // The pages' own posts to the board count against the same limit as this script's.
+  page.on("request", (r) => {
+    if (r.method() !== "POST" || r.url() !== SCORES) return;
+    try {
+      countBoardPost(`${name}'s page posting its letters`);
+    } catch (err) {
+      check(false, err.message);
+    }
+  });
   page.on("console", (m) => m.type() === "error" && !/WebSocket|ERR_|status of 4\d\d/.test(m.text()) && errors.push(`${name}: ${m.text()}`));
   return page;
 };
+/** The production limit on posts to a board from one address in ten minutes (score_short). */
+const BOARD_POST_LIMIT = 6;
+/** The board posts this script makes: four from here and the page's own one (its letters for the real run). */
+const BOARD_POSTS = 5;
+let boardPosts = 0;
+/** Counts a POST to the board, and stops the run, saying why, before one goes past the limit. */
+function countBoardPost(what) {
+  boardPosts += 1;
+  if (boardPosts > BOARD_POST_LIMIT)
+    throw new Error(`${what} would be board post ${boardPosts}: the production limit is ${BOARD_POST_LIMIT} per address in ten minutes, so it would be refused 429. Move the check into a unit test (no limit) instead.`);
+}
 const post = async (body) => {
+  countBoardPost(`POST ${typeof body === "string" ? body.slice(0, 40) : JSON.stringify(body).slice(0, 40)}...`);
   const res = await fetch(SCORES, { method: "POST", headers: { "Content-Type": "application/json" }, body: typeof body === "string" ? body : JSON.stringify(body) });
   return { status: res.status, error: (await res.json().catch(() => ({}))).error };
 };
@@ -178,13 +204,12 @@ try {
   const v = await player.evaluate(async () => (await import("/cork-and-bell/game/shared/run.js")).RUN_VERSION);
   const again = await post({ name: "ZZZ", seed: real.seed, countIn: real.countIn, shots: real.shots, v, score: MOST });
   check(again.status === 409 && again.error === "already_chalked", `the same run sent again, claiming ${MOST}, is turned away (${again.status} ${again.error})`);
-  const otherRules = await post({ name: "ZZZ", seed: (real.seed + 1) >>> 0, countIn: real.countIn, shots: real.shots, v: v + 1 });
-  check(otherRules.status === 400, `a run of another version of the rules is not scored (${otherRules.status} ${otherRules.error})`);
   const after = (await (await fetch(SCORES)).json()).top;
   check(JSON.stringify(after.map((r) => [r.name, r.score])) === JSON.stringify([["ANN", real.score]]), `the board holds only that run: ${JSON.stringify(after)}`);
   await player.context().close();
   lap("a real run");
 
+  check(boardPosts === BOARD_POSTS, `the board was posted to ${boardPosts} times, as planned (${BOARD_POSTS}, of the ${BOARD_POST_LIMIT} production allows an address in ten minutes)`);
   check(errors.length === 0, "no page reported an error" + (errors.length ? ": " + errors.slice(0, 3).join(" | ") : ""));
 } catch (err) {
   console.log("FAIL the run stopped: " + (err?.stack ?? err));
