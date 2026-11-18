@@ -414,7 +414,11 @@ try {
     await sleep(HOLD_MS + 120);
     await sam.keyboard.up("KeyX");
     const stalled = await after((m) => m.t === "slime" && m.s === S && m.k === "absorb", 2000, mark);
-    check(stalled?.for === ABSORB_MS, `held while the page drew nothing: Sam still goes soft (${stalled?.k ?? "no absorb"})`);
+    // When it did not: what the room said about Sam meanwhile, and what Sam's own page had.
+    const stalledWhy = stalled
+      ? ""
+      : `; the room said ${JSON.stringify(ada.seen.slice(mark).filter((m) => m.s === S && m.t !== "m").map((m) => m.t + (m.k ? ":" + m.k : "")))}, Sam's room record ${JSON.stringify((await where())[S])}, his page ${JSON.stringify(await sam.evaluate((s) => ({ phase: globalThis.__partyRoom?.view?.room?.phase, goo: globalThis.__partyRoom?.view?.pieces?.get(s)?.goo ?? null, active: document.activeElement?.tagName, visible: document.visibilityState, focus: document.hasFocus() }), S))}`;
+    check(stalled?.for === ABSORB_MS, `held while the page drew nothing: Sam still goes soft (${stalled?.k ?? "no absorb"}${stalledWhy})`);
     await sleep(1400);
     await rested(S);
     // The absorb reaches the room 0.75 s late, after the harden it would turn: refused (slime-no),
