@@ -1,7 +1,7 @@
 // Which rooms have a rendered drawing, and whether this device asked for it.
 //
-// A rendered drawing (look3d/rendered/room-rendered.js) is a room made of rendered layers: today
-// only the Star Lounge. It is switched on for one device from the address, ?look=real, and kept
+// A rendered drawing (look3d/rendered/room-rendered.js) is a room made of rendered layers: the Star
+// Lounge (rendered in Blender) and the bar (from the owner's paintings). It is switched on for one device from the address, ?look=real, and kept
 // on the device, as the other looks are (room-view.js): the room's own address carries no query,
 // and a phone that scans the code on the wall arrives without one. Any other ?look= switches it off.
 //
@@ -51,6 +51,14 @@ export const RENDERED = {
     /** Every file of its layers (star-lounge/layers/) a device fetches when it draws the room this way, and none otherwise. */
     files: ["plate.json", "star-lounge.json", ...["base", "lights", "cards", "env", "sky", "planet", "moon", "rocket", "liner", "saucer", "rock0", "rock1", "rock2"].map((n) => `${n}.webp`)],
     load: () => import("./star-lounge/room.js").then((m) => m.RoomStarLounge),
+  },
+  bar: {
+    name: "bar",
+    boxes: 5,
+    steps: ["drops", "rain", "outside"],
+    /** Every file of its layers (bar/layers/), made from the owner's paintings by lobby/tools/bar/layers.mjs. */
+    files: ["plate.json", ...["base", "lights", "frames", "front", "street-left", "street-right", "env"].map((n) => `${n}.webp`)],
+    load: () => import("./bar/room.js").then((m) => m.RoomBar),
   },
 };
 

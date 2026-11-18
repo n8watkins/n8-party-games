@@ -12,6 +12,7 @@ import * as countToTen from "../../party/games/count-to-ten/index.js";
 import * as paperMasks from "../../party/games/paper-masks/index.js";
 import * as paperMasksRules from "../../party/games/paper-masks/rules.js";
 import { QUESTIONS } from "../../party/games/paper-masks/questions.js";
+import { IDENTITIES } from "../../party/games/who-am-i/deck.js";
 
 const ROOT = resolve(import.meta.dirname, "..", "..");
 const inside = (path, folder) => path === folder || path.startsWith(folder + sep);
@@ -79,6 +80,24 @@ describe("what the site serves", () => {
       if (/questions\.js|at-table\.js|paper-masks\/rules\.js/.test(text)) found.push(`${relative(ROOT, file)} names a Paper Masks server file`);
     }
     expect(found).toEqual([]);
+  });
+
+  it("holds none of Who Am I?'s names: no hint, picture address or name list is in any served file, the game's own page included", () => {
+    const local = SOURCES.filter((from) => inside(resolve(from), ROOT) && !resolve(from).includes(`${sep}node_modules${sep}`));
+    const served = local.flatMap(files).filter((file) => /\.(m?js|html|json|css|txt|md|svg|webmanifest)$/.test(file));
+    expect(served.map((f) => relative(ROOT, f))).toEqual(expect.arrayContaining(["party/public/games/who-am-i.js", "party/public/games/who-am-i.css"]));
+    const secrets = IDENTITIES.flatMap((i) => [...i.hints, ...(i.picture ? [i.picture.imageUrl] : [])]);
+    expect(secrets.length).toBeGreaterThan(700);
+    const found = [];
+    for (const file of served) {
+      const text = readFileSync(file, "utf8");
+      for (const s of secrets) if (text.includes(s)) found.push(`${relative(ROOT, file)}: ${s}`);
+      if (/deck-data\.js|who-am-i\/deck\.js|who-am-i\/rules\.js/.test(text)) found.push(`${relative(ROOT, file)} names a Who Am I? server file`);
+    }
+    expect(found).toEqual([]);
+    // The game's own page names no name from the deck at all.
+    const page = readFileSync(resolve(ROOT, "party/public/games/who-am-i.js"), "utf8");
+    expect(IDENTITIES.filter((i) => i.name.length > 4 && page.includes(i.name)).map((i) => i.name)).toEqual([]);
   });
 });
 

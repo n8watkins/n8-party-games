@@ -148,9 +148,11 @@ const manifestOf = (game, players) => ({ id: game.id, name: game.id, players, de
  */
 export async function openRoom(createLobbyRoom, game, { players = { min: 2, max: 2 }, env = fakeEnv(), manifest = {}, more = 0 } = {}) {
   // `manifest`: more of the game's manifest, as its box is drawn from it (its `settings`, say).
-  // `more`: that many coming-soon boxes hang after the game's, so the wall has lights to spare
-  // (the spots on which a game's players are chosen are lights on the wall).
-  const soon = Array.from({ length: more }, (_, i) => boxFromManifest({ id: `soon-${i}`, name: `Soon ${i}`, players: { min: 1, max: 4 }, devices: { phone: true } }, { soon: true }));
+  // `more`: that many more games hang after the game's, so the wall has lights to spare (the
+  // spots on which a game's players are chosen are lights on the wall, and only a game that can
+  // be played has a light: shared/world.js, hasPool). They have no server definition: nothing
+  // here ever starts one.
+  const soon = Array.from({ length: more }, (_, i) => boxFromManifest({ id: `spare-${i}`, name: `Spare ${i}`, players: { min: 1, max: 4 }, devices: { phone: true } }, { view: "/x/spare.js" }));
   const wall = {
     boxes: [boxFromManifest({ ...manifestOf(game, players), ...manifest }, { view: "/x/view.js" }), ...soon],
     games: new Map([[game.id, game]]),

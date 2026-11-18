@@ -34,11 +34,11 @@ import { MOVE_COOLDOWN } from "./shared/pilot.js";
 import { FRAME, PHONE_FRAME, camera } from "./shared/camera.js";
 import { clearOfCard, tagsTop } from "./card-clear.js";
 import { Pilot } from "./shared/pilot.js";
-import { isRoom, roomName } from "./shared/rooms.js";
+import { isRoom, roomName, wallFor } from "./shared/rooms.js";
 import { watchMode } from "./hop.js";
 import { stageKey, stageStale } from "./shared/stage.js";
 import { playerLine, statusLine } from "./shared/status.js";
-import { JUMP_HEIGHT, posAt } from "./shared/world.js";
+import { JUMP_HEIGHT, acrossWalls, posAt, sameWall } from "./shared/world.js";
 
 const params = new URLSearchParams(location.search);
 const app = document.getElementById("app");
@@ -279,7 +279,11 @@ const nextFrame = () => new Promise((done) => requestAnimationFrame(() => done()
 async function showRoom() {
   if (swapping || !scene || !room) return;
   if (room.room === shownRoom && look === scene.look) return;
-  if (look === "flat" && scene.look === "flat") return void (shownRoom = room.room);
+  if (look === "flat" && scene.look === "flat") {
+    // The flat drawing is the same for every room, but where the boxes hang is the room's (shared/rooms.js).
+    followWall(performance.now());
+    return void (shownRoom = room.room);
+  }
   swapping = true;
   roomSounds?.play("lights-down", -1, { gain: 0.7 });
   dim?.classList.remove("rising");
@@ -303,9 +307,7 @@ async function showRoom() {
     shownRoom = skin;
     if (made.look !== asked) look = made.look;
     const now = performance.now();
-    scene.build(room);
-    scene.setRoom(room, now);
-    for (const [s, move] of lastMoves) if (room.members[s] && move.t > roomSeenAt) scene.onMove({ s, x: posAt(move, now), d: move.d }, now);
+    redraw(now);
     slow.start(scene.look, now, simpler);
     meter?.start(scene);
   }
@@ -404,6 +406,8 @@ function apply(next) {
     else if ([...was].some((seat) => !now.has(seat))) roomSounds.play("leave", -1, { gain: 0.6 });
   }
   room = next;
+  // The places in a whole room message are on the wall of the room it says the party is in.
+  placesWall = wallFor(next.room, next.boxes);
   // Until the room answers the start link's pick, its older words do not undo it.
   if (pendingRoom) room.room = pendingRoom;
   voteAt = roomSeenAt = performance.now();
@@ -415,12 +419,13 @@ function apply(next) {
   step?.update(room, voteAt);
   // A page that missed a change (a drop, a sleep) catches up from the room itself.
   if (room.room !== shownRoom || look !== scene.look) void showRoom();
+  followWall(voteAt);
   const me = isPlayer() ? room.members[link.you.seat] : null;
   // Which pieces a boo cannot move just now, by the room's word (down, safe, or spooked a moment ago).
   for (const m of room.members) if (m) noBoo(m.seat, voteAt + Math.max(m.safe ?? 0, m.spooked ?? 0));
   if (me) {
     if (!pilot) {
-      pilot = new Pilot({ lights: room.boxes.length, send: sendMove, x: me.x, rev: me.rev });
+      pilot = new Pilot({ lights: wall(), send: sendMove, x: me.x, rev: me.rev });
       focus = me.x;
       // A page that arrives in the middle (a reload) takes the room's word on its bump.
       if (me.down > 0) pilot.knock(me.x, me.rev, voteAt, me.down);
@@ -446,7 +451,56 @@ function apply(next) {
 
 /** Tells the player's Pilot which lights are on, whenever that changes: only those are worth reporting. */
 let litKey = "";
+let wallKey = "";
+let wallNow = null;
+/** The wall of the party's room (shared/rooms.js, wallFor): where its lights are. Worked out again only when the room or its boxes change. */
+function wall() {
+  // Which boxes have a pool goes with the boxes themselves (a coming-soon game has none).
+  const key = `${room.room}/${room.boxes.map((b) => `${b.id}:${b.soon ? 1 : 0}${b.poster ? 1 : 0}`).join()}`;
+  if (key !== wallKey) [wallKey, wallNow] = [key, wallFor(room.room, room.boxes)];
+  return wallNow;
+}
+/**
+ * A change of room may move the boxes (shared/rooms.js, wallFor): what was built from where they
+ * hang follows. The touch spots over the posters always; a flat drawing, which is the same for
+ * every room and so is not swapped, builds its boxes again. (A 3D drawing is swapped for the room.)
+ */
+function followWall(now) {
+  const w = wall();
+  // The room carries every piece with its pool when the boxes move (LobbyCore.carryAcross) and
+  // sends the new places; until they arrive this page carries them the same way, so nobody is
+  // drawn in another light for a moment.
+  if (placesWall && !sameWall(placesWall, w)) carryPlaces(placesWall, w, now);
+  placesWall = w;
+  const key = w.xs.join();
+  if (touch && touch.wallKey !== key) touch.build(room);
+  if (scene?.look === "flat" && scene.wall && scene.wall.xs.join() !== key) redraw(now);
+  tellLit(now);
+}
+
+/** The wall the places in `room` and `lastMoves` are laid against: the room's own, as it last said (apply). */
+let placesWall = null;
+
+/** Moves every piece's last known place from wall `from` to wall `to`, as the room does (shared/world.js, acrossWalls). */
+function carryPlaces(from, to, now) {
+  for (const m of room.members) if (m) m.x = acrossWalls(m.x, from, to);
+  for (const [s, move] of lastMoves) if (move.t > roomSeenAt) lastMoves.set(s, { ...move, x: acrossWalls(posAt(move, now), from, to), t: now });
+}
+
+/**
+ * Builds the drawing afresh from the last whole room message, and then puts each piece where the
+ * moves since that message say it is now: a drawing built from the room alone would draw them
+ * where they were then (often by the door).
+ */
+function redraw(now) {
+  scene.build(room);
+  scene.setRoom(room, now);
+  for (const [s, move] of lastMoves) if (room.members[s] && move.t > roomSeenAt) scene.onMove({ s, x: posAt(move, now), d: move.d }, now);
+}
+
 function tellLit(now) {
+  // Which room the party is in says where its lights are.
+  if (pilot && pilot.lights !== wall()) pilot.setWall(wall(), now);
   const lit = room.boxes.map((box, i) => (room.vote.lights[box.id] === null ? i : -1)).filter((i) => i >= 0);
   if (!pilot || litKey === lit.join()) return;
   litKey = lit.join();
@@ -655,6 +709,7 @@ link.on("message", (msg) => {
       hud?.note(`${by ? `${by} picked` : "Now in"} ${roomName(msg.v).replace(/^The /, "the ")}`, room.members[msg.by]?.colour);
       menu?.update(room);
       menu?.picked(msg.v);
+      followWall(now);
       void showRoom();
       break;
     }
@@ -1192,7 +1247,7 @@ function frame(t) {
     roomSounds?.play("count-go", -1, { gain: 0.85 });
   }
   countLeft = left ?? Infinity;
-  roomSounds?.frame(piecesNow(now), room.boxes.length, now);
+  roomSounds?.frame(piecesNow(now), wall(), now);
 }
 
 /** The highest any piece's name tag can be, in world units, from the tags as last drawn (card-clear.js). */

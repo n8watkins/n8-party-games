@@ -19,7 +19,8 @@ import { STILT_RISE } from "./shared/robot.js";
 import { tagLevels } from "./tag-levels.js";
 import { standings } from "./shared/tonight.js";
 import { BADGES, COUNT_MS, playersLabel } from "./shared/vote.js";
-import { ROOM, boxCentre, boxWidth, jumpHeight, lightHalf, posAt } from "./shared/world.js";
+import { wallFor } from "./shared/rooms.js";
+import { ROOM, drawnLight, jumpHeight, poolOf, posAt } from "./shared/world.js";
 
 const GREY = "#9b948b";
 const BADGE_COLOURS = { any: ["#3db8ff", "#06263a"], phones: ["#b79cf7", "#24124d"], screen: ["#ffc93c", "#3a2a00"] };
@@ -58,7 +59,8 @@ export class Scene {
     this.pieces.clear();
     const n = room.boxes.length;
     this.n = n;
-    this.half = lightHalf(n);
+    // The room's wall (shared/rooms.js): where its boxes hang and its pools lie, as the room decides the vote by it.
+    this.wall = wallFor(room.room, room.boxes);
     svg.append(this.defs());
     svg.append(this.backdrop());
     this.layers = { lamps: s("g"), wall: s("g"), cones: s("g"), pools: s("g"), shadows: s("g"), pieces: s("g"), emotes: s("g"), tags: s("g"), stickers: s("g"), over: s("g") };
@@ -68,7 +70,7 @@ export class Scene {
     this.door();
     this.board();
     // Posters have no sign, so only the games' signs are planned.
-    this.signs = this.planSigns(room.boxes.filter((box) => !box.poster), boxWidth(n));
+    this.signs = this.planSigns(room.boxes.filter((box) => !box.poster), this.wall.box);
     this.boxes = room.boxes.map((box, i) => this.box(box, i, n));
     this.overlay();
     this.bumpLayer();
@@ -116,9 +118,11 @@ export class Scene {
       bulbs.append(s("circle", { cx: x, cy: sag(x), r: 17, fill: "url(#g-bulb)" }), s("circle", { cx: x, cy: sag(x), r: 6, fill: "#ffeccb" }));
     }
     g.append(s("path", { d: cable, stroke: "#0a0504", "stroke-width": 2, fill: "none" }), bulbs);
-    // The room fades out at its ends.
-    g.append(s("rect", { x: x0, y: -900, width: -x0 + 4, height: 2900, fill: "#080403", opacity: 0.82 }), s("rect", { x: 0, y: -900, width: 120, height: 2900, fill: "url(#g-edge-l)" }));
-    g.append(s("rect", { x: 1916, y: -900, width: x1 - 1916, height: 2900, fill: "#080403", opacity: 0.82 }), s("rect", { x: 1800, y: -900, width: 120, height: 2900, fill: "url(#g-edge-r)" }));
+    // The room fades out at its ends. The dark past an end starts where the fade has reached it,
+    // not under it: where the two overlapped, a darker line ran down the screen (a sideways
+    // phone's whole room shows past the right end).
+    g.append(s("rect", { x: x0, y: -900, width: -x0, height: 2900, fill: "#080403", opacity: 0.82 }), s("rect", { x: 0, y: -900, width: 120, height: 2900, fill: "url(#g-edge-l)" }));
+    g.append(s("rect", { x: 1920, y: -900, width: x1 - 1920, height: 2900, fill: "#080403", opacity: 0.82 }), s("rect", { x: 1800, y: -900, width: 120, height: 2900, fill: "url(#g-edge-r)" }));
     return g;
   }
 
@@ -187,21 +191,24 @@ export class Scene {
 
   /** One game box: lamp, cone of light, poster, sign and the pool on the floor. */
   box(box, i, n) {
-    const cx = boxCentre(i, n);
-    const w = boxWidth(n);
+    const cx = this.wall.xs[i];
+    const w = this.wall.box;
     const x = cx - w / 2;
-    const half = this.half;
     const compact = this.opts.compact;
     const b = { box, cx, w, on: null, gold: null };
     // A poster that is not a game (the ideas poster) hangs in its frame with no lamp over it, no
     // light on the floor and no sign: it is drawn, and never lit, dimmed or counted.
     const poster = !!box.poster;
+    // Only a game that can be played has a lamp and a pool (shared/world.js, hasPool): a game that
+    // is coming soon keeps its poster and its sign, and has no light at all.
+    const pooled = !!poolOf(this.wall, i);
 
     b.shade = s("path", { d: `M${cx - 17},62 L${cx + 17},62 L${cx + 54},102 L${cx - 54},102 Z` });
     b.bulb = s("ellipse", { cx, cy: 103, rx: 30, ry: 6 });
-    if (!poster) this.layers.lamps.append(s("rect", { x: cx - 2, y: -900, width: 4, height: 962, fill: "#0a0504" }), s("rect", { x: cx - 9, y: 52, width: 18, height: 12, rx: 3, fill: "#0a0504" }), b.shade, b.bulb);
+    if (pooled) this.layers.lamps.append(s("rect", { x: cx - 2, y: -900, width: 4, height: 962, fill: "#0a0504" }), s("rect", { x: cx - 9, y: 52, width: 18, height: 12, rx: 3, fill: "#0a0504" }), b.shade, b.bulb);
 
-    const frame = s("g", poster ? { "data-poster": box.id } : {});
+    // Marked for the tests that check a sign's words fit it (lobby/test/e2e-bar-wall.mjs), and the poster that is not a game.
+    const frame = s("g", poster ? { "data-box": i, "data-poster": box.id } : { "data-box": i });
     frame.append(s("rect", { x: x - 8, y: POSTER.top - 8, width: w + 16, height: POSTER.height + 16, rx: 3, fill: "#120a07", stroke: "#2e1c13", "stroke-width": 2 }));
     const clip = `clip-${i}`;
     frame.append(s("clipPath", { id: clip }, s("rect", { width: w, height: POSTER.height })));
@@ -237,21 +244,29 @@ export class Scene {
     b.blurbs = lines.map((line, k) => label(line, { x: cx, y: firstY + k * plan.step, "font-size": plan.size, "text-anchor": "middle", class: "t-ui t-semi", "data-fit": w - 18 }));
     b.rowY = SIGN_TOP + (plan.lines ? (compact ? 33 : 30) + (plan.lines - 1) * plan.step + (compact ? 34 : 30) : compact ? 30 : 24);
     b.rowY2 = plan.stacked ? b.rowY + (compact ? 40 : 27) : b.rowY;
-    b.sign = s("rect", { x, y: SIGN_TOP, width: w, height: b.rowY2 - SIGN_TOP + (compact ? 30 : 24), rx: 7, "stroke-width": 2 });
+    b.sign = s("rect", { x, y: SIGN_TOP, width: w, height: b.rowY2 - SIGN_TOP + (compact ? 30 : 24), rx: 7, "stroke-width": 2, "data-sign": "" });
+    for (const el of b.blurbs) el.setAttribute("data-sign-part", "");
     const [badgeFill, badgeInk] = BADGE_COLOURS[box.badge];
     // The longest badge is cut short where a sign is too narrow to hold it at a size worth reading.
     b.badge = pill(plan.tight && box.badge === "screen" ? "Big screen" : BADGES[box.badge], compact ? 21 : 13.5, badgeFill, badgeInk);
-    b.players = label(playersLabel(box.min, box.max), { "font-size": compact ? 22 : 13.5, fill: "#cdbfa6", class: "t-ui t-semi" });
+    // How many play: smaller where a narrow sign (a phone's, under the bar's frames) has no room for it at its size.
+    b.players = label(playersLabel(box.min, box.max), { "font-size": compact ? 22 : 13.5, fill: "#cdbfa6", class: "t-ui t-semi", "data-sign-part": "", "data-fit": w - 14 });
+    b.badge.g.setAttribute("data-sign-part", "");
     b.reason = pill("Coming soon", compact ? 21 : 14, "#fbe3da", "#7a1d12");
     b.chip = pill("HEADS", compact ? 22 : 16, "#f4b453", "#1e1410");
     set(b.chip.g, { display: "none" });
     if (!poster) frame.append(b.sign, ...b.blurbs, b.badge.g, b.players, b.reason.g, b.chip.g);
     this.layers.wall.append(frame);
 
-    b.cone = s("polygon", { points: `${cx - 54},102 ${cx + 54},102 ${cx + half + 26},${ROOM.floorY + 8} ${cx - half - 26},${ROOM.floorY + 8}`, fill: "url(#g-cone)" });
-    b.pool = s("ellipse", { cx, cy: ROOM.floorY + 6, rx: half + 12, ry: 31 });
-    b.ring = s("ellipse", { cx, cy: ROOM.floorY + 6, rx: half + 12, ry: 31, fill: "none", "stroke-width": 3 });
-    if (poster) return b;
+    // The cone and the pool reach as far as the wall says (shared/world.js, drawnLight): on a placed
+    // wall, to where the room counts and no further. The cone's top is never wider than its foot.
+    const { cone, pool } = drawnLight(this.wall, i);
+    const top = Math.min(54, cone);
+    b.cone = s("polygon", { points: `${cx - top},102 ${cx + top},102 ${cx + cone},${ROOM.floorY + 8} ${cx - cone},${ROOM.floorY + 8}`, fill: "url(#g-cone)" });
+    b.pool = s("ellipse", { cx, cy: ROOM.floorY + 6, rx: pool, ry: 31 });
+    b.ring = s("ellipse", { cx, cy: ROOM.floorY + 6, rx: pool, ry: 31, fill: "none", "stroke-width": 3 });
+    // (A box with no pool keeps these out of the page: the vote's colours still set them, unseen.)
+    if (!pooled) return b;
     this.layers.cones.append(b.cone);
     this.layers.pools.append(b.pool, b.ring);
     return b;
@@ -287,14 +302,23 @@ export class Scene {
    */
   planSigns(boxes, w) {
     const compact = this.opts.compact;
-    const size = compact ? 24 : 17;
-    const chars = Math.floor((w - 18) / (size * 0.56));
-    const needed = Math.max(1, ...boxes.map((box) => wrap(box.blurb, chars).length));
-    const lines = compact ? (needed > 2 ? 0 : 2) : Math.min(3, needed);
+    // A narrow sign (a wall of many boxes, or the bar's, under its painted frames) takes its words
+    // a size or two smaller rather than more lines than it has room for; when even the smallest
+    // needs more, it keeps the count and the badge only, as a phone's does.
+    const most = compact ? 2 : 3;
+    const sizes = compact ? [24] : [17, 15, 13.5];
+    const fits = (size) => {
+      const chars = Math.floor((w - 18) / (size * 0.56));
+      return { size, chars, needed: Math.max(1, ...boxes.map((box) => wrap(box.blurb, chars).length)) };
+    };
+    const tried = sizes.map(fits);
+    const pick = tried.find((t) => t.needed <= most) ?? tried.at(-1);
+    const { size, chars, needed } = pick;
+    const lines = needed > most ? 0 : compact ? 2 : needed;
     // The widest row any sign needs: the longest badge and "2-4 players", at about 0.6 of the size a letter.
     const badge = Math.max(...boxes.map((box) => BADGES[box.badge].length)) * (compact ? 21 : 13.5) * 0.6 + (compact ? 30 : 20);
     const count = 11 * (compact ? 22 : 13.5) * 0.58;
-    return { size, step: compact ? 29 : 22, chars, lines, stacked: badge + 10 + count > w - 14, tight: BADGES.screen.length * (compact ? 21 : 13.5) * 0.6 + (compact ? 30 : 20) > w - 12 };
+    return { size, step: compact ? 29 : Math.round(size * 1.3), chars, lines, stacked: badge + 10 + count > w - 14, tight: BADGES.screen.length * (compact ? 21 : 13.5) * 0.6 + (compact ? 30 : 20) > w - 12 };
   }
 
   /** What floats over the room: the count ring and the coin toss. */

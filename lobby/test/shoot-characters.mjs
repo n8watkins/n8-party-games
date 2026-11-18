@@ -20,7 +20,8 @@ import { resolve } from "node:path";
 import { EMOTES, EMOTE_COOLDOWN_MS } from "../../party-kit/client/emotes.js";
 import { SLIME_RIG } from "../public/characters/slime.js";
 import { COLOUR_PRESETS, LOOK_COOLDOWN_MS } from "../shared/characters.js";
-import { boxCentre } from "../shared/world.js";
+import { wallFor } from "../shared/rooms.js";
+import { ROOM, lightAt } from "../shared/world.js";
 import { launchBrowser } from "./browser.mjs";
 import { partyApi, sleep } from "./client.mjs";
 
@@ -120,31 +121,50 @@ try {
       }
       check(false, `${look}: seat ${seat} walked to ${Math.round(x)} (still ${Math.round(gap)} away)`);
     }
-    /** Stands the four in a row centred on x: the pawn, the ghost, the slime, the robot. */
-    async function row(x) {
-      gus.goto(x + SPACING * 0.5);
-      rob.goto(x + SPACING * 1.5);
-      await walkTo(laptop, L, x - SPACING * 1.5);
-      await walkTo(phone, P, x - SPACING * 0.5);
+    /** Stands the four in a row centred on x, `spacing` apart: the pawn, the ghost, the slime, the robot. */
+    async function row(x, spacing = SPACING) {
+      gus.goto(x + spacing * 0.5);
+      rob.goto(x + spacing * 1.5);
+      await walkTo(laptop, L, x - spacing * 1.5);
+      await walkTo(phone, P, x - spacing * 0.5);
       // Facing the middle of the row, and still.
       await sleep(1200);
     }
-    const lit = boxCentre(0, n);
-    // The dark: between two games that are not built yet, whose lamps are off.
+    // Where the party's room hangs its boxes (shared/rooms.js): the bar's five hang under its
+    // painted frames, with pools narrower than a row of four at SPACING.
+    const wall = wallFor(gus.room.room, n);
+    const lit = wall.xs[0];
+    // In the light, the four stand as close as four players in one pool do, so all are in it (the
+    // two walked by their keys stop within walkTo's 18 units of their place).
+    const litSpacing = wall.placed ? Math.min(SPACING, (2 * wall.half - 2 * 18 - 4) / 3) : SPACING;
+    // The dark: on a wall whose gaps are about a piece wide (the bar's), the wide dark by the door;
+    // elsewhere between two games that are not built yet, whose lamps are off.
     const off = gus.room.boxes.map((b, i) => (b.soon ? i : -1)).filter((i) => i >= 0);
-    const dark = off.length >= 2 ? (boxCentre(off[0], n) + boxCentre(off[1], n)) / 2 : boxCentre(Math.min(n - 1, 3), n);
+    const dark = wall.placed ? Math.round((ROOM.minX + wall.xs[0] - wall.half) / 2) : off.length >= 2 ? (wall.xs[off[0]] + wall.xs[off[1]]) / 2 : wall.xs[Math.min(n - 1, 3)];
+    /** Says whether the room counts the four where they were meant to stand: all in the first light, or none in any. */
+    const inPlace = async (inLight) => {
+      // An even wall's row at SPACING is wider than its pool, as its stills always were: only the bar's is checked.
+      if (!wall.placed) return;
+      const xs = Object.values(await where())
+        .filter(Boolean)
+        .map((m) => m.x);
+      const ok = xs.every((x) => (inLight ? lightAt(x, wall) === 0 : lightAt(x, wall) === -1));
+      check(ok, `${look}: the four stand ${inLight ? "in the first game's light" : "in the dark"} (${xs.map(Math.round).join(", ")})`);
+    };
 
     if (want("line")) {
-      await row(lit);
+      await row(lit, litSpacing);
+      await inPlace(true);
       await shot(phone, `${look}-line-lit-390x844`);
       await shot(laptop, `${look}-line-lit-1280x720`);
       await row(dark);
+      await inPlace(false);
       await shot(phone, `${look}-line-dark-390x844`);
       await shot(laptop, `${look}-line-dark-1280x720`);
     }
 
     if (want("emotes")) {
-      await row(lit);
+      await row(lit, litSpacing);
       for (const e of EMOTES) {
         const rig = SLIME_RIG.find((r) => r.id === e.id);
         gus.send({ t: "e", e: e.id });
@@ -160,7 +180,7 @@ try {
         ["lit", lit],
         ["dark", dark],
       ]) {
-        await row(x);
+        await row(x, place === "lit" ? litSpacing : SPACING);
         for (const c of COLOUR_PRESETS) {
           await sleep(LOOK_COOLDOWN_MS + 50);
           const from = gus.seen.length;

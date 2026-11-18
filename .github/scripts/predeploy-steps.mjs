@@ -14,6 +14,7 @@ export const STEPS = [
   ["Paper Masks at the Table, three whole matches with every secret checked, headless browser (test:paper-masks)", "test:paper-masks"],
   ["the front page's three doors and every way out of them, headless browser (test:home)", "test:home"],
   ["Tin Derby in the party room, one short race with every trouble at once, headless browser (test:tin-derby)", "test:tin-derby"],
+  ["Who Am I? at the Table, three whole matches with every secret checked, headless browser (test:who-am-i)", "test:who-am-i"],
 ];
 
 /**

@@ -8,7 +8,8 @@ import { game as coinFlip, manifest as coinFlipManifest } from "../games/coin-fl
 import { LobbyCore } from "../server/lobby-core.js";
 import { BumpDraw } from "../public/bump-draw.js";
 import { resumeKnock } from "../public/look3d/pieces.js";
-import { IMMUNE_MS, KNOCK_CLEAR, STUN_MS } from "../shared/bump.js";
+import { IMMUNE_MS, KNOCK_CLEAR, STUN_MS, landingGround } from "../shared/bump.js";
+import { wallFor } from "../shared/rooms.js";
 import { CHARACTERS, LOOK_COOLDOWN_MS, moveOf } from "../shared/characters.js";
 import { FADE_MS } from "../shared/ghost.js";
 import { HOOK_SCARE_MS, MOVED, movedPose, movedResumed, slideLanding } from "../shared/moves.js";
@@ -193,6 +194,36 @@ describe("a slide never puts a piece in another light (shared/moves.js)", () => 
         }
       }
       expect(faults.slice(0, 5)).toEqual([]);
+    });
+  }
+
+  // The bar's own walls (shared/rooms.js, wallFor): its pools under chosen painted frames, only
+  // under the boxes that can be played, with as little as 79 units of dark between two.
+  const barWalls = [["the bar, production boxes", wallFor("bar", WALL.boxes)], ["the bar, five pools", wallFor("bar", 5)], ["the bar, test boxes", wallFor("bar", TEST_WALL.boxes)]];
+  for (const [name, wall] of barWalls) {
+    it(`on ${name} (pools under boxes ${wall.pools.map((p) => p.i).join(", ")}; ${Math.round(wall.gap)} units of dark at the least)`, () => {
+      const faults = [];
+      const pools = wall.pools.map((p) => p.i);
+      for (const lit of [pools, pools.slice(0, 1), pools.slice(-1), []]) {
+        for (let from = ROOM.minX; from <= ROOM.maxX; from += 17) {
+          for (let to = ROOM.minX; to <= ROOM.maxX; to += 29) {
+            const at = slideLanding(from, to, wall, lit);
+            const own = lightAt(from, wall);
+            const there = lightAt(at, wall);
+            if (at < Math.min(from, to) - 1 || at > Math.max(from, to) + 1) faults.push(`${from}->${to}: ${at} is past it`);
+            if (there !== -1 && lit.includes(there) && there !== own) faults.push(`${from}->${to}: ${at} is in pool ${there}`);
+          }
+        }
+      }
+      expect(faults.slice(0, 5)).toEqual([]);
+      // Between two pools some dark remains to come to rest in (about 11 units on the 79-unit gap).
+      const ground = landingGround(wall, pools);
+      for (let k = 1; k < wall.pools.length; k++) {
+        const [a, b] = [wall.pools[k - 1], wall.pools[k]];
+        const room = ground.filter(([s, e]) => s >= a.x + a.half - 0.5 && e <= b.x - b.half + 0.5).reduce((w, [s, e]) => Math.max(w, e - s), -1);
+        const gap = b.x - b.half - (a.x + a.half);
+        expect(room, `between pools ${a.i} and ${b.i}`).toBeGreaterThanOrEqual(Math.max(0, gap - 2 * KNOCK_CLEAR) - 1);
+      }
     });
   }
 
@@ -487,6 +518,34 @@ describe("the room's judgement of the hook", () => {
   });
 });
 
+describe("the room's own wall (the bar's placed pools, #58)", () => {
+  it("lands every slide by the room's wall itself, not a count of boxes", () => {
+    const core = party(["Ann", "Bo"], WALL);
+    expect(typeof core.landingWall()).toBe("object");
+    expect(core.landingWall()).toEqual(core.wall);
+    expect(core.wall.pools.length).toBeGreaterThan(0);
+  });
+
+  it("ends every move when the party moves to a room that hangs its boxes elsewhere (a hook out is dropped)", () => {
+    const core = party(["Ann", "Bo"], WALL);
+    be(core, 0, "robot");
+    be(core, 1, "slime");
+    expect(core.room).toBe("bar");
+    place(core, 0, 400, 1000, 1);
+    core.hook(0, 2000);
+    core.slime(1, "harden", 2000);
+    const host = core.hostToken;
+    const before = core.wall;
+    const out = core.setRoom(host, "ship", 2050);
+    expect(out).toMatchObject({ ok: true, moved: true });
+    expect(before.placed && !core.wall.placed).toBe(true);
+    expect(core.members[0].hook).toBeNull();
+    expect(core.members[1].hardUntil).toBe(2050);
+    expect(core.drainMoves()).toEqual([{ t: "hk", s: 0, o: "off" }]);
+    expect(core.dueHooks(3000)).toEqual([]);
+  });
+});
+
 describe("found in review of #69", () => {
   /** Rob (a robot) in the second pool facing left, Pat at the first pool's right edge, Sam beside Rob: all three vote, the count runs. */
   function countWithHook() {
@@ -707,17 +766,17 @@ describe("the room's judgement of the legs, the harden and the shove", () => {
 
   it("never shoves a piece into another light, on the production wall and the test wall", () => {
     for (const wall of [WALL, TEST_WALL]) {
-      const n = wall.boxes.length;
       const core = party(["Ann", "Bo"], wall);
       be(core, 0, "slime");
+      // The room's own wall: its pools where it hangs them (only the boxes that can be played have one).
       const lit = core.litPlaces();
-      const i = lit[0];
-      const edge = boxCentre(i, n) - lightHalf(n);
-      place(core, 1, edge - KNOCK_CLEAR - 5, 1000);
-      place(core, 0, edge - KNOCK_CLEAR - 65, 1000, 1);
+      const pool = core.wall.pools.find((p) => lit.includes(p.i));
+      const edge = pool.x - pool.half;
+      place(core, 1, Math.round(edge - KNOCK_CLEAR - 5), 1000);
+      place(core, 0, Math.round(edge - KNOCK_CLEAR - 65), 1000, 1);
       core.move(0, { x: core.members[0].x, d: 1, r: core.members[0].rev }, 2000);
       core.shove(0, 1, 2000);
-      expect(lightAt(core.members[1].x, n)).toBe(-1);
+      expect(lightAt(core.members[1].x, core.wall)).toBe(-1);
     }
   });
 });

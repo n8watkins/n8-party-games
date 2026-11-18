@@ -15,6 +15,8 @@ const BADGE_CLASS = { any: "any", phones: "phones", screen: "screen" };
 const SVG = "http://www.w3.org/2000/svg";
 /** The middle of the join sign and of the Tonight board, in world units: clear of the first and last box. */
 const JOIN_X = 181;
+/** A sign narrower than this (world units) is laid out narrow: see build. */
+const NARROW_SIGN = 160;
 const BOARD_X = 1722;
 
 /** Puts an element's corner at a world position inside a layer sized by --k. */
@@ -61,6 +63,9 @@ export class Words {
 
   build(room, L) {
     this.L = L;
+    // A wall whose signs are narrow (the bar's, under its painted frames) lays each sign out as the
+    // flat look does there: how many play over the badge, without the line about the game.
+    this.wall.classList.toggle("l3-narrow", L.signW < NARROW_SIGN);
     this.wall.replaceChildren();
     this.over.replaceChildren();
     this.joinSign(room);
@@ -79,7 +84,13 @@ export class Words {
     qr.alt = "";
     qr.src = this.opts.qr;
     this.pin = h("div", "l3-pin", room.pin ?? "----", el);
-    h("div", "l3-addr l3-fit", this.opts.host, el);
+    // The line may break after the first dot ("partygames." over "n8builds.dev"), where a sign is
+    // too narrow for the address on one line (the bar's).
+    const addr = h("div", "l3-addr l3-fit", "", el);
+    const host = String(this.opts.host ?? "");
+    const dot = host.indexOf(".") + 1;
+    if (dot > 0 && dot < host.length) addr.append(host.slice(0, dot), document.createElement("wbr"), host.slice(dot));
+    else addr.append(host);
   }
 
   /** The Tonight board. Its rows are filled in by setRoom. */
@@ -255,10 +266,36 @@ export class Words {
     this.needsFit = false;
     for (const el of this.wall.querySelectorAll(".l3-fit, .l3-fits")) {
       el.style.removeProperty("--fit");
-      const room = el.clientWidth;
-      const need = el.scrollWidth;
-      if (room > 0 && need > room) el.style.setProperty("--fit", (Math.floor(((room - 2) / need) * 96) / 100).toFixed(2));
+      // Not everything in a line shrinks with its letters (a badge's padding, the gap), so it is
+      // measured again after each step until it fits.
+      let fit = 1;
+      for (let step = 0; step < 4; step++) {
+        const room = el.clientWidth;
+        const need = el.scrollWidth;
+        if (!(room > 0 && need > room)) break;
+        fit = Math.floor(fit * ((room - 2) / need) * 96) / 100;
+        el.style.setProperty("--fit", fit.toFixed(2));
+      }
     }
+    // A sign's line about its game has two lines at most. On a narrow sign (a wall of many boxes,
+    // or the bar's under its painted frames) it takes a smaller size rather than be cut short;
+    // when even the smallest would be cut, the sign keeps how many play and the badge only.
+    // Every sign on a wall alike: if one line cannot fit, none is shown.
+    const abouts = [...this.wall.querySelectorAll(".l3-about")];
+    let cut = false;
+    for (const el of abouts) {
+      el.classList.remove("l3-cut");
+      let fits = false;
+      for (const k of [1, 0.9, 0.8, 0.72]) {
+        el.style.setProperty("--about", String(k));
+        if (el.clientHeight === 0 || el.scrollHeight <= el.clientHeight + 1) {
+          fits = true;
+          break;
+        }
+      }
+      cut ||= !fits;
+    }
+    for (const el of abouts) el.classList.toggle("l3-cut", cut);
   }
 
   /** The count ring: over the corner of the leading box, or the middle of the room for a tie, and always in view. */

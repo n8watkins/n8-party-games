@@ -750,24 +750,26 @@ describe("Cork & Bell through the seam", () => {
 });
 
 describe("the ideas poster on the production wall", () => {
-  /** A party on the production wall: Cork & Bell, three coming soon and the ideas poster last. */
+  /** A party on the production wall: Cork & Bell, Flood, Tin Derby, Fox Trouble and the ideas poster last. */
   const production = () => new LobbyCore({ ...WALL, seed: 7, code: "BCDFGH", now: 1000 });
   const POSTER = 4;
 
   it("has no light whatever the party, and nobody under it votes", () => {
     const core = production();
+    // Where the room hangs each box (the bar hangs them in its own frames).
+    const at = (i) => core.wall.xs[i];
     expect(core.boxes[POSTER]).toMatchObject({ id: "ideas", poster: true });
     expect(core.lights().ideas).toBe("");
     seated(core, "Ann");
     seated(core, "Bo");
     expect(core.lights().ideas).toBe("");
-    stand(core, 0, POSTER, 2000);
-    stand(core, 1, POSTER, 2000);
+    stand(core, 0, POSTER, 2000, at(POSTER));
+    stand(core, 1, POSTER, 2000, at(POSTER));
     expect(core.standing(2000)).toEqual({ 0: null, 1: null });
     core.evaluate(2000);
     expect(core.count).toBeNull();
     // Cork & Bell is the light that counts: the one under the poster is still waited for.
-    stand(core, 0, 0, 2100);
+    stand(core, 0, 0, 2100, at(0));
     core.evaluate(2100);
     expect(core.count).toBeNull();
     expect(core.voteView(2100).waiting).toEqual([1]);

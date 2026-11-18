@@ -15,7 +15,8 @@
 import { IMPACT_MS, cooldownFraction } from "../shared/bump.js";
 import { OWN_FADED } from "../shared/ghost.js";
 import { COUNT_MS } from "../shared/vote.js";
-import { ROOM, boxCentre, lightHalf, posAt } from "../shared/world.js";
+import { wallFor } from "../shared/rooms.js";
+import { ROOM, drawnLight, poolOf, posAt, warmthAt } from "../shared/world.js";
 import { Expressions } from "../emotes/play.js";
 import { EmoteFigure, Sticker } from "../emotes/svg.js";
 import { tagLevels } from "../tag-levels.js";
@@ -267,8 +268,11 @@ export class Room3D {
   /** Builds everything that does not move, for this room's boxes. */
   build(room) {
     this.clear(this.stuff);
-    const L = (this.L = layout(room.boxes.length));
-    this.half = lightHalf(L.n);
+    // The room's wall (shared/rooms.js): where its boxes hang and its pools lie, as the room decides the vote by it.
+    const L = (this.L = layout(wallFor(room.room ?? this.skin.id, room.boxes)));
+    this.half = L.wall.half;
+    // How far its light is drawn (shared/world.js, drawnLight): on a placed wall, to the counted edge and no further.
+    this.drawn = drawnLight(L.wall);
     this.shell(L);
     this.doorway(L);
     this.bulbs();
@@ -497,10 +501,12 @@ export class Room3D {
   box(box, i, L) {
     const skin = this.skin;
     const add = (mesh) => (this.stuff.add(mesh), mesh);
-    const b = { box, i, cx: boxCentre(i, L.n), level: 0, aim: 0, gold: 0, goldAim: 0, shown: -1, lead: null };
+    const b = { box, i, cx: L.wall.xs[i], level: 0, aim: 0, gold: 0, goldAim: 0, shown: -1, lead: null };
+    // Only a game that can be played has a lamp and a pool (shared/world.js, hasPool), each as wide as its own.
+    b.pooled = !!poolOf(L.wall, i);
     const x = walkX(b.cx);
     const z = SPACE.walkZ;
-    const radius = (this.half + 12) * PX;
+    const radius = (b.pooled ? drawnLight(L.wall, i).pool : this.drawn.pool) * PX;
     b.pool = new THREE.Vector4(x, z, radius, 0);
 
     // The lamp, its cord, its beam and the edge of its pool.
@@ -572,8 +578,8 @@ export class Room3D {
     b.glow.position.z = 0.025;
     g.add(b.glow);
     add(g);
-    if (box.poster) {
-      // A poster that is not a game (the ideas poster): no lamp over it and no light under it.
+    if (!b.pooled) {
+      // A game that is coming soon, or a poster that is not a game: no lamp over it and no light under it.
       for (const thing of [b.lamp.swing, b.flex, b.cone, b.ring, b.spill]) if (thing) thing.visible = false;
     }
     return b;
@@ -1009,7 +1015,8 @@ export class Room3D {
     let best = 0;
     for (const b of this.boxes) {
       const d = Math.abs(x - b.cx);
-      if (d < this.half + 40) best = Math.max(best, Math.min(1, b.level * 0.85) * Math.min(1, (this.half + 40 - d) / 40));
+      const warm = warmthAt(d, this.L.wall, b.i);
+      if (warm > 0) best = Math.max(best, Math.min(1, b.level * 0.85) * warm);
     }
     return Math.max(best, this.life.warmth(x));
   }

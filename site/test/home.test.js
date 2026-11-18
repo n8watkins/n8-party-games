@@ -108,12 +108,18 @@ describe("what the front page says is playable", () => {
     expect(unbacked(model, later)).toEqual([]);
   });
 
-  it("plays Who Am I? on its own site while the Table does not have it, and never lists it in the room", async () => {
+  it("plays Who Am I? at the Table, with its own site as a second way to play it, and never lists it in the room", async () => {
     const model = await modelFrom(WALL);
-    const who = model.table.find((g) => g.id === "who-am-i");
+    expect(model.table.find((g) => g.id === "who-am-i")).toMatchObject({ status: "table", min: 2, max: 2, site: "https://whoami.n8builds.dev/" });
+    expect(model.room.some((g) => g.id === "who-am-i")).toBe(false);
+    expect(unbacked(model)).toEqual([]);
+  });
+
+  it("would play Who Am I? on its own site again were the Table to lose it", async () => {
+    const without = { ...WALL, table: WALL.table.map((e) => (e.id === "who-am-i" ? { ...e, soon: true } : e)) };
+    const who = (await modelFrom(without)).table.find((g) => g.id === "who-am-i");
     expect(who.status).toBe("own-site");
     expect(who.href).toBe("https://whoami.n8builds.dev/");
-    expect(model.room.some((g) => g.id === "who-am-i")).toBe(false);
   });
 
   it("lists the room's games and not the wall's poster, which is not a game", async () => {
@@ -134,8 +140,8 @@ function wallWithPaperMasks() {
   const turn = buildTurnWall([paperMasks]);
   return { ...WALL, table: turn.table, games: new Map([...WALL.games, ...turn.games]) };
 }
-/** The wall with no game the Table can start: Paper Masks still coming. */
-const wallWithoutTableGame = () => ({ ...WALL, table: WALL.table.map((e) => (e.id === "paper-masks" ? { ...e, soon: true } : e)) });
+/** The wall with no game the Table can start: Paper Masks and Who Am I? still coming. */
+const wallWithoutTableGame = () => ({ ...WALL, table: WALL.table.map((e) => (e.id === "paper-masks" || e.id === "who-am-i" ? { ...e, soon: true } : e)) });
 const ids = (games) => games.map((g) => g.id);
 
 describe("what each door's peek calls Now", () => {
@@ -151,6 +157,12 @@ describe("what each door's peek calls Now", () => {
     expect(ids(table.elsewhere)).toEqual(["who-am-i"]);
     expect(ids(table.soon)).toEqual(["paper-masks"]);
     expect(ids(peekOf("device", model.device).here)).toEqual(["hot-potato"]);
+  });
+
+  it("calls both Table games Now at the Table today", async () => {
+    const table = peekOf("table", (await modelFrom(WALL)).table);
+    expect(ids(table.here)).toEqual(["paper-masks", "who-am-i"]);
+    expect(ids(table.elsewhere)).toEqual([]);
   });
 
   it("calls Paper Masks Now at the Table by itself the day the Table can start it", async () => {
