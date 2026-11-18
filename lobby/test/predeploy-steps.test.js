@@ -9,8 +9,13 @@ const ROOT = resolve(import.meta.dirname, "..", "..");
 const scripts = JSON.parse(readFileSync(resolve(ROOT, "package.json"), "utf8")).scripts;
 
 describe("the pre-deploy gate's steps", () => {
-  it("include the room, the party room, Cork & Bell, Hot Potato, the Table's suites, Paper Masks, the front page's, Tin Derby's and Who Am I?'s", () => {
-    expect(STEPS.map(([, script]) => script)).toEqual(["test:room", "test:lobby", "test:cork", "test:hot-potato", "test:hearing", "test:mode", "test:two-rooms", "test:table", "test:paper-masks", "test:home", "test:tin-derby", "test:who-am-i"]);
+  it("include the room, the party room, Cork & Bell, Hot Potato, the Table's suites, Paper Masks, the front page's, Tin Derby's, Who Am I?'s and Cork & Bell's switches", () => {
+    expect(STEPS.map(([, script]) => script)).toEqual(["test:room", "test:lobby", "test:cork", "test:hot-potato", "test:hearing", "test:mode", "test:two-rooms", "test:table", "test:paper-masks", "test:home", "test:tin-derby", "test:who-am-i", "test:cork:switches"]);
+  });
+
+  it("run Cork & Bell's test switches against a Worker of their own with the production settings, and every other step on the local ones", () => {
+    const own = STEPS.filter(([, , options]) => options?.env !== undefined).map(([, script, { env }]) => [script, env]);
+    expect(own).toEqual([["test:cork:switches", ""]]);
   });
 
   it("are each an npm script that exists, named in its own label", () => {
@@ -23,6 +28,6 @@ describe("the pre-deploy gate's steps", () => {
   it("each get a port of their own side by side, with test:cork alone on its server", () => {
     const ports = STEPS.map((_, i) => stepPort(8853, i));
     expect(new Set(ports).size).toBe(STEPS.length);
-    expect(ports).toEqual([8853, 8855, 8856, 8857, 8858, 8859, 8860, 8861, 8862, 8863, 8864, 8865]);
+    expect(ports).toEqual([8853, 8855, 8856, 8857, 8858, 8859, 8860, 8861, 8862, 8863, 8864, 8865, 8866]);
   });
 });
