@@ -74,6 +74,7 @@ Phone, tablet, laptop or TV, the screen is the same (`style.css`, "The compositi
 
 - **The potato**, big and centred, from the top of the screen down to the strip.
   He is framed so that he himself (his body, face and sprouts at their biggest) fills the screen's width or height, whichever runs out first; the rig's outer parts (the tubes, the clamp arms' ends, the tray's corners) may run off the sides once he strains, but he, the bulbs and the tray's lights never leave the screen.
+  At the last stage the throb, the breath, the tremble, a flinch and his sprouts' wave can all peak in the same frame; for that frame or two he is drawn a few per cent smaller about the point he sits on, just enough to stay in his frame (`FRAME` in `specimen-draw.js`), and his left sprout sways inward from where it grew rather than out past it.
   His tray sits just above the strip, and the height above him is his room to grow into: by the last stage his sprouts reach up toward the top line.
 - **A slim top line**: the category, the lives, the fuse, sound and pause.
 - **A small strip under him**, centred, with a hairline above it: whose turn it is; the microphone beside the word to follow, with its last letter boxed (the letter the next word needs, dead ends already skipped back past and said under the word); and one reserved line for what is heard while listening, or the verdict's reason and its appeal after it, so nothing moves when they come and go.
