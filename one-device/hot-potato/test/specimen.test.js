@@ -2,9 +2,10 @@
 // potato with a face in its lab rig, the same parts at every stage, faces that follow the stage
 // and react to verdicts, motion that is breathing and throbbing about where it sits (never a
 // shake), and a drawing loop that stops when nothing moves.
+import { readFileSync } from "node:fs";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { PARTS, createSpecimen } from "../public/art-specimen.js";
-import { ALL_FACES, BODY, CHUNKS, FACES, HEATS, LADDER, LISTENING, LUMPS, REACTIONS, VIEW, atLevel, composeFace, idleAt, levelOf, lightOrder, pose, reactionKind, scene } from "../public/specimen-draw.js";
+import { ALL_FACES, BODY, CHUNKS, FACES, FRAME, HEATS, LADDER, LISTENING, LUMPS, REACTIONS, VIEW, atLevel, composeFace, idleAt, levelOf, lightOrder, pose, reactionKind, scene } from "../public/specimen-draw.js";
 
 const base = (stage, i = 0) => FACES[HEATS[stage]][i];
 const sceneAt = (stage, extra = {}) => scene({ growth: stage / 4, strain: (stage / 4) * 0.8, stage, face: composeFace({ base: base(stage), stage, phase: "ready" }), t: 1.234, ...extra });
@@ -326,6 +327,90 @@ describe("it stays inside its drawing", () => {
       }
     }
     expect(outside.slice(0, 5)).toEqual([]);
+  });
+});
+
+// The screen frames FRAME (style.css), so he stays on the screen as long as he stays in FRAME. The
+// renderer moves the breath, the throb and the clock each at its own pace, so every mix of them can
+// meet: this sweeps them apart, at every stress the last stage reaches and through every moment
+// (a flinch, the doom, a right answer), and takes the worst of it, not one frame.
+describe("he stays inside the frame the screen shows, at the worst of his shake", () => {
+  const part = (name) => PARTS.find(([n]) => n === name)[3];
+  const body = pointsOf(BODY.replace(/[MLZ]/g, " ").trim().replace(/(\d) (\d)/g, "$1,$2"));
+  /** The scene at a moment of the sweep (a stage between two is growing into the next). */
+  const at = (m) => sceneAt(Math.floor(m.stage), { growth: m.stage / 4, stress: m.stress, motion: pose({ t: m.t, level: levelOf(m.stage, m.stress), breath: m.breath, beat: m.beat, react: m.react, reactFor: m.reactFor }), t: m.t });
+  /** His furthest reach over a sweep, in the drawing's units, and the frame it happened in. */
+  const reach = (moments) => {
+    const worst = { x0: [Infinity], x1: [-Infinity], y0: [Infinity], y1: [-Infinity] };
+    for (const m of moments) {
+      const s = at(m);
+      const spud = transformer(s.spud.transform);
+      const see = ([x, y]) => {
+        if (x < worst.x0[0]) worst.x0 = [x, m];
+        if (x > worst.x1[0]) worst.x1 = [x, m];
+        if (y < worst.y0[0]) worst.y0 = [y, m];
+        if (y > worst.y1[0]) worst.y1 = [y, m];
+      };
+      for (const p of body) see(spud(p));
+      for (const v of [0, 1, 2]) {
+        if (!(s[`vine${v}`].opacity > 0)) continue;
+        const own = transformer(s[`vine${v}`].transform);
+        for (const p of pointsOf(part(`vine${v}`).points)) see(spud(own(p)));
+      }
+      for (const n of ["sweat0", "sweat1", "sweat2", "sweat3", "fling0", "fling1", "fling2", "fling3"]) {
+        if (!(s[n].opacity > 0)) continue;
+        const own = transformer(s[n].transform);
+        for (const p of pointsOf(s[n].points)) see(spud(own(p)));
+      }
+    }
+    return worst;
+  };
+  function* sweep(stage, { stresses = [0, 0.45, 0.9, 1], reacts = [[null, 9], ["worse", null], ["right", null]], fps = 60 } = {}) {
+    for (const stress of stresses)
+      for (const [react, at] of reacts)
+        for (let i = 0; i < 25 * fps; i++) {
+          // Steps of 1/fps s through 25 s; the breath and the throb at paces of their own (as the
+          // renderer runs them), and a moment's whole course every second.
+          const t = i / fps;
+          yield { stage, stress, t, breath: (t * 0.37 + stress) % 1, beat: (t * 1.93) % 1, react, reactFor: at ?? (i % fps) / fps };
+        }
+  }
+  // (Tens of thousands of scenes each: more time than a plain test gets when every file runs at once.)
+  const LONG = 30000;
+  const inFrame = (w) => [w.x0[0] >= FRAME.x0 - 1e-6, w.x1[0] <= FRAME.x1 + 1e-6, w.y0[0] >= FRAME.y0 - 1e-6, w.y1[0] <= FRAME.y1 + 1e-6];
+  const say = (w) => `x ${w.x0[0].toFixed(2)} to ${w.x1[0].toFixed(2)}, y ${w.y0[0].toFixed(2)} to ${w.y1[0].toFixed(2)}`;
+
+  it("at the last stage: shaking, flinching, in the doom and after a right answer", () => {
+    const w = reach(sweep(4));
+    expect(inFrame(w), say(w)).toEqual([true, true, true, true]);
+  }, LONG);
+
+  it("at every other stage, and growing into the last", () => {
+    for (const stage of [0, 1, 2, 3, 3.5, 3.8]) {
+      const w = reach(sweep(stage, { stresses: [0, 1], fps: 12 }));
+      expect(inFrame(w), `stage ${stage}: ${say(w)}`).toEqual([true, true, true, true]);
+    }
+  }, LONG);
+
+  it("the frame is held only at the peak of the shake: he is never drawn smaller below the last stage, nor at rest", () => {
+    const held = (m) => /^translate\([^)]*\) scale\(/.test(at(m).spud.transform);
+    for (const stage of [0, 1, 2, 3]) for (const m of sweep(stage, { stresses: [0, 1], fps: 12 })) if (held(m)) throw new Error(`held at stage ${stage}: ${JSON.stringify(m)}`);
+    // At the last stage, held still (reduced motion or a still): as he is.
+    for (const stress of [0, 1]) expect(sceneAt(4, { stress, still: true, motion: pose({ still: true }) }).spud.transform).not.toMatch(/^translate\([^)]*\) scale\(/);
+    // Shaking at the last stage with no moment on, he is held in only now and then.
+    let n = 0;
+    let count = 0;
+    for (const m of sweep(4, { stresses: [1], reacts: [[null, 9]] })) {
+      n++;
+      if (held(m)) count++;
+    }
+    expect(count / n).toBeLessThan(0.02);
+  }, LONG);
+
+  it("style.css frames the same numbers", () => {
+    const css = readFileSync(new URL("../public/style.css", import.meta.url), "utf8");
+    const got = Object.fromEntries([...css.matchAll(/--f([xy][01]):\s*(-?[\d.]+)/g)].map(([, k, v]) => [k, Number(v)]));
+    expect(got).toEqual(FRAME);
   });
 });
 

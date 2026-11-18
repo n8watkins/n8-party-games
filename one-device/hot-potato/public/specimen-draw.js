@@ -48,6 +48,23 @@ export const VIEW = "-16 -50 272 292";
 export const PIVOT = [120, 196.8];
 /** The point it shakes about: the middle of its body (from PIVOT), so it shakes in place. */
 export const SHAKE_AT = [0, -74];
+/**
+ * The part of the drawing the screen always shows whole (style.css frames it: --fx0, --fx1, --fy0,
+ * --fy1 are these numbers): he himself (his body, face, sprouts and flung sweat) never leaves it,
+ * however he shakes (scene() holds the rare peak of the shake inside it, see fitInFrame).
+ */
+export const FRAME = { x0: -12, x1: 241, y0: -46, y1: 232 };
+/**
+ * The sprouts (vine0 to vine2): their outlines in his own units, the point each waves about, and
+ * how far it sways each way at the end (degrees, clockwise). The top two sway either side of how
+ * they grew; the left one, which reaches furthest out, sways from how it grew inward and back, so
+ * it never swings further out than it grew (the swing is as wide).
+ */
+export const VINES = [
+  { points: "96,58 80,22 90,6 100,24 110,56", at: [103, 57], sway: [-6, 6] },
+  { points: "150,58 166,26 160,8 176,22 164,60", at: [157, 59], sway: [-6, 6] },
+  { points: "48,126 28,102 22,88 36,96 46,142", at: [48, 128], sway: [0, 12] },
+];
 /** The potato's outline (the picker's). */
 export const BODY = "M70 66 L118 50 L170 60 L204 100 L198 150 L160 188 L104 194 L56 170 L38 120Z";
 const BODY_POINTS = [[70, 66], [118, 50], [170, 60], [204, 100], [198, 150], [160, 188], [104, 194], [56, 170], [38, 120]];
@@ -469,17 +486,14 @@ export function scene({ growth = 0, stress = 0, stage = 0, face, motion = { sx: 
   // The potato: a little bigger as the stress rises (a size creep), trembling inside its rig.
   const k = perStage(SIZES, g4) * (1 + SIZE_CREEP * clamp01(stress));
   const [ox, oy] = PIVOT;
-  out.spud = {
-    transform: `translate(${f(ox + (motion.tx ?? 0))} ${f(oy + (motion.ty ?? 0))}) rotate(${f(motion.rot)} ${SHAKE_AT[0]} ${SHAKE_AT[1]}) skewX(${f(motion.sk)}) scale(${(k * motion.sx).toFixed(4)} ${(k * motion.sy).toFixed(4)}) translate(${-ox} ${-oy})`,
-    opacity: boom ? 0 : 1,
-  };
+  const spudMove = `translate(${f(ox + (motion.tx ?? 0))} ${f(oy + (motion.ty ?? 0))}) rotate(${f(motion.rot)} ${SHAKE_AT[0]} ${SHAKE_AT[1]}) skewX(${f(motion.sk)}) scale(${(k * motion.sx).toFixed(4)} ${(k * motion.sy).toFixed(4)}) translate(${-ox} ${-oy})`;
   // Sprouts push out once it strains, and wave at the end.
   const sprout = perStage([0, 0, 0, 0.55, 1], g4);
-  const VINES = [[103, 57], [157, 59], [48, 128]];
-  VINES.forEach(([vx, vy], i) => {
-    const wave = live && g4 > 3.5 ? Math.sin((t * Math.PI * 2) / 1 + i * 1.6) : 0;
+  const waving = live && g4 > 3.5;
+  VINES.forEach(({ at: [vx, vy], sway: [lo, hi] }, i) => {
+    const wave = waving ? Math.sin((t * Math.PI * 2) / 1 + i * 1.6) : 0;
     const s = sprout * (1 + 0.04 * (1 + wave));
-    out[`vine${i}`] = { transform: `rotate(${f(wave * 6)} ${vx} ${vy}) translate(${vx} ${vy}) scale(${s.toFixed(3)}) translate(${-vx} ${-vy})`, opacity: sprout > 0.01 ? 1 : 0 };
+    out[`vine${i}`] = { transform: `rotate(${waving ? f(lerp(lo, hi, (1 + wave) / 2)) : 0} ${vx} ${vy}) translate(${vx} ${vy}) scale(${s.toFixed(3)}) translate(${-vx} ${-vy})`, opacity: sprout > 0.01 ? 1 : 0 };
   });
   // It turns green as it heats, pulsing at the end.
   const glow = clamp01(perStage([0, 0.1, 0.22, 0.34, 0.48], g4) + (live && g4 > 3.5 ? 0.1 * Math.sin(t * Math.PI * 2 * 0.8) : 0));
@@ -540,6 +554,8 @@ export function scene({ growth = 0, stress = 0, stage = 0, face, motion = { sx: 
     const s = smooth(clamp01(p / 0.12)) * (1 - p * 0.7) * (0.5 + 0.5 * amount);
     out[`fling${i}`] = { points: dropPoints(fx, fy), transform: `translate(${fx} ${fy}) scale(${s.toFixed(3)}) translate(${-fx} ${-fy})`, opacity: amount > 0.01 && s > 0.05 ? 1 : 0 };
   });
+  // Where he is drawn, held inside the frame at the rare peak of his shake.
+  out.spud = { transform: fitInFrame(spudMove, out), opacity: boom ? 0 : 1 };
 
   // The clamps are pushed open as the stress rises, creaking with each beat once it strains; the
   // burst springs them open, but they stay in the rig.
@@ -584,6 +600,64 @@ export function scene({ growth = 0, stress = 0, stage = 0, face, motion = { sx: 
     CHUNKS.forEach((c, i) => (out[`chunk${i}`] = { transform: "translate(120 120) scale(0.3)", opacity: 0 }));
   }
   return out;
+}
+
+/** An SVG transform list (translate, scale, rotate, skewX), as a function on [x, y]. */
+export function affine(attr) {
+  const ops = [...(attr ?? "").matchAll(/(\w+)\(([^)]*)\)/g)].map(([, op, args]) => [op, args.trim().split(/[\s,]+/).map(Number)]).reverse();
+  return ([x, y]) => {
+    for (const [op, a] of ops) {
+      if (op === "translate") [x, y] = [x + a[0], y + (a[1] ?? 0)];
+      else if (op === "scale") [x, y] = [x * a[0], y * (a[1] ?? a[0])];
+      else if (op === "skewX") x += y * Math.tan((a[0] * Math.PI) / 180);
+      else if (op === "rotate") {
+        const r = (a[0] * Math.PI) / 180;
+        const [cx, cy] = [a[1] ?? 0, a[2] ?? 0];
+        const [dx, dy] = [x - cx, y - cy];
+        [x, y] = [cx + dx * Math.cos(r) - dy * Math.sin(r), cy + dx * Math.sin(r) + dy * Math.cos(r)];
+      }
+    }
+    return [x, y];
+  };
+}
+const pointsOf = (s) => s.trim().split(/\s+/).map((p) => p.split(",").map(Number));
+const VINE_POINTS = VINES.map((v) => pointsOf(v.points));
+
+/**
+ * His transform (`move`, the spud's), held inside FRAME. At critical everything that moves him
+ * (the throb's bulge, the breath, the size creep, the tremble's tilt and jolt, a flinch, and the
+ * left sprout's wave) can peak together for a frame or two, and his left sprout or his top one
+ * would reach past the edge of the screen. Then he is drawn that little smaller about the point he
+ * sits on, just enough to stay inside; at any other moment (nearly all of them) he is drawn as he
+ * moves. Measured on what is drawn: his body, his sprouts (`parts`, the scene's vine and fling
+ * transforms) and the drops of sweat he flings while they show.
+ */
+export function fitInFrame(move, parts) {
+  const spud = affine(move);
+  let x0 = Infinity, x1 = -Infinity, y0 = Infinity;
+  const see = ([x, y]) => {
+    x0 = Math.min(x0, x);
+    x1 = Math.max(x1, x);
+    y0 = Math.min(y0, y);
+  };
+  for (const p of BODY_POINTS) see(spud(p));
+  VINE_POINTS.forEach((pts, i) => {
+    const vine = parts[`vine${i}`];
+    if (!vine?.opacity) return;
+    const own = affine(vine.transform);
+    for (const p of pts) see(spud(own(p)));
+  });
+  for (let i = 0; i < FLUNG.length; i++) {
+    const drop = parts[`fling${i}`];
+    if (!drop?.opacity) continue;
+    const own = affine(drop.transform);
+    for (const p of pointsOf(drop.points)) see(spud(own(p)));
+  }
+  const [ox, oy] = PIVOT;
+  // (He sits on the pivot, so his bottom never moves down past it: the tray is below.)
+  const c = Math.min(1, x0 < FRAME.x0 ? (ox - FRAME.x0) / (ox - x0) : 1, x1 > FRAME.x1 ? (FRAME.x1 - ox) / (x1 - ox) : 1, y0 < FRAME.y0 ? (oy - FRAME.y0) / (oy - y0) : 1);
+  // (Rounded down, so the rounding never takes him back out.)
+  return c < 1 ? `translate(${ox} ${oy}) scale(${Math.floor(c * 10000) / 10000}) translate(${-ox} ${-oy}) ${move}` : move;
 }
 
 /** The burst's chunks (the picker's: ten, at seeded angles, distances and sizes). */
