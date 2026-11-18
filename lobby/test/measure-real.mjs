@@ -1,7 +1,8 @@
-// Measures what each rung of the Star Lounge made real costs to draw, beside today's 3D Star
-// Lounge, against a running local server (npm run dev, or any port with --base).
+// Measures what each rung of a room made real (the Star Lounge, or the bar with --room=bar) costs
+// to draw, beside today's 3D look of that room, against a running local server (npm run dev, or
+// any port with --base).
 //
-//   node lobby/test/measure-real.mjs [--base=http://localhost:8857] [--soft=1] [--only=<size>]
+//   node lobby/test/measure-real.mjs [--room=ship|bar] [--base=http://localhost:8857] [--soft=1] [--only=<size>]
 //
 // Each is a posed room (look3d/still.html?walk=1: four pieces pacing and jumping, the busiest the
 // room gets) held on one rung (?rung=, with the ladder off so it stays there), at a phone's size
@@ -22,22 +23,25 @@ const opt = (k, d) => (args.find((a) => a.startsWith("--" + k + "=")) ?? "--" + 
 const base = opt("base", "http://localhost:8857");
 const soft = opt("soft", "0") === "1";
 const only = opt("only", "");
+// --room=ship (the Star Lounge, the default) or --room=bar.
+const room = opt("room", "ship");
 
 const SIZES = [
   { name: "phone 844x390 @2x closer", viewport: { width: 844, height: 390 }, deviceScaleFactor: 2, hasTouch: true, isMobile: true, query: "as=player&zoom=closer" },
   { name: "phone 844x390 @2x whole room", viewport: { width: 844, height: 390 }, deviceScaleFactor: 2, hasTouch: true, isMobile: true, query: "as=player&zoom=room" },
+  // An upright phone: the view follows its piece (closer), so the bar's eye moves and the street slides behind the glass.
+  { name: "phone 390x844 @2x upright", viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, hasTouch: true, isMobile: true, query: "as=player&zoom=closer" },
   { name: "big screen 1280x720", viewport: { width: 1280, height: 720 }, deviceScaleFactor: 1, query: "" },
   // Far more pixels than any device has, so that the graphics card sets the pace and not the script: the only way a
   // desktop card says anything about what each pixel costs. The room caps its own pixels (MAX_PIXELS), so this is
   // its biggest picture, about 2560 x 1440. Read the frame times against each other, not as a phone's.
   { name: "stress 3840x2160 @2x, whole room", viewport: { width: 3840, height: 2160 }, deviceScaleFactor: 2, query: "as=player&zoom=room" },
 ].filter((s) => !only || s.name.includes(only));
+const STEPS = { ship: ["no weather", "+ half planet", "+ outside at half resolution"], bar: ["no drops on the glass", "+ half the rain", "+ outside at half resolution"] }[room];
 const RUNGS = [
-  { name: "3d star-lounge (today)", query: "room=ship" },
-  { name: "real star-lounge", query: "look=real&rung=0&ladder=off" },
-  { name: "real lite 1 (no weather)", query: "look=real&rung=1&ladder=off" },
-  { name: "real lite 2 (+ half planet)", query: "look=real&rung=2&ladder=off" },
-  { name: "real lite 3 (+ outside at half resolution)", query: "look=real&rung=3&ladder=off" },
+  { name: `3d ${room} (today)`, query: `room=${room}` },
+  { name: `real ${room}`, query: `look=real&room=${room}&rung=0&ladder=off` },
+  ...STEPS.map((what, i) => ({ name: `real lite ${i + 1} (${what})`, query: `look=real&room=${room}&rung=${i + 1}&ladder=off` })),
 ];
 
 const b = await openBrowser({ win: !soft, uncapped: true });

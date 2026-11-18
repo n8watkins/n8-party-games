@@ -268,6 +268,12 @@ function actionsOf(g) {
   if (g.status === "table") {
     box.append(link("Start a party at the Table", LINKS.tableStart), joinButton());
     note("You get a code to share. Friends join on their phones, and the host picks this game.");
+    // A second way to play it, where the game also has a site of its own (Who Am I?).
+    if (g.site) {
+      const own = link("Its own site", g.site, true);
+      own.className = "btn btn-alt";
+      box.insertBefore(own, box.lastChild);
+    }
   } else if (g.status === "own-site") {
     const host = new URL(g.href).host;
     box.append(link("Play now", g.href, true));

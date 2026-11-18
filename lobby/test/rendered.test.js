@@ -1,8 +1,10 @@
 // The rendered rooms (lobby/public/look3d/rendered): the switch that turns them on for one device
 // and its memory, which files a device fetches, the ladder a slow device comes down (with made-up
 // frame times), and the Star Lounge's sky timetable, which the room and its preview share.
-import { existsSync, readdirSync, statSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { FEET_Y } from "../public/look3d/space.js";
+import { EYE, FLASH, STREET_Z, THINGS as STREET, TIMES as STREET_TIMES, createLightning, createStreet, flashAt, umbrellaAt, variant } from "../public/look3d/rendered/bar/street.js";
 import { HELPS, Ladder, SHARP_MIN, SLOW_MS, atCap } from "../public/look3d/rendered/ladder.js";
 import { LAYERS_MS, within } from "../public/look3d/rendered/within.js";
 import { THINGS, TIMES, createSky } from "../public/look3d/rendered/star-lounge/sky.js";
@@ -15,6 +17,7 @@ function storage() {
 }
 const q = (s) => new URLSearchParams(s);
 const SHIP = RENDERED.ship;
+const BAR = RENDERED.bar;
 
 describe("the switch", () => {
   it("is off unless the device asked for it, so nothing changes for anyone else", () => {
@@ -42,11 +45,24 @@ describe("the switch", () => {
     }
   });
 
-  it("draws only the Star Lounge this way: any other room, and the flat look, are as they are today", () => {
+  it("draws only the Star Lounge and the bar this way: any other room, and the flat look, are as they are today", () => {
     const device = storage();
     rememberReal(q("look=real"), device);
-    for (const skin of ["bar", "arcade", "camp", "roof", "navy", "fair", ""]) expect(renderedFor({ look: "3d", skin }, q(""), device)).toBe(null);
+    expect(Object.keys(RENDERED).sort()).toEqual(["bar", "ship"]);
+    expect(renderedFor({ look: "3d", skin: "bar" }, q(""), device)).toBe(BAR);
+    for (const skin of ["arcade", "camp", "roof", "navy", "fair", "alley", ""]) expect(renderedFor({ look: "3d", skin }, q(""), device)).toBe(null);
     expect(renderedFor({ look: "flat", skin: "ship" }, q(""), device)).toBe(null);
+    expect(renderedFor({ look: "flat", skin: "bar" }, q(""), device)).toBe(null);
+  });
+
+  it("is the bar's too only on the wall its painting is of, five boxes", () => {
+    const device = storage();
+    rememberReal(q("look=real"), device);
+    expect(renderedFor({ look: "3d", skin: "bar", boxes: 6 }, q(""), device)).toBe(null);
+    expect(renderedFor({ look: "3d", skin: "bar", boxes: 5 }, q(""), device)).toBe(BAR);
+    // A device that gave up on the bar gets today's 3D bar, as the Star Lounge does.
+    rememberRung("3d", device);
+    expect(renderedFor({ look: "3d", skin: "bar" }, q(""), device)).toBe(null);
   });
 
   it("is not opened, and fetches nothing, on a wall that is not the one its picture is of (the local test wall of six)", () => {
@@ -88,6 +104,58 @@ describe("what a device fetches", () => {
     // A device that has not asked never gets a drawing that would fetch them.
     expect(renderedFor({ look: "3d", skin: "ship" }, q(""), storage())).toBe(null);
   });
+
+  const barLayers = new URL("../public/look3d/rendered/bar/layers/", import.meta.url);
+  it("lists every layer the bar is made of, and each one is there to serve", () => {
+    for (const file of BAR.files) expect(existsSync(new URL(file, barLayers)), file).toBe(true);
+    expect(readdirSync(barLayers).sort()).toEqual([...BAR.files].sort());
+  });
+
+  it("is under half a megabyte for the bar, and nothing for a device that has not asked", () => {
+    const bytes = BAR.files.reduce((n, f) => n + statSync(new URL(f, barLayers)).size, 0);
+    expect(bytes).toBeGreaterThan(200_000);
+    expect(bytes).toBeLessThan(500_000);
+    expect(renderedFor({ look: "3d", skin: "bar" }, q(""), storage())).toBe(null);
+  });
+
+  it("lays the bar's painting where the 3D look's room is: its wall meets its floor where the back wall does, and its floor line is the pieces' feet", () => {
+    const plate = JSON.parse(readFileSync(new URL("plate.json", barLayers), "utf8"));
+    const { scale, oy, w } = plate.painting;
+    expect(w * scale).toBeCloseTo(1920, 6);
+    // The painted wall's foot (y 605) on the back wall's foot (world y 785, look3d/space.js), and the preview's floor line (y 702) on the feet.
+    expect(oy + 605 * scale).toBeCloseTo((6.25 - 0) * 125.55, 0);
+    expect(Math.abs(oy + 702 * scale - FEET_Y)).toBeLessThan(2);
+    // Five frames, each a little larger than painted (the owner's pick), still clear of each other and of the two wall lamps.
+    expect(plate.frames).toHaveLength(5);
+    expect(plate.posterScale).toBe(1.06);
+    const boxes = plate.frames.map((f) => f.drawn.box);
+    for (let i = 1; i < 5; i++) expect(boxes[i].x - (boxes[i - 1].x + boxes[i - 1].w)).toBeGreaterThan(0);
+    expect(boxes[0].x).toBeGreaterThan(577);
+    expect(boxes[4].x + boxes[4].w).toBeLessThan(1360);
+    // The glass is traced pane by pane in both windows.
+    expect(plate.panes.length).toBe(16);
+    expect(Object.keys(plate.windows).sort()).toEqual(["left", "right"]);
+  });
+
+  it("cuts the street behind each window wide enough to slide behind the glass as far as the eye can move, so its edge never shows", () => {
+    const plate = JSON.parse(readFileSync(new URL("plate.json", barLayers), "utf8"));
+    // The eye at its furthest (the view's middle 6 m from the room's), and how far the street then slides against the wall, in painting pixels.
+    const ex = 6 * EYE;
+    const [dStreet, dWall, dWalk] = [17.5 - STREET_Z, 20, 17.5 - 0.6];
+    const slide = (ex * 125.55 * (dStreet - dWall)) / dWalk / plate.painting.scale;
+    expect(slide).toBeGreaterThan(60);
+    for (const [key, [x0, y0, x1, y1]] of Object.entries(plate.windows)) {
+      const s = plate.street[key];
+      const k = (y1 - y0) / s.h;
+      const half = (x1 - x0) / 2;
+      const [left, right] = [(s.mid - s.x) * k - half, (s.x + s.w - s.mid) * k - half];
+      // The left window is seen with the eye to the left (its street slides left), the right window the other way.
+      if (key === "left") expect(right).toBeGreaterThan(slide);
+      else expect(left).toBeGreaterThan(slide);
+      expect(Math.min(left, right)).toBeGreaterThan(30);
+      expect(s.x + s.w).toBeLessThanOrEqual(1672);
+    }
+  });
 });
 
 describe("where on its ladder a device starts", () => {
@@ -128,6 +196,13 @@ describe("where on its ladder a device starts", () => {
     expect(`real ${rungName(SHIP, [])}`).toBe("real star-lounge");
     expect(`real ${rungName(SHIP, ["weather"])}`).toBe("real star-lounge lite 1");
     expect(`real ${rungName(SHIP, SHIP.steps)}`).toBe("real star-lounge lite 3");
+    expect(`real ${rungName(BAR, [])}`).toBe("real bar");
+    expect(`real ${rungName(BAR, BAR.steps)}`).toBe("real bar lite 3");
+  });
+
+  it("gives the bar its own three steps, the drops on the glass first and the outside at half resolution last", () => {
+    expect(BAR.steps).toEqual(["drops", "rain", "outside"]);
+    expect(rungOf(BAR, q("rung=2"), storage()).taken).toEqual(["drops", "rain"]);
   });
 });
 
@@ -364,5 +439,141 @@ describe("the sky's timetable", () => {
     let first = null;
     for (let t = 0; t < 60 && !first; t += 0.5) first = sky.step(t);
     expect(first.thing.name).toBe("rocket");
+  });
+});
+
+describe("the bar's street", () => {
+  const seeded = (s) => () => ((s = (s * 1664525 + 1013904223) >>> 0) / 4294967296);
+  /** Everything that passes in the first `seconds`, as a screen that draws every frame sees it. */
+  const passes = (seed, seconds, step = 1 / 30) => {
+    const street = createStreet(seeded(seed));
+    const out = [];
+    for (let t = 0; t <= seconds; t += step) {
+      const ev = street.step(t);
+      if (ev && out.at(-1)?.start !== ev.start) out.push({ name: ev.thing.name, start: ev.start, end: ev.end });
+    }
+    return out;
+  };
+
+  it("keeps exactly the owner's four: an umbrella on the wind, a cat on the sill, a paper boat and the shop light", () => {
+    expect(STREET.map((t) => t.name).sort()).toEqual(["boat", "cat", "shop", "umbrella"]);
+    const seen = new Set(passes(5, 3 * 3600).map((p) => p.name));
+    expect([...seen].sort()).toEqual(["boat", "cat", "shop", "umbrella"]);
+  });
+
+  it("passes one at a time, with 10 to 15 seconds of nothing between, for a simulated evening, and the umbrella first", () => {
+    const all = passes(11, 4 * 3600);
+    expect(all[0].name).toBe("umbrella");
+    expect(all[0].start).toBe(STREET_TIMES.first);
+    for (let i = 1; i < all.length; i++) {
+      const gap = all[i].start - all[i - 1].end;
+      expect(gap).toBeGreaterThanOrEqual(10 - 1e-6);
+      expect(gap).toBeLessThanOrEqual(15 + 1e-6);
+      // Never the same thing twice running.
+      expect(all[i].name).not.toBe(all[i - 1].name);
+    }
+    // About one every twenty seconds.
+    expect(all.length).toBeGreaterThan((4 * 3600) / 30);
+  });
+
+  it("is the same street on every screen in the room (the same seed), and for a screen that came half an hour late", () => {
+    const a = passes(4827, 3600);
+    expect(passes(4827, 3600)).toEqual(a);
+    const late = createStreet(seeded(4827));
+    const atLate = late.step(1800);
+    const truth = a.find((p) => 1800 >= p.start && 1800 < p.end) ?? null;
+    expect(atLate?.start ?? null).toBe(truth?.start ?? null);
+    // Which window and which way: worked out from when it started and the room's seed, so the same everywhere.
+    const ev = { thing: { name: "umbrella" }, start: a[0].start };
+    expect(variant(ev, 4827)).toEqual(variant(ev, 4827));
+  });
+
+  it("keeps the cat on its sill and the boat in its gutter, both at the right window; the umbrella and the shop light at either", () => {
+    const wins = { umbrella: new Set(), shop: new Set(), cat: new Set(), boat: new Set() };
+    for (let i = 0; i < 400; i++) for (const name of Object.keys(wins)) wins[name].add(variant({ thing: { name }, start: i * 17.3 }, 99).win);
+    expect([...wins.cat]).toEqual(["right"]);
+    expect([...wins.boat]).toEqual(["right"]);
+    expect([...wins.umbrella].sort()).toEqual(["left", "right"]);
+    expect([...wins.shop].sort()).toEqual(["left", "right"]);
+  });
+
+  it("lightens now and then: one soft glow that rises and fades, never a flicker, once every 35 to 70 seconds", () => {
+    // One glow: it rises to its peak and then only fades.
+    let peak = 0;
+    let falling = false;
+    for (let e = 0; e <= FLASH.lasts; e += 0.005) {
+      const v = flashAt(e);
+      if (v < peak - 1e-9) falling = true;
+      else if (falling) expect(v).toBeLessThanOrEqual(peak);
+      peak = Math.max(peak, v);
+    }
+    expect(peak).toBeCloseTo(FLASH.peak, 3);
+    expect(flashAt(-0.1)).toBe(0);
+    expect(flashAt(FLASH.lasts + 0.1)).toBe(0);
+    // When each comes: rare.
+    const sky = createLightning(seeded(3));
+    const starts = [];
+    let was = 0;
+    for (let t = 0; t < 2 * 3600; t += 1 / 20) {
+      const v = sky.step(t);
+      if (v > 0 && was === 0) starts.push(t);
+      was = v;
+    }
+    expect(starts[0]).toBeGreaterThanOrEqual(FLASH.first - 0.06);
+    for (let i = 1; i < starts.length; i++) {
+      expect(starts[i] - starts[i - 1]).toBeGreaterThanOrEqual(35 - 0.06);
+      expect(starts[i] - starts[i - 1]).toBeLessThanOrEqual(70 + 0.06);
+    }
+  });
+});
+
+describe("the umbrella on the wind", () => {
+  const path = (dir, r = 0.4) => Array.from({ length: 201 }, (_, i) => umbrellaAt(i / 200, { w: 217, high: 60, low: 240, dir, r }));
+
+  it("crosses the window the way it is going, from one side to the other", () => {
+    for (const dir of [1, -1]) {
+      const p = path(dir);
+      expect(Math.sign(p.at(-1).x - p[0].x)).toBe(dir);
+      expect(Math.min(p[0].x, p.at(-1).x)).toBeLessThan(0);
+      expect(Math.max(p[0].x, p.at(-1).x)).toBeGreaterThan(217);
+      // Always forward: a gust can slow it, never send it back.
+      for (let i = 1; i < p.length; i++) expect((p[i].x - p[i - 1].x) * dir).toBeGreaterThan(0);
+    }
+  });
+
+  it("leads with its canopy and trails its handle: it leans into the way it goes, never upright, never upside down", () => {
+    for (const dir of [1, -1])
+      for (const r of [0, 0.5, 1])
+        for (const f of path(dir, r)) {
+          expect(Math.sign(f.lean)).toBe(dir);
+          expect(Math.abs(f.lean)).toBeGreaterThan(0.45);
+          expect(Math.abs(f.lean)).toBeLessThan(1.45);
+        }
+  });
+
+  it("speeds and slows with the gust, rises with it and bobs, and stays in the window's height", () => {
+    const p = path(1);
+    const speeds = p.map((f) => f.speed);
+    expect(Math.max(...speeds) / Math.min(...speeds)).toBeGreaterThan(2);
+    const ys = p.map((f) => f.y);
+    expect(Math.min(...ys)).toBeGreaterThan(20);
+    expect(Math.max(...ys)).toBeLessThan(270);
+    // Faster is higher: where the gust is strongest it is lifted.
+    const fast = p.reduce((a, b) => (b.speed > a.speed ? b : a));
+    const slow = p.slice(20, 180).reduce((a, b) => (b.speed < a.speed ? b : a));
+    expect(fast.speed).toBeGreaterThan(slow.speed);
+  });
+
+  it("turns over lazily, once or twice, about its shaft, and shows the top of its canopy, so the handle trailing behind stays in view", () => {
+    for (const r of [0, 0.5, 1]) {
+      const p = path(1, r);
+      const turns = Math.abs(p.at(-1).spin - p[0].spin) / (2 * Math.PI);
+      expect(turns).toBeGreaterThanOrEqual(1);
+      expect(turns).toBeLessThanOrEqual(2);
+      for (const f of p) {
+        expect(f.nod).toBeGreaterThan(0.05);
+        expect(f.nod).toBeLessThan(0.32);
+      }
+    }
   });
 });

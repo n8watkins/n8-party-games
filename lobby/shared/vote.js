@@ -1,6 +1,7 @@
 // The rules of the vote, as plain logic: which games the party can play, who is voting for
 // what, who leads, and what a place in a game is worth tonight. Shared by the room and the page.
 import { playRules } from "../../party-kit/client/emotes.js";
+import { hasPool } from "./world.js";
 
 /** Everyone stands in a light for this long and the game starts: long enough to shout about it, call a friend over or change your mind. The last three seconds tick harder. */
 export const COUNT_MS = 10_000;
@@ -84,11 +85,11 @@ export const IDEAS = posterBox({ id: "ideas", name: "Got a game idea?", blurb: "
  * The lights that are the spots where a game's players are chosen (a party larger than the game's
  * seats): `n` lights side by side on the wall, around the winning game's own, as near the middle
  * of that run as the wall allows. The room's own lights and their drawing, so standing on a spot
- * is standing in a light. A poster (posterBox) is never a spot. Returns the boxes' ids, or null
- * when the wall has fewer than `n`.
+ * is standing in a light: only a box with a pool can be a spot (world.js, hasPool), never a
+ * coming-soon game or a poster. Returns the boxes' ids, or null when the wall has fewer than `n`.
  */
 export function spotLights(wall, id, n) {
-  const boxes = wall.filter((box) => !box.poster);
+  const boxes = wall.filter(hasPool);
   if (!(n >= 1) || boxes.length < n) return null;
   const at = Math.max(0, boxes.findIndex((box) => box.id === id));
   const first = Math.min(Math.max(0, at - Math.floor((n - 1) / 2)), boxes.length - n);

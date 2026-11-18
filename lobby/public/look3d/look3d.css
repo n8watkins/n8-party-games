@@ -575,8 +575,13 @@
   margin: 0;
   white-space: normal;
   text-wrap: balance;
-  font: 600 calc(var(--m) * 0.128) / 1.22 var(--text);
+  /* --about: smaller on a narrow sign, so the line fits its two lines (look3d/words.js, fit). */
+  font: 600 calc(var(--m) * 0.128 * var(--about, 1)) / 1.22 var(--text);
   color: var(--sign-ink, var(--ink));
+}
+/* Too long for its sign even at the smallest size: the sign keeps how many play and the badge. */
+.l3-about.l3-cut {
+  display: none;
 }
 .l3-sign.shut .l3-about {
   color: rgba(255, 255, 255, 0.5);
@@ -600,6 +605,20 @@
 .l3-compact .l3-seats {
   display: inline;
   font-size: calc(var(--m) * 0.15 * var(--fit, 1));
+}
+/* Narrow signs (look3d/words.js, NARROW_SIGN: the bar's five under its painted frames) are laid out
+   as the flat look lays them out: how many play over the badge, and no line about the game. The
+   real bar's brass plates keep their own layout (rendered/bar/bar.css). */
+.l3-narrow .l3-sign:not(.bar-real *) .l3-about {
+  display: none;
+}
+.l3-narrow .l3-sign:not(.bar-real *) .l3-row {
+  flex-direction: column;
+  gap: calc(var(--m) * 0.04);
+  margin-top: 0;
+}
+.l3-compact .l3-narrow .l3-sign:not(.bar-real *) {
+  height: calc(var(--m) * 0.62);
 }
 
 /* The Tonight board opens when it is tapped. */

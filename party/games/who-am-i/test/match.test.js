@@ -1,7 +1,7 @@
 // Who Am I? whole matches: the setup step, trade turns and keep-going turns, Ask and Clues, the
 // reveal, match lengths and scoring, a larger table with the host's pick and watchers.
 import { describe, expect, it } from "vitest";
-import { DEFAULT_OPTIONS, HINTS_PER_TURN, SYSTEM, TIMERS, create, done, nextDeadline, result, standings, view } from "../rules.js";
+import { DEFAULT_OPTIONS, HINTS_PER_TURN, SYSTEM, TIMERS, create, decided, done, nextDeadline, result, standings, view } from "../rules.js";
 import { T0, Table, must } from "./table.js";
 
 describe("the setup step", () => {
@@ -77,6 +77,29 @@ describe("two players, trade turns (the default)", () => {
     expect(v.phase).toBe("over");
     expect(v.result).toEqual(rows);
     expect(v.reveal.matchOver).toBe(true);
+  });
+
+  it("says the match is decided on the reveal that decided it, with its final places already, and not before", () => {
+    const t = new Table([0, 1], { match: "first-to-3" }, 9);
+    t.begin();
+    expect(decided(t.state)).toBe(false);
+    for (let i = 0; i < 20 && !(t.phase === "reveal" && t.state.summary.matchOver); i++) {
+      if (t.phase === "reveal") {
+        // A reveal before the end is not the end: no places yet.
+        expect(decided(t.state)).toBe(false);
+        expect(standings(t.state)).toEqual([]);
+        t.do(t.state.host, { t: "next" });
+      } else t.rightGuess();
+    }
+    expect(decided(t.state)).toBe(true);
+    const early = standings(t.state);
+    expect(early).toHaveLength(2);
+    expect(early.find((s) => s.place === 1)).toBeTruthy();
+    // The tap to the end changes nothing in the places.
+    t.do(t.state.host, { t: "next" });
+    expect(done(t.state)).toBe(true);
+    expect(decided(t.state)).toBe(false);
+    expect(standings(t.state)).toEqual(early);
   });
 
   it("is one question and one guess per move, the other player's answers, a pass, a wrong guess", () => {

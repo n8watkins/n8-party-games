@@ -1,11 +1,13 @@
-// The sky's timetable: the one place that decides when something passes the window.
+// The sky's timetable: the one place that decides when something passes the Star Lounge's window.
 //
 // The rule: one thing at a time, with empty sky between. Nothing else in the page may start a
 // rocket, a ship, a rock or a shooting star; the page asks this timetable what is passing now and
-// draws only that. So two things can never be in the sky together, and never cross.
+// draws only that. So two things can never be in the sky together, and never cross. The
+// timetable itself is every rendered room's (rendered/timetable.js); these are the sky's things.
 //
 // It knows nothing about drawing (no three.js), so it can be run for a simulated week in a test:
 //   node preview/star-lounge/test-sky.mjs
+import { timetable } from "../timetable.js";
 
 /** Everything that can pass. `often` is its share of the draw (a rare thing has a small one);
  *  `lasts` is the seconds from the moment it enters to the moment it is gone from every screen. */
@@ -20,8 +22,9 @@ export const THINGS = [
 ];
 
 export const TIMES = {
-  /** Seconds after the page opens before the first thing (the rocket) passes. */
+  /** Seconds after the page opens before the first thing passes, and what it is. */
   first: 6,
+  firstThing: "rocket",
   /** The empty sky after one thing has gone and before the next: a time picked evenly between these two. */
   quiet: [20, 45],
   /** The empty sky before a thing that was asked for by name (the Notes' "send one now" buttons). */
@@ -30,73 +33,7 @@ export const TIMES = {
 
 /**
  * @param {() => number} rnd a source of numbers from 0 up to 1
- * @returns the timetable. Call `step(t)` once a frame with the room's clock, in seconds; it returns
- *   what is passing ({ thing, start, end, u } with u from 0 to 1 along its way), or null for an empty sky.
+ * @returns the sky's timetable (rendered/timetable.js): `step(t)` once a frame with the room's
+ *   clock gives what is passing ({ thing, start, end, u }), or null for an empty sky.
  */
-export function createSky(rnd = Math.random, things = THINGS, times = TIMES) {
-  const byName = new Map(things.map((t) => [t.name, t]));
-  let now = null;
-  let nextAt = times.first;
-  let nextThing = byName.get("rocket") ?? null; // the first is always the rocket; after that, the draw
-  let lastFamily = null;
-  let asked = null;
-
-  /** The draw: by share, and never the same family twice running. */
-  const pick = () => {
-    const pool = things.filter((t) => t.family !== lastFamily);
-    let r = rnd() * pool.reduce((s, t) => s + t.often, 0);
-    for (const t of pool) if ((r -= t.often) < 0) return t;
-    return pool[pool.length - 1];
-  };
-  const begin = (thing, t, data) => {
-    now = { thing, start: t, end: t + thing.lasts, u: 0, data };
-    lastFamily = thing.family;
-    nextThing = null;
-  };
-
-  return {
-    step(t) {
-      // Everything due by `t` happens at the moment it was due, not the moment it is noticed, and as
-      // many times over as fit: so a screen that came late, a tab that was hidden or a room that was
-      // away in a game is on the same timetable as one that drew every frame.
-      for (;;) {
-        if (now && t >= now.end) {
-          // It has gone. The sky is now empty for a while, whatever happens.
-          nextAt = now.end + (asked ? times.askedQuiet : times.quiet[0] + rnd() * (times.quiet[1] - times.quiet[0]));
-          now = null;
-        }
-        if (now || t < nextAt) break;
-        const thing = asked ?? nextThing ?? pick();
-        asked = null;
-        begin(thing, nextAt, undefined);
-      }
-      if (now) now.u = Math.min(1, Math.max(0, (t - now.start) / now.thing.lasts));
-      return now;
-    },
-    /** Ask for one thing by name. It comes next: at once (after a breath) if the sky is empty, or
-     *  a few seconds after whatever is passing has gone. Asking again replaces the earlier ask.
-     *  Returns what it is waiting for (a thing's name), or null if it is on its way. */
-    ask(name, t) {
-      const thing = byName.get(name);
-      if (!thing) return undefined;
-      asked = thing;
-      if (!now) nextAt = Math.min(nextAt, t + 0.4);
-      return now ? now.thing.name : null;
-    },
-    /** Start one thing this instant, but only into an empty sky (a tap on the glass calls a shooting
-     *  star this way). Returns false, and does nothing, while something is passing. */
-    startIfEmpty(name, t, data) {
-      const thing = byName.get(name);
-      if (!thing || now) return false;
-      begin(thing, t, data);
-      return true;
-    },
-    /** What is passing, without moving the clock. */
-    get now() {
-      return now;
-    },
-    get nextAt() {
-      return now ? null : nextAt;
-    },
-  };
-}
+export const createSky = (rnd = Math.random, things = THINGS, times = TIMES) => timetable(rnd, things, times);

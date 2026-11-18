@@ -7,7 +7,7 @@
 // So one world unit is one pixel of the same 1920 x 1080 picture the flat drawing shows, on two
 // planes: the back wall, where the boxes and the words are, and the walking line, where the
 // pieces and the pools of light are.
-import { ROOM, boxCentre, boxWidth } from "../shared/world.js";
+import { wallOf } from "../shared/world.js";
 
 /** World units per metre on the back wall. */
 export const U = 125.55;
@@ -44,16 +44,20 @@ export const FRAME = { bar: 0.07, gap: 0.05, depth: 0.4 };
 /**
  * Where everything hangs for a wall of `n` boxes, in metres from the middle of the wall. The
  * boxes are the approved size (1.75 x 2.45 m) when there are four, and shrink to fit more.
+ * `n` may be the room's wall itself (shared/world.js; shared/rooms.js, wallFor), when the room
+ * hangs its boxes somewhere other than evenly: then they hang there, as wide as their spacing allows.
  */
 export function layout(n) {
-  const slot = (ROOM.boxesRight - ROOM.boxesLeft) / n / U;
-  const bw = Math.min(1.75, (boxWidth(n) + 8) / U - 2 * (FRAME.bar + FRAME.gap));
+  const w = wallOf(n);
+  const slot = w.slot / U;
+  const bw = Math.min(1.75, (w.box + 8) / U - 2 * (FRAME.bar + FRAME.gap));
   const bh = bw * 1.4;
   const by = wallY(150) - bh / 2;
-  const xs = Array.from({ length: n }, (_, i) => wallX(boxCentre(i, n)));
-  const gaps = Array.from({ length: n + 1 }, (_, i) => xs[0] - slot / 2 + i * slot);
+  const xs = w.xs.map(wallX);
+  const gaps = [xs[0] - slot / 2, ...xs.slice(1).map((x, i) => (x + xs[i]) / 2), xs[w.n - 1] + slot / 2];
   return {
-    n,
+    n: w.n,
+    wall: w,
     slot,
     bw,
     bh,
@@ -64,7 +68,7 @@ export function layout(n) {
     gapsWalk: gaps.map((x) => x * WALK),
     /** World y of the top of the signs under the boxes, and the width of a sign in world units. */
     signTop: worldY(by - bh / 2 - FRAME.gap - FRAME.bar) + 8,
-    signW: Math.min(262, boxWidth(n)),
+    signW: Math.min(262, w.box),
     /** The door under the join sign and the shelf under the Tonight board (look3d/words.js places the two signs). */
     doorX: wallX(181),
     boardX: wallX(1722),

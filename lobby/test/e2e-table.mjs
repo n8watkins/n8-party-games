@@ -87,8 +87,9 @@ try {
   await ann.evaluate(() => (location.hash = "#dev"));
   await ann.waitForSelector(".game.test button.game-row");
   check((await bo.locator(".game.test").count()) === 0, "the test game is hidden without #dev: Bo does not see it");
-  const soon = await bo.locator(".game.off .game-why").allTextContents();
-  check(soon.join() === "Coming soon", `Who Am I? is listed as coming soon: ${soon.join(", ")}`);
+  // Who Am I? is built: for three it is off, and says why (it is for exactly two), not "Coming soon".
+  const off = await bo.locator(".game.off", { hasText: "Who Am I?" }).locator(".game-why").allTextContents();
+  check(off.join() === "For exactly 2" && !(await bo.locator(".game.off .game-why", { hasText: "Coming soon" }).count()), `Who Am I? is listed, off for three because it is for exactly 2: ${off.join(", ")}`);
   const masks = await bo.locator(".game", { hasText: "Paper Masks" }).count();
   check(masks === 1 && (await bo.locator(".game.off", { hasText: "Paper Masks" }).count()) === 0, "Paper Masks is listed and playable for three");
   check((await bo.locator("button.game-row").count()) === 0, "Bo is not the host: no game is a button for him");
