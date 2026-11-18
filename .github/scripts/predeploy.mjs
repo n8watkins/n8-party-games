@@ -30,6 +30,17 @@
 //   then the steps run together. Each step's output is kept and printed whole when the step
 //   ends; the first failure stops the others. PREDEPLOY_SEQUENTIAL=1 keeps the steps one after
 //   another on the card too.
+//   The gate holds CARD_TOKENS of the card's tokens (one per browser drawing at once, see
+//   holdTokens in lobby/test/browser.mjs) and passes them to the steps in TEST_GPU_TOKENS, so
+//   never more than that many of its card browsers draw at once; the others wait their turn with
+//   their Workers up. Steps without a card browser (test:room, test:lobby, test:mode, and those
+//   whose browser draws in software) take no token and run beside them. Under gpu-run
+//   (`gpu-run --label gate --kind browser-test --tokens 3 --admit-timeout-runs -- npm run
+//   predeploy`), the tokens come from the ones gpu-run holds for it instead of from the card's
+//   pool, and gpu-run's admission check (card load, video memory, heat, recent driver events)
+//   runs first; --admit-timeout-runs makes a busy card delay the gate, never fail it.
+//   Run bare (`npm run predeploy`, and `npm run deploy`, which runs it first), the gate has no
+//   admission check: it takes its tokens and starts whatever the card's state.
 //
 // One gate at a time on this machine: a gate holds the flock on
 // $TMPDIR/n8-party-games-predeploy.lock while it runs, and a second one waits for it and says
@@ -48,6 +59,8 @@ import { join } from "node:path";
 import { STEPS, stepPort } from "./predeploy-steps.mjs";
 
 const port = Number(process.env.PREDEPLOY_PORT ?? "8853");
+// How many of the gate's card browsers may draw at once when the steps run side by side.
+const CARD_TOKENS = 3;
 const npm = process.platform === "win32" ? "npm.cmd" : "npm";
 const cardOff = process.env.TEST_NO_GPU === "1";
 const onCard = process.env.TEST_GPU === "1" && !cardOff;
@@ -305,6 +318,19 @@ async function sideBySideSteps() {
   }
   results.push({ name: "start local Workers", status: "ok", seconds: seconds(begun) });
 
+  // The card tokens last, once everything else is ready, so they are never held idle.
+  const waitedFrom = Date.now();
+  const { holdTokens } = await import("../../lobby/test/browser.mjs");
+  const tokens = await holdTokens(CARD_TOKENS);
+  process.env.TEST_GPU_TOKENS = tokens.join(":"); // the steps inherit this process's environment
+  results.push({ name: `hold ${tokens.length} card token${tokens.length > 1 ? "s" : ""}`, status: "ok", seconds: seconds(waitedFrom) });
+  console.log(`\nHolding ${tokens.length} card token${tokens.length > 1 ? "s" : ""}: at most ${tokens.length} of this gate's card browsers draw at once.`);
+  if (tokens.length < CARD_TOKENS)
+    console.log(
+      `(only ${tokens.length} of the ${CARD_TOKENS} it wants: the job it runs under holds no more, or TEST_GPU_JOBS is smaller, ` +
+        `so its card browsers take turns; under gpu-run, give the gate its ${CARD_TOKENS}: gpu-run --tokens ${CARD_TOKENS} --admit-timeout-runs ...)`,
+    );
+
   console.log("\nStarted side by side:");
   STEPS.forEach(([name], i) => console.log(`  ${name} against ${workers[i].base}`));
   let failed = false;
@@ -314,8 +340,8 @@ async function sideBySideSteps() {
     const child = spawn(npm, ["run", script, "--", `--base=${workers[i].base}`], { stdio: ["ignore", "pipe", "pipe"], detached: true });
     let out = "";
     const keep = (d) => {
-      // Everything is printed when the step ends; a wait for a card slot is said at once too.
-      for (const line of String(d).split("\n")) if (/waiting for a card slot/.test(line)) console.log(`  (${script}) ${line.trim()}`);
+      // Everything is printed when the step ends; a wait for a card token is said at once too.
+      for (const line of String(d).split("\n")) if (/waiting for a card (token|slot)/.test(line)) console.log(`  (${script}) ${line.trim()}`);
       out += d;
     };
     child.stdout.on("data", keep);

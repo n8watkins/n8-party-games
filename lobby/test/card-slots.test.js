@@ -1,17 +1,19 @@
-// The graphics card's test slots (lobby/test/browser.mjs, holdCard): each process holds one slot
-// until it exits, waiters say how many are ahead of them, and they go first come first served.
+// The graphics card's tokens (lobby/test/browser.mjs, holdCard and holdTokens): each process holds
+// its tokens until it exits, waiters say how many are ahead of them, and they go first come first
+// served; under a job that holds tokens (TEST_GPU_TOKENS), processes draw only on those.
 // Real processes and real flocks, in a folder of their own (TEST_GPU_LOCK_DIR), so the
-// machine's own slots in /tmp are never touched. No graphics card is needed.
-import { spawn } from "node:child_process";
-import { mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+// machine's own tokens in /tmp are never touched. No graphics card is needed.
+import { spawn, spawnSync } from "node:child_process";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 const helper = fileURLToPath(new URL("./browser.mjs", import.meta.url));
-// Holds a slot until its stdin closes, printing "held" once it has one.
-const holder = `const { holdCard } = await import(${JSON.stringify(helper)}); await holdCard(); console.log("held"); process.stdin.resume(); process.stdin.on("end", () => process.exit(0));`;
+// Holds the card (or WANT tokens) until its stdin closes, printing "held <token paths>" once it
+// has them.
+const holder = `const m = await import(${JSON.stringify(helper)}); const t = process.env.WANT ? await m.holdTokens(Number(process.env.WANT)) : await m.holdCard(); console.log("held " + t.join(":")); process.stdin.resume(); process.stdin.on("end", () => process.exit(0));`;
 
 let dir;
 const procs = [];
@@ -26,7 +28,18 @@ afterEach(async () => {
 
 function job(env = {}) {
   const p = spawn(process.execPath, ["--input-type=module", "-e", holder], {
-    env: { ...process.env, TEST_GPU_LOCK_DIR: dir, TEST_GPU_JOBS: "", TEST_GPU_SLOT_HELD: "", ...env },
+    env: {
+      ...process.env,
+      TEST_GPU_LOCK_DIR: dir,
+      TEST_GPU_JOBS: "",
+      TEST_GPU_SLOT_HELD: "",
+      TEST_GPU_TOKENS: "",
+      TEST_GPU_GATE_PRIORITY_S: "",
+      TEST_GPU_GATE_WAIT_MAX_S: "",
+      TEST_GPU_WAIT_REPORT_S: "",
+      WANT: "",
+      ...env,
+    },
     stdio: ["pipe", "pipe", "inherit"],
   });
   procs.push(p);
@@ -38,25 +51,40 @@ function job(env = {}) {
       const look = () => (re.test(p.out) ? (clearTimeout(t), resolve()) : setTimeout(look, 25));
       look();
     });
+  p.tokens = () => /held (\S+)/.exec(p.out)?.[1];
   p.release = () => new Promise((r) => (p.once("exit", r), p.stdin.end()));
   return p;
 }
 const settle = (ms = 700) => new Promise((r) => setTimeout(r, ms));
+const token = (n) => join(dir, `test-gpu-${n}.lock`);
+const gateFile = () => join(dir, "test-gpu-gate.lock");
+/** Whether anyone holds a lock on `file`. */
+const locked = (file) => spawnSync("flock", ["-n", "-E", "200", file, "true"]).status === 200;
+/** Another program holding `file` exclusively (as an older gpu-run or helper would) until killed. */
+function outsideHolder(file) {
+  const p = spawn("flock", ["-o", file, "sleep", "120"], { stdio: "ignore" });
+  procs.push(p);
+  return p;
+}
+async function until(check, ms = 30000) {
+  for (const end = Date.now() + ms; Date.now() < end; await settle(100)) if (check()) return true;
+  return false;
+}
 
 // Each job is a fresh Node process that loads Playwright, which takes seconds on a loaded PC
 // (the pre-deploy gate runs these tests while other agents build and test), so the limits are
 // generous; a test that passes takes about as long as it did before.
-describe("card slots", { timeout: 60000 }, () => {
-  it("lets the default number of jobs draw at once, and makes the next one wait", async () => {
+describe("card tokens", { timeout: 60000 }, () => {
+  it("lets the default number of browsers draw at once, and makes the next one wait", async () => {
     const { DEFAULT_CARD_SLOTS } = await import("./browser.mjs");
-    expect(DEFAULT_CARD_SLOTS).toBeGreaterThanOrEqual(1);
+    expect(DEFAULT_CARD_SLOTS).toBe(3);
     const first = Array.from({ length: DEFAULT_CARD_SLOTS }, () => job());
     await Promise.all(first.map((p) => p.until(/held/)));
-    // Jobs that start together while slots are free take them at once, without lining up.
+    // Jobs that start together while tokens are free take them at once, without lining up.
     for (const p of first) expect(p.out).not.toMatch(/waiting/);
-    expect(readdirSync(dir).filter((f) => /^test-gpu-\d+\.lock$/.test(f)).length).toBe(DEFAULT_CARD_SLOTS);
+    expect(first.map((p) => p.tokens()).sort()).toEqual([1, 2, 3].map(token));
     const next = job();
-    await next.until(/waiting for a card slot, 0 ahead/);
+    await next.until(/waiting for a card token, 0 ahead: all the card's 3 tokens are in use; TEST_GPU_JOBS changes the number/);
     expect(next.out).not.toMatch(/held/);
     await first[0].release();
     await next.until(/held/);
@@ -67,12 +95,12 @@ describe("card slots", { timeout: 60000 }, () => {
     const a = job(env);
     await a.until(/held/);
     const b = job(env);
-    await b.until(/0 ahead/);
+    await b.until(/0 ahead: the card's one token is in use/);
     const c = job(env);
     await c.until(/1 ahead/);
     await a.release();
     await b.until(/held/);
-    await c.until(/waiting for a card slot, 0 ahead\)/); // moved up, still waiting
+    await c.until(/waiting for a card token, 0 ahead\)/); // moved up, still waiting
     expect(c.out).not.toMatch(/held/);
     await b.release();
     await c.until(/held/);
@@ -89,9 +117,19 @@ describe("card slots", { timeout: 60000 }, () => {
     const c = job(env);
     await c.until(/1 ahead/);
     gone.kill("SIGKILL");
-    await c.until(/waiting for a card slot, 0 ahead\)/);
+    await c.until(/waiting for a card token, 0 ahead\)/);
     await a.release();
     await c.until(/held/);
+  });
+
+  it("frees the tokens of a holder that was killed outright", async () => {
+    const env = { TEST_GPU_JOBS: "2" };
+    const a = job({ ...env, WANT: "2" });
+    await a.until(/held/);
+    const b = job(env);
+    await b.until(/0 ahead/);
+    a.kill("SIGKILL");
+    await b.until(/held/);
   });
 
   it("does not count a queue entry that nobody holds, even when its process id is in use", async () => {
@@ -103,20 +141,160 @@ describe("card slots", { timeout: 60000 }, () => {
     mkdirSync(queue);
     const stale = `${String(Date.now() - 60000).padStart(15, "0")}-${unrelated.pid}`;
     writeFileSync(join(queue, stale), "");
-    // With every slot free, a job takes one at once instead of queueing behind the stale entry.
+    // With every token free, a job takes one at once instead of queueing behind the stale entry.
     const free = job({ TEST_GPU_JOBS: "1" });
     await free.until(/held/);
     expect(free.out).not.toMatch(/waiting/);
-    // With the slot taken, the next waiter is first in line, and gets the slot when it frees.
+    // With the token taken, the next waiter is first in line, and gets the token when it frees.
     writeFileSync(join(queue, stale), "");
     const next = job({ TEST_GPU_JOBS: "1" });
-    await next.until(/waiting for a card slot, 0 ahead/);
+    await next.until(/waiting for a card token, 0 ahead/);
     await free.release();
     await next.until(/held/);
     expect(readdirSync(queue)).not.toContain(stale);
   });
 
-  it("under gpu-run (TEST_GPU_SLOT_HELD=1) takes its own slot without queueing", async () => {
+  it("takes several tokens all at once, and is not overtaken by single ones that come after it", async () => {
+    const env = { TEST_GPU_JOBS: "3" };
+    const a = job(env);
+    await a.until(/held/);
+    const big = job({ ...env, WANT: "3" });
+    await big.until(/waiting for a card token, 0 ahead: it needs 3 of the card's 3 tokens/);
+    // Two tokens are free, and the big job sits on neither while it waits.
+    const b = job(env);
+    await b.until(/waiting for a card token, 1 ahead/);
+    await settle();
+    expect(b.out).not.toMatch(/held/);
+    await a.release();
+    await big.until(/held/);
+    expect(big.tokens().split(":").sort()).toEqual([1, 2, 3].map(token));
+    await settle();
+    expect(b.out).not.toMatch(/held/);
+    await big.release();
+    await b.until(/held/);
+  });
+
+  it("asks for no more tokens than the pool has", async () => {
+    const p = job({ TEST_GPU_JOBS: "2", WANT: "5" });
+    await p.until(/held/);
+    expect(p.tokens().split(":")).toHaveLength(2);
+  });
+
+  it("under a job that holds tokens, draws only on those, never more of them at once", async () => {
+    const parent = job({ TEST_GPU_JOBS: "3", WANT: "2" });
+    await parent.until(/held/);
+    const tokens = parent.tokens();
+    expect(tokens.split(":")).toEqual([token(1), token(2)]);
+    // The variables a gpu-run with the token pool also sets for older helpers are ignored.
+    const env = { TEST_GPU_TOKENS: tokens, TEST_GPU_JOBS: "4", TEST_GPU_SLOT_HELD: "1" };
+    const kids = [job(env), job(env)];
+    await Promise.all(kids.map((k) => k.until(/held/)));
+    expect(kids.map((k) => k.tokens()).sort()).toEqual([token(1) + ".use", token(2) + ".use"]);
+    const third = job(env);
+    await third.until(/waiting for a card token, 0 ahead: all the 2 tokens this job holds are in use\)/);
+    // The card's third token is still free for anyone else: the job's processes took none.
+    const outside = job({ TEST_GPU_JOBS: "3" });
+    await outside.until(/held/);
+    expect(outside.tokens()).toBe(token(3));
+    expect(existsSync(token(3) + ".use")).toBe(false);
+    await kids[0].release();
+    await third.until(/held/);
+  });
+
+  it("lets two one-token jobs each draw at once (the old shared extra slot did not)", async () => {
+    // Two jobs as gpu-run holds them, one token each; each job's test script under it.
+    const env = { TEST_GPU_JOBS: "2" };
+    const parents = [job(env), job(env)];
+    await Promise.all(parents.map((p) => p.until(/held/)));
+    const kids = parents.map((p) => job({ TEST_GPU_TOKENS: p.tokens(), TEST_GPU_JOBS: "3", TEST_GPU_SLOT_HELD: "1" }));
+    await Promise.all(kids.map((k) => k.until(/held/)));
+    for (const k of kids) expect(k.out).not.toMatch(/waiting/);
+  });
+
+  it("lets the gate go when a waiter is no longer first in line (review exp4)", async () => {
+    // B waits first in line and holds the gate. Then an entry sorting before B's appears (a
+    // waiter that read its place in line earlier but got into line later). B must let the gate
+    // go, or the new first could never take it, and every gpu-run would wait on the gate for good.
+    const env = { TEST_GPU_JOBS: "1" };
+    const a = job(env);
+    await a.until(/held/);
+    const b = job(env);
+    await b.until(/0 ahead/);
+    expect(await until(() => locked(gateFile()))).toBe(true);
+    const queue = join(dir, "test-gpu-queue");
+    const earlier = join(queue, `${"0".repeat(20)}-1`);
+    writeFileSync(earlier, "");
+    const ahead = outsideHolder(earlier);
+    await b.until(/waiting for a card token, 1 ahead\)/);
+    expect(await until(() => !locked(gateFile()))).toBe(true);
+    ahead.kill();
+    await a.release();
+    await b.until(/held/);
+  });
+
+  it("serves every waiter in turn when many join the line at once (review exp3)", async () => {
+    const env = { TEST_GPU_JOBS: "1" };
+    const first = outsideHolder(token(1));
+    await until(() => locked(token(1)));
+    const waiters = Array.from({ length: 6 }, () => job(env));
+    await Promise.all(waiters.map((w) => w.until(/waiting for a card token/)));
+    first.kill();
+    for (let served = 0; served < waiters.length; served++) {
+      // Whoever holds the token now lets it go; the next must get it.
+      const holder = await new Promise((resolve) => {
+        const look = () => {
+          const h = waiters.find((w) => w.exitCode === null && /held/.test(w.out));
+          h ? resolve(h) : setTimeout(look, 50);
+        };
+        look();
+      });
+      await holder.release();
+    }
+    expect(waiters.every((w) => /held/.test(w.out))).toBe(true);
+  }, 120000);
+
+  it("does not let one long holder and a waiting big job hold up single jobs for good (review exp1)", async () => {
+    const env = { TEST_GPU_JOBS: "3", TEST_GPU_GATE_PRIORITY_S: "1" };
+    outsideHolder(token(1)); // a long holder, gone for good as far as this test goes
+    await until(() => locked(token(1)));
+    const big = job({ ...env, WANT: "3" });
+    await big.until(/it needs 3 of the card's 3 tokens/);
+    const single = job(env);
+    await single.until(/held/);
+    expect(big.out).toMatch(/going to the back of the line/);
+    expect(big.out).not.toMatch(/held/);
+  });
+
+  it("names who holds the tokens once a waiter has waited long", async () => {
+    const a = job({ TEST_GPU_JOBS: "1" });
+    await a.until(/held/);
+    const b = job({ TEST_GPU_JOBS: "1", TEST_GPU_WAIT_REPORT_S: "1" });
+    await b.until(new RegExp(`held now: test-gpu-1.lock: node \\(pid ${a.pid}\\) for \\d+ s`));
+  });
+
+  it("passes by a gate that has been held too long", async () => {
+    outsideHolder(gateFile());
+    await until(() => locked(gateFile()));
+    const p = job({ TEST_GPU_JOBS: "1", TEST_GPU_GATE_WAIT_MAX_S: "1" });
+    await p.until(/held/);
+    expect(p.out).toMatch(/has been held for over 1 s by no details .*; taking tokens without it/);
+  });
+
+  it("keeps a job's token taken while its test process runs, even once the job's own process is killed (review exp2)", async () => {
+    const parent = job({ TEST_GPU_JOBS: "1" });
+    await parent.until(/held/);
+    const child = job({ TEST_GPU_TOKENS: parent.tokens() });
+    await child.until(/held/);
+    parent.kill("SIGKILL");
+    await settle();
+    expect(locked(token(1))).toBe(true);
+    const outsider = job({ TEST_GPU_JOBS: "1" });
+    await outsider.until(/waiting for a card token/);
+    await child.release();
+    await outsider.until(/held/);
+  });
+
+  it("under a gpu-run from before the token pool (TEST_GPU_SLOT_HELD=1) takes its own slot without queueing", async () => {
     const a = job({ TEST_GPU_JOBS: "1" });
     await a.until(/held/);
     const waiting = job({ TEST_GPU_JOBS: "1" });
