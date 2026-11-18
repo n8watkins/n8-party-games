@@ -3,10 +3,10 @@
 // looked at before it is live, and how frame time is measured without a server in the way.
 //
 //   still.html?room=<skin>           any skin in skins.js, live or concept
-//     &shot=vote|count|toss|off|empty|live  the moment (default vote: four pieces mid-vote; live: the
+//     &shot=vote|count|toss|off|empty|live|ends  the moment (ends: two in the first box's light, two in the last's) (default vote: four pieces mid-vote; live: the
 //                                    wall as it hangs today, with the games that are not built yet dark)
 //     &look=baked                    the baked look (../baked/room-baked.js) on today's wall of five boxes
-//     &look=real                     the Star Lounge made real (./rendered/), on the same wall; &rung=, &ladder=off as in the room
+//     &look=real                     the room made real (./rendered/: room=ship or room=bar), on the same wall; &rung=, &ladder=off as in the room
 //     &as=screen|player              the big screen's bottom line, or a player's buttons (seat 2)
 //     &zoom=room|closer              a player's view
 //     &bare=1                        no bottom line or buttons at all
@@ -23,7 +23,8 @@
 import { Hud } from "../hud.js";
 import { camera } from "../shared/camera.js";
 import { IDEAS, boxFromManifest } from "../shared/vote.js";
-import { boxCentre, lightHalf } from "../shared/world.js";
+import { hangsOwnBoxes, wallFor } from "../shared/rooms.js";
+import { PIECE_WIDTH, poolOf } from "../shared/world.js";
 import { Room3D } from "./room3d.js";
 
 const query = new URLSearchParams(location.search);
@@ -35,25 +36,32 @@ const YOU = 2;
 
 const BOXES = [
   boxFromManifest({ id: "cork-and-bell", name: "Cork & Bell", blurb: "Pop the targets, ring the bell", players: { min: 1, max: 4 }, devices: { phone: true, desktop: true } }),
-  boxFromManifest({ id: "flood", name: "Flood", blurb: "Climb before the water rises", players: { min: 2, max: 4 }, devices: { phone: true, desktop: false } }),
-  boxFromManifest({ id: "tin-derby", name: "Tin Derby", blurb: "Wind up your tin racer and go", players: { min: 2, max: 4 }, devices: { phone: true, desktop: false, sharedScreen: "required" } }),
-  boxFromManifest({ id: "fox-trouble", name: "Fox Trouble", blurb: "Solve the room together, cause trouble", players: { min: 2, max: 4 }, devices: { phone: true, desktop: false } }),
+  boxFromManifest({ id: "flood", name: "Flood", blurb: "Climb before the water rises", players: { min: 1, max: 4 }, devices: { phone: true, desktop: false } }, { soon: true }),
+  boxFromManifest({ id: "tin-derby", name: "Tin Derby", blurb: "Wind up your tin racer and go", players: { min: 1, max: 4 }, devices: { phone: true, desktop: true } }),
+  boxFromManifest({ id: "fox-trouble", name: "Fox Trouble", blurb: "Solve the room together, cause trouble", players: { min: 2, max: 4 }, devices: { phone: true, desktop: false } }, { soon: true }),
 ];
 const baked = query.get("look") === "baked";
 // &look=real: the room made of rendered layers (./rendered/), the Star Lounge, on the same wall of five (&rung= picks its step down).
 const real = query.get("look") === "real";
 // The baked and rendered looks are shown on today's wall of five: the four games and the ideas poster (&boxes=6 adds the local test game's box).
-if (baked || real) BOXES.push(IDEAS);
+if (baked || real || query.get("boxes") === "5") BOXES.push(IDEAS);
 if (baked && query.get("boxes") === "6") BOXES.splice(1, 0, boxFromManifest({ id: "coin-flip", name: "Coin Flip", blurb: "Test game: luck picks the order", players: { min: 1, max: 4 }, devices: { phone: true, desktop: true } }));
 const N = BOXES.length;
-const light = (i, off = 0) => Math.round(boxCentre(i, N) + off);
+// The room's wall (shared/rooms.js): where it hangs its boxes and its pools lie (only under the games that can be played).
+const WALL = wallFor(query.get("room") ?? "bar", BOXES);
+const OWN = hangsOwnBoxes(query.get("room") ?? "bar", N);
+const halfAt = (i) => poolOf(WALL, i)?.half ?? 0;
+/** A place in box i's light, `off` from its middle (kept inside its pool). */
+const light = (i, off = 0) => Math.round(WALL.xs[i] + Math.sign(off) * Math.min(Math.abs(off), halfAt(i) - 10));
+/** A place in the dark, `off` past the right edge of box i's light (half a piece past it, on a placed wall). */
+const past = (i, off) => Math.round(WALL.xs[i] + halfAt(i) + (OWN ? PIECE_WIDTH / 2 : off));
 /** Where the room's feature is (look3d/space.js, boardX), in world units. */
 const FEATURE = 1722;
 const SEATS = [
   { name: "Mabel", colour: "#c8382c", x: light(0, -64), points: 5, face: 1 },
   { name: "Fitch", colour: "#2f6f8f", x: light(0, 62), points: 2, face: -1 },
   { name: "Dolly", colour: "#d9a02a", x: light(2, 8), points: 7, face: -1 },
-  { name: "Tom", colour: "#3f7a4a", x: light(2, lightHalf(N) + 52), points: 4, face: 1 },
+  { name: "Tom", colour: "#3f7a4a", x: past(2, 52), points: 4, face: 1 },
 ];
 if (show) {
   // Tom has wandered over to the room's feature, and Fitch has followed him there.
@@ -64,7 +72,7 @@ if (show) {
 
 function fixture() {
   const members = SEATS.map((s, seat) => ({ seat, name: s.name, colour: s.colour, connected: true, x: s.x, d: 0, rev: 1, points: s.points }));
-  const lights = Object.fromEntries(BOXES.map((b) => [b.id, b.poster ? "" : null]));
+  const lights = Object.fromEntries(BOXES.map((b) => [b.id, b.poster ? "" : b.soon ? "Coming soon" : null]));
   const standing = { 0: "cork-and-bell", 1: show ? null : "cork-and-bell", 2: "tin-derby", 3: null };
   const vote = { lights, standing, waiting: show ? [1, 3] : [3], leaders: ["cork-and-bell"], count: null, toss: null };
   if (shot === "count") {
@@ -79,19 +87,26 @@ function fixture() {
     standing[3] = "tin-derby";
     Object.assign(vote, { waiting: [], leaders: ["cork-and-bell", "tin-derby"], toss: { between: ["cork-and-bell", "tin-derby"], winner: "tin-derby", endsIn: 1900, of: 3200 } });
   } else if (shot === "off") {
-    lights.flood = "Coming soon";
+    // Tin Derby's light is off (as for a game this party does not fit): standing in its pool is the dark.
     lights["tin-derby"] = "Needs a big screen";
-    members[2].x = light(3, -10);
-    standing[2] = "fox-trouble";
+    members[2].x = light(2, -10);
+    standing[2] = null;
+    vote.waiting = [2, 3];
   } else if (shot === "live") {
     // The production wall: Cork & Bell and Tin Derby play, Flood and Fox Trouble are coming.
     for (const id of ["flood", "fox-trouble"]) lights[id] = "Coming soon";
     members[2].x = light(2, 10);
-    members[3].x = light(2, lightHalf(N) + 70);
+    members[3].x = past(2, 70);
     standing[2] = "tin-derby";
+  } else if (shot === "ends") {
+    // Both ends of the wall's games: two in the first box's light, two in the last game's.
+    const last = BOXES.findLastIndex((b) => !b.poster && !b.soon);
+    [members[0].x, members[1].x, members[2].x, members[3].x] = [light(0, -36), light(0, 34), light(last, -34), light(last, 36)];
+    const [a, b] = [BOXES[0].id, BOXES[last].id];
+    Object.assign(vote, { standing: { 0: a, 1: a, 2: b, 3: b }, waiting: [], leaders: [a, b] });
   } else if (shot === "empty") {
     members.length = 0;
-    for (const b of BOXES) lights[b.id] = b.poster ? "" : b.min > 1 ? `Needs ${b.min} players` : "Needs a player";
+    for (const b of BOXES) lights[b.id] = b.poster ? "" : b.soon ? "Coming soon" : b.min > 1 ? `Needs ${b.min} players` : "Needs a player";
     Object.assign(vote, { standing: {}, waiting: [], leaders: [] });
   }
   // The room has been open for `at` seconds: its timed events go by that.
@@ -102,7 +117,8 @@ function fixture() {
 const app = document.getElementById("app");
 const phone = () => Math.min(innerWidth, innerHeight) < 520;
 const room = fixture();
-const View = baked ? (await import("../baked/room-baked.js")).RoomBaked : real ? (await import("./rendered/star-lounge/room.js")).RoomStarLounge : Room3D;
+// A rendered room is the one the skin has (rendered/switch.js): the Star Lounge (room=ship) or the bar (room=bar).
+const View = baked ? (await import("../baked/room-baked.js")).RoomBaked : real ? await (await import("./rendered/switch.js")).RENDERED[query.get("room") ?? "bar"].load() : Room3D;
 const view3d = await View.open(app, {
   boxes: N,
   concept: true,

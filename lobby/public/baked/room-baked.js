@@ -20,7 +20,6 @@
 //
 // A plate is made for one wall (bar/<boxes>/plate.json). A room whose wall has no plate, or a
 // device where the plate does not load, gets the 3D look drawn as it is.
-import { boxCentre } from "../shared/world.js";
 import { boxArt, boxSide } from "../look3d/paint.js";
 import { Reflection } from "../look3d/characters.js";
 import { Room3D } from "../look3d/room3d.js";
@@ -225,7 +224,9 @@ export class RoomBaked extends Room3D {
   /** One game box: its poster in the plate's empty frame, its gold edge, and the light its lamp gives the pieces. */
   box(box, i, L) {
     if (this.plain) return super.box(box, i, L);
-    const b = { box, i, cx: boxCentre(i, L.n), level: 0, aim: 0, gold: 0, goldAim: 0, shown: -1 };
+    // Where the room's wall hangs the box (the plate is of an even wall, and room-view.js gives the
+    // baked look only a wall the room hangs evenly; this reads the wall all the same).
+    const b = { box, i, cx: L.wall.xs[i], level: 0, aim: 0, gold: 0, goldAim: 0, shown: -1 };
     const x = walkX(b.cx);
     const z = SPACE.walkZ;
     const radius = (this.half + 12) * PX;
@@ -279,8 +280,10 @@ export class RoomBaked extends Room3D {
     b.glow.visible = false;
     g.add(b.glow);
     this.stuff.add(g);
-    // A poster that is not a game (the ideas poster): its lamp in the plate stays dark, and gives no light.
-    if (box.poster) b.beam.visible = b.halo.visible = false;
+    // A game that is coming soon, or a poster that is not a game (shared/world.js, hasPool): its lamp
+    // in the plate stays dark, and gives no light.
+    b.pooled = L.wall.pools.some((p) => p.i === i);
+    if (!b.pooled) b.beam.visible = b.halo.visible = false;
     return b;
   }
 
@@ -289,6 +292,7 @@ export class RoomBaked extends Room3D {
     if (this.plain) return super.light(b);
     // A poster is never lit: printed paper in the room's own light.
     if (b.box.poster) return void b.art.color.setScalar(0.6);
+    if (!b.pooled) return void b.art.color.setScalar(0.17);
     const level = b.level;
     const glowing = Math.min(1, level * 8);
     const gain = (this.plate.info.lampGain ?? 2.83) * (0.3 * glowing + 0.7 * level);

@@ -61,7 +61,8 @@ describe("the party's room", () => {
     const ann = seated(core, "Ann");
     const bo = seated(core, "Bo");
     expect(core.setRoom(bo.token, "ship", 2000)).toMatchObject({ ok: false, why: "Only the one who started the party can change the room." });
-    expect(core.setRoom(ann.token, "ship", 2000)).toEqual({ ok: true, room: "ship", by: 0 });
+    // One box hangs in the same place in every room: nobody is carried across (moved: false).
+    expect(core.setRoom(ann.token, "ship", 2000)).toEqual({ ok: true, room: "ship", by: 0, moved: false });
     expect(core.view(2000).room).toBe("ship");
     expect(core.setRoom(ann.token, "nowhere", 9000)).toMatchObject({ ok: false });
   });

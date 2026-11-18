@@ -162,9 +162,9 @@ export function shellMaterial(plate, base, lights, names, { exposure = 0.95, shi
  * back onto from the place it was taken. Seen from that place it is the picture exactly; seen
  * from a little to one side, near things move against far ones as they would.
  */
-export function shellGroup(material, { zFront = 16 } = {}) {
+export function shellGroup(material, { zFront = 16, w = SPACE.w } = {}) {
   const g = new THREE.Group();
-  const [w, h, zb] = [SPACE.w, SPACE.h, SPACE.zBack];
+  const [h, zb] = [SPACE.h, SPACE.zBack];
   const add = (geo, pos, rot) => {
     const m = new THREE.Mesh(geo, material);
     m.position.set(...pos);
@@ -198,6 +198,23 @@ export const cardMaterial = (sheet, { depthTest = false, exposure = 1 } = {}) =>
         #include <tonemapping_fragment>
         #include <colorspace_fragment>
       }`,
+  });
+
+/** A beam of light from a lamp: brightest where it is seen face on, fading at both ends. */
+export const beamMaterial = (colour, { depthTest = false } = {}) =>
+  new THREE.ShaderMaterial({
+    transparent: true,
+    depthWrite: false,
+    depthTest,
+    blending: THREE.AdditiveBlending,
+    side: THREE.FrontSide,
+    uniforms: { uStrength: { value: 0 }, uColor: { value: colour.clone() } },
+    vertexShader: `varying vec3 vN; varying vec3 vV; varying float vH;
+      void main(){ vec4 mv = modelViewMatrix * vec4(position, 1.0); vN = normalize(normalMatrix * normal); vV = normalize(-mv.xyz); vH = uv.y; gl_Position = projectionMatrix * mv; }`,
+    fragmentShader: `uniform float uStrength; uniform vec3 uColor; varying vec3 vN; varying vec3 vV; varying float vH;
+      void main(){ float f = pow(abs(dot(normalize(vN), normalize(vV))), 1.6);
+        float along = smoothstep(0.0, 0.06, vH) * smoothstep(1.0, 0.5, vH);
+        gl_FragColor = vec4(uColor * uStrength * f * along, 1.0); }`,
   });
 
 /** One of the plate's cards as a mesh at its own depth: {mesh, mat, c, top, bottom, left, right}. */
@@ -235,14 +252,15 @@ export function farCamera(cam, out, far) {
 const corner = new THREE.Vector3();
 /**
  * The box of screen (CSS pixels, from the bottom left, as three.js's scissor wants it) that the
- * window wall takes up as `cam` sees it: from `sill` to the ceiling, from end wall to end wall.
+ * window wall takes up as `cam` sees it: from `sill` to the ceiling, from end wall to end wall
+ * (`across` metres: a room whose picture is wider than the 3D look's room says how wide).
  * Null when it is off the screen.
  */
-export function windowBox(cam, w, h, sill) {
-  corner.set(-SPACE.w / 2, sill - 0.06, SPACE.zBack).project(cam);
+export function windowBox(cam, w, h, sill, across = SPACE.w) {
+  corner.set(-across / 2, sill - 0.06, SPACE.zBack).project(cam);
   const x0 = clamp(Math.floor(((corner.x + 1) / 2) * w) - 1, 0, w);
   const y0 = clamp(Math.floor(((corner.y + 1) / 2) * h) - 1, 0, h);
-  corner.set(SPACE.w / 2, SPACE.h, SPACE.zBack).project(cam);
+  corner.set(across / 2, SPACE.h, SPACE.zBack).project(cam);
   const x1 = clamp(Math.ceil(((corner.x + 1) / 2) * w) + 1, 0, w);
   const y1 = clamp(Math.ceil(((corner.y + 1) / 2) * h) + 1, 0, h);
   return x1 > x0 && y1 > y0 ? [x0, y0, x1 - x0, y1 - y0] : null;

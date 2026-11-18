@@ -45,9 +45,22 @@ try {
     await page.tap(".rooms-btn");
     await page.waitForSelector(".picker");
     await page.tap(`.room-card[data-room=${id}]`, { force: true });
-    const going = await page.locator(`.room-card[data-room=${id}].going`).count();
-    const why = (await page.locator(".picker-why:not([hidden])").textContent({ timeout: 300 }).catch(() => "")) ?? "";
-    return { going, why };
+    // The page answers a tap one of two ways: the card says it is going there, or the picker says why not.
+    // Wait for whichever it is (a busy machine can take a while), rather than for a fixed time.
+    // (Read in the same moment it is seen: a card that is going closes the picker as soon as the room answers.)
+    const seen = await page
+      .waitForFunction(
+        (card) => {
+          if (document.querySelector(`.room-card[data-room=${card}].going`)) return { going: 1, why: "" };
+          const why = document.querySelector(".picker-why:not([hidden])")?.textContent.trim();
+          return why ? { going: 0, why } : null;
+        },
+        id,
+        { timeout: 8000 },
+      )
+      .then((handle) => handle.jsonValue())
+      .catch(() => ({ going: 0, why: "" }));
+    return seen;
   }
   const waitSkin = (page, id) => page.waitForFunction((want) => window.__room3d?.skin.id === want, id, { timeout: 30000 }).then(() => true, () => false);
 

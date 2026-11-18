@@ -1,7 +1,7 @@
 // An end-to-end check of the party room over real sockets, against a running local server
 // (npm run dev, or any port). No browser: plain fetch and WebSocket from Node.
 //
-//   node lobby/test/e2e-lobby.mjs [--base=http://localhost:8791] [--quiet=25]
+//   node lobby/test/e2e-lobby.mjs [--base=http://localhost:8791] [--quiet=25] [--full=1]
 //
 // Four players join one room and go through an evening: a vote, a count that pauses, a game
 // that starts and comes back with points, a tie and its coin toss, the ideas poster that is not
@@ -16,6 +16,7 @@ const args = process.argv.slice(2);
 const opt = (k, d) => (args.find((a) => a.startsWith("--" + k + "=")) ?? "--" + k + "=" + d).split("=").slice(1).join("=");
 const base = opt("base", "http://localhost:8791");
 const quietSeconds = Number(opt("quiet", "25"));
+const full = opt("full", "0") === "1";
 const { api, call, connect } = partyApi(base);
 const problems = [];
 const check = (ok, what) => {
@@ -136,28 +137,46 @@ C.goto(light(COIN));
 D.goto(light(COIN, 40));
 const tied = await A.wait((m) => voteOf(m)?.count, 9000, mark);
 check(tied.vote.leaders.join() === "cork-and-bell,coin-flip", "two against two is a tie (the count waited for the result to be read first)");
-const toss = await A.wait((m) => voteOf(m)?.toss, 14000, mark);
+// (The count is ten seconds; the rest is room for a busy machine, where the local server's timers
+// fire late: 14 s was missed once with the machine's load at 40.)
+const toss = await A.wait((m) => voteOf(m)?.toss, 25000, mark);
 const tossed = voteOf(toss).toss;
 check(tossed.between.length === 2 && tossed.between.includes(tossed.winner), "the tie is settled by a coin toss everybody is shown: " + tossed.winner);
-// Either game is played inside the room. Coin Flip is over in three seconds; a round of Cork &
-// Bell here runs its full ninety (Ann spends a few corks and the three others none, so more than
-// one stall still holds corks when its time is up), and when the toss picks it this run is a
-// minute and a half longer.
+// Either game is played inside the room. Coin Flip is over in three seconds. A round of Cork &
+// Bell ends early once every stall has spent its corks: Ann fires twelve, one a second, as her
+// page would, and the others (then Ann too) fire what they have as fast as the lever cocks, so
+// the round is over in well under a minute instead of its full ninety seconds. (A round that runs
+// its full time is test:cork's, and this one's with --full=1.)
 let end2;
 if (tossed.winner === "cork-and-bell") {
   const begun = await A.wait((m) => m.t === "start", 13000, mark);
   check(begun.room.game.id === "cork-and-bell" && begun.s.seats.length === 4 && begun.s.seed > 0, "Cork & Bell won: a battle starts for the party's four seats");
-  console.log("     a round of Cork & Bell: ninety seconds...");
+  console.log("     a round of Cork & Bell, played until every cork is spent...");
   // Ann fires a cork every second for a while, stamped with the round's own time, as her page would.
   const roundTime = () => (Date.now() - begun.s.startAt) / 1000 - 3;
   await sleep(4000);
+  // The others spend all their corks meanwhile, and Ann the rest of hers after her twelve: a cork
+  // every 0.6 s (the lever takes 0.5 s to cock), aimed low and wide. A dead-centre hit earns a cork
+  // back, so they keep firing until the room says the round is over.
+  // With --full=1 (test:lobby:full) nobody spends the rest, and the round runs its full ninety seconds.
+  let n = 0;
+  let annDone = false;
+  const spend = full
+    ? null
+    : setInterval(() => {
+        for (const c of annDone ? all : [B, C, D]) c.send({ t: "in", d: { f: [Math.round(roundTime() * 1000) / 1000, -0.9 + (n % 7) * 0.3, 0.4] } });
+        n++;
+      }, 600);
   for (let i = 0; i < 12; i++) {
     A.send({ t: "in", d: { f: [Math.round(roundTime() * 1000) / 1000, -0.6 + (i % 5) * 0.3, 1.2] } });
     await sleep(1000);
   }
+  annDone = true;
   const fired = A.seen.slice(mark).filter((m) => m.t === "ev").flatMap((m) => m.ev).filter((e) => e.k === "f" && e.seat === 0).length;
   check(fired >= 10 && A.seen.slice(mark).some((m) => m.t === "snap" && m.s.stalls?.length === 4), `the room takes a player's inputs and relays them (${fired} of 12 corks), and sends its snapshots`);
-  end2 = await A.wait((m) => m.t === "end", 110000, mark);
+  end2 = await A.wait((m) => m.t === "end", 110000, mark).finally(() => clearInterval(spend));
+  const lasted = (end2.now - begun.s.startAt) / 1000;
+  if (!full) check(end2.result.every((r) => r.shots >= 35) && lasted < 85, `once every stall has spent its corks the round ends early, ${lasted.toFixed(0)} seconds after its start (${end2.result.map((r) => r.shots).join(", ")} corks)`);
   const ann = end2.result.find((r) => r.seat === 0);
   check(end2.last.rows.length === 4 && ann.shots >= 10 && end2.last.rows.every((r) => typeof r.score === "number") && end2.room.tonight.games === 2, `it ends with places and scores: ${end2.last.rows.map((r) => `${r.name} ${r.score} (+${r.points})`).join(", ")}`);
 } else {
@@ -288,7 +307,8 @@ check(!S.seen.slice(mark).some((m) => m.t === "m" || m.t === "b"), "a screen can
   await sleep(250);
   const full = (await inner()).unknown;
   phone.ws.send(JSON.stringify({ t: "hello", token: b.token }));
-  const seated = await phone.wait((m) => m.t === "hello", 4000, 0).catch(() => null);
+  // (Up to 15 s: with 300 sockets open, a busy machine's local server took over 4 s to answer.)
+  const seated = await phone.wait((m) => m.t === "hello", 15000, 0).catch(() => null);
   check(full === 128 && seated?.you?.seat === b.seat && flood.every((c) => c.seen.length === 0), `a phone whose hello lands after 300 silent sockets from 40 other addresses (${full} waiting, the most there may be) is still seated, and none of them heard anything`);
   phone.ws.close();
   for (const c of flood) c.ws.close();
@@ -315,7 +335,8 @@ await E.opened;
 await E.wait((m) => m.t === "hello", 4000, 0);
 mark = A.seen.length;
 for (let i = 0; i < 400; i++) E.send({ t: "m", x: 200, d: 0, r: 0 });
-const kicked = await Promise.race([E.closed, sleep(5000).then(() => null)]);
+// (Up to 15 s: on a busy machine the close took over 5 s to arrive, though the seat was freed.)
+const kicked = await Promise.race([E.closed, sleep(15000).then(() => null)]);
 check(kicked?.code === 4008, "a client that floods is cut off (close code " + kicked?.code + ")");
 const freed = await A.wait((m) => m.t === "room" && m.room.members[3] === null, 4000, mark).catch(() => null);
 check(!!freed, "and its seat is freed");

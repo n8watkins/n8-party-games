@@ -46,7 +46,7 @@ export class CountTick {
     const n = Math.max(1, Math.ceil(left / 1000));
     const vote = room.vote;
     const lead = vote.leaders.length === 1 ? room.boxes.find((b) => b.id === vote.leaders[0]) : null;
-    const words = lead ? `${lead.name} ${lead.url ? "opens" : "starts"} in` : "Coin toss in";
+    const words = lead ? `${lead.name} starts in` : "Coin toss in";
     if (words !== this.key) {
       this.key = words;
       this.words.textContent = words;
