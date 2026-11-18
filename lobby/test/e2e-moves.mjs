@@ -177,11 +177,19 @@ try {
       }
     };
     const after = (test, ms = 3000, from = ada.seen.length) => ada.wait(test, ms, from).catch(() => null);
-    /** Waits until a seat's move is ready again and it is up and safe no more, by the room's word. */
+    /**
+     * Waits until a seat's move is ready again and it is up and safe no more, by the room's word,
+     * and its own phone's move button says ready too. A reloaded phone takes the room's cooldown
+     * from the first message it gets, so it can come ready a moment after the room does: a press in
+     * that moment is dropped on the phone and the room never hears it.
+     */
+    const pageOf = { [R]: rob, [S]: sam, [P]: pat };
     const rested = async (...seats) => {
       for (let i = 0; i < 80; i++) {
         const at = await where();
-        if (seats.every((s) => !(at[s].safe > 0) && !(at[s].hookCool > 0) && !(at[s].slimeCool > 0) && !(at[s].cool > 0) && !(at[s].stiltCool > 0))) return;
+        const roomSays = seats.every((s) => !(at[s].safe > 0) && !(at[s].hookCool > 0) && !(at[s].slimeCool > 0) && !(at[s].cool > 0) && !(at[s].stiltCool > 0));
+        const pagesSay = roomSays && (await Promise.all(seats.map((s) => pageOf[s]?.evaluate(() => document.querySelector(".ctl-bump")?.classList.contains("ready") ?? true) ?? true))).every(Boolean);
+        if (pagesSay) return;
         await sleep(200);
       }
     };
@@ -394,16 +402,18 @@ try {
     await sam.keyboard.down("KeyX");
     await sleep(HOLD_MS + 80);
     await sam.keyboard.up("KeyX");
-    await after((m) => m.t === "slime" && m.s === S && m.k === "absorb", 2000, mark);
+    const wentSoft = await after((m) => m.t === "slime" && m.s === S && m.k === "absorb", 2000, mark);
     const softAt = Date.now();
+    if (!wentSoft) check(false, `Sam went soft before the reload (the room said ${JSON.stringify(ada.seen.slice(mark).filter((m) => m.s === S && m.t !== "m").map((m) => m.t + (m.k ? ":" + m.k : "")))})`);
     await sam.goto(`${base}/lobby/?${lookQuery}`);
     await drawn(sam);
     await sam.evaluate((s) => window.watchMoves(s, 300), S);
     const softBack = Date.now() - softAt;
     await sleep(350);
-    const ownSoft = (await seenOn(sam, S)).soft;
+    const ownSeen = await seenOn(sam, S);
+    const ownSoft = ownSeen.soft;
     // Soft until ABSORB_MS, then melting (SLIME's MELT_MS): a page that drew within the absorb must show it.
-    check(softBack < ABSORB_MS && ownSoft, `Sam's phone, back from the reload within the absorb (it drew ${softBack} ms in, of ${ABSORB_MS}), draws Sam soft`);
+    check(softBack < ABSORB_MS && ownSoft, `Sam's phone, back from the reload within the absorb (it drew ${softBack} ms in, of ${ABSORB_MS}), draws Sam soft${ownSoft ? "" : ` (it saw ${JSON.stringify(ownSeen)})`}`);
 
     section(`${look}: a hold survives a page that stalls drawing; an absorb the room refuses is taken back on Sam's own phone`);
     await rested(S);
