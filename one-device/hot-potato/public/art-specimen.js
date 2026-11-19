@@ -37,6 +37,7 @@ import {
   TRAY,
   TRAY_TOP,
   VIEW,
+  VINES,
   burstPoints,
   composeFace,
   faceById,
@@ -83,9 +84,7 @@ export const PARTS = [
 
   ["spud", "g", null, { class: "spud" }],
   ["vines", "g", "spud", { fill: GLOW, ...ink(5) }],
-  ["vine0", "polygon", "vines", { points: "96,58 80,22 90,6 100,24 110,56" }],
-  ["vine1", "polygon", "vines", { points: "150,58 166,26 160,8 176,22 164,60" }],
-  ["vine2", "polygon", "vines", { points: "48,126 28,102 22,88 36,96 46,142" }],
+  ...VINES.map(({ points }, i) => [`vine${i}`, "polygon", "vines", { points }]),
   ["body", "path", "spud", { d: BODY, fill: SKIN }],
   ["inside", "g", "spud", {}],
   ["shade", "polygon", "inside", { points: "170,56 210,100 204,154 160,194 100,198 150,154 174,106", fill: SHADE }],

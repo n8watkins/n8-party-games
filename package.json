@@ -57,6 +57,7 @@
     "test:hearing": "node lab/hot-potato/test/e2e-hearing.mjs",
     "test:two-rooms": "node lobby/test/e2e-two-rooms.mjs",
     "test:paper-masks": "node party/games/paper-masks/test/e2e-paper-masks.mjs",
+    "test:paper-masks:full": "node party/games/paper-masks/test/e2e-paper-masks.mjs --together=1",
     "test:who-am-i": "node party/games/who-am-i/test/e2e-who-am-i.mjs",
     "test:table": "node lobby/test/e2e-table.mjs",
     "test:bar-wall": "node lobby/test/e2e-bar-wall.mjs",

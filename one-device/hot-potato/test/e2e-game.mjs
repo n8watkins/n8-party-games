@@ -17,7 +17,7 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { mkdirSync } from "node:fs";
 import { launchBrowser } from "../../../lobby/test/browser.mjs";
-import { FACES, HEATS, REACTIONS } from "../public/specimen-draw.js";
+import { FACES, FRAME, HEATS, REACTIONS } from "../public/specimen-draw.js";
 
 const arg = (name, fallback) => process.argv.find((a) => a.startsWith(`--${name}=`))?.slice(name.length + 3) ?? fallback;
 const BASE = arg("base", "http://localhost:8930");
@@ -146,6 +146,44 @@ const fake = () => {
     return vib ? true : false;
   };
 };
+/**
+ * window.__drawn(el): the screen box of what an SVG shape draws (its outline's geometry, as the
+ * frame is measured; the ink's half-width is in the frame's 2 px of margin). Not
+ * getBoundingClientRect, which boxes a turned shape's own box and so reaches past what it draws
+ * (a sprout turned 10 degrees boxes 3 px further out than its tip).
+ */
+const drawnBoxes = () => {
+  window.__drawn = (el) => {
+    const m = el.getScreenCTM();
+    let pts = [];
+    const tag = el.tagName;
+    if (tag === "polygon" || tag === "polyline") pts = [...el.points].map((p) => [p.x, p.y]);
+    else if (tag === "path") {
+      const len = el.getTotalLength();
+      const n = Math.max(8, Math.ceil(len / 3));
+      for (let i = 0; i <= n; i++) {
+        const p = el.getPointAtLength((len * i) / n);
+        pts.push([p.x, p.y]);
+      }
+      // (The corners themselves: a straight path's furthest points.)
+      const d = el.getAttribute("d") ?? "";
+      if (/^[MLZmlz\d\s.,-]*$/.test(d)) for (const [, x, y] of d.matchAll(/(-?[\d.]+)[ ,](-?[\d.]+)/g)) pts.push([Number(x), Number(y)]);
+    } else if (tag === "circle" || tag === "ellipse") {
+      const cx = el.cx.baseVal.value, cy = el.cy.baseVal.value;
+      const rx = tag === "circle" ? el.r.baseVal.value : el.rx.baseVal.value, ry = tag === "circle" ? rx : el.ry.baseVal.value;
+      for (let i = 0; i < 32; i++) pts.push([cx + rx * Math.cos((i * Math.PI) / 16), cy + ry * Math.sin((i * Math.PI) / 16)]);
+    } else if (tag === "rect") {
+      const { x, y, width: w, height: h } = el.getBBox();
+      pts = [[x, y], [x + w, y], [x, y + h], [x + w, y + h]];
+    } else {
+      const r = el.getBoundingClientRect();
+      return { left: r.left, top: r.top, right: r.right, bottom: r.bottom, width: r.width, height: r.height };
+    }
+    const s = pts.map(([x, y]) => new DOMPoint(x, y).matrixTransform(m));
+    const left = Math.min(...s.map((p) => p.x)), right = Math.max(...s.map((p) => p.x)), top = Math.min(...s.map((p) => p.y)), bottom = Math.max(...s.map((p) => p.y));
+    return { left, top, right, bottom, width: right - left, height: bottom - top };
+  };
+};
 const noSpeech = () => {
   delete window.SpeechRecognition;
   delete window.webkitSpeechRecognition;
@@ -173,7 +211,7 @@ async function open(viewport, inits = [fake], { phone = viewport.width < 600 || 
   const errors = [];
   page.on("console", (m) => m.type() === "error" && errors.push(m.text()));
   page.on("pageerror", (e) => errors.push(e.message));
-  for (const init of inits) await page.addInitScript(init);
+  for (const init of [...inits, drawnBoxes]) await page.addInitScript(init);
   await page.goto(URL + hash);
   await page.waitForSelector("#s-cats [data-cat]");
   return { context, page, errors };
@@ -296,7 +334,7 @@ const overlaps = (page) =>
  * big for the screen. Returns a list of what is wrong, and the sizes it measured.
  */
 const layoutFaults = (page, turn) =>
-  page.evaluate((turn) => {
+  page.evaluate(([turn, frame]) => {
     const bad = [];
     const W = innerWidth;
     const H = innerHeight;
@@ -383,9 +421,18 @@ const layoutFaults = (page, turn) =>
     // He himself (body, face, sprouts), the bulbs and the tray's lights stay on screen at every
     // stage; only the rig's outer parts (tubes, clamp ends, tray corners) may run off the sides.
     for (const el of document.querySelectorAll('#pot [data-part="spud"] [data-part], #pot [data-part^="bulb"], #pot [data-part^="light"]')) {
-      if (el.tagName === "g" || !drawn(el)) continue;
-      const r = el.getBoundingClientRect();
-      if (r.left < -1 || r.top < -1 || r.right > W + 1 || r.bottom > H + 1) bad.push(`off the screen: ${el.dataset.part}`);
+      if (el.tagName === "g" || !drawn(el) || el.closest("[clip-path]")) continue;
+      const r = window.__drawn(el);
+      if (r.left < -1 || r.top < -1 || r.right > W + 1 || r.bottom > H + 1) bad.push(`off the screen: ${el.dataset.part} ${Math.round(r.left)},${Math.round(r.top)},${Math.round(r.right)},${Math.round(r.bottom)}`);
+    }
+    // The frame he is held inside however he shakes (specimen-draw.js FRAME; its unit test sweeps
+    // the worst of the shake against it) is on the screen whole: so at the worst of his shake, he is.
+    const art = document.querySelector("#pot svg.specimen");
+    if (art && frame) {
+      const m = art.getScreenCTM();
+      const corners = [[frame.x0, frame.y0], [frame.x1, frame.y0], [frame.x0, frame.y1], [frame.x1, frame.y1]].map(([x, y]) => new DOMPoint(x, y).matrixTransform(m));
+      const x0 = Math.min(...corners.map((p) => p.x)), x1 = Math.max(...corners.map((p) => p.x)), y0 = Math.min(...corners.map((p) => p.y)), y1 = Math.max(...corners.map((p) => p.y));
+      if (x0 < -0.5 || y0 < -0.5 || x1 > W + 0.5 || y1 > H + 0.5) bad.push(`his frame is off the screen: ${x0.toFixed(1)},${y0.toFixed(1)},${x1.toFixed(1)},${y1.toFixed(1)}`);
     }
     const size = (el) => (el && shown(el) ? parseFloat(getComputedStyle(el).fontSize) : 0);
     // The end screen's stats line runs over the potato's bulbs and the burst: it sits on its own
@@ -419,7 +466,7 @@ const layoutFaults = (page, turn) =>
       }
     }
     return { bad, ...out };
-  }, turn);
+  }, [turn, FRAME]);
 
 /**
  * In a normal listening turn the strip holds only its three things (whose turn, the microphone, the
@@ -1293,34 +1340,43 @@ for (const viewport of [{ width: 390, height: 844 }, { width: 320, height: 568 }
   await start(page, "cities", 2);
   for (let i = 0; i < 4; i++) await say(page, word("table"), viewport.width < 600 || viewport.height < 500 ? "tap" : "click");
   await still(page, `${name}-stage-4`);
-  /** Every drawn part of him (and the splat), outside the screen, over a second of frames. */
-  const outside = () =>
-    page.evaluate(async () => {
-      const out = new Set();
+  /**
+   * Every drawn part of him (and the splat) outside the screen, every frame until `until` says
+   * stop (or `frames` frames), with how far the worst of each went. (His parts inside the body's
+   * clip, the shading and the glowing spots, are drawn only inside his body, which is checked.)
+   */
+  const outside = ({ frames = Infinity, until = "" } = {}) =>
+    page.evaluate(async ({ frames, until }) => {
+      const out = new Map();
       let flash = 0;
-      for (let i = 0; i < 60; i++) {
+      let n = 0;
+      let deepest = -Infinity;
+      for (; n < frames && !(until && until.includes(window.__hotPotato.round().phase)); n++) {
         await new Promise((ok) => requestAnimationFrame(ok));
         flash = Math.max(flash, Number(getComputedStyle(document.querySelector(".ground .flash")).opacity));
         for (const el of document.querySelectorAll('#pot [data-part="spud"] [data-part], #pot [data-part^="bulb"], #pot [data-part^="alarm"], #pot [data-part^="light"], #pot [data-part="breach"]')) {
-          if (el.closest('[opacity="0"]') || el.tagName === "g") continue;
-          const r = el.getBoundingClientRect();
+          if (el.closest('[opacity="0"]') || el.closest("[clip-path]") || el.tagName === "g") continue;
+          const r = window.__drawn(el);
           if (!r.width && !r.height) continue;
-          if (r.left < -1 || r.top < -1 || r.right > innerWidth + 1 || r.bottom > innerHeight + 1) out.add(`${el.dataset.part} ${Math.round(r.left)},${Math.round(r.top)},${Math.round(r.right)},${Math.round(r.bottom)}`);
+          const by = Math.max(-r.left, -r.top, r.right - innerWidth, r.bottom - innerHeight);
+          deepest = Math.max(deepest, by);
+          if (by > 1 && by > (out.get(el.dataset.part)?.by ?? 0)) out.set(el.dataset.part, { by, at: `${Math.round(r.left)},${Math.round(r.top)},${Math.round(r.right)},${Math.round(r.bottom)} (${window.__hotPotato.round().phase})` });
         }
       }
-      return { out: [...out], flash };
-    });
-  // The last stage, its most stressed: listening with the fuse half gone.
+      return { out: [...out].map(([part, w]) => `${part} ${w.by.toFixed(1)} px off at ${w.at}`), flash, frames: n, deepest };
+    }, { frames, until });
+  // The last stage, every frame of a turn in which nothing is heard (its fuse burning, the stress
+  // climbing) and of the doom after it, to the burst: the worst of the shake, not one moment of it.
   await waitReady(page);
   await page.click("#g-go");
   await page.waitForFunction(() => window.__hotPotato.round().lit);
-  await page.waitForTimeout(3000);
-  const stressed = await outside();
-  check(stressed.out.length === 0, `${name}: at the last stage, shaking, he (body, face, sprouts), the bulbs and the tray's lights are inside the screen ${stressed.out.slice(0, 4).join(" | ")}`);
+  const watching = outside({ until: "burst over" });
+  await page.waitForTimeout(3500);
   await page.evaluate(() => window.__turns.push([[100, "final", [["Zzzz", 0.9]]]]));
-  await waitPhase(page, "doom", 15000).catch(() => {});
+  const stressed = await watching;
+  check(stressed.out.length === 0 && stressed.frames > 200, `${name}: at the last stage, shaking through the fuse and the doom (${stressed.frames} frames), he (body, face, sprouts), the bulbs and the tray's lights are inside the screen (closest ${(-stressed.deepest).toFixed(1)} px from the edge) ${stressed.out.slice(0, 4).join(" | ")}`);
   await waitPhase(page, "burst", 15000);
-  const burst = await outside();
+  const burst = await outside({ frames: 60 });
   check(burst.out.length === 0, `${name}: through the burst, "BREACH!" stays inside the screen ${burst.out.slice(0, 4).join(" | ")}`);
   check(burst.flash <= 0.45, `${name}: the burst's flash is a light one, never a blank screen (at most ${burst.flash.toFixed(2)} white)`);
   check(errors.length === 0, `${name} burst: no console errors ${errors.join(" | ")}`);

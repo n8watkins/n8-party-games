@@ -109,8 +109,9 @@ legend { padding: 0; }
 .game:not([data-screen="start"]) .v-start, .game:not([data-screen="turn"]) .v-turn, .game:not([data-screen="end"]) .v-end { display: none !important; }
 
 /* The potato, sized from his drawing (its view is -16 -50 272 292 units, specimen-draw.js VIEW): as
-   big as the screen allows while he himself (his body, face and sprouts at their biggest, x -12 to
-   241 and y -46 to 232) stays on screen at every stage. The rig's outer parts (the tubes, the clamp
+   big as the screen allows while he himself (his body, face and sprouts, x -12 to 241 and y -46 to
+   232: specimen-draw.js FRAME, which holds him in at the very peak of his shake) stays on screen at
+   every stage. The rig's outer parts (the tubes, the clamp
    arms' ends, the tray's corners) may run off the sides once he strains; he, his face, his sprouts,
    the bulbs and the tray lights never do. His tray sits just above the strip, and the height above
    him is his room to grow into. The art's box is exactly its view, so a unit is --s pixels. */
