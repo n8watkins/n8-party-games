@@ -4,9 +4,12 @@
 // it hears every snapshot and event the room sends, and each frame asks the copy for the race as it is now.
 //   A player's phone   its own car from behind (round five's chase camera and thumbs). Its own inputs are applied
 //                      to the copy at once, so steering answers before the room has heard it; rivals are run on
-//                      from the hands the room last relayed for them.
-//   The big screen     the whole table from above (round five's wide camera), every car, and the places.
-//   Anyone else        (a phone that joined in the middle of a race) watches the big screen's picture.
+//                      from the hands the room last relayed for them. With a big screen in the party it can be a
+//                      controller only (no picture, big thumbs), and a phone that cannot draw in 3D becomes one.
+//   The big screen     where the players race: one pane per player with that player's own chase camera
+//                      (split.js); or, the host's choice, the whole table from above (round five's wide camera),
+//                      every car, and the places. Without 3D at all: the table as a flat drawing and the places.
+//   Anyone else        (a phone that joined in the middle of a race) watches the whole table.
 // A phone whose socket dropped gets its car back from the house when it returns; a reload or a reconnect starts
 // the copy again from the full snapshot the room sends it. The room's word is checked against the copy at every
 // snapshot, and the copy starts again from the snapshot whenever they differ or the page missed something.
@@ -20,6 +23,8 @@ import { TUNE, LEN, DT, trackAt, segAt, wrapU, wrapS } from "./env.js";
 import { CSS, clampN, grainUrl } from "./art.js";
 import { World, ChaseRig, TvRig } from "./view.js";
 import { Sound } from "./sound.js";
+import { Split } from "./split.js";
+import { makeGovernor } from "./governor.js";
 
 const $ = (id) => document.getElementById(id);
 const el = (tag, cls, html) => { const e = document.createElement(tag); if (cls) e.className = cls; if (html !== undefined) e.innerHTML = html; return e; };
@@ -40,6 +45,21 @@ const NAMES = { pawn: "Pawn", ghost: "Ghost", slime: "Slime", robot: "Robot" };
 const TV_CAR_SIZE = 3;
 /** How long a lost WebGL context may take to come back before this phone gives its car to the house. */
 const LOST_WAIT_MS = 1500;
+/** How long a phone that is a controller by force waits for a big screen that went (a reload is back well within it). */
+const SCREEN_GONE_MS = 10000;
+/** What this device remembers (the frame shares the site's storage): the big screen's view, a phone's controller-only switch. */
+const store = {
+  get(k) { try { return localStorage.getItem(k); } catch (e) { return null; } },
+  set(k, v) { try { localStorage.setItem(k, v); } catch (e) { /* private mode: not remembered */ } },
+};
+const VIEW_KEY = "tin-derby-big-screen-view"; // "split" or "table"
+const PAD_KEY = "tin-derby-controller-only"; // "1" or "0"
+/** The camera stand-in on a phone that draws no picture: what the race's events ask of a camera, done to nothing. */
+const NO_RIG = { kick: 0, bump() {}, reset() {} };
+/** Whether a big screen starts on the split view when its host has not chosen: not for now (the owner's call), the whole table. */
+const SPLIT_BY_DEFAULT = false;
+/** WebGL that draws on the processor, not a graphics card: four pictures a frame would be too slow there. */
+const SOFTWARE_GL = /SwiftShader|llvmpipe|softpipe|Software Rasterizer|Basic Render/i;
 
 /** The four characters as small flat drawings (the trait badge). */
 function charSvg(id, colour) {
@@ -153,13 +173,14 @@ class Hands {
       const dx = e.clientX - this.px0, R = 48, dead = 5;
       this.padSteer = Math.abs(dx) < dead ? 0 : clampN((dx - Math.sign(dx) * dead) / (R - dead), -1, 1);
       this.knob.style.transform = `translateX(${Math.round(clampN(dx, -R, R))}px)`;
+      this.app.handsMoved();
     });
-    const padUp = (e) => { if (e.pointerId !== this.padPtr) return; this.padPtr = null; this.padSteer = 0; this.knob.style.transform = ""; this.ring.classList.remove("on"); this.ring.style.left = this.ring.style.top = ""; };
+    const padUp = (e) => { if (e.pointerId !== this.padPtr) return; this.padPtr = null; this.padSteer = 0; this.knob.style.transform = ""; this.ring.classList.remove("on"); this.ring.style.left = this.ring.style.top = ""; this.app.handsMoved(); };
     this.zone.addEventListener("pointerup", padUp); this.zone.addEventListener("pointercancel", padUp);
     // Hold buttons: left, right, drift, brake, use. Each follows its own finger, so two thumbs never fight.
     const hold = (sel, key) => {
       const b = q(sel), ptrs = new Set();
-      const set = () => { this.touch[key] = ptrs.size > 0; b.classList.toggle("down", ptrs.size > 0); };
+      const set = () => { this.touch[key] = ptrs.size > 0; b.classList.toggle("down", ptrs.size > 0); this.app.handsMoved(); };
       b.addEventListener("pointerdown", (e) => { e.preventDefault(); this.app.touchSeen(); ptrs.add(e.pointerId); if (key === "use") this.usePending = true; try { b.setPointerCapture(e.pointerId); } catch (err) { /* fine */ } set(); });
       for (const t of ["pointerup", "pointercancel", "lostpointercapture"]) b.addEventListener(t, (e) => { ptrs.delete(e.pointerId); set(); });
       this.releasers.push(() => { ptrs.clear(); set(); });
@@ -201,11 +222,12 @@ class Hands {
   draw(state, time, order, racing) {
     const c = state.cars[this.i], place = order.indexOf(c) + 1, T = TUNE;
     this.set(this.lapEl, "lap", c.fin ? "Finished" : `Lap ${lapOf(c, state)} of ${lapsIn(state)}`);
-    this.set(this.placeEl, "place", ORD[place - 1]);
+    // Before GO the grid order is no place, and nobody is ahead or behind yet: they show from GO.
+    this.set(this.placeEl, "place", state.t < 0 ? "" : ORD[place - 1]);
     const lw = this.lineW || (this.lineW = this.lineEl.clientWidth || 100);
     for (const o of state.cars) { const px = Math.round(alongLine(o, lw, this.toks[o.i]) * 2) / 2; if (this.memo["tok" + o.i] !== px) { this.memo["tok" + o.i] = px; this.toks[o.i].style.transform = `translateX(${px}px)`; } }
     const near = (node, key, o, word) => {
-      const d = o && !c.fin ? Math.abs(o.s - c.s) : -1, text = d >= 0 ? `${o.name} ${d < 9.95 ? d.toFixed(1) : Math.round(d)} ${word}` : "";
+      const d = o && !c.fin && state.t >= 0 ? Math.abs(o.s - c.s) : -1, text = d >= 0 ? `${o.name} ${d < 9.95 ? d.toFixed(1) : Math.round(d)} ${word}` : "";
       if (this.memo[key] === o?.i + text) return;
       this.memo[key] = o?.i + text;
       node.textContent = text;
@@ -259,7 +281,7 @@ class Hands {
       let op = 0, tx = 0, sc = 1;
       if (o !== c && racing && !c.fin) {
         const ds = c.s - o.s, closing = o.v - c.v;
-        if (ds > 0.2 && ds < 6 && closing > 0.6) { const close = 1 - clampN((ds - 0.9) / 5, 0, 1); op = 0.45 + 0.55 * close; sc = 0.7 + close; tx = clampN((o.lat - c.lat) * 60, -150, 150); }
+        if (ds > 0.2 && ds < 6 && closing > 0.6) { const close = 1 - clampN((ds - 0.9) / 5, 0, 1); op = 0.45 + 0.55 * close; sc = 0.7 + close; const reach = Math.min(150, (this.app.w || 800) * 0.13); tx = clampN((o.lat - c.lat) * 60, -reach, reach); } // kept between the thumbs, clear of Brake on a small phone
       }
       const sig2 = `${op.toFixed(2)}|${Math.round(tx)}|${sc.toFixed(2)}`;
       if (this.memo["ch" + o.i] !== sig2) { this.memo["ch" + o.i] = sig2; ch.style.opacity = op.toFixed(2); ch.style.transform = `translateX(${Math.round(tx)}px) scale(${sc.toFixed(2)})`; }
@@ -273,6 +295,8 @@ const stats = {
   /** What this phone showed of a car at a step, against what the room made of that step: car lengths. */
   ownErr: { n: 0, sum: 0, max: 0 }, rivalErr: { n: 0, sum: 0, max: 0 },
   predictMs: { n: 0, sum: 0, max: 0 },
+  /** Frame to frame, in ms (the big screen's frame rate), and what the last frame drew. */
+  frameMs: { n: 0, sum: 0, max: 0 }, workMs: { n: 0, sum: 0, max: 0 }, slowFrames: 0, draws: 0, triangles: 0, renderer: "",
 };
 const tally = (t, v) => { t.n++; t.sum += v; if (v > t.max) t.max = v; };
 
@@ -284,21 +308,61 @@ class App {
     this.seat = this.you.role === "player" ? this.you.seat : null;
     this.lag = Math.max(0, Number(params.get("lag")) || 0);
     this.autoDrive = params.has("auto");
+    this.screens = Math.max(0, Number(host.screens) || 0);
     this.start(host.snapshot);
-    this.mode = this.me >= 0 ? "phone" : "tvwide";
+    /** The room's big screen (a phone that joined mid-race is a screen too, but with a seat: it watches the whole table). */
+    this.big = this.me < 0 && !(this.you.seat >= 0);
+    /** A player's phone in a party with a big screen: its car is on that screen, so this phone may be a controller only. */
+    this.padOk = this.me >= 0 && this.screens > 0;
+    const cars = this.replica.auth.cars;
+    // The picture. Without 3D a phone whose car is on a big screen carries on as a controller, and the big screen
+    // shows the table as a flat drawing; anyone else gets the plain card (noPicture, below).
+    let world = null;
+    try {
+      if (!window.THREE) throw new Error("the 3D library did not load");
+      world = new World($("gl"), new URL("cloth.jpg", import.meta.url).href, cars.map((c) => ({ character: c.character, colour: c.colour })));
+    } catch (err) {
+      if (!(this.big || this.padOk)) throw err;
+      console.warn(`Tin Derby: no 3D here (${err.message}): ${this.big ? "the table as a flat drawing" : "this phone is a controller; its car is on the big screen"}`);
+    }
+    this.world = world;
+    if (world) {
+      world.me = Math.max(0, this.me);
+      world.renderer.info.autoReset = false;
+      try { const gl = world.renderer.getContext(), ext = gl.getExtension("WEBGL_debug_renderer_info"); stats.renderer = String(ext ? gl.getParameter(ext.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER)); } catch (e) { /* unknown: taken as a graphics card */ }
+    }
+    this.mode = this.me >= 0 ? "phone" : !this.big ? "tvwide" : !world ? "board" : this.tvView();
     this.root.dataset.mode = this.mode;
     this.touch = this.mode === "phone" && (!finePointer || params.has("touch"));
     if (this.touch) this.root.dataset.touch = "1";
     this.root.style.setProperty("--inset-r", `${host.inset?.right ?? 0}px`);
     $("grain").style.backgroundImage = `url(${grainUrl()})`;
     this.sound = new Sound();
-    const cars = this.replica.auth.cars;
-    this.world = new World($("gl"), new URL("cloth.jpg", import.meta.url).href, cars.map((c) => ({ character: c.character, colour: c.colour })));
-    this.world.me = Math.max(0, this.me);
-    this.rig = this.me >= 0 ? new ChaseRig(this.me) : null;
-    this.tv = new TvRig();
+    this.rig = this.me >= 0 ? (world ? new ChaseRig(this.me) : NO_RIG) : null;
+    this.tv = world ? new TvRig() : null;
+    if (this.big) {
+      const say = { ORD, itemSvg, itemName: (id) => ITEM_INFO[id]?.name || "", items: TUNE.ITEMS, lapText: (c, st) => `Lap ${lapOf(c, st)} of ${lapsIn(st)}`, dot, pepperT: TUNE.PEPPER_T, drift2: TUNE.DRIFT_2 };
+      this.split = new Split({ panes: $("panes"), mapbox: $("mapbox"), map: $("map"), standings: $("standings") }, cars, say, { rigs: !!world });
+      this.root.dataset.panes = String(this.split.n);
+      if (world) {
+        $("bview").hidden = false;
+        $("bview").addEventListener("click", () => this.setView(this.mode === "split" ? "tvwide" : "split", true));
+        this.viewButton();
+      }
+    }
     if (this.me >= 0) { this.hands = new Hands(this, this.me); $("huds").appendChild(this.hands.el); this.hands.paint(cars); }
+    $("padinfo").style.setProperty("--c", this.me >= 0 ? cars[this.me].colour : CSS.red);
+    // The switch always answers (a big screen may join after the race began: screensChanged shows it then). A press with
+    // a finger or the mouse gives the focus back, so Space drifts again; a keyboard user keeps it.
+    if (this.me >= 0) $("bpad").addEventListener("click", (e) => { if (!$("bpad").hidden) this.setPad(!this.pad); if (e.detail > 0) e.currentTarget.blur(); });
+    if (this.padOk) {
+      // Without 3D the switch is not offered: this phone is a controller, and says so.
+      $("bpad").hidden = !world;
+      this.root.toggleAttribute("data-padok", !!world); // the strip makes room for the switch beside Sound
+      this.setPad(!world || store.get(PAD_KEY) === "1", !world);
+    }
     this.tags = cars.map((c) => { const t = el("div", "tag"); t.hidden = true; t.style.setProperty("--c", c.colour); $("tags").appendChild(t); return t; });
+    this.padPlace = $("padinfo").querySelector(".pplace"); this.padLap = $("padinfo").querySelector(".plap"); this.padHouse = $("padinfo").querySelector(".phouse");
     this.tvToks = cars.map((c) => { const t = el("i", "tok"); t.style.setProperty("--c", c.colour); $("tvline").appendChild(t); return t; });
     this.order = []; this.frames = []; this.scale = 1; this.slow = 0; this.fast = 0; this.time = 0; this.lastT = -Infinity; this.countShown = 9;
     this.shown = new Map(); // what this phone showed of each car, by step, to compare with the room's word
@@ -312,6 +376,7 @@ class App {
     } catch (e) { window.addEventListener("resize", () => this.layout()); }
     host.on("events", (list) => this.heard(list));
     host.on("snapshot", (s, at, full) => this.snapshot(s, full));
+    host.on("screens", (n) => this.screensChanged(n));
     host.dispose = () => this.dispose();
     host.ready();
     // If the picture goes (the browser took the WebGL context back) and does not come back, this phone cannot race:
@@ -385,10 +450,11 @@ class App {
   /**
    * The hands, sent as the room takes them: only what changed, and a steer at most 15 times a second (the replica
    * decides); and a beat when there was nothing else to say. `force`: the page is letting go (hidden, closed, out
-   * of focus), so the hands as they are now, all released, go at once.
+   * of focus), so the hands as they are now, all released, go at once. `again`: they go even if unchanged (a page
+   * taking its car back from the house, which only hands do).
    */
-  send(now, force = false) {
-    if (!this.hands || this.me < 0 || this.out) return;
+  send(now, force = false, again = false) {
+    if (!this.hands || this.me < 0 || this.out || this.blind) return;
     const car = this.replica.auth.cars[this.me];
     if (car.fin) return;
     let r;
@@ -398,13 +464,20 @@ class App {
       rules.house.drive(p, p.cars[this.me], out);
       r = [out.st, out.b & BTN.GO ? 1 : 0, out.b & BTN.BRAKE ? 1 : 0, out.b & BTN.DRIFT ? 1 : 0, out.b & BTN.USE ? 1 : 0];
     } else r = this.hands.reading();
-    const msg = this.replica.input(now, ...r, { force });
+    const msg = this.replica.input(now, ...r, { force, again });
     if (!msg) return this.speak(now);
     if (r[4]) this.hands.usePending = false;
     stats.sent++;
     (this.wanted || (this.wanted = new Map())).set(msg.q, rules.stepOf(this.replica.auth, now) + 1);
     if (this.wanted.size > 64) this.wanted.delete(this.wanted.keys().next().value);
     this.post(msg);
+  }
+  /**
+   * A thumb or a key moved: the hands go to the room now, not at the next frame. The big screen draws this car from
+   * what the room relays, so a frame's wait here would be a frame more between the thumb and the car on the screen.
+   */
+  handsMoved() {
+    if (!this.autoDrive && !this.gone) this.send(this.host.now());
   }
   /** A beat ({h: 1}) when this page has said nothing for a while (replica.beat): the room then knows it is still here. */
   speak(now) {
@@ -424,7 +497,15 @@ class App {
   }
   /** The picture cannot be drawn any more (the WebGL context was lost and not restored): the house drives this car. */
   cannotDraw() {
-    if (this.out || this.gone) return;
+    if (this.out || this.gone || !this.world) return;
+    // A phone whose car is on the big screen carries on as a controller; the big screen itself as the flat table.
+    if (this.padOk || this.big) {
+      this.dropWorld();
+      if (this.big) { this.mode = "board"; this.root.dataset.mode = "board"; $("bview").hidden = true; this.layout(); }
+      else { $("bpad").hidden = true; this.setPad(true, true); }
+      if (window.__derby) window.__derby.lostPicture = true;
+      return;
+    }
     this.hands?.releaseAll();
     this.out = true;
     clearInterval(this.beatT);
@@ -442,6 +523,105 @@ class App {
   }
   soundButton() { $("bsound").setAttribute("aria-pressed", String(this.sound.on)); $("bsound").textContent = this.sound.on ? "Sound off" : "Sound on"; }
 
+  /**
+   * The big screen's view at the start: the host's last choice on this screen, else the default (SPLIT_BY_DEFAULT:
+   * the whole table for now, the owner's standing choice), and never the split view by default on a screen that draws
+   * 3D on its processor (four pictures a frame would crawl there). A test switch (derby-tvview=split|table) decides it outright.
+   */
+  tvView() {
+    const asked = params.get("tvview") || store.get(VIEW_KEY);
+    if (asked === "split" || asked === "table") return asked === "split" ? "split" : "tvwide";
+    return SPLIT_BY_DEFAULT && !SOFTWARE_GL.test(stats.renderer) ? "split" : "tvwide";
+  }
+  /** The host switched the big screen's view (one button): the split view or the whole table, remembered on this screen. */
+  setView(mode, remember = false) {
+    if (!this.world || !this.big) return;
+    this.mode = mode;
+    this.root.dataset.mode = mode;
+    if (remember) store.set(VIEW_KEY, mode === "split" ? "split" : "table");
+    this.split.reset();
+    for (const t of this.tags) t.hidden = true;
+    this.tvKey = ""; this.tvLap = "";
+    this.viewButton();
+    this.layout();
+  }
+  viewButton() {
+    const b = $("bview");
+    b.textContent = this.mode === "split" ? "Whole table" : "Split screen";
+    b.setAttribute("aria-label", this.mode === "split" ? "Show the whole table instead of a picture for each player" : "Show a picture for each player");
+  }
+  /**
+   * Controller only: the phone stops drawing the race (its car is on the big screen) and shows big thumbs, the
+   * place and the power in hand. The player's choice is remembered on this phone; `forced`: this phone cannot draw
+   * in 3D at all, so it is a controller and the switch is not offered.
+   */
+  setPad(on, forced = false, remember = true) {
+    this.pad = !!on;
+    this.forcedPad = !!forced;
+    this.root.toggleAttribute("data-pad", this.pad);
+    $("bpad").setAttribute("aria-pressed", String(this.pad));
+    $("padinfo").querySelector(".pline").textContent = forced ? "This phone can't show the race. Steer here: your car is on the big screen." : "Your car is on the big screen. Steer here.";
+    if (forced) this.root.dataset.flat = "1";
+    else if (remember) store.set(PAD_KEY, this.pad ? "1" : "0");
+    // The picture again: the camera starts behind the car, not where it was when the picture stopped.
+    if (!this.pad) { this.rig?.reset(); this.layout?.(); }
+    this.padKey = "";
+  }
+  /**
+   * The party's big screens came or went (the room's updates, party-view.js). The switch is offered only while there is
+   * one; a phone that chose controller only gets its picture back when the last one goes. A phone that cannot draw
+   * (a controller by force) would be steering blind: after SCREEN_GONE_MS with none (a big screen reloading is back
+   * well within it) it gives its car to the house and says so, and takes the car back the moment a screen returns.
+   */
+  screensChanged(n) {
+    this.screens = n;
+    if (this.me < 0 || this.out || this.gone) return;
+    const any = n > 0;
+    if (this.world) {
+      $("bpad").hidden = !any;
+      this.root.toggleAttribute("data-padok", any);
+      if (!any && this.pad) this.setPad(false, false, false);
+      this.padOk = any;
+      return;
+    }
+    if (!this.forcedPad) return;
+    clearTimeout(this.goneT);
+    if (any) this.setBlind(false);
+    else this.goneT = setTimeout(() => this.setBlind(true), SCREEN_GONE_MS);
+  }
+  /** A controller by force with no big screen to watch: the house drives its car until a screen is back. */
+  setBlind(on) {
+    if (!!this.blind === on) return;
+    this.hands?.releaseAll();
+    if (on) {
+      this.blind = true;
+      this.post({ house: 1 });
+    } else {
+      this.blind = false;
+      this.send(this.host.now(), true, true); // its hands, at once, even unchanged: the room gives the car back from the next step
+    }
+    this.root.toggleAttribute("data-blind", on);
+    const box = $("nopic");
+    box.querySelector("b").textContent = "No big screen now.";
+    box.querySelector("p").textContent = "This phone can't show the race, so the house is driving your car until a big screen is back.";
+    box.hidden = !on;
+    stats.blind = (stats.blind || 0) + (on ? 1 : 0);
+  }
+  /** The controller's own words: the place, the lap, and the house when it has the car. */
+  drawPad(st, c) {
+    // Before GO there is no place yet: the count-in's numbers have the middle of the screen to themselves.
+    const place = st.t < 0 ? 0 : this.order.indexOf(c) + 1;
+    $("padinfo").classList.toggle("counting", st.t < 0);
+    const lap = c.fin ? "Home" : st.t < 0 ? "Get ready" : `Lap ${lapOf(c, st)} of ${lapsIn(st)}`;
+    const line = c.auto && st.t >= 0 && !c.fin ? "The house is driving your car for a moment." : "";
+    const key = `${place}|${lap}|${line}`;
+    if (this.padKey === key) return;
+    this.padKey = key;
+    this.padPlace.textContent = ORD[place - 1] || "";
+    this.padLap.textContent = lap;
+    this.padHouse.textContent = line;
+  }
+
   bind() {
     this.root.addEventListener("contextmenu", (e) => e.preventDefault());
     document.addEventListener("gesturestart", (e) => e.preventDefault());
@@ -451,6 +631,14 @@ class App {
       this.soundButton();
     });
     const KEYMAP = { ArrowLeft: "left", KeyA: "left", ArrowRight: "right", KeyD: "right", ArrowUp: "up", KeyW: "up", ArrowDown: "down", KeyS: "down", Space: "drift", ShiftLeft: "drift", ShiftRight: "drift", KeyE: "use", Enter: "use", NumpadEnter: "use" };
+    if (this.big) {
+      // The big screen's buttons fade off the picture after a few quiet seconds; a mouse or a key brings them back.
+      const wake = () => { $("btns").classList.remove("idle"); clearTimeout(this.idleT); this.idleT = setTimeout(() => $("btns").classList.add("idle"), 4000); };
+      for (const t of ["pointermove", "pointerdown", "keydown"]) window.addEventListener(t, wake, { passive: true });
+      wake();
+      // V switches the view too (a keyboard by the television).
+      window.addEventListener("keydown", (e) => { if (e.code === "KeyV" && !e.repeat && !this.out) this.setView(this.mode === "split" ? "tvwide" : "split", true); });
+    }
     const keys = (e, down) => {
       const act = KEYMAP[e.code];
       if (!act || !this.hands) return;
@@ -458,6 +646,7 @@ class App {
       e.preventDefault();
       if (down && !this.sound.on && this.sound.enable()) this.soundButton();
       this.hands.keys[act] = down;
+      this.handsMoved();
       if (act === "use" && down && !e.repeat) this.hands.usePending = true;
     };
     window.addEventListener("keydown", (e) => keys(e, true));
@@ -475,8 +664,11 @@ class App {
 
   layout() {
     // A touch screen draws at most TOUCH_DPR_CAP pixels per CSS pixel; a big screen DPR_CAP.
-    const s = $("stage"), w = Math.max(2, s.clientWidth), h = Math.max(2, s.clientHeight), cap = this.touch ? TUNE.TOUCH_DPR_CAP : TUNE.DPR_CAP;
-    if (w !== this.w || h !== this.h || this.scale !== this.appliedScale || cap !== this.appliedCap) { this.w = w; this.h = h; this.appliedScale = this.scale; this.appliedCap = cap; this.world.resize(w, h, this.scale, cap); }
+    // The split view draws up to four pictures a frame: at most SPLIT_DPR_CAP pixels per CSS pixel.
+    const s = $("stage"), w = Math.max(2, s.clientWidth), h = Math.max(2, s.clientHeight), cap = this.mode === "split" ? TUNE.SPLIT_DPR_CAP : this.touch ? TUNE.TOUCH_DPR_CAP : TUNE.DPR_CAP;
+    if (this.world && (w !== this.w || h !== this.h || this.scale !== this.appliedScale || cap !== this.appliedCap)) { this.appliedScale = this.scale; this.appliedCap = cap; this.world.resize(w, h, this.scale, cap); }
+    this.w = w; this.h = h;
+    if (this.split) { if (this.mode === "board") this.split.layoutBoard(w, h); else this.split.layout(w, h); }
     if (this.hands) { this.hands.lineW = 0; this.hands.memo.gauge = ""; for (const t of this.hands.toks || []) t.halfW = 0; }
     this.tvLineW = 0;
     for (const t of this.tvToks || []) t.halfW = 0;
@@ -517,14 +709,15 @@ class App {
     else if (e.k === "bump") { if (h && (e.car === me || e.into === me)) { S.knock(Math.min(1.4, 0.5 + e.hard * 0.25)); buzz(25); rig.bump(TUNE.SHAKE_BUMP * Math.min(1.5, e.hard / 2)); } }
     else if (e.k === "wall" || e.k === "knock") { if (mine) { S.knock(Math.min(1.2, 0.4 + (e.hard || 2) * 0.15)); buzz(12); rig.bump(0.03); } }
     else if (e.k === "clunk") { if (mine) S.thud(); }
-    else if (e.k === "fall") { if (mine) { h.word("OFF THE TABLE!"); S.fall(); buzz([120, 60, 120]); } if (!h) this.tv.cut(this.world, st, e); }
+    else if (e.k === "fall") { if (mine) { h.word("OFF THE TABLE!"); S.fall(); buzz([120, 60, 120]); } if (!h && this.tv && this.mode === "tvwide") this.tv.cut(this.world, st, e); } // the split view's panes show their own falls
     else if (e.k === "back") { if (mine) h.word("Back on", "small teal"); }
     else if (e.k === "land") { if (mine && e.hard > 2.5) { S.thud(); buzz(18); rig.bump(TUNE.SHAKE_LAND); } }
     else if (e.k === "lap") { if (mine) { h.word(e.lap >= lapsIn(st) ? "Last lap!" : `Lap ${e.lap}`, "small teal"); S.beep(990); } }
     else if (e.k === "finish") {
       if (h && e.car === me) { h.word(ORD[e.place - 1] + "!", e.place === 1 ? "" : "teal"); S.ding(); buzz([40, 40, 120]); h.releaseAll(); }
       else if (e.place === 1) S.ding();
-      if (!h) this.tv.cut(this.world, st, e);
+      // The winner's close shot at the line: across the whole big screen, in either view.
+      if (!h && this.tv) this.tv.cut(this.world, st, e);
     } else if (e.k === "item") {
       if (mine) {
         const info = ITEM_INFO[e.item], told = (this.toldItem = this.toldItem || {});
@@ -564,14 +757,16 @@ class App {
   /** The big screen's count: 3, 2, 1, GO (which clears itself), or `kind` "late": a line that stays a little longer. */
   count(text, go = false, kind = "") {
     const c = $("count"); c.textContent = text; c.classList.toggle("go", go); c.classList.toggle("late", kind === "late");
+    // While the count is up the table in the middle of four panes makes way for it.
+    this.root.toggleAttribute("data-counting", !!text);
     clearTimeout(this.countT);
-    if (go) this.countT = setTimeout(() => { c.textContent = ""; }, kind === "late" ? 2200 : 900);
+    if (go) this.countT = setTimeout(() => { c.textContent = ""; this.root.removeAttribute("data-counting"); }, kind === "late" ? 2200 : 900);
   }
 
   hint(st) {
     let t = "";
     const c = this.me >= 0 ? st.cars[this.me] : null;
-    if (this.mode !== "phone") t = this.you.role === "player" ? "You joined in the middle of a race: you race in the next one." : "";
+    if (this.mode !== "phone") t = this.you.role === "player" ? "You joined in the middle of a race: you race in the next one." : this.mode === "board" ? "This screen can't draw the race in 3D: here is the table from above." : "";
     else if (c.auto) t = "Your phone was away, so the house is driving your car. It is yours again in a moment.";
     else if (c.fin) t = `You finished ${ORD[c.place - 1] || ""}. ${st.firstFin >= 0 && !st.over ? "The others are still racing." : ""}`;
     else if (st.t < 0) t = this.touch ? "It drives itself. Left thumb: slide to steer round things. Right thumb: hold Drift through a turn; Use fires a power from a sweet." : "Up to go, left and right to steer. Hold Space through a turn to drift. Drive through a sweet for a power; E uses it.";
@@ -643,11 +838,12 @@ class App {
       const dt = Math.min(0.1, raw / 1000);
       this.time += dt;
       stats.frames++;
+      const work0 = performance.now();
       const now = this.host.now();
       this.send(now);
       const st = (this.view = this.raceNow(now));
       // The race's own events, each once: those of steps this page has not shown before.
-      for (const e of st.ev) if (e.t > this.lastT) { this.world.event(e); this.onEvent(e, st); }
+      for (const e of st.ev) if (e.t > this.lastT) { this.world?.event(e); this.onEvent(e, st); }
       if (st.t > this.lastT) this.lastT = st.t;
       if (st.t < 0) {
         const n = Math.ceil(-st.t);
@@ -665,14 +861,34 @@ class App {
       }
       const me = this.me >= 0 ? st.cars[this.me] : null;
       this.root.toggleAttribute("data-house", !!me?.auto);
-      this.world.sync(st, dt);
       rules.raceOrder(st, this.order);
-      const w = this.w || 2, h = this.h || 2;
-      const view = this.rig ? this.rig.update(st, this.world, dt, w / h) : this.tv.update(st, this.world, dt, w / h);
-      view.rect.x = 0; view.rect.y = 0; view.rect.w = w; view.rect.h = h;
-      // The big screen's whole table: cars drawn larger, to be seen across a room (true size in its close shots).
-      if (!this.rig) { this.carK = view.close ? 1 : TV_CAR_SIZE; this.world.sizeCars(this.carK); }
-      this.world.render([view]);
+      tally(stats.frameMs, raw);
+      if (raw > 25) stats.slowFrames++;
+      // The picture, unless this page has none (no 3D, or a phone that is a controller only).
+      let view = null;
+      const W = this.world;
+      if (W && !this.pad) {
+        W.sync(st, dt);
+        const w = this.w || 2, h = this.h || 2;
+        let views;
+        if (this.rig) views = [(view = this.rig.update(st, W, dt, w / h))];
+        else {
+          // The big screen: the whole table (with its close shots), or a pane for each player. The winner's close shot
+          // at the line takes the whole screen in the split view too.
+          const tv = this.tv.update(st, W, dt, w / h);
+          // The panes' cameras keep following their cars through the close shot, so each pane comes back where its car is.
+          const panes = this.mode === "split" ? this.split.views(st, W, dt) : null;
+          if (panes && !tv.close) views = panes;
+          else views = [(view = tv)];
+        }
+        if (view) { view.rect.x = 0; view.rect.y = 0; view.rect.w = w; view.rect.h = h; }
+        // The whole table: cars drawn larger, to be seen across a room (true size in its close shots and in the panes).
+        if (!this.rig) { this.carK = view && !view.close && this.mode === "tvwide" ? TV_CAR_SIZE : 1; W.sizeCars(this.carK); }
+        W.renderer.info.reset();
+        W.render(views);
+        stats.draws = W.renderer.info.render.calls; stats.triangles = W.renderer.info.render.triangles;
+      }
+      this.root.toggleAttribute("data-close", this.mode === "split" && !!view);
       const racing = st.t >= 0 && !st.over;
       if (this.hands) this.hands.draw(st, this.time, this.order, racing);
       // The first corners tell a player who has not drifted yet how, at the moment it would help.
@@ -685,24 +901,35 @@ class App {
         const info = ITEM_INFO[this.pendingHow]; this.pendingHow = null;
         this.hands.word(`${info.name}. ${info.how[this.touch ? 0 : 1]}`, "small teal how");
       }
-      this.drawTags(view, st);
-      if (!this.hands) this.drawTv(st);
+      if (view) this.drawTags(view, st);
+      if (this.mode === "tvwide") this.drawTv(st);
+      else if (this.split && !view) this.split.draw(st, this.order, this.time, racing);
+      if (this.pad) this.drawPad(st, me);
       // Speed lines at the bottom corners, and the whirr.
-      const fastness = me && racing ? clampN((me.v - 7.5) / 4, 0, 1) : 0;
+      const fastness = me && racing && !this.pad ? clampN((me.v - 7.5) / 4, 0, 1) : 0;
       if (Math.abs(fastness - (this.speedOp || 0)) > 0.04) { this.speedOp = fastness; $("speed").style.opacity = fastness.toFixed(2); }
       if (fastness > 0.05) $("speed").style.transform = `translate(${(Math.random() * 4 - 2).toFixed(1)}px, ${(Math.random() * 3).toFixed(1)}px)`;
       if (me) this.sound.run(Math.abs(me.v) * 0.7, racing && Math.abs(me.v) > 0.2, me.drOn ? 1 + me.drLvl : 0);
       this.hint(st);
+      tally(stats.workMs, performance.now() - work0);
       this.govern(raw);
     };
     this.raf = requestAnimationFrame(frame);
   }
 
-  /** Cork & Bell's rule: forty slow frames in a row lower the resolution, six hundred fast ones raise it. */
+  /** Cork & Bell's rule (governor.js): slow frames lower the resolution, a long run of quick ones raises it. */
   govern(ms) {
-    if (ms > TUNE.GOV_SLOW_MS) { this.slow++; this.fast = 0; } else { this.slow = 0; if (ms < TUNE.GOV_FAST_MS) this.fast++; else this.fast = 0; }
-    if (this.slow >= 40 && this.scale > 0.5) { this.scale = Math.max(0.5, this.scale - 0.15); this.slow = 0; this.layout(); }
-    if (this.fast >= 600 && this.scale < 1) { this.scale = Math.min(1, this.scale + 0.15); this.fast = 0; this.layout(); }
+    if (!this.world || this.pad) return;
+    const say = (this.gov || (this.gov = makeGovernor({ slowMs: TUNE.GOV_SLOW_MS }))).frame(ms);
+    if (say < 0 && this.scale > 0.5) { this.scale = Math.max(0.5, this.scale - 0.15); this.layout(); }
+    if (say > 0 && this.scale < 1) { this.scale = Math.min(1, this.scale + 0.15); this.layout(); }
+  }
+
+  /** No more 3D on this page (the picture was lost for good): everything that drew it goes. */
+  dropWorld() {
+    try { this.world?.renderer.dispose(); } catch (e) { /* lost already */ }
+    this.world = null; this.tv = null;
+    if (this.rig) this.rig = NO_RIG;
   }
 
   dispose() {
@@ -711,7 +938,7 @@ class App {
     clearTimeout(this.lostT);
     if (this.raf) cancelAnimationFrame(this.raf);
     try { this.sound.disable(); } catch (e) { /* nothing to stop */ }
-    try { this.world.renderer.dispose(); this.world.renderer.forceContextLoss(); } catch (e) { /* the frame goes with it anyway */ }
+    try { this.world?.renderer.dispose(); this.world?.renderer.forceContextLoss(); } catch (e) { /* the frame goes with it anyway */ }
   }
 }
 
@@ -730,12 +957,47 @@ function noPicture(host, race) {
   const app = $("app");
   app.dataset.mode = "nopicture";
   const box = $("nopic");
-  box.querySelector("b").textContent = player ? "This phone can't show the race." : "This screen can't show the race.";
-  box.querySelector("p").textContent = mine ? "The house is driving your car. Watch the big screen." : "Watch it on the big screen.";
+  box.querySelector("b").textContent = player || you.seat >= 0 ? "This phone can't show the race." : "This screen can't show the race.";
+  // The big screen is mentioned only where the party has one.
+  const screen = (Number(host.screens) || 0) > 0;
+  box.querySelector("p").textContent = mine ? (screen ? "The house is driving your car. Watch the big screen." : "The house is driving your car.") : screen ? "Watch it on the big screen." : "You race in the next one.";
   box.hidden = false;
   $("hint").textContent = "";
   $("huds").textContent = "";
   $("tags").textContent = "";
+}
+
+/**
+ * The big screen's panes as this page has them, for the tests: which car each pane's camera follows and how far
+ * behind it the camera is, where that car falls in the picture, the pane's box and the size of its words.
+ */
+function paneCheck(app) {
+  const sp = app.split, W = app.world, st = app.view;
+  if (!sp) return { mode: app.mode, n: 0, panes: [] };
+  const font = (node) => (node && node.offsetParent !== null ? parseFloat(getComputedStyle(node).fontSize) : 0);
+  const panes = sp.panes.map((p, k) => {
+    const rig = sp.rigs[k], r = p.el.getBoundingClientRect(), car = st?.cars[p.i];
+    let camDist = -1, nearest = -1, inPane = false, at = null;
+    if (rig && W) {
+      const cp = rig.cam.position, d = W.cars.map((v) => v.pos.distanceTo(cp));
+      camDist = d[p.i]; nearest = d.indexOf(Math.min(...d));
+      at = W.project(p.i, rig.view, 0.3, {});
+      if (at) at = { x: Math.round(at.x), y: Math.round(at.y) };
+      // In its pane: a car dropping off a step dips to the pane's lower edge for a moment (the camera follows a drop
+      // with a short lag, as on the phone), so a tenth of the pane's height below it still counts.
+      const R = sp.rects[k];
+      inPane = !!at && at.x >= R.x && at.x <= R.x + R.w && at.y >= R.y && at.y <= R.y + R.h * 1.1;
+    }
+    const words = [...p.el.querySelectorAll(".plabel, .pnear span, .pheld .hname, .pnote b, .pnote small")].filter((e) => e.offsetParent !== null && e.textContent.trim());
+    return {
+      car: p.i, name: car?.name, focus: rig ? rig.i : -1, camDist: +camDist.toFixed(2), nearest, inPane, at, auto: !!car?.auto, fall: (car?.fallT ?? 0) > 0, fin: !!car?.fin,
+      box: { x: Math.round(r.left), y: Math.round(r.top), w: Math.round(r.width), h: Math.round(r.height) },
+      label: p.el.querySelector(".plabel").innerText.replace(/\s+/g, " ").trim(), note: p.el.querySelector(".pnote").innerText.replace(/\s+/g, " ").trim(),
+      smallest: Math.min(...words.map(font)), words: words.map((e) => { const q = e.getBoundingClientRect(); return { t: e.textContent.trim().slice(0, 24), x: Math.round(q.left), y: Math.round(q.top), r: Math.round(q.right), b: Math.round(q.bottom), f: font(e) }; }),
+    };
+  });
+  const mb = document.getElementById("mapbox"), m = mb.offsetParent !== null ? mb.getBoundingClientRect() : null;
+  return { mode: app.mode, n: sp.n, t: st ? +st.t.toFixed(2) : null, h: innerHeight, w: innerWidth, close: app.root.hasAttribute("data-close"), map: m && { x: Math.round(m.left), y: Math.round(m.top), r: Math.round(m.right), b: Math.round(m.bottom) }, panes };
 }
 
 if (!host) {
@@ -745,9 +1007,8 @@ if (!host) {
 } else {
   let app = null;
   try {
-    if (!window.THREE) throw new Error("the 3D library did not load");
     app = new App(host);
-    window.__derby = { app, stats, rules, get race() { return app.view; }, get car() { return app.me; } };
+    window.__derby = { app, stats, rules, get race() { return app.view; }, get car() { return app.me; }, panes: () => paneCheck(app) };
   } catch (err) {
     // No WebGL here (three.js could not make a context), or a snapshot from other rules (the site was updated mid-race).
     console.warn(`Tin Derby: this page cannot show the race (${err.message})`);

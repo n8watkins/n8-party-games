@@ -15,9 +15,9 @@ It hangs on the Floor's wall (`games.js`, `lobby/wall.js`) in the place its comi
 | `shared/house.js` | The house cars' driver |
 | `shared/dmath.js` | sin, cos, atan2 built from exact operations only |
 | `shared/replica.js` | A page's copy of the race: feed it snapshots and events, ask it for the race now |
-| `page/` | The page a party room shows (below, "In the party room") |
+| `page/` | The page a party room shows (below, "In the party room"); `split.js` and `map.js` are the big screen's panes and its flat table |
 | `tools/` | Scripted players, whole races, a made-up network, the measurements, the parity check against the preview, the cost in workerd |
-| `test/` | 151 unit tests: every rule, whole races, balance, determinism, the room, the party room's own rules, the view's test switches, a short smoke; and `e2e-room.mjs`, races in the real party room with real browsers |
+| `test/` | 159 unit tests: every rule, whole races, balance, determinism, the room, the party room's own rules, the view's test switches, a short smoke; and `e2e-room.mjs`, races in the real party room with real browsers |
 
 ## The structure, and why
 
@@ -164,23 +164,50 @@ The page finds the room's `you`, `snapshot`, `send` and `now` on its frame eleme
 
 - **A player's phone** shows its own car from behind with round five's chase camera, strip, spring, thumbs (slide to steer, it goes by itself, Brake, Drift, Use) and keys.
   Its own inputs go into the replica at once (`replica.predict(now)`), so steering answers before the room has heard it.
-- **The big screen** shows the whole table with round five's wide camera (close shots of a fall and the winner), a name over each car and a strip along the bottom: the leader's lap, every car along the line, and the places.
-- **Anyone else** (a phone that joined in the middle of a race) watches the big screen's picture and is told it races in the next one.
+  With a big screen in the party it keeps drawing its own car (someone may not see the screen well), and offers a **Controller only** switch: the picture stops, the thumbs grow, and the place, the lap and the power in hand show large; the phone remembers the choice.
+- **The big screen** starts on round five's whole table (the owner's choice for now: `SPLIT_BY_DEFAULT` in `page/main.js` is the one-line switch); the host can switch it with one button (or V) to the split view, where the players race, a pane for each player with that player's own chase camera (below, "The big screen"), and the screen remembers the choice.
+- **Anyone else** (a phone that joined in the middle of a race) watches the whole table and is told it races in the next one.
 - **The count-in** is the 3, 2, 1 and GO of the race itself (three seconds); a page that comes up later joins the race where it is.
 - **The end**: once every player is home (and the house cars have had their few seconds) the room ends the game, puts the places on the Tonight board and shows its card; the page is taken away.
 - **A dropped phone**: the room's `bot` hands its car to the house (the car paces itself), and back when the phone returns and its page speaks; the returning page starts its replica again from the full snapshot the room sends it, and says "the house is driving your car" meanwhile.
 - **A phone that stalls** with its socket still open, or is put away (another tab or app): the room has heard nothing from it for a second, so the house drives its car until it speaks again. A key held when the page was hidden is let go of first.
 - **A page that loads late**: the house drives its car from GO until the page's first word; the page then says "Race under way" (and the big screen, which shows no count it missed).
-- **A phone that cannot show the race** (no WebGL, a context that cannot be made, or one lost and not restored within 1.5 s): it says `{house: 1}` and shows one plain card, "This phone can't show the race. The house is driving your car. Watch the big screen.", with no picture and no buttons.
+- **A phone that cannot show the race** (no WebGL, a context that cannot be made, or one lost and not restored within 1.5 s), in a party with a big screen: its car is on the big screen, so it becomes a controller ("This phone can't show the race. Steer here: your car is on the big screen.") and keeps sending its hands and beats, so the room knows a real player drives the seat.
+  The page hears the big screens come and go (`partyHost.screens` and `on("screens")`, kept current from the room page's optional `room` hook: `lobby/shared/stage.js`, `party-kit/GAME-CONTRACT.md`). When the last one has been gone 10 s (a big screen reloading is back well within it) the controller would be steering blind: it says `{house: 1}` and shows "No big screen now. This phone can't show the race, so the house is driving your car until a big screen is back."; when a screen returns its hands take the car back at once.
+  With no big screen in the party it says `{house: 1}` and shows one plain card, "This phone can't show the race. The house is driving your car." (and "Watch the big screen." only where the party has one), with no picture and no buttons.
+  A phone that can draw offers the Controller only switch only while there is a big screen, and draws its car again if the last one goes.
+- **A big screen that cannot draw in 3D** shows the table as a flat drawing with the cars on it and the places beside it (`map.js`), never a black screen; one that draws 3D in software (SwiftShader, llvmpipe) never starts on the split view by itself.
 - **A reload** comes back to the same car from the room's full snapshot.
 - **Kept honest**: at every snapshot that is of the same step as its replica (once a second), the page compares the two by `rules.fingerprint`; on any difference, or when the numbered events show it missed one, it starts again from the snapshot.
   A page more than two seconds behind the room's clock (it was asleep) draws the room's word and waits for the next snapshot rather than running the race forward in one frame.
 - **Round five's files**: `art.js`, `table.js` and `sound.js` as they were; `view.js` with the drift renames and `me` (whose warning rings grow with distance); each with an import line from `env.js` and an export line.
   three.js is round five's 0.149.0, served from `page/vendor/`, since the site's Content-Security-Policy allows scripts from the site only; for the same reason the page's fonts fall back to the system's (Arial Black, Arial Narrow) and nothing in it uses a style attribute in markup.
 
-- **The big screen** draws the cars three times their size on the whole-table picture (true size in its close shots), and its names (2.3% of the screen's height), hint and strip grow with the screen.
+- **The big screen's whole table** draws the cars three times their size (true size in its close shots), and its names (2.3% of the screen's height), hint and strip grow with the screen.
 
-Test switches, on the room page's address: `derby-auto=1` (the house's driver holds this phone's hands, through the same path as a thumb), `derby-lag=<ms>` (inputs held back before they are sent), `derby-touch` (thumbs on a computer) and `derby-short` (a player's view asks for a test run's short race as it mounts, before the race page has loaded: one lap, a five-second last call).
+### The big screen
+
+The phone is the controller; the big screen is where each player watches their own car (`page/split.js`).
+It has one pane per player in the race (house cars get none), each with that player's own chase camera (the phone's `ChaseRig`), framed in the player's colour, and on it their name, place and lap, the power they hold, who is just ahead and behind and how far, and the spring.
+Every word on it is at least 2% of the screen's height (2.2% to 3.3%), to be read from a sofa.
+
+| Players | Layout | Why |
+| --- | --- | --- |
+| 1 | The whole screen; the table from above and the places small in the bottom right corner | The car large; the corner is cloth and scenery in a chase picture |
+| 2 | Side by side, the table and the places between them at the bottom | Stacked one above the other was tried (`stills-split/panes-2-stacked-*.png`): each pane, 1920 by 540, spent half its width on the room either side and drew the car half the size, with less road ahead; side by side each is 960 by 1080 with the car large and the road long, and each player has a column of the screen as in the grid |
+| 3 | A 2 by 2 grid; the fourth cell holds the table and the places, large | Every pane the same size and shape as with four |
+| 4 | A 2 by 2 grid; the table small in the middle, no list (each pane has its place) | The middle is the inner corners of the panes, clear of each car; the bottom right pane's words go to its right, clear of the table |
+
+- **The count-in** is said once across the whole screen; the table in the middle of four panes makes way for it.
+- **The finish**: the winner's close shot at the line takes the whole screen in either view (the panes' cameras keep following their cars meanwhile), then each finished player's pane says their place over the live picture until the room shows its card.
+- **A dropped phone**: that player's pane carries on, the house driving, and says "The house is driving" over the live picture until the phone is back.
+- **A phone that joins mid-race** watches the whole table and races the next one; the big screen keeps its panes.
+- **The host's choice**: the big screen starts on the whole table for now (`SPLIT_BY_DEFAULT`); one button (it fades after four quiet seconds; the mouse brings it back) or V switches to the split view and back, remembered on that screen (`localStorage`).
+- **No hardware 3D**: a screen that draws 3D in software is never put on the split view by default (one picture a frame, not four; the host can still switch); one that cannot draw 3D at all shows the table from above as a flat drawing with the cars and the places (`page/map.js`), never a black screen.
+- **Drawing four pictures**: the split view draws at most `SPLIT_DPR_CAP` (1.25) pixels per CSS pixel, and the frame-rate governor (`page/governor.js`) lowers the resolution of every pane (to half at most) before frames are dropped: after 40 slow frames in a row (late against the display's own interval, the median of the last 61 frame intervals, so jitter and one short interval do not move it), or three frames in a row of a quarter of a second or more; and it raises it again after 600 frames in a row that are not slow (ten seconds at 60 Hz).
+- **The middle table with four**: dots of cars running together are eased apart so each stays whole.
+
+Test switches, on the room page's address: `derby-auto=1` (the house's driver holds this phone's hands, through the same path as a thumb), `derby-lag=<ms>` (inputs held back before they are sent), `derby-touch` (thumbs on a computer), `derby-short` (a player's view asks for a test run's short race as it mounts, before the race page has loaded: one lap, a five-second last call) and `derby-tvview=split|table` (the big screen's view, whatever it remembers or draws with).
 The short race is decided by the room, not the page: only the test wall runs `testGame` (`party.js`, `lobby/wall.js`), whose races take `{short: 1}` in the count-in and tell everyone (`{k: "len"}`); production's `game` ignores it (`test/room.test.js`, `test/party-view.test.js`).
 The gate's step (`npm run test:tin-derby`) is one such race with every trouble at once; the whole-race suite is `npm run test:tin-derby:full`, and whole races, determinism and balance are also checked by the unit tests, in seconds.
 They work only where the room has its test games on (`PARTY_TEST_GAMES`, the local environment and the test runs): the view hands them to the page (`partyHost.switches`) only when the wall the server sent has a test box, and the page never reads its own address. In production they do nothing (`test/party-view.test.js`).
@@ -199,6 +226,35 @@ On the owner's PC on 2026-11-16 (a busy machine: load 11 to 25 on 14 threads), `
 | A frame's prediction on a phone page | 0.6 ms on average, 17 to 23 ms at worst (a loaded machine) |
 | 40 ms each way (the room's simulated latency) | the phone's own car: exactly where the room put it (190 steps compared); rivals exactly; no input late (275 sent) |
 | 200 ms each way | own car 0.038 car lengths off on average, 0.28 at most (364 steps); rivals 0.0005 on average, 0.047 at most; every one of 593 inputs late, by 4.2 steps (35 ms) on average |
+
+**From a thumb on the phone to the car on the big screen** (`--only=tvlag`): a phone and a big screen, each the same delay from the room both ways, 24 steers (12 presses and 12 releases, half a second apart), timed from the key event on the phone to the first frame each page drew the car holding that steer, on the machine's clock.
+
+| Each way | On the phone | On the big screen |
+| --- | --- | --- |
+| 40 ms | 16 ms median, 23 at most | 113 ms median, 126 for 90%, 141 at most |
+| 200 ms | 13 ms median, 22 at most | 435 ms median, 454 for 90%, 455 at most |
+
+The big screen draws each car from its own copy of the race and the hands the room relays, and it already applies them the moment they arrive, at the step the room gave them, with the same prediction the phone uses (`replica.predict`); what is left is the trip itself: the phone to the room, a wait for the room's next tick (33 ms at most; the kit relays a ticking game's inputs only at its tick), the room to the big screen, and the next frame.
+The one saving inside this page was taken: the phone sends its hands on the thumb's own event rather than at its next frame (before, 26 ms median on the phone, and 113 and 444 ms on the big screen: within the noise of one run there).
+Relaying an input the moment it arrives instead of at the next tick would save about 16 ms more on average; that is the kit's to change.
+What it means: a party in one room, phones and the big screen on the same wifi and a nearby Cloudflare edge (20 to 50 ms each way), sees its steering on the big screen about 0.1 s after the thumb, which is steerable (about what cloud gaming adds); at 200 ms each way (a poor connection) the big screen lags about 0.45 s, too much to steer by, and the phone's own picture (which answers within a frame at any delay) is the one to drive by.
+
+**The big screen's frame rate** (`--only=tvperf`): four players, the big screen at 1920 by 1080, the phones switched to controller only so the big screen is the only page drawing; 12 seconds of frames mid-race.
+The owner's PC was busy with other work throughout (load 8 to 30 on 14 threads).
+
+| Drawn by | View | Frames a second | 95% of frames within | The page's own work a frame | Draw calls, triangles |
+| --- | --- | --- | --- | --- | --- |
+| The graphics card (RX 7800 XT) | four panes | 59.3 (the display's 60) | 16.8 ms | 1.5 ms (12.5 at most) | 227, 404,000 |
+| The card, the processor 4x slower | four panes | 60 | 16.7 ms | 6.6 ms (13.3 at most) | 216, 399,000 |
+| The same, an earlier run (load 30, each pane still working out the scene's matrices) | four panes | 30, unevenly (127 of 363 frames over 25 ms) | 100 ms | not measured | 216, 371,000 |
+| The card, the processor 4x slower | whole table | 60 | 16.8 ms | 4.0 ms | 74, 116,000 |
+| SwiftShader (no graphics card) | four panes | 1.4 | 1.6 s | 9.9 ms | 207, 394,000 |
+| SwiftShader | whole table | 7 | 0.27 s | 2.2 ms | 71, 115,000 |
+
+There is no laptop graphics chip to try here: a slow laptop is stood in for by Chrome's processor throttling (4x), and a machine with no graphics card by SwiftShader.
+Between the 30 and the 60 frames a second with the processor slowed, two things changed and are not told apart: the machine was quieter, and the panes now share one working-out of the scene's matrices a frame.
+On the card the four panes are not limited by pixels (its busiest engine stayed under a third); where the processor is the limit, frames come unevenly rather than steadily slow, and lowering the resolution does little: the host's whole-table button is the remedy.
+In software the pixels are the limit: the governor lowers every pane's resolution (to half at most) after 40 slow frames in a row, or three in a row of a quarter of a second or more, so at 1.4 frames a second it acts within seconds; the SwiftShader rows were measured before that rule and at full resolution, and a screen that draws in software never starts on the split view by itself anyway.
 
 What the 200 ms run means for steering: the phone turns the car the frame the thumb moves, as at 40 ms; the room takes each input 35 ms later than the phone did, so the car is pulled back by a few hundredths of a length, at most a quarter of a length on a hard turn.
 The room runs 0.15 s behind its clock (`NET.DELAY`), so up to about 150 ms one way nothing is late at all.
@@ -285,5 +341,7 @@ node floor/games/tin-derby/tools/parity.mjs /path/to/preview
 npm run test:tin-derby -- --base=http://localhost:8791        # the gate's step: one short race in the party room, every trouble at once
 npm run test:tin-derby:full -- --base=http://localhost:8791   # whole races, real browsers: run this before a change to the game itself (about 10 minutes)
 node floor/games/tin-derby/test/e2e-room.mjs --only=lag --base=...   # the 40 and 200 ms runs above
+node floor/games/tin-derby/test/e2e-room.mjs --only=panes --panes=1,2,3,4 --out=... --base=...   # the big screen's split view, with stills
+node floor/games/tin-derby/test/e2e-room.mjs --only=tvlag,tvperf --base=...   # thumb to big screen, and the big screen's frame rate (below)
 node floor/games/tin-derby/tools/workerd-cost.mjs --base=... --pid=<workerd pid>   # the cost in workerd above
 ```

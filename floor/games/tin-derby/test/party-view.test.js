@@ -53,6 +53,24 @@ describe("the test switches", () => {
     v.unmount();
   });
 
+  it("the page is told how many big screens the party has (a phone may be a controller only when there is one)", () => {
+    const count = (screens) => { const v = mount(fakeContainer(), { ...ctx(WALL, null), room: { ...view(WALL), screens } }); const n = v.frame.partyHost.screens; v.unmount(); return n; };
+    expect(count(1)).toBe(1);
+    expect(count(0)).toBe(0);
+    for (const odd of [undefined, null, -2, "x", NaN]) expect(count(odd)).toBe(0);
+  });
+
+  it("... and hears when the big screen leaves and comes back (the room page's room hook), once per change", () => {
+    const v = mount(fakeContainer(), { ...ctx(WALL, null), room: { ...view(WALL), screens: 1 } });
+    const heard = [];
+    v.frame.partyHost.on("screens", (n) => heard.push(n));
+    for (const n of [1, 0, 0, 1]) v.room({ ...view(WALL), screens: n });
+    expect(heard).toEqual([0, 1]);
+    expect(v.frame.partyHost.screens).toBe(1);
+    v.unmount();
+    expect(() => v.room({ screens: 0 })).not.toThrow(); // after the race: nothing to tell
+  });
+
   it("a room view with no wall, or a malformed one, gives no switches", () => {
     for (const room of [null, undefined, {}, { boxes: null }, { boxes: [{ test: "yes" }] }, { boxes: [null, 7] }]) expect(switchesFor(room, ASKED)).toBe("");
   });

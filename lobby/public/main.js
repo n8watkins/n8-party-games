@@ -36,7 +36,7 @@ import { clearOfCard, tagsTop } from "./card-clear.js";
 import { Pilot } from "./shared/pilot.js";
 import { isRoom, roomName, wallFor } from "./shared/rooms.js";
 import { watchMode } from "./hop.js";
-import { stageKey, stageStale } from "./shared/stage.js";
+import { stageKey, stageStale, tellRoom } from "./shared/stage.js";
 import { playerLine, statusLine } from "./shared/status.js";
 import { JUMP_HEIGHT, acrossWalls, posAt, sameWall } from "./shared/world.js";
 
@@ -419,6 +419,7 @@ function apply(next, at = performance.now()) {
   placesWall = wallFor(next.room, next.boxes);
   // Until the room answers the start link's pick, its older words do not undo it.
   if (pendingRoom) room.room = pendingRoom;
+  stage?.room(room); // a game's view that asks hears the room as it changes (who is here, the big screen)
   voteAt = roomSeenAt = at;
   sounds.setRoom(room.code);
   if (!scene) return;
@@ -854,6 +855,7 @@ function startStage(snapshot) {
     key: stageKey(room.game),
     events: (...args) => pass("events", args),
     snapshot: (...args) => pass("snapshot", args),
+    room: (next) => mine.view && tellRoom(mine.view, next),
     unmount() {
       mine.gone = true;
       mine.view?.unmount();
@@ -876,6 +878,7 @@ function startStage(snapshot) {
       app.classList.add("staged");
       app.classList.toggle("in-game", !!mine.view.full);
       for (const [method, args] of mine.waiting.splice(0)) mine.view[method](...args);
+      if (room !== ctx.room) tellRoom(mine.view, room); // the room changed while the view's files were loading
     })
     .catch((err) => hud?.note(`The game could not be shown: ${err.message}`));
 }

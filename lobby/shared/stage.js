@@ -13,3 +13,19 @@ export function stageStale(key, room) {
   if (key === null) return false;
   return room?.phase !== "playing" || stageKey(room.game) !== key;
 }
+
+/**
+ * A mounted view hears the room view each time it changes, if it asks to (an optional `room(view)` on what
+ * `mount` returned: GAME-CONTRACT.md, "In the browser"). A view without it is not touched, and a view whose hook
+ * throws does not stop the room's page. Returns whether the view was told.
+ */
+export function tellRoom(view, room) {
+  if (typeof view?.room !== "function") return false;
+  try {
+    view.room(room);
+    return true;
+  } catch (err) {
+    console.warn(`a game's view failed on a room update: ${err?.message ?? err}`);
+    return false;
+  }
+}

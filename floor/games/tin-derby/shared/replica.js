@@ -69,11 +69,12 @@ export function makeReplica(rules, snapshot, { seat = null } = {}) {
      * moved, or only the steer has and the last message is less than NET.SEND_EVERY old (the room takes 20 messages
      * a second from a socket; a button is always sent at once).
      */
-    input(now, steer, go, brake, drift, use, { force = false } = {}) {
+    input(now, steer, go, brake, drift, use, { force = false, again = false } = {}) {
       if (me < 0 || auth.over) return null;
       const msg = { c: [now, steer, go ? 1 : 0, brake ? 1 : 0, drift ? 1 : 0, use ? 1 : 0], q: q + 1 };
       const inp = rules.readInput(msg);
-      if (inp.st === sent[0] && inp.b === sent[1]) return null;
+      // `again`: sent even if unchanged (a page taking its car back from the house, which only hands do).
+      if (!again && inp.st === sent[0] && inp.b === sent[1]) return null;
       // `force`: the page is going away (hidden, closed), so the hands it lets go of are sent now, not a frame later.
       if (!force && inp.b === sent[1] && now - sentAt < NET.SEND_EVERY * 1000) return null;
       q += 1; sent = [inp.st, inp.b]; sentAt = saidAt = now;

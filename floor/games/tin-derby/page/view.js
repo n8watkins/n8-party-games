@@ -364,6 +364,9 @@ class World {
     const r = this.renderer;
     r.setScissorTest(false); r.setViewport(0, 0, this.cssW, this.cssH); r.clear();
     r.setScissorTest(views.length > 1);
+    // The party room's split view draws up to four pictures of one scene: its matrices are worked out once, not per picture.
+    this.scene.updateMatrixWorld();
+    this.scene.matrixWorldAutoUpdate = false;
     for (const view of views) {
       const { cam, rect } = view;
       r.setViewport(rect.x, this.cssH - rect.y - rect.h, rect.w, rect.h);
@@ -385,6 +388,7 @@ class World {
       this.movers.shakerShell.visible = !nearShaker;
       r.render(this.scene, cam);
     }
+    this.scene.matrixWorldAutoUpdate = true;
     for (const v of this.cars) v.group.visible = true;
   }
   /**
