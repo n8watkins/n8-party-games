@@ -30,13 +30,16 @@ export function switchesFor(room, asked) {
   return out.toString();
 }
 
+/** How many big screens a room view says the party has (0 for anything odd). */
+const screensOf = (room) => Math.max(0, Number(room?.screens) || 0);
+
 /**
  * @param {HTMLElement} container  an empty box laid over the room's page; the race fills it
  * @param {object} ctx  room, you, snapshot, send, now, inset, params (GAME-CONTRACT.md, "In the browser")
  */
 export function mount(container, { room, you, snapshot, send, now, inset = {}, params = null }) {
   const doc = container.ownerDocument;
-  const handlers = { events: new Set(), snapshot: new Set() };
+  const handlers = { events: new Set(), snapshot: new Set(), screens: new Set() };
   /** What the room said before the page had loaded: handed over, in order, when it is ready. */
   let backlog = [];
   let ready = false;
@@ -52,6 +55,12 @@ export function mount(container, { room, you, snapshot, send, now, inset = {}, p
   frame.partyHost = {
     room,
     you,
+    /**
+     * Big screens in the party now (the room view's `screens`), kept up to date from the room's updates (`room`
+     * below); the page hears a change with on("screens", n). With one, a player's car is on it, so a phone may be a
+     * controller only (main.js).
+     */
+    screens: screensOf(room),
     snapshot,
     inset: { top: inset.top ?? 0, right: inset.right ?? 0 },
     now,
@@ -92,6 +101,14 @@ export function mount(container, { room, you, snapshot, send, now, inset = {}, p
     frame,
     events: (list) => emit("events", list),
     snapshot: (s, at, full = false) => emit("snapshot", s, at, full),
+    /** The room view changed (the room's page calls this: GAME-CONTRACT.md, "In the browser"): the page hears when the big screens come or go. */
+    room(next) {
+      if (gone || !frame.partyHost) return;
+      const n = screensOf(next);
+      if (n === frame.partyHost.screens) return;
+      frame.partyHost.screens = n;
+      for (const handler of handlers.screens) handler(n);
+    },
     unmount() {
       if (gone) return;
       gone = true;
@@ -103,6 +120,7 @@ export function mount(container, { room, you, snapshot, send, now, inset = {}, p
       }
       handlers.events.clear();
       handlers.snapshot.clear();
+      handlers.screens.clear();
       frame.partyHost = null;
       frame.remove();
     },

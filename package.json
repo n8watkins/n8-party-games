@@ -73,7 +73,7 @@
     "test:production": "node party-kit/test/e2e-production.mjs",
     "test:turnstile": "node party-kit/test/e2e-turnstile.mjs",
     "test:tin-derby": "node floor/games/tin-derby/test/e2e-room.mjs --only=short",
-    "test:tin-derby:full": "node floor/games/tin-derby/test/e2e-room.mjs --only=solo,two,four,trouble,stalls,look,lag"
+    "test:tin-derby:full": "node floor/games/tin-derby/test/e2e-room.mjs --only=solo,two,four,panes,trouble,stalls,noscreen,screens,look,lag,tvlag"
   },
   "dependencies": {
     "lean-qr": "^2.7.4"

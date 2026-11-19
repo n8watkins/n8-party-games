@@ -35,6 +35,26 @@ export const HOUSE = [
   { name: "Dot", habit: "dot" },
 ];
 export const CHARACTERS = ["pawn", "ghost", "slime", "robot"];
+/**
+ * The house cars' paints, in the order they are tried: each house car takes the first that is not close to a colour
+ * already in the race, so no house car wears a player's colour (they all wore the default red, as the first player does).
+ * The first four are none of the party room's colour presets and stand out on the red and cream cloth: lime,
+ * chocolate, sky blue, indigo (each at least 112 apart from every preset, as `far` measures; the cloth's red and cream
+ * at least 43 apart in CIE Lab). Sky blue comes third, so with the party room's usual seat colours it is worn only beside
+ * a lone first player, not next to the second seat's enamel blue. The rest are the presets, for a party that has taken those.
+ */
+export const HOUSE_COLOURS = ["#9cc43a", "#7b4a2c", "#4a9be0", "#2b2f7a", "#1d1d1d", "#3aa9a0", "#d9619a", "#8a5bc4", "#d9a02a", "#3f7a4a"];
+const rgbOf = (hex) => { const n = parseInt(String(hex).slice(1), 16) || 0; return [(n >> 16) & 255, (n >> 8) & 255, n & 255]; };
+/** How far apart two colours look, roughly ("redmean"): plain arithmetic and a square root, the same on every engine. */
+export function colourGap(a, b) {
+  const p = rgbOf(a), q = rgbOf(b), r = (p[0] + q[0]) / 2, dr = p[0] - q[0], dg = p[1] - q[1], db = p[2] - q[2];
+  return Math.sqrt((2 + r / 256) * dr * dr + 4 * dg * dg + (2 + (255 - r) / 256) * db * db);
+}
+/** The first house paint far enough from every colour the rows so far wear (the last one if none is). */
+function houseColour(rows) {
+  const far = (hex) => rows.every((r) => colourGap(hex, r.colour || "#c8382c") > 110);
+  return HOUSE_COLOURS.find(far) || HOUSE_COLOURS[rows.length % HOUSE_COLOURS.length];
+}
 export const GRID_ORDER = [0, 2, 1, 3];
 const TAU = dmath.TAU;
 /** The timers every car counts down each step. */
@@ -87,7 +107,7 @@ export function makeRules(T = TUNE, { math: M = dmath, preview: PREVIEW = false 
   function createRace({ seed = 1, seats = [], now = 0, round = 1, endless = false, house: houseRows = [], delay = NET.DELAY } = {}) {
     const rows = seats.slice(0, 4).map((s) => ({ ...s, kind: "human" }));
     const free = CHARACTERS.filter((ch) => !rows.some((r) => (CHARACTERS.includes(r.character) ? r.character : "pawn") === ch));
-    for (let h = 0; rows.length < 4; h++) rows.push({ seat: -1 - h, kind: "house", name: HOUSE[h % 3].name, habit: HOUSE[h % 3].habit, character: free[h % (free.length || 1)] || "pawn", ...(houseRows[h] || {}) });
+    for (let h = 0; rows.length < 4; h++) rows.push({ seat: -1 - h, kind: "house", name: HOUSE[h % 3].name, habit: HOUSE[h % 3].habit, character: free[h % (free.length || 1)] || "pawn", colour: houseColour(rows), ...(houseRows[h] || {}) });
     return fresh({
       seed: seed >>> 0, round, startAt: now, delay: Math.round(delay * 1000), n: 0, endless: !!endless, toast: 0, over: false, firstFin: -1, homeAt: null,
       cars: rows.map((r, i) => makeCar(i, r, T.GRID[GRID_ORDER[i]])),
