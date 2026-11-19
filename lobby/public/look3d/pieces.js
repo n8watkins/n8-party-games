@@ -12,7 +12,7 @@
 import * as THREE from "./three.js";
 import { PX, SPACE, walkX } from "./space.js";
 import { IMMUNE_MS, IMPACT_MS, PIECE_HEAD, PIECE_PIVOT, STUN_MS, attackPose, impactPoint, knockPose } from "../shared/bump.js";
-import { SCARE, SPOOK, frightPose, frightResumed } from "../shared/ghost.js";
+import { isMoved, moved, movedPose, movedResumed } from "../shared/moves.js";
 import { JUMP_MS, WALK_SPEED, jumpHeight } from "../shared/world.js";
 
 /** How big a piece is beside the room. */
@@ -68,18 +68,25 @@ function shapes() {
     at.updateMatrix();
     glints.push([ball, at.matrix.clone()]);
   }
-  // Two little crosses, for the eyes of a piece that has just been knocked over.
-  const crosses = [];
-  const bar = new THREE.BoxGeometry(0.085, 0.017, 0.012);
-  for (const side of [-1, 1])
-    for (const turn of [-1, 1]) {
-      at.position.set(side * 0.075, 0.925, 0.207);
-      at.rotation.set(0, side * 0.33, (turn * Math.PI) / 4);
+  // The eyes of a piece that has just been knocked over: squeezed shut, a wince (> <), so it reads
+  // as "oof" and never as hurt (the owner's pick, character preview round three; crosses read as dead).
+  const shut = [];
+  const L = 0.05;
+  const ANG = 0.5;
+  const bar = new THREE.BoxGeometry(L, 0.016, 0.012);
+  for (const side of [-1, 1]) {
+    // The left eye points in (>), the right eye points in (<): the tips face each other.
+    const s = -side;
+    const tip = side * 0.055;
+    for (const up of [1, -1]) {
+      at.position.set(tip - s * Math.cos(ANG) * (L / 2), 0.925 + up * Math.sin(ANG) * (L / 2), 0.207);
+      at.rotation.set(0, side * 0.33, -up * s * ANG);
       at.scale.set(1, 1, 1);
       at.updateMatrix();
-      crosses.push([bar, at.matrix.clone()]);
+      shut.push([bar, at.matrix.clone()]);
     }
-  return { body, eyes: merged(eyes), glints: merged(glints), crosses: merged(crosses), blob: new THREE.CircleGeometry(0.5 * SIZE, 24), ring: new THREE.RingGeometry(0.4, 0.47, 48) };
+  }
+  return { body, eyes: merged(eyes), glints: merged(glints), shut: merged(shut), blob: new THREE.CircleGeometry(0.5 * SIZE, 24), ring: new THREE.RingGeometry(0.4, 0.47, 48) };
 }
 
 let SHAPES = null;
@@ -96,10 +103,10 @@ export function makePawn(radial) {
   const turn = new THREE.Group();
   const eyes = new THREE.Mesh(SHAPES.eyes, eyeMat);
   const glints = new THREE.Mesh(SHAPES.glints, glintMat);
-  const crosses = new THREE.Mesh(SHAPES.crosses, eyeMat);
-  crosses.visible = false;
+  const shut = new THREE.Mesh(SHAPES.shut, eyeMat);
+  shut.visible = false;
   const skin = new THREE.Mesh(SHAPES.body, mat);
-  turn.add(skin, eyes, glints, crosses);
+  turn.add(skin, eyes, glints, shut);
   const tilt = new THREE.Group();
   tilt.add(turn);
   const group = new THREE.Group();
@@ -116,7 +123,7 @@ export function makePawn(radial) {
   ring.rotation.x = -Math.PI / 2;
   ring.renderOrder = 2;
   ring.visible = false;
-  return { group, tilt, turn, mat, blob, ring, skin: [skin], eyes, glints, crosses, colour: new THREE.Color(), sq: 1, sqV: 0, lean: 0, leanV: 0, yaw: 0, stride: 0, lit: 0, prevX: null, air: false, fade: 1 };
+  return { group, tilt, turn, mat, blob, ring, skin: [skin], eyes, glints, shut, colour: new THREE.Color(), sq: 1, sqV: 0, lean: 0, leanV: 0, yaw: 0, stride: 0, lit: 0, prevX: null, air: false, fade: 1 };
 }
 
 /** Colours a pawn for its seat, or grey for a player who has dropped and is expected back. */
@@ -164,7 +171,7 @@ const HEAD_SCALE = (0.9 * SIZE) / PX / PIECE_HEAD;
  *   lean   radians, positive tips its head to the left of the screen, about a point `pivot`
  *          world units above its foot
  *   sx, sy stretch
- *   dizzy  crosses for eyes; safe: it cannot be knocked again yet; shock: it was just hit
+ *   dizzy  eyes squeezed shut (a pawn's wince, > <; a robot's crosses); safe: it cannot be knocked again yet; shock: it was just hit
  *   burst  {x, y} once, at the moment the blow lands; dust: an x once, when it hits the floor
  *   scared, pale  0 to 1: a ghost frightened it (lobby/shared/ghost.js, frightPose): its eyes go
  *          wide and its paint pales, as its own character does them. It starts, freezes and
@@ -174,12 +181,12 @@ const HEAD_SCALE = (0.9 * SIZE) / PX / PIECE_HEAD;
 export function bumpPose(piece, now, calm = false) {
   const f = piece.fright;
   if (f) {
-    const pose = frightPose(now - f.at, f.from, f.to, f.how, f.safeFor, calm);
+    const pose = movedPose(f, now - f.at, calm);
     if (pose.state === "up") piece.fright = null;
     // Until the kick reaches the ghost the kicker's own kick is drawn (below).
     else if (pose.state !== "standing") {
       if (pose.face) piece.face = pose.face;
-      return { ...UPRIGHT, x: pose.x, dx: pose.dx, lift: pose.lift, lean: -pose.tilt * RAD, sx: pose.sx, sy: pose.sy, state: pose.state, safe: pose.state === "safe", scared: pose.scared, pale: pose.pale };
+      return { ...UPRIGHT, x: pose.x, dx: pose.dx, lift: pose.lift, lean: -pose.tilt * RAD, sx: pose.sx, sy: pose.sy, state: pose.state, safe: pose.state === "safe", scared: pose.scared, pale: pose.pale, dizzy: !!pose.dizzy };
     }
   }
   const k = piece.knock;
@@ -223,22 +230,22 @@ export function startKnock(piece, to, at) {
 }
 
 /**
- * A ghost frightened a piece, which runs from where it is drawn to `to` (lobby/shared/ghost.js):
- * `kind` "scare" (it kicked a faded ghost; `at` is when its kick began) or "spook" (a faded ghost
- * drifted through it; `at` is now).
+ * The room moved a piece some other way than a kick, from where it is drawn to `to`
+ * (lobby/shared/moves.js): `kind` "scare" (it kicked a faded ghost; `at` is when its kick began),
+ * "spook", "hookscare", "pull", "bonk" or "shove" (`at` is now).
  */
 export function startFright(piece, to, at, kind) {
-  piece.fright = { at, from: piece.rx, to, how: kind === "scare" ? SCARE : SPOOK, safeFor: IMMUNE_MS };
+  piece.fright = moved(kind, piece.rx, to, at);
   piece.knock = null;
 }
 
 /**
  * The room says a piece is on the floor or just up from it (for a page that arrived in the
- * middle): knocked, or scared or spooked (`fright`), drawn as what it is.
+ * middle): knocked, or moved another way (`fright`, lobby/shared/moves.js), drawn as what it is.
  */
 export function resumeKnock(piece, x, down, safe, now, fright) {
   if (piece.knock || piece.fright || !(safe > 0)) return;
-  if (fright) return void (piece.fright = frightResumed(x, down, safe, fright, now));
+  if (isMoved(fright)) return void (piece.fright = movedResumed(x, down, safe, fright, now));
   piece.knock = { at: now - (STUN_MS - down), from: x, to: x, safeFor: safe - down, burst: true, dust: true };
 }
 
@@ -311,7 +318,7 @@ export function posePawn(pawn, piece, now, dt, how) {
   pawn.turn.rotation.y = thrown ? pawn.yaw * 0.3 : pawn.yaw;
   if (bump.dizzy !== pawn.dizzy) {
     pawn.dizzy = bump.dizzy;
-    pawn.crosses.visible = bump.dizzy;
+    pawn.shut.visible = bump.dizzy;
     pawn.eyes.visible = pawn.glints.visible = !bump.dizzy;
   }
   // Frightened by a ghost: the eyes go wide, grown about their own middle.

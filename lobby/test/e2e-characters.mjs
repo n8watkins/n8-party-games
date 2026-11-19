@@ -16,7 +16,7 @@
 //                     Lighter up and Huh?; a cuff on the pointing hand; none for Fuming); then a
 //                     slime does each (hands on arms of its goo) and a robot (hands on jointed arms)
 //   a knock           a ghost that is bumped squeezes its eyes shut (it never gets crosses); a
-//                     knocked slime's eyes swirl or squeeze shut, a robot's are crosses
+//                     knocked slime's eyes squeeze shut, a robot's are crosses
 //   a reconnect       the phone reloads and is still its ghost; the choice is back on a new party
 //   the same choice   a second player picks the same character and colour, and the room lets them
 //   a bad choice      an unknown character and a bad colour are refused, to the sender only
@@ -576,8 +576,13 @@ try {
     ada.goto(light - 60);
     await walkTo(bea, B, light);
     await walkTo(cy, C, light + 60);
-    const counting = await ada.wait((m) => m.t === "vote" && !!m.vote.count, 5000, mark).then(() => true, () => !!ada.room.vote?.count);
-    check(counting, "everyone stands in a light, and the count runs");
+    // The count as it stands now (one that started while a piece walked through a light, and
+    // stopped as it walked on, is not one): up to five seconds for it.
+    let counting = false;
+    for (let i = 0; i < 50 && !(counting = !!ada.room.vote?.count); i++) await sleep(100);
+    // When it does not run, what the room has: where each piece is, what it stands in, and which lights are on.
+    const why = counting ? "" : ` (the room has ${JSON.stringify((await where()).filter(Boolean).map((m) => [m.name, m.x, m.character, m.faded ?? 0, m.connected]))}, standing ${JSON.stringify(ada.room.vote?.standing)}, lights ${JSON.stringify(ada.room.vote?.lights)}, light at ${light})`;
+    check(counting, `everyone stands in a light, and the count runs${why}`);
     mark = ada.seen.length;
     await bea.keyboard.press("KeyX");
     await sleep(500);
