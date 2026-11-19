@@ -21,7 +21,7 @@
 //   a reload        a phone reloaded while Rob's legs are up, and Sam's own phone reloaded while
 //                   it is soft, draw them so
 import { LOOK_COOLDOWN_MS } from "../shared/characters.js";
-import { HOOK_COOLDOWN_MS, STILT_COOLDOWN_MS, STILT_MS } from "../shared/robot.js";
+import { HOOK_COOLDOWN_MS, PULL_MS, STILT_COOLDOWN_MS, STILT_MS } from "../shared/robot.js";
 import { ABSORB_MS, HOLD_MS, SLIME_COOLDOWN_MS } from "../shared/slime.js";
 import { launchBrowser } from "./browser.mjs";
 import { partyApi, sleep } from "./client.mjs";
@@ -42,6 +42,19 @@ const section = (name) => console.log("\n     -- " + name);
 function pageHelpers() {
   const send = WebSocket.prototype.send;
   WebSocket.prototype.send = function (data) {
+    // When this page heard the room's word on each hook (its own clock): {t, s, to, at}.
+    if (window.__ws !== this) {
+      window.__heard = [];
+      this.addEventListener("message", (e) => {
+        let msg = null;
+        try {
+          msg = JSON.parse(e.data);
+        } catch {
+          return;
+        }
+        for (const m of Array.isArray(msg) ? msg : [msg]) if (m && (m.t === "hook" || m.t === "hk")) window.__heard.push({ t: m.t, s: m.s, to: m.to, at: performance.now() });
+      });
+    }
     window.__ws = this;
     // A message the test holds back on its way to the room (a slow network): {test, ms}.
     const late = window.__late;
@@ -70,7 +83,8 @@ function pageHelpers() {
   };
   window.__moves = {};
   window.watchMoves = (seat, ms) => {
-    const most = (window.__moves[seat] = { legs: 0, chain: false, gem: false, soft: false, frights: [], knocked: false, hooks: [], minX: Infinity, maxX: -Infinity, frames: 0 });
+    // path: every frame drawn, [when (this page's clock), where the piece was drawn].
+    const most = (window.__moves[seat] = { legs: 0, chain: false, gem: false, soft: false, frights: [], knocked: false, hooks: [], minX: Infinity, maxX: -Infinity, frames: 0, from: performance.now(), path: [] });
     const until = performance.now() + ms;
     const look = () => {
       const m = window.movesOn(seat);
@@ -85,6 +99,7 @@ function pageHelpers() {
         if (m.hook && !most.hooks.includes(m.hook)) most.hooks.push(m.hook);
         most.minX = Math.min(most.minX, m.x);
         most.maxX = Math.max(most.maxX, m.x);
+        most.path.push([performance.now(), m.x]);
       }
       if (performance.now() < until) requestAnimationFrame(look);
     };
@@ -215,8 +230,18 @@ try {
     check(pulled?.o === "pull" && pulled.to === P && Math.abs(pulled.x - at[R].x - 64) <= 2, `it caught Pat and dragged him from ${at[P].x} to ${pulled?.x} (Rob at ${at[R].x})`);
     await sleep(1700);
     for (const [name, page] of [["Sam", sam], ["Pat", pat]]) {
-      const pawn = await seenOn(page, P);
-      check(pawn.frights.includes("pull") && !pawn.knocked && pawn.minX <= (pulled?.x ?? 0) + 6 && pawn.maxX >= at[P].x - 6,`${name}'s phone draws Pat pulled across the floor, upright, never knocked (${JSON.stringify(pawn)})`);
+      const { path, from, ...pawn } = await seenOn(page, P);
+      // Judged on the frames the page drew, by its own clock, against when it heard the room's verdict.
+      const heardAt = (await page.evaluate(() => window.__heard ?? [])).find((h) => h.t === "hk" && h.s === R)?.at ?? null;
+      const before = heardAt === null ? [] : path.filter(([t]) => t <= heardAt);
+      const sliding = heardAt === null ? [] : path.filter(([t]) => t > heardAt && t < heardAt + PULL_MS * 0.6);
+      const last = path.at(-1)?.[1] ?? null;
+      const end = pulled?.x ?? 0;
+      const stood = before.length > 0 && Math.abs(before.at(-1)[1] - at[P].x) <= 6;
+      const slid = sliding.length === 0 || sliding.some(([, x]) => x > end + 3 && x < at[P].x - 3);
+      const landed = last !== null && Math.abs(last - end) <= 3;
+      const story = `the watch began ${heardAt === null ? "?" : Math.round(heardAt - from)} ms before the verdict; ${before.length} frames before it, the last at ${before.length ? Math.round(before.at(-1)[1]) : "-"}; frames in the first ${Math.round(PULL_MS * 0.6)} ms of the slide at ${JSON.stringify(sliding.map(([t, x]) => `${Math.round(t - heardAt)}ms:${Math.round(x)}`))}; last ${last === null ? "-" : Math.round(last)}`;
+      check(pawn.frights.includes("pull") && !pawn.knocked && stood && slid && landed, `${name}'s phone draws Pat pulled across the floor from ${at[P].x} to ${end}, upright, never knocked (${story}; ${JSON.stringify({ frights: pawn.frights, knocked: pawn.knocked, frames: pawn.frames })})`);
     }
     const chainFirst = await seenOn(sam, R);
     // On a busy machine a page may draw only a few frames in the 260 ms of the pull: the chain out is what must be seen.
@@ -410,10 +435,22 @@ try {
     await sam.evaluate((s) => window.watchMoves(s, 300), S);
     const softBack = Date.now() - softAt;
     await sleep(350);
-    const ownSeen = await seenOn(sam, S);
+    const { path: _ownPath, ...ownSeen } = await seenOn(sam, S);
     const ownSoft = ownSeen.soft;
     // Soft until ABSORB_MS, then melting (SLIME's MELT_MS): a page that drew within the absorb must show it.
     check(softBack < ABSORB_MS && ownSoft, `Sam's phone, back from the reload within the absorb (it drew ${softBack} ms in, of ${ABSORB_MS}), draws Sam soft${ownSoft ? "" : ` (it saw ${JSON.stringify(ownSeen)})`}`);
+    // The reloaded phone takes its harden's cooldown from the room: its move button is ready when
+    // the room's cooldown ends, not however long the view took to load later (a press in between
+    // would be dropped on the phone, the room never hearing it).
+    const askedAt = Date.now();
+    const roomReadyAt = askedAt + ((await where())[S].slimeCool ?? 0);
+    let pageReadyAt = null;
+    for (let i = 0; i < 200 && pageReadyAt === null; i++) {
+      if (await sam.evaluate(() => document.querySelector(".ctl-bump")?.classList.contains("ready") ?? false)) pageReadyAt = Date.now();
+      else await sleep(25);
+    }
+    const lag = pageReadyAt === null ? null : pageReadyAt - roomReadyAt;
+    check(lag !== null && lag < 250, `Sam's reloaded phone has its move ready when the room does (${lag} ms after the room)`);
 
     section(`${look}: a hold survives a page that stalls drawing; an absorb the room refuses is taken back on Sam's own phone`);
     await rested(S);

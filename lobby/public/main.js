@@ -239,7 +239,7 @@ async function enter() {
   slow.start(scene.look, performance.now(), simpler);
   meter?.start(scene);
   zoom = phone() ? "closer" : "room";
-  apply(room);
+  apply(room, roomHeardAt);
   if (!lastFrame) requestAnimationFrame(frame);
   // The room is up: now its sounds may be fetched, once sound is allowed.
   roomSounds.warm();
@@ -397,7 +397,16 @@ function boardLine(now) {
 /** When the room last sent the whole room: moves heard before it are older than its positions. */
 let roomSeenAt = 0;
 
-function apply(next) {
+/**
+ * When the last whole room heard before the view was drawn arrived. Drawing the first view can
+ * take a while (the 3D look loads first), and the room's times in that message (a move's
+ * cooldown, a knock, a hook in flight) run from when it was sent, so the first apply counts them
+ * from here: a phone just reloaded is ready to move when the room says it is, not a load later.
+ */
+let roomHeardAt = 0;
+
+/** Takes a whole room message, heard at `at` (now, unless it waited for the view). */
+function apply(next, at = performance.now()) {
   // Someone came in, or went: heard once, by the room (not for this device's own arrival).
   if (room && roomSounds && next.code === room.code) {
     const was = new Set(room.members.filter(Boolean).map((m) => m.seat));
@@ -410,7 +419,7 @@ function apply(next) {
   placesWall = wallFor(next.room, next.boxes);
   // Until the room answers the start link's pick, its older words do not undo it.
   if (pendingRoom) room.room = pendingRoom;
-  voteAt = roomSeenAt = performance.now();
+  voteAt = roomSeenAt = at;
   sounds.setRoom(room.code);
   if (!scene) return;
   scene.setRoom(room, voteAt);
@@ -512,6 +521,8 @@ link.on("room", (next) => {
   if (modeHop.leaving) return;
   if (scene) return apply(next);
   room = next;
+  // Its times (cooldowns, a knock, a hook, a count) run from now, not from when the view is drawn.
+  roomHeardAt = performance.now();
   if (pendingRoom) room.room = pendingRoom;
   if (!entering) void enter();
 });
