@@ -12,9 +12,10 @@
 // --short=1 (test:cork, the pre-deploy gate's step) cuts each round short once everything it
 // checks while the round is on is done: the test wall's game (cork-and-bell's testGame) takes a
 // test run's {round: s}, a time call at least a second ahead, and tells every page. Cy's page
-// first asks for an 85-second round through the cork-round switch as its view mounts, which
+// first asks for an 89-second round through the cork-round switch as its view mounts, which
 // proves that path; then Bea's socket (in the battle) and Sol's page (in the round alone) cut
-// the round to a couple of seconds ahead. Everything else is checked as in a full round, against
+// the round to CUT_AHEAD seconds ahead (not when the round's own time call would come first, on
+// a machine so loaded that the checks took that long). Everything else is checked as in a full round, against
 // the round length the room took. Without it (test:cork:full) both rounds run their full ninety
 // seconds and nothing asks for a short round.
 //
@@ -56,7 +57,7 @@ const SHORT = opt("short", "0") === "1";
  * of the full round, so that it shows, and long enough that a loaded machine (the game can take a
  * minute to come up in software) still has the clicks done before it ends.
  */
-const SWITCH_ROUND = 88;
+const SWITCH_ROUND = 89;
 /**
  * How far ahead of the room's clock a round is cut: long enough for pages that draw in software,
  * a frame or two a second on a loaded machine, to hear of it before time is called (and their
@@ -310,6 +311,13 @@ try {
   for (const name of Object.keys(frames)) seats[name] = await frames[name].evaluate(() => ({ mine: window.__cab.session.mySeat, stalls: window.__cab.views.length, hosted: document.body.classList.contains("hosted"), start: document.getElementById("start").hidden, tally: !document.getElementById("tally").hidden }));
   check(seats.Ada.mine === 0 && seats.Cy.mine === 2 && [seats.Ada, seats.Cy].every((s) => s.stalls === 1 && s.hosted && s.start && s.tally), `each phone shows its own stall, in hosted mode, with no start board (the game was up on all three pages ${(loadedIn / 1000).toFixed(1)} seconds after the start)`);
   check(seats.screen.mine === -1 && seats.screen.stalls === 3, "the big screen shows all three stalls side by side: a spectator view");
+  /** What the room said of the round's length ({k: "round"}), in order. */
+  const roundWords = () => watcher.seen.filter((m) => m.t === "ev").flatMap((m) => m.ev.filter((e) => e.k === "round").map((e) => e.s));
+  if (SHORT) {
+    // Cy's view asked for SWITCH_ROUND through cork-round as it mounted: the room took it and every page runs to it.
+    const asked = await pagesHear([frames.Ada, frames.Cy, frames.screen], SWITCH_ROUND);
+    check(roundWords()[0] === SWITCH_ROUND && asked.every((s) => s === SWITCH_ROUND), `cork-round=${SWITCH_ROUND} on Cy's room address: the test wall's room took a ${SWITCH_ROUND}-second round as Cy's view mounted, told everyone, and every page runs to it (${asked.join(", ")})`);
+  }
   for (const [name, page] of [["phone held sideways", ada], ["upright phone", cy], ["big screen", screen]]) {
     const seen = await onTop(page);
     check(seen.door && seen.bars === 0 && seen.fills && seen.clear && !seen.scroll, `${name}: the game fills the screen, the room's bars, buttons and opened board are put away, and its door button stays, clear of the game's sound switch`);
@@ -405,12 +413,7 @@ try {
   // ---------------------------------------------------------------- the end
   /** When the game must call time: the full round, or where this run cut it short. */
   let battleRound = ROUND_SECONDS;
-  /** What the room said of the round's length ({k: "round"}), in order. */
-  const roundWords = () => watcher.seen.filter((m) => m.t === "ev").flatMap((m) => m.ev.filter((e) => e.k === "round").map((e) => e.s));
   if (SHORT) {
-    // Cy's view asked for SWITCH_ROUND through cork-round as it mounted: the room took it and every page runs to it.
-    const asked = await pagesHear([frames.Ada, frames.Cy, frames.screen], SWITCH_ROUND);
-    check(roundWords()[0] === SWITCH_ROUND && asked.every((s) => s === SWITCH_ROUND), `cork-round=${SWITCH_ROUND} on Cy's room address: the test wall's room took a ${SWITCH_ROUND}-second round as Cy's view mounted, told everyone, and every page runs to it (${asked.join(", ")})`);
     // Everything checked while the round is on is done: Bea's socket cuts it short (unless a
     // loaded machine took so long that the round's own time call comes first).
     battleRound = cutAt(start.s.startAt);
