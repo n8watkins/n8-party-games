@@ -516,6 +516,10 @@ try {
   // left standing there (Cy ended beside Eve after the reloads above) is caught by the hook first.
   await step(cy, C, ROOM.maxX, Math.ceil(((ROOM.maxX - (await where())[C].x) / 430) * 1000) + 300);
   await sleep(400);
+  // Eve's page asks for less motion while the pictures are taken: the room's lamps and candles
+  // flicker and its lightning flashes otherwise (look3d/rendered/bar/room.js), so two pictures a
+  // second apart are lit differently, enough to hide a near-white paint's turn to the pale.
+  await eve.emulateMedia({ reducedMotion: "reduce" });
   for (const [i, { hex, name }] of COLOUR_PRESETS.entries()) {
     await calmAgain();
     from = ada.seen.length;
@@ -573,6 +577,8 @@ try {
     const paler = now <= 0.8 * was || now < 30;
     check(kick?.sc === G && frozen && still && paler, `${name} (${hex}): scared, its paint goes toward the pale (${JSON.stringify(before)} to ${JSON.stringify(pale)}: ${was} to ${now} from it${kick?.sc === G ? "" : `; the last hook ${JSON.stringify(kick)} at seat ${G}`}${paler ? "" : `; drawn ${JSON.stringify(drawnPale)} in ${JSON.stringify(box)}, before ${JSON.stringify(drawnBefore)}`}${attempt ? `; taken twice: the first try ${result.first.kick?.sc !== result.first.G ? `scared nobody (the hook: ${JSON.stringify(result.first.kick)}, at seat ${result.first.G})` : result.first.frozen ? "had moved off by the picture" : "never froze within 2 s"}` : ""}${still ? "" : "; it had moved off by the picture"})`);
   }
+
+  await eve.emulateMedia({ reducedMotion: null });
 
   section("the pages");
   check(sockets.every((c) => c.ws.readyState === 1), "no socket was closed");
