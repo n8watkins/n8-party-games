@@ -25,7 +25,8 @@
 //     button works again; trying again checks again with a fresh token;
 //   - when Turnstile's script never answers, is blocked, or is not Turnstile, the page says so,
 //     sends no room request and gives the button back, and the next try loads it afresh.
-// Two more servers may be named for it:
+// --fail=skip leaves out the failing-secret checks, so the two below can each run beside the
+// passing server alone. Two more servers may be named for it:
 //   --failsite=<base>  a server handing out the always-FAIL site key 2x00000000000000000000AB (with
 //                      the passing secret): the widget itself refuses, and no room request is sent;
 //   --off=<base>       a server with neither key: nothing loads from Turnstile and parties are made.
@@ -66,9 +67,11 @@ const preview = await (await fetch(passBase + "/api/party/join/" + ok.pin)).json
 say(preview.ok, "nor does looking a PIN up");
 
 // The always-fail secret: the same dummy token is refused.
-const refused = await post(failBase, "/rooms", { nickname: "Cy", turnstile: DUMMY_TOKEN });
-say(refused.status === 403 && refused.error === "bot_check", `with a failing secret the room is refused (${refused.status} ${refused.error})`);
-say(refused.message === REFUSED, `and the message gives nothing away and says to try again: "${refused.message}"`);
+if (failBase !== "skip") {
+  const refused = await post(failBase, "/rooms", { nickname: "Cy", turnstile: DUMMY_TOKEN });
+  say(refused.status === 403 && refused.error === "bot_check", `with a failing secret the room is refused (${refused.status} ${refused.error})`);
+  say(refused.message === REFUSED, `and the message gives nothing away and says to try again: "${refused.message}"`);
+}
 
 if (browser || lobby) {
   const { chromium } = await import("playwright");
@@ -180,18 +183,20 @@ async function partyRoom(b) {
   say(tvMade.creates === 1 && tv2.seen.creates[0].turnstile === DUMMY_TOKEN && tv2.seen.creates.length === 1 && tv2.seen.turnstile.length === tvMade.turnstile && (await session(tv2.page))?.code === tvMade.code, "the big screen starting a party is checked once; its reload is the same party, unchecked");
 
   // The failing secret: the page says so, and trying again checks again.
-  const no = await device(PHONE);
-  await no.page.goto(failBase + "/lobby/?start");
-  await no.page.fill("input[name=nickname]", "Cy");
-  await no.page.tap("button[type=submit]");
-  await answered(no.page);
-  const line = await no.page.locator(".door-error").textContent();
-  say(line === REFUSED && (await no.page.locator(".bar").count()) === 0, `a refused check makes no party, and the page says: "${line}"`);
-  say(await no.page.locator("button[type=submit]").isEnabled(), "the button works again, so the player can try again");
-  await no.page.locator(".door-error").evaluate((el) => (el.hidden = true));
-  await no.page.tap("button[type=submit]");
-  await answered(no.page);
-  say(no.seen.creates.length === 2 && no.seen.creates.every((c) => c.turnstile === DUMMY_TOKEN) && (await no.page.locator(".door-error").textContent()) === REFUSED, `trying again runs the check again and sends a fresh token (${no.seen.creates.length} room requests)`);
+  if (failBase !== "skip") {
+    const no = await device(PHONE);
+    await no.page.goto(failBase + "/lobby/?start");
+    await no.page.fill("input[name=nickname]", "Cy");
+    await no.page.tap("button[type=submit]");
+    await answered(no.page);
+    const line = await no.page.locator(".door-error").textContent();
+    say(line === REFUSED && (await no.page.locator(".bar").count()) === 0, `a refused check makes no party, and the page says: "${line}"`);
+    say(await no.page.locator("button[type=submit]").isEnabled(), "the button works again, so the player can try again");
+    await no.page.locator(".door-error").evaluate((el) => (el.hidden = true));
+    await no.page.tap("button[type=submit]");
+    await answered(no.page);
+    say(no.seen.creates.length === 2 && no.seen.creates.every((c) => c.turnstile === DUMMY_TOKEN) && (await no.page.locator(".door-error").textContent()) === REFUSED, `trying again runs the check again and sends a fresh token (${no.seen.creates.length} room requests)`);
+  }
 
   // Turnstile's script stalled, blocked, or answering with something that is not Turnstile: each
   // time the page says so, sends no room request and gives the button back, and once the script
