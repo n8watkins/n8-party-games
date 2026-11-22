@@ -556,14 +556,15 @@ try {
     // (Unless the house's bot has spent Sol's corks already, which ends the round by itself: a
     // loaded machine can take that long to bring the late screen up.)
     const loneTime = () => timeCalls.find((c) => c.name === "alone" || c.name === "late screen") ?? null;
+    const cut = cutAt(loneSees.startAt);
     if (loneTime()) console.log(`     (the round alone was over before it could be cut: time was called at ${loneTime().t.toFixed(1)})`);
+    else if (cut >= ROUND_SECONDS) console.log(`     (the late screen came up ${cut - CUT_AHEAD} seconds in: too late to cut the round alone short, its own time call comes first)`);
     else {
-      const cut = cutAt(loneSees.startAt);
       await loneFrame.evaluate((s) => window.frameElement.partyHost.send({ round: s }), cut);
       const heard = await pagesHear([loneFrame, lateFrame], cut);
-      const spent = loneTime() && loneTime().t < cut;
-      if (!spent) loneRound = cut;
-      check(heard.every((s) => s === cut) || spent, `Sol's page cut the round to ${cut} seconds, and the room told both pages (${heard.join(", ")})${spent ? `; its corks were spent first, at ${loneTime().t.toFixed(1)}` : ""}`);
+      const first = loneTime() && loneTime().t < cut;
+      if (!first) loneRound = cut;
+      check(heard.every((s) => s === cut) || first, `Sol's page cut the round to ${cut} seconds, and the room told both pages (${heard.join(", ")})${first ? `; time was called first, at ${loneTime().t.toFixed(1)}, as its corks were spent` : ""}`);
     }
   }
   console.log("     waiting for the round played alone to end...");
