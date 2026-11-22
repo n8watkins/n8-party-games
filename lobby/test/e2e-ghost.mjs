@@ -45,14 +45,21 @@ const section = (name) => console.log("\n     -- " + name);
  * unseen. What the room did is checked from its messages in every run, frames or not.
  */
 const UNSEEN_SHARE = 0.25;
-const drawnChecks = { all: 0, unseen: [] };
+const drawnChecks = { all: 0, unseen: [], byCheck: new Map() };
+/** Which check this is, the same in each attempt: its words before the details, numbers left out. */
+const checkId = (what) => what.split(" (")[0].replace(/-?\d+(\.\d+)?/g, "#");
 const seenCheck = (ok, what) => {
   drawnChecks.all++;
+  const id = checkId(what);
+  const tally = drawnChecks.byCheck.get(id) ?? { seen: 0, unseen: 0 };
+  drawnChecks.byCheck.set(id, tally);
   if (ok === null) {
+    tally.unseen++;
     drawnChecks.unseen.push(what);
     console.log("seen? " + what + " (not seen: no frame fell inside it)");
     return;
   }
+  tally.seen++;
   check(ok, what);
 };
 /** The pale a fright tints a piece toward (look3d/pieces.js, PALE), as a page shows it. */
@@ -271,9 +278,20 @@ try {
     await page.keyboard.press("KeyX");
     return ada.wait((m) => m.t === "fade" && m.s === s, 3000, from).catch(() => null);
   };
-  /** Waits until a ghost's fade is ready again, by the room's word. */
+  /**
+   * Waits until a ghost's fade is ready again, by the room's word and on its own phone (its fade
+   * button says ready). A phone reloaded a moment ago learns the cooldown from the room's first
+   * word, so it can come ready a little after the room does: a press before that is dropped on
+   * the phone (that was the lone "Eve fades (Ada is a slime)" failure, after Eve's page reloaded).
+   */
   const ready = async (s) => {
-    for (let i = 0; i < 60 && (await where())[s].fadeCool > 0; i++) await sleep(200);
+    const page = s === B ? bea : s === E ? eve : null;
+    for (let i = 0; i < 60; i++) {
+      const roomReady = !((await where())[s].fadeCool > 0);
+      const pageReady = !page || (await page.evaluate(() => document.querySelector(".ctl-bump")?.classList.contains("ready") ?? true));
+      if (roomReady && pageReady) break;
+      await sleep(200);
+    }
     await sleep(200);
   };
   /** A phone's piece walks a moment toward x. */
@@ -627,5 +645,7 @@ try {
 }
 console.log(`\n${drawnChecks.unseen.length} of ${drawnChecks.all} drawn checks went unseen (a page drew no frame inside them)${drawnChecks.unseen.length ? ":\n  " + drawnChecks.unseen.join("\n  ") : ""}`);
 if (drawnChecks.unseen.length > UNSEEN_SHARE * drawnChecks.all) problems.push(`too many drawn checks went unseen: ${drawnChecks.unseen.length} of ${drawnChecks.all} (at most ${Math.floor(UNSEEN_SHARE * drawnChecks.all)})`);
+// And no one check may go unseen every time it ran.
+for (const [id, { seen: n, unseen }] of drawnChecks.byCheck) if (n === 0 && unseen > 0) problems.push(`never seen in the ${unseen} time(s) it ran: ${id}`);
 console.log(problems.length ? `\n${problems.length} problem(s):\n- ` + problems.join("\n- ") : "\nAll good.");
 process.exit(problems.length ? 1 : 0);

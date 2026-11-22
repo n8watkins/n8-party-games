@@ -20,6 +20,7 @@ import { RoomMenu } from "./room-menu.js";
 import { SettingsStep } from "./settings-step.js";
 import { RoomSounds, defineRoomSounds, emoteSound } from "./room-sounds.js";
 import { chosenLook, hardware3D, openRoomView, preferFlat } from "./room-view.js";
+import { standIn } from "./view-api.js";
 import { ScreenFit, allowUpright, fitVisible } from "./screen-fit.js";
 import { SlowWatch } from "./slow-room.js";
 import { BUMP_COOLDOWN_MS, IMMUNE_MS, IMPACT_MS, STUN_MS } from "./shared/bump.js";
@@ -293,8 +294,9 @@ async function showRoom() {
     const [skin, asked] = [room.room, look];
     const own = scene.ownX();
     scene.destroy();
-    // While the next view loads the room carries on: moves and votes are kept here and handed over.
-    scene = pause(own);
+    // While the next view loads the room carries on: what is heard meanwhile is kept and handed over.
+    const held = standIn(own);
+    scene = held;
     const before = new Set(app.children);
     const made = await openRoomView(app, { ...viewBase, compact, look: asked, skin });
     // Each drawing appends itself; it belongs under the stage and the words, where the last one was.
@@ -308,6 +310,8 @@ async function showRoom() {
     if (made.look !== asked) look = made.look;
     const now = performance.now();
     redraw(now);
+    // The hooks, legs, hardens, shoves and votes heard while it loaded (after that whole room).
+    held.replay(scene, roomSeenAt);
     slow.start(scene.look, now, simpler);
     meter?.start(scene);
   }
@@ -343,11 +347,6 @@ async function quick3D() {
   });
 }
 
-/** A stand-in for the room view while the next one loads: it hears everything and draws nothing. */
-function pause(own) {
-  const nothing = () => {};
-  return { paused: true, look: "", build: nothing, setRoom: nothing, setVote: nothing, onMove: nothing, onBump: nothing, onFade: nothing, onSpook: nothing, onExpress: nothing, ownJump: nothing, ownBump: nothing, ownX: () => own, setCompact: nothing, frame: nothing, destroy: nothing };
-}
 
 /** "Simpler room": this device draws the flat room from now on, and remembers it. */
 function simpler() {

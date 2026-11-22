@@ -47,15 +47,29 @@ const check = (ok, what) => {
  * checked from its messages in every run, frames or not.
  */
 const UNSEEN_SHARE = 0.25;
-const drawnChecks = { all: 0, unseen: [] };
+const drawnChecks = { all: 0, unseen: [], byCheck: new Map() };
+/** Which check this is, the same in each look and attempt: its words before the details, numbers left out. */
+const checkId = (what) => what.split(" (")[0].replace(/^(flat|3d|3D): /, "").replace(/-?\d+(\.\d+)?/g, "#");
 const seen = (ok, what) => {
   drawnChecks.all++;
+  const id = checkId(what);
+  const tally = drawnChecks.byCheck.get(id) ?? { seen: 0, unseen: 0 };
+  drawnChecks.byCheck.set(id, tally);
   if (ok === null) {
+    tally.unseen++;
     drawnChecks.unseen.push(what);
     console.log("seen? " + what + " (not seen: no frame fell inside it)");
     return;
   }
+  tally.seen++;
   check(ok, what);
+};
+/** Problems with what went unseen: more than UNSEEN_SHARE of the run's drawn checks, or any one check in every look it ran. */
+const unseenProblems = () => {
+  const out = [];
+  if (drawnChecks.unseen.length > UNSEEN_SHARE * drawnChecks.all) out.push(`too many drawn checks went unseen: ${drawnChecks.unseen.length} of ${drawnChecks.all} (at most ${Math.floor(UNSEEN_SHARE * drawnChecks.all)})`);
+  for (const [id, { seen: n, unseen }] of drawnChecks.byCheck) if (n === 0 && unseen > 0) out.push(`never seen in the ${unseen} time(s) it ran: ${id}`);
+  return out;
 };
 const section = (name) => console.log("\n     -- " + name);
 
@@ -112,7 +126,12 @@ function pageHelpers() {
     const flat = !window.__room3d;
     const g = flat ? document.querySelector(`svg.scene g[data-seat="${seat}"]`) : null;
     const chainEl = flat ? document.querySelector(`.robot-hook[data-seat="${seat}"]`) : null;
-    const chain = flat ? !!chainEl && !!chainEl.querySelector("path")?.getAttribute("d") : !!v.hooks?.hooks.get(seat)?.chain.count;
+    // The chain itself as drawn: in the flat look its dashed steel path (not the dark outline under
+    // it) with a line to draw, shown; in 3D its links, shown, in a hook shown.
+    const visible = (el) => !!el && el.getAttribute("display") !== "none" && el.getAttribute("visibility") !== "hidden" && getComputedStyle(el).display !== "none" && getComputedStyle(el).visibility !== "hidden";
+    const steel = chainEl?.querySelector("path[stroke-dasharray]");
+    const hook3d = v.hooks?.hooks.get(seat);
+    const chain = flat ? visible(chainEl) && visible(steel) && !!steel.getAttribute("d") : !!hook3d && hook3d.group.visible !== false && hook3d.chain.visible !== false && hook3d.chain.count > 0;
     const legs = flat ? (g?.querySelector(".robot-stilts")?.getAttribute("display") === "none" ? 0 : p.legs ?? 0) : p.body.legsG?.visible ? p.body.legs : 0;
     const gem = flat ? !!g?.querySelector(".slime-gem") && g.querySelector(".slime-gem").getAttribute("display") !== "none" : !!p.body.gem?.visible;
     // Soft as drawn now: from its turn until its soft time and melt are over (move-state.js gooNow
@@ -735,6 +754,48 @@ try {
     const shoved = await drewDuring(rob, P, (h) => h.t === "shove" && h.to === P, 20, MOVED.shove.ms - 20, (f) => f[6] === "shove");
     seen(shoved.ok, `Rob's phone draws Pat shoved, upright (${shoved.story})`);
 
+    if (look === "3d") {
+      // The host changes room, and Pat's phone takes long to load the next view: while it does,
+      // its view is a stand-in (view-api.js). Rob's hook catches Pat and his legs go up meanwhile:
+      // the page must not fail on any of it, and once the new view is up it draws what it heard.
+      section(`${look}: Rob hooks Pat and raises his legs while the host changes room and Pat's view is slow to load`);
+      let slow = false;
+      await pat.route("**/lobby/**", async (route) => {
+        if (slow && route.request().resourceType() !== "websocket") await sleep(2500);
+        await route.continue();
+      });
+      await rested(R, P);
+      await walkTo(pat, P, 1000);
+      await walkTo(rob, R, 820, 1);
+      await settled(R, P);
+      const failedBefore = errors.length;
+      slow = true;
+      mark = ada.seen.length;
+      ada.send({ t: "pick", v: "ship" });
+      const standing = await pat.waitForFunction(() => globalThis.__partyRoom?.view?.paused === true, null, { timeout: 8000, polling: 10 }).then(
+        () => true,
+        () => false,
+      );
+      check(standing, "Pat's view stands in while the next one loads");
+      await rob.keyboard.press("KeyX");
+      const caught = await after((m) => m.t === "hk" && m.s === R, 4000, mark);
+      await rested(R);
+      await rob.keyboard.press("ArrowUp");
+      const legsUp = await after((m) => m.t === "stilts" && m.s === R, 3000, mark);
+      const stillStanding = await pat.evaluate(() => globalThis.__partyRoom?.view?.paused === true);
+      slow = false;
+      await pat.waitForFunction(() => globalThis.__partyRoom?.view && !globalThis.__partyRoom.view.paused && window.__room3d?.pieces?.size > 0, null, { timeout: 40000 });
+      await sleep(1200);
+      check(stillStanding && caught && legsUp, `the hook (${caught?.o}) and the legs (${!!legsUp}) came while Pat's view stood in (${stillStanding})`);
+      const failed = errors.slice(failedBefore);
+      check(failed.length === 0, `Pat's page took them in without an error${failed.length ? ": " + [...new Set(failed)].slice(0, 3).join("; ") : ""}`);
+      // Drawn where the room has them now: Pat where the hook pulled him, Rob where he stands.
+      const roomNow = await where();
+      const drawnNow = await pat.evaluate(([r, p]) => ({ r: window.__room3d.pieces.get(r)?.rx, p: window.__room3d.pieces.get(p)?.rx }), [R, P]);
+      check(Math.abs(drawnNow.p - roomNow[P].x) <= 3 && Math.abs(drawnNow.r - roomNow[R].x) <= 3, `Pat's new view draws Pat at ${Math.round(drawnNow.p)} and Rob at ${Math.round(drawnNow.r)}, where the room has them (${roomNow[P].x}, ${roomNow[R].x})`);
+      await pat.unroute("**/lobby/**");
+    }
+
     section(`${look}: the pages`);
     check(errors.length === 0, `no page reported an error${errors.length ? ":\n       " + [...new Set(errors)].slice(0, 8).join("\n       ") : ""}`);
     ada.ws.close();
@@ -748,6 +809,6 @@ try {
   await browser.close();
 }
 console.log(`\n${drawnChecks.unseen.length} of ${drawnChecks.all} drawn checks went unseen (a page drew no frame inside them)${drawnChecks.unseen.length ? ":\n  " + drawnChecks.unseen.join("\n  ") : ""}`);
-if (drawnChecks.unseen.length > UNSEEN_SHARE * drawnChecks.all) problems.push(`too many drawn checks went unseen: ${drawnChecks.unseen.length} of ${drawnChecks.all} (at most ${Math.floor(UNSEEN_SHARE * drawnChecks.all)})`);
+problems.push(...unseenProblems());
 console.log(problems.length ? `\n${problems.length} problem(s):\n- ` + problems.join("\n- ") : "\nAll good.");
 process.exit(problems.length ? 1 : 0);

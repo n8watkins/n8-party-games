@@ -45,7 +45,7 @@ import { COOLDOWN_SLACK_MS, IMMUNE_MS, bumpTarget, cooldownLeft, isDown, isSafe,
 import { BOO_LATE_MS, FADE_MS, SCARE_LANDING, SPOOK_FAR, SPOOK_LANDING, SPOOK_REACH, fadeLeft, isFaded, mayFade, maySpook, scared, spooked } from "../shared/ghost.js";
 import { HOOK_SCARE_MS, TOUCH_GRACE_MS, slideLanding, touchAt } from "../shared/moves.js";
 import { BONK_MS, HOOK_BACK_MS, HOOK_HOLD, HOOK_LATE_MS, HOOK_LIFE_MS, PULLED_SAFE_MS, PULL_MS, STILT_MS, TRAIN_MS, battedAway, firstCatch, hookEndsAt, hookLeft, isUp, jumpedOver, mayHook, mayStilt, stiltLeft } from "../shared/robot.js";
-import { ABSORB_MS, HARDEN_MS, SHOVE_AHEAD, SHOVE_FAR, SHOVE_LATE_MS, SHOVE_REACH, SHOVE_STEP, isHard, isSoft, mayShove, maySlime, shoved, slimeLeft } from "../shared/slime.js";
+import { ABSORB_MS, HARDEN_MS, SHOVE_AHEAD, SHOVE_FAR, SHOVE_LATE_MS, SHOVE_REACH, SHOVE_SLACK, SHOVE_STEP, isHard, isSoft, mayShove, maySlime, shoved, slimeLeft } from "../shared/slime.js";
 import { DEFAULT_ROOM, ROOM_COOLDOWN_MS, isRoom, roomLocked, wallFor } from "../shared/rooms.js";
 import { COLOUR_PRESETS, DEFAULT_CHARACTER, LOOK_COOLDOWN_MS, LOOK_SLACK_MS, characterOr, cleanColour, moveOf, readLook } from "../shared/characters.js";
 import { record } from "../shared/tonight.js";
@@ -1034,16 +1034,20 @@ export class LobbyCore {
     for (let i = 0; i < 4 && t !== null; i++) {
       const may = Math.max(this.touchFrom(kind, m, t), this.touchedFrom(kind, m, o, t));
       if (may <= t) break;
-      t = may < b ? this.touchTime(m, o, may, b, lo, hi) : null;
+      t = may <= b ? this.touchTime(m, o, may, b, lo, hi) : null;
     }
     if (t !== null && kind === "spook" && !(t < m.fadedUntil)) return null;
     return t;
   }
 
-  /** The gap a touch is, from the toucher to the other piece: in front of a walking slime, either side of a ghost. */
+  /**
+   * The gap a touch is, from the toucher to the other piece: either side of a ghost; in front of
+   * a walking slime, or just into it (as mayShove allows: a piece it caught up with while the
+   * piece was still sliding from its last shove is pushed on, not walked through).
+   */
   touchBand(kind, m) {
     if (kind === "spook") return [-SPOOK_REACH, SPOOK_REACH];
-    return m.d > 0 ? [0, SHOVE_REACH] : [-SHOVE_REACH, 0];
+    return m.d > 0 ? [-SHOVE_SLACK / 2, SHOVE_REACH] : [-SHOVE_REACH, SHOVE_SLACK / 2];
   }
 
   /**
