@@ -78,18 +78,25 @@ async function darkEnds(png, top, bottom) {
 
 /** The 3D look's empty background (look3d/room3d.js, scene.background 0x03050c): what shows past the room. */
 const EMPTY = [3, 5, 12];
-/** How much of the picture (rows `top` to `bottom`) is the 3D look's empty background. */
+/**
+ * How many of the picture's columns (rows `top` to `bottom`) are mostly the 3D look's empty
+ * background, as a share of the width: a strip past the room. (A room whose own sky is that dark,
+ * the star lounge's space through its window, has it in patches, never down a whole column.)
+ */
 async function emptyShare(png, top, bottom) {
   const { data, info } = await sharp(png).raw().toBuffer({ resolveWithObject: true });
   const { width, height, channels } = info;
   const [y0, y1] = [Math.max(0, Math.round(top)), Math.min(height, Math.round(bottom))];
-  let n = 0;
-  for (let y = y0; y < y1; y++)
-    for (let x = 0; x < width; x++) {
+  let columns = 0;
+  for (let x = 0; x < width; x++) {
+    let n = 0;
+    for (let y = y0; y < y1; y++) {
       const i = (y * width + x) * channels;
       if (EMPTY.every((v, c) => Math.abs(data[i + c] - v) <= 1)) n++;
     }
-  return n / (width * Math.max(1, y1 - y0));
+    if (n > 0.8 * (y1 - y0)) columns++;
+  }
+  return columns / width;
 }
 
 const browser = await launchBrowser({ args: ["--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--ignore-gpu-blocklist"] });
@@ -117,7 +124,7 @@ try {
     const band = `left ${(ends.left * 100).toFixed(1)}%, right ${(ends.right * 100).toFixed(1)}% of the width`;
     if (look === "3d") {
       const empty = await emptyShare(png, 64, h - bar);
-      check(empty < 0.002, `${name}: nothing past the room shows (${(empty * 100).toFixed(2)}% of the picture is the empty background; dark at the ends: ${band})`);
+      check(empty < 0.005, `${name}: nothing past the room shows (${(empty * 100).toFixed(1)}% of the width is a strip of empty background; dark at the ends: ${band})`);
     } else check(ends.left < BAND && ends.right < BAND, `${name}: no dark band at either end (${band})`);
   }
 
