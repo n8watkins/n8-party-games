@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { unstable_readConfig } from "wrangler";
 import { afterAll, describe, expect, it } from "vitest";
-import { OUT as DIST, SERVED, build } from "../../scripts/build-public.mjs";
+import { OUT as DIST, ROOM_MAKING_PAGES, SERVED, build } from "../../scripts/build-public.mjs";
 import { headersFile } from "../build/public.mjs";
 
 const read = (env) => unstable_readConfig({ config: "wrangler.jsonc", env });
@@ -33,6 +33,10 @@ describe("the production configuration", () => {
 
   it("holds no secret in plain variables", () => {
     expect(Object.keys(prod.vars)).not.toContain("TURNSTILE_SECRET_KEY");
+  });
+
+  it("never names one of Cloudflare's Turnstile test site keys, which guard nothing", () => {
+    expect(prod.vars.TURNSTILE_SITE_KEY ?? "").not.toMatch(/^[123]x0+A[AB]$/);
   });
 
   it("keeps logs and serves only the built public folder", () => {
@@ -102,7 +106,7 @@ describe("the public folder", () => {
     // The party room frames a hosted game's own page: this site may frame itself, and nobody else may.
     expect(headers).toContain("frame-ancestors 'self'");
     expect(headers).toContain("X-Frame-Options: SAMEORIGIN");
-    expect(headers).toMatch(/frame-src 'self' https:\/\/challenges\.cloudflare\.com;/);
+    expect(headers).toMatch(/frame-src 'self';/);
     // A site that frames nothing keeps the kit's default: no framing at all.
     expect(headersFile([])).toContain("frame-ancestors 'none'");
     expect(headersFile([])).toContain("X-Frame-Options: DENY");
@@ -133,12 +137,54 @@ describe("the public folder", () => {
 
   it("lets only Hot Potato and its hearing test use the microphone, and changes nothing else for them", () => {
     const headers = readFileSync(join(OUT, "_headers"), "utf8");
-    const rules = headers.split(/\n(?=\/)/).filter((rule) => !rule.startsWith("/party/*\n"));
+    const rules = headers.split(/\n(?=\/)/).filter((rule) => !rule.includes("! Content-Security-Policy"));
     expect(rules).toHaveLength(3);
     expect(rules[0]).toContain("Permissions-Policy: camera=(), microphone=(), geolocation=(), payment=(), usb=()");
     expect(rules[1]).toBe("/lab/hot-potato/*\n  ! Permissions-Policy\n  Permissions-Policy: camera=(), microphone=(self), geolocation=(), payment=(), usb=()");
     expect(rules[2].trimEnd()).toBe("/one-device/hot-potato/*\n  ! Permissions-Policy\n  Permissions-Policy: camera=(), microphone=(self), geolocation=(), payment=(), usb=()");
     expect(headersFile([])).not.toContain("microphone=(self)");
+  });
+
+  it("lets only the pages that make rooms run the bot check (Turnstile), with the same policy otherwise", () => {
+    const headers = readFileSync(join(OUT, "_headers"), "utf8");
+    const rules = headers.split(/\n(?=\/)/);
+    const csp = (rule) => rule.match(/^ {2}Content-Security-Policy: (.*)$/m)?.[1];
+    const TURNSTILE = "https://challenges.cloudflare.com";
+    // Everywhere else (the front page, the Table, Hot Potato...): nothing from Turnstile at all.
+    expect(csp(rules[0])).not.toContain(TURNSTILE);
+    expect(csp(rules.find((rule) => rule.startsWith("/party/*\n")))).not.toContain(TURNSTILE);
+    // The party room's way in, the Table's start page and each hosted game's own page.
+    expect(ROOM_MAKING_PAGES).toEqual(["/lobby/*", "/table/*", "/cork-and-bell/*", "/tin-derby/*"]);
+    const widened = rules.filter((rule) => rule.includes(TURNSTILE));
+    expect(widened.map((rule) => rule.split("\n")[0])).toEqual(ROOM_MAKING_PAGES);
+    for (const rule of widened) {
+      const [path, detach, set, ...rest] = rule.split("\n");
+      expect([detach, rest.join("")]).toEqual(["  ! Content-Security-Policy", ""]);
+      expect(set, path).toBe(`  Content-Security-Policy: ${csp(rule)}`);
+      // Script, frame and the script's calls home, from that one origin; nothing else is widened.
+      expect(csp(rule), path).toBe(
+        csp(rules[0])
+          .replace(/(script-src [^;]*) (https:\/\/static\.cloudflareinsights\.com)/, `$1 ${TURNSTILE} $2`)
+          .replace("connect-src 'self' https://cloudflareinsights.com", `connect-src 'self' ${TURNSTILE} https://cloudflareinsights.com`)
+          .replace("frame-src 'self';", `frame-src 'self' ${TURNSTILE};`),
+      );
+    }
+    // The kit's default, for a game's own site whose pages all make rooms: every page, one policy.
+    expect(headersFile([])).toContain(`script-src 'self' ${TURNSTILE} `);
+    expect(headersFile([])).toContain(`frame-src ${TURNSTILE};`);
+    expect(headersFile([])).not.toContain("! Content-Security-Policy");
+    // A site may list none, and then nothing loads from there anywhere; frames fall back to none.
+    expect(headersFile([], { botCheck: [] })).not.toContain(TURNSTILE);
+    expect(headersFile([], { botCheck: [] })).toContain("frame-src 'none';");
+    // A path in both lists gets both, in one policy.
+    const both = headersFile([], { images: { "/x/*": ["https://pics.example"] }, botCheck: ["/x/*"] }).split(/\n(?=\/)/);
+    expect(both).toHaveLength(2);
+    expect(csp(both[1])).toContain("img-src 'self' data: blob: https://pics.example;");
+    expect(csp(both[1])).toContain(`frame-src ${TURNSTILE};`);
+    // Only plain site paths, and none that overlap (a page would get two policies).
+    expect(() => headersFile([], { botCheck: ["/x/*\n  Content-Security-Policy: *"] })).toThrow();
+    expect(() => headersFile([], { botCheck: ["lobby/*"] })).toThrow();
+    expect(() => headersFile([], { botCheck: ["/a/*", "/a/b/*"] })).toThrow();
   });
 
   it("lets the zone's Cloudflare Web Analytics beacon load and report, and nothing else from outside", () => {

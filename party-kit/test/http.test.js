@@ -1,8 +1,7 @@
 // The public API's guards, without the Workers runtime: body limits, origins, the QR allowlist,
-// the bot check, and the cap on shared screens.
+// and the cap on shared screens. The bot check has its own file (bot-check.test.js).
 import { describe, expect, it } from "vitest";
 import { MAX_BODY_BYTES, isJoinLink, originAllowed, readBody } from "../src/worker/http.js";
-import { botCheckEnabled, verifyBotCheck } from "../src/worker/turnstile.js";
 import { MAX_SCREENS, RoomCore } from "../src/core/room-core.js";
 
 const req = (body, headers = {}) => new Request("https://games.example/api/party/rooms", { method: "POST", body, headers });
@@ -63,53 +62,6 @@ describe("the QR endpoint draws only this site's join links", () => {
       "https://games.example/" + "a".repeat(300) + "?join=4821",
     ]) {
       expect(isJoinLink(text, origins), text).toBe(false);
-    }
-  });
-});
-
-describe("the bot check (Turnstile)", () => {
-  const env = { TURNSTILE_SECRET_KEY: "1x0000000000000000000000000000000AA" };
-  const answer = (body) => async () => ({ json: async () => body });
-
-  it("is off without a secret", () => {
-    expect(botCheckEnabled({})).toBe(false);
-    expect(botCheckEnabled({ TURNSTILE_SECRET_KEY: "" })).toBe(false);
-    expect(botCheckEnabled(env)).toBe(true);
-  });
-
-  it("passes on success and sends the secret, the token and the address", async () => {
-    let sent;
-    const fetcher = async (url, init) => {
-      sent = { url, body: JSON.parse(init.body) };
-      return { json: async () => ({ success: true }) };
-    };
-    expect(await verifyBotCheck(env, "XXXX.DUMMY.TOKEN.XXXX", "203.0.113.9", fetcher)).toBe("ok");
-    expect(sent.url).toBe("https://challenges.cloudflare.com/turnstile/v0/siteverify");
-    expect(sent.body).toEqual({ secret: env.TURNSTILE_SECRET_KEY, response: "XXXX.DUMMY.TOKEN.XXXX", remoteip: "203.0.113.9" });
-  });
-
-  it("fails without a token, with an oversized one, or when Turnstile says no", async () => {
-    const never = async () => {
-      throw new Error("should not be called");
-    };
-    expect(await verifyBotCheck(env, undefined, null, never)).toBe("failed");
-    expect(await verifyBotCheck(env, "x".repeat(2049), null, never)).toBe("failed");
-    expect(await verifyBotCheck(env, "t", null, answer({ success: false, "error-codes": ["invalid-input-response"] }))).toBe("failed");
-    expect(await verifyBotCheck(env, "t", null, answer({ success: false, "error-codes": ["timeout-or-duplicate"] }))).toBe("failed");
-  });
-
-  it("reports Turnstile being unreachable or a refused secret as unavailable (fail closed)", async () => {
-    const down = async () => {
-      throw new Error("network");
-    };
-    expect(await verifyBotCheck(env, "t", null, down)).toBe("unavailable");
-    expect(await verifyBotCheck(env, "t", null, answer({ success: false, "error-codes": ["internal-error"] }))).toBe("unavailable");
-    const quiet = console.error;
-    console.error = () => {};
-    try {
-      expect(await verifyBotCheck(env, "t", null, answer({ success: false, "error-codes": ["invalid-input-secret"] }))).toBe("unavailable");
-    } finally {
-      console.error = quiet;
     }
   });
 });

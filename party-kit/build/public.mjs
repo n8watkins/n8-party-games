@@ -15,7 +15,11 @@ import { fileURLToPath } from "node:url";
 /** Workers Static Assets refuses any single file over 25 MiB. */
 const MAX_FILE_BYTES = 25 * 1024 * 1024;
 
-/** Cloudflare Turnstile's script and widget frame, allowed so a configured bot check can render. */
+/**
+ * Cloudflare Turnstile's script, widget frame and the calls its script makes, allowed on the pages
+ * that make rooms (headersFile, `botCheck`) so a configured bot check can run there.
+ * https://developers.cloudflare.com/turnstile/reference/content-security-policy/
+ */
 const TURNSTILE = "https://challenges.cloudflare.com";
 
 /**
@@ -64,18 +68,37 @@ function inlineScriptHashes(files) {
  *
  * `images` maps a site path ("/party/*") to the outside origins (https only) its pages may show
  * pictures from; none by default. Those pages get the very same policy with only img-src widened.
+ *
+ * `botCheck` lists the site paths whose pages may run the bot check on making a room (Cloudflare
+ * Turnstile, client/bot-check.js): they may load its script, show its frame and let it call home,
+ * all from https://challenges.cloudflare.com and nowhere else. ["/*"] (the default) is every page,
+ * for a game's own site whose pages all make rooms; a site that lists its room-making pages gives
+ * the rest no Turnstile at all. A listed page gets the very same policy with only those widened.
+ *
+ * A page path may be listed in `images` and `botCheck` both (its policy has both), but two
+ * different listed paths may not overlap: a page matched by two would be sent two policies, and a
+ * browser keeps to both.
  */
-export function headersFile(scriptHashes, { frames = "none", microphone = [], images = {} } = {}) {
+export function headersFile(scriptHashes, { frames = "none", microphone = [], images = {}, botCheck = ["/*"] } = {}) {
   const own = frames === "self";
   for (const origins of Object.values(images)) for (const origin of origins) if (!/^https:\/\/[a-z0-9.-]+$/.test(origin)) throw new Error(`Not an https origin for img-src: ${origin}`);
-  const csp = (extra = []) => [
+  for (const path of botCheck) if (!/^\/[A-Za-z0-9._~/-]*\*?$/.test(path)) throw new Error(`Not a site path for the bot check: ${path}`);
+  const everywhere = botCheck.includes("/*");
+  // The pages whose policy differs from the site-wide one, each with what it adds.
+  const widened = new Map();
+  for (const [path, origins] of Object.entries(images)) widened.set(path, { images: origins, turnstile: everywhere });
+  if (!everywhere) for (const path of botCheck) widened.set(path, { images: widened.get(path)?.images ?? [], turnstile: true });
+  const paths = [...widened.keys()];
+  const covers = (wide, path) => wide !== path && wide.endsWith("*") && path.startsWith(wide.slice(0, -1));
+  for (const a of paths) for (const b of paths) if (covers(a, b)) throw new Error(`Overlapping header paths: ${a} covers ${b}`);
+  const csp = ({ images: extra = [], turnstile = everywhere } = {}) => [
     "default-src 'self'",
-    `script-src 'self' ${scriptHashes.join(" ")} ${TURNSTILE} ${WEB_ANALYTICS_SCRIPT}`.replace(/\s+/g, " "),
+    ["script-src 'self'", ...scriptHashes, ...(turnstile ? [TURNSTILE] : []), WEB_ANALYTICS_SCRIPT].join(" "),
     "style-src 'self'",
     ["img-src 'self' data: blob:", ...extra].join(" "),
     "font-src 'self'",
-    `connect-src 'self' ${WEB_ANALYTICS_REPORT}`,
-    `frame-src ${own ? "'self' " : ""}${TURNSTILE}`,
+    ["connect-src 'self'", ...(turnstile ? [TURNSTILE] : []), WEB_ANALYTICS_REPORT].join(" "),
+    `frame-src ${[...(own ? ["'self'"] : []), ...(turnstile ? [TURNSTILE] : [])].join(" ") || "'none'"}`,
     "worker-src 'self' blob:",
     "object-src 'none'",
     "base-uri 'none'",
@@ -93,8 +116,8 @@ export function headersFile(scriptHashes, { frames = "none", microphone = [], im
     // A path in `microphone` may use the microphone on this site's own pages: the site-wide
     // policy is detached ("!") and the same one sent with only microphone=(self) changed.
     ...microphone.flatMap((path) => [path, "  ! Permissions-Policy", `  Permissions-Policy: ${policy("(self)")}`]),
-    // A path in `images` may show pictures from its outside origins: the same, detached and resent.
-    ...Object.entries(images).flatMap(([path, origins]) => [path, "  ! Content-Security-Policy", `  Content-Security-Policy: ${csp(origins)}`]),
+    // A path in `images` or `botCheck` gets what it adds: the same policy, detached and resent.
+    ...[...widened].flatMap(([path, adds]) => [path, "  ! Content-Security-Policy", `  Content-Security-Policy: ${csp(adds)}`]),
     "",
   ].join("\n");
 }
@@ -104,9 +127,10 @@ export function headersFile(scriptHashes, { frames = "none", microphone = [], im
  * absolute path `from` to the site path `to` (no leading slash). Writes the `_headers` file.
  * Returns every file written as `{path, bytes}`, sorted by path. `frames`, `microphone` (the
  * site paths, such as "/lab/x/*", whose pages may use the microphone) and `images` (site path ->
- * the outside origins its pages may show pictures from) are passed to headersFile.
+ * the outside origins its pages may show pictures from) and `botCheck` (the site paths whose
+ * pages may run the bot check; every page by default) are passed to headersFile.
  */
-export function buildPublic({ out, entries, frames = "none", microphone = [], images = {} }) {
+export function buildPublic({ out, entries, frames = "none", microphone = [], images = {}, botCheck = ["/*"] }) {
   rmSync(out, { recursive: true, force: true });
   mkdirSync(out, { recursive: true });
   for (const { from, to } of entries) {
@@ -120,7 +144,7 @@ export function buildPublic({ out, entries, frames = "none", microphone = [], im
   const files = walk(out);
   const tooBig = files.filter((f) => statSync(f).size > MAX_FILE_BYTES);
   if (tooBig.length) throw new Error(`Over the 25 MiB per-file limit: ${tooBig.map((f) => relative(out, f)).join(", ")}`);
-  writeFileSync(join(out, "_headers"), headersFile(inlineScriptHashes(files), { frames, microphone, images }));
+  writeFileSync(join(out, "_headers"), headersFile(inlineScriptHashes(files), { frames, microphone, images, botCheck }));
   return files.map((f) => ({ path: relative(out, f).split(sep).join("/"), bytes: statSync(f).size })).sort((a, b) => a.path.localeCompare(b.path));
 }
 

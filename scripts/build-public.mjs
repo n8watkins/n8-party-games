@@ -22,6 +22,14 @@ export const TABLE_PAGES = "/party/*";
 import { GAMES, TURN_GAMES } from "../games.js";
 import { WALL } from "../lobby/wall.js";
 
+/**
+ * The pages that make a party room, and so may run the bot check (Cloudflare Turnstile): the party
+ * room's way in (/lobby/?start), the Table's start page (/table/, the same way in), and each hosted
+ * game's own page, which makes rooms of its own (party-kit/client/lobby.js). No other page may load
+ * anything from Turnstile.
+ */
+export const ROOM_MAKING_PAGES = ["/lobby/*", "/table/*", ...GAMES.map(({ manifest }) => `${manifest.path.replace(/\/?$/, "/")}*`)];
+
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 export const OUT = join(ROOT, "dist", "public");
 
@@ -153,8 +161,9 @@ export function build(out = OUT) {
   // Hot Potato (one-device/hot-potato) and its hearing test (lab/hot-potato) listen through the
   // microphone; no other page may. Who Am I? at the Table shows each name's picture straight from
   // Wikimedia, as its own site does (party/games/who-am-i/README.md, "For the page builder"): the
-  // Table's pages, and only those, may load pictures from there.
-  const files = buildPublic({ out, entries, frames: "self", microphone: ["/lab/hot-potato/*", "/one-device/hot-potato/*"], images: { [TABLE_PAGES]: [PICTURE_HOST] } });
+  // Table's pages, and only those, may load pictures from there. Only the pages that make rooms
+  // may run the bot check (ROOM_MAKING_PAGES).
+  const files = buildPublic({ out, entries, frames: "self", microphone: ["/lab/hot-potato/*", "/one-device/hot-potato/*"], images: { [TABLE_PAGES]: [PICTURE_HOST] }, botCheck: ROOM_MAKING_PAGES });
   const text = homeWallModule();
   writeFileSync(join(out, HOME_WALL_PATH), text);
   return [...files, { path: HOME_WALL_PATH, bytes: Buffer.byteLength(text) }].sort((a, b) => a.path.localeCompare(b.path));
