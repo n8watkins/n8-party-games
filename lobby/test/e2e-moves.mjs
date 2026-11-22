@@ -21,9 +21,9 @@
 //   a reload        a phone reloaded while Rob's legs are up, and Sam's own phone reloaded while
 //                   it is soft, draw them so
 import { LOOK_COOLDOWN_MS } from "../shared/characters.js";
-import { HOOK_COOLDOWN_MS, PULL_MS, STILT_COOLDOWN_MS, STILT_MS } from "../shared/robot.js";
-import { ABSORB_MS, HOLD_MS, MELT_MS, SLIME_COOLDOWN_MS } from "../shared/slime.js";
-import { slideLanding } from "../shared/moves.js";
+import { HOOK_AIM_MS, HOOK_COOLDOWN_MS, PULL_MS, STILT_COOLDOWN_MS, STILT_DROP_MS, STILT_MS, STILT_SQUAT_MS, pullEase } from "../shared/robot.js";
+import { ABSORB_MS, HARDEN_MS, HOLD_MS, MELT_MS, SLIME_COOLDOWN_MS, SNAP_MS } from "../shared/slime.js";
+import { MOVED, slideLanding } from "../shared/moves.js";
 import { wallFor } from "../shared/rooms.js";
 import { clampX } from "../shared/world.js";
 import { launchBrowser } from "./browser.mjs";
@@ -38,6 +38,24 @@ const problems = [];
 const check = (ok, what) => {
   console.log((ok ? "ok   " : "FAIL ") + what);
   if (!ok) problems.push(what);
+};
+/**
+ * A check of what a phone drew, judged on the frames it drew: `ok` true or false when a frame fell
+ * where it could show the thing, null when none did (a page starved of frames on a busy machine).
+ * An unseen check does not fail, but the run counts them, and fails if more than UNSEEN_SHARE of
+ * its drawn checks went unseen: a run that saw nothing cannot pass as clean. What the room did is
+ * checked from its messages in every run, frames or not.
+ */
+const UNSEEN_SHARE = 0.25;
+const drawnChecks = { all: 0, unseen: [] };
+const seen = (ok, what) => {
+  drawnChecks.all++;
+  if (ok === null) {
+    drawnChecks.unseen.push(what);
+    console.log("seen? " + what + " (not seen: no frame fell inside it)");
+    return;
+  }
+  check(ok, what);
 };
 const section = (name) => console.log("\n     -- " + name);
 
@@ -56,7 +74,7 @@ function pageHelpers() {
           return;
         }
         for (const m of Array.isArray(msg) ? msg : [msg]) {
-          if (m && (m.t === "hook" || m.t === "hk")) window.__heard.push({ t: m.t, s: m.s, to: m.to, at: performance.now() });
+          if (m && ["hook", "hk", "stilts", "slime", "shove"].includes(m.t)) window.__heard.push({ t: m.t, s: m.s, to: m.to, o: m.o, k: m.k, at: performance.now() });
           // Told to (__jumpOnHookOf: a robot's seat), this page jumps the moment it hears that robot
           // throw, as a player who sees it coming does: the jump is timed by the page, not the test.
           if (m?.t === "hook" && m.s === window.__jumpOnHookOf) {
@@ -131,7 +149,7 @@ function pageHelpers() {
         if (m.hook && !most.hooks.includes(m.hook)) most.hooks.push(m.hook);
         most.minX = Math.min(most.minX, m.x);
         most.maxX = Math.max(most.maxX, m.x);
-        most.path.push([performance.now(), m.x, m.legs, m.soft]);
+        most.path.push([performance.now(), m.x, m.legs, m.soft, m.chain, m.gem, m.fright, m.knock]);
       }
       // The first frame this page's own move button showed ready.
       if (window.__readyAt == null && document.querySelector(".ctl-bump")?.classList.contains("ready")) window.__readyAt = performance.now();
@@ -300,7 +318,21 @@ try {
       const at = `it first drew ${Math.round(path[0][0] - first.at)} ms after it heard the room, with ${heardLeft === null ? "the move over" : `${Math.round(heardLeft)} ms of it left`}; ${drawnShowing} of ${path.length} frames show it`;
       if (heardLeft !== null && firstLeft > LEAD) return { ok: path.some((f) => leftAt(f[0]) > 0 && shows(f)), story: `still running as it drew: ${at}` };
       if (firstLeft < -TAIL) return { ok: drawnShowing === 0, story: `over before it drew: ${at}` };
-      return { ok: true, story: `ending as it came back, not judged: ${at}` };
+      return { ok: null, story: `ending as it came back, either is right: ${at}` };
+    }
+    /**
+     * What a phone drew of seat `s` over a stretch after it heard a message (`heard` picks which:
+     * the last one so far), judged on its own clock: every frame from `fromMs` to `toMs` after it
+     * heard it must pass `shows` (a frame: [t, x, legs, soft, chain, gem, fright, knock]), and no
+     * frame it drew may have the piece knocked over. ok null: no frame fell in that stretch.
+     */
+    async function drewDuring(page, s, heard, fromMs, toMs, shows) {
+      const path = (await seenOn(page, s)).path ?? [];
+      const at = (await page.evaluate(() => window.__heard ?? [])).filter(heard).at(-1)?.at ?? null;
+      if (at === null) return { ok: false, story: "the phone never heard it" };
+      const frames = path.filter(([t]) => t >= at + fromMs && t <= at + toMs);
+      const knocked = path.some((f) => f[7]);
+      return { ok: knocked ? false : frames.length === 0 ? null : frames.every(shows), story: `${frames.filter(shows).length} of ${frames.length} frames from ${fromMs} to ${toMs} ms after it heard it show it${knocked ? "; a frame drew it knocked over" : ""}` };
     }
     ada.goto(1700);
 
@@ -321,28 +353,36 @@ try {
     await sleep(1700);
     for (const [name, page] of [["Sam", sam], ["Pat", pat]]) {
       const { path, from, ...pawn } = await seenOn(page, P);
-      // Judged on the frames the page drew, by its own clock, against when it heard the room's verdict.
+      // Each frame the page drew, by its own clock, against where the room's pull has Pat then:
+      // standing before the page heard the verdict, sliding (eased, PULL_MS) after, then landed.
       const heardAt = (await page.evaluate(() => window.__heard ?? [])).find((h) => h.t === "hk" && h.s === R)?.at ?? null;
-      const before = heardAt === null ? [] : path.filter(([t]) => t <= heardAt);
-      const sliding = heardAt === null ? [] : path.filter(([t]) => t > heardAt && t < heardAt + PULL_MS * 0.6);
-      const last = path.at(-1)?.[1] ?? null;
+      const start = at[P].x;
       const end = pulled?.x ?? 0;
-      const stood = before.length > 0 && Math.abs(before.at(-1)[1] - at[P].x) <= 6;
-      const slid = sliding.length === 0 || sliding.some(([, x]) => x > end + 3 && x < at[P].x - 3);
-      const landed = last !== null && Math.abs(last - end) <= 3;
-      const story = `the watch began ${heardAt === null ? "?" : Math.round(heardAt - from)} ms before the verdict; ${before.length} frames before it, the last at ${before.length ? Math.round(before.at(-1)[1]) : "-"}; frames in the first ${Math.round(PULL_MS * 0.6)} ms of the slide at ${JSON.stringify(sliding.map(([t, x]) => `${Math.round(t - heardAt)}ms:${Math.round(x)}`))}; last ${last === null ? "-" : Math.round(last)}`;
-      check(pawn.frights.includes("pull") && !pawn.knocked && stood && slid && landed, `${name}'s phone draws Pat pulled across the floor from ${at[P].x} to ${end}, upright, never knocked (${story}; ${JSON.stringify({ frights: pawn.frights, knocked: pawn.knocked, frames: pawn.frames })})`);
+      const due = (t) => {
+        const u = (t - heardAt) / PULL_MS;
+        return u <= 0 ? start : u >= 1 ? end : start + (end - start) * pullEase(u);
+      };
+      const wrong = heardAt === null ? [] : path.filter(([t, x]) => Math.abs(x - due(t)) > 10);
+      const inSlide = heardAt === null ? [] : path.filter(([t]) => t > heardAt && t < heardAt + PULL_MS);
+      const story = `${path.length} frames from ${heardAt === null ? "?" : Math.round(from - heardAt)} ms, ${inSlide.length} in the slide (${inSlide.map(([t, x]) => `${Math.round(t - heardAt)}ms:${Math.round(x)}`).join(", ")}); ${wrong.length ? `off the room's path: ${wrong.map(([t, x]) => `${Math.round(t - heardAt)}ms:${Math.round(x)} (due ${Math.round(due(t))})`).join(", ")}` : "every frame on the room's path"}; ${JSON.stringify({ frights: pawn.frights, knocked: pawn.knocked })}`;
+      const ok = heardAt === null || wrong.length || pawn.knocked ? false : inSlide.length === 0 ? null : pawn.frights.includes("pull");
+      seen(ok, `${name}'s phone draws Pat pulled across the floor from ${start} to ${end}, upright, never knocked (${story})`);
     }
-    const chainFirst = await seenOn(sam, R);
-    // On a busy machine a page may draw only a few frames in the 260 ms of the pull: the chain out is what must be seen.
-    check(chainFirst.chain && chainFirst.hooks.length > 0, `Sam's phone drew Rob's chain out (${JSON.stringify(chainFirst.hooks)}, ${chainFirst.frames} frames)`);
+    // The chain out: every frame Sam's phone drew while Rob's hook flew (after its aim, until the
+    // phone heard the verdict) shows it.
+    const chainPath = (await seenOn(sam, R)).path ?? [];
+    const samHeard = await sam.evaluate(() => window.__heard ?? []);
+    const flewAt = samHeard.find((h) => h.t === "hook" && h.s === R)?.at ?? null;
+    const landedAt = samHeard.find((h) => h.t === "hk" && h.s === R)?.at ?? null;
+    const flying = flewAt === null || landedAt === null ? [] : chainPath.filter(([t]) => t > flewAt + HOOK_AIM_MS + 30 && t < landedAt);
+    seen(flewAt === null || landedAt === null ? false : flying.length === 0 ? null : flying.every((f) => f[4]), `Sam's phone draws Rob's chain out while the hook flies (${flying.length} frames in the flight, ${flying.filter((f) => f[4]).length} with the chain)`);
 
     section(`${look}: a jump clears the hook; a kick toward the robot bats it away`);
     await rested(R, P);
     await walkTo(pat, P, 900);
     await walkTo(rob, R, 700, 1);
     await sleep(300);
-    await sam.evaluate((s) => window.watchMoves(s, 900), R);
+    await sam.evaluate((s) => window.watchMoves(s, 2500), R);
     mark = ada.seen.length;
     // Pat's phone jumps as it hears Rob throw: a key press from here could reach it too late on a busy machine.
     await pat.evaluate((s) => (window.__jumpOnHookOf = s), R);
@@ -352,8 +392,14 @@ try {
     const miss = await after((m) => m.t === "hk" && m.s === R && m.o !== "jumped", 3000, mark);
     check(miss?.o === "miss", `and flies on to the end of its reach and winds back (${miss?.o})`);
     await sleep(900);
-    const chainSeen = await seenOn(sam, R);
-    check(chainSeen.chain && chainSeen.hooks.length > 0, `Sam's phone drew the chain and the hook out (${JSON.stringify({ chain: chainSeen.chain, hooks: chainSeen.hooks })})`);
+    // Every frame Sam's phone drew while this hook flew on to the end of its reach (after its aim,
+    // until the phone heard the miss) shows the chain out.
+    const pathNow = (await seenOn(sam, R)).path ?? [];
+    const heardNow = await sam.evaluate(() => window.__heard ?? []);
+    const threw = heardNow.filter((h) => h.t === "hook" && h.s === R).at(-1)?.at ?? null;
+    const missed = threw === null ? null : (heardNow.find((h) => h.t === "hk" && h.s === R && h.at > threw && h.o === "miss")?.at ?? null);
+    const outFrames = threw === null || missed === null ? [] : pathNow.filter(([t]) => t > threw + HOOK_AIM_MS + 30 && t < missed);
+    seen(threw === null || missed === null ? false : outFrames.length === 0 ? null : outFrames.every((f) => f[4]), `Sam's phone draws the chain out while the hook flies on past Pat (${outFrames.length} frames in the flight, ${outFrames.filter((f) => f[4]).length} with the chain)`);
     await rested(R, P);
     // Pat out of a kick's reach of Rob (130), well within his hook's.
     await walkTo(pat, P, 960, -1);
@@ -391,8 +437,8 @@ try {
     check(adas?.o === "pull" && adas.to === R && adas.tr?.s === P, `Ada's hook catches Rob mid-pull and Pat comes along behind (${JSON.stringify(adas && { o: adas.o, to: adas.to, tr: adas.tr })})`);
     check(at[A].x < at[R].x && at[R].x < at[P].x, `all three end in a line: Ada ${at[A].x}, Rob ${at[R].x}, Pat ${at[P].x}`);
     await sleep(1800);
-    const train = await seenOn(sam, P);
-    check(train.frights.includes("pull") && !train.knocked, `Sam's phone draws Pat pulled along, upright (${JSON.stringify(train.frights)})`);
+    const train = await drewDuring(sam, P, (h) => h.t === "hk" && h.s === A, 20, MOVED.pull.ms - 20, (f) => f[6] === "pull");
+    seen(train.ok, `Sam's phone draws Pat pulled along, upright (${train.story})`);
 
     await rested(R, A);
     // Pat well out of the way, so each robot's hook meets the other first.
@@ -411,8 +457,8 @@ try {
     check(bonk?.o === "bonk", `Rob and Ada hook each other: both yanked together, and they bonk heads (${bonk?.o})`);
     check(Math.abs(at[R].x - at[A].x) <= 70, `they end head to head (${at[A].x} and ${at[R].x})`);
     await sleep(1600);
-    const bonked = await seenOn(pat, R);
-    check(bonked.frights.includes("bonk") && !bonked.knocked, `Pat's phone draws Rob's bonk, upright (${JSON.stringify(bonked.frights)})`);
+    const bonked = await drewDuring(pat, R, (h) => h.t === "hk" && h.o === "bonk", 20, MOVED.bonk.ms - 20, (f) => f[6] === "bonk");
+    seen(bonked.ok, `Pat's phone draws Rob's bonk, upright (${bonked.story})`);
 
     // ================================================================ the legs
     section(`${look}: Rob's legs go up, and Pat's kick swings under him; every phone draws the legs`);
@@ -454,11 +500,12 @@ try {
     const back = Date.now() - upAt;
     await sleep(1200);
     const legsJudged = await reloadedDraws(pat, R, "legs");
-    check(legsJudged.ok, `Pat's phone, reloaded mid-legs, draws Rob as the room has him when it is back (${legsJudged.story})`);
+    seen(legsJudged.ok, `Pat's phone, reloaded mid-legs, draws Rob as the room has him when it is back (${legsJudged.story})`);
     await sleep(Math.max(0, STILT_MS + 200 - back));
+    // Fully out from their rise until they start to drop (shared/robot.js, stiltPose).
     for (const [name, page] of [["Sam", sam], ["Rob", rob]]) {
-      const robot = await seenOn(page, R);
-      check(robot.legs > 80, `${name}'s phone drew Rob's legs out (${Math.round(robot.legs)} units)`);
+      const legs = await drewDuring(page, R, (h) => h.t === "stilts" && h.s === R, STILT_SQUAT_MS + 250, STILT_MS - STILT_DROP_MS - 50, (f) => f[2] > 80);
+      seen(legs.ok, `${name}'s phone draws Rob's legs out (${legs.story})`);
     }
 
     // ================================================================ the slime
@@ -483,7 +530,10 @@ try {
     check(bounced?.bo === S && bounced.to === -1, `Pat's kick bounces off and Pat is knocked back himself (${JSON.stringify(bounced && { to: bounced.to, bo: bounced.bo, x: bounced.x })})`);
     check(bounced && bounced.x < at[P].x - 60 && Math.abs((await where())[S].x - at[S].x) < 2, "Pat lands back the way he came; Sam stays put");
     await sleep(1300);
-    for (const [name, page] of [["Rob", rob], ["Pat", pat]]) check((await seenOn(page, S)).gem, `${name}'s phone drew Sam as a gem`);
+    for (const [name, page] of [["Rob", rob], ["Pat", pat]]) {
+      const gem = await drewDuring(page, S, (h) => h.t === "slime" && h.s === S && h.k === "harden", SNAP_MS + 50, HARDEN_MS - 150, (f) => f[5]);
+      seen(gem.ok, `${name}'s phone draws Sam as a gem (${gem.story})`);
+    }
 
     section(`${look}: Sam holds Harden (goes soft), Rob's hook sticks, and Rob is dragged to Sam`);
     await rested(S, R, P);
@@ -512,7 +562,10 @@ try {
     const dragTo = await landing(stood[R].x, stood[S].x - 64);
     check(Math.abs(at[R].x - dragTo) <= 2 && at[S].x === stood[S].x, `and Rob is dragged across to Sam (${at[R].x}, where the room's landing rule puts him: ${Math.round(dragTo)}; Sam at ${at[S].x}, where he stood as he went soft: ${stood[S].x})`);
     await sleep(1200);
-    for (const [name, page] of [["Rob", rob], ["Pat", pat]]) check((await seenOn(page, S)).soft, `${name}'s phone drew Sam soft`);
+    for (const [name, page] of [["Rob", rob], ["Pat", pat]]) {
+      const soft = await drewDuring(page, S, (h) => h.t === "slime" && h.s === S && h.k === "absorb", 50, ABSORB_MS - 100, (f) => f[3]);
+      seen(soft.ok, `${name}'s phone draws Sam soft (${soft.story})`);
+    }
 
     section(`${look}: Sam's own phone reloaded while it is soft draws it soft`);
     await rested(S);
@@ -530,7 +583,7 @@ try {
     await drawn(sam);
     await sleep(1200);
     const softJudged = await reloadedDraws(sam, S, "soft");
-    check(softJudged.ok, `Sam's own phone, reloaded while soft, draws Sam as the room has him when it is back (${softJudged.story})`);
+    seen(softJudged.ok, `Sam's own phone, reloaded while soft, draws Sam as the room has him when it is back (${softJudged.story})`);
     // The reloaded phone takes its harden's cooldown from the room: its move button is ready when
     // the room's cooldown ends, not however long the view took to load later (a press in between
     // would be dropped on the phone, the room never hearing it).
@@ -618,7 +671,8 @@ try {
     await walkTo(sam, S, 900, 1);
     await sleep(300);
     at = await where();
-    await watchAll(P, 2200);
+    // Watched for as long as the walk may take (up to 5 s).
+    await watchAll(P, 5500);
     mark = ada.seen.length;
     // Walked until the room has shoved Pat twice and 100 units along (or 5 s): a page that draws few
     // frames on a busy machine looks for the touch less often, so a fixed walk could end first.
@@ -639,8 +693,8 @@ try {
     const moved = (await where())[P].x - at[P].x;
     check(shoves.length >= 2 && moved >= 100 && !through, `Sam's walk shoves Pat ${shoves.length} times, ${moved} units along in ${Date.now() - walkFrom - 400} ms${through ? ", but walked through him" : ""}`);
     await sleep(900);
-    const shoved = await seenOn(rob, P);
-    check(shoved.frights.includes("shove") && !shoved.knocked, `Rob's phone draws Pat shoved, upright (${JSON.stringify(shoved.frights)})`);
+    const shoved = await drewDuring(rob, P, (h) => h.t === "shove" && h.to === P, 20, MOVED.shove.ms - 20, (f) => f[6] === "shove");
+    seen(shoved.ok, `Rob's phone draws Pat shoved, upright (${shoved.story})`);
 
     section(`${look}: the pages`);
     check(errors.length === 0, `no page reported an error${errors.length ? ":\n       " + [...new Set(errors)].slice(0, 8).join("\n       ") : ""}`);
@@ -654,5 +708,7 @@ try {
   for (const c of sockets) c.ws.close();
   await browser.close();
 }
+console.log(`\n${drawnChecks.unseen.length} of ${drawnChecks.all} drawn checks went unseen (a page drew no frame inside them)${drawnChecks.unseen.length ? ":\n  " + drawnChecks.unseen.join("\n  ") : ""}`);
+if (drawnChecks.unseen.length > UNSEEN_SHARE * drawnChecks.all) problems.push(`too many drawn checks went unseen: ${drawnChecks.unseen.length} of ${drawnChecks.all} (at most ${Math.floor(UNSEEN_SHARE * drawnChecks.all)})`);
 console.log(problems.length ? `\n${problems.length} problem(s):\n- ` + problems.join("\n- ") : "\nAll good.");
 process.exit(problems.length ? 1 : 0);
