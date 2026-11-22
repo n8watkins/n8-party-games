@@ -424,7 +424,11 @@ try {
         return ((path.at(-1).x - path[0].x) / (path.at(-1).t - path[0].t)) * 1000;
       };
       const speeds = { pawn: await speedOf(B), slime: await speedOf(C), ghost: await speedOf(A) };
-      const right = Object.entries(speeds).every(([c, v]) => v !== null && Math.abs(v / walkSpeed(c) - 1) < 0.08);
+      // Each against the others (the rule's shares), and each roughly at its own speed: a page short
+      // of frames draws all three a little fast or slow alike as it catches up with the room.
+      const right =
+        Object.values(speeds).every((v) => v !== null) &&
+        Object.entries(speeds).every(([c, v]) => Math.abs(v / walkSpeed(c) - 1) < 0.2 && Math.abs(v / speeds.slime / (walkSpeed(c) / walkSpeed("slime")) - 1) < 0.06);
       seen(Object.values(speeds).some((v) => v === null) ? null : right, `${look}: ${name} draws each walking at its own speed (${Object.entries(speeds).map(([c, v]) => `${c} ${v === null ? "?" : Math.round(v)} of ${Math.round(walkSpeed(c))}`).join(", ")})`);
       // The ghost drawn floating on past where it stopped, to where the room has it.
       // (From a while after: a page drawing few frames eases toward where the room has a piece.)

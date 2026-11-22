@@ -10,6 +10,7 @@
 import { HARDEN_MS, slimeLook } from "./shared/slime.js";
 import { HOOK_HAND, STILT_MS, hookDrawn, stiltPose } from "./shared/robot.js";
 import { CHARGE_HOLD_MS, CHARGE_MIN_MS, attackPose, chargeDash, chargePose } from "./shared/bump.js";
+import { posAt } from "./shared/world.js";
 
 // ---------------------------------------------------------------- the pawn's kick, and its charge
 //
@@ -95,7 +96,10 @@ export function heardChargedKick(p, msg, now, own) {
     p.attack.landed = msg.to >= 0;
     return p.attack.at;
   }
-  p.attack = { at: now, dir: msg.f || p.face || 1, landed: msg.to >= 0, lunge: { from: p.rx, to, power: msg.c } };
+  // From where the room had it as it charged (it stood still), not where a page starved of frames
+  // last drew it: such a page would otherwise draw the dash from somewhere it never was.
+  const from = p.net ? Math.round(posAt(p.net, now, p.kind?.id)) : p.rx;
+  p.attack = { at: now, dir: msg.f || p.face || 1, landed: msg.to >= 0, lunge: { from, to, power: msg.c } };
   p.net = { x: to, d: 0, t: now };
   if (Number.isFinite(msg.kr)) p.rev = msg.kr;
   return now;
