@@ -54,9 +54,10 @@ function pageHelpers() {
         }
         for (const m of Array.isArray(msg) ? msg : [msg]) {
           if (m && (m.t === "hook" || m.t === "hk")) window.__heard.push({ t: m.t, s: m.s, to: m.to, at: performance.now() });
-          // The first whole room this page heard, and each seat's harden cooldown in it.
+          // The first whole room this page heard, and each seat's move state in it: its harden
+          // cooldown, how long its legs have been up and how long it stays soft (shared/robot.js, slime.js).
           const members = m?.room?.members ?? m?.members;
-          if (Array.isArray(members) && !window.__firstRoom) window.__firstRoom = { at: performance.now(), slimeCool: members.map((x) => x?.slimeCool ?? 0) };
+          if (Array.isArray(members) && !window.__firstRoom) window.__firstRoom = { at: performance.now(), slimeCool: members.map((x) => x?.slimeCool ?? 0), stilts: members.map((x) => x?.stilts ?? null), soft: members.map((x) => x?.soft ?? null) };
         }
       });
     }
@@ -117,12 +118,22 @@ function pageHelpers() {
         if (m.hook && !most.hooks.includes(m.hook)) most.hooks.push(m.hook);
         most.minX = Math.min(most.minX, m.x);
         most.maxX = Math.max(most.maxX, m.x);
-        most.path.push([performance.now(), m.x]);
+        most.path.push([performance.now(), m.x, m.legs, m.soft]);
       }
+      // The first frame this page's own move button showed ready.
+      if (window.__readyAt == null && document.querySelector(".ctl-bump")?.classList.contains("ready")) window.__readyAt = performance.now();
       if (performance.now() < until) requestAnimationFrame(look);
     };
     requestAnimationFrame(look);
   };
+  // A page about to be reloaded can be told to watch a seat from the first frame it draws after
+  // (sessionStorage outlives the reload): window.__moves[seat] then holds every frame from the first.
+  const onLoad = JSON.parse(sessionStorage.getItem("watchOnLoad") ?? "null");
+  if (onLoad) {
+    sessionStorage.removeItem("watchOnLoad");
+    const wait = () => (window.movesOn(onLoad.seat) ? window.watchMoves(onLoad.seat, onLoad.ms) : requestAnimationFrame(wait));
+    requestAnimationFrame(wait);
+  }
 }
 
 const browser = await launchBrowser({ args: ["--autoplay-policy=user-gesture-required", "--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--ignore-gpu-blocklist"] });
@@ -217,6 +228,21 @@ try {
      * that moment is dropped on the phone and the room never hears it.
      */
     const pageOf = { [R]: rob, [S]: sam, [P]: pat };
+    /**
+     * Waits until the room has the seats standing still: not walking, and at the same place over
+     * two looks 200 ms apart. On a busy machine a walk's key-up can reach a page late, so a piece
+     * walkTo left close to its mark can still be drifting a few units when the next move begins.
+     */
+    const settled = async (...seats) => {
+      let last = await where();
+      for (let i = 0; i < 40; i++) {
+        await sleep(200);
+        const now = await where();
+        if (seats.every((s) => now[s].d === 0 && now[s].x === last[s].x)) return now;
+        last = now;
+      }
+      return last;
+    };
     const rested = async (...seats) => {
       for (let i = 0; i < 80; i++) {
         const at = await where();
@@ -230,6 +256,31 @@ try {
     // page can take a while, and a watch that began late would miss the start of the move.
     const watchAll = (s, ms) => Promise.all([rob, sam, pat].map((page) => page.evaluate(([s, ms]) => window.watchMoves(s, ms), [s, ms + 1500])));
     const seenOn = (page, s) => page.evaluate((s) => window.__moves[s] ?? {}, s);
+    /**
+     * What a phone reloaded in the middle of a move ("legs" or "soft") drew of seat `s`, judged
+     * against the room's word on that move in the first room the phone heard, on the phone's own
+     * clock (it watched from its first frame: watchOnLoad). Still running when the phone first drew
+     * (by more than LEAD ms, the time the move takes to show): it must be drawn. Over by more
+     * than TAIL ms (the legs fold, the goo melts): it must not be. In between: it was ending
+     * as the phone came back, and either is right.
+     */
+    async function reloadedDraws(page, s, kind) {
+      const LEAD = kind === "legs" ? 450 : 100;
+      const TAIL = 400;
+      const first = await page.evaluate(() => window.__firstRoom ?? null);
+      const path = (await seenOn(page, s)).path ?? [];
+      if (!first || !path.length) return { ok: false, story: `the phone ${first ? "drew no frame" : "heard no room"} after the reload` };
+      // How long the move had left when the room's word reached the phone (null: it was over by then).
+      const heardLeft = kind === "legs" ? (first.stilts[s] === null ? null : STILT_MS - first.stilts[s]) : first.soft[s];
+      const shows = ([, , legs, soft]) => (kind === "legs" ? legs > 30 : soft);
+      const leftAt = (t) => (heardLeft ?? -1e9) - (t - first.at);
+      const firstLeft = leftAt(path[0][0]);
+      const drawnShowing = path.filter(shows).length;
+      const at = `it first drew ${Math.round(path[0][0] - first.at)} ms after it heard the room, with ${heardLeft === null ? "the move over" : `${Math.round(heardLeft)} ms of it left`}; ${drawnShowing} of ${path.length} frames show it`;
+      if (heardLeft !== null && firstLeft > LEAD) return { ok: path.some((f) => leftAt(f[0]) > 0 && shows(f)), story: `still running as it drew: ${at}` };
+      if (firstLeft < -TAIL) return { ok: drawnShowing === 0, story: `over before it drew: ${at}` };
+      return { ok: true, story: `ending as it came back, not judged: ${at}` };
+    }
     ada.goto(1700);
 
     // ================================================================ the hook
@@ -373,16 +424,16 @@ try {
     await pat.keyboard.press("KeyX");
     const under = await after((m) => m.t === "b" && m.s === P, 2000, mark);
     check(under?.to === -1, `Pat's kick swings through the gap: it hits nobody (${JSON.stringify(under && { to: under.to })})`);
-    // A phone reloaded while the legs are up draws them up.
+    // A phone reloaded while the legs are up draws them up if they still are when it draws again,
+    // and down if they came down before it was back (a busy machine can take seconds to reload).
     // The room's own address, as a reload of the room's page is (the join link would ask for a name again).
+    await pat.evaluate((s) => sessionStorage.setItem("watchOnLoad", JSON.stringify({ seat: s, ms: 2500 })), R);
     await pat.goto(`${base}/lobby/?${lookQuery}`);
     await drawn(pat);
-    await pat.evaluate((s) => window.watchMoves(s, 400), R);
     const back = Date.now() - upAt;
-    await sleep(450);
-    const legsAfter = (await seenOn(pat, R)).legs ?? 0;
-    // Judged only if the page drew before the legs came down (a software-drawn 3D page may take longer than that to come back).
-    check(back < STILT_MS - 150 && legsAfter > 30, `Pat's phone reloaded mid-legs draws Rob up on them (${Math.round(legsAfter)} units; it drew ${back} ms after they went up, of ${STILT_MS})`);
+    await sleep(1200);
+    const legsJudged = await reloadedDraws(pat, R, "legs");
+    check(legsJudged.ok, `Pat's phone, reloaded mid-legs, draws Rob as the room has him when it is back (${legsJudged.story})`);
     await sleep(Math.max(0, STILT_MS + 200 - back));
     for (const [name, page] of [["Sam", sam], ["Rob", rob]]) {
       const robot = await seenOn(page, R);
@@ -418,7 +469,8 @@ try {
     await walkTo(pat, P, 1500);
     await walkTo(sam, S, 1000);
     await walkTo(rob, R, 800, 1);
-    await sleep(300);
+    // Where Sam stands as he goes soft: Rob is dragged to touch him there (a soft slime stays put).
+    const stood = await settled(S, R);
     await watchAll(S, 1500);
     mark = ada.seen.length;
     await sam.keyboard.down("KeyX");
@@ -435,7 +487,7 @@ try {
     await sam.keyboard.up("KeyX");
     at = await where();
     check(stuck?.o === "stuck" && stuck.to === S, `Rob's hook sticks to Sam (${stuck?.o})`);
-    check(Math.abs(at[R].x - (at[S].x - 64)) <= 2, `and Rob is dragged across to Sam (${at[R].x}, Sam at ${at[S].x})`);
+    check(Math.abs(at[R].x - (at[S].x - 64)) <= 2 && at[S].x === stood[S].x, `and Rob is dragged across to Sam (${at[R].x}, Sam at ${at[S].x}, where he stood as he went soft: ${stood[S].x})`);
     await sleep(1200);
     for (const [name, page] of [["Rob", rob], ["Pat", pat]]) check((await seenOn(page, S)).soft, `${name}'s phone drew Sam soft`);
 
@@ -446,17 +498,15 @@ try {
     await sam.keyboard.down("KeyX");
     const wentSoft = await after((m) => m.t === "slime" && m.s === S && m.k === "absorb", 2000, mark);
     await sam.keyboard.up("KeyX");
-    const softAt = Date.now();
     if (!wentSoft) check(false, `Sam went soft before the reload (the room said ${JSON.stringify(ada.seen.slice(mark).filter((m) => m.s === S && m.t !== "m").map((m) => m.t + (m.k ? ":" + m.k : "")))})`);
+    // Soft for ABSORB_MS, then melting (SLIME's MELT_MS): drawn soft if it still is when the phone
+    // draws again, and not if the absorb was over before it was back.
+    await sam.evaluate((s) => sessionStorage.setItem("watchOnLoad", JSON.stringify({ seat: s, ms: 2500 })), S);
     await sam.goto(`${base}/lobby/?${lookQuery}`);
     await drawn(sam);
-    await sam.evaluate((s) => window.watchMoves(s, 300), S);
-    const softBack = Date.now() - softAt;
-    await sleep(350);
-    const { path: _ownPath, ...ownSeen } = await seenOn(sam, S);
-    const ownSoft = ownSeen.soft;
-    // Soft until ABSORB_MS, then melting (SLIME's MELT_MS): a page that drew within the absorb must show it.
-    check(softBack < ABSORB_MS && ownSoft, `Sam's phone, back from the reload within the absorb (it drew ${softBack} ms in, of ${ABSORB_MS}), draws Sam soft${ownSoft ? "" : ` (it saw ${JSON.stringify(ownSeen)})`}`);
+    await sleep(1200);
+    const softJudged = await reloadedDraws(sam, S, "soft");
+    check(softJudged.ok, `Sam's own phone, reloaded while soft, draws Sam as the room has him when it is back (${softJudged.story})`);
     // The reloaded phone takes its harden's cooldown from the room: its move button is ready when
     // the room's cooldown ends, not however long the view took to load later (a press in between
     // would be dropped on the phone, the room never hearing it).
@@ -467,6 +517,8 @@ try {
         new Promise((done) => {
           const t0 = performance.now();
           const tick = () => {
+            // Seen ready by the watch from the phone's first frame, or now.
+            if (window.__readyAt != null) return done(window.__readyAt);
             if (document.querySelector(".ctl-bump")?.classList.contains("ready")) return done(performance.now());
             if (performance.now() - t0 > 8000) return done(null);
             setTimeout(tick, 5);
@@ -475,8 +527,11 @@ try {
         }),
     );
     const first = await sam.evaluate(() => window.__firstRoom ?? null);
-    const lag = readyAt === null || !first ? null : Math.round(readyAt - (first.at + first.slimeCool[S]));
-    check(first?.slimeCool[S] > 0 && lag !== null && lag < 100, `Sam's reloaded phone has its move ready when the room said it would be (${lag} ms after; the first room it heard gave ${first?.slimeCool[S]} ms)`);
+    // Not before the phone draws its first frame (the button is not on the screen until then).
+    const firstFrameAt = (await seenOn(sam, S)).path?.[0]?.[0] ?? null;
+    const dueAt = first && firstFrameAt !== null ? Math.max(first.at + first.slimeCool[S], firstFrameAt) : null;
+    const lag = readyAt === null || dueAt === null ? null : Math.round(readyAt - dueAt);
+    check(lag !== null && lag < 100, `Sam's reloaded phone has its move ready when the room said it would be (${lag} ms after; the first room it heard gave ${first?.slimeCool[S]} ms, and it first drew ${first && firstFrameAt !== null ? Math.round(firstFrameAt - first.at) : "?"} ms after hearing it)`);
 
     section(`${look}: a hold survives a page that stalls drawing; an absorb the room refuses is taken back on Sam's own phone`);
     await rested(S);

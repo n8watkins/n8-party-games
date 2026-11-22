@@ -77,7 +77,9 @@ function pageHelpers() {
       const p = room.pieces.get(seat);
       if (!p) return { scared: 0, pale: 0, character: null };
       const tint = p.body.mat?.userData?.tint?.value;
-      return { scared: p.fright ? (p.body.scaredK ?? 0) : 0, pale: p.body.pale ?? 0, paint: tint ? tint.w : null, character: p.kind.id };
+      // glow and lit: how brightly its paint is drawn (a robot's emissive and the light it stands in).
+      const r2 = (n) => (typeof n === "number" ? Math.round(n * 100) / 100 : null);
+      return { scared: p.fright ? (p.body.scaredK ?? 0) : 0, pale: p.body.pale ?? 0, paint: tint ? tint.w : null, character: p.kind.id, glow: r2(p.body.mat?.emissiveIntensity), lit: r2(p.body.lit) };
     }
     const el = g(seat);
     const sat = /saturate\(([\d.]+)\)/.exec(el?.style.filter ?? "");
@@ -444,6 +446,7 @@ try {
       await sleep(250);
       // Its left side: the ghost it kicks stands up to its right.
       const before = await meanColour(eve, await paintBox(eve, A, -1));
+      const drawnBefore = await eve.evaluate((s) => window.frightOn(s), A);
       if (!(await fade(ghost, G))) check(false, `the ghost fades for ${name}`);
       from = ada.seen.length;
       const kick = await goAt();
@@ -453,22 +456,24 @@ try {
       const frozen = await eve
         .waitForFunction((s) => window.frightOn(s).pale > 0.95 && window.frightOn(s).scared > 0.95 && (window.__holdFrames = true), A, { timeout: 2000, polling: 16 })
         .then(() => true, () => false);
-      let box, pale, still;
+      let box, pale, still, drawnPale;
       try {
         box = await paintBox(eve, A, -1);
         pale = await meanColour(eve, box);
         // Still frozen as the picture was taken (it scurries off after), so the box was still on it.
-        still = await eve.evaluate((s) => window.frightOn(s).pale > 0.95, A);
+        drawnPale = await eve.evaluate((s) => window.frightOn(s), A);
+        still = drawnPale.pale > 0.95;
         if (shots && still) await eve.screenshot({ path: `${shots}/3d-robot-pale-${hex.slice(1)}.png`, clip: { x: box.x - 60, y: box.y - 110, width: 130, height: 150 } });
       } finally {
         await eve.evaluate(() => window.releaseFrames());
       }
-      result = { G, kick, frozen, still, before, pale, attempt, first: result ?? { G, kick, frozen } };
+      result = { G, kick, frozen, still, before, pale, attempt, drawnBefore, drawnPale, box, first: result ?? { G, kick, frozen } };
     }
-    const { G, kick, frozen, still, before, pale, attempt } = result;
+    const { G, kick, frozen, still, before, pale, attempt, drawnBefore, drawnPale, box } = result;
     const was = apart(before, PALE_RGB);
     const now = apart(pale, PALE_RGB);
-    check(kick?.sc === G && frozen && still && (now <= 0.8 * was || now < 30), `${name} (${hex}): scared, its paint goes toward the pale (${JSON.stringify(before)} to ${JSON.stringify(pale)}: ${was} to ${now} from it${attempt ? `; taken twice: the first try ${result.first.kick?.sc !== result.first.G ? "scared nobody" : result.first.frozen ? "had moved off by the picture" : "never froze within 2 s"}` : ""}${still ? "" : "; it had moved off by the picture"})`);
+    const paler = now <= 0.8 * was || now < 30;
+    check(kick?.sc === G && frozen && still && paler, `${name} (${hex}): scared, its paint goes toward the pale (${JSON.stringify(before)} to ${JSON.stringify(pale)}: ${was} to ${now} from it${paler ? "" : `; drawn ${JSON.stringify(drawnPale)} in ${JSON.stringify(box)}, before ${JSON.stringify(drawnBefore)}`}${attempt ? `; taken twice: the first try ${result.first.kick?.sc !== result.first.G ? "scared nobody" : result.first.frozen ? "had moved off by the picture" : "never froze within 2 s"}` : ""}${still ? "" : "; it had moved off by the picture"})`);
   }
 
   section("the pages");
