@@ -1388,11 +1388,12 @@ export class LobbyCore {
     const may = mayShove(sx, m.d, { ...o, x, slime: moveOf(o.character) === "harden", up: isUp(o, at), faded: this.faded(o, at) }, at, touchedAt !== null || !!held);
     if (!may.ok) return { ...may, bad: Math.abs(x - sx) > SHOVE_FAR };
     // A step on, and in front of the slime: it keeps pushing what it walks into (shared/slime.js).
-    // Never further than a page's own shove moves it (SHOVE_AHEAD), however late it is judged, and
-    // from where the piece stands now (it may have walked since).
+    // Judged as it was when it happened: never further than a page's own shove then moved it
+    // (SHOVE_AHEAD), however late it is counted, from where the piece stands now (it may have
+    // walked since).
+    const from = posAt(o, now);
     const ahead = m.d > 0 ? Math.max(x + SHOVE_STEP, sx + SHOVE_AHEAD) : Math.min(x - SHOVE_STEP, sx - SHOVE_AHEAD);
     const shift = Math.max(-SHOVE_AHEAD, Math.min(SHOVE_AHEAD, ahead - x));
-    const from = posAt(o, now);
     const dest = from + shift;
     // Nowhere to go (a wall, or a light it may not be pushed into): it stays, and nothing is said.
     if (Math.abs(slideLanding(from, clampX(dest), this.landingWall(), this.litPlaces()) - from) < 1) return { ok: false, why: "It will not go further.", bad: false };

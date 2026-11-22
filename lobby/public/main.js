@@ -120,6 +120,13 @@ let roomSounds = null;
 globalThis.__partyRoom = { sounds, defineSound };
 // The room view as drawn now, either look (the tests read its pieces' moves: move-state.js).
 Object.defineProperty(globalThis.__partyRoom, "view", { get: () => scene });
+// Whether this page would take a move now, and why not (the tests say so when a press does nothing).
+Object.defineProperty(globalThis.__partyRoom, "moves", {
+  get: () => {
+    const now = performance.now();
+    return pilot && { canMove: canMove(), phase: room?.phase, sheet: !!hud?.sheet, card: !!hud?.card, board: !!board, menu: !!menu?.isOpen, looks: !!looks?.isOpen, stiltIn: Math.round(pilot.stiltCoolUntil - now), upFor: Math.round(pilot.upUntil - now), rootedFor: Math.round(pilot.rootedUntil - now), down: pilot.down(now), move: pilot.move };
+  },
+});
 for (const type of ["pointerdown", "keydown"]) addEventListener(type, () => sounds.unlock(), { capture: true, passive: true });
 sounds.onChange(() => roomSounds?.warm());
 /** When this player last sent an emote, by this page's clock: the room has the last word (its "wait"). */
