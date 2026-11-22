@@ -350,8 +350,10 @@ try {
   // Where the pages keep up, the party of one plays its round now, in a room of its own, while
   // this battle runs its ninety seconds: the two share nothing but the server's books (counted
   // together below). A browser that draws in software plays it after the battle, as one more set
-  // of pages beside these would slow them all.
-  const alone = slow || opt("apart", "0") === "1" ? null : playAlone();
+  // of pages beside these would slow them all. So does --short=1 always: with the alone round's
+  // two pages loading beside them, the battle's reload in the middle took 40 seconds on a loaded
+  // machine and came after its 89-second round's last ten; a short round played after costs little.
+  const alone = slow || SHORT || opt("apart", "0") === "1" ? null : playAlone();
   alone?.catch(() => {}); // (awaited below; a failure is reported there)
   // A context to check afterwards: the game's WebGL context, held from the room's page.
   for (const page of [screen, ada, cy]) await holdContext(page);
