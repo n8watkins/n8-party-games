@@ -59,6 +59,15 @@ function pageHelpers() {
     return send.call(this, data);
   };
   window.__send = (m) => window.__ws.send(JSON.stringify(m));
+  // While window.__holdFrames is set, the page draws no new frame (the last one stays on the
+  // screen): a picture of a pose is taken of the very frame that was judged to show it.
+  const raf = window.requestAnimationFrame.bind(window);
+  const held = [];
+  window.requestAnimationFrame = (cb) => (window.__holdFrames ? (held.push(cb), -1) : raf(cb));
+  window.releaseFrames = () => {
+    window.__holdFrames = false;
+    for (const cb of held.splice(0)) raf(cb);
+  };
   const g = (seat) => document.querySelector(`svg.scene g[data-seat="${seat}"]`);
   window.fadedOn = (seat) => Number(g(seat)?.getAttribute("data-faded") ?? 0);
   // How frightened a seat's piece is drawn, in either look: how wide its eyes (0 to 1) and how pale.
@@ -439,18 +448,27 @@ try {
       from = ada.seen.length;
       const kick = await goAt();
       // Frozen at its palest: wide-eyed and still.
-      const frozen = await eve.waitForFunction((s) => window.frightOn(s).pale > 0.95 && window.frightOn(s).scared > 0.95, A, { timeout: 2000, polling: 16 }).then(() => true, () => false);
-      const box = await paintBox(eve, A, -1);
-      const pale = await meanColour(eve, box);
-      // Still frozen as the picture was taken (it scurries off after), so the box was still on it.
-      const still = await eve.evaluate((s) => window.frightOn(s).pale > 0.95, A);
-      if (shots && still) await eve.screenshot({ path: `${shots}/3d-robot-pale-${hex.slice(1)}.png`, clip: { x: box.x - 60, y: box.y - 110, width: 130, height: 150 } });
-      result = { G, kick, frozen, still, before, pale, attempt };
+      // The page stops drawing on the frame it is judged frozen in, so the picture is of that frame
+      // however long a busy machine takes to take it (a fixed wait could land after the freeze).
+      const frozen = await eve
+        .waitForFunction((s) => window.frightOn(s).pale > 0.95 && window.frightOn(s).scared > 0.95 && (window.__holdFrames = true), A, { timeout: 2000, polling: 16 })
+        .then(() => true, () => false);
+      let box, pale, still;
+      try {
+        box = await paintBox(eve, A, -1);
+        pale = await meanColour(eve, box);
+        // Still frozen as the picture was taken (it scurries off after), so the box was still on it.
+        still = await eve.evaluate((s) => window.frightOn(s).pale > 0.95, A);
+        if (shots && still) await eve.screenshot({ path: `${shots}/3d-robot-pale-${hex.slice(1)}.png`, clip: { x: box.x - 60, y: box.y - 110, width: 130, height: 150 } });
+      } finally {
+        await eve.evaluate(() => window.releaseFrames());
+      }
+      result = { G, kick, frozen, still, before, pale, attempt, first: result ?? { G, kick, frozen } };
     }
     const { G, kick, frozen, still, before, pale, attempt } = result;
     const was = apart(before, PALE_RGB);
     const now = apart(pale, PALE_RGB);
-    check(kick?.sc === G && frozen && still && (now <= 0.8 * was || now < 30), `${name} (${hex}): scared, its paint goes toward the pale (${JSON.stringify(before)} to ${JSON.stringify(pale)}: ${was} to ${now} from it${attempt ? "; the first picture missed the freeze" : ""}${still ? "" : "; it had moved off by the picture"})`);
+    check(kick?.sc === G && frozen && still && (now <= 0.8 * was || now < 30), `${name} (${hex}): scared, its paint goes toward the pale (${JSON.stringify(before)} to ${JSON.stringify(pale)}: ${was} to ${now} from it${attempt ? `; taken twice: the first try ${result.first.kick?.sc !== result.first.G ? "scared nobody" : result.first.frozen ? "had moved off by the picture" : "never froze within 2 s"}` : ""}${still ? "" : "; it had moved off by the picture"})`);
   }
 
   section("the pages");
