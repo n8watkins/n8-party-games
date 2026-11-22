@@ -28,6 +28,7 @@ import { LOOK_COOLDOWN_MS } from "../shared/characters.js";
 import { BIG_SCARE_FREEZE_MS, BIG_SCARE_MS, SCARE_FREEZE_MS, SCARE_MS, SCARE_START_MS } from "../shared/ghost.js";
 import { HARDEN_MS } from "../shared/slime.js";
 import { MOVED, slideLanding } from "../shared/moves.js";
+import { CURL_MS } from "../shared/counters.js";
 import { PULL_MS, TUG_HOLD_MS } from "../shared/robot.js";
 import { wallFor } from "../shared/rooms.js";
 import { FLOAT_MS, JUMP_HEIGHT, LOW_JUMP_HEIGHT, walkSpeed } from "../shared/world.js";
@@ -648,6 +649,157 @@ try {
       const spooked = await drewDuring(page, A, (m) => m.t === "fade" && m.ct === "empty", 40, 160, (f) => f.fright === "spook" && f.scared > 0.3, (f) => `${f.fright}:${f.scared}`);
       seen(empty ? spooked.ok : false, `${look}: ${name} draws Ada spooked, eyes wide (${calm(name) ? "less motion; " : ""}${spooked.story})`);
     }
+    // ================================================================ the touch counters
+    section(`${look}: ghosts that meet: Ada and Bo, both ghosts, faded, drift into each other and pop solid`);
+    await be(ada, "ghost");
+    await sleep(LOOK_COOLDOWN_MS);
+    await rested(A, B);
+    cy.goto(1780);
+    stand(ada, hx, 1);
+    stand(bo, hx + 200, -1);
+    await sleep(400);
+    mark = ada.seen.length;
+    ada.send({ t: "fade" });
+    bo.send({ t: "fade" });
+    await after((m) => m.t === "fade" && m.s === B, 3000, mark);
+    await watchAll([A, B], 3000);
+    // Both drift toward each other, and their phones say nothing more: the room sees them meet.
+    ada.send({ t: "m", x: hx, d: 1, r: ada.rev });
+    bo.send({ t: "m", x: hx + 200, d: -1, r: bo.rev });
+    const pop = await after((m) => m.t === "pop", 3000, mark);
+    for (const c of [ada, bo]) c.send({ t: "m", x: c.x, d: 0, r: c.rev });
+    await counterShot("ghosts-meet");
+    check(pop && [pop.s, pop.to].sort().join() === [A, B].sort().join(), `the room sees them meet and both pop solid (${JSON.stringify(pop && { s: pop.s, to: pop.to, x: pop.x, ox: pop.ox })})`);
+    const solid = await where();
+    check(!(solid[A].faded > 0) && !(solid[B].faded > 0), "and neither is faded any more: each has its vote back");
+    await sleep(1000);
+    for (const [name, page] of pages) {
+      for (const [s, who] of [[A, "Ada"], [B, "Bo"]]) {
+        const popped = await drewDuring(page, s, (m) => m.t === "pop", 30, 200, (f) => f.fright === "pop" && f.scared > 0.2, (f) => `${f.fright}:${f.scared}`);
+        seen(pop ? popped.ok : false, `${look}: ${name} draws ${who} popped solid with a start (${calm(name) ? "less motion; " : ""}${popped.story})`);
+      }
+    }
+
+    section(`${look}: boo the stilts: Bo (a ghost, faded) drifts through Ada (a robot) up on her legs, and she topples`);
+    await be(ada, "robot");
+    await sleep(LOOK_COOLDOWN_MS);
+    await rested(A, B);
+    stand(ada, hx + 200, -1);
+    stand(bo, hx, 1);
+    await sleep(400);
+    await watchAll([A], 3000);
+    mark = ada.seen.length;
+    bo.send({ t: "fade" });
+    await after((m) => m.t === "fade" && m.s === B, 3000, mark);
+    ada.send({ t: "stilts" });
+    await after((m) => m.t === "stilts" && m.s === A, 3000, mark);
+    // Bo drifts on through her; his phone says so as it does (a boo), and the room judges it.
+    bo.send({ t: "m", x: hx, d: 1, r: bo.rev });
+    const topple = await after((m) => m.t === "spook" && m.to === A, 3000, mark);
+    bo.send({ t: "m", x: bo.x, d: 0, r: bo.rev });
+    await counterShot("boo-the-stilts");
+    check(topple?.tp === 1, `Ada, up on her legs, topples (${JSON.stringify(topple && { to: topple.to, tp: topple.tp, x: topple.x })})`);
+    await sleep(1000);
+    for (const [name, page] of pages) {
+      const down = await drewDuring(page, A, (m) => m.t === "spook" && m.tp, 80, STUN_MS - IMPACT_MS - GETUP_MS, tipped, (f) => `${f.knock ? "knocked" : "up"}:${Math.round(f.tilt)} legs ${Math.round(f.legs)}`);
+      seen(topple ? down.ok : false, `${look}: ${name} draws Ada toppled off her legs (${calm(name) ? "less motion; " : ""}${down.story})`);
+    }
+
+    section(`${look}: dominoes: Pat kicks Bo into Ada, and she goes over too`);
+    await be(bo, "pawn");
+    await sleep(LOOK_COOLDOWN_MS);
+    await rested(P, A, B);
+    const kx = await walkPat(hx, 1);
+    stand(bo, kx + 90, -1);
+    stand(ada, kx + 200, -1);
+    await sleep(400);
+    await watchAll([A, B], 3000);
+    mark = ada.seen.length;
+    await pat.keyboard.press("KeyX");
+    const domino = await after((m) => m.t === "b" && m.s === P, 3000, mark);
+    await counterShot("dominoes");
+    check(domino?.to === B && domino.dm?.to === A && domino.dm.at > IMPACT_MS, `Pat's kick throws Bo into Ada, who goes over as he reaches her (${JSON.stringify(domino && { to: domino.to, dm: domino.dm })})`);
+    await sleep(1300);
+    for (const [name, page] of pages) {
+      // Standing until Bo reaches her, then over.
+      const before = await drewDuring(page, A, (m) => m.t === "b" && m.dm, 0, (domino?.dm?.at ?? 0) - 30, (f) => !tipped(f), (f) => `${Math.round(f.tilt)}`);
+      const after_ = await drewDuring(page, A, (m) => m.t === "b" && m.dm, (domino?.dm?.at ?? 0) + 90, (domino?.dm?.at ?? 0) + STUN_MS - IMPACT_MS - GETUP_MS, tipped, (f) => `${f.knock ? "knocked" : "up"}:${Math.round(f.tilt)}`);
+      seen(domino?.dm ? (before.ok === false ? false : after_.ok) : false, `${look}: ${name} draws Ada standing until Bo reaches her, then knocked over (${calm(name) ? "less motion; " : ""}before: ${before.story}; after: ${after_.story})`);
+    }
+
+    section(`${look}: the curling stone: Pat's charged kick sends Cy (a hardened slime) sliding into Bo, who votes in a light`);
+    await be(cy, "slime");
+    await sleep(LOOK_COOLDOWN_MS);
+    await rested(P, A, B, C);
+    // Bo in the middle of a lit pool with dark before it for Pat and Cy (and the stone's way past it).
+    const lightNow = (x) => start.wall.pools.some((p) => start.lit.includes(p.i) && Math.abs(x - p.x) <= p.half);
+    const pool = start.wall.pools.filter((p) => start.lit.includes(p.i)).find((p) => !lightNow(p.x - p.half - 240) && !lightNow(p.x - p.half - 150) && p.x - p.half - 240 > 130);
+    ada.goto(1780);
+    stand(bo, Math.round(pool.x), -1);
+    const sx0 = await walkPat(Math.round(pool.x - pool.half - 240), 1);
+    stand(cy, sx0 + 90, -1);
+    await sleep(500);
+    await watchAll([B, C], 4000);
+    {
+      mark = ada.seen.length;
+      await pat.keyboard.down("KeyX");
+      const kc2 = await after((m) => m.t === "kc" && m.s === P, 3000, mark);
+      await sleep(300);
+      cy.send({ t: "slime", k: "harden" });
+      await after((m) => m.t === "slime" && m.s === C, 2000, mark);
+      await sleep(Math.max(0, 700 - (Date.now() - (kc2?.at ?? Date.now()))));
+      await pat.keyboard.up("KeyX");
+    }
+    const curl = await after((m) => m.t === "b" && m.s === P, 3000, mark);
+    await counterShot("curling-stone");
+    check(curl?.cu?.s === C && curl.cv?.to === B, `the stone slides and knocks Bo over (${JSON.stringify(curl && { bo: curl.bo, c: curl.c, cu: curl.cu, cv: curl.cv })})`);
+    check(curl && !lightNow(curl.cv.x) && !lightNow(curl.cu.x) && curl.cu.x > pool.x, `Bo is knocked out of the light, and the stone slides on past it into the dark (${curl?.cv?.x}, ${curl?.cu?.x}; the light ${Math.round(pool.x - pool.half)} to ${Math.round(pool.x + pool.half)})`);
+    await sleep(1600);
+    for (const [name, page] of pages) {
+      const sliding = await drewDuring(page, C, (m) => m.t === "b" && m.cu, IMPACT_MS + 60, IMPACT_MS + CURL_MS - 60, (f) => f.fright === "curl", (f) => `${f.fright}@${Math.round(f.x)}`);
+      seen(curl ? sliding.ok : false, `${look}: ${name} draws Cy sliding as a stone (${calm(name) ? "less motion; " : ""}${sliding.story})`);
+      const rested_ = await drewDuring(page, C, (m) => m.t === "b" && m.cu, IMPACT_MS + CURL_MS + 80, IMPACT_MS + CURL_MS + 900, (f) => Math.abs(f.x - curl.cu.x) <= 6);
+      seen(curl ? rested_.ok : false, `${look}: ${name} draws the stone come to rest where the room put it, ${curl?.cu?.x} (${rested_.story})`);
+      const knocked_ = await drewDuring(page, B, (m) => m.t === "b" && m.cv, (curl?.cv?.at ?? 0) + 90, (curl?.cv?.at ?? 0) + STUN_MS - IMPACT_MS - GETUP_MS, tipped, (f) => `${f.knock ? "knocked" : "up"}:${Math.round(f.tilt)}`);
+      seen(curl ? knocked_.ok : false, `${look}: ${name} draws Bo knocked over as the stone reaches him (${calm(name) ? "less motion; " : ""}${knocked_.story})`);
+    }
+
+    section(`${look}: the slimes: Bo (now a slime, hard) walks into Cy (soft) and is swallowed; both soft, they stick`);
+    await be(bo, "slime");
+    await sleep(LOOK_COOLDOWN_MS);
+    await rested(B, C);
+    await walkPat(150, 1);
+    for (const kind of ["swallow", "stick"]) {
+      await rested(B, C);
+      stand(cy, hx + 60, 1);
+      stand(bo, hx + 220, -1);
+      await sleep(400);
+      await watchAll([B, C], 3000);
+      mark = ada.seen.length;
+      // Cy goes soft (a press held: the harden turned); Bo hardens, or goes soft too.
+      cy.send({ t: "slime", k: "harden" });
+      bo.send({ t: "slime", k: "harden" });
+      await sleep(300);
+      cy.send({ t: "slime", k: "absorb" });
+      if (kind === "stick") bo.send({ t: "slime", k: "absorb" });
+      await after((m) => m.t === "slime" && m.s === C && m.k === "absorb", 2000, mark);
+      // Bo walks into Cy, and his phone says nothing more: the room sees them meet.
+      bo.send({ t: "m", x: bo.x, d: -1, r: bo.rev });
+      const goo = await after((m) => m.t === "goo", 3000, mark);
+      bo.send({ t: "m", x: bo.x, d: 0, r: bo.rev });
+      await counterShot(kind === "swallow" ? "slime-swallows-slime" : "slimes-stick");
+      check(goo?.k === kind, `${kind === "swallow" ? "Cy swallows Bo and spits him out the far side" : "Bo and Cy stick together, then come apart"} (${JSON.stringify(goo && { k: goo.k, s: goo.s, to: goo.to, x: goo.x, ox: goo.ox })})`);
+      if (kind === "swallow") check(goo && goo.x < hx + 60, `Bo comes out on Cy's far side, at ${goo?.x} (Cy at ${hx + 60})`);
+      await sleep(1200);
+      const kindDrawn = kind === "swallow" ? "swallowed" : "stick";
+      for (const [name, page] of pages) {
+        const drawnIt = await drewDuring(page, B, (m) => m.t === "goo", 60, MOVED[kindDrawn].ms - 80, (f) => f.fright === kindDrawn, (f) => `${f.fright}`);
+        seen(goo ? drawnIt.ok : false, `${look}: ${name} draws Bo ${kind === "swallow" ? "swallowed and spat out" : "stuck to Cy"} (${calm(name) ? "less motion; " : ""}${drawnIt.story})`);
+        const landed = await drewDuring(page, B, (m) => m.t === "goo", MOVED[kindDrawn].ms + 80, MOVED[kindDrawn].ms + 700, (f) => Math.abs(f.x - goo.x) <= 6);
+        seen(goo ? landed.ok : false, `${look}: ${name} then draws Bo where the room put him, ${goo?.x} (${landed.story})`);
+      }
+    }
+
     // Back as they were, for the stills.
     await be(bo, "pawn");
     await sleep(LOOK_COOLDOWN_MS);
