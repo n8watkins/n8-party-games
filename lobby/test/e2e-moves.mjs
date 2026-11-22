@@ -22,7 +22,7 @@
 //                   it is soft, draw them so
 import { LOOK_COOLDOWN_MS } from "../shared/characters.js";
 import { HOOK_COOLDOWN_MS, PULL_MS, STILT_COOLDOWN_MS, STILT_MS } from "../shared/robot.js";
-import { ABSORB_MS, HOLD_MS, SLIME_COOLDOWN_MS } from "../shared/slime.js";
+import { ABSORB_MS, HOLD_MS, MELT_MS, SLIME_COOLDOWN_MS } from "../shared/slime.js";
 import { slideLanding } from "../shared/moves.js";
 import { wallFor } from "../shared/rooms.js";
 import { clampX } from "../shared/world.js";
@@ -97,7 +97,10 @@ function pageHelpers() {
     const chain = flat ? !!chainEl && !!chainEl.querySelector("path")?.getAttribute("d") : !!v.hooks?.hooks.get(seat)?.chain.count;
     const legs = flat ? (g?.querySelector(".robot-stilts")?.getAttribute("display") === "none" ? 0 : p.legs ?? 0) : p.body.legsG?.visible ? p.body.legs : 0;
     const gem = flat ? !!g?.querySelector(".slime-gem") && g.querySelector(".slime-gem").getAttribute("display") !== "none" : !!p.body.gem?.visible;
-    return { x: p.rx, hook: p.hook ? (p.hook.verdict?.o ?? "out") : null, chain, legs, gem, soft: !!p.goo && p.goo.turnAt !== null, fright: p.fright?.kind ?? null, knock: !!p.knock, character: p.kind?.id };
+    // Soft as drawn now: from its turn until its soft time and melt are over (move-state.js gooNow
+    // clears p.goo only when a frame draws it, so a goo whose time is up can still be there).
+    const soft = !!p.goo && p.goo.turnAt !== null && performance.now() - p.goo.at - p.goo.turnAt < p.goo.softFor + window.__MELT_MS;
+    return { x: p.rx, hook: p.hook ? (p.hook.verdict?.o ?? "out") : null, chain, legs, gem, soft, fright: p.fright?.kind ?? null, knock: !!p.knock, character: p.kind?.id };
   };
   window.__moves = {};
   // When this page heard the move key go down (its own clock).
@@ -154,6 +157,7 @@ try {
     const pages = [];
     async function open(name) {
       const context = await browser.newContext({ viewport: { width: 844, height: 390 }, hasTouch: true });
+      await context.addInitScript({ content: `window.__MELT_MS = ${MELT_MS};` });
       await context.addInitScript(pageHelpers);
       const page = await context.newPage();
       page.on("pageerror", (e) => errors.push(`${name}: ${e.message}`));
