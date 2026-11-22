@@ -38,6 +38,7 @@ Everything else is already in the repository.
    Before the gate starts, `predeploy` fetches `origin/main` and refuses at once: uncommitted or untracked changes anywhere (it lists them), a gitignored file inside a folder the site serves, a commit not on `origin/main`, or `RELEASE_ALLOW_DIRTY` set.
    The deploy's own build (`WRANGLER_COMMAND` is `deploy`) refuses the same again, so the emergency `npx wrangler deploy --env=''` is held to it too.
    To roll back by deploying an older commit, check that commit out: it is on `origin/main`, so it passes.
+   `npx wrangler deploy --dry-run --env=''` is an upload to Wrangler too, so it is refused the same way on a branch that is not on `origin/main` (or on a dirty tree); try a dry run from main, or build with `npm run build` instead.
 
 ## Releases
 

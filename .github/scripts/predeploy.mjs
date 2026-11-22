@@ -66,10 +66,12 @@ import { STEPS, stepPort } from "./predeploy-steps.mjs";
 // alone, on any tree.
 if (process.argv.includes("--deploy")) {
   const { execFileSync } = await import("node:child_process");
+  console.log("Fetching origin/main (20 s at most) to check this commit is on it...");
   try {
-    execFileSync("git", ["fetch", "--quiet", "origin", "main"], { stdio: ["ignore", "ignore", "pipe"] });
-  } catch {
-    console.log("(could not fetch origin/main; checking against this clone's copy of it)");
+    // Never waits for ever (a bad proxy hung it once) and never asks for a password.
+    execFileSync("git", ["fetch", "--quiet", "origin", "main"], { stdio: ["ignore", "ignore", "pipe"], timeout: 20_000, killSignal: "SIGKILL", env: { ...process.env, GIT_TERMINAL_PROMPT: "0" } });
+  } catch (err) {
+    console.log(`(could not fetch origin/main${err.signal ? " in 20 s" : ""}; checking against this clone's copy of it)`);
   }
   const { repoState } = await import("../../scripts/build-public.mjs");
   const { releaseProblem } = await import("../../scripts/release.mjs");
