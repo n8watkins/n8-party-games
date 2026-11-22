@@ -48,6 +48,23 @@ const check = (ok, what) => {
   if (!ok) problems.push(what);
 };
 const section = (name) => console.log("\n     -- " + name);
+/**
+ * Until `test()` (polled, may be async) is true, at most `ms`: a wait for what the room or a page
+ * says, not for time to pass, so a busy machine is slower and not wrong. Returns the last answer.
+ */
+async function until(test, ms = 20000) {
+  const end = Date.now() + ms;
+  let v = await test();
+  while (!v && Date.now() < end) {
+    await sleep(100);
+    v = await test();
+  }
+  return v;
+}
+/** The seats standing in a box's light, as `c` last heard the vote. */
+const standingOf = (c) => c.room?.vote?.standing ?? {};
+/** Whether `c` has heard the room pass on `who`'s piece standing at x (from index `since` of what it heard). */
+const heardAt = (c, who, x, since = 0) => c.seen.slice(since).some((m) => m.t === "m" && m.s === who.seat && Math.abs(m.x - x) < 1);
 
 /**
  * In each page: the socket's incoming messages can be held back. With window.__holdRoomAfterPick
@@ -126,20 +143,22 @@ try {
   await host.fill("input[name=nickname]", "Nat");
   await host.click("button[type=submit]");
   await host.waitForSelector("svg.scene", { timeout: 60000, state: "attached" });
-  await sleep(1500);
-  const pin = await host.evaluate(() => JSON.parse(sessionStorage.getItem("party-kit:session:/api/lobby"))?.pin ?? null);
+  const pin = await until(() => host.evaluate(() => JSON.parse(sessionStorage.getItem("party-kit:session:/api/lobby") ?? "null")?.pin ?? null));
   const bo = connect(await call("POST", "/join/" + pin, { nickname: "Bo" }));
   sockets.push(bo);
   await bo.opened;
-  await bo.wait((m) => m.t === "room" && m.room?.members?.[bo.seat]);
-  await sleep(800);
+  await bo.wait((m) => m.t === "room" && m.room?.members?.[bo.seat], 10000);
+  // And the host's page draws him, so his walk below is seen from where he stood.
+  await until(() => host.evaluate((s) => window.drawnX(s) !== null, bo.seat));
   check(bo.room.boxes.map((b) => b.id).join() === WALL.boxes.map((b) => b.id).join(), `the server has the production wall: ${bo.room.boxes.map((b) => b.id).join(", ")}`);
   // Bo walks into Tin Derby's light, near its right edge, after the last whole room message.
   const at = Math.round(derbyPool.x + derbyPool.half - 6);
   bo.goto(at);
-  await sleep(1500);
-  const voteBefore = bo.room.vote.standing[bo.seat] ?? null;
-  const drawnBefore = await host.evaluate((s) => window.drawnX(s), bo.seat);
+  const drawnOf = () => host.evaluate((s) => window.drawnX(s), bo.seat);
+  // Settled where he stopped, not still easing toward it: the change of room below carries the drawn place.
+  await until(async () => standingOf(bo)[bo.seat] === "tin-derby" && Math.abs((await drawnOf()) - at) < 0.25);
+  const voteBefore = standingOf(bo)[bo.seat] ?? null;
+  const drawnBefore = await drawnOf();
   check(Math.abs(drawnBefore - at) < 2, `the host's page draws Bo where he walked (${drawnBefore?.toFixed(1)}, at ${at})`);
   check(voteBefore === "tin-derby", `Bo stands in Tin Derby's light (${voteBefore})`);
 
@@ -156,10 +175,10 @@ try {
     await host.click(`.room-card[data-room=${to}]`, { force: true });
     const picked = await bo.wait((m) => m.t === "pick" || m.t === "pick-no", 6000, mark).catch(() => null);
     check(picked?.t === "pick" && picked.v === to, `the host moves the party to ${to} (${JSON.stringify(picked && { t: picked.t, v: picked.v, why: picked.why })})`);
-    const room = await bo.wait((m) => m.t === "room" && m.room.room === to, 4000, mark).catch(() => null);
-    await sleep(1200);
+    const room = await bo.wait((m) => m.t === "room" && m.room.room === to, 10000, mark).catch(() => null);
     const want = acrossWalls(shownAt, from, wallTo);
-    const drawn = await host.evaluate((s) => window.drawnX(s), bo.seat);
+    await until(async () => Math.abs((await drawnOf()) - want) < 2, 10000);
+    const drawn = await drawnOf();
     const held = await host.evaluate(() => window.__held ?? 0);
     check(Math.abs(drawn - want) < 2 && lightAt(drawn, wallTo) === DERBY, `${hold ? "with the room's message held back, " : ""}the host's page draws Bo in Tin Derby's light in ${to}: ${drawn?.toFixed(1)} (carried to ${want.toFixed(1)})${hold ? `; held ${held}` : ""}`);
     check(!!room && Math.abs(room.room.members[bo.seat].x - want) < 1, `the room carried Bo there too and said so (${room?.room.members[bo.seat].x?.toFixed?.(1)})`);
@@ -179,17 +198,20 @@ try {
     const cy = connect(await call("POST", "/join/" + code, { nickname: "Cy" }));
     sockets.push(ann, cy);
     await Promise.all([ann.opened, cy.opened]);
-    await sleep(800);
+    await ann.wait((m) => m.room?.members[ann.seat] && m.room?.members[cy.seat], 10000, 0);
     // Ann a robot, Cy a slime (the widest piece, and the lowest): each must still read as in or out of a light at the edge.
     ann.send({ t: "look", c: "robot" });
     cy.send({ t: "look", c: "slime" });
-    await ann.wait((m) => m.room?.members[ann.seat]?.character === "robot" && m.room?.members[cy.seat]?.character === "slime", 5000, 0);
+    await ann.wait((m) => m.room?.members[ann.seat]?.character === "robot" && m.room?.members[cy.seat]?.character === "slime", 10000, 0);
     // Two players: Cork & Bell and Tin Derby are lit. Ann just inside Cork & Bell's right edge, Cy (a slime) just outside Tin Derby's left edge, in the gap.
     const inside = Math.round(corkPool.x + corkPool.half - 3);
     const outside = Math.round(derbyPool.x - derbyPool.half - 4);
+    let mark = cy.seen.length;
     ann.goto(inside);
     cy.goto(outside);
-    await sleep(2500);
+    // Each has heard the other's move passed on, and the vote counts Ann.
+    await until(() => heardAt(cy, ann, inside, mark) && heardAt(ann, cy, outside) && standingOf(ann)[ann.seat] === "cork-and-bell");
+    await sleep(600);
     const standing = ann.room.vote.standing;
     check(standing[ann.seat] === "cork-and-bell" && !standing[cy.seat], `the room counts Ann (${inside}) in Cork & Bell's light and Cy (${outside}) in the dark`);
     const want = BAR.pools.map((pool) => drawnLight(BAR, pool.i));
@@ -227,30 +249,37 @@ try {
     await shot(p, `${look}-slime-outside-1280x720`);
     // The slime just inside Tin Derby's left edge: counted, and drawn lit.
     cy.goto(Math.round(derbyPool.x - derbyPool.half + 4));
-    await sleep(2000);
-    check(ann.room.vote.standing[cy.seat] === "tin-derby", "and the room counts Cy just inside Tin Derby's edge");
+    await until(() => standingOf(ann)[cy.seat] === "tin-derby");
+    check(standingOf(ann)[cy.seat] === "tin-derby", "and the room counts Cy just inside Tin Derby's edge");
+    await sleep(600);
     await shot(p, `${look}-slime-inside-1280x720`);
     // One, two and four in one pool (Cork & Bell's): two players are on sockets here, so two more join.
+    mark = ann.seen.length;
     cy.goto(Math.round(BAR.xs[1]));
     ann.goto(Math.round(corkPool.x));
-    await sleep(2000);
+    await until(() => heardAt(ann, cy, Math.round(BAR.xs[1]), mark) && !standingOf(ann)[cy.seat] && standingOf(ann)[ann.seat] === "cork-and-bell");
+    await sleep(600);
     await shot(p, `${look}-pool-one-1280x720`);
     cy.goto(Math.round(corkPool.x + 30));
-    await sleep(2000);
+    await until(() => standingOf(ann)[cy.seat] === "cork-and-bell");
+    await sleep(600);
     await shot(p, `${look}-pool-two-1280x720`);
     const more = [connect(await call("POST", "/join/" + code, { nickname: "Ed" })), connect(await call("POST", "/join/" + code, { nickname: "Flo" }))];
     sockets.push(...more);
     await Promise.all(more.map((c) => c.opened));
-    await sleep(800);
+    // Each has heard where the room put it (a step sent before that would start from nowhere).
+    await Promise.all(more.map((c) => c.wait((m) => m.room?.members?.[c.seat], 10000, 0)));
     more[0].goto(Math.round(corkPool.x - 40));
     more[1].goto(Math.round(corkPool.x + 70));
-    await sleep(2500);
-    check(Object.values(ann.room.vote.standing).filter((v) => v === "cork-and-bell").length === 4, "four players stand in Cork & Bell's light, all counted");
+    const inCork = () => Object.values(standingOf(ann)).filter((v) => v === "cork-and-bell").length;
+    await until(() => inCork() === 4);
+    check(inCork() === 4, `four players stand in Cork & Bell's light, all counted (${JSON.stringify(standingOf(ann))}; seats ${[ann, cy, ...more].map((c) => c.seat).join(", ")})`);
+    await sleep(600);
     await shot(p, `${look}-pool-four-1280x720`);
     // Ann steps out (no game starts), and the two who joined leave the party, giving their seats back.
     ann.goto(Math.round(BAR.xs[1]));
     for (const c of more) c.send({ t: "leave" });
-    await sleep(1200);
+    await until(() => !standingOf(ann)[ann.seat] && more.every((c) => !ann.room?.members[c.seat]));
     {
       section(`${look}: the bar's signs`);
       const phone = await page(`${look} phone`, { width: 844, height: 390 }, { hasTouch: true, isMobile: true, deviceScaleFactor: 2 });
