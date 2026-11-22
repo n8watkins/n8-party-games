@@ -866,6 +866,26 @@ try {
       slow = false;
       release();
       await pat.waitForFunction(() => globalThis.__partyRoom?.view && !globalThis.__partyRoom.view.paused && window.__room3d?.pieces?.size > 0, null, { timeout: 40000 });
+      // The new view draws again, three frames within SWAP_DRAWS_MS: a frame loop that died after the
+      // swap must fail here (the check of where it draws, below, says "not seen" for a page that
+      // drew nothing, which a dead loop would otherwise pass as). A starved page still draws in that time.
+      const SWAP_DRAWS_MS = 15_000;
+      const drewAgain = await pat.evaluate(
+        (ms) =>
+          new Promise((done) => {
+            const from = performance.now();
+            let frames = 0;
+            const end = (ok) => {
+              window.__afterDraw.delete(count);
+              done({ ok, frames, ms: Math.round(performance.now() - from) });
+            };
+            const count = () => ++frames >= 3 && end(true);
+            window.__afterDraw.add(count);
+            setTimeout(() => end(false), ms);
+          }),
+        SWAP_DRAWS_MS,
+      );
+      check(drewAgain.ok, `Pat's new view draws again after the swap (${drewAgain.frames} frames in ${drewAgain.ms} ms; at most ${SWAP_DRAWS_MS} ms for three)`);
       await sleep(1200);
       check(stillStanding && caught && legsUp, `the hook (${caught?.o}) and the legs (${!!legsUp}) came while Pat's view stood in (${stillStanding})`);
       const failed = errors.slice(failedBefore);
