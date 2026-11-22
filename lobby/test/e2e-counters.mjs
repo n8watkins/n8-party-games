@@ -17,7 +17,7 @@
 //   into a faded ghost Pat's charged kick goes through Ada's fade: frozen longer than a scare
 //   speeds             a pawn, a slime and a ghost walk side by side, each at its own speed, and
 //                      the ghost floats on when it stops; the pawn jumps highest
-//   the hook's counters (Ada a robot): ride the hook (Pat kicks as he is pulled), cut the line
+//   the hook's counters (Ada a robot): ride the hook (Bo kicks as he is pulled), cut the line
 //                      (Pat kicks the chain Bo is on), the cannonball (Cy, a slime, hardens in the
 //                      air), steal and tug of war (Cy, now a robot, hooks Bo too: later, then at
 //                      once), plant (Cy up on his legs as the hook lands), the empty hook (Bo, now a
@@ -526,20 +526,22 @@ try {
     await sleep(LOOK_COOLDOWN_MS);
     const hx = Math.round(dark[0] + 40);
 
-    section(`${look}: ride the hook: Pat, pulled, kicks before he arrives and knocks Ada (a robot) over`);
-    await rested(P, A);
-    await placeAll([bo, 150, 0], [cy, 150, 0]);
-    await walkPat(hx + 220, -1);
-    await placeAll([ada, hx, 1]);
+    section(`${look}: ride the hook: Bo, pulled, kicks before he arrives and knocks Ada (a robot) over`);
+    await rested(P, A, B);
+    // (Bo is a bare socket: his answer reaches the room in time however slow the pages are. A
+    // page's own kick in the air, Pilot.flying, is in test/hook-counters.test.js.)
+    await walkPat(150, 1);
+    await placeAll([cy, 150, 0], [bo, hx + 220, -1], [ada, hx, 1]);
     await sleep(400);
-    await watchAll([A, P], 4000);
+    await watchAll([A, B], 4000);
     mark = ada.seen.length;
-    // Pat's page kicks 60 ms after it hears the room pull him: before he arrives.
-    await pat.evaluate((s) => (window.__react = { on: { t: "hk", o: "pull", to: s }, after: 60 }), P);
+    // Bo kicks 60 ms after he hears the room pull him: before he arrives.
+    const rideGo = answer(bo, (m) => m.t === "hk" && m.o === "pull" && m.to === B, { t: "b" }, 60);
     ada.send({ t: "hook" });
-    const rode = await after((m) => m.t === "b" && m.s === P, 3000, mark);
+    await rideGo;
+    const rode = await after((m) => m.t === "b" && m.s === B, 3000, mark);
     await counterShot("ride");
-    check(rode?.ride === 1 && rode.to === A, `the room tells everybody Pat rode the hook and kicked Ada over (${JSON.stringify(rode && { to: rode.to, ride: rode.ride, x: rode.x })})`);
+    check(rode?.ride === 1 && rode.to === A, `the room tells everybody Bo rode the hook and kicked Ada over (${JSON.stringify(rode && { to: rode.to, ride: rode.ride, x: rode.x })})`);
     await sleep(1500);
     for (const [name, page] of pages) {
       const down = await drewDuring(page, A, (m) => m.t === "b" && m.ride, IMPACT_MS + 150, STUN_MS - GETUP_MS, tipped, (f) => `${f.knock ? "knocked" : "up"}:${Math.round(f.tilt)}`);
