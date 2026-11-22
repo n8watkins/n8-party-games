@@ -300,6 +300,13 @@ export function createLobbyRoom(wallFor) {
       }
       const now = Date.now();
       const player = entry.role === "player";
+      // A hook whose time came while the alarm was still on its way is judged before anything else
+      // is, and so is a touch along the floor since the room last looked (LobbyCore.dueMoves).
+      const due = core.dueMoves(now);
+      if (due.length) {
+        this.tellMoves(due);
+        this.settle(now);
+      }
       switch (msg.t) {
         case "ping":
           // The clock ping a game's page sends during a round (the kit's client). The lobby's own
@@ -312,6 +319,8 @@ export function createLobbyRoom(wallFor) {
           this.broadcast(moved.relay, entry);
           if (moved.fix) this.send(entry, moved.fix);
           this.keep(entry);
+          // Touches the room held for this piece that its word confirms (LobbyCore.settleTouches).
+          if (moved.touches?.length) this.tellMoves(moved.touches);
           this.settle(now);
           return;
         }
@@ -327,12 +336,19 @@ export function createLobbyRoom(wallFor) {
           if (hit.to >= 0) for (const other of this.sockets.values()) if (other.seat === hit.to) this.keep(other);
           // A kick into a faded ghost scared the kicker off (lobby/shared/ghost.js): the room moved the kicker.
           if (hit.sc !== undefined) this.keep(entry);
+          // A kick into a hardened slime bounced the kicker back (lobby/shared/slime.js): the room moved it too.
+          if (hit.bo !== undefined) this.keep(entry);
           this.settle(now);
           return;
         }
         case "fade":
         case "boo":
           return this.ghostMove(ws, entry, msg, now);
+        case "hook":
+        case "stilts":
+        case "slime":
+        case "shove":
+          return this.characterMove(ws, entry, msg, now);
         case "e":
           return this.emote(ws, entry, msg, now);
         case "away":
@@ -574,6 +590,44 @@ export function createLobbyRoom(wallFor) {
     }
 
     /**
+     * The robot's and the slime's moves (lobby/shared/robot.js, slime.js): `{t: "hook"}` throws the
+     * sender's hook, `{t: "stilts"}` puts its legs up, `{t: "slime", k}` hardens ("harden") or turns
+     * the harden soft ("absorb"), and `{t: "shove", to}` is a walking slime saying it touched the
+     * piece in seat `to`. The room judges each at once and tells everybody, or refuses it to that
+     * page only, in the ghost's style: `{t: "<move>-no", why, wait}`. What came of a hook is said
+     * when the room wakes for it (`hk`, LobbyCore.dueHooks). A refusal no real page asks for
+     * (`bad`) counts against the socket's rate limit; an honest one a moment late costs nothing.
+     */
+    characterMove(ws, entry, msg, now) {
+      if (entry.role !== "player") return;
+      const core = this.core;
+      const seat = entry.seat;
+      const out = msg.t === "hook" ? core.hook(seat, now) : msg.t === "stilts" ? core.stilts(seat, now) : msg.t === "slime" ? core.slime(seat, msg.k, now) : core.shove(seat, msg.to, now);
+      if (!out.ok) {
+        // A shove the room did not take is only a slime walking by: nothing is said.
+        if (msg.t !== "shove") this.send(entry, { t: `${msg.t}-no`, why: out.why, ...(out.wait ? { wait: Math.ceil(out.wait) } : {}), ...(msg.t === "slime" ? { k: msg.k === "absorb" ? "absorb" : "harden" } : {}) });
+        if (out.bad && strike(entry.bucket, SOCKET_RATE, EAGER_STRIKE) === "close") this.kick(ws, entry);
+        return;
+      }
+      this.broadcast(out.relay);
+      // The room stopped a robot to throw its hook, and moved a shoved piece: each socket carries its piece.
+      if (out.relay.t === "hook") this.keep(entry);
+      if (out.relay.t === "shove") for (const other of this.sockets.values()) if (other.seat === out.relay.to) this.keep(other);
+      this.settle(now);
+    }
+
+    /** What came of the robots' hooks whose time has come (LobbyCore.dueHooks), and of moves the room ended by itself: told to everybody. */
+    tellMoves(relays) {
+      const core = this.core;
+      for (const relay of [...relays, ...(core?.drainMoves() ?? [])]) {
+        this.broadcast(relay);
+        // Pieces the room moved: each socket carries its piece through a sleep.
+        const moved = new Set([relay.s, relay.to, relay.tr?.s].filter((s) => Number.isInteger(s)));
+        if (relay.o !== "off") for (const other of this.sockets.values()) if (moved.has(other.seat)) this.keep(other);
+      }
+    }
+
+    /**
      * A page says it is hidden (`away`) or shown again (`back`) while its socket stays open. The
      * seat is away when every open socket of it is. Nothing is saved or relayed in the lobby but
      * the room view; a turn-based game is told (upkeep).
@@ -732,6 +786,8 @@ export function createLobbyRoom(wallFor) {
       const core = this.core;
       if (!core) return;
       this.reap(now);
+      // A hook the room dropped by itself (its robot was knocked): every page winds it back.
+      this.tellMoves([]);
       const change = core.evaluate(now);
       if (change.gaveUp) return this.changed(now);
       if (change.view) this.broadcast({ t: "vote", vote: core.voteView(now) });
@@ -753,6 +809,7 @@ export function createLobbyRoom(wallFor) {
       // Looked at first: a settings step whose players left ends here, and says so in a note.
       core.evaluate(now);
       this.tellNotes();
+      this.tellMoves([]);
       this.broadcastRoom(now);
       this.arm(now);
       // Whatever moved the pieces on the way here (a settings step that ended by itself, a start
@@ -803,6 +860,8 @@ export function createLobbyRoom(wallFor) {
         if (this.core !== core) return;
       }
       const out = core.tick(now);
+      // What came of the hooks whose time it was (shared/robot.js), before anything else is said.
+      this.tellMoves(out.hooks ?? []);
       if (out.start) {
         // The allowance for the day or month is spent: no game starts, and the room is told it
         // will close. `chosen`: the settings step's time ran out, and the game starts with its picks.

@@ -124,14 +124,16 @@ export function mayFade(piece, now, { fades, lobby, busy }) {
 
 /**
  * Whether a faded ghost at `ghostX` may spook `target` ({x, seat, fades, ...times}) at `now`:
- * {ok} or {ok: false, why}. `spooked` is the seats this fade has spooked already.
+ * {ok} or {ok: false, why}. `spooked` is the seats this fade has spooked already. `touched`: the
+ * room itself saw the ghost drift through it along its path (LobbyCore.sweep), so where the two
+ * stand now is not asked.
  */
-export function maySpook(ghostX, target, now, spooked = []) {
+export function maySpook(ghostX, target, now, spooked = [], touched = false) {
   if (target.fades) return { ok: false, why: "A ghost cannot spook a ghost." };
   if (spooked.includes(target.seat)) return { ok: false, why: "Already spooked by this fade." };
   if (now < (target.spookedUntil ?? 0)) return { ok: false, why: "Spooked a moment ago." };
   if (isDown(target, now) || now < (target.immuneUntil ?? 0)) return { ok: false, why: "Knocked over, or just up." };
-  if (Math.abs(target.x - ghostX) > SPOOK_REACH + SPOOK_SLACK) return { ok: false, why: "Too far away." };
+  if (!touched && Math.abs(target.x - ghostX) > SPOOK_REACH + SPOOK_SLACK) return { ok: false, why: "Too far away." };
   return { ok: true };
 }
 

@@ -1,5 +1,6 @@
 // A player's four buttons: walk left, walk right, jump and the character's move (a pawn's bump,
-// a ghost's fade: lobby/shared/characters.js, moveOf). One family: the same round, dark,
+// a ghost's fade, a robot's hook, a slime's harden: lobby/shared/characters.js, moveOf; a robot's
+// jump button is its stilt legs). One family: the same round, dark,
 // outlined button, each with a picture of what it does and a word under it. One of them carries
 // the accent colour: the move, the only one with a cooldown, is amber when it is ready. While it
 // recharges it is dim and a ring sweeps round it; a pulse says it is ready again.
@@ -17,6 +18,12 @@ const PICTURES = {
   bump: { fill: true, d: ["M12 1.6L14.6 7.5L21 6.8L17.2 12L21 17.2L14.6 16.5L12 22.4L9.4 16.5L3 17.2L6.8 12L3 6.8L9.4 7.5Z"] },
   // A ghost's sheet in a broken line: going see-through.
   fade: { dash: "2.7 2.3", d: ["M5.5 20.5V11a6.5 6.5 0 0 1 13 0v9.5l-2.2-1.6-2.1 1.6-2.2-1.6-2.2 1.6-2.1-1.6z"] },
+  // A robot's hook on the end of its chain.
+  hook: { d: ["M3 6h3", "M8.5 6h3", "M14 6h3.5v8.5a3.5 3.5 0 0 1-7 0v-1.5", "M8 13l2.5-2.5 2.5 2.5"] },
+  // A slime's dome cut into facets: hardened.
+  harden: { d: ["M3.5 19.5L6 11.5l6-6 6 6 2.5 8z", "M12 5.5v14", "M6 11.5l6 2 6-2"] },
+  // Two telescoping legs: a robot's jump.
+  stilts: { d: ["M6 4h12v3.5H6z", "M9 7.5v12", "M15 7.5v12", "M7 20h4", "M13 20h4", "M8 12.5h2", "M14 12.5h2"] },
 };
 
 /**
@@ -34,7 +41,11 @@ const BUTTONS = {
 const MOVES = {
   kick: { picture: "bump", name: "Bump", word: "Bump" },
   fade: { picture: "fade", name: "Fade", word: "Fade" },
+  hook: { picture: "hook", name: "Hook", word: "Hook", jump: { picture: "stilts", name: "Stilt legs", word: "Legs" } },
+  harden: { picture: "harden", name: "Harden (hold to go soft)", word: "Harden" },
 };
+/** The jump button, for every character whose move does not change it. */
+const JUMP = { picture: "jump", name: "Jump", word: "Jump" };
 
 function picture(kind) {
   const { d, fill, dash } = PICTURES[kind];
@@ -65,7 +76,8 @@ function onTap(button, action) {
     action();
   });
   button.addEventListener("keydown", (e) => {
-    if (e.key === "Enter" || e.key === " ") action();
+    // A key held down repeats: only its first press acts (a slime's held button must not harden again).
+    if ((e.key === "Enter" || e.key === " ") && !e.repeat) action();
   });
 }
 
@@ -101,6 +113,18 @@ export class Controls {
     onTap(this.jump, on.jump);
     this.bump = control(right, "bump");
     onTap(this.bump, on.bump);
+    // A slime's button is held to go soft (lobby/shared/slime.js): the page hears it come up. The
+    // finger is captured, so a thumb that drifts off the button while it holds does not end the
+    // hold, and the button takes no gesture of its own (touch-action: none, lobby.css .round).
+    this.bump.addEventListener("pointerdown", (e) => {
+      try {
+        this.bump.setPointerCapture?.(e.pointerId);
+      } catch {
+        // A pointer the browser no longer knows (a made-up event): nothing to hold.
+      }
+    });
+    for (const type of ["pointerup", "pointercancel"]) this.bump.addEventListener(type, () => on.unbump?.());
+    this.bump.addEventListener("keyup", (e) => (e.key === "Enter" || e.key === " ") && on.unbump?.());
     // The cooldown ring: a track, and an arc that sweeps round as the move recharges.
     this.sweep = s("circle", { cx: 50, cy: 50, r: 47, pathLength: 100, class: "ctl-ring-sweep" });
     this.bump.append(s("svg", { viewBox: "0 0 100 100", class: "ctl-ring", "aria-hidden": "true" }, s("circle", { cx: 50, cy: 50, r: 47, class: "ctl-ring-track" }), this.sweep));
@@ -110,7 +134,7 @@ export class Controls {
     this.show({ cooling: 0, down: false, of: 1 });
   }
 
-  /** The player's character has this move ("kick" or "fade"): the button shows it. */
+  /** The player's character has this move ("kick", "fade", "hook" or "harden"): the button shows it, and a robot's jump button its legs. */
   setMove(move) {
     const m = MOVES[move] ?? MOVES.kick;
     if (this.move === move) return;
@@ -118,6 +142,11 @@ export class Controls {
     this.bump.querySelector(".ctl-icon").replaceWith(picture(m.picture));
     this.bump.querySelector(".ctl-word").textContent = m.word;
     this.bump.dataset.move = move;
+    const jump = m.jump ?? JUMP;
+    this.jump.querySelector(".ctl-icon").replaceWith(picture(jump.picture));
+    this.jump.querySelector(".ctl-word").textContent = jump.word;
+    this.jump.setAttribute("aria-label", jump.name);
+    this.jump.dataset.move = jump.picture;
     // Said again with the new name on the next show.
     this.state = "";
     this.filled = -1;

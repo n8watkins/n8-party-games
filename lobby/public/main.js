@@ -20,12 +20,18 @@ import { RoomMenu } from "./room-menu.js";
 import { SettingsStep } from "./settings-step.js";
 import { RoomSounds, defineRoomSounds, emoteSound } from "./room-sounds.js";
 import { chosenLook, hardware3D, openRoomView, preferFlat } from "./room-view.js";
+import { standIn } from "./view-api.js";
 import { ScreenFit, allowUpright, fitVisible } from "./screen-fit.js";
 import { SlowWatch } from "./slow-room.js";
 import { BUMP_COOLDOWN_MS, IMMUNE_MS, IMPACT_MS, STUN_MS } from "./shared/bump.js";
-import { BOO_EARLY_MS, FADE_COOLDOWN_MS, FADE_MS, SCARE_MS, SPOOK_AGAIN_MS, SPOOK_MS, SPOOK_REACH } from "./shared/ghost.js";
+import { BOO_EARLY_MS, FADE_MS, SCARE_MS, SPOOK_AGAIN_MS, SPOOK_MS, SPOOK_REACH } from "./shared/ghost.js";
 import { moveOf } from "./shared/characters.js";
 import { defineGhostSounds } from "./ghost-sounds.js";
+import { defineMoveSounds } from "./move-sounds.js";
+import { HOOK_COOLDOWN_MS, HOOK_LIFE_MS, STILT_MS } from "./shared/robot.js";
+import { HOLD_MS, SHOVE_AGAIN_MS, SHOVE_MS, SHOVE_REACH } from "./shared/slime.js";
+import { MOVED } from "./shared/moves.js";
+import { MOVE_COOLDOWN } from "./shared/pilot.js";
 import { FRAME, PHONE_FRAME, camera } from "./shared/camera.js";
 import { clearOfCard, tagsTop } from "./card-clear.js";
 import { Pilot } from "./shared/pilot.js";
@@ -112,6 +118,15 @@ defineRoomSounds();
 /** The room's own sounds, while the room is on the page. */
 let roomSounds = null;
 globalThis.__partyRoom = { sounds, defineSound };
+// The room view as drawn now, either look (the tests read its pieces' moves: move-state.js).
+Object.defineProperty(globalThis.__partyRoom, "view", { get: () => scene });
+// Whether this page would take a move now, and why not (the tests say so when a press does nothing).
+Object.defineProperty(globalThis.__partyRoom, "moves", {
+  get: () => {
+    const now = performance.now();
+    return pilot && { canMove: canMove(), phase: room?.phase, sheet: !!hud?.sheet, card: !!hud?.card, board: !!board, menu: !!menu?.isOpen, looks: !!looks?.isOpen, stiltIn: Math.round(pilot.stiltCoolUntil - now), upFor: Math.round(pilot.upUntil - now), rootedFor: Math.round(pilot.rootedUntil - now), down: pilot.down(now), move: pilot.move };
+  },
+});
 for (const type of ["pointerdown", "keydown"]) addEventListener(type, () => sounds.unlock(), { capture: true, passive: true });
 sounds.onChange(() => roomSounds?.warm());
 /** When this player last sent an emote, by this page's clock: the room has the last word (its "wait"). */
@@ -200,6 +215,7 @@ async function enter() {
       steer: (d, down) => press(`pad${d}`, d, down),
       jump,
       bump,
+      unbump,
       zoom: () => (zoom = zoom === "closer" ? "room" : "closer"),
       leave: () => {
         bye = "left";
@@ -231,7 +247,7 @@ async function enter() {
   slow.start(scene.look, performance.now(), simpler);
   meter?.start(scene);
   zoom = phone() ? "closer" : "room";
-  apply(room);
+  apply(room, roomHeardAt);
   if (!lastFrame) requestAnimationFrame(frame);
   // The room is up: now its sounds may be fetched, once sound is allowed.
   roomSounds.warm();
@@ -285,8 +301,9 @@ async function showRoom() {
     const [skin, asked] = [room.room, look];
     const own = scene.ownX();
     scene.destroy();
-    // While the next view loads the room carries on: moves and votes are kept here and handed over.
-    scene = pause(own);
+    // While the next view loads the room carries on: what is heard meanwhile is kept and handed over.
+    const held = standIn(own);
+    scene = held;
     const before = new Set(app.children);
     const made = await openRoomView(app, { ...viewBase, compact, look: asked, skin });
     // Each drawing appends itself; it belongs under the stage and the words, where the last one was.
@@ -300,6 +317,8 @@ async function showRoom() {
     if (made.look !== asked) look = made.look;
     const now = performance.now();
     redraw(now);
+    // The hooks, legs, hardens, shoves and votes heard while it loaded (after that whole room).
+    held.replay(scene, roomSeenAt);
     slow.start(scene.look, now, simpler);
     meter?.start(scene);
   }
@@ -335,11 +354,6 @@ async function quick3D() {
   });
 }
 
-/** A stand-in for the room view while the next one loads: it hears everything and draws nothing. */
-function pause(own) {
-  const nothing = () => {};
-  return { paused: true, look: "", build: nothing, setRoom: nothing, setVote: nothing, onMove: nothing, onBump: nothing, onFade: nothing, onSpook: nothing, onExpress: nothing, ownJump: nothing, ownBump: nothing, ownX: () => own, setCompact: nothing, frame: nothing, destroy: nothing };
-}
 
 /** "Simpler room": this device draws the flat room from now on, and remembers it. */
 function simpler() {
@@ -389,7 +403,16 @@ function boardLine(now) {
 /** When the room last sent the whole room: moves heard before it are older than its positions. */
 let roomSeenAt = 0;
 
-function apply(next) {
+/**
+ * When the last whole room heard before the view was drawn arrived. Drawing the first view can
+ * take a while (the 3D look loads first), and the room's times in that message (a move's
+ * cooldown, a knock, a hook in flight) run from when it was sent, so the first apply counts them
+ * from here: a phone just reloaded is ready to move when the room says it is, not a load later.
+ */
+let roomHeardAt = 0;
+
+/** Takes a whole room message, heard at `at` (now, unless it waited for the view). */
+function apply(next, at = performance.now()) {
   // Someone came in, or went: heard once, by the room (not for this device's own arrival).
   if (room && roomSounds && next.code === room.code) {
     const was = new Set(room.members.filter(Boolean).map((m) => m.seat));
@@ -403,7 +426,7 @@ function apply(next) {
   // Until the room answers the start link's pick, its older words do not undo it.
   if (pendingRoom) room.room = pendingRoom;
   stage?.room(room); // a game's view that asks hears the room as it changes (who is here, the big screen)
-  voteAt = roomSeenAt = performance.now();
+  voteAt = roomSeenAt = at;
   sounds.setRoom(room.code);
   if (!scene) return;
   scene.setRoom(room, voteAt);
@@ -424,6 +447,12 @@ function apply(next) {
       if (me.down > 0) pilot.knock(me.x, me.rev, voteAt, me.down);
       pilot.cool(me.cool ?? 0, voteAt);
       pilot.fadeCool(me.fadeCool ?? 0, voteAt);
+      // And on its robot's hook and legs, or its slime's harden (shared/robot.js, slime.js).
+      pilot.hookCool(me.hookCool ?? 0, voteAt);
+      if (me.hook) pilot.rootedUntil = voteAt + Math.max(0, HOOK_LIFE_MS - me.hook.in);
+      pilot.stiltCool(me.stiltCool ?? 0, voteAt);
+      if (me.stilts !== undefined) pilot.upUntil = voteAt + STILT_MS - me.stilts;
+      pilot.slimeCool(me.slimeCool ?? 0, voteAt);
       // In the middle of its own fade: it still drifts through pieces and boos until it ends.
       if (me.faded > 0) ownFade(me.faded, voteAt);
     } else if (pilot.rev !== me.rev) pilot.place(me.x, me.rev, voteAt);
@@ -481,7 +510,9 @@ function carryPlaces(from, to, now) {
  */
 function redraw(now) {
   scene.build(room);
-  scene.setRoom(room, now);
+  // The room's times (a knock, a fright, a hook) run from when its word was heard, not from now:
+  // a view that took a while to load (a change of look) must not draw them later than they are.
+  scene.setRoom(room, roomSeenAt);
   for (const [s, move] of lastMoves) if (room.members[s] && move.t > roomSeenAt) scene.onMove({ s, x: posAt(move, now), d: move.d }, now);
 }
 
@@ -499,6 +530,8 @@ link.on("room", (next) => {
   if (modeHop.leaving) return;
   if (scene) return apply(next);
   room = next;
+  // Its times (cooldowns, a knock, a hook, a count) run from now, not from when the view is drawn.
+  roomHeardAt = performance.now();
   if (pendingRoom) room.room = pendingRoom;
   if (!entering) void enter();
 });
@@ -534,6 +567,13 @@ link.on("message", (msg) => {
       if (pilot && msg.to === link.you.seat) pilot.knock(msg.x, msg.rev, now);
       // Scared: the same, for as long as the start, the freeze and the scurry take.
       if (pilot && msg.sc !== undefined && msg.s === link.you.seat) pilot.knock(msg.x, msg.rev, now, SCARE_MS);
+      // Bounced off a hardened slime (`bo`, shared/slime.js): the kicker is knocked back itself.
+      if (msg.bo !== undefined) {
+        lastMoves.set(msg.s, { x: msg.x, d: 0, t: now });
+        noBoo(msg.s, now + STUN_MS + IMMUNE_MS);
+        if (pilot && msg.s === link.you.seat) pilot.knock(msg.x, msg.rev, now);
+        setTimeout(() => moveSound("hook-clang", msg.bo), IMPACT_MS);
+      }
       feelBump(msg);
       // The swing (the viewer's own was heard when the button went down), and the blow when it lands.
       if (msg.s !== link.you.seat || !isPlayer()) roomSounds?.swung(msg.s);
@@ -573,6 +613,90 @@ link.on("message", (msg) => {
     case "boo-no":
       // The room did not find this ghost close enough to that piece (or it was spooked a moment
       // ago): nothing happened, and there is nothing to say. The ghost was only drifting by.
+      break;
+    case "hook":
+      // A robot threw its hook (shared/robot.js): it stands still and the hook flies; the room
+      // says what came of it when it lands (`hk`).
+      stirAt = now;
+      scene.onHook(msg, now);
+      // The room stopped the robot where it throws from.
+      lastMoves.set(msg.s, { x: msg.x, d: 0, t: now });
+      if (msg.s !== link.you?.seat || !isPlayer()) moveSound("hook-throw", msg.s);
+      break;
+    case "hk": {
+      stirAt = now;
+      scene.onHookVerdict(msg, now);
+      const mine = isPlayer() ? link.you.seat : -1;
+      // The throw is over: the robot may walk again.
+      if (msg.s === mine && msg.o !== "jumped" && pilot) pilot.rootedUntil = -Infinity;
+      // Whoever the room moved: their piece is where it put it, and still while it slides.
+      const moved = (seat, x, rev, kind) => {
+        if (!Number.isFinite(x)) return;
+        lastMoves.set(seat, { x, d: 0, t: now });
+        noBoo(seat, now + MOVED[kind].ms + MOVED[kind].safe);
+        if (pilot && seat === mine) {
+          pilot.knock(x, rev, now, MOVED[kind].ms);
+          buzz(kind === "pull" ? [40, 30, 40] : 50);
+        }
+      };
+      if (msg.o === "pull") {
+        moved(msg.to, msg.x, msg.rev, "pull");
+        if (msg.tr) moved(msg.tr.s, msg.tr.x, msg.tr.rev, "pull");
+        moveSound("hook-catch", msg.s);
+      } else if (msg.o === "stuck") {
+        moved(msg.s, msg.x, msg.rev, "pull");
+        moveSound("slime-absorb", msg.to);
+      } else if (msg.o === "scare") {
+        moved(msg.s, msg.x, msg.rev, "hookscare");
+        ghostSound("ghost-boo", msg.to);
+      } else if (msg.o === "bonk") {
+        moved(msg.s, msg.x, msg.rev, "bonk");
+        moved(msg.to, msg.ox, msg.orev, "bonk");
+        if (msg.to === mine) pilot?.hookCool(HOOK_COOLDOWN_MS, now);
+        moveSound("robot-bonk", msg.s);
+      } else if (msg.o === "clang" || msg.o === "parry") moveSound("hook-clang", msg.to);
+      break;
+    }
+    case "hook-no":
+      // The room turned down this robot's hook: its word on the cooldown, and the throw this page began is wound back.
+      pilot?.hookCool(msg.wait ?? 0, now);
+      if (isPlayer()) scene.ownRefused("hook", now);
+      if (!(msg.wait > 0 && msg.wait < 400)) hud?.note(msg.why);
+      break;
+    case "stilts":
+      stirAt = now;
+      scene.onStilts(msg, now);
+      if (msg.s !== link.you?.seat || !isPlayer()) moveSound("stilts-up", msg.s);
+      setTimeout(() => moveSound("stilts-down", msg.s), Math.max(0, msg.for - 60));
+      break;
+    case "stilts-no":
+      pilot?.stiltCool(msg.wait ?? 0, now);
+      if (isPlayer()) scene.ownRefused("stilts", now);
+      if (!(msg.wait > 0 && msg.wait < 400)) hud?.note(msg.why);
+      break;
+    case "slime":
+      stirAt = now;
+      scene.onSlime(msg, now);
+      if (msg.s !== link.you?.seat || !isPlayer()) moveSound(msg.k === "absorb" ? "slime-absorb" : "slime-harden", msg.s);
+      break;
+    case "slime-no":
+      if (msg.k === "harden") {
+        pilot?.slimeCool(msg.wait ?? 0, now);
+        if (isPlayer()) scene.ownRefused("slime", now);
+        if (!(msg.wait > 0 && msg.wait < 400)) hud?.note(msg.why);
+      } else if (isPlayer()) {
+        // A hold the room did not turn soft: the slime this page drew soft is hard again for the
+        // rest of its harden (as the room has it), and nothing is said.
+        scene.ownRefused("absorb", now);
+      }
+      break;
+    case "shove":
+      // A walking slime shoved a piece a step on (shared/slime.js).
+      lastMoves.set(msg.to, { x: msg.x, d: 0, t: now });
+      scene.onShove(msg, now);
+      stirAt = now;
+      if (pilot && msg.to === link.you.seat) pilot.knock(msg.x, msg.rev, now, SHOVE_MS);
+      moveSound("slime-shove", msg.to);
       break;
     case "cd":
       // The room refused a bump: its word on how long is left replaces this page's guess.
@@ -856,27 +980,117 @@ function press(id, d, down) {
 
 function jump() {
   const now = performance.now();
+  // A robot's jump is its stilt legs (shared/robot.js): they go up on this phone at once, and the
+  // room says so to everybody, or takes them back (stilts-no).
+  if (ownMove() === "hook") {
+    if (canMove() && pilot.stilts(now)) {
+      scene.ownStilts(now);
+      moveSound("stilts-up", link.you.seat);
+    }
+    return;
+  }
   if (canMove() && pilot.jump(now)) {
     scene.ownJump(now);
     roomSounds?.jumped(link.you.seat, now);
   }
 }
 
-/** What the player's own character's move button does (shared/characters.js): "kick" or "fade". */
+/** What the player's own character's move button does (shared/characters.js): "kick", "fade", "hook" or "harden". */
 const ownMove = () => moveOf(room?.members[link.you?.seat]?.character);
+
+/**
+ * A slime's press held: the timer that turns its harden soft HOLD_MS after the press (a timer, not
+ * a frame, so a page that stalls a moment or draws slowly never loses the hold), or null.
+ */
+let holdTimer = null;
 
 /**
  * The move button. A kick: the wind-up starts the moment the button goes down; the room decides
  * whether the blow lands. A fade (a ghost's move): it fades on this phone at once, and the room
- * says so to everybody, or takes it back (fade-no).
+ * says so to everybody, or takes it back (fade-no). A hook (a robot's): it winds up at once and
+ * the room judges where it lands. A harden (a slime's): it hardens at once; held, it goes soft
+ * (holdMove: absorb).
  */
 function bump() {
   const now = performance.now();
-  if (ownMove() === "fade") return fadeNow(now);
-  if (canMove() && room.phase === "lobby" && pilot.bump(now)) {
+  const move = ownMove();
+  if (move === "fade") return fadeNow(now);
+  if (!canMove() || room.phase !== "lobby") return;
+  if (move === "hook") {
+    if (pilot.hook(now)) {
+      scene.ownHook(now);
+      moveSound("hook-throw", link.you.seat);
+    }
+    return;
+  }
+  if (move === "harden") {
+    if (pilot.slime("harden", now)) {
+      scene.ownSlime("harden", now);
+      moveSound("slime-harden", link.you.seat);
+      clearTimeout(holdTimer);
+      holdTimer = setTimeout(holdMove, HOLD_MS);
+    }
+    return;
+  }
+  if (pilot.bump(now)) {
     scene.ownBump(now);
     roomSounds?.swung(link.you.seat);
   }
+}
+
+/** The move button came up: a slime's press was a tap. */
+function unbump() {
+  clearTimeout(holdTimer);
+  holdTimer = null;
+}
+
+/** A slime's move button still held HOLD_MS after the press: the harden just begun turns soft (absorb). */
+function holdMove() {
+  holdTimer = null;
+  const now = performance.now();
+  if (ownMove() !== "harden" || !pilot || !canMove()) return;
+  if (pilot.slime("absorb", now)) {
+    scene.ownSlime("absorb", now);
+    moveSound("slime-absorb", link.you.seat);
+  }
+}
+
+/** seat -> until when (this page's clock) this slime does not tell the room it touched that piece again. */
+const shovedAt = new Map();
+
+/**
+ * The heavy slime, on this player's own slime: walking into a piece, it tells the room, which
+ * judges it (shove, or nothing). Looked at only while it walks and is neither hard nor soft. A
+ * piece this page can see would not be shoved (a slime, a robot up on its legs, a faded ghost, one
+ * down or just up) is not asked about.
+ */
+function heavy(now) {
+  if (!pilot || pilot.d === 0 || pilot.down(now) || ownMove() !== "harden") return;
+  const me = room.members[link.you.seat];
+  if (me?.hard > 0 && now - voteAt < me.hard) return;
+  const own = scene.pieces?.get(link.you.seat);
+  if (own?.goo) return;
+  const x = pilot.x;
+  for (const other of piecesNow(now)) {
+    if (other.seat === link.you.seat) continue;
+    const ahead = (other.x - x) * pilot.d;
+    if (ahead < 0 || ahead > SHOVE_REACH) continue;
+    if (now < (shovedAt.get(other.seat) ?? -Infinity) || now < (booless.get(other.seat) ?? -Infinity)) continue;
+    const them = scene.pieces?.get(other.seat);
+    const character = room.members[other.seat]?.character;
+    if (moveOf(character) === "harden" || them?.stilt || now < (them?.fadeUntil ?? 0)) continue;
+    shovedAt.set(other.seat, now + SHOVE_AGAIN_MS + 40);
+    link.send({ t: "shove", to: other.seat });
+  }
+}
+
+/**
+ * The robot's and the slime's own sounds (move-sounds.js), made on this device the first time one
+ * of them does anything: a party with neither never builds them.
+ */
+function moveSound(name, seat) {
+  defineMoveSounds();
+  roomSounds?.play(name, seat, { gain: 0.75 });
 }
 
 /** Seats this fade has already said it drifted through: each is told to the room once (boo). */
@@ -964,6 +1178,7 @@ addEventListener("keydown", (e) => {
 });
 addEventListener("keyup", (e) => {
   if (e.key in WALK_KEYS) press(e.key.toLowerCase(), WALK_KEYS[e.key], false);
+  else if (BUMP_KEYS.has(e.key)) unbump();
 });
 
 // A hidden tab or a lost focus never leaves a piece walking into the wall.
@@ -1010,11 +1225,12 @@ function frame(t) {
     // if the key is still held, and one that may not move stands still.
     pilot.steer(wanted(), now);
     pilot.step(now);
-    // The move button is the player's character's own: the kick, or a ghost's fade.
+    // The move button is the player's character's own: the kick, a ghost's fade, a robot's hook, a slime's harden.
     pilot.move = ownMove();
     hud.pad?.setMove(pilot.move);
-    hud.pad?.show({ cooling: pilot.cooling(now), down: pilot.down(now), of: pilot.move === "fade" ? FADE_COOLDOWN_MS : BUMP_COOLDOWN_MS });
+    hud.pad?.show({ cooling: pilot.cooling(now), down: pilot.down(now), of: MOVE_COOLDOWN[pilot.move] ?? BUMP_COOLDOWN_MS });
     if (pilot.move === "fade") drift(now);
+    if (pilot.move === "harden") heavy(now);
   }
   if (hud.wheel) {
     const wait = emoteWait(now);

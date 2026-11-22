@@ -21,6 +21,7 @@ import { HOP_HEIGHT, HOP_MS, PALE, PAWN_HEIGHT, SIZE, bumpPose } from "./pieces.
 import { PX, SPACE, walkX } from "./space.js";
 import { JUMP_MS, WALK_SPEED, jumpHeight } from "../shared/world.js";
 import { wispAt } from "../characters/ghost-rig.js";
+import { gooNow } from "../move-state.js";
 
 const TOP = 0.7;
 const SLIME_HEIGHT = (TOP * SIZE) / PX;
@@ -92,9 +93,18 @@ function shapes() {
     eyes.push([ball, place(Math.sin(a) * EYE.r, 0, Math.cos(a) * EYE.r, 0, a, 0, EYE.w, EYE.h, EYE.w * 0.55)]);
     glints.push([ball, place(Math.sin(a) * (EYE.r + 0.016) + EYE.w * 0.25, EYE.h * 0.4, Math.cos(a) * (EYE.r + 0.016), 0, a, 0, EYE.w * 0.32, EYE.h * 0.26, EYE.w * 0.22)]);
   }
+  // Hardened (lobby/shared/slime.js): the same dome cut into flat faces, like a gem.
+  const facets = [[0, 0]];
+  for (let i = 0; i <= 4; i++) {
+    const a = ((i / 4) * Math.PI) / 2;
+    facets.push([0.43 * Math.pow(Math.cos(a), 0.62) + 0.05 * Math.pow(1 - i / 4, 6), TOP * Math.sin(a)]);
+  }
+  facets.push([0, TOP]);
+  const gem = new THREE.LatheGeometry(facets.map(([x, y]) => new THREE.Vector2(x * 1.01, y * 1.01)), 7);
   return {
     body,
     shine,
+    gem,
     eyes: merged(eyes),
     glints: merged(glints),
     ball,
@@ -122,7 +132,11 @@ export function makeSlime(radial) {
   const curve = new THREE.Mesh(SHAPES.curve, mouthMat);
   mouthAt.add(mouth, curve);
   mouthAt.visible = false;
-  turn.add(skin, shine, face, mouthAt);
+  // The gem it becomes when it hardens: glassy flat faces in its colour, shown over the jelly.
+  const gemMat = new THREE.MeshPhysicalMaterial({ flatShading: true, roughness: 0.06, metalness: 0.1, clearcoat: 1, clearcoatRoughness: 0.02, emissiveIntensity: 0.35, transparent: true, opacity: 1 });
+  const gem = new THREE.Mesh(SHAPES.gem, gemMat);
+  gem.visible = false;
+  turn.add(skin, shine, gem, face, mouthAt);
   const tilt = new THREE.Group();
   tilt.add(turn);
   const group = new THREE.Group();
@@ -141,7 +155,7 @@ export function makeSlime(radial) {
   ring.visible = false;
   return {
     group, tilt, turn, mat, blob, ring, skin: [skin], colour: new THREE.Color(), lit: 0, fade: 1, air: false, dizzy: false, connected: true,
-    shine, face, eyes, glints, mouthAt, mouth, curve, own: null,
+    shine, face, eyes, glints, mouthAt, mouth, curve, own: null, gem, gemMat, skinMesh: skin,
     sq: 1, sqV: 0, lean: 0, leanV: 0, puff: 0, puffV: 0, yaw: 0, stride: 0, prevX: null, walked: false, want: null,
   };
 }
@@ -152,10 +166,14 @@ export function dressSlime(b, hex, connected) {
   if (connected) b.colour.offsetHSL(0, 0.06, 0.07);
   b.connected = connected;
   b.mat.emissive.copy(b.colour);
+  // The gem is the colour made glassy and bright.
+  b.gemMat.color.copy(b.colour).lerp(new THREE.Color(0xffffff), 0.3);
+  b.gemMat.emissive.copy(b.colour);
 }
 
 export function disposeSlime(b) {
   b.mat.dispose();
+  b.gemMat.dispose();
   for (const m of b.own ?? []) m.dispose();
   b.blob.material.dispose();
   b.ring.material.dispose();
@@ -170,7 +188,7 @@ export function fadeSlime(b, left) {
     b.curve.material = b.mouth.material;
     for (const m of b.own) m.transparent = true;
   }
-  for (const m of [...b.own, b.mat]) {
+  for (const m of [...b.own, b.mat, b.gemMat]) {
     m.transparent = true;
     m.opacity = left * 0.8;
   }
@@ -202,10 +220,23 @@ export function poseSlime(b, piece, now, dt, how) {
   // Stopping, it runs on and wobbles back.
   if (b.walked && !walking && !calm) b.sqV += 1.4;
   b.walked = walking;
-  const creep = walking && !calm ? 0.09 * Math.sin(b.stride) : 0;
+  // Hard (lobby/shared/slime.js): a gem, stiff and still. Soft: low, wide and wobbling.
+  const goo = gooNow(piece, now);
+  const hard = goo?.hard ?? 0;
+  const soft = goo?.soft ?? 0;
+  if (hard > 0.5 && !(b.hardK > 0.5) && !calm) b.sqV -= 2.2;
+  if (soft > 0.5 && !(b.softK > 0.5) && !calm) b.sqV -= 3;
+  b.hardK = hard;
+  b.softK = soft;
+  const creep = walking && !calm && hard < 0.5 ? 0.09 * Math.sin(b.stride) : 0;
+  const wobble = calm ? 0 : soft * 0.06 * Math.sin(now / 85);
   // Knocked over, it flattens on the floor.
   const flat = bump.dizzy ? 0.62 : 1;
-  [b.sq, b.sqV] = spring(b.sq, b.sqV, (air ? 1.12 : 1) * flat + creep, 210, calm ? 26 : 6.5, step);
+  [b.sq, b.sqV] = spring(b.sq, b.sqV, (air ? 1.12 : 1) * flat + creep - 0.24 * soft + wobble + 0.03 * hard, hard > 0.5 ? 600 : 210, calm ? 26 : hard > 0.5 ? 26 : 6.5, step);
+  b.gem.visible = hard > 0.02;
+  b.gemMat.opacity = Math.min(1, hard * 1.4) * b.fade;
+  b.skinMesh.visible = hard < 0.7;
+  b.shine.visible = hard < 0.7;
   b.sq = clamp(b.sq, 0.5, 1.35);
   // Its top drags behind the way it goes, and swings past upright when it stops.
   [b.lean, b.leanV] = spring(b.lean, b.leanV, speed * 0.16, 110, calm ? 26 : 5.5, step);
@@ -253,7 +284,7 @@ export function poseSlime(b, piece, now, dt, how) {
     b.mat.emissive.lerp(PALE, 0.4 * bump.pale);
   }
 
-  const moving = walking || air || bump.state !== "idle" || yelp > 0 || Math.abs(b.sqV) > STILL.squashV || Math.abs(b.leanV) > STILL.leanV || Math.abs(b.puffV) > STILL.puffV || Math.abs(facing - b.yaw) > 0.01 || Math.abs(how.lit - b.lit) > 0.01;
+  const moving = walking || air || !!goo || bump.state !== "idle" || yelp > 0 || Math.abs(b.sqV) > STILL.squashV || Math.abs(b.leanV) > STILL.leanV || Math.abs(b.puffV) > STILL.puffV || Math.abs(facing - b.yaw) > 0.01 || Math.abs(how.lit - b.lit) > 0.01;
   return { up: rise + (tall - 1) * SLIME_HEIGHT - BELOW_PAWN, moving, shock: bump.shock, burst: bump.burst, dust: bump.dust, state: bump.state };
 }
 

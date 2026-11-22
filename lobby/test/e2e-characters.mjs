@@ -16,7 +16,7 @@
 //                     Lighter up and Huh?; a cuff on the pointing hand; none for Fuming); then a
 //                     slime does each (hands on arms of its goo) and a robot (hands on jointed arms)
 //   a knock           a ghost that is bumped squeezes its eyes shut (it never gets crosses); a
-//                     knocked slime's eyes swirl or squeeze shut, a robot's are crosses
+//                     knocked slime's eyes squeeze shut, a robot's are crosses
 //   a reconnect       the phone reloads and is still its ghost; the choice is back on a new party
 //   the same choice   a second player picks the same character and colour, and the room lets them
 //   a bad choice      an unknown character and a bad colour are refused, to the sender only
@@ -385,6 +385,10 @@ try {
     // ================================================================ a fuming robot, by its pixels
     if (look !== "flat") {
       section(`${look}: a fuming robot's paint is red in every colour, read off the pixels`);
+      // Cy's page asks for less motion while the pictures are taken: the room's lamps and candles
+      // flicker and its lightning flashes otherwise (look3d/rendered/bar/room.js), enough to tip a
+      // dark paint's red (Violet read 108 against the 110 it needs) one way or the other.
+      await cy.emulateMedia({ reducedMotion: "reduce" });
       for (const { hex, name } of COLOUR_PRESETS) {
         await sleep(Math.max(LOOK_COOLDOWN_MS, EMOTE_COOLDOWN_MS) + 200);
         from = ada.seen.length;
@@ -409,6 +413,7 @@ try {
         }
         check(isRed(seen), `${name} (${hex}): fuming, its paint shows red (${JSON.stringify(plain)} to ${JSON.stringify(seen)}), not its colour times red`);
       }
+      await cy.emulateMedia({ reducedMotion: null });
     }
 
     // Ada is a cream ghost again, as she was before the slime and the robot (the ghost's move below asks a ghost's fade of her).
@@ -574,10 +579,17 @@ try {
     ada.send({ t: "look", c: "pawn" });
     await sleep(300);
     ada.goto(light - 60);
-    await walkTo(bea, B, light);
-    await walkTo(cy, C, light + 60);
-    const counting = await ada.wait((m) => m.t === "vote" && !!m.vote.count, 5000, mark).then(() => true, () => !!ada.room.vote?.count);
-    check(counting, "everyone stands in a light, and the count runs");
+    // Each well inside the light: walkTo stops within `near` of its mark, so a mark near the
+    // light's edge could leave a piece just outside it (Cy once stood at 492, the light ending short of it).
+    await walkTo(bea, B, light, 15);
+    await walkTo(cy, C, light + 40, 15);
+    // The count as it stands now (one that started while a piece walked through a light, and
+    // stopped as it walked on, is not one): up to five seconds for it.
+    let counting = false;
+    for (let i = 0; i < 50 && !(counting = !!ada.room.vote?.count); i++) await sleep(100);
+    // When it does not run, what the room has: where each piece is, what it stands in, and which lights are on.
+    const why = counting ? "" : ` (the room has ${JSON.stringify((await where()).filter(Boolean).map((m) => [m.name, m.x, m.character, m.faded ?? 0, m.connected]))}, standing ${JSON.stringify(ada.room.vote?.standing)}, lights ${JSON.stringify(ada.room.vote?.lights)}, light at ${light})`;
+    check(counting, `everyone stands in a light, and the count runs${why}`);
     mark = ada.seen.length;
     await bea.keyboard.press("KeyX");
     await sleep(500);
