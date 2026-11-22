@@ -609,7 +609,9 @@ export class Scene {
     const p = this.pieces.get(msg.s);
     if (!p) return;
     p.net = { x: msg.x, d: msg.d, t: now };
+    // Standing, it faces the way the room says (`f`: a quick turn); walking, the way it walks.
     if (msg.d) p.face = msg.d;
+    else if (msg.f === 1 || msg.f === -1) p.face = msg.f;
     if (msg.j) p.jumpAt = now;
   }
 
