@@ -7,7 +7,7 @@
 export const STEPS = [
   ["room, over sockets (test:room)", "test:room"],
   ["party room, over sockets, a round of Cork & Bell played until the corks run out (test:lobby)", "test:lobby"],
-  ["Cork & Bell in the party room, the battle and the round alone side by side, headless browser (test:cork)", "test:cork"],
+  ["Cork & Bell in the party room, the battle and the round alone, each cut short once its mid-round checks are done, headless browser (test:cork)", "test:cork"],
   ["Hot Potato, its cases four at a time in one browser, headless (test:hot-potato)", "test:hot-potato"],
   ["Hot Potato's hearing test, headless browser (test:hearing)", "test:hearing"],
   ["the switch between the Floor and the Table, over sockets (test:mode)", "test:mode"],

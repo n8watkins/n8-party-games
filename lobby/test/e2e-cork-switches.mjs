@@ -110,7 +110,7 @@ const playToTheEnd = () =>
 try {
   // ================================================================ 1. the party room
   const sol = await open("Sol", { width: 844, height: 390 }, { hasTouch: true });
-  await sol.goto(base + "/lobby/?start&look=flat&cork-auto=1&cork-quality=low");
+  await sol.goto(base + "/lobby/?start&look=flat&cork-auto=1&cork-quality=low&cork-round=20");
   await sol.fill("input[name=nickname]", "Sol");
   await sol.click("text=Start the party");
   await sol.waitForSelector("svg.scene text");
@@ -143,6 +143,17 @@ try {
   await frame.waitForFunction((t) => window.__cab.session.time() > t, HANDS_OFF, { timeout: 120000 });
   const played = await frame.evaluate(() => ({ auto: window.__cab.params.auto, ...window.__cab.summary().stalls[0] }));
   check(!played.auto && played.shots === 0, `with ?cork-auto=1 on the room's address and no touch, no cork is fired for the player (${played.shots} fired, ${HANDS_OFF} s in)`);
+  // A short round: ?cork-round=20 on the room's address asked for nothing (the view's ask goes out
+  // only where the switch is handed over), and a {round: 20} the player's own page sends to the
+  // room by hand, through the view's way to the room, is ignored: production's game never reads it.
+  await frame.evaluate(() => window.frameElement.partyHost.send({ round: 20 }));
+  const snapsBefore = watcher.seen.filter((m) => m.t === "snap").length;
+  await watcher.wait((m) => m.t === "snap", 5000, watcher.seen.length);
+  await watcher.wait((m) => m.t === "snap", 5000, watcher.seen.length);
+  const told = watcher.seen.filter((m) => m.t === "ev").flatMap((m) => m.ev.filter((e) => e.k === "round"));
+  const snapRounds = [...new Set(watcher.seen.filter((m) => m.t === "snap" && m.s?.roundSeconds !== undefined).map((m) => m.s.roundSeconds))];
+  const pageRound = await frame.evaluate(() => window.__cab.summary().roundSeconds);
+  check(told.length === 0 && snapRounds.join() === "90" && pageRound === 90 && watcher.seen.filter((m) => m.t === "snap").length > snapsBefore, `with ?cork-round=20 on the room's address and a hand-made {round: 20} from the player's page, the round stays ninety seconds: the room said nothing of a short round, its snapshots say ${JSON.stringify(snapRounds)}, the page runs to ${pageRound}`);
   watcher.ws.close();
   await sol.context().close();
   lap("party room");
@@ -165,7 +176,7 @@ try {
   await ann.waitForSelector("#card:not([hidden])", { timeout: 120000 });
   const card = await ann.evaluate(() => ({ form: !document.getElementById("initials").hidden, note: document.getElementById("card-note").textContent }));
   check(!card.form && /practice/i.test(card.note), `?state=end&score=... is a practice card with no high score entry ("${card.note}")`);
-  for (const q of ["seed=7", "view=wide"]) {
+  for (const q of ["seed=7", "view=wide", "round=20"]) {
     await ann.goto(base + `/cork-and-bell/?${q}&quality=low`);
     await ann.waitForFunction(() => window.__cab?.mode === "attract", null, { timeout: 120000 });
     await ann.evaluate(() => document.getElementById("start-solo").click());

@@ -40,7 +40,7 @@
     "test:room": "node party-kit/test/e2e-room.mjs",
     "test:lobby": "node lobby/test/e2e-lobby.mjs",
     "test:lobby:full": "node lobby/test/e2e-lobby.mjs --full=1",
-    "test:cork": "node lobby/test/e2e-cork.mjs",
+    "test:cork": "node lobby/test/e2e-cork.mjs --short=1",
     "test:cork:full": "node lobby/test/e2e-cork.mjs --apart=1",
     "test:feel": "node lobby/test/e2e-feel.mjs",
     "test:characters": "node lobby/test/e2e-characters.mjs",
@@ -79,7 +79,7 @@
     "lean-qr": "^2.7.4"
   },
   "devDependencies": {
-    "cork-and-bell": "github:n8watkins/cork-and-bell#32a420b8c1538a82e175f8f318389050c38ad387",
+    "cork-and-bell": "github:n8watkins/cork-and-bell#72f191614c91645103092a9e24fa77d660d10f35",
     "playwright": "^1.64.1",
     "sharp": "^0.35.5",
     "three": "^0.186.1",

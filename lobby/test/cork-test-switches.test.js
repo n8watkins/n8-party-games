@@ -55,6 +55,63 @@ describe("cork-* switches in the party room", () => {
   });
 });
 
+describe("cork-round, a test run's short round", () => {
+  const SHORT = new URLSearchParams("join=1234&cork-round=20&round=20");
+  const SEATS = [{ seat: 0, name: "Ann", kind: "human" }, { seat: 1, name: "Bo", kind: "human" }];
+  const post = (env, body) => postScore(env, SCORE_BOARDS, "cork-and-bell", body);
+  const mountSent = (wall, params, you = { role: "player", seat: 0 }) => {
+    const sent = [];
+    const view = mount(fakeContainer(params ? "" : "?" + SHORT), { ...ctx(wall, params), you, send: (d) => sent.push(d) });
+    const out = { sent, switches: view.frame.partyHost.switches, search: new URL(view.frame.src).search };
+    view.unmount();
+    return out;
+  };
+
+  it("production's wall runs the plain game, whose battles never take one; only the test wall runs the game that does", () => {
+    expect(WALL.games.get("cork-and-bell")).toBe(cork.game);
+    expect(TEST_WALL.games.get("cork-and-bell")).toBe(cork.testGame);
+    expect(cork.testGame).not.toBe(cork.game);
+  });
+
+  it("production: the switch is never handed to the page, and the view asks the room for nothing", () => {
+    for (const params of [SHORT, null]) expect(mountSent(WALL, params)).toEqual({ sent: [], switches: "", search: "?party=1" });
+  });
+
+  it("production: a hand-made {round: 20} to the room is ignored, in the count-in or later, and the round runs its ninety seconds", () => {
+    const state = cork.game.create({ seed: 4, seats: SEATS, now: 0, round: 1, roundSeconds: 20 });
+    for (const now of [0, 500, 2900, 3500, 30_000]) for (const d of [{ round: 20 }, { round: 30 }, { round: "20" }]) cork.game.input(state, 0, d, now);
+    expect(state.roundSeconds).toBe(90);
+    expect(cork.game.snapshot(state, 30_000).roundSeconds).toBe(90);
+    const said = [];
+    for (let now = 0; !cork.game.isOver(state) && now < 120_000; now += 33) said.push(...cork.game.tick(state, now));
+    expect(said.some((e) => e.k === "round")).toBe(false);
+    // Nobody fires, so the round runs to its time call: the full ninety seconds.
+    expect(said.find((e) => e.k === "time").t).toBeGreaterThanOrEqual(90);
+  });
+
+  it("the test wall: a player's view asks for it as it mounts, a screen does not, and the room takes it and tells everyone", () => {
+    expect(mountSent(TEST_WALL, SHORT)).toMatchObject({ sent: [{ round: 20 }], switches: "round=20", search: "?party=1" });
+    expect(mountSent(TEST_WALL, SHORT, { role: "screen", seat: -1 }).sent).toEqual([]);
+    const state = cork.testGame.create({ seed: 4, seats: SEATS, now: 0, round: 1 });
+    cork.testGame.input(state, 0, { round: 20 }, 500);
+    expect(cork.testGame.tick(state, 533)).toContainEqual({ k: "round", s: 20 });
+    expect(cork.testGame.snapshot(state, 533).roundSeconds).toBe(20);
+  });
+
+  it("the board refuses a run that names a round length (the page never sends a short round's run: it is a practice run)", async () => {
+    const { env, board } = boardEnv();
+    const session = new LocalSession({ seed: 5, seats: [{ seat: 0, name: "You", kind: "human" }], mySeat: 0, countIn: 1.2, roundSeconds: 20 });
+    for (let i = 0; !session.over && i < 20000; i++) {
+      for (const input of battle.bot(session.state, 0, session.now)) session.fire(input.f[1], input.f[2]);
+      session.advance(1 / 60);
+    }
+    expect(session.state.endAt).toBeLessThan(20.05);
+    const run = JSON.parse(JSON.stringify({ seed: 5, countIn: session.countIn, shots: session.shots, v: RUN_VERSION }));
+    for (const named of [{ round: 20 }, { roundSeconds: 20 }, { roundSeconds: 90 }]) expect((await post(env, { name: "ZZZ", ...run, ...named })).status).toBe(400);
+    expect(await board.top()).toEqual([]);
+  });
+});
+
 describe("Cork & Bell's high score board on this site", () => {
   const rules = SCORE_BOARDS["cork-and-bell"];
   const post = (env, path, body) => postScore(env, SCORE_BOARDS, path, body);

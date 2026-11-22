@@ -7,9 +7,19 @@
 // joins in the middle of it. The browser is headless and muted, and is closed at the end
 // whatever happens.
 //
-//   node lobby/test/e2e-cork.mjs [--base=http://localhost:8791] [--out=lobby/test/shots] [--win=1] [--apart=1]
+//   node lobby/test/e2e-cork.mjs [--base=http://localhost:8791] [--out=lobby/test/shots] [--win=1] [--apart=1] [--short=1]
 //
-// There are two rounds of up to ninety seconds (the game's ROUND_SECONDS). The battle runs its
+// --short=1 (test:cork, the pre-deploy gate's step) cuts each round short once everything it
+// checks while the round is on is done: the test wall's game (cork-and-bell's testGame) takes a
+// test run's {round: s}, a time call at least a second ahead, and tells every page. Cy's page
+// first asks for an 85-second round through the cork-round switch as its view mounts, which
+// proves that path; then Bea's socket (in the battle) and Sol's page (in the round alone) cut
+// the round to a couple of seconds ahead. Everything else is checked as in a full round, against
+// the round length the room took. Without it (test:cork:full) both rounds run their full ninety
+// seconds and nothing asks for a short round.
+//
+// There are two rounds of up to ninety seconds (the game's ROUND_SECONDS; with --short=1 each is
+// cut short as soon as what it checks mid-round is done). The battle runs its
 // full time, as a battle ends early only once every stall is out of corks and two of its stalls
 // never spend theirs; the round played alone ends sooner, once its one stall (the game's bot) has
 // spent them. The two rounds are played at the same time (about two and a half minutes in all),
@@ -28,7 +38,7 @@
 import { mkdirSync } from "node:fs";
 import { resolve } from "node:path";
 import { launchBrowser, openWindowsChrome } from "./browser.mjs";
-import { COUNT_IN, END_HOLD } from "../../node_modules/cork-and-bell/game/shared/battle.js";
+import { COUNT_IN, END_HOLD, TEST_ROUND_MIN } from "../../node_modules/cork-and-bell/game/shared/battle.js";
 import { ROUND_SECONDS } from "../../node_modules/cork-and-bell/game/shared/sim.js";
 import { REPORT_EVERY_MS, ROOM_MEMORY_GB } from "../../party-kit/src/worker/budget-logic.js";
 import { boxCentre } from "../shared/world.js";
@@ -39,6 +49,17 @@ const opt = (k, d) => (args.find((a) => a.startsWith("--" + k + "=")) ?? "--" + 
 const base = opt("base", "http://localhost:8791");
 const out = resolve(opt("out", "lobby/test/shots"));
 mkdirSync(out, { recursive: true });
+/** Cut each round short once its mid-round checks are done (see the top of this file). */
+const SHORT = opt("short", "0") === "1";
+/** The round Cy's page asks for through the cork-round switch, as its view mounts. */
+const SWITCH_ROUND = 85;
+/** Seconds since the run began, for the log: where the time goes. */
+const began = Date.now();
+const lap = (what) => console.log(`     (${what}: ${((Date.now() - began) / 1000).toFixed(1)} s into the run)`);
+/** A time call a couple of seconds ahead of a round that started at `startAt` on the room's clock (the local server's, this machine's). */
+const cutAt = (startAt) => Math.max(TEST_ROUND_MIN, Math.ceil((Date.now() - startAt) / 1000 - COUNT_IN) + 2);
+/** The round length every page of a round shows (their session's, from the room's word). */
+const pageRounds = (frames) => Promise.all(frames.map((f) => f.evaluate(() => window.__cab.summary().roundSeconds)));
 const { api, call, connect } = partyApi(base);
 const problems = [];
 const check = (ok, what) => {
@@ -226,7 +247,7 @@ try {
   // A page keeps its socket alive by itself; a bare socket has to say something now and then, or
   // the room takes it for a phone that has gone (after ninety silent seconds) and lets it drop.
   const alive = setInterval(() => bea.send("ping"), 20_000);
-  const cy = await join("Cy", { width: 390, height: 844 }, "&cork-auto=1&cork-quality=low");
+  const cy = await join("Cy", { width: 390, height: 844 }, "&cork-auto=1&cork-quality=low" + (SHORT ? `&cork-round=${SWITCH_ROUND}` : ""));
   const watcher = bea;
   await watcher.wait((m) => m.room?.members.filter((x) => x?.connected).length === 3, 8000, 0);
   const N = watcher.room.boxes.length;
@@ -245,12 +266,14 @@ try {
   await shot(screen, "50-screen-count-cork-and-bell");
   const start = await watcher.wait((m) => m.t === "start", 16000, 0);
   const startedAt = Date.now();
+  lap("the battle started");
   check(start.room.phase === "playing" && start.room.game.id === "cork-and-bell" && start.s.seats.map((s) => s.seat).join() === "0,1,2", "the count ends and a battle starts for the party's three seats, with no waiting room");
 
   // The game is mounted over the room on every device.
   const frames = {};
   for (const [name, page] of [["Ada", ada], ["Cy", cy], ["screen", screen]]) frames[name] = await gameFrame(page);
   const loadedIn = Date.now() - startedAt;
+  lap("the game is up on the battle's three pages");
   // A browser that draws WebGL in software (Playwright's own, in WSL) has pages that run many
   // seconds behind the room. What needs a page to keep up with the round is left
   // out there, and said so; everything the room decides is checked either way.
@@ -333,7 +356,7 @@ try {
     await ada.reload();
     frames.Ada = await gameFrame(ada);
     const back = await frames.Ada.evaluate(() => ({ mine: window.__cab.session.mySeat, t: window.__cab.session.time(), score: window.__cab.session.sims[0].score, shots: window.__cab.session.sims[0].shots }));
-    check(back.mine === 0 && back.t > 3 && back.t < 80 && back.score >= scoreBefore && back.shots >= counted, `a reload in the middle comes back to the same stall, ${Math.round(back.t)} seconds in, with its ${back.shots} corks and ${back.score} points`);
+    check(back.mine === 0 && back.t > 3 && back.t < (SHORT ? SWITCH_ROUND : ROUND_SECONDS) - 10 && back.score >= scoreBefore && back.shots >= counted, `a reload in the middle comes back to the same stall, ${Math.round(back.t)} seconds in, with its ${back.shots} corks and ${back.score} points`);
     await frames.Ada.waitForFunction(() => window.__cab.session.canFire(), null, { timeout: 30000 });
     await ada.mouse.click(420, 170);
     await frames.Ada.waitForFunction((n) => window.__cab.session.sims[0].shots > n, back.shots, { timeout: 30000 }).catch(() => {});
@@ -360,8 +383,30 @@ try {
   }
 
   // ---------------------------------------------------------------- the end
-  console.log(`     waiting for the round to end (${ROUND_SECONDS} seconds in all: Ada and Bea never spend their corks)...`);
+  /** When the game must call time: the full round, or where this run cut it short. */
+  let battleRound = ROUND_SECONDS;
+  /** What the room said of the round's length ({k: "round"}), in order. */
+  const roundWords = () => watcher.seen.filter((m) => m.t === "ev").flatMap((m) => m.ev.filter((e) => e.k === "round").map((e) => e.s));
+  if (SHORT) {
+    // Cy's view asked for SWITCH_ROUND through cork-round as it mounted: the room took it and every page runs to it.
+    const asked = await pageRounds([frames.Ada, frames.Cy, frames.screen]);
+    check(roundWords()[0] === SWITCH_ROUND && asked.every((s) => s === SWITCH_ROUND), `cork-round=${SWITCH_ROUND} on Cy's room address: the test wall's room took a ${SWITCH_ROUND}-second round as Cy's view mounted, told everyone, and every page runs to it (${asked.join(", ")})`);
+    // Everything checked while the round is on is done: Bea's socket cuts it short.
+    battleRound = cutAt(start.s.startAt);
+    bea.send({ t: "in", d: { round: battleRound } });
+    await watcher.wait((m) => m.t === "ev" && m.ev.some((e) => e.k === "round" && e.s === battleRound), 5000, 0);
+    // A page that draws in software takes the room's word a frame or two late.
+    let cut = [];
+    for (let i = 0; i < 50; i++) {
+      cut = await pageRounds([frames.Ada, frames.Cy, frames.screen]).catch(() => []);
+      if (cut.length === 3 && cut.every((s) => s === battleRound)) break;
+      await sleep(100);
+    }
+    check(cut.length === 3 && cut.every((s) => s === battleRound), `Bea's socket cut the round to ${battleRound} seconds, and the room told every page (${cut.join(", ")})`);
+  }
+  console.log(`     waiting for the round to end (${battleRound} seconds in all: Ada and Bea never spend their corks)...`);
   const end = await watcher.wait((m) => m.t === "end", 150000, 0);
+  lap("the battle ended");
   // How long the round was, on the room's clock: from the game's start to the room's end.
   const took = (end.now - start.s.startAt) / 1000;
   const rows = end.last.rows;
@@ -370,7 +415,8 @@ try {
   // on a timer, which a loaded machine fires late, so its end may come a little after.
   const timeAt = watcher.seen.find((m) => m.t === "ev" && m.ev.some((e) => e.k === "time"))?.ev.find((e) => e.k === "time").t ?? null;
   const due = COUNT_IN + start.s.delay + timeAt + END_HOLD;
-  check(timeAt !== null && timeAt >= ROUND_SECONDS && timeAt < ROUND_SECONDS + 0.5 && took >= due - 0.05 && took < due + 0.5, `the round lasted ${took.toFixed(1)} seconds: the count-in, the full ${ROUND_SECONDS} seconds (time was called at ${timeAt?.toFixed(2)}) and the hold at the end, ${due.toFixed(1)} s`);
+  check(timeAt !== null && timeAt >= battleRound && timeAt < battleRound + 0.5 && took >= due - 0.05 && took < due + 0.5, `the round lasted ${took.toFixed(1)} seconds: the count-in, the ${SHORT ? "" : "full "}${battleRound} seconds (time was called at ${timeAt?.toFixed(2)}) and the hold at the end, ${due.toFixed(1)} s`);
+  if (!SHORT) check(roundWords().length === 0, "nobody asked for a short round, and the room said nothing of one");
   check(rows.length === 3 && rows.every((r, i) => i === 0 || r.score <= rows[i - 1].score) && rows[0].points === 3 && rows.find((r) => r.name === "Bea").score === 0, "it ends with places: " + rows.map((r) => `${r.name} ${r.score} (+${r.points})`).join(", "));
   check(end.room.phase === "lobby" && end.room.tonight.games === 1 && end.room.members.filter(Boolean).reduce((n, m) => n + m.points, 0) === rows.reduce((n, r) => n + r.points, 0), "everyone is back in the lobby and the points are on the Tonight board");
   if (!slow) {
@@ -459,7 +505,22 @@ try {
   check(loneWatch.room.vote.lights["cork-and-bell"] === null, "Cork & Bell's light is on for a party of one");
   await walk(lone, loneWatch, 0, light());
   const loneStart = await loneUntil((v) => v.phase === "playing", 16000);
+  lap("the round alone started");
+  // A big screen that joins once that round has begun watches its one stall. With --short=1 it
+  // sets out as soon as the round has begun, while Sol's page is still bringing the game up (in
+  // software each takes most of a minute, and the round is cut short only once the screen is up);
+  // otherwise once Sol's page is up.
+  const joinLate = async () => {
+    const late = await open("late screen", { width: 960, height: 540 });
+    await late.goto(base + "/lobby/?join=" + pinLone + "&look=flat&cork-quality=low");
+    await late.click("text=Use this as the room's screen");
+    await late.click("text=Show the room here");
+    return { late, lateFrame: await gameFrame(late) };
+  };
+  const lateUp = SHORT ? joinLate() : null;
+  lateUp?.catch(() => {}); // (awaited below; a failure is reported there)
   const loneFrame = await gameFrame(lone);
+  lap("the game is up on Sol's page");
   // Held now, while the frame is surely there: on a slow runner the late screen below can take
   // the rest of the round to join, and the frame is gone once the round ends.
   await holdContext(lone);
@@ -467,17 +528,29 @@ try {
   check(loneStart.game.id === "cork-and-bell" && loneSees.seats === 1, "alone in its light, the count runs and a round starts for the one seat");
   check(loneSees.mine === 0 && loneSees.stalls === 1 && loneSees.rivals, "the party of one has a stall to itself, with no rivals to pick");
   if (!slow) await shot(lone, "54-phone-cork-and-bell-alone");
-  // A big screen that joins once that round has begun watches its one stall.
-  const late = await open("late screen", { width: 960, height: 540 });
-  await late.goto(base + "/lobby/?join=" + pinLone + "&look=flat&cork-quality=low");
-  await late.click("text=Use this as the room's screen");
-  await late.click("text=Show the room here");
-  const lateFrame = await gameFrame(late);
+  const { late, lateFrame } = await (lateUp ?? joinLate());
   const lateSees = await lateFrame.evaluate(() => ({ mine: window.__cab.session.mySeat, stalls: window.__cab.views.length, t: window.__cab.session.time(), tally: !document.getElementById("tally").hidden }));
   check(lateSees.mine === -1 && lateSees.stalls === 1 && lateSees.t > -3.5 && lateSees.tally, `a big screen that joins once the round has begun is shown that stall and its score (${lateSees.t < 0 ? "in the count-in" : Math.round(lateSees.t) + " seconds in"})`);
   if (!slow) await shot(late, "59-screen-cork-and-bell-alone");
+  lap("the late screen is up on the round alone");
+  /** When the game must call time alone: the full round (or sooner, once the bot's corks are spent), or where this run cut it short. */
+  let loneRound = ROUND_SECONDS;
+  if (SHORT) {
+    // Everything checked while this round is on is done: Sol's own page cuts it short, through
+    // the view's way to the room (the same `send` that carries its corks).
+    loneRound = cutAt(loneSees.startAt);
+    await loneFrame.evaluate((s) => window.frameElement.partyHost.send({ round: s }), loneRound);
+    let heard = [];
+    for (let i = 0; i < 50; i++) {
+      heard = await pageRounds([loneFrame, lateFrame]).catch(() => []);
+      if (heard.length === 2 && heard.every((s) => s === loneRound)) break;
+      await sleep(100);
+    }
+    check(heard.length === 2 && heard.every((s) => s === loneRound), `Sol's page cut the round to ${loneRound} seconds, and the room told both pages (${heard.join(", ")})`);
+  }
   console.log("     waiting for the round played alone to end...");
   const loneEnd = await loneUntil((v) => v.phase === "lobby" && v.last?.game === "cork-and-bell", 150000);
+  lap("the round alone ended");
   clearInterval(loneWatch.timer);
   const sol = loneEnd.last.rows[0];
   check(loneEnd.last.rows.length === 1 && sol.place === 1 && sol.points === 3 && sol.score > 0, `the round played alone ends too: ${sol.name} ${sol.score} (+${sol.points})`);
@@ -486,7 +559,7 @@ try {
   const loneTook = (loneEnd.last.at - loneSees.startAt) / 1000;
   const loneTimeAt = timeCalls.find((c) => c.name === "alone" || c.name === "late screen")?.t ?? null;
   const loneDue = COUNT_IN + start.s.delay + loneTimeAt + END_HOLD;
-  check(loneTimeAt !== null && loneTook >= loneDue - 0.05 && loneTook < loneDue + 0.5, `and the room ended it when the game did: time was called at ${loneTimeAt?.toFixed(1)} of ${ROUND_SECONDS} seconds (${loneTimeAt < ROUND_SECONDS ? "its corks were spent" : "the time was up"}), and the round lasted ${loneTook.toFixed(1)} seconds, ${loneDue.toFixed(1)} due`);
+  check(loneTimeAt !== null && loneTimeAt < loneRound + 0.5 && loneTook >= loneDue - 0.05 && loneTook < loneDue + 0.5, `and the room ended it when the game did: time was called at ${loneTimeAt?.toFixed(1)} of ${loneRound} seconds (${loneTimeAt < loneRound ? "its corks were spent" : "the time was up"}), and the round lasted ${loneTook.toFixed(1)} seconds, ${loneDue.toFixed(1)} due`);
   await lone.waitForSelector(FRAME, { state: "detached", timeout: 90000 });
   const loneLeft = await leftBehind(lone);
   check(loneLeft.frames === 0 && loneLeft.canvases === 0 && loneLeft.lost === true, "and its game was taken away");
