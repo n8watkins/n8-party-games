@@ -182,11 +182,19 @@ export function bumpPose(piece, now, calm = false) {
   const f = piece.fright;
   if (f) {
     const pose = movedPose(f, now - f.at, calm);
-    if (pose.state === "up") piece.fright = null;
+    if (pose.state === "up") {
+      piece.fright = null;
+      // Over before this page drew its landing (a shove has no safe time after it): drawn there this frame too.
+      if (!f.landed && now >= f.at) return { ...UPRIGHT, x: f.to };
+    }
     // Until the kick reaches the ghost the kicker's own kick is drawn (below).
     else if (pose.state !== "standing") {
       if (pose.face) piece.face = pose.face;
-      return { ...UPRIGHT, x: pose.x, dx: pose.dx, lift: pose.lift, lean: -pose.tilt * RAD, sx: pose.sx, sy: pose.sy, state: pose.state, safe: pose.state === "safe", scared: pose.scared, pale: pose.pale, dizzy: !!pose.dizzy };
+      // Over, and safe for a while: the first frame after it is drawn where the move put it, not
+      // eased there from wherever this page last drew it (as the flat look's BumpDraw.pose).
+      const landing = pose.x === null && pose.state === "safe" && !f.landed;
+      if (landing) f.landed = true;
+      return { ...UPRIGHT, x: landing ? f.to : pose.x, dx: pose.dx, lift: pose.lift, lean: -pose.tilt * RAD, sx: pose.sx, sy: pose.sy, state: pose.state, safe: pose.state === "safe", scared: pose.scared, pale: pose.pale, dizzy: !!pose.dizzy };
     }
   }
   const k = piece.knock;

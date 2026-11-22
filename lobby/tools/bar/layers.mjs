@@ -13,8 +13,9 @@
 //                 painting with its five gold frames lifted out (they are drawn by the room, a
 //                 little larger, over the posters) and the wall patched behind them, each
 //                 frame's own soft shadow, the wooden join sign by the door (the code and QR are
-//                 the room's live words on it), and the ceiling, floor and ends carried on past
-//                 the painting's edges, darkening, so a tall or wide screen is filled.
+//                 the room's live words on it), the room carried on past the painting's two
+//                 ends as its own wall and floor (widen), and the ceiling and floor carried on
+//                 past its top and bottom, darkening, so a tall or wide screen is filled.
 //   lights.webp   the room's light tiles at half size: the glass (1 where the windows are, traced
 //                 by hand pane by pane, with the ivy in front of them kept solid) and the soft
 //                 cold light lightning throws into the room.
@@ -54,12 +55,90 @@ const H = 822;
  */
 const S = 1920 / W;
 const OY = 785 - 605 * S;
-/** The base's rect in world units: the painting with room to spare all round, for tall and wide screens. */
-const RECT = { x0: -240, y0: -300, x1: 2160, y1: 1340 };
+/**
+ * The base's rect in world units: the painting with room to spare all round, for tall and wide
+ * screens. As much to either side (the room carried on past each end: widen), and as far as the
+ * rendered room says it reaches (lobby/public/reach.js; a test keeps the two the same).
+ */
+const RECT = { x0: -640, y0: -300, x1: 2560, y1: 1340 };
 const BW = RECT.x1 - RECT.x0;
 const BH = RECT.y1 - RECT.y0;
 /** Where the painting's corner is on the base, and its size there. */
 const AT = { x: Math.round(-RECT.x0), y: Math.round(OY - RECT.y0), w: 1920, h: Math.round(H * S) };
+
+// ---------------------------------------------------------------- the room past the painting's ends
+
+/** The rows of the painting's back wall, top to bottom (painting pixels): the beam and the shelf, the plain wall, the panelling down to the floor line; then the floor. */
+const BANDS = { shelf: 180, wall: 462, panels: 606 };
+/**
+ * Where the room past each end is taken from (painting pixels, x from and to): an empty stretch of
+ * the shelf, a plain stretch of the wall (where a frame hung: lifted), one panel of the panelling
+ * from stile to stile, a stretch of floor, and the post between the board and the right window,
+ * below its leafy top (postTop).
+ */
+const BAY = { shelf: [1388, 1428], wall: [1220, 1340], panel: [1180, 1360], floor: [1200, 1640], post: [1655, 1691], postTop: 96 };
+/** A post every so many world units past an end, as between the painting's own bays. */
+const POST_EVERY = 560;
+
+/**
+ * The painting at world size with the room carried on past each end, as wide as the base: next
+ * to each end a post (the right window's own), then bay after bay of the room's own wall, the
+ * shelf, the plain wall and the panelling, with a post between bays, over the floor carried on.
+ * Each row of the shelf, the wall and the floor is that row's mean over a plain stretch (the
+ * painting's light falls on them evenly enough), and the panelling is one panel over and over, so
+ * nothing the painting has once (a frame, a lamp, a window) is repeated. The left end mirrors the
+ * right. `patched` (the painting with its frames lifted and nothing added) is where it is all
+ * taken from; `painted` is what goes in the middle. Both at world size (AT.w x AT.h).
+ */
+function widen(patched, painted) {
+  const [w, h] = [AT.w, AT.h];
+  const out = Buffer.alloc(BW * h * 3);
+  for (let y = 0; y < h; y++) painted.copy(out, (y * BW + AT.x) * 3, y * w * 3, (y + 1) * w * 3);
+  const X = (px) => Math.round(px * S);
+  const band = (y) => {
+    const py = y / S;
+    return py < BANDS.shelf ? "shelf" : py < BANDS.wall ? "wall" : py < BANDS.panels ? "panel" : "floor";
+  };
+  const mean = (y, [a, b]) => {
+    const sum = [0, 0, 0];
+    for (let x = X(a); x < X(b); x++) for (let c = 0; c < 3; c++) sum[c] += patched[(y * w + x) * 3 + c];
+    return sum.map((v) => Math.round(v / (X(b) - X(a))));
+  };
+  const rows = Array.from({ length: h }, (_, y) => (band(y) === "panel" ? null : mean(y, BAY[band(y)])));
+  // The plain wall's rows are softened up and down (a sconce's glow and a frame's shadow are in
+  // the stretch they are taken from, and would run on as stripes); the rest keep their lines.
+  const SOFT = 30;
+  const plain = rows.map((row, y) => {
+    if (band(y) !== "wall") return row;
+    const near = rows.filter((_, k) => Math.abs(k - y) <= SOFT && band(k) === "wall");
+    return [0, 1, 2].map((c) => Math.round(near.reduce((s, r) => s + r[c], 0) / near.length));
+  });
+  // The painted floor's last stretch at each end eases into the floor carried on, so no seam shows down it.
+  const SEAM = 64;
+  for (let y = 0; y < h; y++) {
+    if (band(y) !== "floor") continue;
+    for (let d = 0; d < SEAM; d++) {
+      const t = 0.7 * ease(1 - d / SEAM);
+      for (const x of [AT.x + d, AT.x + w - 1 - d]) for (let c = 0; c < 3; c++) out[(y * BW + x) * 3 + c] = Math.round(out[(y * BW + x) * 3 + c] * (1 - t) + plain[y][c] * t);
+    }
+  }
+  const [p0, postW] = [X(BAY.post[0]), X(BAY.post[1]) - X(BAY.post[0])];
+  const [t0, tileW] = [X(BAY.panel[0]), X(BAY.panel[1]) - X(BAY.panel[0])];
+  for (const side of [1, -1])
+    for (let d = 0; d < AT.x; d++) {
+      const x = side > 0 ? AT.x + w + d : AT.x - 1 - d;
+      const at = d % POST_EVERY;
+      for (let y = 0; y < h; y++) {
+        const j = (y * BW + x) * 3;
+        let from = null;
+        if (at < postW) from = y / S >= BAY.postTop ? p0 + at : null;
+        else if (!plain[y]) from = t0 + ((at - postW) % tileW);
+        if (from === null) for (let c = 0; c < 3; c++) out[j + c] = (plain[y] ?? mean(y, BAY.shelf))[c];
+        else patched.copy(out, j, (y * w + from) * 3, (y * w + from) * 3 + 3);
+      }
+    }
+  return out;
+}
 
 // ---------------------------------------------------------------- the windows, traced by hand (painting pixels)
 
@@ -446,60 +525,53 @@ async function main() {
   }
   await sharp(wall, { raw: { width: W, height: H, channels: 3 } }).png().toFile(join(WORK, "wall.png"));
 
-  // The base: the painting on its rect, and the room carried on past its edges, softer and darker.
-  const painted = await sharp(wall, { raw: { width: W, height: H, channels: 3 } }).resize(AT.w, AT.h, { kernel: "lanczos3" }).raw().toBuffer();
-  // What carries on past the edges is the painting's edge, smeared and blurred: in colour for the
-  // floor, greyed for the ceiling and the two ends (so the ivy and the street's lights do not run on).
-  // The ends carry on as the room's own dark wood (the frame by the door at the left, the post
-  // beside the right window), not as the windows at the painting's edges, which read as a dark
-  // box on a phone showing the room's right end beside its corner buttons. The ceiling and the
-  // floor are the painting's edge drawn on.
-  const POSTS = { left: Math.round(62 * S), right: Math.round(1678 * S) };
-  const extend = async (img) => {
-    const buf = await img.raw().toBuffer();
-    const sides = Buffer.alloc(BW * AT.h * 3);
-    for (let y = 0; y < AT.h; y++)
-      for (let x = 0; x < BW; x++) {
-        const px = x - AT.x;
-        const from = px < 0 ? POSTS.left : px >= AT.w ? POSTS.right : px;
-        buf.copy(sides, (y * BW + x) * 3, (y * AT.w + from) * 3, (y * AT.w + from) * 3 + 3);
-      }
-    return sharp(sides, { raw: { width: BW, height: AT.h, channels: 3 } })
+  // The base: the painting on its rect, with the room carried on past its two ends as wall and
+  // floor (widen: a sideways phone's whole room shows well past the right end, lobby/public/reach.js),
+  // and past its top and bottom, softer and darker.
+  const toWorld = (buf) => sharp(buf, { raw: { width: W, height: H, channels: 3 } }).resize(AT.w, AT.h, { kernel: "lanczos3" }).raw().toBuffer();
+  const painted = widen(await toWorld(patched), await toWorld(wall));
+  // What carries on above and below is the picture's edge, smeared and blurred: in colour for the
+  // floor, greyed for the ceiling (so the ivy does not run on).
+  const extend = async (img) =>
+    img
       .extend({ top: AT.y, bottom: BH - AT.y - AT.h, left: 0, right: 0, extendWith: "copy" })
       .blur(18)
       .raw()
       .toBuffer();
-  };
-  const around = await extend(sharp(painted, { raw: { width: AT.w, height: AT.h, channels: 3 } }));
-  const grey = await extend(sharp(painted, { raw: { width: AT.w, height: AT.h, channels: 3 } }).modulate({ saturation: 0.6, brightness: 0.85 }));
+  const around = await extend(sharp(painted, { raw: { width: BW, height: AT.h, channels: 3 } }));
+  const grey = await extend(sharp(painted, { raw: { width: BW, height: AT.h, channels: 3 } }).modulate({ saturation: 0.6, brightness: 0.85 }));
   const base = Buffer.alloc(BW * BH * 3);
   const FEATHER = 28;
-  // Toward either end of the painting a soft shade, so the room carries on past it into the dark without an edge.
+  // Toward either end of the painting a soft shade, and past it the room carries on a little dimmer
+  // the further it goes (the painting's lamps are in its middle), never into darkness.
   const END = 140;
+  const shadeAt = (px) => {
+    const past = px < 0 ? -px : px >= AT.w ? px - AT.w + 1 : 0;
+    if (past) return 0.7 * (0.72 + 0.28 * Math.exp(-past / 320));
+    const end = Math.min(px, AT.w - 1 - px);
+    return end < END ? 0.7 + 0.3 * ease(end / END) : 1;
+  };
   for (let y = 0; y < BH; y++)
     for (let x = 0; x < BW; x++) {
       const j = (y * BW + x) * 3;
       const [px, py] = [x - AT.x, y - AT.y];
-      const dx = px < 0 ? -px : px >= AT.w ? px - AT.w + 1 : 0;
       const up = py < 0 ? -py : 0;
       const down = py >= AT.h ? py - AT.h + 1 : 0;
-      // Past the painting: the ceiling darkens fast (the lamps hang in it), the floor and the ends more slowly.
-      const k = Math.exp(-up / 60) * Math.exp(-down / 150) * Math.exp(-dx / 220);
-      const dim = (0.08 + 0.92 * k) * (dx ? 0.7 : 1);
-      const far = (c) => (down && !dx ? around[j + c] : grey[j + c]) * dim * (up ? 0.4 : 1);
-      if (!dx && !up && !down) {
-        // Inside, the last few pixels at the bottom and the two ends blend into what carries on.
-        const i = (py * AT.w + px) * 3;
-        const edge = Math.min(px, AT.w - 1 - px, AT.h - 1 - py);
+      const shade = shadeAt(px);
+      if (!up && !down) {
+        // Inside, the last few pixels at the bottom blend into the floor that carries on.
+        const i = (py * BW + x) * 3;
+        const edge = AT.h - 1 - py;
         const t = edge >= FEATHER ? 1 : (edge + 1) / (FEATHER + 1);
-        const side = Math.min(px, AT.w - 1 - px) < AT.h - 1 - py;
         // At the top the painting's beam and the ivy hanging from it fade into the dark ceiling the lamps hang in.
-        const end = Math.min(px, AT.w - 1 - px);
-        const top = (py < 48 ? 0.4 + 0.6 * ease(py / 48) : 1) * (end < END ? 0.7 + 0.3 * ease(end / END) : 1);
-        for (let c = 0; c < 3; c++) base[j + c] = Math.round((painted[i + c] * t + (side ? grey[j + c] : around[j + c]) * (1 - t)) * top);
+        const top = (py < 48 ? 0.4 + 0.6 * ease(py / 48) : 1) * shade;
+        for (let c = 0; c < 3; c++) base[j + c] = Math.round((painted[i + c] * t + around[j + c] * (1 - t)) * top);
         continue;
       }
-      for (let c = 0; c < 3; c++) base[j + c] = Math.round(far(c));
+      // Past the painting's top and bottom: the ceiling darkens fast (the lamps hang in it), the floor more slowly.
+      const k = Math.exp(-up / 60) * Math.exp(-down / 150);
+      const dim = (0.08 + 0.92 * k) * shade;
+      for (let c = 0; c < 3; c++) base[j + c] = Math.round((down ? around[j + c] : grey[j + c]) * dim * (up ? 0.4 : 1));
     }
   await save(sharp(base, { raw: { width: BW, height: BH, channels: 3 } }).webp({ quality: 80, effort: 6, smartSubsample: true }), "base.webp");
 

@@ -7,9 +7,9 @@
   "oy": 177.78619968635655
  },
  "rect": {
-  "x0": -240,
+  "x0": -640,
   "y0": -300,
-  "x1": 2160,
+  "x1": 2560,
   "y1": 1340
  },
  "boxes": 5,
@@ -23,7 +23,7 @@
  "lightsGrid": {
   "cols": 2,
   "rows": 1,
-  "w": 1200,
+  "w": 1600,
   "h": 820
  },
  "frames": [
@@ -1355,8 +1355,8 @@
   "h": 184
  },
  "sizes": {
-  "base.webp": 135902,
-  "lights.webp": 12204,
+  "base.webp": 156556,
+  "lights.webp": 13480,
   "frames.webp": 31292,
   "front.webp": 34756,
   "street-left.webp": 83230,
