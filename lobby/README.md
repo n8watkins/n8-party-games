@@ -229,6 +229,8 @@ The 3D wall follows the flat one: a game's name is on its box and nowhere else, 
 - A big screen that joins with the code and holds no seat, and a player's view with buttons, a "Whole room / Closer" switch and a "turn your phone" hint when upright.
 - A phone held sideways starts in the closer view, following its own piece (`shared/camera.js`).
   - Whole room shows everything from the tops of the lamps to the pools of light and the pieces' feet, with no empty strip of floor; when the room is narrower than the screen it is set to the left of the buttons in the corner, so they cover nothing on the wall.
+  - That shows more than the room's width, mostly past its right end, so every look carries the room on past its ends as wall and floor, as far as its reach (`public/reach.js`): the flat wall and floor run on, the 3D look's end walls run forward to the front of its floor, and the bar's painting is carried on by bays of its own wall, panelling and floor (`tools/bar/layers.mjs`).
+    The page keeps the view inside the drawing's reach, so a screen wider still is brought in rather than shown past the art; `npm test` checks the sizes (`test/reach.test.js`) and `test/shoot-fill.mjs` the pictures.
   - Closer zooms until a piece is 90 CSS pixels tall (about 14 mm), but not so close that the signs go under the corner buttons (the 3D look's signs sit higher with more boxes), and never smaller than 70 pixels.
 
   | Phone (sideways, CSS pixels) | Closer: piece | Whole room: piece |
@@ -632,6 +634,7 @@ A lobby nobody touches costs nothing: no timer, no messages, nothing counted, an
 | `public/room-sounds.js`, `public/sounds/` | The room's own sounds, where each plays, and the recordings with their credits. |
 | `../preview/` | The tools that fetch, check and prepare the CC0 recordings (`preview/recordings/`), and stills of the emote rounds the owner picked from. |
 | `public/room-view.js` | The seam between the page and a drawing of the room: the interface both drawings keep, and which one a device gets. |
+| `public/reach.js` | How far to either side each drawing is room, and the view kept inside it. |
 | `shared/rooms.js` | The rooms a party can be in, and when the room may be changed. |
 | `public/room-menu.js` | The corner (Rooms and the door button) and the room picker. |
 | `public/farewell.js`, `../site/front.js` | Every way out of the room to the front page, and the line it says there. |
