@@ -52,10 +52,17 @@ function pageHelpers() {
         } catch {
           return;
         }
-        for (const m of Array.isArray(msg) ? msg : [msg]) if (m && (m.t === "hook" || m.t === "hk")) window.__heard.push({ t: m.t, s: m.s, to: m.to, at: performance.now() });
+        for (const m of Array.isArray(msg) ? msg : [msg]) {
+          if (m && (m.t === "hook" || m.t === "hk")) window.__heard.push({ t: m.t, s: m.s, to: m.to, at: performance.now() });
+          // The first whole room this page heard, and each seat's harden cooldown in it.
+          const members = m?.room?.members ?? m?.members;
+          if (Array.isArray(members) && !window.__firstRoom) window.__firstRoom = { at: performance.now(), slimeCool: members.map((x) => x?.slimeCool ?? 0) };
+        }
       });
     }
     window.__ws = this;
+    // What this page sent, and when (its own clock): {k, at} for a slime's moves.
+    if (typeof data === "string" && data.includes('"t":"slime"')) (window.__sent ??= []).push({ k: /"k":"(\w+)"/.exec(data)?.[1], at: performance.now() });
     // A message the test holds back on its way to the room (a slow network): {test, ms}.
     const late = window.__late;
     if (late && typeof data === "string" && late.test.test(data)) return void setTimeout(() => send.call(this, data), late.ms);
@@ -82,6 +89,17 @@ function pageHelpers() {
     return { x: p.rx, hook: p.hook ? (p.hook.verdict?.o ?? "out") : null, chain, legs, gem, soft: !!p.goo && p.goo.turnAt !== null, fright: p.fright?.kind ?? null, knock: !!p.knock, character: p.kind?.id };
   };
   window.__moves = {};
+  // When this page heard the move key go down (its own clock).
+  // With __stallOnKey set, the page draws nothing for that long from the press (once).
+  addEventListener(
+    "keydown",
+    (e) => {
+      if (e.code !== "KeyX" || e.repeat) return;
+      window.__keyAt = performance.now();
+      if (window.__stallOnKey) [window.__stallUntil, window.__stallOnKey] = [window.__keyAt + window.__stallOnKey, 0];
+    },
+    true,
+  );
   window.watchMoves = (seat, ms) => {
     // path: every frame drawn, [when (this page's clock), where the piece was drawn].
     const most = (window.__moves[seat] = { legs: 0, chain: false, gem: false, soft: false, frights: [], knocked: false, hooks: [], minX: Infinity, maxX: -Infinity, frames: 0, from: performance.now(), path: [] });
@@ -424,10 +442,10 @@ try {
     section(`${look}: Sam's own phone reloaded while it is soft draws it soft`);
     await rested(S);
     mark = ada.seen.length;
+    // Held until the room says Sam went soft (a fixed hold could reach a busy page as a tap).
     await sam.keyboard.down("KeyX");
-    await sleep(HOLD_MS + 80);
-    await sam.keyboard.up("KeyX");
     const wentSoft = await after((m) => m.t === "slime" && m.s === S && m.k === "absorb", 2000, mark);
+    await sam.keyboard.up("KeyX");
     const softAt = Date.now();
     if (!wentSoft) check(false, `Sam went soft before the reload (the room said ${JSON.stringify(ada.seen.slice(mark).filter((m) => m.s === S && m.t !== "m").map((m) => m.t + (m.k ? ":" + m.k : "")))})`);
     await sam.goto(`${base}/lobby/?${lookQuery}`);
@@ -442,25 +460,42 @@ try {
     // The reloaded phone takes its harden's cooldown from the room: its move button is ready when
     // the room's cooldown ends, not however long the view took to load later (a press in between
     // would be dropped on the phone, the room never hearing it).
-    const askedAt = Date.now();
-    const roomReadyAt = askedAt + ((await where())[S].slimeCool ?? 0);
-    let pageReadyAt = null;
-    for (let i = 0; i < 200 && pageReadyAt === null; i++) {
-      if (await sam.evaluate(() => document.querySelector(".ctl-bump")?.classList.contains("ready") ?? false)) pageReadyAt = Date.now();
-      else await sleep(25);
-    }
-    const lag = pageReadyAt === null ? null : pageReadyAt - roomReadyAt;
-    check(lag !== null && lag < 250, `Sam's reloaded phone has its move ready when the room does (${lag} ms after the room)`);
+    // Judged on the page's own clock: when its button came ready, against when the first room it
+    // heard said the cooldown ends.
+    const readyAt = await sam.evaluate(
+      () =>
+        new Promise((done) => {
+          const t0 = performance.now();
+          const tick = () => {
+            if (document.querySelector(".ctl-bump")?.classList.contains("ready")) return done(performance.now());
+            if (performance.now() - t0 > 8000) return done(null);
+            setTimeout(tick, 5);
+          };
+          tick();
+        }),
+    );
+    const first = await sam.evaluate(() => window.__firstRoom ?? null);
+    const lag = readyAt === null || !first ? null : Math.round(readyAt - (first.at + first.slimeCool[S]));
+    check(first?.slimeCool[S] > 0 && lag !== null && lag < 100, `Sam's reloaded phone has its move ready when the room said it would be (${lag} ms after; the first room it heard gave ${first?.slimeCool[S]} ms)`);
 
     section(`${look}: a hold survives a page that stalls drawing; an absorb the room refuses is taken back on Sam's own phone`);
     await rested(S);
     // Sam's page draws no frame for 900 ms from the press: the hold still turns soft (a timer, not a frame).
+    // The key stays down until the page sends its absorb (or 2 s): on a busy machine the key's
+    // events can reach the page late, and a fixed hold could reach it as a tap. Judged by the
+    // page's own clock: the absorb went HOLD_MS after the page heard the key, while it drew nothing.
     mark = ada.seen.length;
-    await sam.evaluate(() => (window.__stallUntil = performance.now() + 900));
+    await sam.evaluate(() => {
+      window.__stallOnKey = 900;
+      window.__sent = [];
+    });
     await sam.keyboard.down("KeyX");
-    await sleep(HOLD_MS + 120);
+    await sam.waitForFunction(() => window.__sent.some((m) => m.k === "absorb"), null, { timeout: 2000, polling: 15 }).catch(() => null);
     await sam.keyboard.up("KeyX");
     const stalled = await after((m) => m.t === "slime" && m.s === S && m.k === "absorb", 2000, mark);
+    const stallTimes = await sam.evaluate(() => ({ key: window.__keyAt, stallUntil: window.__stallUntil, absorb: window.__sent.find((m) => m.k === "absorb")?.at ?? null }));
+    const sentIn = stallTimes.absorb === null ? null : Math.round(stallTimes.absorb - stallTimes.key);
+    check(sentIn !== null && sentIn >= HOLD_MS - 20 && stallTimes.absorb < stallTimes.stallUntil, `Sam's page sent the absorb ${sentIn} ms after it heard the key (the hold is ${HOLD_MS} ms), ${stallTimes.absorb === null ? "-" : Math.round(stallTimes.stallUntil - stallTimes.absorb)} ms before it drew again`);
     // When it did not: what the room said about Sam meanwhile, and what Sam's own page had.
     const stalledWhy = stalled
       ? ""
@@ -472,12 +507,14 @@ try {
     // and Sam's own phone takes back the soft it drew at once, not when its own absorb would have ended.
     await sam.evaluate(() => {
       window.__late = { test: /"k":"absorb"/, ms: 750 };
-      window.__pressAt = performance.now();
+      window.__sent = [];
     });
     mark = ada.seen.length;
+    // Held until the page sends its (held back) absorb; the press is timed from when the page heard the key.
     await sam.keyboard.down("KeyX");
-    await sleep(HOLD_MS + 120);
+    await sam.waitForFunction(() => window.__sent.some((m) => m.k === "absorb"), null, { timeout: 2000, polling: 15 }).catch(() => null);
     await sam.keyboard.up("KeyX");
+    await sam.evaluate(() => (window.__pressAt = window.__keyAt));
     const drewSoft = await sam.evaluate((s) => window.movesOn(s)?.soft, S);
     // When, after the press, Sam's phone stopped drawing him soft: by about 1.05 s with the refusal,
     // 1.44 s (its own absorb's end and melt) without it.
