@@ -204,7 +204,9 @@ try {
     for (const p of P.panes) {
       if (p.focus !== p.car) bad.push(`${p.name}'s pane follows car ${p.focus}, not ${p.car}`);
       // Falling off the table, the camera stays where the car went over: the car is out of its picture for a moment.
-      if (!p.fall && (!p.inPane || p.camDist < 0.3 || p.camDist > 5)) bad.push(`${p.name}'s camera ${p.camDist} from the car, car in its pane: ${p.inPane} (race time ${P.t}, at ${JSON.stringify(p.at)}${p.fin ? ", home" : ""})`);
+      // In the air (a leap off the bread board), the camera rises after the car on purpose (round five's chase camera),
+      // so at a few frames a second the car can pass over the pane's top edge for a moment: the distance still holds.
+      if (!p.fall && (p.camDist < 0.3 || p.camDist > 5 || (!p.inPane && !p.air))) bad.push(`${p.name}'s camera ${p.camDist} from the car, car in its pane: ${p.inPane} (race time ${P.t}, at ${JSON.stringify(p.at)}${p.fin ? ", home" : ""})`);
       if (p.smallest < 0.02 * P.h) bad.push(`${p.name}'s smallest word ${p.smallest}px < 2% of ${P.h}`);
       const box = { x: p.box.x, y: p.box.y, r: p.box.x + p.box.w, b: p.box.y + p.box.h };
       for (const w of p.words) {
@@ -241,11 +243,13 @@ try {
       if (still && !countShot && t < 0) { countShot = true; await still("countdown", t); }
       if (still && !mid && t > 25) { mid = true; await still("mid-race", t); }
       if (during) await during(t, frames, last);
-      // Once a car is home (a house car too: the winner's close shot is for whoever wins) the race is near its end: no pause between polls.
+      // Once a car is home (a house car too: the winner's close shot is for whoever wins) the race is near its end:
+      // shorter pauses between polls. Never none: with every page drawn in software, polling five pages back to back
+      // only adds to the load at the finish, where pages already go quiet for a second now and then.
       const home = [...last.values()].some((l) => l.cars.some((c) => c.fin));
       if (still && home && !last.finShot) { last.finShot = true; await still("finish", t); }
       for (const p of pages) if (!end) { end = endOf(p); if (end) endAt = Date.now(); }
-      if (!home) await sleep(250);
+      await sleep(home ? 100 : 250);
     }
     check(!!end, `${label}: the race ended in the room within ${Math.round((Date.now() - t0) / 1000)} s`);
     if (!end) return { end, last };
@@ -477,18 +481,22 @@ try {
       await Promise.race([reloading, sleep(2000)]);
       if (end) {
         const l = last.get(scr), ev = roomEvents(scr), hand = (name) => ev.filter((e) => e.k === "a" && e.c === carOf(l, name)).map((e) => [e.on, +raceT(e.n).toFixed(2)]);
-        const houseAt = (list, t) => { let on = 0; for (const [o, et] of list) if (et <= t) on = o; return on; };
         check(l.laps === 1 && ev.some((e) => e.k === "len" && e.laps === 1), `short: the race was the test run's one lap (${l.laps})`);
         // The result on the Tonight board, once.
         const room = (await inner(code)).view;
         const points = room.members.filter(Boolean).reduce((n, m) => n + (m.points || 0), 0);
         check(end.last.rows.length === 4 && points === end.last.rows.reduce((n, r) => n + r.points, 0) && room.tonight?.games === 1 && room.tonight.played?.length === 1, `short: the result reached the Tonight board once (${end.last.rows.map((r) => `${r.name} ${r.place}`).join(", ")}; ${points} points in all; ${room.tonight?.games} game played, ${room.tonight?.played?.length} on the list)`);
         const ng = hand("NoGL"), row = (name) => end.result.find((r) => r.seat === l.cars[carOf(l, name)].seat);
-        // The phone with no 3D drove its own car by the big screen: its hands reached the room all race, and the
-        // house never kept the car (it may have had it for a moment at GO while a page drawing in software loaded).
+        // The phone with no 3D drove its own car by the big screen: its hands reached the room all race, the page never
+        // gave its car to the house itself (no {house: 1}: neither the no-picture card nor the 10 s no-big-screen rule),
+        // and the house never kept the car. The room may hand any phone's car over for a moment when it hears nothing
+        // from it for a second (NET.SILENT, by design: a stalled phone), which a machine drawing every page in software
+        // causes now and then for all of them at once; such a hand-over must be handed back within 2 s or end with
+        // the car home within 2 s.
         const ngIn = ev.filter((e) => e.k === "i" && e.c === carOf(l, "NoGL") && raceT(e.n) > 1).length;
-        const ngHouse = ng.filter(([o, et]) => o === 1 && et > 2);
-        check(ngIn >= 5 && ngHouse.length === 0 && (ng.length === 0 || ng[ng.length - 1][0] === 0) && typeof row("NoGL")?.time === "number", `short: the phone with no 3D drove its car by the big screen: ${ngIn} inputs after GO, handed to the house ${JSON.stringify(ng)}, home (${JSON.stringify(row("NoGL"))})`);
+        const ngAsked = last.get(nogl)?.stats.houseAsked, ngFinT = row("NoGL")?.time;
+        const ngKept = ng.filter(([o, et], k) => o === 1 && et > 2 && !(ng[k + 1]?.[0] === 0 && ng[k + 1][1] - et <= 2) && !(typeof ngFinT === "number" && ngFinT - et <= 2 && ngFinT >= et));
+        check(ngIn >= 5 && ngAsked === 0 && ngKept.length === 0 && typeof ngFinT === "number", `short: the phone with no 3D drove its car by the big screen: ${ngIn} inputs after GO, asked the house ${ngAsked} times, handed over ${JSON.stringify(ng)}${ngKept.length ? ` (kept: ${JSON.stringify(ngKept)})` : ""}, home (${JSON.stringify(row("NoGL"))})`);
         const ngp = last.get(nogl);
         check(ngp?.pad === true && ngp.car >= 0 && ngp.stats.frames > 0, `short: ... its page is a controller (pad ${ngp?.pad}, car ${ngp?.car}, ${ngp?.stats.frames} frames)`);
         check(samples > 5 && faults.size === 0, `short: the big screen showed a pane per player, each following its own car, words at least 2% of its height and clear of each other (${samples} samples${faults.size ? ": " + [...faults].slice(0, 6).join("; ") : ""})`);
@@ -497,7 +505,9 @@ try {
         check(at.padBack === true || (at.padBack === null && !last.get(bo)), `short: ... and his phone remembered it through the reload (${at.padBack === null ? "not seen: the reloaded page was not up before the end" : at.padBack})`);
         check(/^The house is driving/.test(at.houseNote ?? ""), `short: Bo's pane said the house was driving while his phone was away ("${at.houseNote}")`);
         const b = hand("Bo");
-        check(houseAt(b, at.drop + 2) === 1 && b.some(([o, et]) => o === 0 && et > at.back - 0.5), `short: Bo's car was the house's while his phone was away (${at.drop?.toFixed(2)}) and his again on return (${at.back?.toFixed(2)}): ${JSON.stringify(b)}`);
+        // The house took it while he was away (how soon the room notices a closed socket depends on how busy the
+        // machine is: about 0.2 s on the card, up to 2 s with every page drawn in software).
+        check(b.some(([o, et]) => o === 1 && et >= at.drop - 0.5 && et <= at.back) && b.some(([o, et]) => o === 0 && et > at.back - 0.5), `short: Bo's car was the house's while his phone was away (${at.drop?.toFixed(2)}) and his again on return (${at.back?.toFixed(2)}): ${JSON.stringify(b)}`);
         // Came back: the room took Bo's car back from the house for his reloaded page (only his seat's own word does
         // that), and, where the test saw that page racing before the end, it drew from that car.
         // The hand-over for the reload is the first to the house at or after the room's step then; the hand-back is the next one back.
