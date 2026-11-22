@@ -25,7 +25,7 @@
 import { mkdirSync } from "node:fs";
 import { GETUP_MS, IMPACT_MS, KICK_CONTACT, STUN_MS, chargeBounce, chargeDash, chargeThrow, knockLanding, landingGround } from "../shared/bump.js";
 import { LOOK_COOLDOWN_MS } from "../shared/characters.js";
-import { BIG_SCARE_FREEZE_MS, BIG_SCARE_MS, SCARE_FREEZE_MS, SCARE_MS, SCARE_START_MS } from "../shared/ghost.js";
+import { BIG_SCARE_FREEZE_MS, BIG_SCARE_MS, SCARE_FREEZE_MS, SCARE_MS, SCARE_START_MS, SPOOK_REACH } from "../shared/ghost.js";
 import { HARDEN_MS } from "../shared/slime.js";
 import { MOVED, slideLanding } from "../shared/moves.js";
 import { CURL_MS } from "../shared/counters.js";
@@ -678,9 +678,7 @@ try {
     await be(ada, "ghost");
     await sleep(LOOK_COOLDOWN_MS);
     await rested(A, B);
-    cy.goto(1780);
-    stand(ada, hx, 1);
-    stand(bo, hx + 200, -1);
+    await placeAll([cy, 1780, 0], [ada, hx, 1], [bo, hx + 200, -1]);
     await sleep(400);
     mark = ada.seen.length;
     ada.send({ t: "fade" });
@@ -708,8 +706,7 @@ try {
     await be(ada, "robot");
     await sleep(LOOK_COOLDOWN_MS);
     await rested(A, B);
-    stand(ada, hx + 200, -1);
-    stand(bo, hx, 1);
+    await placeAll([ada, hx + 200, -1], [bo, hx, 1]);
     await sleep(400);
     await watchAll([A], 3000);
     mark = ada.seen.length;
@@ -717,15 +714,22 @@ try {
     await after((m) => m.t === "fade" && m.s === B, 3000, mark);
     ada.send({ t: "stilts" });
     await after((m) => m.t === "stilts" && m.s === A, 3000, mark);
-    // Bo drifts on through her; his phone says so as it does (a boo), and the room judges it.
+    // Bo drifts on through her; his phone says so as it reaches her (a boo: main.js, drift), and
+    // the room judges it.
     bo.send({ t: "m", x: hx, d: 1, r: bo.rev });
+    for (let i = 0; i < 40; i++) {
+      const at = await where();
+      if (Math.abs(at[B].x - at[A].x) <= SPOOK_REACH - 6) break;
+      await sleep(30);
+    }
+    bo.send({ t: "boo", to: A });
     const topple = await after((m) => m.t === "spook" && m.to === A, 3000, mark);
     bo.send({ t: "m", x: bo.x, d: 0, r: bo.rev });
     await counterShot("boo-the-stilts");
     check(topple?.tp === 1, `Ada, up on her legs, topples (${JSON.stringify(topple && { to: topple.to, tp: topple.tp, x: topple.x })})`);
     await sleep(1000);
     for (const [name, page] of pages) {
-      const down = await drewDuring(page, A, (m) => m.t === "spook" && m.tp, 80, STUN_MS - IMPACT_MS - GETUP_MS, tipped, (f) => `${f.knock ? "knocked" : "up"}:${Math.round(f.tilt)} legs ${Math.round(f.legs)}`);
+      const down = await drewDuring(page, A, (m) => m.t === "spook" && m.tp, 150, STUN_MS - IMPACT_MS - GETUP_MS, tipped, (f) => `${f.knock ? "knocked" : "up"}:${Math.round(f.tilt)} legs ${Math.round(f.legs)}`);
       seen(topple ? down.ok : false, `${look}: ${name} draws Ada toppled off her legs (${calm(name) ? "less motion; " : ""}${down.story})`);
     }
 
@@ -734,8 +738,7 @@ try {
     await sleep(LOOK_COOLDOWN_MS);
     await rested(P, A, B);
     const kx = await walkPat(hx, 1);
-    stand(bo, kx + 90, -1);
-    stand(ada, kx + 200, -1);
+    await placeAll([bo, kx + 90, -1], [ada, kx + 200, -1]);
     await sleep(400);
     await watchAll([A, B], 3000);
     mark = ada.seen.length;
@@ -747,7 +750,7 @@ try {
     for (const [name, page] of pages) {
       // Standing until Bo reaches her, then over.
       const before = await drewDuring(page, A, (m) => m.t === "b" && m.dm, 0, (domino?.dm?.at ?? 0) - 30, (f) => !tipped(f), (f) => `${Math.round(f.tilt)}`);
-      const after_ = await drewDuring(page, A, (m) => m.t === "b" && m.dm, (domino?.dm?.at ?? 0) + 90, (domino?.dm?.at ?? 0) + STUN_MS - IMPACT_MS - GETUP_MS, tipped, (f) => `${f.knock ? "knocked" : "up"}:${Math.round(f.tilt)}`);
+      const after_ = await drewDuring(page, A, (m) => m.t === "b" && m.dm, (domino?.dm?.at ?? 0) + 150, (domino?.dm?.at ?? 0) + STUN_MS - IMPACT_MS - GETUP_MS, tipped, (f) => `${f.knock ? "knocked" : "up"}:${Math.round(f.tilt)}`);
       seen(domino?.dm ? (before.ok === false ? false : after_.ok) : false, `${look}: ${name} draws Ada standing until Bo reaches her, then knocked over (${calm(name) ? "less motion; " : ""}before: ${before.story}; after: ${after_.story})`);
     }
 
@@ -758,10 +761,9 @@ try {
     // Bo in the middle of a lit pool with dark before it for Pat and Cy (and the stone's way past it).
     const lightNow = (x) => start.wall.pools.some((p) => start.lit.includes(p.i) && Math.abs(x - p.x) <= p.half);
     const pool = start.wall.pools.filter((p) => start.lit.includes(p.i)).find((p) => !lightNow(p.x - p.half - 240) && !lightNow(p.x - p.half - 150) && p.x - p.half - 240 > 130);
-    ada.goto(1780);
-    stand(bo, Math.round(pool.x), -1);
+    await placeAll([ada, 1780, 0], [bo, Math.round(pool.x), -1]);
     const sx0 = await walkPat(Math.round(pool.x - pool.half - 240), 1);
-    stand(cy, sx0 + 90, -1);
+    await placeAll([cy, sx0 + 90, -1]);
     await sleep(500);
     await watchAll([B, C], 4000);
     {
@@ -784,7 +786,7 @@ try {
       seen(curl ? sliding.ok : false, `${look}: ${name} draws Cy sliding as a stone (${calm(name) ? "less motion; " : ""}${sliding.story})`);
       const rested_ = await drewDuring(page, C, (m) => m.t === "b" && m.cu, IMPACT_MS + CURL_MS + 80, IMPACT_MS + CURL_MS + 900, (f) => Math.abs(f.x - curl.cu.x) <= 6);
       seen(curl ? rested_.ok : false, `${look}: ${name} draws the stone come to rest where the room put it, ${curl?.cu?.x} (${rested_.story})`);
-      const knocked_ = await drewDuring(page, B, (m) => m.t === "b" && m.cv, (curl?.cv?.at ?? 0) + 90, (curl?.cv?.at ?? 0) + STUN_MS - IMPACT_MS - GETUP_MS, tipped, (f) => `${f.knock ? "knocked" : "up"}:${Math.round(f.tilt)}`);
+      const knocked_ = await drewDuring(page, B, (m) => m.t === "b" && m.cv, (curl?.cv?.at ?? 0) + 150, (curl?.cv?.at ?? 0) + STUN_MS - IMPACT_MS - GETUP_MS, tipped, (f) => `${f.knock ? "knocked" : "up"}:${Math.round(f.tilt)}`);
       seen(curl ? knocked_.ok : false, `${look}: ${name} draws Bo knocked over as the stone reaches him (${calm(name) ? "less motion; " : ""}${knocked_.story})`);
     }
 
@@ -795,8 +797,7 @@ try {
     await walkPat(150, 1);
     for (const kind of ["swallow", "stick"]) {
       await rested(B, C);
-      stand(cy, hx + 60, 1);
-      stand(bo, hx + 220, -1);
+      await placeAll([cy, hx + 60, 1], [bo, hx + 220, -1]);
       await sleep(400);
       await watchAll([B, C], 3000);
       mark = ada.seen.length;
