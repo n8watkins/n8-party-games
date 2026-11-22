@@ -919,7 +919,8 @@ try {
         const owed = [
           ["Pat's pull", pulledAt !== null && live(pullEnds), () => handed[P]?.fright === "pull" && near(handed[P].frightAt, pulledAt)],
           ["Rob's legs", legsAt !== null && live(legsAt + STILT_MS - 50), () => near(handed[R]?.stiltAt ?? null, legsAt)],
-          ["Ada's charge", chargedAt !== null && live(chargeEnds), () => handed[A]?.charging && near(handed[A].attackAt + CHARGE_MIN_MS, chargedAt)],
+          // (A page draws a charge it hears no release of until the longest hold and a moment after: move-state.js, attackDrawn.)
+          ["Ada's charge", chargedAt !== null && live(chargedAt - CHARGE_MIN_MS + CHARGE_HOLD_MS + 1400), () => handed[A]?.charging && near(handed[A].attackAt + CHARGE_MIN_MS, chargedAt)],
           ["Ada's jump", lastHeld !== null && live(lastHeld + JUMP_MS), () => near(handed[A]?.jumpAt ?? null, lastHeld)],
         ].filter(([, due]) => due);
         const missing = owed.filter(([, , ok]) => !ok()).map(([name]) => name);
