@@ -18,7 +18,7 @@ The global rules file (branches, pull requests, no merging without the owner's w
 
 - `npm ci`, then `npm test`: the unit tests (vitest, about a second).
   This is the check every pull request must pass.
-- `npm run dev`, then the end-to-end scripts against that server: `npm run test:room` and `npm run test:lobby` (plain sockets, no browser), `npm run test:cork` (a headless browser, about four minutes), and the rest of the `test:*` scripts listed in `package.json`.
+- `npm run dev`, then the end-to-end scripts against that server: `npm run test:room` and `npm run test:lobby` (plain sockets, no browser), `npm run test:cork` (a headless browser, about three minutes in software: it cuts each round short once its checks are done; `test:cork:full` plays both rounds their full ninety seconds, about five), and the rest of the `test:*` scripts listed in `package.json`.
   Each script takes `--base=http://localhost:PORT`.
 - In software (no `TEST_GPU`), run one browser test at a time.
   The PC was overloaded once by three software browser runs at once, and Blender renders must not overlap with them.
