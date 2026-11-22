@@ -346,7 +346,9 @@
 }
 /* Which build this page is (room-menu.js): small and quiet, under Done. */
 .picker-ver {
-  margin: -4px 0 0;
+  /* Its own room above the sheet's bottom edge: a scrolled sheet ends at its last line. */
+  margin: 0;
+  padding: 2px 0 8px;
   text-align: center;
   font-size: 12px;
   line-height: 1.3;

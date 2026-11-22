@@ -154,6 +154,6 @@ It picks the Specimen, or the plain potato with `#plain` in the address; another
 - `node one-device/hot-potato/test/screens.mjs --base=http://localhost:PORT` saves stills of the key screens at all 17 sizes in `--out` (default `/tmp/claude-hp-game/responsive-stills`; `--sizes=390x844,1280x720` for a few).
 - `node one-device/hot-potato/test/stills.mjs --base=http://localhost:PORT` saves stills of every screen at 390x844, 320x568, 568x320, 844x390 and 1280x720 (and of the start screen's note and a typed turn), the faces' contact sheet, each stage's stress steps and twelve frames of each stage's motion, in `--out` (default `/tmp/claude-hp-game/specimen-stills`).
 - `npm run test:hearing -- --base=http://localhost:PORT` runs the hearing test's browser test; its unit tests (`lab/hot-potato/README.md`) cover the matcher and the lists.
-- Both browser tests are steps of the predeploy gate (`npm run predeploy`, see `AGENTS.md`).
+- Both browser tests are steps of the predeploy gate (`npm run gate`, see `AGENTS.md`).
 
 Only a real voice and a real phone can judge how well it hears in a noisy room, how the sounds and vibrations feel, and whether Safari on an iPhone restarts listening within a turn without a new tap.

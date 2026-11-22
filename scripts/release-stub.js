@@ -6,6 +6,7 @@ export const RELEASE = Object.freeze({
   site: "0.0.0",
   commit: "test",
   dirty: false,
+  pushed: true,
   builtAt: "2026-01-01T00:00:00.000Z",
   games: {},
 });

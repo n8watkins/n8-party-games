@@ -12,7 +12,7 @@ export const VERSION_PATH = "/api/version";
 const VERSION_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
- * What /api/version answers: `{ok, name, version, commit, release, dirty, builtAt, games, worker}`.
+ * What /api/version answers: `{ok, name, version, commit, release, dirty, pushed, builtAt, games, worker}`.
  * `worker` is `{id, tag, timestamp}` of the Worker version serving it, or null without the binding.
  */
 export function versionInfo(release, env = {}, name = "n8-party-games") {
@@ -25,6 +25,7 @@ export function versionInfo(release, env = {}, name = "n8-party-games") {
     commit: release.commit,
     release: release.id,
     dirty: release.dirty,
+    pushed: release.pushed,
     builtAt: release.builtAt,
     games: release.games,
     worker,

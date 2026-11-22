@@ -18,7 +18,7 @@ import { createRequire } from "node:module";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { KIT_CLIENT_PATH, buildPublic, kitClientEntry, report } from "../party-kit/build/public.mjs";
-import { RELEASE_FILE, assertReleasable, gitState, releaseModule, releaseRecord } from "./release.mjs";
+import { RELEASE_FILE, buildKind, gitState, releaseModule, releaseProblem, releaseRecord } from "./release.mjs";
 
 /** Where Who Am I?'s pictures load from: the one outside host any page of this site may show images from. */
 export const PICTURE_HOST = "https://upload.wikimedia.org";
@@ -166,7 +166,7 @@ export const SOURCES = entries.map((entry) => entry.from);
  * The release record goes into `out` as release.js, and to `workerRelease` too when given (the
  * command line gives WORKER_RELEASE). `git` is the commit and tree state to record (gitState).
  */
-export function build(out = OUT, { workerRelease = null, git = gitState(ROOT) } = {}) {
+export function build(out = OUT, { workerRelease = null, git = repoState() } = {}) {
   // The party room shows a hosted game by putting the game's own page in a frame, so this site's
   // pages may be framed by this site's pages, and by nobody else.
   // Hot Potato (one-device/hot-potato) and its hearing test (lab/hot-potato) listen through the
@@ -180,8 +180,8 @@ export function build(out = OUT, { workerRelease = null, git = gitState(ROOT) } 
   const text = homeWallModule();
   writeFileSync(join(out, HOME_WALL_PATH), text);
   const built = [...files, { path: HOME_WALL_PATH, bytes: Buffer.byteLength(text) }];
-  // Last, so its id covers every other file.
-  const release = releaseModule(releaseRecord({ root: ROOT, files: built, out, games: [...GAMES, ...TURN_GAMES], git }));
+  // Last, so its id covers every other file in the folder, `_headers` included.
+  const release = releaseModule(releaseRecord({ root: ROOT, out, games: [...GAMES, ...TURN_GAMES], git }));
   writeFileSync(join(out, RELEASE_FILE), release);
   if (workerRelease) {
     mkdirSync(dirname(workerRelease), { recursive: true });
@@ -190,13 +190,19 @@ export function build(out = OUT, { workerRelease = null, git = gitState(ROOT) } 
   return [...built, { path: RELEASE_FILE, bytes: Buffer.byteLength(release) }].sort((a, b) => a.path.localeCompare(b.path));
 }
 
+/** This repository's state for the record: dirty includes a gitignored file in any folder the site serves (gitState). */
+export function repoState() {
+  return gitState(ROOT, { sources: SOURCES });
+}
+
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  const git = gitState(ROOT);
-  if (process.argv.includes("--production")) {
-    try {
-      assertReleasable(git);
-    } catch (err) {
-      console.error(err.message);
+  const git = repoState();
+  // An upload (wrangler deploy) is held to the deploy's rules whatever flags the command has.
+  const upload = buildKind() === "upload";
+  if (upload || process.argv.includes("--production")) {
+    const problem = releaseProblem(git, { upload });
+    if (problem) {
+      console.error(`build-public: ${problem}`);
       process.exit(1);
     }
   }
