@@ -17,7 +17,7 @@ import { isPin, PIN_DIRECTORY_NAME } from "./pin-logic.js";
 import { allowRequest } from "./rate-limiter.js";
 import { fullMessage, roomBudgetState } from "./room-budget.js";
 import { MAX_RUN_BODY_BYTES, MAX_SCORE_BODY_BYTES, cleanInitials, isSeed, scoreBoard, validScore } from "./score-board.js";
-import { botCheckEnabled, verifyBotCheck } from "./turnstile.js";
+import { BOT_CHECK_MESSAGE, BOT_CHECK_UNAVAILABLE_MESSAGE, botCheckEnabled, botCheckHostnames, testKeysAllowed, verifyBotCheck, warnIfNoSiteKey } from "./turnstile.js";
 
 export { createPartyRoom } from "./room.js";
 export { PinDirectory } from "./pin-directory.js";
@@ -124,10 +124,19 @@ async function route(request, env, url, options) {
     if (!body) return error("bad_request", "Expected a small JSON body.");
     const as = body.as === "screen" ? "screen" : "player";
     if (as === "player" && !cleanName(body.nickname)) return error("bad_name", "Pick a nickname first.");
+    // The bot check comes last, after every cheaper refusal, so a token is only spent on a room
+    // that will be made. It fails closed: when Turnstile cannot be asked, no room is made and the
+    // page says to try again (a room is what costs; nobody already in a party is affected).
     if (botCheckEnabled(env)) {
-      const check = await verifyBotCheck(env, body.turnstile, request.headers.get("CF-Connecting-IP"));
-      if (check === "unavailable") return error("bot_check_unavailable", "The bot check is not answering. Try again in a moment.");
-      if (check !== "ok") return error("bot_check", "The bot check did not pass. Try again.");
+      warnIfNoSiteKey(env);
+      const check = await verifyBotCheck(env, body.turnstile, {
+        remoteip: request.headers.get("CF-Connecting-IP"),
+        hostnames: botCheckHostnames(request, env),
+        testKeys: testKeysAllowed(request, env),
+        fetcher: options.siteverify,
+      });
+      if (check === "unavailable") return error("bot_check_unavailable", BOT_CHECK_UNAVAILABLE_MESSAGE);
+      if (check !== "ok") return error("bot_check", BOT_CHECK_MESSAGE);
     }
     for (let attempt = 0; attempt < CODE_ATTEMPTS; attempt++) {
       const code = randomCode();

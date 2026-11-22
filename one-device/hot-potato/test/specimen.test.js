@@ -200,19 +200,25 @@ describe("its motion: a ladder of stress", () => {
   });
 
   it("moves in eased gestures: no jumps from one moment to the next", () => {
+    // The largest step from one millisecond to the next over 2000 moments, for each level and
+    // reaction, is checked once: 150,000 separate expect() calls made this test take seconds, and
+    // time out, when the whole suite runs in parallel on a loaded machine.
     for (const level of [0.5, 1.5, 2.2, 3.4, TOP]) {
       for (const [react, reactFor] of [[null, 9], ["right", 0.3], ["worse", 0.2]]) {
+        const worst = { rot: 0, tx: 0, sk: 0, sx: 0, sy: 0 };
         for (let i = 0; i < 2000; i++) {
           const t = i * 0.0031;
           const a = pose({ t, level, react, reactFor, sighFor: 0.4 });
           const b = pose({ t: t + 0.001, level, react, reactFor, sighFor: 0.4 });
-          // Even the hard shake is a continuous wobble: no step from one millisecond to the next.
-          expect(Math.abs(b.rot - a.rot)).toBeLessThan(0.4);
-          expect(Math.abs(b.tx - a.tx)).toBeLessThan(0.4);
-          expect(Math.abs(b.sk - a.sk)).toBeLessThan(0.05);
-          expect(Math.abs(b.sx - a.sx)).toBeLessThan(0.003);
-          expect(Math.abs(b.sy - a.sy)).toBeLessThan(0.003);
+          for (const k of Object.keys(worst)) worst[k] = Math.max(worst[k], Math.abs(b[k] - a[k]));
         }
+        // Even the hard shake is a continuous wobble: no step from one millisecond to the next.
+        const where = `level ${level}, ${react ?? "no"} reaction`;
+        expect(worst.rot, where).toBeLessThan(0.4);
+        expect(worst.tx, where).toBeLessThan(0.4);
+        expect(worst.sk, where).toBeLessThan(0.05);
+        expect(worst.sx, where).toBeLessThan(0.003);
+        expect(worst.sy, where).toBeLessThan(0.003);
       }
     }
   });
