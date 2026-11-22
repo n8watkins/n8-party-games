@@ -1002,6 +1002,21 @@ describe("what a page that arrives in the middle is told, and draws", () => {
     expect(core.view(3400).members[1].hard).toBeUndefined();
   });
 
+  it("draws a pulled piece at its landing on the first frame after the slide, in both looks, however few frames the page drew", () => {
+    const now = 10_000;
+    // A page that drew no frame during the slide: its next frame comes well after it.
+    const flat = { rx: 900, face: 1 };
+    BumpDraw.prototype.fright.call(null, flat, 796, now, "pull");
+    const draw = Object.create(BumpDraw.prototype);
+    expect(draw.pose(flat, now + PULL_MS + 300).x).toBe(796);
+    // After that one frame it is left to the look's ease (it may walk on while it is safe).
+    expect(draw.pose(flat, now + PULL_MS + 320).x).toBeNull();
+    const solid = { rx: 900, face: 1 };
+    solid.fright = { ...flat.fright, landed: false };
+    expect(bumpPose(solid, now + PULL_MS + 300).x).toBe(796);
+    expect(bumpPose(solid, now + PULL_MS + 320).x).toBeNull();
+  });
+
   it("draws a pull, a shove, a bonk and a robot's scare as themselves in both looks, already where the room put them", () => {
     const now = 10_000;
     for (const kind of ["pull", "shove", "bonk", "hookscare"]) {

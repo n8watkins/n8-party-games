@@ -450,15 +450,7 @@ try {
         const [a, b] = [due(t - FRAME_LAG), due(t + FRAME_LAG)];
         return x >= Math.min(a, b) - 6 && x <= Math.max(a, b) + 6;
       };
-      // Once the slide is over, another phone's piece that the page last drew part way along it (it
-      // drew no frame at the end of the slide) eases on to the landing from there (the look's
-      // ordinary ease toward where the room has it): between that last drawing and the landing.
-      const settling = (i, t, x) => {
-        if (!(t > heardAt + PULL_MS) || i === 0) return false;
-        const last = path[i - 1][1];
-        return x >= Math.min(last, end) - 6 && x <= Math.max(last, end) + 6;
-      };
-      const wrong = heardAt === null ? [] : path.filter(([t, x], i) => !onPath(t, x) && !settling(i, t, x));
+      const wrong = heardAt === null ? [] : path.filter(([t, x]) => !onPath(t, x));
       const inSlide = heardAt === null ? [] : path.filter(([t]) => t > heardAt && t < heardAt + PULL_MS);
       const story = `${path.length} frames from ${heardAt === null ? "?" : Math.round(from - heardAt)} ms, ${inSlide.length} in the slide (${inSlide.map(([t, x]) => `${Math.round(t - heardAt)}ms:${Math.round(x)}`).join(", ")}); ${wrong.length ? `off the room's path: ${wrong.map((f) => `${Math.round(f[0] - heardAt)}ms:${Math.round(f[1])} (due ${Math.round(due(f[0]))}; fright ${f[6] ?? "none"}${f[9] != null ? ` begun ${Math.round(f[9] - heardAt)} ms after it heard the verdict, from ${Math.round(f[10])}` : ""})`).join(", ")}` : "every frame on the room's path"}; ${JSON.stringify({ frights: pawn.frights, knocked: pawn.knocked })}`;
       const ok = heardAt === null || wrong.length || pawn.knocked ? false : inSlide.length === 0 ? null : pawn.frights.includes("pull");
