@@ -28,6 +28,7 @@
 import { mkdirSync } from "node:fs";
 import { resolve } from "node:path";
 import { launchBrowser, openWindowsChrome } from "./browser.mjs";
+import { still as takeStill } from "../../party-kit/test/stills.mjs";
 import { COUNT_IN, END_HOLD } from "../../node_modules/cork-and-bell/game/shared/battle.js";
 import { ROUND_SECONDS } from "../../node_modules/cork-and-bell/game/shared/sim.js";
 import { REPORT_EVERY_MS, ROOM_MEMORY_GB } from "../../party-kit/src/worker/budget-logic.js";
@@ -149,8 +150,7 @@ try {
     }
   };
   const shot = async (page, name) => {
-    await page.screenshot({ path: `${out}/${name}.png`, timeout: 120000 });
-    console.log("     still: " + name);
+    if (await takeStill(page, { path: `${out}/${name}.png` })) console.log("     still: " + name);
   };
   /** The game's frame on a room page, once the game's page inside it is running its round. */
   async function gameFrame(page, timeout = 120000) {

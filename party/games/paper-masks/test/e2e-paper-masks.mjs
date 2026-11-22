@@ -31,6 +31,7 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { launchBrowser } from "../../../../lobby/test/browser.mjs";
+import { still as takeStill } from "../../../../party-kit/test/stills.mjs";
 import { QUESTIONS } from "../questions.js";
 import { tidyAnswer } from "../text.js";
 
@@ -351,15 +352,17 @@ function makeParty(tag) {
 
   /** Two phones' stills side by side in one picture, for the owner to look at. */
   async function pairStill(left, right, name, caption) {
-    const [l, r] = await Promise.all([left.page.screenshot(), right.page.screenshot()]);
+    // Stills are best-effort (party-kit/test/stills.mjs): a pair with a side missing is skipped.
+    const [l, r] = await Promise.all([takeStill(left.page), takeStill(right.page)]);
+    if (!l || !r) return;
     const page = await browser.newPage({ viewport: { width: 860, height: 900 } });
     const img = (b, who) => `<figure><img src="data:image/png;base64,${b.toString("base64")}"><figcaption>${who}</figcaption></figure>`;
     await page.setContent(`<style>body{margin:0;padding:12px;background:#111;display:flex;gap:16px;font:600 15px system-ui;color:#eee}figure{margin:0}img{width:400px;display:block}figcaption{padding-top:6px}</style>${img(l, `${left.name} (the author)`)}${img(r, `${right.name} (a guesser)`)}`);
     await page.waitForFunction(() => [...document.images].every((i) => i.complete));
     const file = `${tag}${String(stills.length + 1).padStart(2, "0")}-${name}.png`;
-    await page.screenshot({ path: `${out}/${file}`, fullPage: true });
+    const taken = await takeStill(page, { path: `${out}/${file}`, fullPage: true });
     await page.close();
-    stills.push({ file, caption });
+    if (taken) stills.push({ file, caption });
   }
 
   /**
@@ -420,8 +423,7 @@ function makeParty(tag) {
 
   async function still(p, name, caption) {
     const file = `${tag}${String(stills.length + 1).padStart(2, "0")}-${name}.png`;
-    await p.page.screenshot({ path: `${out}/${file}` });
-    stills.push({ file, caption });
+    if (await takeStill(p.page, { path: `${out}/${file}` })) stills.push({ file, caption });
   }
 
   /** No sideways scroll anywhere; on the big screen no page scroll either; every tap target big enough. */
