@@ -1204,29 +1204,43 @@ export function createLobbyRoom(wallFor, { release = null } = {}) {
 
     // ------------------------------------------------------------ a new build (site/release-switch.js)
 
-    /** Whether a socket's page speaks an older protocol than the room: it can only reload. */
-    mustUpdate(entry) {
-      return (entry.kept.protocol ?? LEGACY_HELLO_PROTOCOL) !== PROTOCOL;
+    /**
+     * The protocol this room speaks: http.js PROTOCOL, or, for the end-to-end tests only (where
+     * PARTY_DEBUG is "on"), PARTY_TEST_PROTOCOL, so a test can stand for a room of another one.
+     */
+    protocol() {
+      const test = this.env.PARTY_DEBUG === "on" ? this.env.PARTY_TEST_PROTOCOL : undefined;
+      return typeof test === "string" && /^[0-9]{1,4}$/.test(test) ? test : PROTOCOL;
     }
 
     /**
-     * The room as it now is, said to the pages of another build: when it has just come to a safe
-     * point (release-points.js), or the first time it looks since it woke (a deploy gives a room
-     * that sleeps the new code without closing its sockets), each socket whose page said another
-     * release hears `{t: "release", id, safe: true}`, and decides itself whether it is the older
-     * one. A page of an older protocol is closed at a safe point with UPDATE_REQUIRED (its seat is
-     * kept: it comes back by reloading). Sends nothing in a room without a release, or to a page
-     * that said none (one from before the release record, which would not know the message).
+     * Whether a socket's page speaks an OLDER protocol than the room, compared as numbers: it can
+     * only reload. A page of a newer one (loaded after a deploy, talking to a busy room still on its
+     * old code for a few minutes) is never let go: it waits for the room (site/release-switch.js).
+     */
+    mustUpdate(entry) {
+      return Number(entry.kept.protocol ?? LEGACY_HELLO_PROTOCOL) < Number(this.protocol());
+    }
+
+    /**
+     * The room as it now is, said to the pages of another build. Each time whether it is at a safe
+     * point (release-points.js) changes, both ways, and the first time it looks since it woke (a
+     * deploy gives a room that sleeps the new code without closing its sockets), each socket whose
+     * page said another release hears `{t: "release", id, safe}`, and decides itself whether it is
+     * the older one: a page waiting to reload stops when the room becomes busy, and goes when it is
+     * safe again. Looked at whenever the room view or the vote changes (a count starting or stopping
+     * is only a vote message). A page of an older protocol is closed at a safe point with
+     * UPDATE_REQUIRED (its seat is kept: it comes back by reloading). Sends nothing in a room without
+     * a release, or to a page that said none (one from before the release record).
      */
     offerRelease(view, now) {
       if (!release || !this.core) return;
       const safe = releaseSafe(view);
       const was = this.releaseSafeWas;
       this.releaseSafeWas = safe;
-      if (!safe) return;
       for (const [ws, entry] of [...this.sockets]) {
-        if (this.mustUpdate(entry)) this.closeForUpdate(ws, entry, now);
-        else if (was !== true && entry.kept.release && entry.kept.release !== release.id) this.send(entry, { t: "release", id: release.id, safe: true });
+        if (safe && this.mustUpdate(entry)) this.closeForUpdate(ws, entry, now);
+        else if (was !== safe && entry.kept.release && entry.kept.release !== release.id) this.send(entry, { t: "release", id: release.id, safe });
       }
     }
 
