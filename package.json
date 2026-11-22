@@ -34,7 +34,8 @@
     "assets:list": "node scripts/build-public.mjs --list",
     "deploy": "wrangler deploy --env=''",
     "test": "vitest run",
-    "predeploy": "node .github/scripts/predeploy.mjs",
+    "predeploy": "node .github/scripts/predeploy.mjs --deploy",
+    "gate": "node .github/scripts/predeploy.mjs",
     "playtest": "node node_modules/cork-and-bell/tools/playtest.mjs",
     "playtest:battle": "node node_modules/cork-and-bell/tools/playtest-battle.mjs",
     "test:room": "node party-kit/test/e2e-room.mjs",
@@ -74,7 +75,10 @@
     "test:production": "node party-kit/test/e2e-production.mjs",
     "test:turnstile": "node party-kit/test/e2e-turnstile.mjs",
     "test:tin-derby": "node floor/games/tin-derby/test/e2e-room.mjs --only=short",
-    "test:tin-derby:full": "node floor/games/tin-derby/test/e2e-room.mjs --only=solo,two,four,panes,trouble,stalls,noscreen,screens,look,lag,tvlag"
+    "test:tin-derby:full": "node floor/games/tin-derby/test/e2e-room.mjs --only=solo,two,four,panes,trouble,stalls,noscreen,screens,look,lag,tvlag",
+    "release": "release-kit release",
+    "release:check": "release-kit check && npm test && npm run build",
+    "hooks": "git config core.hooksPath .githooks"
   },
   "dependencies": {
     "es-module-lexer": "3.0.4",
@@ -83,6 +87,7 @@
   "devDependencies": {
     "cork-and-bell": "github:n8watkins/cork-and-bell#32a420b8c1538a82e175f8f318389050c38ad387",
     "playwright": "^1.64.1",
+    "release-kit": "github:n8watkins/release-kit#v2.10.1",
     "sharp": "^0.35.5",
     "three": "^0.186.1",
     "tin-derby": "file:floor/games/tin-derby",

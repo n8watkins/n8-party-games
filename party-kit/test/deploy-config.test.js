@@ -45,8 +45,18 @@ describe("the production configuration", () => {
   it("keeps logs and serves only the built public folder", () => {
     expect(prod.observability.enabled).toBe(true);
     expect(prod.assets.directory).toBe("./dist/public");
-    expect(prod.build.command).toBe("node scripts/build-public.mjs");
+    // --production: a deploy's build refuses a working tree with uncommitted changes (scripts/release.mjs).
+    expect(prod.build.command).toBe("node scripts/build-public.mjs --production");
     expect(prod.durable_objects.bindings.map((b) => b.name).sort()).toEqual(["PARTY_BUDGET", "PARTY_LIMITER", "PARTY_LOBBIES", "PARTY_PINS", "PARTY_ROOMS", "PARTY_SCORES"]);
+  });
+
+  it("hands the Worker the build's release record and its own version id, in both environments", () => {
+    for (const config of [prod, read("local")]) {
+      expect(config.alias["n8-party-games/release"]).toBe("./dist/release.js");
+      expect(config.version_metadata).toEqual({ binding: "CF_VERSION_METADATA" });
+    }
+    // The local build never refuses a dirty tree: only the deploy's does.
+    expect(read("local").build.command).not.toContain("--production");
   });
 });
 
