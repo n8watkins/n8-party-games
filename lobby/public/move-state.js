@@ -48,7 +48,10 @@ export function attackDrawn(p, now, calm) {
   const pose = attackPose(now - a.at, a.dir, a.landed, a.lunge ?? null);
   if (pose.state === "idle") {
     p.attack = null;
-    return null;
+    // A charged kick's dash that no frame drew the end of (a page starved of frames): the first
+    // frame after it puts the piece where the dash took it, as landing() does for a knock, rather
+    // than easing it over from where the last frame had it.
+    return a.lunge ? { ...pose, x: a.lunge.to } : null;
   }
   return pose;
 }
