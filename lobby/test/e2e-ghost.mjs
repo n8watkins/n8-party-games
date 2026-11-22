@@ -19,7 +19,7 @@
 //   --shots=DIR     stills of each fright, in each look
 import { mkdirSync } from "node:fs";
 import { COLOUR_PRESETS, LOOK_COOLDOWN_MS } from "../shared/characters.js";
-import { SCARE_FREEZE_MS, SCARE_START_MS } from "../shared/ghost.js";
+import { SCARE_FREEZE_MS, SCARE_MS, SCARE_START_MS } from "../shared/ghost.js";
 import { MOVED, moved, movedPose } from "../shared/moves.js";
 import { ROOM } from "../shared/world.js";
 import { apart, meanColour, paintBox } from "./pixels.mjs";
@@ -370,8 +370,10 @@ try {
   await cy.reload();
   await drawn(cy);
   const loaded = Date.now() - reloadAt;
-  const wide = await cy.waitForFunction((s) => window.scaredOn(s) > 0.5, A, { timeout: 1500, polling: 20 }).then(() => true, () => false);
-  check(wide, `Cy's phone, reloaded ${loaded} ms into it, draws Ada scared (wide eyes), not knocked over`);
+  // (A page that took longer to come back than the scare lasts has nothing left to draw: unseen.)
+  const left = scare ? SCARE_MS - (Date.now() - scare.at) : 0;
+  const wide = left < 300 ? null : await cy.waitForFunction((s) => window.scaredOn(s) > 0.5, A, { timeout: Math.min(1500, left), polling: 20 }).then(() => true, () => false);
+  seenCheck(wide, `Cy's phone, reloaded ${loaded} ms into it, draws Ada scared (wide eyes), not knocked over`);
 
   // ================================================================ a reload mid-fade
   section("a ghost's page reloaded mid-fade still spooks for the rest of its fade");

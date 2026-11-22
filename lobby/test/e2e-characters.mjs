@@ -398,7 +398,9 @@ try {
         await ada.wait((m) => m.room?.members[ada.seat]?.character === "robot" && m.room.members[ada.seat].colour === hex, 5000, from);
         await cy.waitForFunction(([s, hex]) => window.__room3d.pieces.get(s)?.kind.id === "robot" && window.__room3d.pieces.get(s).member.colour === hex, [ada.seat, hex], { timeout: 4000 });
         await sleep(EMOTE_COOLDOWN_MS + 200);
-        const plain = await meanColour(cy, await paintBox(cy, ada.seat));
+        let plainBox = await paintBox(cy, ada.seat);
+        for (let k = 0; !plainBox && k < 20; k++) plainBox = (await sleep(100), await paintBox(cy, ada.seat));
+        const plain = await meanColour(cy, plainBox);
         ada.send({ t: "e", e: "steam" });
         // Read through the emote, and the reddest reading kept: nothing of the page's own state is asked.
         let seen = plain;
@@ -407,6 +409,8 @@ try {
         for (let k = 0; k < 10; k++) {
           await sleep(180);
           const at = await paintBox(cy, ada.seat);
+          // (No box: the piece is being built again this moment, a slow page's swap of its body. Read again.)
+          if (!at) continue;
           const c = await meanColour(cy, at);
           if (redness(c) > redness(seen)) {
             [seen, box] = [c, at];

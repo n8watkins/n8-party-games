@@ -518,6 +518,14 @@ describe("the charged kick, drawn in both looks (move-state.js)", () => {
     expect(attackDrawn(p, 1700 + IMPACT_MS + 10, false).x).toBe(620);
   });
 
+  it("puts a kicker whose dash no frame drew the end of where it dashed to on the first frame after, once", () => {
+    const p = piece();
+    heardChargedKick(p, { t: "b", s: 1, f: 1, c: 1, kx: 640, kr: 3, to: -1 }, 1000, false);
+    // The page's next frame comes long after the kick is over.
+    expect(attackDrawn(p, 1000 + 5000, false)).toMatchObject({ state: "idle", x: 640 });
+    expect(attackDrawn(p, 1000 + 5020, false)).toBeNull();
+  });
+
   it("draws the viewer's own charge from its press, and its dash at once, ending where the room says", () => {
     const p = piece();
     p.attack = { at: 1000, dir: 1, landed: false };
