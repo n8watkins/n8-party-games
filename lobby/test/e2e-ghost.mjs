@@ -128,45 +128,57 @@ function pageHelpers() {
     return { scared: Number(el?.getAttribute("data-scared") ?? 0), pale: sat ? (1 - Number(sat[1])) / 0.55 : 0, character: el?.dataset.character ?? null };
   };
   window.scaredOn = (seat) => window.frightOn(seat).scared;
+  // Calls each of window.__afterDraw (now) right after the page's view has drawn a frame, inside
+  // the same call: what is read then is exactly what that frame drew, with the frame's own clock.
+  window.__afterDraw = new Set();
+  const patch = () => {
+    const view = globalThis.__partyRoom?.view;
+    if (view && typeof view.frame === "function" && !view.__watched) {
+      const draw = view.frame.bind(view);
+      view.frame = (now, ...rest) => {
+        const out = draw(now, ...rest);
+        for (const cb of window.__afterDraw) cb(now);
+        return out;
+      };
+      view.__watched = true;
+    }
+    raf(patch);
+  };
+  raf(patch);
   // Keeps, for `ms`, the most frightened a seat's piece was drawn, in window.__fright.
   window.watchFright = (seat, ms) => {
-    // path: every frame, [when it began, scared, pale, paint], read once the frame has drawn.
+    // path: every frame drawn, [its clock, scared, pale, paint].
     const most = (window.__fright = { scared: 0, pale: 0, paint: 0, character: null, frames: 0, path: [] });
     const until = performance.now() + ms;
-    const look = (frameAt) => {
-      setTimeout(() => {
-        most.frames++;
-        const f = window.frightOn(seat);
-        most.scared = Math.max(most.scared, f.scared);
-        most.pale = Math.max(most.pale, f.pale);
-        most.paint = Math.max(most.paint, f.paint ?? 0);
-        most.character = f.character;
-        most.path.push([frameAt, f.scared, f.pale, f.paint ?? null]);
-      }, 0);
-      if (performance.now() < until) requestAnimationFrame(look);
+    const look = (now) => {
+      if (now > until) return void window.__afterDraw.delete(look);
+      most.frames++;
+      const f = window.frightOn(seat);
+      most.scared = Math.max(most.scared, f.scared);
+      most.pale = Math.max(most.pale, f.pale);
+      most.paint = Math.max(most.paint, f.paint ?? 0);
+      most.character = f.character;
+      most.path.push([now, f.scared, f.pale, f.paint ?? null]);
     };
-    requestAnimationFrame(look);
+    window.__afterDraw.add(look);
   };
   // A page about to be reloaded can be told to watch a seat from the first frame it draws after
-  // (sessionStorage outlives the reload): window.__frightPath, every frame [when it began, how wide-eyed],
-  // each read once the frame has drawn.
+  // (sessionStorage outlives the reload): window.__frightPath, every frame it draws [its clock, how
+  // wide-eyed, what the page holds of the fright then: its kind and how far into it, or "flat"].
   const onLoad = JSON.parse(sessionStorage.getItem("frightOnLoad") ?? "null");
   if (onLoad) {
     sessionStorage.removeItem("frightOnLoad");
     window.__frightPath = [];
     let until = null;
-    const look = (frameAt) => {
-      setTimeout(() => {
-        if (!window.frightOn(onLoad.seat).character) return;
-        until ??= frameAt + onLoad.ms;
-        const f = window.frightOn(onLoad.seat);
-        const p = window.__room3d?.pieces.get(onLoad.seat);
-        // And what the page holds of the fright: its kind and how far into it (3D), or the flat look.
-        window.__frightPath.push([frameAt, f.scared, window.__room3d ? `${p?.fright?.kind ?? "none"}@${p?.fright ? Math.round(frameAt - p.fright.at) : "-"}` : "flat"]);
-      }, 0);
-      if (until === null || frameAt < until) requestAnimationFrame(look);
+    const look = (now) => {
+      const f = window.frightOn(onLoad.seat);
+      if (!f.character) return;
+      until ??= now + onLoad.ms;
+      if (now > until) return void window.__afterDraw.delete(look);
+      const p = window.__room3d?.pieces.get(onLoad.seat);
+      window.__frightPath.push([now, f.scared, window.__room3d ? `${p?.fright?.kind ?? "none"}@${p?.fright ? Math.round(now - p.fright.at) : "-"}` : "flat"]);
     };
-    requestAnimationFrame(look);
+    window.__afterDraw.add(look);
   }
 }
 

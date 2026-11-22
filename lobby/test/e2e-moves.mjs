@@ -132,17 +132,31 @@ function pageHelpers() {
     },
     true,
   );
+  // Calls each of window.__afterDraw (now) right after the page's view has drawn a frame, inside
+  // the same call: what is read then is exactly what that frame drew, on the frame's own clock (a
+  // read in a later task could see a message the page took in after the frame, with the frame's
+  // pose from before it).
+  window.__afterDraw = new Set();
+  const patch = () => {
+    const view = globalThis.__partyRoom?.view;
+    if (view && typeof view.frame === "function" && !view.__watched) {
+      const draw = view.frame.bind(view);
+      view.frame = (now, ...rest) => {
+        const out = draw(now, ...rest);
+        for (const cb of window.__afterDraw) cb(now);
+        return out;
+      };
+      view.__watched = true;
+    }
+    raf(patch);
+  };
+  raf(patch);
   window.watchMoves = (seat, ms) => {
-    // path: every frame drawn, [when (this page's clock), where the piece was drawn].
+    // path: every frame drawn, [its clock, x, legs, soft, chain, gem, fright, knocked, the move button's class].
     const most = (window.__moves[seat] = { legs: 0, chain: false, gem: false, soft: false, frights: [], knocked: false, hooks: [], minX: Infinity, maxX: -Infinity, frames: 0, from: performance.now(), path: [] });
     const until = performance.now() + ms;
-    // Read once every callback of the frame has run (the page's own drawing among them), so what
-    // is read is what that frame drew, not the one before; timed when the frame began.
-    const look = (frameAt) => {
-      setTimeout(() => sample(frameAt), 0);
-      if (performance.now() < until) requestAnimationFrame(look);
-    };
     const sample = (frameAt) => {
+      if (frameAt > until) return void window.__afterDraw.delete(sample);
       const m = window.movesOn(seat);
       if (m) {
         most.frames++;
@@ -160,7 +174,7 @@ function pageHelpers() {
       // The first frame this page's own move button showed ready.
       if (window.__readyAt == null && document.querySelector(".ctl-bump")?.classList.contains("ready")) window.__readyAt = frameAt;
     };
-    requestAnimationFrame(look);
+    window.__afterDraw.add(sample);
   };
   // A page about to be reloaded can be told to watch a seat from the first frame it draws after
   // (sessionStorage outlives the reload): window.__moves[seat] then holds every frame from the first.

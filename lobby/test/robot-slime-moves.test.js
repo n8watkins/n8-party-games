@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { game as coinFlip, manifest as coinFlipManifest } from "../games/coin-flip.js";
 import { LobbyCore } from "../server/lobby-core.js";
 import { BumpDraw } from "../public/bump-draw.js";
-import { resumeKnock } from "../public/look3d/pieces.js";
+import { bumpPose, resumeKnock } from "../public/look3d/pieces.js";
 import { IMMUNE_MS, KNOCK_CLEAR, STUN_MS, landingGround } from "../shared/bump.js";
 import { wallFor } from "../shared/rooms.js";
 import { CHARACTERS, LOOK_COOLDOWN_MS, moveOf } from "../shared/characters.js";
@@ -928,6 +928,15 @@ describe("what a page that arrives in the middle is told, and draws", () => {
       expect(movedPose(solid.fright, now + safe + 1 - solid.fright.at).state).toBe("up");
       expect(movedResumed(700, down, safe, kind, now).at).toBe(now - (MOVED[kind].ms - down));
     }
+  });
+
+  it("draws a robot wide-eyed from the first frame of a page that arrives in the middle of its scare (the 3D pose)", () => {
+    const now = 10_000;
+    // The room said 650 ms of the scare are left; the page first draws 330 ms later.
+    const solid = { rx: 700 };
+    resumeKnock(solid, 700, 650, 650 + 500, now, "hookscare");
+    for (const later of [0, 330, 500]) expect(bumpPose(solid, now + later).scared, `${later} ms on`).toBeGreaterThan(0.9);
+    expect(bumpPose(solid, now + 650 + 600).scared).toBe(0);
   });
 });
 
