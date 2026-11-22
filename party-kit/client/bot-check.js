@@ -22,20 +22,26 @@ export const BLOCKED = "Could not check you are a person. A content blocker may 
 export const STALLED = "Could not check you are a person: the check did not load. Check the connection and try again.";
 let loading = null;
 
+/** How many loads have failed: each try after one asks for the script at an address of its own. */
+let failedLoads = 0;
+
 function loadTurnstile() {
   if (globalThis.turnstile) return Promise.resolve(globalThis.turnstile);
   loading ??= new Promise((resolve, reject) => {
     const s = document.createElement("script");
-    // Any way it ends other than loaded, it is forgotten, so the next try starts a fresh load.
+    // Any way it ends other than loaded, it is forgotten, so the next try starts a fresh load. A
+    // stalled request may still be open: the next try's address differs ("&retry=1"), so the
+    // browser makes a new request instead of waiting on that one again.
     const give = (message) => {
       clearTimeout(timer);
       loading = null;
+      failedLoads += 1;
       s.onload = s.onerror = null;
       s.remove();
       reject(new Error(message));
     };
     const timer = setTimeout(() => give(STALLED), LOAD_TIMEOUT_MS);
-    s.src = SCRIPT;
+    s.src = failedLoads ? `${SCRIPT}&retry=${failedLoads}` : SCRIPT;
     s.async = true;
     s.onload = () => {
       if (!globalThis.turnstile) return give(FAILED);

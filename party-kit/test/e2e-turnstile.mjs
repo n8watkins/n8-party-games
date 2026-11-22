@@ -200,7 +200,9 @@ async function partyRoom(b) {
 
   // Turnstile's script stalled, blocked, or answering with something that is not Turnstile: each
   // time the page says so, sends no room request and gives the button back, and once the script
-  // can load again the next try makes the party (the failed load was forgotten).
+  // can load again the next try makes the party (the failed load was forgotten). The first
+  // request is left as it is (a stalled one still hanging): the retry asks for the script at an
+  // address of its own, so it is a fresh request that loads at once, not a second wait on the first.
   const cases = [
     ["never answers", BOT_STALLED, () => new Promise(() => {})],
     ["is blocked outright", BOT_BLOCKED, (route) => route.abort("blockedbyclient")],
@@ -208,7 +210,12 @@ async function partyRoom(b) {
   ];
   for (const [what, message, handle] of cases) {
     const d = await device(PHONE);
-    await d.page.route("https://challenges.cloudflare.com/turnstile/v0/api.js*", handle);
+    const scripts = [];
+    await d.page.route("https://challenges.cloudflare.com/turnstile/v0/api.js*", (route) => {
+      const url = route.request().url();
+      scripts.push(url);
+      return /[?&]retry=/.test(url) ? route.continue() : handle(route);
+    });
     await d.page.goto(passBase + "/lobby/?start");
     await d.page.fill("input[name=nickname]", "Flo");
     const began = Date.now();
@@ -216,10 +223,14 @@ async function partyRoom(b) {
     await answered(d.page);
     const said = await d.page.locator(".door-error").textContent();
     say(said === message && d.seen.creates.length === 0 && (await d.page.locator("button[type=submit]").isEnabled()), `when Turnstile's script ${what}, the page says so after ${((Date.now() - began) / 1000).toFixed(0)} s ("${said}"), sends no room request, and the button works again`);
-    await d.page.unrouteAll({ behavior: "ignoreErrors" });
+    const retried = Date.now();
     await d.page.tap("button[type=submit]");
     await inRoom(d.page);
-    say(d.seen.creates.length === 1 && d.seen.creates[0].turnstile === DUMMY_TOKEN, "and once it can load, trying again makes the party");
+    const took = (Date.now() - retried) / 1000;
+    say(
+      d.seen.creates.length === 1 && d.seen.creates[0].turnstile === DUMMY_TOKEN && scripts.length === 2 && !/retry=/.test(scripts[0]) && /[?&]retry=1$/.test(scripts[1]) && took < 12,
+      `and trying again asks for the script afresh (${scripts.map((u) => u.split("?")[1]).join(" then ")}) and makes the party in ${took.toFixed(0)} s`,
+    );
     await d.page.context().close();
   }
 
