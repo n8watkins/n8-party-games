@@ -987,9 +987,10 @@ function paneCheck(app) {
       at = W.project(p.i, rig.view, 0.3, {});
       if (at) at = { x: Math.round(at.x), y: Math.round(at.y) };
       // In its pane: a car dropping off a step dips to the pane's lower edge for a moment (the camera follows a drop
-      // with a short lag, as on the phone), so a tenth of the pane's height below it still counts.
+      // with a short lag, as on the phone), and a camera pulled in close by a prop beside the road looks over the car,
+      // whose middle then sits at the pane's bottom: a quarter of the pane's height below it still counts.
       const R = sp.rects[k];
-      inPane = !!at && at.x >= R.x && at.x <= R.x + R.w && at.y >= R.y && at.y <= R.y + R.h * 1.1;
+      inPane = !!at && at.x >= R.x && at.x <= R.x + R.w && at.y >= R.y && at.y <= R.y + R.h * 1.25;
     }
     const words = [...p.el.querySelectorAll(".plabel, .pnear span, .pheld .hname, .pnote b, .pnote small")].filter((e) => e.offsetParent !== null && e.textContent.trim());
     return {
