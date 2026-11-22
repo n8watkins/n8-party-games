@@ -184,9 +184,13 @@ try {
       await phone.fill("input[name=nickname]", "Di");
       await phone.click("text=Join the party");
       await phone.waitForSelector(drawn(look), { timeout: 90000, state: "attached" });
-      await sleep(2000);
-      // A phone starts close; "whole room" is when its button offers "Closer".
-      if (!/closer/i.test((await phone.locator(".zoom-btn").textContent()) ?? "")) await phone.click(".zoom-btn");
+      // A phone starts close; "whole room" is when its button offers "Closer". Waited for, as long as a busy machine takes to show it.
+      const zoom = phone.locator(".zoom-btn");
+      await zoom.waitFor({ state: "visible", timeout: 90000 });
+      if (!/closer/i.test((await zoom.textContent({ timeout: 90000 })) ?? "")) {
+        await zoom.click({ timeout: 90000 });
+        await phone.waitForFunction(() => /closer/i.test(document.querySelector(".zoom-btn")?.textContent ?? ""), null, { timeout: 30000 });
+      }
       for (const size of SIZES.filter(isPhone)) await still(phone, look, room, "phone", size);
       await screen.context().close();
       await phone.context().close();
