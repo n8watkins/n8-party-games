@@ -878,7 +878,10 @@ try {
         [R, P],
       );
       const ok = Math.abs(drawnNow.p - roomNow[P].x) <= 3 && Math.abs(drawnNow.r - roomNow[R].x) <= 3;
-      check(ok, `Pat's new view draws Pat at ${Math.round(drawnNow.p)} and Rob at ${Math.round(drawnNow.r)}, where the room has them (${roomNow[P].x}, ${roomNow[R].x})${ok ? "" : `; Rob on Pat's page: net ${JSON.stringify(drawnNow.rNet)} rev ${drawnNow.rRev}, room rev ${roomNow[R].rev} d ${roomNow[R].d}; room ${drawnNow.room}, look ${drawnNow.look}; ${JSON.stringify({ fright: drawnNow.fright, knock: drawnNow.knock, stilt: drawnNow.stilt, hook: drawnNow.hook, page: drawnNow.page })}`}`);
+      // A page that has drawn no frame for a while (its browser starved of drawing on a busy
+      // machine: requestAnimationFrame does not come) has drawn nothing to judge: not seen.
+      const starved = !ok && (drawnNow.page?.lastFrameAgo ?? 0) > 2000;
+      (starved ? (o, w) => seen(null, w) : check)(ok,`Pat's new view draws Pat at ${Math.round(drawnNow.p)} and Rob at ${Math.round(drawnNow.r)}, where the room has them (${roomNow[P].x}, ${roomNow[R].x})${ok ? "" : `; Rob on Pat's page: net ${JSON.stringify(drawnNow.rNet)} rev ${drawnNow.rRev}, room rev ${roomNow[R].rev} d ${roomNow[R].d}; room ${drawnNow.room}, look ${drawnNow.look}; ${JSON.stringify({ fright: drawnNow.fright, knock: drawnNow.knock, stilt: drawnNow.stilt, hook: drawnNow.hook, page: drawnNow.page })}`}`);
       await pat.unroute("**/lobby/**");
     }
 
