@@ -779,7 +779,8 @@ try {
       check(standing, "Pat's view stands in while the next one loads");
       await rob.keyboard.press("KeyX");
       const caught = await after((m) => m.t === "hk" && m.s === R, 4000, mark);
-      await rested(R);
+      // The legs need only the hook back in (not its cooldown): a moment after the verdict.
+      await sleep(400);
       await rob.keyboard.press("ArrowUp");
       const legsUp = await after((m) => m.t === "stilts" && m.s === R, 3000, mark);
       const stillStanding = await pat.evaluate(() => globalThis.__partyRoom?.view?.paused === true);
@@ -789,10 +790,21 @@ try {
       check(stillStanding && caught && legsUp, `the hook (${caught?.o}) and the legs (${!!legsUp}) came while Pat's view stood in (${stillStanding})`);
       const failed = errors.slice(failedBefore);
       check(failed.length === 0, `Pat's page took them in without an error${failed.length ? ": " + [...new Set(failed)].slice(0, 3).join("; ") : ""}`);
-      // Drawn where the room has them now: Pat where the hook pulled him, Rob where he stands.
+      // Drawn where the room has them now: Pat where the hook pulled him, Rob where he stands (the
+      // 3D look eases everyone else's piece to where the room says, so it is given a moment).
       const roomNow = await where();
-      const drawnNow = await pat.evaluate(([r, p]) => ({ r: window.__room3d.pieces.get(r)?.rx, p: window.__room3d.pieces.get(p)?.rx }), [R, P]);
-      check(Math.abs(drawnNow.p - roomNow[P].x) <= 3 && Math.abs(drawnNow.r - roomNow[R].x) <= 3, `Pat's new view draws Pat at ${Math.round(drawnNow.p)} and Rob at ${Math.round(drawnNow.r)}, where the room has them (${roomNow[P].x}, ${roomNow[R].x})`);
+      await pat
+        .waitForFunction(([r, p, rx, px]) => Math.abs(window.__room3d.pieces.get(r)?.rx - rx) <= 3 && Math.abs(window.__room3d.pieces.get(p)?.rx - px) <= 3, [R, P, roomNow[R].x, roomNow[P].x], { timeout: 3000, polling: 50 })
+        .catch(() => null);
+      const drawnNow = await pat.evaluate(
+        ([r, p]) => {
+          const rob = window.__room3d.pieces.get(r);
+          return { r: rob?.rx, p: window.__room3d.pieces.get(p)?.rx, rNet: rob?.net, rRev: rob?.rev, room: globalThis.__partyRoom?.view?.room?.room, fright: rob?.fright ? { kind: rob.fright.kind, from: rob.fright.from, to: rob.fright.to, since: performance.now() - rob.fright.at } : null, knock: !!rob?.knock, stilt: !!rob?.stilt, hook: rob?.hook ? { at: performance.now() - rob.hook.at, verdict: rob.hook.verdict?.o } : null };
+        },
+        [R, P],
+      );
+      const ok = Math.abs(drawnNow.p - roomNow[P].x) <= 3 && Math.abs(drawnNow.r - roomNow[R].x) <= 3;
+      check(ok, `Pat's new view draws Pat at ${Math.round(drawnNow.p)} and Rob at ${Math.round(drawnNow.r)}, where the room has them (${roomNow[P].x}, ${roomNow[R].x})${ok ? "" : `; Rob on Pat's page: net ${JSON.stringify(drawnNow.rNet)} rev ${drawnNow.rRev}, room rev ${roomNow[R].rev} d ${roomNow[R].d}; room ${drawnNow.room}; ${JSON.stringify({ fright: drawnNow.fright, knock: drawnNow.knock, stilt: drawnNow.stilt, hook: drawnNow.hook })}`}`);
       await pat.unroute("**/lobby/**");
     }
 
