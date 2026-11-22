@@ -1058,6 +1058,9 @@ function bump() {
   }
   // The pawn's kick (shared/bump.js): it winds up at once, and goes off when the button comes up.
   // Held past CHARGE_MIN_MS it is a charge: the pawn stands still, wound up, and the room times it.
+  // (A press whose release this page never heard, a key let go while the page was busy elsewhere,
+  // is over by now: a new one starts afresh.)
+  if (kickPress !== null && now - kickPress > CHARGE_HOLD_MS + 500) kickPress = null;
   if (kickPress !== null || !pilot.mayKick(now)) return;
   kickPress = now;
   scene.ownBump(now);

@@ -18,6 +18,18 @@ import { CHARGE_HOLD_MS, CHARGE_MIN_MS, attackPose, chargeDash, chargePose } fro
 //            {at, dir, landed, lunge}       a charge let go at `at`: it dashes from lunge.from to
 //                                           lunge.to (where the room put it), then kicks
 
+/**
+ * Where to draw a piece the room moved (a knock or a fright, `rec` {to, landed}) once its move is
+ * over (`state` "safe" or "up"): where the room put it, on the first such frame only (after that it
+ * is wherever it walks); null otherwise. A page that draws few frames would otherwise leave it
+ * where its last frame of the move had it and ease it over from there.
+ */
+export function landing(rec, state) {
+  if ((state !== "safe" && state !== "up") || rec.landed) return null;
+  rec.landed = true;
+  return rec.to;
+}
+
 /** A piece's place as the room last said it, for posAt (shared/world.js): at `x` now, walking `d`, and for a floaty one still easing, going at `v`. */
 export const netOf = (x, d, now, v) => (v === undefined || v === null ? { x, d, t: now } : { x, d, t: now, v, vt: now });
 

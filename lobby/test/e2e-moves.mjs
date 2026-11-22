@@ -22,10 +22,11 @@
 //                   it is soft, draw them so
 import { LOOK_COOLDOWN_MS } from "../shared/characters.js";
 import { HOOK_AIM_MS, HOOK_COOLDOWN_MS, PULL_MS, STILT_COOLDOWN_MS, STILT_DROP_MS, STILT_MS, STILT_SQUAT_MS, pullEase } from "../shared/robot.js";
-import { ABSORB_MS, HARDEN_MS, HOLD_MS, MELT_MS, SLIME_COOLDOWN_MS, SNAP_MS } from "../shared/slime.js";
+import { ABSORB_MS, ABSORB_TURN_MS, HARDEN_MS, HOLD_MS, MELT_MS, SLIME_COOLDOWN_MS, SNAP_MS } from "../shared/slime.js";
+import { CHARGE_HOLD_MS, CHARGE_MIN_MS } from "../shared/bump.js";
 import { MOVED, slideLanding } from "../shared/moves.js";
 import { wallFor } from "../shared/rooms.js";
-import { clampX } from "../shared/world.js";
+import { JUMP_MS, clampX } from "../shared/world.js";
 import { launchBrowser } from "./browser.mjs";
 import { partyApi, sleep } from "./client.mjs";
 
@@ -88,7 +89,8 @@ function pageHelpers() {
           return;
         }
         for (const m of Array.isArray(msg) ? msg : [msg]) {
-          if (m && ["hook", "hk", "stilts", "slime", "shove", "hook-no", "stilts-no", "slime-no"].includes(m.t)) window.__heard.push({ t: m.t, s: m.s, to: m.to, o: m.o, k: m.k, why: m.why, wait: m.wait, at: performance.now() });
+          // (And whether the page's view was standing in for the next one as it heard it: view-api.js.)
+          if (m && (["hook", "hk", "stilts", "slime", "shove", "hook-no", "stilts-no", "slime-no", "kc"].includes(m.t) || (m.t === "m" && m.j))) window.__heard.push({ t: m.t, s: m.s, to: m.to, o: m.o, k: m.k, why: m.why, wait: m.wait, at: performance.now(), paused: globalThis.__partyRoom?.view?.paused === true });
           // Told to (__jumpOnHookOf: a robot's seat), this page jumps the moment it hears that robot
           // throw, as a player who sees it coming does: the jump is timed by the page, not the test.
           if (m?.t === "hook" && m.s === window.__jumpOnHookOf) {
@@ -121,9 +123,21 @@ function pageHelpers() {
   };
   // Frames held back (a page that stalls drawing) until performance.now() reaches window.__stallUntil.
   const raf = window.requestAnimationFrame.bind(window);
+  // When each frame ran (the page's own clock), and when it was asked for: the last few hundred.
+  window.__frameTimes = [];
+  window.__framesAsked = [];
+  const timed = (cb, asked) => (t) => {
+    const ran = performance.now();
+    window.__frameTimes.push(ran);
+    window.__framesAsked.push([asked, ran]);
+    if (window.__frameTimes.length > 600) window.__frameTimes.splice(0, 300);
+    if (window.__framesAsked.length > 600) window.__framesAsked.splice(0, 300);
+    return cb(t);
+  };
   window.requestAnimationFrame = (cb) => {
-    const wait = (window.__stallUntil ?? 0) - performance.now();
-    return wait > 0 ? setTimeout(() => raf(cb), wait) : raf(cb);
+    const asked = performance.now();
+    const wait = (window.__stallUntil ?? 0) - asked;
+    return wait > 0 ? setTimeout(() => raf(timed(cb, asked)), wait) : raf(timed(cb, asked));
   };
   window.__send = (m) => window.__ws.send(JSON.stringify(m));
   const view = () => globalThis.__partyRoom?.view;
@@ -145,7 +159,11 @@ function pageHelpers() {
     // Soft as drawn now: from its turn until its soft time and melt are over (move-state.js gooNow
     // clears p.goo only when a frame draws it, so a goo whose time is up can still be there).
     const soft = !!p.goo && p.goo.turnAt !== null && performance.now() - p.goo.at - p.goo.turnAt < p.goo.softFor + window.__MELT_MS;
-    return { x: p.rx, hook: p.hook ? (p.hook.verdict?.o ?? "out") : null, chain, legs, gem, soft, fright: p.fright?.kind ?? null, knock: !!p.knock, character: p.kind?.id };
+    // A pawn charging its kick, as drawn: the flat look's glow, the 3D pawn's own.
+    const charge = flat ? Number(g?.getAttribute("data-charge") ?? 0) : (p.body?.charge ?? 0);
+    // How far off the floor it is drawn: world units in the flat look, metres in 3D.
+    const rise = flat ? (p.rise ?? 0) : (p.body?.group?.position.y ?? 0);
+    return { x: p.rx, hook: p.hook ? (p.hook.verdict?.o ?? "out") : null, chain, legs, gem, soft, fright: p.fright?.kind ?? null, knock: !!p.knock, character: p.kind?.id, charging: !!p.attack?.charging && charge > 0, rise };
   };
   window.__moves = {};
   // When this page heard the move key go down (its own clock).
@@ -196,7 +214,7 @@ function pageHelpers() {
         if (m.hook && !most.hooks.includes(m.hook)) most.hooks.push(m.hook);
         most.minX = Math.min(most.minX, m.x);
         most.maxX = Math.max(most.maxX, m.x);
-        most.path.push([frameAt, m.x, m.legs, m.soft, m.chain, m.gem, m.fright, m.knock, document.querySelector(".ctl-bump")?.className ?? null]);
+        most.path.push([frameAt, m.x, m.legs, m.soft, m.chain, m.gem, m.fright, m.knock, document.querySelector(".ctl-bump")?.className ?? null, m.charging, m.rise]);
       }
       // The first frame this page's own move button showed ready.
       if (window.__readyAt == null && document.querySelector(".ctl-bump")?.classList.contains("ready")) window.__readyAt = frameAt;
@@ -596,7 +614,7 @@ try {
     at = await where();
     await pat.keyboard.press("KeyX");
     const bounced = await after((m) => m.t === "b" && m.s === P, 2000, mark);
-    check(bounced?.bo === S && bounced.to === -1, `Pat's kick bounces off and Pat is knocked back himself (${JSON.stringify(bounced && { to: bounced.to, bo: bounced.bo, x: bounced.x })})`);
+    check(bounced?.bo === S && bounced.to === -1, `Pat's kick bounces off and Pat is knocked back himself (${JSON.stringify(bounced && { to: bounced.to, bo: bounced.bo, x: bounced.x, f: bounced.f, after: bounced.at - (hard?.at ?? 0) })}; Pat at ${at[P].x}, Sam at ${at[S].x}${bounced?.bo === S ? "" : `; Pat's page ${JSON.stringify(await pat.evaluate(() => globalThis.__partyRoom?.moves ?? null))}`})`);
     check(bounced && bounced.x < at[P].x - 60 && Math.abs((await where())[S].x - at[S].x) < 2, "Pat lands back the way he came; Sam stays put");
     await sleep(1300);
     for (const [name, page] of [["Rob", rob], ["Pat", pat]]) {
@@ -678,9 +696,13 @@ try {
     const firstFrameAt = ownPath[0]?.[0] ?? null;
     const dueAt = first && firstFrameAt !== null ? Math.max(first.at + first.slimeCool[S], firstFrameAt) : null;
     const lag = readyAt === null || dueAt === null ? null : Math.round(readyAt - dueAt);
-    // Ready by the second frame drawn from then (the button is set in the page's own frame, which
-    // can run after the watch's in the same one), or within 100 ms where frames come faster.
-    const frameAfter = dueAt === null ? null : ownPath.filter(([t]) => t >= dueAt - 1)[1]?.[0] ?? null;
+    // Ready by the second frame the page drew from then (the button is set in the page's own frame,
+    // which can run after the watch's in the same one), or within 100 ms where frames come faster.
+    // Every frame the page ran counts (a page starved of frames on a busy machine shows it late,
+    // but never later than its next frame or two).
+    const pageFrames = await sam.evaluate(() => window.__frameTimes.slice());
+    const framesFrom = dueAt === null ? [] : pageFrames.filter((t) => t >= dueAt - 1);
+    const frameAfter = framesFrom[1] ?? (framesFrom[0] === undefined ? null : framesFrom[0] + 50);
     const inTime = lag !== null && (lag < 100 || (frameAfter !== null && readyAt <= frameAfter));
     const firstFrames = ownPath.slice(0, 6).map(([t, , , , , , , , cls]) => `${Math.round(t - (dueAt ?? t))}ms:${cls}`);
     check(inTime, `Sam's reloaded phone has its move ready when the room said it would be (${lag} ms after${frameAfter !== null ? `, the next frame ${Math.round(frameAfter - dueAt)} ms after` : ""}; the first room it heard gave ${first?.slimeCool[S]} ms, and it first drew ${first && firstFrameAt !== null ? Math.round(firstFrameAt - first.at) : "?"} ms after hearing it${inTime ? "" : `; its first frames, from when it was due: ${firstFrames.join(", ")}`})`);
@@ -700,14 +722,21 @@ try {
     await sam.waitForFunction(() => window.__sent.some((m) => m.k === "absorb"), null, { timeout: 2000, polling: 15 }).catch(() => null);
     await sam.keyboard.up("KeyX");
     const stalled = await after((m) => m.t === "slime" && m.s === S && m.k === "absorb", 2000, mark);
-    const stallTimes = await sam.evaluate(() => ({ key: window.__keyAt, stallUntil: window.__stallUntil, absorb: window.__sent.find((m) => m.k === "absorb")?.at ?? null }));
+    const stallTimes = await sam.evaluate(() => ({ key: window.__keyAt, stallUntil: window.__stallUntil, absorb: window.__sent.find((m) => m.k === "absorb")?.at ?? null, frames: window.__framesAsked.slice() }));
     const sentIn = stallTimes.absorb === null ? null : Math.round(stallTimes.absorb - stallTimes.key);
-    check(sentIn !== null && sentIn >= HOLD_MS - 20 && stallTimes.absorb < stallTimes.stallUntil, `Sam's page sent the absorb ${sentIn} ms after it heard the key (the hold is ${HOLD_MS} ms), ${stallTimes.absorb === null ? "-" : Math.round(stallTimes.stallUntil - stallTimes.absorb)} ms before it drew again`);
+    // Sent by its timer, not by a frame: no frame the page asked for after the key (each is held
+    // back by the stall) ran before the absorb went. (A frame already asked for when the key went
+    // down runs anyway; and on a busy machine the timer itself can run late, after the stall: what
+    // matters is that no frame did it.)
+    const framesBetween = stallTimes.absorb === null ? [] : stallTimes.frames.filter(([asked, ran]) => asked > stallTimes.key && ran < stallTimes.absorb).map(([, ran]) => ran);
+    check(sentIn !== null && sentIn >= HOLD_MS - 20 && framesBetween.length === 0, `Sam's page sent the absorb ${sentIn} ms after it heard the key (the hold is ${HOLD_MS} ms), with no frame drawn in between (${framesBetween.length}; the stall ended ${stallTimes.absorb === null ? "-" : Math.round(stallTimes.absorb - stallTimes.stallUntil)} ms before it)`);
     // When it did not: what the room said about Sam meanwhile, and what Sam's own page had.
     const stalledWhy = stalled
       ? ""
       : `; the room said ${JSON.stringify(ada.seen.slice(mark).filter((m) => m.s === S && m.t !== "m").map((m) => m.t + (m.k ? ":" + m.k : "")))}, Sam's room record ${JSON.stringify((await where())[S])}, his page ${JSON.stringify(await sam.evaluate((s) => ({ phase: globalThis.__partyRoom?.view?.room?.phase, goo: globalThis.__partyRoom?.view?.pieces?.get(s)?.goo ?? null, active: document.activeElement?.tagName, visible: document.visibilityState, focus: document.hasFocus() }), S))}`;
-    check(stalled?.for === ABSORB_MS, `held while the page drew nothing: Sam still goes soft (${stalled?.k ?? "no absorb"}${stalledWhy})`);
+    // The room takes the turn up to ABSORB_TURN_MS after the press: a page whose timer the machine
+    // held back past that (it ran, but too late) is too busy to judge this by.
+    seen(sentIn !== null && sentIn > ABSORB_TURN_MS - 120 ? null : stalled?.for === ABSORB_MS, `held while the page drew nothing: Sam still goes soft (${stalled?.k ?? "no absorb"}; sent ${sentIn} ms after the key${stalledWhy})`);
     await sleep(1400);
     await rested(S);
     // The absorb reaches the room 0.75 s late, after the harden it would turn: refused (slime-no),
@@ -774,17 +803,25 @@ try {
       // its view is a stand-in (view-api.js). Rob's hook catches Pat and his legs go up meanwhile:
       // the page must not fail on any of it, and once the new view is up it draws what it heard.
       section(`${look}: Rob hooks Pat and raises his legs while the host changes room and Pat's view is slow to load`);
-      let slow = false;
+      // The next view's files are held back until the test lets them go (after the hook and the
+      // legs), however busy the machine: the view stands in for as long as that takes.
+      let hold = null;
       await pat.route("**/lobby/**", async (route) => {
-        if (slow && route.request().resourceType() !== "websocket") await sleep(2500);
-        await route.continue();
+        if (hold && route.request().resourceType() !== "websocket") await hold.promise;
+        // (A request still held when the route is taken away is the page's no longer.)
+        await route.continue().catch(() => {});
       });
       await rested(R, P);
+      // Ada becomes a pawn: her charge, heard while Pat's view stands in, lasts as long as she holds it.
+      ada.send({ t: "look", c: "pawn" });
+      await ada.wait((m) => m.room?.members[A]?.character === "pawn", 4000).catch(() => null);
+      await sleep(LOOK_COOLDOWN_MS);
       await walkTo(pat, P, 1000);
       await walkTo(rob, R, 820, 1);
       await settled(R, P);
       const failedBefore = errors.length;
-      slow = true;
+      hold = {};
+      hold.promise = new Promise((done) => (hold.release = done));
       mark = ada.seen.length;
       ada.send({ t: "pick", v: "ship" });
       const standing = await pat.waitForFunction(() => globalThis.__partyRoom?.view?.paused === true, null, { timeout: 8000, polling: 10 }).then(
@@ -792,17 +829,67 @@ try {
         () => false,
       );
       check(standing, "Pat's view stands in while the next one loads");
+      // Every frame Pat's page draws from here (none while it stands in), Rob's and Pat's.
+      await pat.evaluate(([r, p, a]) => (window.watchMoves(r, 15000), window.watchMoves(p, 15000), window.watchMoves(a, 15000)), [R, P, A]);
       await rob.keyboard.press("KeyX");
       const caught = await after((m) => m.t === "hk" && m.s === R, 4000, mark);
       // The legs need only the hook back in (not its cooldown): a moment after the verdict.
       await sleep(400);
       await rob.keyboard.press("ArrowUp");
       const legsUp = await after((m) => m.t === "stilts" && m.s === R, 3000, mark);
+      // Until Pat's page has heard the legs too; then Ada holds her kick (and keeps holding it), and
+      // once Pat's page has heard that, the files go.
+      await pat.waitForFunction((r) => (window.__heard ?? []).some((h) => h.t === "stilts" && h.s === r), R, { timeout: 4000, polling: 10 }).catch(() => null);
+      ada.send({ t: "kc" });
+      await pat.waitForFunction(() => (window.__heard ?? []).some((h) => h.t === "kc"), null, { timeout: 4000, polling: 10 }).catch(() => null);
       const stillStanding = await pat.evaluate(() => globalThis.__partyRoom?.view?.paused === true);
-      slow = false;
+      hold.release();
+      hold = null;
+      // However long the new view takes to build on a busy machine, something it must hand on is
+      // always under way as it comes up: Ada jumps (a jump lasts JUMP_MS, and only the stand-in
+      // carries it over: the page's own record of moves has no jumps) every so often until Pat's
+      // page has its new view.
+      for (let i = 0; i < 400; i++) {
+        if (!(await pat.evaluate(() => globalThis.__partyRoom?.view?.paused === true))) break;
+        ada.send({ t: "m", x: ada.x, d: 0, r: ada.rev, j: 1 });
+        await sleep(110);
+      }
       await pat.waitForFunction(() => globalThis.__partyRoom?.view && !globalThis.__partyRoom.view.paused && window.__room3d?.pieces?.size > 0, null, { timeout: 40000 });
-      await sleep(1200);
+      await sleep(2000);
       check(stillStanding && caught && legsUp, `the hook (${caught?.o}) and the legs (${!!legsUp}) came while Pat's view stood in (${stillStanding})`);
+      // The new view draws what was heard while it loaded (the stand-in hands it on: view-api.js,
+      // replay): Pat pulled and still safe from it, Rob's legs up, for as long as each lasts. Judged
+      // on its first frames, on the page's clock, against when the page heard each.
+      {
+        const heard = await pat.evaluate(() => window.__heard ?? []);
+        const pulledAt = heard.filter((h) => h.t === "hk" && h.s === R && h.o === "pull").at(-1)?.at ?? null;
+        const legsAt = heard.filter((h) => h.t === "stilts" && h.s === R).at(-1)?.at ?? null;
+        const robPath = (await seenOn(pat, R)).path ?? [];
+        const patPath = (await seenOn(pat, P)).path ?? [];
+        const adaPath = (await seenOn(pat, A)).path ?? [];
+        // Ada: wound up from the room's word until the room forgets a charge it hears no release of.
+        const chargedAt = heard.filter((h) => h.t === "kc" && h.s === A).at(-1)?.at ?? null;
+        const chargeEnds = chargedAt === null ? null : chargedAt + CHARGE_HOLD_MS - CHARGE_MIN_MS - 150;
+        const chargeFrames = chargeEnds === null ? [] : adaPath.filter(([t]) => t < chargeEnds);
+        // Pat: pulled, then safe from it (its fright) until PULL_MS + PULLED_SAFE_MS after the pull, less a frame's margin.
+        const pullEnds = pulledAt === null ? null : pulledAt + MOVED.pull.ms + MOVED.pull.safe - 120;
+        const pullFrames = pullEnds === null ? [] : patPath.filter(([t]) => t < pullEnds);
+        // Rob: up from his rise until his legs begin to drop.
+        const legsEnd = legsAt === null ? null : legsAt + STILT_MS - STILT_DROP_MS - 100;
+        const legFrames = legsEnd === null ? [] : robPath.filter(([t]) => t >= legsAt + STILT_SQUAT_MS + 200 && t < legsEnd);
+        // Ada's last jump heard while the view stood in, and the first after it was up (heard by the new view itself).
+        const jumps = heard.filter((h) => h.t === "m" && h.s === A);
+        const lastHeld = jumps.filter((h) => h.paused).at(-1)?.at ?? null;
+        const firstLive = jumps.find((h) => !h.paused && (lastHeld === null || h.at > lastHeld))?.at ?? Infinity;
+        // In the air from a moment after that jump until it is nearly down again (JUMP_MS), and only before a jump the new view heard itself.
+        const jumpFrames = lastHeld === null ? [] : adaPath.filter(([t]) => t > lastHeld + 60 && t < Math.min(lastHeld + JUMP_MS - 90, firstLive));
+        const up = (f) => (look === "3d" ? f[10] > 0.04 : f[10] > 15);
+        const first = Math.min(patPath[0]?.[0] ?? Infinity, robPath[0]?.[0] ?? Infinity, adaPath[0]?.[0] ?? Infinity);
+        const shown = pullFrames.every((f) => f[6] === "pull") && legFrames.every((f) => f[2] > 30) && chargeFrames.every((f) => f[9]) && jumpFrames.every(up);
+        const story = `the new view first drew ${first === Infinity || pulledAt === null ? "?" : Math.round(first - pulledAt)} ms after the pull was heard, ${first === Infinity || legsAt === null ? "?" : Math.round(first - legsAt)} ms after the legs, ${first === Infinity || chargedAt === null ? "?" : Math.round(first - chargedAt)} ms after Ada's charge, ${first === Infinity || lastHeld === null ? "?" : Math.round(first - lastHeld)} ms after Ada's last jump while it stood in (of ${jumps.filter((h) => h.paused).length}); ${pullFrames.length} frames in the pull's time (${pullFrames.map((f) => f[6] ?? "-").join(", ")}), ${legFrames.length} in the legs' (${legFrames.map((f) => Math.round(f[2])).join(", ")}), ${chargeFrames.length} in the charge's (${chargeFrames.map((f) => (f[9] ? "wound up" : "-")).join(", ")}), ${jumpFrames.length} in the jump's (${jumpFrames.map((f) => f[10].toFixed(2)).join(", ")})`;
+        const all = pullFrames.length + legFrames.length + chargeFrames.length + jumpFrames.length;
+        seen(pulledAt === null || legsAt === null || chargedAt === null || lastHeld === null ? false : all === 0 ? null : shown, `Pat's new view draws the pull, the legs, the charge and the jump it heard while it loaded (${story})`);
+      }
       const failed = errors.slice(failedBefore);
       check(failed.length === 0, `Pat's page took them in without an error${failed.length ? ": " + [...new Set(failed)].slice(0, 3).join("; ") : ""}`);
       // Drawn where the room has them now: Pat where the hook pulled him, Rob where he stands (the

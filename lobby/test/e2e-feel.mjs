@@ -55,7 +55,11 @@ try {
     console.log("     still: " + name);
   };
   const top = async (page, selector) => (await page.locator(selector).first().boundingBox())?.y ?? null;
-  const tap = (page, selector) => page.locator(selector).dispatchEvent("pointerdown", { pointerId: 1 });
+  // A tap is a finger down and up again: a pawn's kick goes off as the finger lifts (held, it charges: lobby/shared/bump.js).
+  const tap = async (page, selector) => {
+    await page.locator(selector).dispatchEvent("pointerdown", { pointerId: 1 });
+    await page.locator(selector).dispatchEvent("pointerup", { pointerId: 1 });
+  };
   /** Nothing wider than the page, and nothing in a bar overlapping or leaving it. */
   async function tidy(page, name) {
     const found = await page.evaluate(() => {

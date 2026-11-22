@@ -9,7 +9,7 @@
 // does them (`scared` in its flat definition). Neither jolts the picture.
 import { s, set } from "./dom.js";
 import { IMMUNE_MS, IMPACT_MS, PIECE_PIVOT, STUN_MS, cooldownFraction, impactPoint, knockPose } from "./shared/bump.js";
-import { attackDrawn } from "./move-state.js";
+import { attackDrawn, landing } from "./move-state.js";
 import { isMoved, moved, movedPose, movedResumed } from "./shared/moves.js";
 import { ROOM } from "./shared/world.js";
 
@@ -98,19 +98,27 @@ export class BumpDraw {
     const f = p.fright;
     if (f) {
       const pose = movedPose(f, now - f.at, calm());
-      if (pose.state === "up") p.fright = null;
+      // The first frame after its move is over puts it where the room put it, however few frames came in between.
+      const x = pose.x ?? landing(f, pose.state);
+      if (pose.state === "up") {
+        p.fright = null;
+        if (x !== null) pin = x;
+      }
       // Until the kick reaches the ghost the kicker's own kick is drawn (below), where it kicked.
       else if (pose.state === "standing") pin = f.from;
       else {
         if (pose.face) p.face = pose.face;
-        return { x: pose.x, dx: pose.dx, lift: pose.lift, tilt: pose.tilt, pivot: 0, sx: pose.sx, sy: pose.sy, state: pose.state, dizzy: !!pose.dizzy, safe: pose.state === "safe", scared: pose.scared, pale: pose.pale };
+        return { x, dx: pose.dx, lift: pose.lift, tilt: pose.tilt, pivot: 0, sx: pose.sx, sy: pose.sy, state: pose.state, dizzy: !!pose.dizzy, safe: pose.state === "safe", scared: pose.scared, pale: pose.pale };
       }
     }
     const k = p.knock;
     if (k) {
       const pose = knockPose(now - k.at, k.from, k.to, k.safeFor, k.extra ?? 0);
-      if (pose.state === "up") p.knock = null;
-      else {
+      if (pose.state === "up") {
+        p.knock = null;
+        const x = landing(k, "up");
+        if (x !== null) pin = x;
+      } else {
         if (!k.burst && now - k.at >= IMPACT_MS) {
           k.burst = true;
           const at = impactPoint(k.from, k.to);
@@ -125,7 +133,7 @@ export class BumpDraw {
         // kicking until then, as a scared one is.
         const thrown = pose.state !== "standing" && pose.state !== "safe";
         if (pose.state === "standing" && p.attack) pin = k.from;
-        else return { x: pose.state === "safe" ? null : pose.x, dx: 0, lift: pose.lift, tilt: pose.tilt, pivot: PIECE_PIVOT, sx: pose.sx, sy: pose.sy, state: pose.state, dizzy: thrown, safe: pose.state === "safe" };
+        else return { x: pose.state === "safe" ? landing(k, "safe") : pose.x, dx: 0, lift: pose.lift, tilt: pose.tilt, pivot: PIECE_PIVOT, sx: pose.sx, sy: pose.sy, state: pose.state, dizzy: thrown, safe: pose.state === "safe" };
       }
     }
     // Winding up, charging, dashing, striking or recovering (move-state.js, attackDrawn).

@@ -3,7 +3,7 @@
 // the flat look and in 3D. The browser is headless and MUTED, and is closed at the end whatever
 // happens. With TEST_GPU=1 it draws on the graphics card (lobby/test/browser.mjs).
 //
-//   node lobby/test/e2e-counters.mjs [--base=http://localhost:8791] [--looks=flat,3d] [--shots=DIR]
+//   node lobby/test/e2e-counters.mjs [--base=http://localhost:8791] [--looks=flat,3d] [--shots=DIR (none: --shots=)]
 //
 // One phone (Pat, a pawn, played by its keys) and a big screen (1280 x 720) watch, and bare
 // sockets (Ada, Bo, Cy) play the other pieces, saying exactly what a phone says. In each look one
@@ -32,7 +32,8 @@ const args = process.argv.slice(2);
 const opt = (k, d) => (args.find((a) => a.startsWith("--" + k + "=")) ?? "--" + k + "=" + d).split("=").slice(1).join("=");
 const base = opt("base", "http://localhost:8791");
 const looks = opt("looks", "flat,3d").split(",").filter(Boolean);
-const shots = opt("shots", "");
+// Stills of each counter, in each look, for the owner (outside every folder the local server watches).
+const shots = opt("shots", "/tmp/claude-counters/stills");
 if (shots) mkdirSync(shots, { recursive: true });
 const { api, call, connect } = partyApi(base);
 const problems = [];

@@ -14,7 +14,7 @@ import { PX, SPACE, walkX } from "./space.js";
 import { IMMUNE_MS, IMPACT_MS, PIECE_HEAD, PIECE_PIVOT, STUN_MS, impactPoint, knockPose } from "../shared/bump.js";
 import { isMoved, moved, movedPose, movedResumed } from "../shared/moves.js";
 import { JUMP_HEIGHT, JUMP_MS, WALK_SPEED, jumpHeight } from "../shared/world.js";
-import { attackDrawn } from "../move-state.js";
+import { attackDrawn, landing } from "../move-state.js";
 /** The warm glow of a pawn charging its kick (shared/bump.js, chargePose). */
 const CHARGE_GLOW = new THREE.Color("#ffc450");
 
@@ -187,19 +187,27 @@ export function bumpPose(piece, now, calm = false) {
   const f = piece.fright;
   if (f) {
     const pose = movedPose(f, now - f.at, calm);
-    if (pose.state === "up") piece.fright = null;
+    // The first frame after its move is over puts it where the room put it, however few frames came in between.
+    const x = pose.x ?? landing(f, pose.state);
+    if (pose.state === "up") {
+      piece.fright = null;
+      if (x !== null) pin = x;
+    }
     // Until the kick reaches the ghost the kicker's own kick is drawn (below), where it kicked.
     else if (pose.state === "standing") pin = f.from;
     else {
       if (pose.face) piece.face = pose.face;
-      return { ...UPRIGHT, x: pose.x, dx: pose.dx, lift: pose.lift, lean: -pose.tilt * RAD, sx: pose.sx, sy: pose.sy, state: pose.state, safe: pose.state === "safe", scared: pose.scared, pale: pose.pale, dizzy: !!pose.dizzy };
+      return { ...UPRIGHT, x, dx: pose.dx, lift: pose.lift, lean: -pose.tilt * RAD, sx: pose.sx, sy: pose.sy, state: pose.state, safe: pose.state === "safe", scared: pose.scared, pale: pose.pale, dizzy: !!pose.dizzy };
     }
   }
   const k = piece.knock;
   if (k) {
     const pose = knockPose(now - k.at, k.from, k.to, k.safeFor, k.extra ?? 0);
-    if (pose.state === "up") piece.knock = null;
-    else {
+    if (pose.state === "up") {
+      piece.knock = null;
+      const x = landing(k, "up");
+      if (x !== null) pin = x;
+    } else {
       let burst = null;
       let dust = null;
       if (!k.burst && now - k.at >= IMPACT_MS) {
@@ -215,7 +223,7 @@ export function bumpPose(piece, now, calm = false) {
       // kicking until then, as a scared one is.
       const thrown = pose.state !== "standing" && pose.state !== "safe";
       if (pose.state === "standing" && piece.attack) pin = k.from;
-      else return { x: pose.state === "safe" ? null : pose.x, dx: 0, lift: pose.lift, lean: -pose.tilt * RAD, pivot: PIECE_PIVOT, sx: pose.sx, sy: pose.sy, state: pose.state, dizzy: thrown, safe: pose.state === "safe", shock: pose.state === "hit" || pose.state === "flying", burst, dust };
+      else return { x: pose.state === "safe" ? landing(k, "safe") : pose.x, dx: 0, lift: pose.lift, lean: -pose.tilt * RAD, pivot: PIECE_PIVOT, sx: pose.sx, sy: pose.sy, state: pose.state, dizzy: thrown, safe: pose.state === "safe", shock: pose.state === "hit" || pose.state === "flying", burst, dust };
     }
   }
   // Winding up, charging, dashing, striking or recovering (../move-state.js, attackDrawn).
