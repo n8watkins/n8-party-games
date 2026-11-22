@@ -24,6 +24,12 @@ const API = "/api/party";
  */
 export const PROTOCOL_HEADER = "X-Party-Protocol";
 export const PROTOCOL = "2";
+/**
+ * The reason, with close code 4000, of a room that speaks a newer protocol than this page: the
+ * page must reload (the `closed` event says "update_required"). The room's copy is in
+ * party-kit/src/worker/hello-logic.js; a test holds the two together.
+ */
+export const UPDATE_REQUIRED = "update_required";
 const STORE_KEY = "party-kit:session";
 // Pings keep the two clocks in step. That matters during a round; in the lobby a slow ping is
 // enough, and it lets the room sleep.
@@ -50,9 +56,16 @@ export class PartyClient {
    *   api: the path of the room API, for a site with a second kind of room ("/api/lobby").
    *   quietPing: outside a round, send this fixed text instead of the clock ping. A room that
    *     answers it with an automatic reply is not woken by it at all.
+   *   release: this page's build (a site's release record id), said in the hello so the room can
+   *     tell an older page a newer build is out: the `release` event, `{id, safe}`, carries the
+   *     room's build and whether now is a moment the page may reload (the party site's
+   *     site/release-switch.js decides what to do with it).
    */
   constructor(opts = {}) {
     this.base = opts.base ?? "";
+    this.release = opts.release ?? null;
+    /** The room's build, as its hello or its last `release` message said, or null. */
+    this.roomRelease = null;
     this.api = opts.api ?? API;
     // Each kind of room keeps its own session, so a tab that visits both never mixes them up.
     this.storeKey = this.api === API ? STORE_KEY : `${STORE_KEY}:${this.api}`;
@@ -198,7 +211,9 @@ export class PartyClient {
       this.heardAt = Date.now();
       // The hello comes before anything else: until the room has read it, this socket has no
       // seat, is sent nothing, and is closed by any other first message.
-      ws.send(JSON.stringify({ t: "hello", token }));
+      // With it, which build this page is and which protocol it speaks (a room that cannot speak
+      // it closes the socket with "update_required" at a safe point, below).
+      ws.send(JSON.stringify({ t: "hello", token, protocol: PROTOCOL, ...(this.release && { release: this.release }) }));
       // A new socket is a page that is showing, to the room: one that is hidden says so first.
       if (this.away) this.send({ t: "away" });
       this.setStatus("open");
@@ -223,6 +238,14 @@ export class PartyClient {
       // up, or the room does not know the token). Anything else is a drop, and the socket is
       // opened again: the signal went, or the room let go of a socket that had not said hello yet
       // (4009: too many were waiting, or the hello came too late).
+      // 4000 with UPDATE_REQUIRED: the room speaks a newer protocol than this page. The seat is
+      // kept (the room holds it as for a drop) and so is the session: the page reloads into it.
+      if (event.code === 4000 && event.reason === UPDATE_REQUIRED && this.wantOpen) {
+        this.wantOpen = false;
+        this.setStatus("closed");
+        this.emit("closed", UPDATE_REQUIRED, event.reason);
+        return;
+      }
       if (event.code === 4000 || event.code === 4003 || !this.wantOpen) {
         // Final: nothing opens a socket for this session again, not a back-off still pending and
         // not the page being shown again (setAway).
@@ -267,6 +290,20 @@ export class PartyClient {
     return false;
   }
 
+  /** The room said its build: `{id, safe}`. Heard as the `release` event. */
+  heardRelease(said) {
+    if (!said || typeof said.id !== "string") return;
+    this.roomRelease = said.id;
+    this.emit("release", { id: said.id, safe: said.safe === true });
+  }
+
+  /** Asks the room for its build (it answers with a `release` event); false when there is no open socket. */
+  askRelease() {
+    if (this.ws?.readyState !== WebSocket.OPEN) return false;
+    this.send({ t: "release?" });
+    return true;
+  }
+
   onMessage(text) {
     let msg;
     try {
@@ -281,6 +318,10 @@ export class PartyClient {
         this.retry = 0;
         this.you = msg.you;
         this.setRoom(msg.room);
+        if (msg.release) this.heardRelease(msg.release);
+        break;
+      case "release":
+        this.heardRelease(msg);
         break;
       case "room":
         this.setRoom(msg.room);

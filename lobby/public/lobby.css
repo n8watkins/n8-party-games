@@ -1705,3 +1705,23 @@ input {
     white-space: normal;
   }
 }
+
+/* "New version ready, it will load after this round" (site/release-switch.js): one small line at
+   the top, in the middle, above the room and a game alike, that nothing is tapped through. */
+.release-note {
+  position: fixed;
+  z-index: 40;
+  top: calc(max(10px, env(safe-area-inset-top)) + 4px);
+  left: 50%;
+  transform: translateX(-50%);
+  max-width: calc(100% - 160px);
+  margin: 0;
+  padding: 4px 12px;
+  border-radius: 999px;
+  background: rgba(20, 13, 10, 0.82);
+  color: var(--cream, #fbf3e2);
+  font-size: 12px;
+  line-height: 1.3;
+  text-align: center;
+  pointer-events: none;
+}

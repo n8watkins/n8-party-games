@@ -11,6 +11,10 @@
 //
 // It also writes the quiet line under "Made in the open" that says which build this is.
 import { releaseLine } from "/release-line.js";
+import { watchOutsideRelease } from "/release-switch.js";
+
+// Shown again (a tab left open across a deploy): a newer build loads, unless a code is being typed.
+watchOutsideRelease({ canReload: () => document.getElementById("joinPop")?.hidden !== false });
 
 const NOTE_KEY = "party-room:note";
 /** A note older than this is about a party long gone. */

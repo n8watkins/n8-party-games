@@ -80,6 +80,8 @@ const siteEntries = [
   { from: join(ROOT, "site", "home-model.js"), to: "home-model.js" },
   // The quiet "Version ..., build ..." line the front page, the Floor and the Table show (from release.js, written by the build).
   { from: join(ROOT, "site", "release-line.js"), to: "release-line.js" },
+  // "New version available": a page older than the live site loads the new one at a safe moment.
+  { from: join(ROOT, "site", "release-switch.js"), to: "release-switch.js" },
   { from: join(ROOT, "site", "art"), to: "art" },
   { from: join(ROOT, "site", "fonts"), to: "fonts" },
   // Starting a party at the Table: the party room's way in, then straight to the Table.

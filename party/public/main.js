@@ -23,9 +23,27 @@ import { stageStale } from "/lobby/shared/stage.js";
 import { PLAY_BEAT_MS, partyFull, showsTests, tableLine, tablePlayers } from "/lobby/shared/table.js";
 import { mountStage, viewerAtTable } from "/party/stage.js";
 import { releaseLine } from "/release-line.js";
+import { PAGE_RELEASE, watchRoomRelease } from "/release-switch.js";
 
 const app = document.getElementById("app");
-const link = new PartyClient({ api: "/api/lobby", quietPing: { text: "ping", everyMs: KEEP_ALIVE_MS } });
+const link = new PartyClient({ api: "/api/lobby", quietPing: { text: "ping", everyMs: KEEP_ALIVE_MS }, release: PAGE_RELEASE });
+// An older page loads the new build at the room's next safe point, back in its seat (site/release-switch.js).
+// Not while a sheet of this page's own is open (leaving, ending a game): its question would be lost.
+// The notice sits under the heading's line, in the page's flow (party.css: nothing here lies over anything).
+watchRoomRelease(link, {
+  canReload: () => !app.querySelector(".confirm-back"),
+  notice: (text) => {
+    let el = app.querySelector(".title .release-note");
+    if (!text) return el?.remove();
+    const title = app.querySelector(".title");
+    if (!title) return;
+    if (!el) {
+      el = h("p", "release-note", "", title);
+      el.setAttribute("role", "status");
+    }
+    el.textContent = text;
+  },
+});
 const isPlayer = () => link.you?.role === "player";
 // A locked phone closes its socket and opens it again when it is shown (connection.js).
 watchConnection(link, { player: () => isPlayer() });
@@ -639,6 +657,8 @@ link.on("status", (status) => {
 });
 
 link.on("closed", (why, reason) => {
+  // The room needs a newer page: it reloads into its seat (watchRoomRelease), and does not leave.
+  if (why === "update_required") return;
   const said = bye ?? (why === "seat_lost" ? (reason === "left" ? "left" : "seat_lost") : reason || "room_closed");
   bye = null;
   closed(said);

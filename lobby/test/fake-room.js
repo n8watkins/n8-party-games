@@ -146,7 +146,7 @@ const manifestOf = (game, players) => ({ id: game.id, name: game.id, players, de
  * socket and say something on it, and `sleepAndWake`: a new instance over the same storage and
  * sockets, as after an eviction or a deploy.
  */
-export async function openRoom(createLobbyRoom, game, { players = { min: 2, max: 2 }, env = fakeEnv(), manifest = {}, more = 0 } = {}) {
+export async function openRoom(createLobbyRoom, game, { players = { min: 2, max: 2 }, env = fakeEnv(), manifest = {}, more = 0, release = null } = {}) {
   // `manifest`: more of the game's manifest, as its box is drawn from it (its `settings`, say).
   // `more`: that many more games hang after the game's, so the wall has lights to spare (the
   // spots on which a game's players are chosen are lights on the wall, and only a game that can
@@ -158,7 +158,8 @@ export async function openRoom(createLobbyRoom, game, { players = { min: 2, max:
     games: new Map([[game.id, game]]),
     fields: new Map(manifest.settings ? [[game.id, manifest.settings]] : []),
   };
-  const Room = createLobbyRoom(() => wall);
+  // `release`: the build's release record the room is made with (lobby-room.js); none by default.
+  let Room = createLobbyRoom(() => wall, { release });
   const ctx = fakeCtx();
   ctx.room = new Room(ctx, env);
   await settle();
@@ -180,9 +181,13 @@ export async function openRoom(createLobbyRoom, game, { players = { min: 2, max:
     say(ws, { t: "hello", token });
     return ws;
   };
-  /** Puts the room to sleep and wakes a new instance over the same storage and sockets (a restart). */
-  const sleepAndWake = async () => {
+  /**
+   * Puts the room to sleep and wakes a new instance over the same storage and sockets (a restart).
+   * With `release`, it wakes as that build: a deploy the room took while it slept.
+   */
+  const sleepAndWake = async ({ release: next } = {}) => {
     ctx.room.stopTimer(); // the old instance is gone, and its timer with it
+    if (next !== undefined) Room = createLobbyRoom(() => wall, { release: next });
     ctx.room = new Room(ctx, env);
     await settle();
   };

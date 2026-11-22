@@ -40,6 +40,7 @@ import { watchMode } from "./hop.js";
 import { stageKey, stageStale, tellRoom } from "./shared/stage.js";
 import { playerLine, statusLine } from "./shared/status.js";
 import { JUMP_HEIGHT, acrossWalls, posAt, sameWall } from "./shared/world.js";
+import { PAGE_RELEASE, watchRoomRelease } from "/release-switch.js";
 
 const params = new URLSearchParams(location.search);
 const app = document.getElementById("app");
@@ -49,7 +50,10 @@ let look = chosen.look === "3d" && !hardware3D(params) ? "flat" : chosen.look;
 /** A start link may name the room the party starts in (?start&room=ship). */
 const startRoom = params.has("start") && isRoom(params.get("room")) ? params.get("room") : null;
 // The keep-alive is a fixed text the room answers without waking up (lobby/server/lobby-room.js).
-const link = new PartyClient({ api: "/api/lobby", quietPing: { text: "ping", everyMs: KEEP_ALIVE_MS }, lag: Number(params.get("lag") ?? 0) });
+const link = new PartyClient({ api: "/api/lobby", quietPing: { text: "ping", everyMs: KEEP_ALIVE_MS }, lag: Number(params.get("lag") ?? 0), release: PAGE_RELEASE });
+// An older page loads the new build at the room's next safe point, back in its seat (site/release-switch.js).
+// Not while one of this page's own sheets is open (the room picker, a piece being chosen).
+watchRoomRelease(link, { canReload: () => !document.querySelector(".sheet-back") });
 // A locked phone, an offline browser and a connection that quietly died are seen at once (connection.js).
 watchConnection(link, { player: () => isPlayer() });
 // One party, two waiting rooms: when the party is in the plain one, this page moves itself there (hop.js).
@@ -944,6 +948,8 @@ link.on("status", (status) => {
 });
 
 link.on("closed", (why, reason) => {
+  // The room needs a newer page: it reloads into its seat (watchRoomRelease), and does not leave.
+  if (why === "update_required") return;
   // A seat let go because its person left from another device of theirs says so ("left").
   const said = bye ?? (why === "seat_lost" ? (reason === "left" ? "left" : "seat_lost") : reason || "room_closed");
   bye = null;
