@@ -634,7 +634,7 @@ try {
     const hard = await after((m) => m.t === "slime" && m.s === S, 2000, mark);
     check(hard?.k === "harden", `a tap: the room tells everybody Sam hardened (${hard?.k})`);
     const bounced = await after((m) => m.t === "b" && m.s === P, 3000, mark);
-    check(bounced?.bo === S && bounced.to === -1, `Pat's kick bounces off and Pat is knocked back himself (${JSON.stringify(bounced && { to: bounced.to, bo: bounced.bo, x: bounced.x })})`);
+    check(bounced?.bo === S && bounced.to === -1, `Pat's kick bounces off and Pat is knocked back himself (${JSON.stringify(bounced && { to: bounced.to, bo: bounced.bo, x: bounced.x })})${bounced?.bo === S ? "" : `; the kick facing ${bounced?.f}, ${bounced && hard ? bounced.at - hard.at : "?"} ms after the harden was heard; before it Pat ${JSON.stringify(at[P])}, Sam ${JSON.stringify(at[S])}; now Pat ${JSON.stringify((await where())[P])}, Sam ${JSON.stringify((await where())[S])}`}`);
     check(bounced && bounced.x < at[P].x - 60 && Math.abs((await where())[S].x - at[S].x) < 2, "Pat lands back the way he came; Sam stays put");
     await sleep(1300);
     for (const [name, page] of [["Rob", rob], ["Pat", pat]]) {
