@@ -297,6 +297,8 @@ const stats = {
   predictMs: { n: 0, sum: 0, max: 0 },
   /** Frame to frame, in ms (the big screen's frame rate), and what the last frame drew. */
   frameMs: { n: 0, sum: 0, max: 0 }, workMs: { n: 0, sum: 0, max: 0 }, slowFrames: 0, draws: 0, triangles: 0, renderer: "",
+  /** How many times this page asked the room to let the house drive its car ({house: 1}). */
+  houseAsked: 0,
 };
 const tally = (t, v) => { t.n++; t.sum += v; if (v > t.max) t.max = v; };
 
@@ -486,6 +488,7 @@ class App {
     if (beat) { stats.beats++; this.post(beat); }
   }
   post(msg) {
+    if (msg.house) stats.houseAsked++; // this page giving its own car to the house (a test tells it from the room's silence rule by this)
     if (this.lag) setTimeout(() => this.host.send(msg), this.lag);
     else this.host.send(msg);
   }
@@ -953,7 +956,7 @@ class App {
 function noPicture(host, race) {
   const you = host.you || {}, player = you.role === "player";
   const mine = player && race ? race.cars.some((c) => c.seat === you.seat && !c.house) : player;
-  if (player) try { host.send({ house: 1 }); } catch (e) { /* the room is gone too: nothing to drive */ }
+  if (player) try { stats.houseAsked++; host.send({ house: 1 }); } catch (e) { /* the room is gone too: nothing to drive */ }
   const app = $("app");
   app.dataset.mode = "nopicture";
   const box = $("nopic");
@@ -984,13 +987,14 @@ function paneCheck(app) {
       at = W.project(p.i, rig.view, 0.3, {});
       if (at) at = { x: Math.round(at.x), y: Math.round(at.y) };
       // In its pane: a car dropping off a step dips to the pane's lower edge for a moment (the camera follows a drop
-      // with a short lag, as on the phone), so a tenth of the pane's height below it still counts.
+      // with a short lag, as on the phone), and a camera pulled in close by a prop beside the road looks over the car,
+      // whose middle then sits at the pane's bottom: a quarter of the pane's height below it still counts.
       const R = sp.rects[k];
-      inPane = !!at && at.x >= R.x && at.x <= R.x + R.w && at.y >= R.y && at.y <= R.y + R.h * 1.1;
+      inPane = !!at && at.x >= R.x && at.x <= R.x + R.w && at.y >= R.y && at.y <= R.y + R.h * 1.25;
     }
     const words = [...p.el.querySelectorAll(".plabel, .pnear span, .pheld .hname, .pnote b, .pnote small")].filter((e) => e.offsetParent !== null && e.textContent.trim());
     return {
-      car: p.i, name: car?.name, focus: rig ? rig.i : -1, camDist: +camDist.toFixed(2), nearest, inPane, at, auto: !!car?.auto, fall: (car?.fallT ?? 0) > 0, fin: !!car?.fin,
+      car: p.i, name: car?.name, focus: rig ? rig.i : -1, camDist: +camDist.toFixed(2), nearest, inPane, at, auto: !!car?.auto, fall: (car?.fallT ?? 0) > 0, air: !!car?.air, fin: !!car?.fin,
       box: { x: Math.round(r.left), y: Math.round(r.top), w: Math.round(r.width), h: Math.round(r.height) },
       label: p.el.querySelector(".plabel").innerText.replace(/\s+/g, " ").trim(), note: p.el.querySelector(".pnote").innerText.replace(/\s+/g, " ").trim(),
       smallest: Math.min(...words.map(font)), words: words.map((e) => { const q = e.getBoundingClientRect(); return { t: e.textContent.trim().slice(0, 24), x: Math.round(q.left), y: Math.round(q.top), r: Math.round(q.right), b: Math.round(q.bottom), f: font(e) }; }),
