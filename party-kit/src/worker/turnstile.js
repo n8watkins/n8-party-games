@@ -16,8 +16,9 @@ export const BOT_CHECK_UNAVAILABLE_MESSAGE = "Could not check you are a person j
 
 /**
  * Cloudflare's published test secrets (https://developers.cloudflare.com/turnstile/troubleshooting/testing/).
- * They answer for the hostname "example.com" and name no action, so the hostname and action are
- * not compared when one of them is the secret: only local test servers ever use them.
+ * They pass any token at all, answer for the hostname "example.com" and name no action. They are
+ * honoured only on a test server (testKeysAllowed), where the hostname and action are then not
+ * compared; anywhere else one of them as the secret is a setup error and no room is made.
  */
 export const TEST_SECRETS = new Set([
   "1x0000000000000000000000000000000AA", // always passes
@@ -27,6 +28,32 @@ export const TEST_SECRETS = new Set([
 
 export function botCheckEnabled(env) {
   return typeof env.TURNSTILE_SECRET_KEY === "string" && env.TURNSTILE_SECRET_KEY.length > 0;
+}
+
+const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]"]);
+
+/** Whether Cloudflare's test secrets may stand in: a server with its test games on, or one reached on this machine. */
+export function testKeysAllowed(request, env) {
+  return env.PARTY_TEST_GAMES === "on" || LOCAL_HOSTS.has(new URL(request.url).hostname);
+}
+
+let warnedNoSiteKey = false;
+
+/**
+ * Logs once per isolate when the secret is set without TURNSTILE_SITE_KEY: the page is then given
+ * no site key and sends no token, so every new room is refused. The site key is public; the log
+ * names only the missing setting.
+ */
+export function warnIfNoSiteKey(env) {
+  if (warnedNoSiteKey || !botCheckEnabled(env) || env.TURNSTILE_SITE_KEY) return false;
+  warnedNoSiteKey = true;
+  console.error("party-kit: TURNSTILE_SECRET_KEY is set but TURNSTILE_SITE_KEY is not, so every new room is refused; set TURNSTILE_SITE_KEY in vars or remove the secret");
+  return true;
+}
+
+/** For the tests: forget that the missing site key was logged. */
+export function resetSiteKeyWarning() {
+  warnedNoSiteKey = false;
 }
 
 /** The hostnames a token may have been made on: this site's own, and its public address. */
@@ -47,11 +74,18 @@ export function botCheckHostnames(request, env) {
  *   "ok"          the token is good, unspent, for this action and made on one of `hostnames`;
  *   "failed"      no token, a bad or spent one (siteverify refuses a token's second use), or one
  *                 made for another action or another site;
- *   "unavailable" Turnstile could not be asked (network, timeout, its own error) or refused the
- *                 secret: the caller fails closed and says so, and the visitor can try again.
- * `fetcher` and `timeoutMs` are for the tests.
+ *   "unavailable" Turnstile could not be asked (network, timeout, its own error), refused the
+ *                 secret, or the secret is one of Cloudflare's test secrets where `testKeys` is
+ *                 not true: the caller fails closed and says so, and the visitor can try again.
+ * `testKeys` is testKeysAllowed(request, env). `fetcher` and `timeoutMs` are for the tests.
  */
-export async function verifyBotCheck(env, token, { remoteip = null, hostnames = [], action = BOT_CHECK_ACTION, fetcher = fetch, timeoutMs = TIMEOUT_MS } = {}) {
+export async function verifyBotCheck(env, token, { remoteip = null, hostnames = [], action = BOT_CHECK_ACTION, testKeys = false, fetcher = fetch, timeoutMs = TIMEOUT_MS } = {}) {
+  const testSecret = TEST_SECRETS.has(env.TURNSTILE_SECRET_KEY);
+  if (testSecret && !testKeys) {
+    // A test secret passes any token, so on a real site it would guard nothing: refuse every room.
+    console.error("party-kit: TURNSTILE_SECRET_KEY is one of Cloudflare's public test secrets, which pass any token; no room is made until it is the widget's real secret");
+    return "unavailable";
+  }
   if (typeof token !== "string" || !token || token.length > MAX_TOKEN_LENGTH) return "failed";
   const body = { secret: env.TURNSTILE_SECRET_KEY, response: token };
   if (remoteip) body.remoteip = remoteip;
@@ -69,7 +103,7 @@ export async function verifyBotCheck(env, token, { remoteip = null, hostnames = 
   }
   if (!result || typeof result !== "object") return "unavailable";
   if (result.success === true) {
-    if (TEST_SECRETS.has(env.TURNSTILE_SECRET_KEY)) return "ok";
+    if (testSecret) return "ok";
     if (result.action !== action || !new Set(hostnames).has(result.hostname)) {
       // Logged without the token: a token made elsewhere is worth knowing about, never worth keeping.
       console.warn("party-kit: a bot-check token for another action or site was refused", JSON.stringify({ action: result.action ?? null, hostname: result.hostname ?? null }));

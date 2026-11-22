@@ -14,7 +14,7 @@ vi.mock("cloudflare:workers", () => ({
 
 const { handlePartyApi } = await import("../src/worker/index.js");
 const { PROTOCOL, PROTOCOL_HEADER } = await import("../src/worker/http.js");
-const { BOT_CHECK_ACTION, BOT_CHECK_MESSAGE, BOT_CHECK_UNAVAILABLE_MESSAGE, SITEVERIFY_URL, botCheckEnabled, botCheckHostnames, verifyBotCheck } = await import("../src/worker/turnstile.js");
+const { BOT_CHECK_ACTION, BOT_CHECK_MESSAGE, BOT_CHECK_UNAVAILABLE_MESSAGE, SITEVERIFY_URL, TEST_SECRETS, botCheckEnabled, botCheckHostnames, resetSiteKeyWarning, testKeysAllowed, verifyBotCheck } = await import("../src/worker/turnstile.js");
 
 const SECRET = "a-real-looking-secret-for-tests";
 const SITE = "partygames.example";
@@ -130,12 +130,38 @@ describe("checking a token", () => {
     });
   });
 
-  it("takes Cloudflare's test secrets without comparing site or action (they answer for example.com)", async () => {
+  it("takes Cloudflare's test secrets on a test server, without comparing site or action (they answer for example.com)", async () => {
     const testEnv = { TURNSTILE_SECRET_KEY: "1x0000000000000000000000000000000AA" };
     const answer = async () => ({ ok: true, json: async () => ({ success: true, hostname: "example.com", "error-codes": [] }) });
-    expect(await verifyBotCheck(testEnv, "XXXX.DUMMY.TOKEN.XXXX", { hostnames: [SITE], fetcher: answer })).toBe("ok");
+    expect(await verifyBotCheck(testEnv, "XXXX.DUMMY.TOKEN.XXXX", { hostnames: [SITE], testKeys: true, fetcher: answer })).toBe("ok");
     // A real secret never gets that pass.
-    await quietly(async () => expect(await verifyBotCheck(env, "XXXX.DUMMY.TOKEN.XXXX", { hostnames: [SITE], fetcher: answer })).toBe("failed"));
+    await quietly(async () => expect(await verifyBotCheck(env, "XXXX.DUMMY.TOKEN.XXXX", { hostnames: [SITE], testKeys: true, fetcher: answer })).toBe("failed"));
+  });
+
+  it("refuses a test secret anywhere else as a setup error, naming the problem and never the value, without asking siteverify", async () => {
+    for (const secret of TEST_SECRETS) {
+      const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+      const siteverify = vi.fn();
+      try {
+        expect(await verifyBotCheck({ TURNSTILE_SECRET_KEY: secret }, "made-up-by-attacker", { hostnames: [SITE], fetcher: siteverify })).toBe("unavailable");
+        expect(siteverify).not.toHaveBeenCalled();
+        expect(errors).toHaveBeenCalledTimes(1);
+        const logged = errors.mock.calls[0].join(" ");
+        expect(logged).toMatch(/test secret/);
+        expect(logged).not.toContain(secret);
+      } finally {
+        errors.mockRestore();
+      }
+    }
+  });
+
+  it("allows the test secrets only where the test games are on, or on this machine", () => {
+    const at = (host) => new Request(`http://${host}/api/party/rooms`, { method: "POST" });
+    expect(testKeysAllowed(at(SITE), {})).toBe(false);
+    expect(testKeysAllowed(at(SITE), { PARTY_TEST_GAMES: "off" })).toBe(false);
+    expect(testKeysAllowed(at("partygames.n8builds.dev"), { PARTY_PUBLIC_ORIGIN: "http://localhost:8791" })).toBe(false);
+    expect(testKeysAllowed(at(SITE), { PARTY_TEST_GAMES: "on" })).toBe(true);
+    for (const host of ["localhost:8791", "127.0.0.1:9281", "[::1]:8791"]) expect(testKeysAllowed(at(host), {}), host).toBe(true);
   });
 
   it("knows this site's own hostname and its public address", () => {
@@ -249,6 +275,39 @@ describe("making a room with the bot check", () => {
     expect(await send(api("/join/1234", { body: { as: "screen" } }), env, { siteverify })).toMatchObject({ status: 200, ok: true, role: "screen" });
     expect(joined).toHaveLength(2);
     expect(siteverify).not.toHaveBeenCalled();
+  });
+
+  it("a deploy holding a test secret makes no room for any token (503), while a test server takes it", async () => {
+    const testSecret = "1x0000000000000000000000000000000AA";
+    const passAll = async () => ({ ok: true, json: async () => ({ success: true, hostname: "example.com", "error-codes": [] }) });
+    const live = site({ TURNSTILE_SECRET_KEY: testSecret, TURNSTILE_SITE_KEY: "1x00000000000000000000AA" });
+    await quietly(async () => {
+      expect(await send(api("/rooms", { body: { nickname: "Ann", turnstile: "made-up-by-attacker" } }), live.env, { siteverify: passAll })).toEqual({ status: 503, ok: false, error: "bot_check_unavailable", message: BOT_CHECK_UNAVAILABLE_MESSAGE });
+    });
+    expect(live.made).toEqual([]);
+    const test = site({ TURNSTILE_SECRET_KEY: testSecret, TURNSTILE_SITE_KEY: "1x00000000000000000000AA", PARTY_TEST_GAMES: "on" });
+    expect(await send(api("/rooms", { body: { nickname: "Ann", turnstile: "XXXX.DUMMY.TOKEN.XXXX" } }), test.env, { siteverify: passAll })).toMatchObject({ status: 201 });
+    const local = site({ TURNSTILE_SECRET_KEY: testSecret, TURNSTILE_SITE_KEY: "1x00000000000000000000AA" });
+    const onThisMachine = new Request("http://localhost:8791/api/party/rooms", { method: "POST", headers: { [PROTOCOL_HEADER]: PROTOCOL }, body: JSON.stringify({ nickname: "Ann", turnstile: "XXXX.DUMMY.TOKEN.XXXX" }) });
+    expect((await handlePartyApi(onThisMachine, local.env, { siteverify: passAll })).status).toBe(201);
+  });
+
+  it("logs once when the secret is set without the site key, since every room is then refused", async () => {
+    resetSiteKeyWarning();
+    const { env } = site({ TURNSTILE_SECRET_KEY: SECRET });
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      for (let i = 0; i < 3; i++) expect(await send(api("/rooms", { body: { nickname: "Ann" } }), env, { siteverify: fakeSiteverify().fetcher })).toMatchObject({ status: 403, error: "bot_check" });
+      expect(errors).toHaveBeenCalledTimes(1);
+      expect(errors.mock.calls[0][0]).toMatch(/TURNSTILE_SITE_KEY is not/);
+      expect(errors.mock.calls[0].join(" ")).not.toContain(SECRET);
+      // With both keys, nothing is logged.
+      resetSiteKeyWarning();
+      await send(api("/rooms", { body: { nickname: "Ann", turnstile: "T9" } }), site(on).env, { siteverify: fakeSiteverify({ T9: good }).fetcher });
+      expect(errors).toHaveBeenCalledTimes(1);
+    } finally {
+      errors.mockRestore();
+    }
   });
 
   it("guards the party room's own API (/api/lobby) the same way", async () => {
