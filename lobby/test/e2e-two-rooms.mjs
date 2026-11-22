@@ -13,6 +13,7 @@
 import { mkdirSync } from "node:fs";
 import { resolve } from "node:path";
 import { chromium } from "playwright";
+import { still as takeStill } from "../../party-kit/test/stills.mjs";
 import { MODE_COOLDOWN_MS } from "../shared/mode.js";
 
 const args = process.argv.slice(2);
@@ -44,7 +45,8 @@ try {
     page.label = name;
     return page;
   }
-  const shot = (page, name) => page.screenshot({ path: `${out}/${name}.png` });
+  // Stills are best-effort (party-kit/test/stills.mjs): `leaving` drops one the page navigates away from.
+  const shot = (page, name, leaving = false) => takeStill(page, { path: `${out}/${name}.png`, leaving });
   const inRoom = (page) => page.waitForSelector(".bar", { timeout: 30000 });
   const inPlain = (page) => page.waitForSelector(".digits", { timeout: 30000 });
   /** Waits until the page's address is `path` and its room is drawn. */
@@ -121,7 +123,8 @@ try {
   await ann.waitForSelector(".hop-cover", { timeout: 3000 });
   // Read the words at once: by the time a screenshot is taken the page may have moved on.
   const moving = await ann.locator(".hop-words").textContent();
-  await shot(ann, "11-switch-cover-844x390");
+  // The cover is up only until the page goes to /party/: dropped if it goes first.
+  await shot(ann, "11-switch-cover-844x390", true);
   check(moving === "Moving to the Table", "Ann's page says: Moving to the Table");
   await Promise.all([landed(ann, "/party/"), landed(bo, "/party/"), landed(tv, "/party/")]);
   check(true, "every page moved itself to the plain waiting room: both phones and the big screen");
@@ -197,8 +200,10 @@ try {
   await ann.click(".switch-option[data-mode=party-games]");
   await ann.waitForSelector(".hop-cover", { timeout: 4000 });
   await bo.waitForSelector(".hop-link", { timeout: 4000 });
-  await shot(bo, "25-table-hop-held-390x844");
-  check((await bo.locator(".hop-words").textContent()) === "The party moved to the Floor", "Bo's page, held by the guard, says where the party went, with a link to tap");
+  // Read at once, and the still dropped if it goes first: the held page goes by itself soon.
+  const held = await bo.locator(".hop-words").textContent();
+  await shot(bo, "25-table-hop-held-390x844", true);
+  check(held === "The party moved to the Floor", "Bo's page, held by the guard, says where the party went, with a link to tap");
   await Promise.all([landed(ann, "/lobby/"), landed(bo, "/lobby/"), landed(tv, "/lobby/"), landed(cy, "/lobby/")]);
   check(true, "Ann switches back: every page, Cy's too, is on the Floor again, and Bo's held page went by itself");
   const boBack = await bo.evaluate(() => history.length);

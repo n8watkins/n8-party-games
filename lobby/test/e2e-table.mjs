@@ -13,6 +13,7 @@
 import { mkdirSync } from "node:fs";
 import { resolve } from "node:path";
 import { chromium } from "playwright";
+import { still as takeStill } from "../../party-kit/test/stills.mjs";
 import { partyApi } from "./client.mjs";
 
 const args = process.argv.slice(2);
@@ -40,7 +41,7 @@ try {
     page.label = name;
     return page;
   }
-  const shot = (page, name) => page.screenshot({ path: `${out}/${name}.png` });
+  const shot = (page, name) => takeStill(page, { path: `${out}/${name}.png` });
   const inRoom = (page) => page.waitForSelector(".bar", { timeout: 30000 });
   async function atTable(page) {
     await page.waitForURL((url) => new URL(url).pathname === "/party/", { timeout: 20000 });
@@ -242,7 +243,7 @@ try {
   check(order.games < order.people, `Bo's upright phone lists the games above who is here (${Math.round(order.games)} < ${Math.round(order.people)})`);
   check(!order.code, "Bo's phone shows no code or QR code with eight of eight here");
   check(order.line === "Ann hosts", `Bo's line says who hosts: "${order.line}"`);
-  await bo.screenshot({ path: `${out}/52-eight-bo-390x844.png`, fullPage: true });
+  await takeStill(bo, { path: `${out}/52-eight-bo-390x844.png`, fullPage: true });
   await looksRight(bo, "the Table with eight, Bo upright");
 } finally {
   for (const socket of sockets) socket.ws.close();
