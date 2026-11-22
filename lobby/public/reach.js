@@ -18,12 +18,28 @@
  * (look3d/room3d.js, shell) has walls at its two ends that run forward to the front of its
  * stage, so a view out to 2900 sees end wall and not past it. The flat drawing's wall and floor
  * run on to its fade (scene.js, backdrop). The rendered rooms reach as far as their pictures do
- * (their plate.json's rect, passed in by the drawing).
+ * (pictureReach).
  */
 export const REACH = {
   flat: { left: -1100, right: 3000 },
   "3d": { left: -1000, right: 2900 },
 };
+
+/**
+ * How far past its own edge a rendered picture still reads as room, as a share of its width. Past
+ * its rect the picture's edge carries on, fading out over a tenth of its width or more
+ * (rendered/plate.js, shellMaterial; baked/room-baked.js, plateMaterial): over the first twentieth
+ * it is still the room's edge, a little darker. A sideways phone's whole room reaches that far
+ * into the star lounge's and the baked bar's pictures (to about 2350 of their 2240), and showed
+ * no dark there; holding it to the rect would only slide the room under the corner buttons.
+ */
+export const PICTURE_EDGE = 0.05;
+
+/** A rendered picture's reach, from its rect (plate.json: x0 to x1, in world units). */
+export function pictureReach({ x0, x1 }) {
+  const edge = PICTURE_EDGE * (x1 - x0);
+  return { left: x0 - edge, right: x1 + edge };
+}
 
 /**
  * `view` (shared/camera.js, camera) kept inside `reach`. A view wider than the reach is brought in

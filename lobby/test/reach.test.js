@@ -5,18 +5,17 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { PHONE_FRAME, camera } from "../shared/camera.js";
-import { REACH, withinReach } from "../public/reach.js";
+import { REACH, pictureReach, withinReach } from "../public/reach.js";
 import { CAM, D_WALL, SPACE, wallX } from "../public/look3d/space.js";
 
 const plate = (path) => JSON.parse(readFileSync(new URL(path, import.meta.url), "utf8"));
-const rectReach = ({ rect }) => ({ left: rect.x0, right: rect.x1 });
-/** Every drawing and its reach: the flat and 3D looks' own, and each rendered picture's rect (room-rendered.js, room-baked.js). */
+/** Every drawing and its reach: the flat and 3D looks' own, and each rendered picture's (room-rendered.js, room-baked.js). */
 const LOOKS = {
   flat: REACH.flat,
   "3d (every room)": REACH["3d"],
-  "real bar": rectReach(plate("../public/look3d/rendered/bar/layers/plate.json")),
-  "real star lounge": rectReach(plate("../public/look3d/rendered/star-lounge/layers/plate.json")),
-  "baked bar": rectReach(plate("../public/baked/bar/5/plate.json")),
+  "real bar": pictureReach(plate("../public/look3d/rendered/bar/layers/plate.json").rect),
+  "real star lounge": pictureReach(plate("../public/look3d/rendered/star-lounge/layers/plate.json").rect),
+  "baked bar": pictureReach(plate("../public/baked/bar/5/plate.json").rect),
 };
 /** The sizes the room is checked at (sideways phones, narrow to very wide, and big screens). */
 const LISTED = [
@@ -53,22 +52,13 @@ const inside = (v, reach) => v.x >= reach.left - 1e-6 && v.x + v.width <= reach.
 const show = (o, v) => `${o.w}x${o.h} ${o.mode} at ${o.focusX}: ${v.x.toFixed(0)} to ${(v.x + v.width).toFixed(0)}`;
 
 describe("how far the room is drawn", () => {
-  it("is room, in every look, at least as far as a sideways phone's whole room reaches at the listed sizes", () => {
-    for (const [look, reach] of Object.entries(LOOKS)) {
-      for (const o of views(LISTED)) {
-        const v = withinReach(camera(o), reach, o.bar, o.h);
-        expect(inside(v, reach), `${look}: ${show(o, v)}`).toBe(true);
-        // And not by drawing the room smaller or cutting it: at these sizes the view is only ever slid, never brought in.
-        expect(v.width, `${look}: ${show(o, v)}`).toBeCloseTo(camera(o).width, 6);
-      }
-    }
-  });
-
-  it("needs no sliding at all in the flat, 3D and real bar looks at the listed sizes: the framing is the camera's own", () => {
-    for (const look of ["flat", "3d (every room)", "real bar"])
+  it("is room, in every look, at least as far as any view reaches at the listed sizes: the framing is the camera's own, never slid or scaled", () => {
+    // A slide would move the room under the corner buttons (the Tonight board's corner), a scale would cut the lamps.
+    for (const [look, reach] of Object.entries(LOOKS))
       for (const o of views(LISTED)) {
         const v = camera(o);
-        expect(inside(v, LOOKS[look]), `${look}: ${show(o, v)}`).toBe(true);
+        expect(inside(v, reach), `${look}: ${show(o, v)}`).toBe(true);
+        expect(withinReach(v, reach, o.bar, o.h), `${look}: ${show(o, v)}`).toBe(v);
       }
   });
 

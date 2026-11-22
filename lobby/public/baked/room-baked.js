@@ -23,6 +23,7 @@
 import { boxArt, boxSide } from "../look3d/paint.js";
 import { Reflection } from "../look3d/characters.js";
 import { Room3D } from "../look3d/room3d.js";
+import { pictureReach } from "../reach.js";
 import { SKINS } from "../look3d/skins.js";
 import { CAM, D_WALL, FRAME, PX, SPACE, U, walkX, wallX, wallY } from "../look3d/space.js";
 import * as THREE from "../look3d/three.js";
@@ -406,9 +407,9 @@ export class RoomBaked extends Room3D {
     return { ...super.stats(), look: this.plain ? "3d" : "baked", plate: this.plate.base.image?.width ?? 0 };
   }
 
-  /** As far as the plate's picture goes, or the 3D look's reach when that draws the room. */
+  /** As far as the plate's picture reads as room (../reach.js, pictureReach), or the 3D look's reach when that draws the room. */
   get reach() {
-    return this.plain || !this.plate ? super.reach : { left: this.plate.info.rect.x0, right: this.plate.info.rect.x1 };
+    return this.plain || !this.plate ? super.reach : pictureReach(this.plate.info.rect);
   }
 
   destroy() {
