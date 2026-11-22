@@ -20,8 +20,13 @@
 // sideways phone. The 3D rooms are dark rooms whose own end walls are in the picture at its ends,
 // so there it checks that none of the picture is the empty background past the room.
 //
+// It also measures how much of the Tonight board the corner buttons (sound, Rooms, the door)
+// cover in each still, once they have folded to their pictures, and writes it to
+// <out>/corner.json. With --compare=<a corner.json from another run> (main's, say) it fails a
+// still where they cover more of the board than there, by more than a few pixels.
+//
 // WSL has no graphics card, so these pages draw WebGL in software (?gl=any): right for a still.
-import { mkdirSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import sharp from "sharp";
 import { launchBrowser } from "./browser.mjs";
@@ -40,6 +45,11 @@ const SIZES = opt("sizes", "667x375,844x390,915x412,932x430,1280x720,1920x1080")
 const isPhone = ([w, h]) => Math.min(w, h) < 520;
 /** The widest band of dark columns allowed at either end, as a share of the width. */
 const BAND = 0.05;
+/** How much more of the board (square CSS pixels) the corner may cover than in the run compared with. */
+const COVER_SLACK = 16;
+const compareTo = opt("compare", "");
+const before = compareTo ? JSON.parse(readFileSync(compareTo, "utf8")) : null;
+const cover = {};
 mkdirSync(out, { recursive: true });
 
 const problems = [];
@@ -112,13 +122,26 @@ try {
   /** One still and its measure. */
   async function still(p, look, room, who, [w, h]) {
     await p.setViewportSize({ width: w, height: h });
+    // The corner's buttons lose their words a few seconds in (room-menu.js, fold): every still is
+    // taken after that, and after their 0.4 s fold, so none catches them part way.
+    if (await p.locator(".corner").count()) await p.waitForSelector(".corner.folded", { timeout: 30000, state: "attached" });
     await sleep(look === "flat" ? 1200 : 2500);
     const name = `${look}-${room}-${who}-${w}x${h}`;
     const png = await p.screenshot({ path: `${out}/${name}.png`, timeout: 120000 });
-    const { bar, drew } = await p.evaluate(() => ({
-      bar: document.querySelector(".bar")?.offsetHeight ?? 0,
-      drew: window.__roomRendered ? "real" : window.__roomBaked ? "baked" : window.__room3d ? "3d" : document.querySelector("svg.scene") ? "flat" : "?",
-    }));
+    const { bar, drew, covered } = await p.evaluate(() => {
+      // How much of the Tonight board (the flat look's, or the 3D looks' words on the wall) the corner buttons cover, in square CSS pixels.
+      const board = document.querySelector(".board-hit, .l3-board")?.getBoundingClientRect();
+      const buttons = [...document.querySelectorAll(".corner .corner-btn, .corner .door-btn")].map((b) => b.getBoundingClientRect());
+      const area = (a, b) => Math.max(0, Math.min(a.right, b.right) - Math.max(a.left, b.left)) * Math.max(0, Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top));
+      return {
+        bar: document.querySelector(".bar")?.offsetHeight ?? 0,
+        drew: window.__roomRendered ? "real" : window.__roomBaked ? "baked" : window.__room3d ? "3d" : document.querySelector("svg.scene") ? "flat" : "?",
+        covered: board ? Math.round(buttons.reduce((sum, b) => sum + area(board, b), 0)) : null,
+      };
+    });
+    cover[name] = covered;
+    if (before && covered != null && before[name] != null)
+      check(covered <= before[name] + COVER_SLACK, `${name}: the corner buttons cover no more of the Tonight board than before (${covered} px², before ${before[name]})`);
     const ends = await darkEnds(png, 64, h - bar);
     check(drew === look, `${name}: drawn by the ${drew} look`);
     const band = `left ${(ends.left * 100).toFixed(1)}%, right ${(ends.right * 100).toFixed(1)}% of the width`;
@@ -172,6 +195,7 @@ try {
   check(errors.length === 0, `no page reported an error${errors.length ? ": " + errors.slice(0, 5).join("; ") : ""}`);
 } finally {
   await browser.close();
+  writeFileSync(`${out}/corner.json`, JSON.stringify(cover, null, 1) + "\n");
 }
 console.log(`\n     stills in ${out}`);
 if (problems.length) {
