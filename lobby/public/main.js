@@ -504,7 +504,9 @@ function carryPlaces(from, to, now) {
  */
 function redraw(now) {
   scene.build(room);
-  scene.setRoom(room, now);
+  // The room's times (a knock, a fright, a hook) run from when its word was heard, not from now:
+  // a view that took a while to load (a change of look) must not draw them later than they are.
+  scene.setRoom(room, roomSeenAt);
   for (const [s, move] of lastMoves) if (room.members[s] && move.t > roomSeenAt) scene.onMove({ s, x: posAt(move, now), d: move.d }, now);
 }
 
