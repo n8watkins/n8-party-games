@@ -124,7 +124,7 @@ Object.defineProperty(globalThis.__partyRoom, "view", { get: () => scene });
 Object.defineProperty(globalThis.__partyRoom, "moves", {
   get: () => {
     const now = performance.now();
-    return pilot && { canMove: canMove(), phase: room?.phase, sheet: !!hud?.sheet, card: !!hud?.card, board: !!board, menu: !!menu?.isOpen, looks: !!looks?.isOpen, stiltIn: Math.round(pilot.stiltCoolUntil - now), upFor: Math.round(pilot.upUntil - now), rootedFor: Math.round(pilot.rootedUntil - now), down: pilot.down(now), move: pilot.move };
+    return pilot && { canMove: canMove(), swapping, inGame: app.classList.contains("in-game"), lastFrameAgo: Math.round(now - lastFrame), phase: room?.phase, sheet: !!hud?.sheet, card: !!hud?.card, board: !!board, menu: !!menu?.isOpen, looks: !!looks?.isOpen, stiltIn: Math.round(pilot.stiltCoolUntil - now), upFor: Math.round(pilot.upUntil - now), rootedFor: Math.round(pilot.rootedUntil - now), down: pilot.down(now), move: pilot.move };
   },
 });
 for (const type of ["pointerdown", "keydown"]) addEventListener(type, () => sounds.unlock(), { capture: true, passive: true });

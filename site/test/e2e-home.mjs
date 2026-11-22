@@ -21,6 +21,7 @@
 import { mkdirSync } from "node:fs";
 import { resolve } from "node:path";
 import { launchBrowser } from "../../lobby/test/browser.mjs";
+import { still as takeStill } from "../../party-kit/test/stills.mjs";
 import { RATE_LIMITS } from "../../party-kit/src/worker/limit-logic.js";
 
 const args = process.argv.slice(2);
@@ -69,8 +70,8 @@ try {
   }
   /** A still, once the page's entrances (fades, swings: not the floaters' endless drift) have played. */
   const shot = async (page, name, opts = {}) => {
-    await page.evaluate(() => Promise.race([Promise.all(document.getAnimations().filter((a) => a.effect?.getComputedTiming().iterations !== Infinity).map((a) => a.finished.catch(() => null))), new Promise((r) => setTimeout(r, 2500))]));
-    await page.screenshot({ path: `${out}/${name}.png`, ...opts });
+    await page.evaluate(() => Promise.race([Promise.all(document.getAnimations().filter((a) => a.effect?.getComputedTiming().iterations !== Infinity).map((a) => a.finished.catch(() => null))), new Promise((r) => setTimeout(r, 2500))])).catch(() => null);
+    await takeStill(page, { path: `${out}/${name}.png`, ...opts });
   };
   const home = async (page) => {
     await page.goto(base + "/");
