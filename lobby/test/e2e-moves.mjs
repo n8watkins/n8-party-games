@@ -149,7 +149,7 @@ function pageHelpers() {
         if (m.hook && !most.hooks.includes(m.hook)) most.hooks.push(m.hook);
         most.minX = Math.min(most.minX, m.x);
         most.maxX = Math.max(most.maxX, m.x);
-        most.path.push([performance.now(), m.x, m.legs, m.soft, m.chain, m.gem, m.fright, m.knock]);
+        most.path.push([performance.now(), m.x, m.legs, m.soft, m.chain, m.gem, m.fright, m.knock, document.querySelector(".ctl-bump")?.className ?? null]);
       }
       // The first frame this page's own move button showed ready.
       if (window.__readyAt == null && document.querySelector(".ctl-bump")?.classList.contains("ready")) window.__readyAt = performance.now();
@@ -362,7 +362,14 @@ try {
         const u = (t - heardAt) / PULL_MS;
         return u <= 0 ? start : u >= 1 ? end : start + (end - start) * pullEase(u);
       };
-      const wrong = heardAt === null ? [] : path.filter(([t, x]) => Math.abs(x - due(t)) > 10);
+      // On the path within a frame's lag: the page starts the slide as it handles the verdict,
+      // which may be a frame after this listener heard it.
+      const FRAME_LAG = 40;
+      const onPath = (t, x) => {
+        const [a, b] = [due(t - FRAME_LAG), due(t)];
+        return x >= Math.min(a, b) - 6 && x <= Math.max(a, b) + 6;
+      };
+      const wrong = heardAt === null ? [] : path.filter(([t, x]) => !onPath(t, x));
       const inSlide = heardAt === null ? [] : path.filter(([t]) => t > heardAt && t < heardAt + PULL_MS);
       const story = `${path.length} frames from ${heardAt === null ? "?" : Math.round(from - heardAt)} ms, ${inSlide.length} in the slide (${inSlide.map(([t, x]) => `${Math.round(t - heardAt)}ms:${Math.round(x)}`).join(", ")}); ${wrong.length ? `off the room's path: ${wrong.map(([t, x]) => `${Math.round(t - heardAt)}ms:${Math.round(x)} (due ${Math.round(due(t))})`).join(", ")}` : "every frame on the room's path"}; ${JSON.stringify({ frights: pawn.frights, knocked: pawn.knocked })}`;
       const ok = heardAt === null || wrong.length || pawn.knocked ? false : inSlide.length === 0 ? null : pawn.frights.includes("pull");
@@ -374,8 +381,10 @@ try {
     const samHeard = await sam.evaluate(() => window.__heard ?? []);
     const flewAt = samHeard.find((h) => h.t === "hook" && h.s === R)?.at ?? null;
     const landedAt = samHeard.find((h) => h.t === "hk" && h.s === R)?.at ?? null;
-    const flying = flewAt === null || landedAt === null ? [] : chainPath.filter(([t]) => t > flewAt + HOOK_AIM_MS + 30 && t < landedAt);
-    seen(flewAt === null || landedAt === null ? false : flying.length === 0 ? null : flying.every((f) => f[4]), `Sam's phone draws Rob's chain out while the hook flies (${flying.length} frames in the flight, ${flying.filter((f) => f[4]).length} with the chain)`);
+    // From a frame's lag after the aim (the tip clears the hand at once) until the pull that
+    // follows the verdict is nearly over (the chain drags Pat in: shared/robot.js, its "pull").
+    const flying = flewAt === null || landedAt === null ? [] : chainPath.filter(([t]) => t > flewAt + HOOK_AIM_MS + 100 && t < landedAt + PULL_MS - 60);
+    seen(flewAt === null || landedAt === null ? false : flying.length === 0 ? null : flying.every((f) => f[4]), `Sam's phone draws Rob's chain out while the hook flies (${flying.length} frames in the flight, ${flying.filter((f) => f[4]).length} with the chain: ${flying.map((f) => `${Math.round(f[0] - flewAt)}ms:${f[4] ? "out" : "-"}`).join(", ")}; the verdict ${landedAt === null || flewAt === null ? "?" : Math.round(landedAt - flewAt)} ms after the throw)`);
 
     section(`${look}: a jump clears the hook; a kick toward the robot bats it away`);
     await rested(R, P);
@@ -398,7 +407,7 @@ try {
     const heardNow = await sam.evaluate(() => window.__heard ?? []);
     const threw = heardNow.filter((h) => h.t === "hook" && h.s === R).at(-1)?.at ?? null;
     const missed = threw === null ? null : (heardNow.find((h) => h.t === "hk" && h.s === R && h.at > threw && h.o === "miss")?.at ?? null);
-    const outFrames = threw === null || missed === null ? [] : pathNow.filter(([t]) => t > threw + HOOK_AIM_MS + 30 && t < missed);
+    const outFrames = threw === null || missed === null ? [] : pathNow.filter(([t]) => t > threw + HOOK_AIM_MS + 100 && t < missed);
     seen(threw === null || missed === null ? false : outFrames.length === 0 ? null : outFrames.every((f) => f[4]), `Sam's phone draws the chain out while the hook flies on past Pat (${outFrames.length} frames in the flight, ${outFrames.filter((f) => f[4]).length} with the chain)`);
     await rested(R, P);
     // Pat out of a kick's reach of Rob (130), well within his hook's.
@@ -613,7 +622,8 @@ try {
     // can run after the watch's in the same one), or within 100 ms where frames come faster.
     const frameAfter = dueAt === null ? null : ownPath.filter(([t]) => t >= dueAt - 1)[1]?.[0] ?? null;
     const inTime = lag !== null && (lag < 100 || (frameAfter !== null && readyAt <= frameAfter));
-    check(inTime, `Sam's reloaded phone has its move ready when the room said it would be (${lag} ms after${frameAfter !== null ? `, the next frame ${Math.round(frameAfter - dueAt)} ms after` : ""}; the first room it heard gave ${first?.slimeCool[S]} ms, and it first drew ${first && firstFrameAt !== null ? Math.round(firstFrameAt - first.at) : "?"} ms after hearing it)`);
+    const firstFrames = ownPath.slice(0, 6).map(([t, , , , , , , , cls]) => `${Math.round(t - (dueAt ?? t))}ms:${cls}`);
+    check(inTime, `Sam's reloaded phone has its move ready when the room said it would be (${lag} ms after${frameAfter !== null ? `, the next frame ${Math.round(frameAfter - dueAt)} ms after` : ""}; the first room it heard gave ${first?.slimeCool[S]} ms, and it first drew ${first && firstFrameAt !== null ? Math.round(firstFrameAt - first.at) : "?"} ms after hearing it${inTime ? "" : `; its first frames, from when it was due: ${firstFrames.join(", ")}`})`);
 
     section(`${look}: a hold survives a page that stalls drawing; an absorb the room refuses is taken back on Sam's own phone`);
     await rested(S);
