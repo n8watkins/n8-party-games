@@ -444,8 +444,11 @@ try {
       // Standing there on Eve's phone (it eases to where the room says), and seen before the fright.
       await eve.waitForFunction(([s, x]) => Math.abs((window.__room3d.pieces.get(s)?.rx ?? -1e9) - x) < 1, [A, x], { timeout: 4000, polling: 50 }).catch(() => null);
       await sleep(250);
-      // Its left side: the ghost it kicks stands up to its right.
-      const before = await meanColour(eve, await paintBox(eve, A, -1));
+      // Left of its middle: the ghost it kicks stands up to its right. Halfway out, not at its edge:
+      // a box on the edge takes in the dark wall behind as the scared robot leans, which turned the
+      // near-white paints (Cream) darker by however much of the edge was in it.
+      const PAINT_SIDE = -0.5;
+      const before = await meanColour(eve, await paintBox(eve, A, PAINT_SIDE));
       const drawnBefore = await eve.evaluate((s) => window.frightOn(s), A);
       if (!(await fade(ghost, G))) check(false, `the ghost fades for ${name}`);
       from = ada.seen.length;
@@ -458,7 +461,7 @@ try {
         .then(() => true, () => false);
       let box, pale, still, drawnPale;
       try {
-        box = await paintBox(eve, A, -1);
+        box = await paintBox(eve, A, PAINT_SIDE);
         pale = await meanColour(eve, box);
         // Still frozen as the picture was taken (it scurries off after), so the box was still on it.
         drawnPale = await eve.evaluate((s) => window.frightOn(s), A);
