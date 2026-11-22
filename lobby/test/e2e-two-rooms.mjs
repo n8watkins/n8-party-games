@@ -119,14 +119,22 @@ try {
   check(item.height >= 44 && item.y + item.height <= 390, `the host's "Move the party to the Table" is in the picker, on screen, ${Math.round(item.height)} pixels tall`);
   check(sheet.y >= 0, "the picker fits the sideways phone");
   const boBefore = await bo.evaluate(() => JSON.parse(sessionStorage.getItem("party-kit:session:/api/lobby")).token);
+  // The cover's words are read by the page itself the moment they show, and kept where the
+  // next page can still read them (the tab's sessionStorage): on a busy machine the page can be
+  // on its way to /party/ before a read from here arrives.
+  await ann.evaluate(() => {
+    const keep = () => {
+      const words = document.querySelector(".hop-cover .hop-words")?.textContent;
+      if (words && !sessionStorage.getItem("test:hop-words")) sessionStorage.setItem("test:hop-words", words);
+    };
+    new MutationObserver(keep).observe(document.body, { childList: true, subtree: true, characterData: true });
+  });
   await ann.click(".mode-choice");
-  await ann.waitForSelector(".hop-cover", { timeout: 3000 });
-  // Read the words at once: by the time a screenshot is taken the page may have moved on.
-  const moving = await ann.locator(".hop-words").textContent();
-  // The cover is up only until the page goes to /party/: dropped if it goes first.
-  await shot(ann, "11-switch-cover-844x390", true);
-  check(moving === "Moving to the Table", "Ann's page says: Moving to the Table");
+  // The cover is up only until the page goes to /party/: its still is dropped if it goes first.
+  if (await ann.waitForSelector(".hop-cover", { timeout: 3000 }).catch(() => null)) await shot(ann, "11-switch-cover-844x390", true);
   await Promise.all([landed(ann, "/party/"), landed(bo, "/party/"), landed(tv, "/party/")]);
+  const moving = await ann.evaluate(() => sessionStorage.getItem("test:hop-words"));
+  check(moving === "Moving to the Table", `Ann's page says: Moving to the Table (${JSON.stringify(moving)})`);
   check(true, "every page moved itself to the plain waiting room: both phones and the big screen");
   const boAfter = await bo.evaluate(() => JSON.parse(sessionStorage.getItem("party-kit:session:/api/lobby")).token);
   check(boBefore === boAfter, "Bo kept his seat's session through the move: the same token");
@@ -198,10 +206,12 @@ try {
   // the loop guard holds its next hop, and it must go by itself once the guard lets it.
   await bo.evaluate(() => sessionStorage.setItem("n8games:hop", JSON.stringify({ at: Date.now(), to: "/party/", text: "", said: true })));
   await ann.click(".switch-option[data-mode=party-games]");
-  await ann.waitForSelector(".hop-cover", { timeout: 4000 });
-  await bo.waitForSelector(".hop-link", { timeout: 4000 });
-  // Read at once, and the still dropped if it goes first: the held page goes by itself soon.
-  const held = await bo.locator(".hop-words").textContent();
+  // Ann's cover is up only a moment before her page goes (not waited for, as it may be gone).
+  // Bo's held page: its link and words read in one look inside the page, as it goes by itself soon.
+  const held = await bo
+    .waitForFunction(() => (document.querySelector(".hop-link") && document.querySelector(".hop-words")?.textContent) || null, null, { timeout: 4000, polling: 20 })
+    .then((h) => h.jsonValue())
+    .catch(() => null);
   await shot(bo, "25-table-hop-held-390x844", true);
   check(held === "The party moved to the Floor", "Bo's page, held by the guard, says where the party went, with a link to tap");
   await Promise.all([landed(ann, "/lobby/"), landed(bo, "/lobby/"), landed(tv, "/lobby/"), landed(cy, "/lobby/")]);
