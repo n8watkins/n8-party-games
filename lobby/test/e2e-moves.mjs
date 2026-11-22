@@ -96,6 +96,14 @@ function pageHelpers() {
             window.__jumpedAt = performance.now();
             for (const type of ["keydown", "keyup"]) document.body.dispatchEvent(new KeyboardEvent(type, { key: "ArrowUp", code: "ArrowUp", bubbles: true }));
           }
+          // Likewise (__kickOnHook: {of, after}), this page kicks `after` ms after it hears that robot throw.
+          if (m?.t === "hook" && m.s === window.__kickOnHook?.of) {
+            const { after } = window.__kickOnHook;
+            window.__kickOnHook = null;
+            setTimeout(() => {
+              for (const type of ["keydown", "keyup"]) document.body.dispatchEvent(new KeyboardEvent(type, { key: "x", code: "KeyX", bubbles: true }));
+            }, after);
+          }
           // The first whole room this page heard, and each seat's move state in it: its harden
           // cooldown, how long its legs have been up and how long it stays soft (shared/robot.js, slime.js).
           const members = m?.room?.members ?? m?.members;
@@ -457,11 +465,13 @@ try {
     await sleep(300);
     const before = (await where())[P].x;
     mark = ada.seen.length;
+    // Pat's phone kicks 100 ms after it hears Rob throw, timed by the page: the hook reaches Pat
+    // about 290 ms after the throw, and a kick from 260 ms before to 100 ms after bats it away.
+    await pat.evaluate((s) => (window.__kickOnHook = { of: s, after: 100 }), R);
     await rob.keyboard.press("KeyX");
-    await sleep(110);
-    await pat.keyboard.press("KeyX");
     const parried = await after((m) => m.t === "hk" && m.s === R, 3000, mark);
-    check(parried?.o === "parry" && parried.to === P, `Pat kicks toward Rob as it arrives: batted away (${JSON.stringify(parried && { o: parried.o })})`);
+    const kicked = ada.seen.slice(mark).find((m) => m.t === "b" && m.s === P);
+    check(parried?.o === "parry" && parried.to === P, `Pat kicks toward Rob as it arrives: batted away (${JSON.stringify(parried && { o: parried.o, to: parried.to })}; Pat's kick ${JSON.stringify(kicked && { to: kicked.to, f: kicked.f })})`);
     check(Math.abs((await where())[P].x - before) < 2, "and Pat stays where he was");
 
     section(`${look}: the hook train, and the hook back (a bonk)`);
@@ -801,7 +811,8 @@ try {
             return Math.abs(pieces?.get(r)?.rx - rx) <= 3 && Math.abs(pieces?.get(p)?.rx - px) <= 3;
           },
           [R, P, roomNow[R].x, roomNow[P].x],
-          { timeout: 3000, polling: 50 },
+          // A page drawing few frames eases slowly: it is given up to 8 s to get there.
+          { timeout: 8000, polling: 50 },
         )
         .catch(() => null);
       const drawnNow = await pat.evaluate(
