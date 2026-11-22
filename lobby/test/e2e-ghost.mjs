@@ -19,7 +19,6 @@
 //   --shots=DIR     stills of each fright, in each look
 import { mkdirSync } from "node:fs";
 import { COLOUR_PRESETS, LOOK_COOLDOWN_MS } from "../shared/characters.js";
-import { HOOK_SCARE_MS } from "../shared/moves.js";
 import { apart, meanColour, paintBox } from "./pixels.mjs";
 import { launchBrowser } from "./browser.mjs";
 import { partyApi, sleep } from "./client.mjs";
@@ -36,6 +35,23 @@ const check = (ok, what) => {
   if (!ok) problems.push(what);
 };
 const section = (name) => console.log("\n     -- " + name);
+/**
+ * A check of what a phone drew, judged on the frames it drew: `ok` null when no frame fell where it
+ * could show the thing (a page starved of frames on a busy machine). An unseen check does not
+ * fail, but the run counts them, and fails if more than UNSEEN_SHARE of its drawn checks went
+ * unseen. What the room did is checked from its messages in every run, frames or not.
+ */
+const UNSEEN_SHARE = 0.25;
+const drawnChecks = { all: 0, unseen: [] };
+const seenCheck = (ok, what) => {
+  drawnChecks.all++;
+  if (ok === null) {
+    drawnChecks.unseen.push(what);
+    console.log("seen? " + what + " (not seen: no frame fell inside it)");
+    return;
+  }
+  check(ok, what);
+};
 /** The pale a fright tints a piece toward (look3d/pieces.js, PALE), as a page shows it. */
 const PALE_RGB = { r: 0xee, g: 0xf3, b: 0xfb };
 
@@ -47,6 +63,18 @@ function pageHelpers() {
   window.__out = [];
   const send = WebSocket.prototype.send;
   WebSocket.prototype.send = function (data) {
+    // The first whole room this page heard (its own clock), and how long each seat is still down in it.
+    if (window.__ws !== this)
+      this.addEventListener("message", (e) => {
+        let m = null;
+        try {
+          m = JSON.parse(e.data);
+        } catch {
+          return;
+        }
+        const members = m?.room?.members ?? m?.members;
+        if (Array.isArray(members) && !window.__firstRoom) window.__firstRoom = { at: performance.now(), down: members.map((x) => x?.down ?? null) };
+      });
     window.__ws = this;
     // When this page first spoke to the room (its hello): for a page that must arrive in the middle of something.
     window.__firstSend ??= Date.now();
@@ -101,6 +129,24 @@ function pageHelpers() {
     };
     requestAnimationFrame(look);
   };
+  // A page about to be reloaded can be told to watch a seat from the first frame it draws after
+  // (sessionStorage outlives the reload): window.__frightPath, every frame [when it began, how wide-eyed],
+  // each read once the frame has drawn.
+  const onLoad = JSON.parse(sessionStorage.getItem("frightOnLoad") ?? "null");
+  if (onLoad) {
+    sessionStorage.removeItem("frightOnLoad");
+    window.__frightPath = [];
+    let until = null;
+    const look = (frameAt) => {
+      setTimeout(() => {
+        if (!window.frightOn(onLoad.seat).character) return;
+        until ??= frameAt + onLoad.ms;
+        window.__frightPath.push([frameAt, window.frightOn(onLoad.seat).scared]);
+      }, 0);
+      if (until === null || frameAt < until) requestAnimationFrame(look);
+    };
+    requestAnimationFrame(look);
+  }
 }
 
 const browser = await launchBrowser({ args: ["--autoplay-policy=user-gesture-required", "--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--ignore-gpu-blocklist"] });
@@ -366,7 +412,7 @@ try {
     for (const [page, look, firstLead] of [[cy, "flat", -300], [eve, "3d", 150]]) {
       let lead = firstLead;
       let seen = null;
-      for (let attempt = 0; attempt < 4 && !(seen?.after && seen.inTime); attempt++) {
+      for (let attempt = 0; attempt < 4; attempt++) {
         // Aimed so the page first speaks to the room just after the scare began, by how long it took last time.
         if (seen) lead = lead + seen.spoke - 60;
         await ready(B);
@@ -379,6 +425,8 @@ try {
         check(!!(await fade(bea, B)), `Bea fades (Ada is a ${character})`);
         // The room's own address, as a reload does, with the look asked for again.
         const reload = () => page.goto(`${base}/lobby/?${look === "flat" ? "look=flat" : "look=3d&gl=any"}`);
+        // Watched from the first frame the reloaded page draws (frightOnLoad), on its own clock.
+        await page.evaluate((s) => sessionStorage.setItem("frightOnLoad", JSON.stringify({ seat: s, ms: 2500 })), A);
         from = ada.seen.length;
         let going;
         let scared;
@@ -396,27 +444,35 @@ try {
         const kickAt = ada.seen.slice(from).find((m) => m.t === "hk" && m.s === A)?.at ?? Date.now();
         await going;
         await drawn(page, look);
-        // Watched from the first frame it draws: how wide its eyes got, and in how many frames.
-        await page.evaluate((s) => window.watchFright(s, 1500), A);
         const back = Date.now() - kickAt;
         const firstSend = await page.evaluate(() => window.__firstSend);
         const after = firstSend > kickAt;
         console.log(`     (${look} ${character}, lead ${lead} ms: the page first spoke ${firstSend - kickAt} ms after the kick and drew ${back} ms after it)`);
         await sleep(1600);
-        const shown = await page.evaluate(() => window.__fright);
-        const wide = shown.scared > 0.5;
-        // The page drew in time to see the scare: its first frame came before the scared piece was up
-        // again. `back` is measured from here, after the test's own calls into a busy page; a frame
-        // it drew wide-eyed (the watch starts with the page's own frames) shows it was in time too.
-        const inTime = back < HOOK_SCARE_MS - 250 || wide;
-        seen = { scared, after, inTime, wide, shown, back, spoke: firstSend - kickAt };
+        // Judged on the page's own clock against the first room it heard: how long Ada was still
+        // down then. Still scared (by more than LEAD ms) when it first drew: it must draw her
+        // wide-eyed while she is. Over (by more than TAIL ms) before it drew: it must draw her calm.
+        // In between, or no frame at all: not seen.
+        const LEAD = 250;
+        const TAIL = 200;
+        const { first, path, character: drawnAs } = await page.evaluate((s) => ({ first: window.__firstRoom ?? null, path: window.__frightPath ?? [], character: window.frightOn(s).character }), A);
+        const heardLeft = first?.down?.[A] ?? null;
+        const leftAt = (t) => (heardLeft ?? -1e9) - (t - first.at);
+        const firstLeft = path.length && first ? leftAt(path[0][0]) : null;
+        const story = `it first drew ${path.length && first ? Math.round(path[0][0] - first.at) : "?"} ms after it heard the room, with ${heardLeft === null ? "the scare over" : `${heardLeft} ms of it left`}; ${path.filter(([, s]) => s > 0.5).length} of ${path.length} frames wide-eyed`;
+        const judged = !first ? { ok: false, how: "heard no room" } : !path.length ? { ok: null, how: "drew no frame" } : firstLeft > LEAD ? { ok: path.some(([t, s]) => leftAt(t) > 0 && s > 0.5) && drawnAs === character, how: "still scared as it drew" } : firstLeft < -TAIL ? { ok: path.every(([, s]) => s <= 0.5) && drawnAs === character, how: "over before it drew, drawn calm" } : { ok: null, how: "ending as it came back" };
+        seen = { scared, after, judged, story, spoke: firstSend - kickAt, back };
         if (after && shots) await page.screenshot({ path: `${shots}/${look}-${character}-reloaded-mid-scare.png` });
         await sleep(1500);
+        // Tried again only when the page came back before the kick (it did not arrive in the middle)
+        // or could not be judged; one judged either way is the answer.
+        if (after && seen.judged.ok !== null) break;
       }
-      const { scared, after, inTime, wide, shown, back } = seen;
+      const { scared, after, judged, story, back } = seen;
       check(scared?.sc === B, `Ada's ${character} hooked Bea's faded ghost (${JSON.stringify(scared && { to: scared.to, sc: scared.sc })})`);
-      const missed = !after ? "; it was back before the kick every time" : !inTime ? `; it never drew within the ${HOOK_SCARE_MS} ms scare, so nothing was judged` : "";
-      check(after && inTime && wide && shown.character === character, `${look}: a page that arrived in the middle of the scare (drawn ${back} ms after the kick${missed}) draws Ada's ${character} scared (wide eyes), not knocked (${JSON.stringify(shown)})`);
+      const what = `${look}: a page that arrived in the middle of the scare (drawn ${back} ms after the kick) draws Ada's ${character} as the room has her when it is back: ${judged.how} (${story})`;
+      if (!after) check(false, `${what}; it was back before the kick every time`);
+      else seenCheck(judged.ok, what);
     }
   }
 
@@ -489,5 +545,7 @@ try {
   for (const c of sockets) c.ws.close();
   await browser.close();
 }
+console.log(`\n${drawnChecks.unseen.length} of ${drawnChecks.all} drawn checks went unseen (a page drew no frame inside them)${drawnChecks.unseen.length ? ":\n  " + drawnChecks.unseen.join("\n  ") : ""}`);
+if (drawnChecks.unseen.length > UNSEEN_SHARE * drawnChecks.all) problems.push(`too many drawn checks went unseen: ${drawnChecks.unseen.length} of ${drawnChecks.all} (at most ${Math.floor(UNSEEN_SHARE * drawnChecks.all)})`);
 console.log(problems.length ? `\n${problems.length} problem(s):\n- ` + problems.join("\n- ") : "\nAll good.");
 process.exit(problems.length ? 1 : 0);

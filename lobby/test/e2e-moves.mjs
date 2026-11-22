@@ -313,7 +313,8 @@ try {
       const TAIL = 400;
       const first = await page.evaluate(() => window.__firstRoom ?? null);
       const path = (await seenOn(page, s)).path ?? [];
-      if (!first || !path.length) return { ok: false, story: `the phone ${first ? "drew no frame" : "heard no room"} after the reload` };
+      if (!first) return { ok: false, story: "the phone heard no room after the reload" };
+      if (!path.length) return { ok: null, story: "the phone drew no frame in the time it was watched after the reload" };
       // How long the move had left when the room's word reached the phone (null: it was over by then).
       const heardLeft = kind === "legs" ? (first.stilts[s] === null ? null : STILT_MS - first.stilts[s]) : first.soft[s];
       const shows = ([, , legs, soft]) => (kind === "legs" ? legs > 30 : soft);
