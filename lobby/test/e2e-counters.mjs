@@ -109,6 +109,8 @@ function pageHelpers() {
     };
   };
   window.__paths = {};
+  // When this page heard its move key come up (its own clock): a charge let go (its own dash starts then).
+  addEventListener("keyup", (e) => e.code === "KeyX" && (window.__keyUpAt = performance.now()), true);
   window.__afterDraw = new Set();
   const patch = () => {
     const view = globalThis.__partyRoom?.view;
@@ -306,11 +308,13 @@ try {
       const path = await pathOf(page, P);
       const holding = heardKc === null || heardB === null ? [] : path.filter((f) => f.t > heardKc + 220 && f.t < heardB - 20);
       seen(heardKc === null || heardB === null ? false : holding.length === 0 ? null : holding.every((f) => f.charge > 0 && f.charging), `${look}: ${name} draws Pat wound up and glowing while he holds (${calm(name) ? "less motion; " : ""}${holding.length} frames: ${holding.map((f) => `${Math.round(f.t - heardKc)}ms:${f.charge}`).join(", ")})`);
-      // The dash: from where he stood to where the room put him, within the kick's wind-up.
-      const dashing = heardB === null ? [] : path.filter((f) => f.t > heardB + 5 && f.t < heardB + 100);
+      // The dash: from where he stood to where the room put him, within the kick's wind-up: from
+      // the room's word on another page, from the release on Pat's own (it dashes at once).
+      const dashFrom = page === pat ? await page.evaluate(() => window.__keyUpAt ?? null) : heardB;
+      const dashing = dashFrom === null ? [] : path.filter((f) => f.t > dashFrom + 5 && f.t < dashFrom + 100);
       const between = (f) => f.x > Math.min(at[P].x, b.kx) + 3 && f.x < Math.max(at[P].x, b.kx) - 3;
       // (A tenth of a second: a page starved of frames may draw none in it. Judged on whichever pages did.)
-      seen(heardB === null || !b ? false : dashing.length === 0 ? null : dashing.some(between), `${look}: Pat is drawn dashing (${name}: from ${at[P].x} to ${b?.kx}: ${dashing.map((f) => `${Math.round(f.t - heardB)}ms:${Math.round(f.x)}`).join(", ")})`);
+      seen(heardB === null || dashFrom === null || !b ? false : dashing.length === 0 ? null : dashing.some(between), `${look}: Pat is drawn dashing (${name}: from ${at[P].x} to ${b?.kx}: ${dashing.map((f) => `${Math.round(f.t - dashFrom)}ms:${Math.round(f.x)}`).join(", ")})`);
       const landed = await drewDuring(page, P, (m) => m.t === "b" && m.c !== undefined, 160, 700, (f) => Math.abs(f.x - b.kx) <= 6);
       seen(b ? landed.ok : false, `${look}: ${name} then draws him where the room put him, ${b?.kx} (${landed.story})`);
       const thrown = await drewDuring(page, B, (m) => m.t === "b" && m.c !== undefined, IMPACT_MS + 80, STUN_MS - GETUP_MS, (f) => f.knock && f.dizzy);
