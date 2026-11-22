@@ -177,7 +177,8 @@ try {
           return [...g.querySelectorAll("stop, rect, path, ellipse")].some((e) => near(e.getAttribute("stop-color")) || near(e.getAttribute("fill")));
         },
         [seat, character, colour],
-        { timeout: 8000 },
+        // A page drawing the baked room in software on a busy machine can take a while to draw the change.
+        { timeout: 20000 },
       )
       .then(() => true, () => false);
   const shot = async (page, look, name) => shots && (await page.screenshot({ path: `${shots}/${look}-${name}.png` }));
@@ -352,7 +353,8 @@ try {
         return [...document.querySelectorAll(`svg.scene g[data-seat="${seat}"] .emote-limb rect`)].some((r) => r.getAttribute("stroke") === "#1a1210");
       },
       ada.seat,
-      { timeout: 4000, polling: 50 },
+      // (The hands are made when a frame first draws the emote: a page starved of frames on a busy machine is given a while.)
+      { timeout: 10000, polling: 50 },
     ).then(() => true, () => false);
     check(pale, "cream hands on a white sheet have a dark outline");
     await sleep(500);
@@ -508,9 +510,14 @@ try {
     await bea.keyboard.press("KeyX");
     const fade = await ada.wait((m) => m.t === "fade" && m.s === B, 3000, mark).catch(() => null);
     check(fade?.for === 2500, "a tap on Fade: the room tells everybody Bea's ghost has faded for 2.5 s");
-    const seenFaded = await cy.waitForFunction((seat) => window.fadedOn(seat) > 0.8, B, { timeout: 2000, polling: 30 }).then(() => true, () => false);
-    const others = await cy.evaluate((seat) => window.fadedOn(seat), B);
-    const own = await bea.evaluate((seat) => window.fadedOn(seat), B);
+    // Both read while the fade is on (2.5 s), each page as soon as it draws it: read one after the
+    // other on a busy machine, the second could come after the fade is over.
+    const fadedSeen = (page, test) =>
+      page
+        .waitForFunction(([seat, low]) => (window.fadedOn(seat) > low ? window.fadedOn(seat) : false), [B, test], { timeout: 2000, polling: 30 })
+        .then((h) => h.jsonValue(), () => 0);
+    const [others, own] = await Promise.all([fadedSeen(cy, 0.8), fadedSeen(bea, 0.3)]);
+    const seenFaded = others > 0.8;
     check(seenFaded && (await pieceOn(cy, B))?.character === "ghost", `on Cy's phone her ghost is faded (${others}) and still there, a ghost`);
     check(own > 0.3 && own < others, `on her own phone it is faded less (${own}), so she can always find herself`);
     await sleep(300);

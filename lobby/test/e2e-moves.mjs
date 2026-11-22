@@ -181,6 +181,26 @@ function pageHelpers() {
   // the same call: what is read then is exactly what that frame drew, on the frame's own clock (a
   // read in a later task could see a message the page took in after the frame, with the frame's
   // pose from before it).
+  /**
+   * The moves each of `seats` has under way in the page's view the moment a new view takes over
+   * from the stand-in (view-api.js: what it was handed, before it draws anything), on the page's
+   * clock: window.__swap = {at, seats: {seat: {stiltAt, fright, frightAt, charging, attackAt, jumpAt}}}.
+   */
+  window.watchSwap = (seats) => {
+    window.__swap = null;
+    let stood = false;
+    const look = setInterval(() => {
+      const v = globalThis.__partyRoom?.view;
+      if (v?.paused === true) stood = true;
+      if (!stood || !v || v.paused === true || !v.pieces?.size) return;
+      clearInterval(look);
+      const at = performance.now();
+      window.__swap = { at, seats: Object.fromEntries(seats.map((s) => {
+        const p = v.pieces.get(s);
+        return [s, p ? { stiltAt: p.stilt?.at ?? null, fright: p.fright?.kind ?? null, frightAt: p.fright?.at ?? null, charging: !!p.attack?.charging, attackAt: p.attack?.at ?? null, jumpAt: Number.isFinite(p.jumpAt) ? p.jumpAt : null } : null];
+      })) };
+    }, 4);
+  };
   window.__afterDraw = new Set();
   const patch = () => {
     const view = globalThis.__partyRoom?.view;
@@ -829,8 +849,9 @@ try {
         () => false,
       );
       check(standing, "Pat's view stands in while the next one loads");
-      // Every frame Pat's page draws from here (none while it stands in), Rob's and Pat's.
-      await pat.evaluate(([r, p, a]) => (window.watchMoves(r, 15000), window.watchMoves(p, 15000), window.watchMoves(a, 15000)), [R, P, A]);
+      // Every frame Pat's page draws from here (none while it stands in), Rob's, Pat's and Ada's,
+      // and what the new view has of their moves the moment it takes over.
+      await pat.evaluate(([r, p, a]) => (window.watchMoves(r, 15000), window.watchMoves(p, 15000), window.watchMoves(a, 15000), window.watchSwap([r, p, a])), [R, P, A]);
       await rob.keyboard.press("KeyX");
       const caught = await after((m) => m.t === "hk" && m.s === R, 4000, mark);
       // The legs need only the hook back in (not its cooldown): a moment after the verdict.
@@ -887,8 +908,23 @@ try {
         const first = Math.min(patPath[0]?.[0] ?? Infinity, robPath[0]?.[0] ?? Infinity, adaPath[0]?.[0] ?? Infinity);
         const shown = pullFrames.every((f) => f[6] === "pull") && legFrames.every((f) => f[2] > 30) && chargeFrames.every((f) => f[9]) && jumpFrames.every(up);
         const story = `the new view first drew ${first === Infinity || pulledAt === null ? "?" : Math.round(first - pulledAt)} ms after the pull was heard, ${first === Infinity || legsAt === null ? "?" : Math.round(first - legsAt)} ms after the legs, ${first === Infinity || chargedAt === null ? "?" : Math.round(first - chargedAt)} ms after Ada's charge, ${first === Infinity || lastHeld === null ? "?" : Math.round(first - lastHeld)} ms after Ada's last jump while it stood in (of ${jumps.filter((h) => h.paused).length}); ${pullFrames.length} frames in the pull's time (${pullFrames.map((f) => f[6] ?? "-").join(", ")}), ${legFrames.length} in the legs' (${legFrames.map((f) => Math.round(f[2])).join(", ")}), ${chargeFrames.length} in the charge's (${chargeFrames.map((f) => (f[9] ? "wound up" : "-")).join(", ")}), ${jumpFrames.length} in the jump's (${jumpFrames.map((f) => f[10].toFixed(2)).join(", ")})`;
+        // What the new view was handed the moment it took over (before it drew anything): each move
+        // heard while it stood in and still under way then, on the page's clock as heard. On a busy
+        // machine its first frame can come seconds later, when they are all over: what it was
+        // handed is judged every time, the frames whenever one falls inside a move.
+        const swap = await pat.evaluate(() => window.__swap);
+        const near = (a, b) => a !== null && b !== null && Math.abs(a - b) <= 40;
+        const handed = swap?.seats ?? {};
+        const live = (until) => swap !== null && swap.at < until;
+        const owed = [
+          ["Pat's pull", pulledAt !== null && live(pullEnds), () => handed[P]?.fright === "pull" && near(handed[P].frightAt, pulledAt)],
+          ["Rob's legs", legsAt !== null && live(legsAt + STILT_MS - 50), () => near(handed[R]?.stiltAt ?? null, legsAt)],
+          ["Ada's charge", chargedAt !== null && live(chargeEnds), () => handed[A]?.charging && near(handed[A].attackAt + CHARGE_MIN_MS, chargedAt)],
+          ["Ada's jump", lastHeld !== null && live(lastHeld + JUMP_MS), () => near(handed[A]?.jumpAt ?? null, lastHeld)],
+        ].filter(([, due]) => due);
+        const missing = owed.filter(([, , ok]) => !ok()).map(([name]) => name);
         const all = pullFrames.length + legFrames.length + chargeFrames.length + jumpFrames.length;
-        seen(pulledAt === null || legsAt === null || chargedAt === null || lastHeld === null ? false : all === 0 ? null : shown, `Pat's new view draws the pull, the legs, the charge and the jump it heard while it loaded (${story})`);
+        check(swap !== null && owed.length > 0 && missing.length === 0 && (all === 0 || shown), `Pat's new view takes over the moves it heard while it loaded, and draws them (handed ${swap ? Math.round(swap.at - (lastHeld ?? swap.at)) : "?"} ms after Ada's last jump: ${owed.map(([name]) => name).join(", ") || "nothing still under way"}${missing.length ? `; missing ${missing.join(", ")}: ${JSON.stringify(handed)}` : ""}; ${story})`);
       }
       const failed = errors.slice(failedBefore);
       check(failed.length === 0, `Pat's page took them in without an error${failed.length ? ": " + [...new Set(failed)].slice(0, 3).join("; ") : ""}`);

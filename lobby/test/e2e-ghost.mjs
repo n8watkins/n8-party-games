@@ -496,7 +496,6 @@ try {
         ada.send({ t: "m", x: at[B].x - 60, d: 1, r: ada.rev });
         ada.send({ t: "m", x: at[B].x - 60, d: 0, r: ada.rev });
         await sleep(300);
-        check(!!(await fade(bea, B)), `Bea fades (Ada is a ${character})`);
         // The room's own address, as a reload does, with the look asked for again.
         const reload = () => page.goto(`${base}/lobby/?${look === "flat" ? "look=flat" : "look=3d&gl=any"}`);
         // Watched from the first frame the reloaded page draws (frightOnLoad), on its own clock,
@@ -506,6 +505,9 @@ try {
           sessionStorage.setItem("holdHello", "1");
         }, A);
         await reload();
+        // Bea fades once the page is reloading, not before: a reload can take longer than a fade
+        // lasts on a busy machine, and the hook must reach her faded.
+        check(!!(await fade(bea, B)), `Bea fades (Ada is a ${character})`);
         from = ada.seen.length;
         const scared = await goAt();
         // The scare began when the room's word on the hook came: now the page may speak.
