@@ -54,6 +54,22 @@ try {
     await page.waitForURL((url) => new URL(url).pathname === path, { timeout: 20000 });
     await (path === "/party/" ? inPlain(page) : inRoom(page));
   }
+  /**
+   * `page.evaluate(fn)` on a page that has just moved: a read that lands while a navigation is
+   * still settling throws "Execution context was destroyed"; it is asked again once the page has
+   * loaded (a few times at most), and any other error is thrown as it is.
+   */
+  async function readAfterMove(page, fn) {
+    for (let tries = 1; ; tries++) {
+      try {
+        return await page.evaluate(fn);
+      } catch (e) {
+        if (tries >= 5 || !/Execution context was destroyed|navigat/i.test(String(e?.message))) throw e;
+        await page.waitForLoadState("load").catch(() => null);
+        await page.waitForTimeout(200);
+      }
+    }
+  }
   /** What a page of the plain room must never do: scroll sideways, cut something off, or have a tap target under 44 pixels. */
   async function looksRight(page, label) {
     const m = await page.evaluate(() => {
@@ -133,10 +149,10 @@ try {
   // The cover is up only until the page goes to /party/: its still is dropped if it goes first.
   if (await ann.waitForSelector(".hop-cover", { timeout: 3000 }).catch(() => null)) await shot(ann, "11-switch-cover-844x390", true);
   await Promise.all([landed(ann, "/party/"), landed(bo, "/party/"), landed(tv, "/party/")]);
-  const moving = await ann.evaluate(() => sessionStorage.getItem("test:hop-words"));
+  const moving = await readAfterMove(ann, () => sessionStorage.getItem("test:hop-words"));
   check(moving === "Moving to the Table", `Ann's page says: Moving to the Table (${JSON.stringify(moving)})`);
   check(true, "every page moved itself to the plain waiting room: both phones and the big screen");
-  const boAfter = await bo.evaluate(() => JSON.parse(sessionStorage.getItem("party-kit:session:/api/lobby")).token);
+  const boAfter = await readAfterMove(bo, () => JSON.parse(sessionStorage.getItem("party-kit:session:/api/lobby")).token);
   check(boBefore === boAfter, "Bo kept his seat's session through the move: the same token");
   await bo.waitForSelector(".line.noting", { timeout: 3000 }).catch(() => null);
   const said = await bo.locator(".line-note").textContent().catch(() => "");
