@@ -2,6 +2,7 @@
 // the room moves a piece other than a kick (a knock), named by the `fright` the room writes on it.
 //
 //   scare      a pawn kicked a faded ghost (shared/ghost.js)
+//   bigscare   the same with a charged kick: frozen longer (shared/ghost.js, BIG_SCARE)
 //   spook      a faded ghost drifted through it (shared/ghost.js)
 //   hookscare  a robot's hook passed through a faded ghost: the robot is scared (shared/robot.js)
 //   pull       a robot's hook dragged it across the floor, upright (shared/robot.js)
@@ -12,7 +13,7 @@
 // leave the light it stands in (as a kick does), but it never comes to rest in another light that
 // is on. So no move ever puts a vote somewhere its player did not choose, during a count or not.
 import { IMMUNE_MS, KNOCK_CLEAR, landingGround } from "./bump.js";
-import { SCARE, SCARE_MS, SPOOK, SPOOK_MS, frightPose, SCARE_START_MS, SCARE_FREEZE_MS, SCARE_RUN_MS, SCARE_HOP } from "./ghost.js";
+import { BIG_SCARE, BIG_SCARE_MS, SCARE, SCARE_MS, SPOOK, SPOOK_MS, frightPose, SCARE_START_MS, SCARE_FREEZE_MS, SCARE_RUN_MS, SCARE_HOP } from "./ghost.js";
 import { BONK, PULL, PULLED_SAFE_MS } from "./robot.js";
 import { SHOVE } from "./slime.js";
 import { lightAt } from "./world.js";
@@ -27,6 +28,7 @@ export const HOOK_SCARE_MS = SCARE_START_MS + SCARE_FREEZE_MS + SCARE_RUN_MS;
  */
 export const MOVED = {
   scare: { how: SCARE, ms: SCARE_MS, safe: IMMUNE_MS },
+  bigscare: { how: BIG_SCARE, ms: BIG_SCARE_MS, safe: IMMUNE_MS },
   spook: { how: SPOOK, ms: SPOOK_MS, safe: IMMUNE_MS },
   hookscare: { how: HOOK_SCARE, ms: HOOK_SCARE_MS, safe: IMMUNE_MS },
   pull: { how: PULL, ms: PULL.ms, safe: PULLED_SAFE_MS },

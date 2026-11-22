@@ -141,7 +141,7 @@ describe("what is fair", () => {
 
   it("puts a knocked piece on the floor briefly and then keeps it safe for longer", () => {
     const piece = knocked(5000);
-    expect(piece).toEqual({ stunUntil: 5000 + STUN_MS, immuneUntil: 5000 + STUN_MS + IMMUNE_MS });
+    expect(piece).toEqual({ stunUntil: 5000 + STUN_MS, immuneUntil: 5000 + STUN_MS + IMMUNE_MS, knockExtra: 0 });
     expect(isDown(piece, 5000 + STUN_MS - 1)).toBe(true);
     expect(isDown(piece, 5000 + STUN_MS)).toBe(false);
     expect(isSafe(piece, 5000)).toBe(true);
