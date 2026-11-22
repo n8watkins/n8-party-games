@@ -51,15 +51,34 @@ const out = resolve(opt("out", "lobby/test/shots"));
 mkdirSync(out, { recursive: true });
 /** Cut each round short once its mid-round checks are done (see the top of this file). */
 const SHORT = opt("short", "0") === "1";
-/** The round Cy's page asks for through the cork-round switch, as its view mounts. */
-const SWITCH_ROUND = 85;
+/**
+ * The round Cy's page asks for through the cork-round switch, as its view mounts: a little short
+ * of the full round, so that it shows, and long enough that a loaded machine (the game can take a
+ * minute to come up in software) still has the clicks done before it ends.
+ */
+const SWITCH_ROUND = 88;
+/**
+ * How far ahead of the room's clock a round is cut: long enough for pages that draw in software,
+ * a frame or two a second on a loaded machine, to hear of it before time is called (and their
+ * game is taken away).
+ */
+const CUT_AHEAD = 6;
 /** Seconds since the run began, for the log: where the time goes. */
 const began = Date.now();
 const lap = (what) => console.log(`     (${what}: ${((Date.now() - began) / 1000).toFixed(1)} s into the run)`);
-/** A time call a couple of seconds ahead of a round that started at `startAt` on the room's clock (the local server's, this machine's). */
-const cutAt = (startAt) => Math.max(TEST_ROUND_MIN, Math.ceil((Date.now() - startAt) / 1000 - COUNT_IN) + 2);
-/** The round length every page of a round shows (their session's, from the room's word). */
-const pageRounds = (frames) => Promise.all(frames.map((f) => f.evaluate(() => window.__cab.summary().roundSeconds)));
+/** A time call CUT_AHEAD seconds ahead of a round that started at `startAt` on the room's clock (the local server's, this machine's). */
+const cutAt = (startAt) => Math.max(TEST_ROUND_MIN, Math.ceil((Date.now() - startAt) / 1000 - COUNT_IN) + CUT_AHEAD);
+/**
+ * Waits until every page of a round runs to round length `s` (their session's, from the room's
+ * word), up to CUT_AHEAD seconds; returns what each page said last (or why it could not say).
+ */
+async function pagesHear(frames, s) {
+  let said = [];
+  for (const until = Date.now() + CUT_AHEAD * 1000; ; await sleep(150)) {
+    said = await Promise.all(frames.map((f) => f.evaluate(() => window.__cab.summary().roundSeconds).catch((err) => String(err?.message ?? err).split("\n")[0])));
+    if (said.every((x) => x === s) || Date.now() > until) return said;
+  }
+}
 const { api, call, connect } = partyApi(base);
 const problems = [];
 const check = (ok, what) => {
@@ -320,6 +339,7 @@ try {
   }
   const shots = await fired();
   check(shots === clicks, `a click on the picture fires a cork: ${shots} corks from ${clicks} clicks`);
+  if (shots !== clicks) console.log(`     Ada's page sent corks stamped ${sentCorks.Ada.map((c) => c.d.toFixed(3)).join(", ")} (${sentCorks.Ada.length} in all)`);
   await frames.screen.waitForFunction((n) => window.__cab.session.sims[0].shots >= n, shots, { timeout: 30000 }).catch(() => {});
   // The room is the judge of what was fired. The room relays every cork Ada's page sends, but
   // the game's own simulation in the room (cork-and-bell) sometimes counts fewer than the page
@@ -389,20 +409,15 @@ try {
   const roundWords = () => watcher.seen.filter((m) => m.t === "ev").flatMap((m) => m.ev.filter((e) => e.k === "round").map((e) => e.s));
   if (SHORT) {
     // Cy's view asked for SWITCH_ROUND through cork-round as it mounted: the room took it and every page runs to it.
-    const asked = await pageRounds([frames.Ada, frames.Cy, frames.screen]);
+    const asked = await pagesHear([frames.Ada, frames.Cy, frames.screen], SWITCH_ROUND);
     check(roundWords()[0] === SWITCH_ROUND && asked.every((s) => s === SWITCH_ROUND), `cork-round=${SWITCH_ROUND} on Cy's room address: the test wall's room took a ${SWITCH_ROUND}-second round as Cy's view mounted, told everyone, and every page runs to it (${asked.join(", ")})`);
     // Everything checked while the round is on is done: Bea's socket cuts it short.
     battleRound = cutAt(start.s.startAt);
     bea.send({ t: "in", d: { round: battleRound } });
     await watcher.wait((m) => m.t === "ev" && m.ev.some((e) => e.k === "round" && e.s === battleRound), 5000, 0);
     // A page that draws in software takes the room's word a frame or two late.
-    let cut = [];
-    for (let i = 0; i < 50; i++) {
-      cut = await pageRounds([frames.Ada, frames.Cy, frames.screen]).catch(() => []);
-      if (cut.length === 3 && cut.every((s) => s === battleRound)) break;
-      await sleep(100);
-    }
-    check(cut.length === 3 && cut.every((s) => s === battleRound), `Bea's socket cut the round to ${battleRound} seconds, and the room told every page (${cut.join(", ")})`);
+    const cut = await pagesHear([frames.Ada, frames.Cy, frames.screen], battleRound);
+    check(cut.every((s) => s === battleRound), `Bea's socket cut the round to ${battleRound} seconds, and the room told every page (${cut.join(", ")})`);
   }
   console.log(`     waiting for the round to end (${battleRound} seconds in all: Ada and Bea never spend their corks)...`);
   const end = await watcher.wait((m) => m.t === "end", 150000, 0);
@@ -538,15 +553,18 @@ try {
   if (SHORT) {
     // Everything checked while this round is on is done: Sol's own page cuts it short, through
     // the view's way to the room (the same `send` that carries its corks).
-    loneRound = cutAt(loneSees.startAt);
-    await loneFrame.evaluate((s) => window.frameElement.partyHost.send({ round: s }), loneRound);
-    let heard = [];
-    for (let i = 0; i < 50; i++) {
-      heard = await pageRounds([loneFrame, lateFrame]).catch(() => []);
-      if (heard.length === 2 && heard.every((s) => s === loneRound)) break;
-      await sleep(100);
+    // (Unless the house's bot has spent Sol's corks already, which ends the round by itself: a
+    // loaded machine can take that long to bring the late screen up.)
+    const loneTime = () => timeCalls.find((c) => c.name === "alone" || c.name === "late screen") ?? null;
+    if (loneTime()) console.log(`     (the round alone was over before it could be cut: time was called at ${loneTime().t.toFixed(1)})`);
+    else {
+      const cut = cutAt(loneSees.startAt);
+      await loneFrame.evaluate((s) => window.frameElement.partyHost.send({ round: s }), cut);
+      const heard = await pagesHear([loneFrame, lateFrame], cut);
+      const spent = loneTime() && loneTime().t < cut;
+      if (!spent) loneRound = cut;
+      check(heard.every((s) => s === cut) || spent, `Sol's page cut the round to ${cut} seconds, and the room told both pages (${heard.join(", ")})${spent ? `; its corks were spent first, at ${loneTime().t.toFixed(1)}` : ""}`);
     }
-    check(heard.length === 2 && heard.every((s) => s === loneRound), `Sol's page cut the round to ${loneRound} seconds, and the room told both pages (${heard.join(", ")})`);
   }
   console.log("     waiting for the round played alone to end...");
   const loneEnd = await loneUntil((v) => v.phase === "lobby" && v.last?.game === "cork-and-bell", 150000);
