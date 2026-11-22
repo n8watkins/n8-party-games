@@ -359,21 +359,17 @@ try {
     // page can take a while, and a watch that began late would miss the start of the move.
     const watchAll = (s, ms) => Promise.all([rob, sam, pat].map((page) => page.evaluate(([s, ms]) => window.watchMoves(s, ms), [s, ms + 1500])));
     const seenOn = (page, s) => page.evaluate((s) => window.__moves[s] ?? {}, s);
-    /**
-     * What a phone reloaded in the middle of a move ("legs" or "soft") drew of seat `s`, judged
-     * against the room's word on that move in the first room the phone heard, on the phone's own
-     * clock (it watched from its first frame: watchOnLoad). Still running when the phone first drew
-     * (by more than LEAD ms, the time the move takes to show): it must be drawn. Over by more
-     * than TAIL ms (the legs fold, the goo melts): it must not be. In between: it was ending
-     * as the phone came back, and either is right.
-     */
     /** The last whole room `page` heard at or before `t` (its own clock), or the first if none was yet. */
     async function roomAt(page, t) {
       const rooms = await page.evaluate(() => window.__rooms ?? []);
       return rooms.filter((r) => r.at <= t).at(-1) ?? rooms[0] ?? null;
     }
+    /**
+     * What a phone reloaded in the middle of a move ("legs" or "soft") drew of seat `s`, judged
+     * frame by frame on the phone's own clock (it watched from its first frame: watchOnLoad)
+     * against the room's word on that move in the room it drew from (roomAt).
+     */
     async function reloadedDraws(page, s, kind) {
-      const LEAD = kind === "legs" ? 450 : 100;
       const TAIL = 400;
       const path = (await seenOn(page, s)).path ?? [];
       // The room the page drew from: the last whole room it heard before its first frame.
@@ -384,7 +380,6 @@ try {
       const heardLeft = kind === "legs" ? (first.stilts[s] === null ? null : STILT_MS - first.stilts[s]) : first.soft[s];
       const shows = ([, , legs, soft]) => (kind === "legs" ? legs > 30 : soft);
       const leftAt = (t) => (heardLeft ?? -1e9) - (t - first.at);
-      const firstLeft = leftAt(path[0][0]);
       const drawnShowing = path.filter(shows).length;
       // What the page held of the move in its first frames, its times from when it heard the room.
       const held = path.slice(0, 3).map((f) => {
@@ -393,9 +388,16 @@ try {
         return kind === "legs" ? `${Math.round(f[0] - first.at)}ms: legs ${Math.round(f[2])}, stilt ${s ? `from ${s.at - Math.round(first.at)}` : "none"}` : `${Math.round(f[0] - first.at)}ms: soft ${f[3]}, goo ${g ? `from ${g.at - Math.round(first.at)} turn ${g.turnAt} soft ${Math.round(g.softFor)}` : "none"}`;
       });
       const at = `it first drew ${Math.round(path[0][0] - first.at)} ms after it heard the room, with ${heardLeft === null ? "the move over" : `${Math.round(heardLeft)} ms of it left`}; ${drawnShowing} of ${path.length} frames show it (${held.join("; ")})`;
-      if (heardLeft !== null && firstLeft > LEAD) return { ok: path.some((f) => leftAt(f[0]) > 0 && shows(f)), story: `still running as it drew: ${at}` };
-      if (firstLeft < -TAIL) return { ok: drawnShowing === 0, story: `over before it drew: ${at}` };
-      return { ok: null, story: `ending as it came back, either is right: ${at}` };
+      // Each frame by itself: drawn while the move still had more than SHOWN ms to run (its legs
+      // fold, its goo melts only at the very end), it must show it; drawn more than TAIL ms after
+      // it ended, it must not; frames between are either. Not seen when no frame was either.
+      const SHOWN = kind === "legs" ? 200 : 60;
+      const running = path.filter((f) => heardLeft !== null && leftAt(f[0]) > SHOWN);
+      const over = path.filter((f) => leftAt(f[0]) < -TAIL);
+      const wrong = [...running.filter((f) => !shows(f)), ...over.filter(shows)].map((f) => `${Math.round(f[0] - first.at)}ms`);
+      const zones = `${running.length} frames while it ran, ${over.length} after it ended${wrong.length ? `; wrong at ${wrong.join(", ")}` : ""}`;
+      if (!running.length && !over.length) return { ok: null, story: `no frame while it plainly ran or after it plainly ended: ${at}` };
+      return { ok: wrong.length === 0, story: `${zones}: ${at}` };
     }
     /**
      * What a phone drew of seat `s` over a stretch after it heard a message (`heard` picks which:
