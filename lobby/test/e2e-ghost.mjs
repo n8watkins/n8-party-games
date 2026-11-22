@@ -19,6 +19,7 @@
 //   --shots=DIR     stills of each fright, in each look
 import { mkdirSync } from "node:fs";
 import { COLOUR_PRESETS, LOOK_COOLDOWN_MS } from "../shared/characters.js";
+import { MOVED, moved, movedPose } from "../shared/moves.js";
 import { ROOM } from "../shared/world.js";
 import { apart, meanColour, paintBox } from "./pixels.mjs";
 import { launchBrowser } from "./browser.mjs";
@@ -85,6 +86,8 @@ function pageHelpers() {
         }
         const members = m?.room?.members ?? m?.members;
         if (Array.isArray(members) && !window.__firstRoom) window.__firstRoom = { at: performance.now(), down: members.map((x) => x?.down ?? null) };
+        // When this page heard each fright (its own clock): a spook, a hook's verdict, a kick.
+        if (m && ["spook", "hk", "b"].includes(m.t)) (window.__heardFrights ??= []).push({ t: m.t, s: m.s, to: m.to, o: m.o, sc: m.sc, at: performance.now() });
       });
     window.__ws = this;
     // When this page first spoke to the room (its hello): for a page that must arrive in the middle of something.
@@ -127,15 +130,19 @@ function pageHelpers() {
   window.scaredOn = (seat) => window.frightOn(seat).scared;
   // Keeps, for `ms`, the most frightened a seat's piece was drawn, in window.__fright.
   window.watchFright = (seat, ms) => {
-    const most = (window.__fright = { scared: 0, pale: 0, paint: 0, character: null, frames: 0 });
+    // path: every frame, [when it began, scared, pale, paint], read once the frame has drawn.
+    const most = (window.__fright = { scared: 0, pale: 0, paint: 0, character: null, frames: 0, path: [] });
     const until = performance.now() + ms;
-    const look = () => {
-      most.frames++;
-      const f = window.frightOn(seat);
-      most.scared = Math.max(most.scared, f.scared);
-      most.pale = Math.max(most.pale, f.pale);
-      most.paint = Math.max(most.paint, f.paint ?? 0);
-      most.character = f.character;
+    const look = (frameAt) => {
+      setTimeout(() => {
+        most.frames++;
+        const f = window.frightOn(seat);
+        most.scared = Math.max(most.scared, f.scared);
+        most.pale = Math.max(most.pale, f.pale);
+        most.paint = Math.max(most.paint, f.paint ?? 0);
+        most.character = f.character;
+        most.path.push([frameAt, f.scared, f.pale, f.paint ?? null]);
+      }, 0);
       if (performance.now() < until) requestAnimationFrame(look);
     };
     requestAnimationFrame(look);
@@ -372,9 +379,30 @@ try {
       await eve.screenshot({ path: `${shots}/3d-${character}-${what}.png` });
     }
     await sleep(2100);
-    const [flat, deep] = [await cy.evaluate(() => window.__fright), await eve.evaluate(() => window.__fright)];
-    check(flat.character === character && flat.scared > 0.9 && flat.pale > 0.5, `flat: Ada's ${character} goes wide-eyed and pale when ${what} (${JSON.stringify(flat)})`);
-    check(deep.character === character && deep.scared > 0.9 && deep.pale > 0.5 && (character !== "robot" || deep.paint > 0.4), `3D: and so it does on Eve's phone (${JSON.stringify(deep)})`);
+    // Each frame each page drew, by its own clock, against the fright's own pose (shared/moves.js)
+    // from when that page heard it, within a frame's timing either way: how wide-eyed and how pale.
+    // Unseen when no frame fell where the pose is at its widest and palest.
+    for (const [page, label] of [[cy, "flat: Ada's " + character + " goes wide-eyed and pale when " + what], [eve, "3D: and so it does on Eve's phone"]]) {
+      const { watch, heard } = await page.evaluate(() => ({ watch: window.__fright, heard: window.__heardFrights ?? [] }));
+      const h = heard.filter((x) => (x.t === "spook" && x.to === A) || (x.t === "hk" && x.s === A && x.o === "scare") || (x.t === "b" && x.s === A && x.sc !== undefined)).at(-1);
+      if (!h) {
+        check(false, `${label} (the page never heard the fright)`);
+        continue;
+      }
+      const kind = h.t === "spook" ? "spook" : h.t === "hk" ? "hookscare" : "scare";
+      const f = moved(kind, 0, 0, 0);
+      const pose = (ms) => movedPose(f, Math.max(0, ms));
+      const LAG = 40;
+      const near = (key, ms, v) => {
+        const vals = [-LAG, -LAG / 2, 0, LAG / 2, LAG].map((d) => pose(ms + d)[key]);
+        return v >= Math.min(...vals) - 0.15 && v <= Math.max(...vals) + 0.15;
+      };
+      const frames = watch.path.map(([t, scared, pale, paint]) => ({ ms: t - h.at, scared, pale, paint })).filter((x) => x.ms >= 0 && x.ms <= MOVED[kind].ms);
+      const off = frames.filter((x) => !near("scared", x.ms, x.scared) || !near("pale", x.ms, x.pale) || (character === "robot" && page === eve && x.paint !== null && Math.abs(x.paint - 0.5 * x.pale) > 0.1));
+      const peak = frames.filter((x) => pose(x.ms).scared > 0.9 && pose(x.ms).pale > 0.5);
+      const story = `${kind}; ${frames.length} frames in it, ${peak.length} at its widest and palest; ${off.length ? `off its pose: ${off.map((x) => `${Math.round(x.ms)}ms scared ${x.scared.toFixed(2)} (due ${pose(x.ms).scared.toFixed(2)}) pale ${x.pale.toFixed(2)} (due ${pose(x.ms).pale.toFixed(2)})`).join(", ")}` : "every frame on its pose"}`;
+      seenCheck(watch.character !== character || off.length ? false : peak.length ? true : null, `${label} (${story})`);
+    }
     return done;
   };
   for (const character of ["slime", "robot"]) {
