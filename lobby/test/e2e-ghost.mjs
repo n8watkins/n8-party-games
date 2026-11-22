@@ -19,6 +19,7 @@
 //   --shots=DIR     stills of each fright, in each look
 import { mkdirSync } from "node:fs";
 import { COLOUR_PRESETS, LOOK_COOLDOWN_MS } from "../shared/characters.js";
+import { SCARE_FREEZE_MS, SCARE_START_MS } from "../shared/ghost.js";
 import { MOVED, moved, movedPose } from "../shared/moves.js";
 import { ROOM } from "../shared/world.js";
 import { apart, meanColour, paintBox } from "./pixels.mjs";
@@ -562,14 +563,33 @@ try {
       const before = await meanColour(eve, await paintBox(eve, A, PAINT_SIDE));
       const drawnBefore = await eve.evaluate((s) => window.frightOn(s), A);
       if (!(await fade(ghost, G))) check(false, `the ghost fades for ${name}`);
+      // Frozen at its palest: wide-eyed and still. Judged on the frame Eve's page draws, right after
+      // it draws it: the first frame in the freeze itself (not the start's hop, where it is drawn
+      // higher and so lit differently), at its palest. The page then draws nothing more until the
+      // picture is taken, so the picture is of that frame however long a busy machine takes.
+      await eve.evaluate(
+        ([s, from, to]) => {
+          const hold = (now) => {
+            const p = window.__room3d?.pieces.get(s);
+            const since = p?.fright ? now - p.fright.at : -1;
+            const f = window.frightOn(s);
+            if (since >= from && since <= to && f.pale > 0.95 && f.scared > 0.95) {
+              window.__holdFrames = true;
+              window.__afterDraw.delete(hold);
+            }
+          };
+          window.__afterDraw.add(hold);
+          window.__dropHold = () => window.__afterDraw.delete(hold);
+        },
+        [A, SCARE_START_MS + 40, SCARE_START_MS + SCARE_FREEZE_MS - 40],
+      );
       from = ada.seen.length;
       const kick = await goAt({ look: true });
-      // Frozen at its palest: wide-eyed and still.
-      // The page stops drawing on the frame it is judged frozen in, so the picture is of that frame
-      // however long a busy machine takes to take it (a fixed wait could land after the freeze).
-      const frozen = await eve
-        .waitForFunction((s) => window.frightOn(s).pale > 0.95 && window.frightOn(s).scared > 0.95 && (window.__holdFrames = true), A, { timeout: 2000, polling: 16 })
-        .then(() => true, () => false);
+      const frozen = await eve.waitForFunction(() => window.__holdFrames === true, null, { timeout: 2000, polling: 16 }).then(
+        () => true,
+        () => false,
+      );
+      await eve.evaluate(() => window.__dropHold?.());
       let box, pale, still, drawnPale;
       try {
         box = await paintBox(eve, A, PAINT_SIDE);
@@ -586,7 +606,10 @@ try {
     const { G, kick, frozen, still, before, pale, attempt, drawnBefore, drawnPale, box } = result;
     const was = apart(before, PALE_RGB);
     const now = apart(pale, PALE_RGB);
-    const paler = now <= 0.8 * was || now < 30;
+    // At least 15% of the way toward the pale. Taken in the freeze every time now (not the start's
+    // hop), every paint but Cream moves 30 to 40%; Cream, near-white already, moves 19 to 21%
+    // (237 to 189-191), which sat right on the old 20% and failed about one run in three.
+    const paler = now <= 0.85 * was || now < 30;
     check(kick?.sc === G && frozen && still && paler, `${name} (${hex}): scared, its paint goes toward the pale (${JSON.stringify(before)} to ${JSON.stringify(pale)}: ${was} to ${now} from it${kick?.sc === G ? "" : `; the last hook ${JSON.stringify(kick)} at seat ${G}`}${paler ? "" : `; drawn ${JSON.stringify(drawnPale)} in ${JSON.stringify(box)}, before ${JSON.stringify(drawnBefore)}`}${attempt ? `; taken twice: the first try ${result.first.kick?.sc !== result.first.G ? `scared nobody (the hook: ${JSON.stringify(result.first.kick)}, at seat ${result.first.G})` : result.first.frozen ? "had moved off by the picture" : "never froze within 2 s"}` : ""}${still ? "" : "; it had moved off by the picture"})`);
   }
 
