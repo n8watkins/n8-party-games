@@ -19,6 +19,7 @@
 //   --shots=DIR     stills of each fright, in each look
 import { mkdirSync } from "node:fs";
 import { COLOUR_PRESETS, LOOK_COOLDOWN_MS } from "../shared/characters.js";
+import { ROOM } from "../shared/world.js";
 import { apart, meanColour, paintBox } from "./pixels.mjs";
 import { launchBrowser } from "./browser.mjs";
 import { partyApi, sleep } from "./client.mjs";
@@ -62,7 +63,17 @@ const PALE_RGB = { r: 0xee, g: 0xf3, b: 0xfb };
 function pageHelpers() {
   window.__out = [];
   const send = WebSocket.prototype.send;
+  // A page told to (holdHello, set before a reload) keeps everything it would send to the room
+  // until the test lets it (window.__goHello): so it arrives in the room at a moment of the test's choosing.
+  let holding = sessionStorage.getItem("holdHello") === "1";
+  sessionStorage.removeItem("holdHello");
+  const heldSends = [];
+  window.__goHello = () => {
+    holding = false;
+    for (const [ws, data] of heldSends.splice(0)) ws.send(data);
+  };
   WebSocket.prototype.send = function (data) {
+    if (holding) return void heldSends.push([this, data]);
     // The first whole room this page heard (its own clock), and how long each seat is still down in it.
     if (window.__ws !== this)
       this.addEventListener("message", (e) => {
@@ -141,7 +152,10 @@ function pageHelpers() {
       setTimeout(() => {
         if (!window.frightOn(onLoad.seat).character) return;
         until ??= frameAt + onLoad.ms;
-        window.__frightPath.push([frameAt, window.frightOn(onLoad.seat).scared]);
+        const f = window.frightOn(onLoad.seat);
+        const p = window.__room3d?.pieces.get(onLoad.seat);
+        // And what the page holds of the fright: its kind and how far into it (3D), or the flat look.
+        window.__frightPath.push([frameAt, f.scared, window.__room3d ? `${p?.fright?.kind ?? "none"}@${p?.fright ? Math.round(frameAt - p.fright.at) : "-"}` : "flat"]);
       }, 0);
       if (until === null || frameAt < until) requestAnimationFrame(look);
     };
@@ -196,12 +210,19 @@ try {
    * hook into it (only the pawn kicks; lobby/shared/robot.js). Resolves {to, sc} as a kick's
    * answer reads (`sc`: the ghost, when she was scared off), or null.
    */
-  const goAt = async () => {
+  const goAt = async ({ look = false } = {}) => {
+    // Where everyone stood just before (asked only where a round trip's wait does not matter).
+    const stoodBefore = look ? Object.fromEntries((await where()).filter(Boolean).map((x) => [x.seat, `${Math.round(x.x)}${x.d ? ` d${x.d}` : ""}${x.faded ? " faded" : ""}`])) : null;
     const mark = ada.seen.length;
     const robot = ada.room?.members[ada.seat]?.character === "robot";
     ada.send({ t: robot ? "hook" : "b" });
     const m = await ada.wait((m) => m.s === ada.seat && (robot ? m.t === "hk" : m.t === "b"), 2000, mark).catch(() => null);
-    return m && (robot ? { to: m.to, sc: m.o === "scare" ? m.to : undefined } : { to: m.to, sc: m.sc });
+    // What the room said around it (for a failure's message): the last few moves and frights.
+    const around = ada.seen
+      .slice(Math.max(0, mark - 6))
+      .filter((x) => ["spook", "fade", "hook", "hk", "b", "m"].includes(x.t))
+      .map((x) => `${x.t}${x.o ? ":" + x.o : ""} ${x.s ?? ""}${x.to !== undefined ? ">" + x.to : ""}${x.t === "m" ? ` d${x.d}` : ""}`);
+    return m && (robot ? { to: m.to, sc: m.o === "scare" ? m.to : undefined, o: m.o, around, stoodBefore } : { to: m.to, sc: m.sc, around, stoodBefore });
   };
 
   section("a party of four: Ada (a bare socket), Bea, Eve and Cy (phones)");
@@ -401,20 +422,14 @@ try {
       await ada.wait((m) => m.room?.members[A]?.character === character, 4000, from);
       await sleep(LOOK_COOLDOWN_MS);
     }
-    // The page is reloaded, and Ada kicks `lead` ms later: a 3D page takes about a second to come
-    // back, longer than a flat one, and the scare is over in about one and a half. What is judged
-    // is a page whose first word to the room came after the kick (it arrived in the middle) and
-    // that drew before the scare was over; otherwise it is tried again, up to four times, with
-    // the lead aimed by how long it took. On a machine so busy that a 3D page takes longer than
-    // the scare from its hello to its first picture, nothing can be judged, and that fails.
-    // The robot's scare begins when the room judges its hook, about a third of a second after the
-    // throw: a negative lead throws first and reloads that much later.
-    for (const [page, look, firstLead] of [[cy, "flat", -300], [eve, "3d", 150]]) {
-      let lead = firstLead;
+    // The page is reloaded and holds back its first word to the room (holdHello) until Ada's hook
+    // has gone through Bea and Ada is scared: so it arrives in the middle of the scare by
+    // construction, however long the reload takes. Then it is judged on its own frames against
+    // the room's word on the scare (still on when it drew: wide-eyed; over: calm). Tried once
+    // more only when no frame could be judged.
+    for (const [page, look] of [[cy, "flat"], [eve, "3d"]]) {
       let seen = null;
-      for (let attempt = 0; attempt < 4; attempt++) {
-        // Aimed so the page first speaks to the room just after the scare began, by how long it took last time.
-        if (seen) lead = lead + seen.spoke - 60;
+      for (let attempt = 0; attempt < 2; attempt++) {
         await ready(B);
         await calmAgain();
         at = await where();
@@ -425,29 +440,23 @@ try {
         check(!!(await fade(bea, B)), `Bea fades (Ada is a ${character})`);
         // The room's own address, as a reload does, with the look asked for again.
         const reload = () => page.goto(`${base}/lobby/?${look === "flat" ? "look=flat" : "look=3d&gl=any"}`);
-        // Watched from the first frame the reloaded page draws (frightOnLoad), on its own clock.
-        await page.evaluate((s) => sessionStorage.setItem("frightOnLoad", JSON.stringify({ seat: s, ms: 2500 })), A);
+        // Watched from the first frame the reloaded page draws (frightOnLoad), on its own clock,
+        // and holding back its first word to the room until told (holdHello).
+        await page.evaluate((s) => {
+          sessionStorage.setItem("frightOnLoad", JSON.stringify({ seat: s, ms: 2500 }));
+          sessionStorage.setItem("holdHello", "1");
+        }, A);
+        await reload();
         from = ada.seen.length;
-        let going;
-        let scared;
-        if (lead >= 0) {
-          going = reload();
-          await sleep(lead);
-          scared = await goAt();
-        } else {
-          const thrown = goAt();
-          await sleep(-lead);
-          going = reload();
-          scared = await thrown;
-        }
-        // The scare began when the room's word on the hook came.
+        const scared = await goAt();
+        // The scare began when the room's word on the hook came: now the page may speak.
         const kickAt = ada.seen.slice(from).find((m) => m.t === "hk" && m.s === A)?.at ?? Date.now();
-        await going;
+        await page.evaluate(() => window.__goHello?.());
         await drawn(page, look);
         const back = Date.now() - kickAt;
         const firstSend = await page.evaluate(() => window.__firstSend);
         const after = firstSend > kickAt;
-        console.log(`     (${look} ${character}, lead ${lead} ms: the page first spoke ${firstSend - kickAt} ms after the kick and drew ${back} ms after it)`);
+        console.log(`     (${look} ${character}: the page first spoke ${firstSend - kickAt} ms after the kick and drew ${back} ms after it)`);
         await sleep(1600);
         // Judged on the page's own clock against the first room it heard: how long Ada was still
         // down then. Still scared (by more than LEAD ms) when it first drew: it must draw her
@@ -459,24 +468,26 @@ try {
         const heardLeft = first?.down?.[A] ?? null;
         const leftAt = (t) => (heardLeft ?? -1e9) - (t - first.at);
         const firstLeft = path.length && first ? leftAt(path[0][0]) : null;
-        const story = `it first drew ${path.length && first ? Math.round(path[0][0] - first.at) : "?"} ms after it heard the room, with ${heardLeft === null ? "the scare over" : `${heardLeft} ms of it left`}; ${path.filter(([, s]) => s > 0.5).length} of ${path.length} frames wide-eyed`;
+        const story = `it first drew ${path.length && first ? Math.round(path[0][0] - first.at) : "?"} ms after it heard the room, with ${heardLeft === null ? "the scare over" : `${heardLeft} ms of it left`}; ${path.filter(([, s]) => s > 0.5).length} of ${path.length} frames wide-eyed (${path.slice(0, 6).map(([t, s, held]) => `${Math.round(t - first.at)}ms:${s.toFixed(2)} ${held}`).join(", ")})`;
         const judged = !first ? { ok: false, how: "heard no room" } : !path.length ? { ok: null, how: "drew no frame" } : firstLeft > LEAD ? { ok: path.some(([t, s]) => leftAt(t) > 0 && s > 0.5) && drawnAs === character, how: "still scared as it drew" } : firstLeft < -TAIL ? { ok: path.every(([, s]) => s <= 0.5) && drawnAs === character, how: "over before it drew, drawn calm" } : { ok: null, how: "ending as it came back" };
-        seen = { scared, after, judged, story, spoke: firstSend - kickAt, back };
-        if (after && shots) await page.screenshot({ path: `${shots}/${look}-${character}-reloaded-mid-scare.png` });
+        seen = { scared, after, judged, story, back };
+        if (shots) await page.screenshot({ path: `${shots}/${look}-${character}-reloaded-mid-scare.png` });
         await sleep(1500);
-        // Tried again only when the page came back before the kick (it did not arrive in the middle)
-        // or could not be judged; one judged either way is the answer.
-        if (after && seen.judged.ok !== null) break;
+        if (seen.judged.ok !== null) break;
       }
       const { scared, after, judged, story, back } = seen;
-      check(scared?.sc === B, `Ada's ${character} hooked Bea's faded ghost (${JSON.stringify(scared && { to: scared.to, sc: scared.sc })})`);
+      check(scared?.sc === B, `Ada's ${character} hooked Bea's faded ghost (${JSON.stringify(scared?.sc === B ? { to: scared.to, sc: scared.sc } : scared)})`);
       const what = `${look}: a page that arrived in the middle of the scare (drawn ${back} ms after the kick) draws Ada's ${character} as the room has her when it is back: ${judged.how} (${story})`;
-      if (!after) check(false, `${what}; it was back before the kick every time`);
+      if (!after) check(false, `${what}; it spoke to the room before the kick though held back`);
       else seenCheck(judged.ok, what);
     }
   }
 
   section("3D: a scared robot's paint goes pale in every colour, by its pixels");
+  // Cy out of the way, at the far end: Ada stands just left of a ghost to hook it, and a piece
+  // left standing there (Cy ended beside Eve after the reloads above) is caught by the hook first.
+  await step(cy, C, ROOM.maxX, Math.ceil(((ROOM.maxX - (await where())[C].x) / 430) * 1000) + 300);
+  await sleep(400);
   for (const [i, { hex, name }] of COLOUR_PRESETS.entries()) {
     await calmAgain();
     from = ada.seen.length;
@@ -508,7 +519,7 @@ try {
       const drawnBefore = await eve.evaluate((s) => window.frightOn(s), A);
       if (!(await fade(ghost, G))) check(false, `the ghost fades for ${name}`);
       from = ada.seen.length;
-      const kick = await goAt();
+      const kick = await goAt({ look: true });
       // Frozen at its palest: wide-eyed and still.
       // The page stops drawing on the frame it is judged frozen in, so the picture is of that frame
       // however long a busy machine takes to take it (a fixed wait could land after the freeze).
@@ -532,7 +543,7 @@ try {
     const was = apart(before, PALE_RGB);
     const now = apart(pale, PALE_RGB);
     const paler = now <= 0.8 * was || now < 30;
-    check(kick?.sc === G && frozen && still && paler, `${name} (${hex}): scared, its paint goes toward the pale (${JSON.stringify(before)} to ${JSON.stringify(pale)}: ${was} to ${now} from it${paler ? "" : `; drawn ${JSON.stringify(drawnPale)} in ${JSON.stringify(box)}, before ${JSON.stringify(drawnBefore)}`}${attempt ? `; taken twice: the first try ${result.first.kick?.sc !== result.first.G ? "scared nobody" : result.first.frozen ? "had moved off by the picture" : "never froze within 2 s"}` : ""}${still ? "" : "; it had moved off by the picture"})`);
+    check(kick?.sc === G && frozen && still && paler, `${name} (${hex}): scared, its paint goes toward the pale (${JSON.stringify(before)} to ${JSON.stringify(pale)}: ${was} to ${now} from it${kick?.sc === G ? "" : `; the last hook ${JSON.stringify(kick)} at seat ${G}`}${paler ? "" : `; drawn ${JSON.stringify(drawnPale)} in ${JSON.stringify(box)}, before ${JSON.stringify(drawnBefore)}`}${attempt ? `; taken twice: the first try ${result.first.kick?.sc !== result.first.G ? `scared nobody (the hook: ${JSON.stringify(result.first.kick)}, at seat ${result.first.G})` : result.first.frozen ? "had moved off by the picture" : "never froze within 2 s"}` : ""}${still ? "" : "; it had moved off by the picture"})`);
   }
 
   section("the pages");
