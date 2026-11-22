@@ -19,6 +19,7 @@
 import { h, icon } from "./dom.js";
 import { ROOMS, ROOM_COOLDOWN_MS, roomLocked, roomName } from "./shared/rooms.js";
 import { MODE_NAME, modeLocked } from "./shared/mode.js";
+import { releaseLine } from "/release-line.js";
 
 /** How long the buttons keep their words after the room opens on this device. */
 const WORDS_MS = 9000;
@@ -121,6 +122,8 @@ export class RoomMenu {
     const done = h("button", "plain", "Done", foot);
     done.type = "button";
     done.addEventListener("click", () => this.close());
+    // Which build this page is, small and quiet at the very bottom.
+    h("p", "picker-ver", releaseLine(), box);
     back.addEventListener("click", (e) => {
       if (e.target === back) this.close();
     });

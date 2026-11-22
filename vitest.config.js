@@ -40,6 +40,10 @@ export default defineConfig({
       { find: /^n8-party-games\/kit\/rng$/, replacement: kit("src/core/rng.js") },
       { find: /^n8-party-games\/kit\/http$/, replacement: kit("src/worker/http.js") },
       { find: /^n8-party-games\/kit\/build$/, replacement: kit("build/public.mjs") },
+      // The Worker's release record is written by a build (wrangler.jsonc's alias); the tests use a fixed stand-in.
+      { find: /^n8-party-games\/release$/, replacement: here("./scripts/release-stub.js") },
+      // The pages' copy at its site path (site/release-line.js imports it): the same stand-in.
+      { find: /^\/release\.js$/, replacement: here("./scripts/release-stub.js") },
       // The 3D look's three.js is the copy Cork & Bell serves (lobby/public/look3d/three.js): the same release as this package's.
       { find: /^\/cork-and-bell\/game\/vendor\/three\.module\.js$/, replacement: "three" },
     ],

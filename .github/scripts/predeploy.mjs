@@ -183,7 +183,10 @@ function startWorker(port, { persist = null, quiet = false, env = "local" } = {}
   const child = spawn("npx", args, {
     stdio: ["ignore", "pipe", "pipe"],
     detached: true,
-    env: { ...process.env, WRANGLER_SEND_METRICS: "false", CI: "1" },
+    // A local server with the production settings builds with --production, which refuses a
+    // dirty tree (scripts/release.mjs); the gate may run on one, and only the deploy after it
+    // must come from a commit, so its own servers are let through.
+    env: { ...process.env, WRANGLER_SEND_METRICS: "false", CI: "1", ...(env === "" && { RELEASE_ALLOW_DIRTY: "1" }) },
   });
   let log = "";
   // Wrangler's own word that it listens on this port: a server something else started there
