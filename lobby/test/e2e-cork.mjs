@@ -70,17 +70,33 @@ const lap = (what) => console.log(`     (${what}: ${((Date.now() - began) / 1000
 /** A time call CUT_AHEAD seconds ahead of a round that started at `startAt` on the room's clock (the local server's, this machine's). */
 const cutAt = (startAt) => Math.max(TEST_ROUND_MIN, Math.ceil((Date.now() - startAt) / 1000 - COUNT_IN) + CUT_AHEAD);
 /**
- * Waits until every page of a round runs to round length `s` (their session's, from the room's
- * word), up to CUT_AHEAD seconds and a little after (a page that is busy for seconds, as one
- * that has just brought the game up in software can be, still holds the length then: its game
- * goes only after the hold at the end); returns what each page said last (or why it could not).
+ * What each page's sockets were told of the round's length, in order: {s, via: "event" | "snapshot",
+ * now: the room's clock on that message}, by the page's name. A page's session takes its length
+ * from exactly these (the game's NetSession: the {k: "round"} event and every snapshot's
+ * `roundSeconds`; its unit tests prove that), so the wire is the judge here, not a page's state
+ * read through a page that draws in software and can be seconds behind its own socket.
  */
-async function pagesHear(frames, s) {
-  let said = [];
-  for (const until = Date.now() + (CUT_AHEAD + 1) * 1000; ; await sleep(150)) {
-    said = await Promise.all(frames.map((f) => f.evaluate(() => window.__cab.summary().roundSeconds).catch((err) => String(err?.message ?? err).split("\n")[0])));
-    if (said.every((x) => x === s) || Date.now() > until) return said;
-  }
+const roundHeard = {};
+/** The room's clock when each page's sockets heard time called, by the page's name (the first). */
+const timeHeard = {};
+/**
+ * Waits until the sockets of every page named have been told round length `s`, before they heard
+ * time called, for up to CUT_AHEAD seconds; returns, for each page, how it heard it ("event 3.1 s
+ * before time" and so on), or "not told".
+ */
+async function socketsHear(names, s) {
+  const told = (name) => {
+    const heard = (roundHeard[name] ?? []).find((h) => h.s === s);
+    if (!heard) return null;
+    const time = timeHeard[name];
+    return time === undefined || heard.now <= time ? heard : null;
+  };
+  for (const until = Date.now() + CUT_AHEAD * 1000; !names.every(told) && Date.now() < until; ) await sleep(100);
+  return names.map((name) => {
+    const heard = told(name);
+    if (!heard) return `${name}: not told`;
+    return `${name}: ${heard.via}${timeHeard[name] === undefined ? "" : `, ${((timeHeard[name] - heard.now) / 1000).toFixed(1)} s before time`}`;
+  });
 }
 const { api, call, connect } = partyApi(base);
 const problems = [];
@@ -172,9 +188,23 @@ try {
       pageSockets.push(socket);
       ws.on("framesent", (frame) => (socket.first ??= String(frame.payload)));
       // When the game called time, as the room told this page ({name, t: round seconds}).
+      // And what it was told of the round's length (roundHeard, timeHeard).
       ws.on("framereceived", (frame) => {
-        if (typeof frame.payload !== "string" || !frame.payload.includes('"k":"time"')) return;
-        for (const e of JSON.parse(frame.payload).ev ?? []) if (e.k === "time") timeCalls.push({ name, t: e.t });
+        if (typeof frame.payload !== "string" || !/"k":"(time|round)"|"roundSeconds"/.test(frame.payload)) return;
+        let m;
+        try {
+          m = JSON.parse(frame.payload);
+        } catch {
+          return;
+        }
+        const heard = (roundHeard[name] ??= []);
+        if (typeof m.s?.roundSeconds === "number" && heard.at(-1)?.s !== m.s.roundSeconds) heard.push({ s: m.s.roundSeconds, via: "snapshot", now: m.now });
+        for (const e of Array.isArray(m.ev) ? m.ev : []) {
+          if (e.k === "time") {
+            timeCalls.push({ name, t: e.t });
+            timeHeard[name] ??= m.now;
+          } else if (e.k === "round") heard.push({ s: e.s, via: "event", now: m.now });
+        }
       });
     });
     page.on("pageerror", (e) => errors.push(`${name}: ${e.message}`));
@@ -289,6 +319,21 @@ try {
   const start = await watcher.wait((m) => m.t === "start", 16000, 0);
   const startedAt = Date.now();
   lap("the battle started");
+  // The room's result card is up for under six seconds once the battle ends, which may be while
+  // the run is still busy with its checks: watched for from now, on the big screen, with its
+  // stills taken the moment it is there (where the pages keep up). Resolves with the card's text.
+  let stillsWanted = false;
+  const cardSeen = screen
+    .waitForFunction(() => (document.querySelector(".card .places") ? document.querySelector(".card").innerText : null), null, { polling: 100, timeout: 0 })
+    .then(async (handle) => {
+      const text = await handle.jsonValue();
+      if (stillsWanted) {
+        await shot(screen, "56-screen-cork-and-bell-result").catch(() => {});
+        await shot(ada, "57-phone-cork-and-bell-result").catch(() => {});
+      }
+      return text;
+    })
+    .catch(() => null);
   check(start.room.phase === "playing" && start.room.game.id === "cork-and-bell" && start.s.seats.map((s) => s.seat).join() === "0,1,2", "the count ends and a battle starts for the party's three seats, with no waiting room");
 
   // The game is mounted over the room on every device.
@@ -300,6 +345,7 @@ try {
   // seconds behind the room. What needs a page to keep up with the round is left
   // out there, and said so; everything the room decides is checked either way.
   const slow = loadedIn > 15_000;
+  stillsWanted = !slow;
   if (slow) console.log(`     (the game took ${(loadedIn / 1000).toFixed(0)} seconds to come up: this browser draws in software. The reload in the middle, the door sheet and the stills are left out; run with --win=1 for all of it.)`);
   // Where the pages keep up, the party of one plays its round now, in a room of its own, while
   // this battle runs its ninety seconds: the two share nothing but the server's books (counted
@@ -316,9 +362,11 @@ try {
   /** What the room said of the round's length ({k: "round"}), in order. */
   const roundWords = () => watcher.seen.filter((m) => m.t === "ev").flatMap((m) => m.ev.filter((e) => e.k === "round").map((e) => e.s));
   if (SHORT) {
-    // Cy's view asked for SWITCH_ROUND through cork-round as it mounted: the room took it and every page runs to it.
-    const asked = await pagesHear([frames.Ada, frames.Cy, frames.screen], SWITCH_ROUND);
-    check(roundWords()[0] === SWITCH_ROUND && asked.every((s) => s === SWITCH_ROUND), `cork-round=${SWITCH_ROUND} on Cy's room address: the test wall's room took a ${SWITCH_ROUND}-second round as Cy's view mounted, told everyone, and every page runs to it (${asked.join(", ")})`);
+    // Cy's view asked for SWITCH_ROUND through cork-round as it mounted: the room took it in the
+    // count-in and told every page's socket, before any time call.
+    const asked = await socketsHear(["Ada", "Cy", "screen"], SWITCH_ROUND);
+    const takenAt = watcher.seen.find((m) => m.t === "ev" && m.ev.some((e) => e.k === "round"))?.now;
+    check(roundWords()[0] === SWITCH_ROUND && takenAt - start.s.startAt < COUNT_IN * 1000 && !asked.some((a) => a.endsWith("not told")), `cork-round=${SWITCH_ROUND} on Cy's room address: the test wall's room took a ${SWITCH_ROUND}-second round in the count-in (${((takenAt - start.s.startAt) / 1000).toFixed(1)} s after the start) and told every page (${asked.join("; ")})`);
   }
   for (const [name, page] of [["phone held sideways", ada], ["upright phone", cy], ["big screen", screen]]) {
     const seen = await onTop(page);
@@ -348,12 +396,44 @@ try {
     await frames.Ada.waitForFunction((n) => window.__cab.session.sims[0].shots > n, had, { timeout: 30000 }).catch(() => {});
   }
   const shots = await fired();
-  // Each click sends one cork. The stall can show more only when Ada's socket dropped for a moment
-  // (a loaded machine): the room's stand-in plays a seat whose player is gone (lobby-core.js,
-  // gameTick), and its corks are the stall's too.
-  const dropped = watcher.seen.slice(watcher.seen.indexOf(start)).some((m) => m.room?.members?.[0]?.connected === false);
-  check(sentCorks.Ada.length === clicks && (shots === clicks || (shots > clicks && dropped)), `a click on the picture fires a cork: ${shots} corks from ${clicks} clicks, ${sentCorks.Ada.length} sent by Ada's page${shots > clicks ? ` (and ${shots - clicks} by the room's stand-in while Ada's socket was gone: ${dropped})` : ""}`);
-  if (shots !== clicks) console.log(`     Ada's page sent corks stamped ${sentCorks.Ada.map((c) => c.d.toFixed(3)).join(", ")} (${sentCorks.Ada.length} in all)`);
+  // Each click sends one cork, which the room relays ({k: "f", seat: 0}, at about the page's
+  // stamp: the room holds a stamp to within half a second of its clock). Ada's stall can show more
+  // only when her socket dropped for a moment (a loaded machine): the room's stand-in plays a
+  // seat whose player is gone (lobby-core.js, gameTick), its corks are the stall's too, and every
+  // one of them falls in a time her seat was seen gone (awayAda) and carries no number (`q`). (The
+  // game's pages do not number their corks either, so `q` alone does not tell the two apart: the
+  // stamps do.)
+  const relayedAda = () => watcher.seen.filter((m) => m.t === "ev").flatMap((m) => m.ev.filter((e) => e.k === "f" && e.seat === 0));
+  const matchClicks = () => {
+    const left = relayedAda();
+    const mine = [];
+    for (const c of sentCorks.Ada) {
+      const i = left.findIndex((e) => Math.abs(e.at - c.d) <= 0.6);
+      if (i >= 0) mine.push(...left.splice(i, 1));
+    }
+    return { mine, extra: left };
+  };
+  for (let i = 0; i < 50 && matchClicks().mine.length < clicks; i++) await sleep(100);
+  const { mine, extra } = matchClicks();
+  // The times Ada's seat was gone, in round seconds, from the room's word to the watcher
+  // ({t: "room"} on every join and drop: [from, to], `to` null while still gone).
+  const awayAda = [];
+  for (const m of watcher.seen.slice(watcher.seen.indexOf(start))) {
+    const on = m.room?.members?.[0]?.connected;
+    if (on === undefined) continue;
+    const t = (m.at - start.s.startAt) / 1000 - COUNT_IN;
+    const open = awayAda.at(-1)?.[1] === null;
+    if (!on && !open) awayAda.push([t, null]);
+    else if (on && open) awayAda.at(-1)[1] = t;
+  }
+  const awayAt = (t) => awayAda.some(([from, to]) => t >= from - 1 && t <= (to ?? Infinity) + 1);
+  const extraOk = extra.every((e) => e.q === undefined && awayAt(e.at));
+  check(
+    sentCorks.Ada.length === clicks && mine.length === clicks && extraOk && (extra.length === 0 ? shots === clicks : shots > clicks && shots <= clicks + extra.length),
+    `a click on the picture fires a cork: ${shots} corks on Ada's stall from ${clicks} clicks; her page sent ${sentCorks.Ada.length}, the room relayed ${mine.length} of them` +
+      (extra.length ? `, and ${extra.length} by the room's stand-in at ${extra.map((e) => e.at.toFixed(1)).join(", ")} while her seat was seen gone (${awayAda.map(([a, b]) => `${a.toFixed(1)}-${b === null ? "on" : b.toFixed(1)}`).join(", ")}): ${extraOk}` : ""),
+  );
+  if (shots !== clicks || extra.length) console.log(`     Ada's page sent corks stamped ${sentCorks.Ada.map((c) => c.d.toFixed(3)).join(", ")}; the room relayed corks for her seat at ${relayedAda().map((e) => e.at.toFixed(3)).join(", ")}`);
   await frames.screen.waitForFunction((n) => window.__cab.session.sims[0].shots >= n, shots, { timeout: 30000 }).catch(() => {});
   // The room is the judge of what was fired. The room relays every cork Ada's page sends, but
   // the game's own simulation in the room (cork-and-bell) sometimes counts fewer than the page
@@ -429,9 +509,8 @@ try {
     } else {
       bea.send({ t: "in", d: { round: battleRound } });
       await watcher.wait((m) => m.t === "ev" && m.ev.some((e) => e.k === "round" && e.s === battleRound), 5000, 0);
-      // A page that draws in software takes the room's word a frame or two late.
-      const cut = await pagesHear([frames.Ada, frames.Cy, frames.screen], battleRound);
-      check(cut.every((s) => s === battleRound), `Bea's socket cut the round to ${battleRound} seconds, and the room told every page (${cut.join(", ")})`);
+      const cut = await socketsHear(["Ada", "Cy", "screen"], battleRound);
+      check(!cut.some((a) => a.endsWith("not told")), `Bea's socket cut the round to ${battleRound} seconds, and the room told every page before time was called (${cut.join("; ")})`);
     }
   }
   console.log(`     waiting for the round to end (${battleRound} seconds in all: Ada and Bea never spend their corks)...`);
@@ -449,14 +528,10 @@ try {
   if (!SHORT) check(roundWords().length === 0, "nobody asked for a short round, and the room said nothing of one");
   check(rows.length === 3 && rows.every((r, i) => i === 0 || r.score <= rows[i - 1].score) && rows[0].points === 3 && rows.find((r) => r.name === "Bea").score === 0, "it ends with places: " + rows.map((r) => `${r.name} ${r.score} (+${r.points})`).join(", "));
   check(end.room.phase === "lobby" && end.room.tonight.games === 1 && end.room.members.filter(Boolean).reduce((n, m) => n + m.points, 0) === rows.reduce((n, r) => n + r.points, 0), "everyone is back in the lobby and the points are on the Tonight board");
-  if (!slow) {
-    // The card is up for under six seconds: a page that keeps up shows it at once.
-    await screen.waitForSelector(".card .places", { timeout: 20000 });
-    const card = await screen.locator(".card").innerText();
-    await shot(screen, "56-screen-cork-and-bell-result");
-    await shot(ada, "57-phone-cork-and-bell-result");
-    check(card.includes("Cork & Bell") && rows.every((r) => card.includes(r.name) && card.includes(r.score.toLocaleString("en-US"))), "the room's card shows who came where, with the scores");
-  }
+  // The card is up for under six seconds, so it has been watched for since the battle began (cardSeen).
+  const card = await Promise.race([cardSeen, sleep(20000).then(() => null)]);
+  if (!slow) check(typeof card === "string" && card.includes("Cork & Bell") && rows.every((r) => card.includes(r.name) && card.includes(r.score.toLocaleString("en-US"))), "the room's card shows who came where, with the scores" + (card === null ? ": it never came up on the big screen" : ""));
+  else console.log(`     (the big screen ${card === null ? "did not show" : "showed"} the room's card: a page that draws in software is not held to it)`);
   for (const [name, page] of [["big screen", screen], ["Ada's phone", ada], ["Cy's phone", cy]]) {
     // (A page that is behind hears of the end late: wait for it to act on it.)
     await page.waitForSelector(FRAME, { state: "detached", timeout: 90000 });
@@ -576,10 +651,10 @@ try {
     else if (cut >= ROUND_SECONDS) console.log(`     (the late screen came up ${cut - CUT_AHEAD} seconds in: too late to cut the round alone short, its own time call comes first)`);
     else {
       await loneFrame.evaluate((s) => window.frameElement.partyHost.send({ round: s }), cut);
-      const heard = await pagesHear([loneFrame, lateFrame], cut);
+      const heard = await socketsHear(["alone", "late screen"], cut);
       const first = loneTime() && loneTime().t < cut;
       if (!first) loneRound = cut;
-      check(heard.every((s) => s === cut) || first, `Sol's page cut the round to ${cut} seconds, and the room told both pages (${heard.join(", ")})${first ? `; time was called first, at ${loneTime().t.toFixed(1)}, as its corks were spent` : ""}`);
+      check(!heard.some((a) => a.endsWith("not told")) || first, `Sol's page cut the round to ${cut} seconds, and the room told both pages before time was called (${heard.join("; ")})${first ? `; time was called first, at ${loneTime().t.toFixed(1)}, as its corks were spent` : ""}`);
     }
   }
   console.log("     waiting for the round played alone to end...");
