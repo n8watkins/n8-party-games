@@ -63,7 +63,7 @@ const SWITCH_ROUND = 89;
  * a frame or two a second on a loaded machine, to hear of it before time is called (and their
  * game is taken away).
  */
-const CUT_AHEAD = 6;
+const CUT_AHEAD = 8;
 /** Seconds since the run began, for the log: where the time goes. */
 const began = Date.now();
 const lap = (what) => console.log(`     (${what}: ${((Date.now() - began) / 1000).toFixed(1)} s into the run)`);
@@ -71,11 +71,13 @@ const lap = (what) => console.log(`     (${what}: ${((Date.now() - began) / 1000
 const cutAt = (startAt) => Math.max(TEST_ROUND_MIN, Math.ceil((Date.now() - startAt) / 1000 - COUNT_IN) + CUT_AHEAD);
 /**
  * Waits until every page of a round runs to round length `s` (their session's, from the room's
- * word), up to CUT_AHEAD seconds; returns what each page said last (or why it could not say).
+ * word), up to CUT_AHEAD seconds and a little after (a page that is busy for seconds, as one
+ * that has just brought the game up in software can be, still holds the length then: its game
+ * goes only after the hold at the end); returns what each page said last (or why it could not).
  */
 async function pagesHear(frames, s) {
   let said = [];
-  for (const until = Date.now() + CUT_AHEAD * 1000; ; await sleep(150)) {
+  for (const until = Date.now() + (CUT_AHEAD + 1) * 1000; ; await sleep(150)) {
     said = await Promise.all(frames.map((f) => f.evaluate(() => window.__cab.summary().roundSeconds).catch((err) => String(err?.message ?? err).split("\n")[0])));
     if (said.every((x) => x === s) || Date.now() > until) return said;
   }
@@ -346,7 +348,11 @@ try {
     await frames.Ada.waitForFunction((n) => window.__cab.session.sims[0].shots > n, had, { timeout: 30000 }).catch(() => {});
   }
   const shots = await fired();
-  check(shots === clicks, `a click on the picture fires a cork: ${shots} corks from ${clicks} clicks`);
+  // Each click sends one cork. The stall can show more only when Ada's socket dropped for a moment
+  // (a loaded machine): the room's stand-in plays a seat whose player is gone (lobby-core.js,
+  // gameTick), and its corks are the stall's too.
+  const dropped = watcher.seen.slice(watcher.seen.indexOf(start)).some((m) => m.room?.members?.[0]?.connected === false);
+  check(sentCorks.Ada.length === clicks && (shots === clicks || (shots > clicks && dropped)), `a click on the picture fires a cork: ${shots} corks from ${clicks} clicks, ${sentCorks.Ada.length} sent by Ada's page${shots > clicks ? ` (and ${shots - clicks} by the room's stand-in while Ada's socket was gone: ${dropped})` : ""}`);
   if (shots !== clicks) console.log(`     Ada's page sent corks stamped ${sentCorks.Ada.map((c) => c.d.toFixed(3)).join(", ")} (${sentCorks.Ada.length} in all)`);
   await frames.screen.waitForFunction((n) => window.__cab.session.sims[0].shots >= n, shots, { timeout: 30000 }).catch(() => {});
   // The room is the judge of what was fired. The room relays every cork Ada's page sends, but
