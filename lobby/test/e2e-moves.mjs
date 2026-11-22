@@ -524,7 +524,8 @@ try {
     if (!wentSoft) check(false, `Sam went soft before the reload (the room said ${JSON.stringify(ada.seen.slice(mark).filter((m) => m.s === S && m.t !== "m").map((m) => m.t + (m.k ? ":" + m.k : "")))})`);
     // Soft for ABSORB_MS, then melting (SLIME's MELT_MS): drawn soft if it still is when the phone
     // draws again, and not if the absorb was over before it was back.
-    await sam.evaluate((s) => sessionStorage.setItem("watchOnLoad", JSON.stringify({ seat: s, ms: 2500 })), S);
+    // Watched long enough to see its move button come ready too (the cooldown is SLIME_COOLDOWN_MS).
+    await sam.evaluate(([s, ms]) => sessionStorage.setItem("watchOnLoad", JSON.stringify({ seat: s, ms })), [S, SLIME_COOLDOWN_MS + 1000]);
     await sam.goto(`${base}/lobby/?${lookQuery}`);
     await drawn(sam);
     await sleep(1200);
@@ -551,10 +552,15 @@ try {
     );
     const first = await sam.evaluate(() => window.__firstRoom ?? null);
     // Not before the phone draws its first frame (the button is not on the screen until then).
-    const firstFrameAt = (await seenOn(sam, S)).path?.[0]?.[0] ?? null;
+    const ownPath = (await seenOn(sam, S)).path ?? [];
+    const firstFrameAt = ownPath[0]?.[0] ?? null;
     const dueAt = first && firstFrameAt !== null ? Math.max(first.at + first.slimeCool[S], firstFrameAt) : null;
     const lag = readyAt === null || dueAt === null ? null : Math.round(readyAt - dueAt);
-    check(lag !== null && lag < 100, `Sam's reloaded phone has its move ready when the room said it would be (${lag} ms after; the first room it heard gave ${first?.slimeCool[S]} ms, and it first drew ${first && firstFrameAt !== null ? Math.round(firstFrameAt - first.at) : "?"} ms after hearing it)`);
+    // Ready by the second frame drawn from then (the button is set in the page's own frame, which
+    // can run after the watch's in the same one), or within 100 ms where frames come faster.
+    const frameAfter = dueAt === null ? null : ownPath.filter(([t]) => t >= dueAt - 1)[1]?.[0] ?? null;
+    const inTime = lag !== null && (lag < 100 || (frameAfter !== null && readyAt <= frameAfter));
+    check(inTime, `Sam's reloaded phone has its move ready when the room said it would be (${lag} ms after${frameAfter !== null ? `, the next frame ${Math.round(frameAfter - dueAt)} ms after` : ""}; the first room it heard gave ${first?.slimeCool[S]} ms, and it first drew ${first && firstFrameAt !== null ? Math.round(firstFrameAt - first.at) : "?"} ms after hearing it)`);
 
     section(`${look}: a hold survives a page that stalls drawing; an absorb the room refuses is taken back on Sam's own phone`);
     await rested(S);
