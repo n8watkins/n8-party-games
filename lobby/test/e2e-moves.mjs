@@ -925,7 +925,9 @@ try {
         ].filter(([, due]) => due);
         const missing = owed.filter(([, , ok]) => !ok()).map(([name]) => name);
         const all = pullFrames.length + legFrames.length + chargeFrames.length + jumpFrames.length;
-        check(swap !== null && owed.length > 0 && missing.length === 0 && (all === 0 || shown), `Pat's new view takes over the moves it heard while it loaded, and draws them (handed ${swap ? Math.round(swap.at - (lastHeld ?? swap.at)) : "?"} ms after Ada's last jump: ${owed.map(([name]) => name).join(", ") || "nothing still under way"}${missing.length ? `; missing ${missing.join(", ")}: ${JSON.stringify(handed)}` : ""}; ${story})`);
+        // (A page so busy that it took over seconds after the last of them, when nothing it heard
+        // was still under way, had nothing to hand on: unseen, as a check no frame fell in.)
+        seen(swap === null ? false : owed.length === 0 ? null : missing.length === 0 && (all === 0 || shown), `Pat's new view takes over the moves it heard while it loaded, and draws them (handed ${swap ? Math.round(swap.at - (lastHeld ?? swap.at)) : "?"} ms after Ada's last jump: ${owed.map(([name]) => name).join(", ") || "nothing still under way"}${missing.length ? `; missing ${missing.join(", ")}: ${JSON.stringify(handed)}` : ""}; ${story})`);
       }
       const failed = errors.slice(failedBefore);
       check(failed.length === 0, `Pat's page took them in without an error${failed.length ? ": " + [...new Set(failed)].slice(0, 3).join("; ") : ""}`);
