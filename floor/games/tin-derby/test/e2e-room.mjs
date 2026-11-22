@@ -40,6 +40,7 @@ import { mkdirSync } from "node:fs";
 import net from "node:net";
 import { resolve } from "node:path";
 import { launchBrowser } from "../../../../lobby/test/browser.mjs";
+import { still as takeStill } from "../../../../party-kit/test/stills.mjs";
 import { partyApi, sleep } from "../../../../lobby/test/client.mjs";
 import { boxCentre } from "../../../../lobby/shared/world.js";
 
@@ -111,8 +112,7 @@ try {
   };
   const shot = async (page, name, caption) => {
     if (!stills) return;
-    await page.screenshot({ path: `${resolve(stills)}/${name}.png`, timeout: 60000 }).catch((e) => console.log(`     (no still ${name}: ${e.message})`));
-    console.log(`     still ${name}.png: ${caption}`);
+    if (await takeStill(page, { path: `${resolve(stills)}/${name}.png` })) console.log(`     still ${name}.png: ${caption}`);
   };
 
   async function screenPage(name = "screen", viewport = { width: 1280, height: 720 }) {

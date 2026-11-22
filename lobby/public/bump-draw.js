@@ -91,11 +91,22 @@ export class BumpDraw {
     const f = p.fright;
     if (f) {
       const pose = movedPose(f, now - f.at, calm());
-      if (pose.state === "up") p.fright = null;
+      if (pose.state === "up") {
+        p.fright = null;
+        // Over before this page drew its landing (a move with no safe time after it, a shove, or a
+        // page that drew nothing all the while): this one frame is drawn where the move put it too.
+        if (!f.landed && now >= f.at) return { ...STILL, x: f.to };
+      }
       // Until the kick reaches the ghost the kicker's own kick is drawn (below).
       else if (pose.state !== "standing") {
         if (pose.face) p.face = pose.face;
-        return { x: pose.x, dx: pose.dx, lift: pose.lift, tilt: pose.tilt, pivot: 0, sx: pose.sx, sy: pose.sy, state: pose.state, dizzy: !!pose.dizzy, safe: pose.state === "safe", scared: pose.scared, pale: pose.pale };
+        // Over, and safe for a while: the first frame after it is drawn where the move put it, not
+        // eased there from wherever this page last drew it (a page that drew no frame of the
+        // slide would glide it in at the look's ease, behind where it is). It may walk on after.
+        const landing = pose.x === null && pose.state === "safe" && !f.landed;
+        if (landing) f.landed = true;
+        const x = landing ? f.to : pose.x;
+        return { x, dx: pose.dx, lift: pose.lift, tilt: pose.tilt, pivot: 0, sx: pose.sx, sy: pose.sy, state: pose.state, dizzy: !!pose.dizzy, safe: pose.state === "safe", scared: pose.scared, pale: pose.pale };
       }
     }
     const k = p.knock;
