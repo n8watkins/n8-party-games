@@ -34,6 +34,7 @@ import { watchMode } from "./hop.js";
 import { stageKey, stageStale, tellRoom } from "./shared/stage.js";
 import { playerLine, statusLine } from "./shared/status.js";
 import { JUMP_HEIGHT, acrossWalls, posAt, sameWall } from "./shared/world.js";
+import { withinReach } from "./reach.js";
 
 const params = new URLSearchParams(location.search);
 const app = document.getElementById("app");
@@ -1026,11 +1027,12 @@ function frame(t) {
   // While a count or a coin toss is on, a phone pulls back to the whole room: that is where it happens.
   const drama = room.phase === "lobby" && (room.vote.count || room.vote.toss);
   const bar = hud.barHeight();
-  let aim = camera({ w: innerWidth, h: innerHeight, bar, mode: isPlayer() && !drama ? zoom : "room", focusX: focus, phone: phone(), boxes: room.boxes.length });
+  // Never past where the drawing is room (reach.js): a screen wider still is brought in to it.
+  let aim = withinReach(camera({ w: innerWidth, h: innerHeight, bar, mode: isPlayer() && !drama ? zoom : "room", focusX: focus, phone: phone(), boxes: room.boxes.length }), scene.reach, bar, innerHeight);
   // While the spot card lies over the top of a phone's screen, the room is framed so that no name
   // tag, stacked or mid-jump, goes under it (card-clear.js).
   const cardBottom = phone() ? step?.cardBottom() : null;
-  if (cardBottom != null && view) aim = clearOfCard(aim, { cardBottom, top: drawnTagsTop(), w: innerWidth, h: innerHeight, bar, jump: JUMP_HEIGHT, bottom: PHONE_FRAME.bottom, room: FRAME });
+  if (cardBottom != null && view) aim = withinReach(clearOfCard(aim, { cardBottom, top: drawnTagsTop(), w: innerWidth, h: innerHeight, bar, jump: JUMP_HEIGHT, bottom: PHONE_FRAME.bottom, room: FRAME }), scene.reach, bar, innerHeight, { slide: true });
   // The view glides from one framing to the next, except when the window itself changes shape.
   const size = `${innerWidth}x${innerHeight}`;
   if (!view || size !== viewSize) view = aim;

@@ -18,6 +18,7 @@
 // To retire the flat drawing: delete scene.js, art.js and FlatRoomView below, and make "3d" the
 // default in chosenLook. To retire the preview instead: delete look3d/ and this file's 3D half.
 import { set, s } from "./dom.js";
+import { REACH } from "./reach.js";
 import { Scene } from "./scene.js";
 import { rememberReal, renderedFor } from "./look3d/rendered/switch.js";
 import { hangsOwnBoxes } from "./shared/rooms.js";
@@ -45,7 +46,9 @@ import { hangsOwnBoxes } from "./shared/rooms.js";
  * @property {(compact: boolean, room: object, now: number) => void} setCompact  the phone's bigger signs and tags, on or off
  * @property {(now: number, dt: number, pilot: object | null, view: object) => void} frame
  *   draw one frame; `view` is the part of the room to show (lobby/shared/camera.js)
- * @property {() => void} destroy                            take it out of the page
+ * @property {{left: number, right: number}} reach            how far to either side the drawing is room, in world
+ *   units: the page keeps `view` inside it (reach.js, withinReach)
+ * @property {() => void} destroy                           take it out of the page
  */
 
 /**
@@ -136,6 +139,10 @@ class FlatRoomView extends Scene {
     this.tagSize = compact ? 26 : 21;
     this.build(room);
     this.setRoom(room, now);
+  }
+
+  get reach() {
+    return REACH.flat;
   }
 
   frame(now, dt, pilot, view) {

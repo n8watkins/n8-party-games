@@ -22,6 +22,7 @@
 // room uses. A live room never reads this file: its boxes come from the game list.
 import { Hud } from "../hud.js";
 import { camera } from "../shared/camera.js";
+import { withinReach } from "../reach.js";
 import { IDEAS, boxFromManifest } from "../shared/vote.js";
 import { hangsOwnBoxes, wallFor } from "../shared/rooms.js";
 import { PIECE_WIDTH, poolOf } from "../shared/world.js";
@@ -179,7 +180,8 @@ function draw(now, dt) {
   } else if (frozen) view3d.voteAt = voteAt;
   const mine = role === "player" ? view3d.ownX() : 960;
   const drama = room.vote.count || room.vote.toss;
-  const view = camera({ w: innerWidth, h: innerHeight, bar: hud ? hud.barHeight() : 0, mode: role === "player" && !drama ? zoom : "room", focusX: mine, phone: phone() });
+  const bar = hud ? hud.barHeight() : 0;
+  const view = withinReach(camera({ w: innerWidth, h: innerHeight, bar, mode: role === "player" && !drama ? zoom : "room", focusX: mine, phone: phone() }), view3d.reach, bar, innerHeight);
   view3d.frame(now, dt, null, view);
   hud?.update(room, room.vote, now, voteAt, zoom, 0);
   frames++;

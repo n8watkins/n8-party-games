@@ -29,6 +29,7 @@ import { SKINS, liveSkin } from "./skins.js";
 import { CAM, D_WALL, FEET_Y, FRAME, PX, SPACE, U, layout, place, walkX, wallX, wallY } from "./space.js";
 import * as THREE from "./three.js";
 import { Words } from "./words.js";
+import { REACH } from "../reach.js";
 
 /** How quickly another player's piece closes on where it should be (per second). The flat drawing's number. */
 const EASE = 14;
@@ -315,21 +316,25 @@ export class Room3D {
     const sideTex = painted(depth, SPACE.h, skin.wall, true);
     const sideGeo = new THREE.PlaneGeometry(depth, SPACE.h);
     const sideMat = new THREE.MeshBasicMaterial({ map: sideTex, color: 0x9aa4c4 });
-    for (const sgn of [-1, 1]) {
-      const m = add(new THREE.Mesh(sideGeo, sideMat));
-      m.position.set((sgn * SPACE.w) / 2, SPACE.h / 2, (SPACE.zFront + SPACE.zBack) / 2);
-      m.rotation.y = (-sgn * Math.PI) / 2;
-    }
+    // The two end walls run on toward the viewer as far as the floor does (the same wall, turned
+    // over at the join, as the floor is), so a screen wider than the room for its height (a
+    // sideways phone: reach.js) sees end wall at its edges and never past the front of the room.
+    const ends = (geo, mat, y) => {
+      for (const sgn of [-1, 1])
+        for (const on of [0, 1]) {
+          const m = add(new THREE.Mesh(geo, mat));
+          m.position.set((sgn * SPACE.w) / 2, y, (SPACE.zFront + SPACE.zBack) / 2 + on * depth);
+          m.rotation.y = (-sgn * Math.PI) / 2;
+          if (on) m.scale.x = -1;
+        }
+    };
+    ends(sideGeo, sideMat, SPACE.h / 2);
     // Above the painted wall: its top colour carried on up, for screens taller than the room.
     const above = new THREE.MeshBasicMaterial({ color: skin.above });
     const aboveSide = new THREE.MeshBasicMaterial({ color: new THREE.Color(skin.above).multiply(new THREE.Color(0x9aa4c4)) });
     const top = add(new THREE.Mesh(new THREE.PlaneGeometry(SPACE.w, 14), above));
     top.position.set(0, SPACE.h + 7, SPACE.zBack);
-    for (const sgn of [-1, 1]) {
-      const m = add(new THREE.Mesh(new THREE.PlaneGeometry(depth, 14), aboveSide));
-      m.position.set((sgn * SPACE.w) / 2, SPACE.h + 7, (SPACE.zFront + SPACE.zBack) / 2);
-      m.rotation.y = (-sgn * Math.PI) / 2;
-    }
+    ends(new THREE.PlaneGeometry(depth, 14), aboveSide, SPACE.h + 7);
     this.floor = add(new THREE.Mesh(new THREE.PlaneGeometry(SPACE.w, depth), floorMat(painted(SPACE.w, depth, skin.floor, false), skin.light)));
     this.floor.rotation.x = -Math.PI / 2;
     this.floor.position.set(0, 0, (SPACE.zFront + SPACE.zBack) / 2);
@@ -1175,6 +1180,11 @@ export class Room3D {
    */
   get drawing() {
     return { skin: this.skin.id, frames: this.drawn.frames, cpu: this.drawn.cpu, sharpness: this.renderer.getPixelRatio() };
+  }
+
+  /** How far to either side this drawing is room, in world units: the page keeps its view inside it (../reach.js). */
+  get reach() {
+    return REACH["3d"];
   }
 
   /** For tests and for measuring: how much is being drawn, and at what size. */

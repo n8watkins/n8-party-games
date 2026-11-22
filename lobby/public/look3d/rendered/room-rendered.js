@@ -525,6 +525,11 @@ export class RoomRendered extends Room3D {
     setTimeout(() => el.remove(), 12_000);
   }
 
+  /** As far as the room's picture goes (its plate's rect), or the 3D look's reach when that draws the room. */
+  get reach() {
+    return this.plain || !this.plate ? super.reach : { left: this.plate.rect.x0, right: this.plate.rect.x1 };
+  }
+
   /** What the frame meter calls this look: "real", or "3d" once it has fallen back (or the wall is not the picture's). */
   get lookName() {
     return this.plain ? "3d" : "real";

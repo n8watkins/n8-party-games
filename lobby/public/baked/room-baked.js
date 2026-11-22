@@ -406,6 +406,11 @@ export class RoomBaked extends Room3D {
     return { ...super.stats(), look: this.plain ? "3d" : "baked", plate: this.plate.base.image?.width ?? 0 };
   }
 
+  /** As far as the plate's picture goes, or the 3D look's reach when that draws the room. */
+  get reach() {
+    return this.plain || !this.plate ? super.reach : { left: this.plate.info.rect.x0, right: this.plate.info.rect.x1 };
+  }
+
   destroy() {
     this.scene.onBeforeRender = () => {};
     for (const r of this.mirror.children) r.dispose();
