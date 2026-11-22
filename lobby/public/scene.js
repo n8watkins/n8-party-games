@@ -21,6 +21,7 @@ import { standings } from "./shared/tonight.js";
 import { BADGES, COUNT_MS, playersLabel } from "./shared/vote.js";
 import { wallFor } from "./shared/rooms.js";
 import { ROOM, drawnLight, jumpHeight, poolOf, posAt } from "./shared/world.js";
+import { REACH } from "./reach.js";
 
 const GREY = "#9b948b";
 const BADGE_COLOURS = { any: ["#3db8ff", "#06263a"], phones: ["#b79cf7", "#24124d"], screen: ["#ffc93c", "#3a2a00"] };
@@ -113,16 +114,18 @@ export class Scene {
     const sag = (x) => 50 + 21 * Math.sin((x / 73) * 0.86 + 0.6);
     let cable = "";
     const bulbs = s("g");
-    for (let x = -640; x <= 2560; x += 12) cable += `${cable ? "L" : "M"}${x},${(sag(x) - 7).toFixed(1)}`;
-    for (let x = -640; x <= 2560; x += 73) {
+    for (let x = REACH.flat.left; x <= REACH.flat.right; x += 12) cable += `${cable ? "L" : "M"}${x},${(sag(x) - 7).toFixed(1)}`;
+    for (let x = REACH.flat.left; x <= REACH.flat.right; x += 73) {
       bulbs.append(s("circle", { cx: x, cy: sag(x), r: 17, fill: "url(#g-bulb)" }), s("circle", { cx: x, cy: sag(x), r: 6, fill: "#ffeccb" }));
     }
     g.append(s("path", { d: cable, stroke: "#0a0504", "stroke-width": 2, fill: "none" }), bulbs);
-    // The room fades out at its ends. The dark past an end starts where the fade has reached it,
-    // not under it: where the two overlapped, a darker line ran down the screen (a sideways
-    // phone's whole room shows past the right end).
-    g.append(s("rect", { x: x0, y: -900, width: -x0, height: 2900, fill: "#080403", opacity: 0.82 }), s("rect", { x: 0, y: -900, width: 120, height: 2900, fill: "url(#g-edge-l)" }));
-    g.append(s("rect", { x: 1920, y: -900, width: x1 - 1920, height: 2900, fill: "#080403", opacity: 0.82 }), s("rect", { x: 1800, y: -900, width: 120, height: 2900, fill: "url(#g-edge-r)" }));
+    // The room carries on past its ends as wall and floor (a sideways phone's whole room shows
+    // past the right end: reach.js), and fades out only past its reach, where no view goes. The
+    // dark past an end starts where the fade has reached it, not under it: where the two
+    // overlapped, a darker line ran down the screen.
+    const { left, right } = REACH.flat;
+    g.append(s("rect", { x: x0, y: -900, width: left - x0, height: 2900, fill: "#080403", opacity: 0.82 }), s("rect", { x: left, y: -900, width: 300, height: 2900, fill: "url(#g-edge-l)" }));
+    g.append(s("rect", { x: right, y: -900, width: x1 - right, height: 2900, fill: "#080403", opacity: 0.82 }), s("rect", { x: right - 300, y: -900, width: 300, height: 2900, fill: "url(#g-edge-r)" }));
     return g;
   }
 
