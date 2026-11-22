@@ -488,13 +488,19 @@ try {
      * room waited for until it has every one there: the room takes a long way in steps, so a piece
      * sent far is still on its way for a while (and would be in another's way meanwhile).
      */
+    // (A bare socket keeps its piece's rev only from the few messages client.mjs reads: the room's
+    // own view says where it has the piece after a counter moved it, and which rev to answer.)
     const placeAll = async (...spots) => {
+      const now = await where();
+      for (const [c] of spots) if (now[c.seat]?.rev !== undefined) [c.x, c.rev] = [Math.round(now[c.seat].x), now[c.seat].rev];
       for (const [c, x, face] of spots) face ? stand(c, x, face) : c.goto(x);
       for (let i = 0; i < 40; i++) {
         const at = await where();
         if (spots.every(([c, x]) => Math.abs(at[c.seat].x - x) <= 8)) return true;
         await sleep(150);
       }
+      const at = await where();
+      console.log(`  (not all placed: ${spots.map(([c, x]) => `${c.seat} at ${Math.round(at[c.seat].x)} rev ${at[c.seat].rev}, asked ${x} rev ${c.rev}`).join("; ")})`);
       return false;
     };
     /** Once a bare socket hears a message `test` passes, it sends `msg` `ms` later (a player answering what they see). */
@@ -542,9 +548,10 @@ try {
 
     section(`${look}: cut the line: Pat kicks Ada's chain while she pulls Bo, and Bo is freed where he is`);
     await rested(P, A, B);
-    await placeAll([bo, hx + 220, -1]);
-    await walkPat(hx + 245, -1);
-    await placeAll([ada, hx, 1]);
+    // Bo just in front of Pat, as the room has Pat (his turn to face left moves him a little), so
+    // Ada's hook reaches Bo first.
+    const px = await walkPat(hx + 250, -1);
+    await placeAll([bo, px - 25, -1], [ada, hx, 1]);
     await sleep(400);
     await watchAll([B], 3000);
     mark = ada.seen.length;
@@ -554,7 +561,7 @@ try {
     await counterShot("cut");
     const pulledTo = ada.seen.slice(mark).find((m) => m.t === "hk" && m.s === A)?.x ?? null;
     check(cut?.cut === B && cut.by === A, `Pat's kick cuts the chain (${JSON.stringify(cut && { cut: cut.cut, by: cut.by, x: cut.x })}; the room said ${saidSince(mark)}; Pat's page pressed: ${await pat.evaluate(() => window.__react === null)})`);
-    check(cut && pulledTo !== null && Math.abs(cut.x - (hx + 220)) < Math.abs(pulledTo - (hx + 220)), `and Bo is set down at ${cut?.x}, short of where the pull was taking him (${pulledTo})`);
+    check(cut && pulledTo !== null && Math.abs(cut.x - (px - 25)) < Math.abs(pulledTo - (px - 25)), `and Bo is set down at ${cut?.x}, short of where the pull was taking him (${pulledTo})`);
     await sleep(1200);
     for (const [name, page] of pages) {
       const freed = await drewDuring(page, B, (m) => m.t === "b" && m.cut !== undefined, MOVED.freed.ms + 60, MOVED.freed.ms + 700, (f) => Math.abs(f.x - cut.x) <= 6);
@@ -577,7 +584,7 @@ try {
     check(cannon?.ct === "cannon" && cannon.to === A, `the room tells everybody Cy bowled Ada over (${JSON.stringify(cannon && { k: cannon.k, ct: cannon.ct, to: cannon.to, x: cannon.x })})`);
     await sleep(1500);
     for (const [name, page] of pages) {
-      const down = await drewDuring(page, A, (m) => m.t === "slime" && m.ct === "cannon", 80, STUN_MS - IMPACT_MS - GETUP_MS, tipped, (f) => `${f.knock ? "knocked" : "up"}:${Math.round(f.tilt)}`);
+      const down = await drewDuring(page, A, (m) => m.t === "slime" && m.ct === "cannon", 150, STUN_MS - IMPACT_MS - GETUP_MS, tipped, (f) => `${f.knock ? "knocked" : "up"}:${Math.round(f.tilt)}`);
       seen(cannon ? down.ok : false, `${look}: ${name} draws Ada bowled over (${calm(name) ? "less motion; " : ""}${down.story})`);
     }
 
