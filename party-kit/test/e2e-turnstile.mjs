@@ -84,7 +84,8 @@ async function kitLobby(b) {
   host.on("pageerror", (e) => hostErrors.push(String(e)));
   await host.goto(passBase + "/cork-and-bell/?quality=low", { waitUntil: "domcontentloaded", timeout: 90000 });
   await host.waitForFunction(() => window.__cab, null, { timeout: 90000 });
-  await host.locator("#battle").click();
+  // The game's page draws its 3D look in software here: on a busy machine its button can take a while.
+  await host.locator("#battle").click({ timeout: 90000 });
   await host.locator(".pk-door input.pk-input").first().fill("Host");
   const sentToken = host.waitForRequest((r) => r.url().endsWith("/api/party/rooms") && r.method() === "POST", { timeout: 60000 });
   await host.getByRole("button", { name: "Make a room" }).click();
@@ -99,7 +100,7 @@ async function kitLobby(b) {
   guest.on("request", (r) => r.url().startsWith("https://challenges.cloudflare.com") && turnstileLoads.push(r.url()));
   await guest.goto(passBase + "/cork-and-bell/?quality=low&join=" + pin, { waitUntil: "domcontentloaded", timeout: 90000 });
   await guest.waitForFunction(() => window.__cab, null, { timeout: 90000 });
-  if (!(await guest.locator(".pk-door").isVisible())) await guest.locator("#battle").click();
+  if (!(await guest.locator(".pk-door").isVisible())) await guest.locator("#battle").click({ timeout: 90000 });
   await guest.locator(".pk-door input.pk-input").first().fill("Guest");
   await guest.locator(".pk-pin-input").fill(pin);
   await guest.getByRole("button", { name: "Join with PIN" }).click();

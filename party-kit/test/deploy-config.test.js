@@ -35,8 +35,10 @@ describe("the production configuration", () => {
     expect(Object.keys(prod.vars)).not.toContain("TURNSTILE_SECRET_KEY");
   });
 
-  it("never names one of Cloudflare's Turnstile test site keys, which guard nothing", () => {
-    expect(prod.vars.TURNSTILE_SITE_KEY ?? "").not.toMatch(/^[123]x0+A[AB]$/);
+  it("names the bot check's real site key, never one of Cloudflare's test keys, and leaves the local environment without it", () => {
+    expect(prod.vars.TURNSTILE_SITE_KEY).toBe("0x4AAAAAAGM24cDseqMFt3A0");
+    expect(prod.vars.TURNSTILE_SITE_KEY).not.toMatch(/^[123]x0+A[AB]$/);
+    expect(read("local").vars.TURNSTILE_SITE_KEY).toBeUndefined();
   });
 
   it("keeps logs and serves only the built public folder", () => {
