@@ -155,7 +155,8 @@ try {
   const at = Math.round(derbyPool.x + derbyPool.half - 6);
   bo.goto(at);
   const drawnOf = () => host.evaluate((s) => window.drawnX(s), bo.seat);
-  await until(async () => standingOf(bo)[bo.seat] === "tin-derby" && Math.abs((await drawnOf()) - at) < 2);
+  // Settled where he stopped, not still easing toward it: the change of room below carries the drawn place.
+  await until(async () => standingOf(bo)[bo.seat] === "tin-derby" && Math.abs((await drawnOf()) - at) < 0.25);
   const voteBefore = standingOf(bo)[bo.seat] ?? null;
   const drawnBefore = await drawnOf();
   check(Math.abs(drawnBefore - at) < 2, `the host's page draws Bo where he walked (${drawnBefore?.toFixed(1)}, at ${at})`);
