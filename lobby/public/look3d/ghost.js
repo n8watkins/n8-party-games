@@ -508,6 +508,7 @@ export function poseGhost(g, piece, now, dt, how) {
   g.dizzy = bump.dizzy;
   // Wide-eyed for its own boo, or when something frightened it; an open mouth for the boo.
   const fright = Math.max(boo, bump.scared);
+  g.scaredK = bump.scared;
   faceGhost(g, bump.dizzy ? 0.9 : calm || fright > 0 ? 0 : blinkAt(now, piece.seat), 1 + 0.35 * fright, boo > 0.25 ? "laugh" : bump.scared > 0.5 ? "o" : null);
 
   // The shadow stays on the floor and tightens as the ghost leaves it; a faded ghost barely has one.
