@@ -503,6 +503,22 @@ A pulled piece is "in the air" from the room's pull until it arrives and 120 ms 
 - A page in the air may still use its move (`Pilot.pulled`); every look draws each (`public/move-state.js`, the `freed` and `tug` frights in `shared/moves.js`).
 - Tests: `test/hook-counters.test.js` and `npm run test:counters`.
 
+### The touch counters
+
+From character preview round three, "Counters" (the rules are `shared/counters.js`, judged in `LobbyCore`).
+Each is judged by the room at the moment of the touch, as every touch is (the room's own look along the floor, `sweep`, holding a touch it only worked out for `TOUCH_GRACE_MS`), resolves once (nothing it moves starts another), and never puts a piece in a light it was not in.
+
+- **The curling stone**: a pawn's charged kick into a hardened slime sends the slime sliding along the floor as the kick lands (320 to 600 units, by the charge, slowing as it goes), and the pawn is still punished (thrown back, down longer).
+  The stone knocks the first piece in its way over as it reaches it (a voter out of its light), and slides on past it into the dark: the decided rule, as nothing the room moves comes to rest in another box's light.
+  `{t: "b", ..., bo, cu: {s, x, rev}, cv: {to, x, rev, at}}` (`at`: ms from the kick).
+- **Dominoes**: a kicked piece that flies into another knocks it over too, a kick's distance on, as the flight reaches it: `{t: "b", ..., dm: {to, x, rev, at}}`. Once: the one it knocks over knocks nobody. It passes a piece that cannot be knocked (down or just up, a robot up on its legs, a faded ghost).
+- **Boo the stilts**: a faded ghost that drifts through a robot up on its legs topples it: a knock, its legs dropped: `{t: "spook", ..., tp: 1}`.
+- **The swallow**: a soft (absorbing) slime that touches a hardened one, either walking into the other, swallows it and spits it out past its own middle, on the far side from where it came in: `{t: "goo", k: "swallow", s: soft, to: hard, x, rev}`. Its absorb and the other's harden end.
+- **The stick**: two soft slimes that touch stick together, wobble, and come apart a slime's width apart: `{t: "goo", k: "stick", s, to, x, rev, ox, orev}`. Both absorbs end. Hard against hard does nothing.
+  A slime that goes hard or soft beside another meets it at once (`{t: "slime", ..., goo}`).
+- **Ghosts that meet**: two faded ghosts that drift into each other both pop solid where they are, with a little shock; each has its vote back: `{t: "pop", s, to, x, rev, ox, orev}`.
+- Tests: `test/touch-counters.test.js` and `npm run test:counters`.
+
 To add another character: write its emote rig, its flat drawing and its model, and add it to the three lists.
 A body without a pawn's shoulders can take the ghost's emotes fitted to it (`bodyRig` in `public/characters/body-rig.js`) instead of a rig of its own, as the slime and the robot do.
 The picker, the room's check, the wheel's pictures and every draw site pick it up from there.
@@ -560,8 +576,8 @@ The slime is turned finer than the pawn (44 sides) so a lit room's lines of ligh
 Four of any one character in the 3D bar held 60 frames a second, on the graphics card and in software, drawing in 0.6 to 1.0 ms a picture (a quiet PC, phone held sideways).
 Their own moves are above ("The robot's and the slime's moves").
 The pawn's charged kick and the speeds are above ("The pawn's charged kick, and each character's speed").
-The hook's counters are above ("The hook's counters").
-Not built yet, from character preview round three (approved, and the next lanes'): boo the stilts, curling stone, dominoes, the slimes' swallow and stick, ghosts that meet; the rule that pieces pass through each other except during a move.
+The hook's counters and the touch counters are above.
+Not built yet, from character preview round three: the hook back, late (a swap), the later kick and hooked while hooking as rules of their own (the owner did not ask for them), and the rule that pieces pass through each other except during a move.
 
 ## Sound
 
