@@ -794,17 +794,26 @@ try {
       // 3D look eases everyone else's piece to where the room says, so it is given a moment).
       const roomNow = await where();
       await pat
-        .waitForFunction(([r, p, rx, px]) => Math.abs(window.__room3d.pieces.get(r)?.rx - rx) <= 3 && Math.abs(window.__room3d.pieces.get(p)?.rx - px) <= 3, [R, P, roomNow[R].x, roomNow[P].x], { timeout: 3000, polling: 50 })
+        .waitForFunction(
+          ([r, p, rx, px]) => {
+            // The page's view now (a busy page may have gone to the simpler, flat room meanwhile).
+            const pieces = globalThis.__partyRoom?.view?.pieces;
+            return Math.abs(pieces?.get(r)?.rx - rx) <= 3 && Math.abs(pieces?.get(p)?.rx - px) <= 3;
+          },
+          [R, P, roomNow[R].x, roomNow[P].x],
+          { timeout: 3000, polling: 50 },
+        )
         .catch(() => null);
       const drawnNow = await pat.evaluate(
         ([r, p]) => {
-          const rob = window.__room3d.pieces.get(r);
-          return { r: rob?.rx, p: window.__room3d.pieces.get(p)?.rx, rNet: rob?.net, rRev: rob?.rev, room: globalThis.__partyRoom?.view?.room?.room, fright: rob?.fright ? { kind: rob.fright.kind, from: rob.fright.from, to: rob.fright.to, since: performance.now() - rob.fright.at } : null, knock: !!rob?.knock, stilt: !!rob?.stilt, hook: rob?.hook ? { at: performance.now() - rob.hook.at, verdict: rob.hook.verdict?.o } : null };
+          const pieces = globalThis.__partyRoom?.view?.pieces;
+          const rob = pieces?.get(r);
+          return { look: globalThis.__partyRoom?.view?.look, r: rob?.rx, p: pieces?.get(p)?.rx, rNet: rob?.net, rRev: rob?.rev, room: globalThis.__partyRoom?.view?.room?.room, fright: rob?.fright ? { kind: rob.fright.kind, from: rob.fright.from, to: rob.fright.to, since: performance.now() - rob.fright.at } : null, knock: !!rob?.knock, stilt: !!rob?.stilt, hook: rob?.hook ? { at: performance.now() - rob.hook.at, verdict: rob.hook.verdict?.o } : null };
         },
         [R, P],
       );
       const ok = Math.abs(drawnNow.p - roomNow[P].x) <= 3 && Math.abs(drawnNow.r - roomNow[R].x) <= 3;
-      check(ok, `Pat's new view draws Pat at ${Math.round(drawnNow.p)} and Rob at ${Math.round(drawnNow.r)}, where the room has them (${roomNow[P].x}, ${roomNow[R].x})${ok ? "" : `; Rob on Pat's page: net ${JSON.stringify(drawnNow.rNet)} rev ${drawnNow.rRev}, room rev ${roomNow[R].rev} d ${roomNow[R].d}; room ${drawnNow.room}; ${JSON.stringify({ fright: drawnNow.fright, knock: drawnNow.knock, stilt: drawnNow.stilt, hook: drawnNow.hook })}`}`);
+      check(ok, `Pat's new view draws Pat at ${Math.round(drawnNow.p)} and Rob at ${Math.round(drawnNow.r)}, where the room has them (${roomNow[P].x}, ${roomNow[R].x})${ok ? "" : `; Rob on Pat's page: net ${JSON.stringify(drawnNow.rNet)} rev ${drawnNow.rRev}, room rev ${roomNow[R].rev} d ${roomNow[R].d}; room ${drawnNow.room}, look ${drawnNow.look}; ${JSON.stringify({ fright: drawnNow.fright, knock: drawnNow.knock, stilt: drawnNow.stilt, hook: drawnNow.hook })}`}`);
       await pat.unroute("**/lobby/**");
     }
 

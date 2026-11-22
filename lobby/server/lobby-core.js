@@ -1376,18 +1376,16 @@ export class LobbyCore {
     const o = this.members[to];
     if (!o || !this.floorTime()) return { ok: false, why: "Nobody there.", bad: false };
     // The slime's own phone says it touched a piece the room saw it touch and is holding (sweep,
-    // pending): that touch is confirmed now, judged when it happened.
-    if (touchedAt === null) {
-      const held = this.takePending("shove", seat, to);
-      if (held) return this.shove(seat, to, now, held.t);
-    }
+    // pending): that touch is confirmed, and judged as the phone's own shove always is, as things
+    // stand now (it keeps pushing what it walks into), with no doubt about the distance.
+    const held = touchedAt === null ? this.takePending("shove", seat, to) : null;
     // A touch the room saw itself is judged as it was when it happened: both pieces where they
     // were then, the slime walking and not hard, soft or down then, the piece shovable then.
     const at = touchedAt ?? now;
     if (isDown(m, at) || isHard(m, at) || isSoft(m, at)) return { ok: false, why: "Not now.", bad: false };
     const sx = posAt(m, at);
     const x = posAt(o, at);
-    const may = mayShove(sx, m.d, { ...o, x, slime: moveOf(o.character) === "harden", up: isUp(o, at), faded: this.faded(o, at) }, at, touchedAt !== null);
+    const may = mayShove(sx, m.d, { ...o, x, slime: moveOf(o.character) === "harden", up: isUp(o, at), faded: this.faded(o, at) }, at, touchedAt !== null || !!held);
     if (!may.ok) return { ...may, bad: Math.abs(x - sx) > SHOVE_FAR };
     // A step on, and in front of the slime: it keeps pushing what it walks into (shared/slime.js).
     // Never further than a page's own shove moves it (SHOVE_AHEAD), however late it is judged, and

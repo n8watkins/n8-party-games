@@ -938,7 +938,8 @@ describe("the room's own look along the floor (sweep): a slow phone cannot walk 
     const touched = 2000 + ((760 - SHOVE_REACH - 600) / 430) * 1000;
     // A step on (where that is not in another light): what a page's own shove at the touch gives.
     const step = (core) => slideLanding(760, 760 + SHOVE_STEP, core.landingWall(), core.litPlaces());
-    // Its own shove, inside the grace: counted then, judged at the touch.
+    // Its own shove, inside the grace: counted then, as its own shove always is (where the light
+    // lets the piece go, here the same spot either way).
     const own = setup();
     expect(own.dueMoves(Math.round(touched + 50))).toEqual([]);
     expect(own.shove(0, 1, Math.round(touched + 60))).toMatchObject({ ok: true, relay: { t: "shove", s: 0, to: 1, x: step(own) } });
