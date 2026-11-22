@@ -24,8 +24,8 @@
 // full time, as a battle ends early only once every stall is out of corks and two of its stalls
 // never spend theirs; the round played alone ends sooner, once its one stall (the game's bot) has
 // spent them. The two rounds are played at the same time (about two and a half minutes in all),
-// except in a browser that draws in software, or with --apart=1 (test:cork:full), where the round
-// alone comes after the battle (about four minutes). It reads the room budget's books before and
+// except in a browser that draws in software, with --short=1 (test:cork) or with --apart=1
+// (test:cork:full), where the round alone comes after the battle (about four minutes in full). It reads the room budget's books before and
 // after (the local server's debug door), so the run also says what the rounds cost, and checks
 // that it is what they lasted: each round's on its own when they are played apart, both together
 // when they overlap.
