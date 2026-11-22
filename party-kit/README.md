@@ -41,7 +41,7 @@ Only the kit is installed that way (the `files` list in this repository's `packa
 | --- | --- |
 | `n8-party-games/kit` | The Worker side: `createPartyRoom`, `PinDirectory`, `RateLimiter`, `RoomBudget`, `handlePartyApi`. |
 | `n8-party-games/kit/core`, `/kit/rng`, `/kit/http` | The room as plain logic, the seeded generator, and the HTTP helpers (no Workers runtime needed, so tests can use them). |
-| `n8-party-games/kit/build` | `buildPublic` and `kitClientEntry`: builds a site's public folder from an allowlist. Its `botCheck` option lists the site paths whose pages may load Turnstile (every page by default; the party site lists only its room-making pages). |
+| `n8-party-games/kit/build` | `buildPublic` and `kitClientEntry`: builds a site's public folder from an allowlist. Its `botCheck` option lists the site paths whose pages may load Turnstile (every page by default; `"room-making"` finds the pages that load the kit's bot check in what was built, as the party site does). |
 | `n8-party-games/kit/client/*` | The browser files. A site serves them at `/party-kit/client/`; a game imports them by that site path. |
 
 What a game must export so the party site can host it is in [GAME-CONTRACT.md](GAME-CONTRACT.md).

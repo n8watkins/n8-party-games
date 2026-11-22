@@ -104,7 +104,9 @@ Making a party (a new room, which is what costs room time) is checked; joining a
 The widget is Managed with appearance "interaction-only", so a normal phone sees nothing; only a visitor Turnstile is unsure of gets a box to tick.
 The Worker checks the token with siteverify before the room is made, once (a spent token is refused), for the action `create-room` and this site's hostname (`party-kit/src/worker/turnstile.js`).
 It fails closed: if siteverify cannot be reached in 5 seconds, no room is made and the page says "Could not check you are a person just now. Try again in a moment."; a refused check says "Could not check you are a person. Try again.", and the button works again.
-Only the pages that make rooms (`/lobby/*`, `/table/*` and each hosted game's page) may load anything from `https://challenges.cloudflare.com` (`scripts/build-public.mjs`, `ROOM_MAKING_PAGES`).
+If Turnstile's script is blocked (often a content blocker) or does not load in 15 seconds, the page says so and the button works again; joining by code still works.
+Only the pages that make rooms may load anything from `https://challenges.cloudflare.com`: the build finds them as the pages that load the kit's bot check (today `/lobby/*`, `/table/*` and `/cork-and-bell/*`; `roomMakingPages` in `party-kit/build/public.mjs`).
+A deploy whose secret is one of Cloudflare's public test secrets makes no room at all (they pass any token) and logs why; so does a secret set without `TURNSTILE_SITE_KEY`, once.
 
 It is off until the secret exists: with no secret, rooms are made without it, `/api/party/config` hands out no site key, and the rate limits and the room budget still apply.
 The widget "Party games new party" (Managed, hostname `partygames.n8builds.dev` only, site key `0x4AAAAAAGM24cDseqMFt3A0`) was made on 2026-11-21 and its site key is already in the top-level `vars` of `wrangler.jsonc`.

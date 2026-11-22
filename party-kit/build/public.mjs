@@ -58,6 +58,86 @@ function inlineScriptHashes(files) {
   return [...hashes].sort();
 }
 
+/** The kit's bot check module: a page can make a room with the check on only if it loads this. */
+export const BOT_CHECK_MODULE = `${KIT_CLIENT_PATH}/bot-check.js`;
+
+/** Code with its comments taken out, so an import named in a comment (a JSDoc type) is not followed. */
+function withoutComments(code) {
+  return code
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .split("\n")
+    .filter((line) => !/^\s*\/\//.test(line))
+    .join("\n");
+}
+
+/** The module specifiers a script names: static imports and re-exports, and import() of a plain string. */
+function specifiers(code) {
+  const text = withoutComments(code);
+  const found = [];
+  for (const m of text.matchAll(/\b(?:import|export)\s[^;'"`]*?\bfrom\s*["']([^"']+)["']/g)) found.push(m[1]);
+  for (const m of text.matchAll(/\bimport\s*["']([^"']+)["']/g)) found.push(m[1]);
+  for (const m of text.matchAll(/\bimport\(\s*["']([^"']+)["']\s*\)/g)) found.push(m[1]);
+  return found;
+}
+
+/**
+ * Every file in `out` that the page at `page` (a path inside `out`) loads as a module, the page's
+ * own module scripts first: followed through static imports, re-exports and import() of a plain
+ * string, resolving site paths ("/x.js"), relative ones and the page's import map. What it cannot
+ * see (an import() of a computed name) it does not follow.
+ */
+export function moduleGraph(out, page) {
+  const html = readFileSync(page, "utf8");
+  const map = {};
+  for (const m of html.matchAll(/<script\b[^>]*type=["']importmap["'][^>]*>([\s\S]*?)<\/script>/gi)) Object.assign(map, JSON.parse(m[1]).imports ?? {});
+  // A script tag's src is a URL ("main.js" is next to the page); a module specifier without ./ is bare.
+  const resolveFrom = (from, spec, url = false) => {
+    if (/^[a-z]+:/i.test(spec) || spec.startsWith("//")) return null;
+    const bare = !url && !spec.startsWith("/") && !spec.startsWith("./") && !spec.startsWith("../");
+    if (bare) {
+      const key = Object.keys(map).find((k) => spec === k || (k.endsWith("/") && spec.startsWith(k)));
+      if (!key) return null;
+      spec = map[key] + spec.slice(key.length);
+      from = page;
+    }
+    const path = spec.startsWith("/") ? join(out, spec.split(/[?#]/)[0]) : resolve(dirname(from), spec.split(/[?#]/)[0]);
+    return path.startsWith(out + sep) ? path : null;
+  };
+  const seen = new Set();
+  const queue = [];
+  const add = (path) => {
+    if (path && !seen.has(path) && statSync(path, { throwIfNoEntry: false })?.isFile()) {
+      seen.add(path);
+      queue.push(path);
+    }
+  };
+  for (const m of html.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script>/gi)) {
+    if (!/type=["']module["']/.test(m[1])) continue;
+    const src = m[1].match(/\bsrc=["']([^"']+)["']/)?.[1];
+    if (src) add(resolveFrom(page, src, true));
+    else for (const spec of specifiers(m[2])) add(resolveFrom(page, spec));
+  }
+  while (queue.length) {
+    const file = queue.shift();
+    if (file.endsWith(".js") || file.endsWith(".mjs")) for (const spec of specifiers(readFileSync(file, "utf8"))) add(resolveFrom(file, spec));
+  }
+  return [...seen];
+}
+
+/**
+ * The site paths (for headersFile's `botCheck`) of the pages in `out` that can make a room with the
+ * bot check on: those whose module graph loads the kit's bot check (BOT_CHECK_MODULE). Each is
+ * the page's folder ("/lobby/*"); a page inside a folder already listed adds nothing.
+ */
+export function roomMakingPages(out) {
+  const target = join(out, BOT_CHECK_MODULE);
+  const folders = walk(out)
+    .filter((f) => f.endsWith(".html") && moduleGraph(out, f).includes(target))
+    .map((f) => `/${relative(out, dirname(f)).split(sep).join("/")}/`.replace(/^\/\/$/, "/") + "*")
+    .sort();
+  return folders.filter((path) => !folders.some((other) => other !== path && path.startsWith(other.slice(0, -1))));
+}
+
 /**
  * The headers for every static file (Workers Static Assets reads `_headers`; it is not served).
  * Responses made by the Worker itself (the API) set their own: see party-kit/src/worker/http.js.
@@ -128,7 +208,9 @@ export function headersFile(scriptHashes, { frames = "none", microphone = [], im
  * Returns every file written as `{path, bytes}`, sorted by path. `frames`, `microphone` (the
  * site paths, such as "/lab/x/*", whose pages may use the microphone) and `images` (site path ->
  * the outside origins its pages may show pictures from) and `botCheck` (the site paths whose
- * pages may run the bot check; every page by default) are passed to headersFile.
+ * pages may run the bot check; every page by default) are passed to headersFile. `botCheck:
+ * "room-making"` finds those paths in what was built: the pages that load the kit's bot check
+ * (roomMakingPages).
  */
 export function buildPublic({ out, entries, frames = "none", microphone = [], images = {}, botCheck = ["/*"] }) {
   rmSync(out, { recursive: true, force: true });
@@ -144,7 +226,8 @@ export function buildPublic({ out, entries, frames = "none", microphone = [], im
   const files = walk(out);
   const tooBig = files.filter((f) => statSync(f).size > MAX_FILE_BYTES);
   if (tooBig.length) throw new Error(`Over the 25 MiB per-file limit: ${tooBig.map((f) => relative(out, f)).join(", ")}`);
-  writeFileSync(join(out, "_headers"), headersFile(inlineScriptHashes(files), { frames, microphone, images, botCheck }));
+  const botPages = botCheck === "room-making" ? roomMakingPages(resolve(out)) : botCheck;
+  writeFileSync(join(out, "_headers"), headersFile(inlineScriptHashes(files), { frames, microphone, images, botCheck: botPages }));
   return files.map((f) => ({ path: relative(out, f).split(sep).join("/"), bytes: statSync(f).size })).sort((a, b) => a.path.localeCompare(b.path));
 }
 

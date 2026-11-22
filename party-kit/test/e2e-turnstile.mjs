@@ -22,7 +22,9 @@
 //     CSP with no violation; a reload of the host's page or of the big screen is not checked again;
 //   - joining by code, as a player or as the big screen, never loads Turnstile;
 //   - on the failing server the page says "Could not check you are a person. Try again." and the
-//     button works again; trying again checks again with a fresh token.
+//     button works again; trying again checks again with a fresh token;
+//   - when Turnstile's script never answers, is blocked, or is not Turnstile, the page says so,
+//     sends no room request and gives the button back, and the next try loads it afresh.
 // Two more servers may be named for it:
 //   --failsite=<base>  a server handing out the always-FAIL site key 2x00000000000000000000AB (with
 //                      the passing secret): the widget itself refuses, and no room request is sent;
@@ -37,6 +39,9 @@ const browser = opt("browser", "0") === "1";
 const lobby = opt("lobby", "0") === "1";
 const DUMMY_TOKEN = "XXXX.DUMMY.TOKEN.XXXX"; // what the test site keys hand out
 const REFUSED = "Could not check you are a person. Try again.";
+// What client/bot-check.js says when its script is blocked, or never answers (in 15 seconds).
+const BOT_BLOCKED = "Could not check you are a person. A content blocker may be stopping the check. Try again, or join a party with a code instead.";
+const BOT_STALLED = "Could not check you are a person: the check did not load. Check the connection and try again.";
 const problems = [];
 const say = (ok, what) => {
   console.log((ok ? "ok   " : "FAIL ") + what);
@@ -187,6 +192,31 @@ async function partyRoom(b) {
   await no.page.tap("button[type=submit]");
   await answered(no.page);
   say(no.seen.creates.length === 2 && no.seen.creates.every((c) => c.turnstile === DUMMY_TOKEN) && (await no.page.locator(".door-error").textContent()) === REFUSED, `trying again runs the check again and sends a fresh token (${no.seen.creates.length} room requests)`);
+
+  // Turnstile's script stalled, blocked, or answering with something that is not Turnstile: each
+  // time the page says so, sends no room request and gives the button back, and once the script
+  // can load again the next try makes the party (the failed load was forgotten).
+  const cases = [
+    ["never answers", BOT_STALLED, () => new Promise(() => {})],
+    ["is blocked outright", BOT_BLOCKED, (route) => route.abort("blockedbyclient")],
+    ["loads, but is not Turnstile", REFUSED, (route) => route.fulfill({ status: 200, contentType: "text/javascript", body: "/* not turnstile */" })],
+  ];
+  for (const [what, message, handle] of cases) {
+    const d = await device(PHONE);
+    await d.page.route("https://challenges.cloudflare.com/turnstile/v0/api.js*", handle);
+    await d.page.goto(passBase + "/lobby/?start");
+    await d.page.fill("input[name=nickname]", "Flo");
+    const began = Date.now();
+    await d.page.tap("button[type=submit]");
+    await answered(d.page);
+    const said = await d.page.locator(".door-error").textContent();
+    say(said === message && d.seen.creates.length === 0 && (await d.page.locator("button[type=submit]").isEnabled()), `when Turnstile's script ${what}, the page says so after ${((Date.now() - began) / 1000).toFixed(0)} s ("${said}"), sends no room request, and the button works again`);
+    await d.page.unrouteAll({ behavior: "ignoreErrors" });
+    await d.page.tap("button[type=submit]");
+    await inRoom(d.page);
+    say(d.seen.creates.length === 1 && d.seen.creates[0].turnstile === DUMMY_TOKEN, "and once it can load, trying again makes the party");
+    await d.page.context().close();
+  }
 
   if (failSiteBase) {
     const site = await device(PHONE);
