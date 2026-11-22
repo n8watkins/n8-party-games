@@ -28,6 +28,8 @@
   font-size: 14px;
   line-height: 1;
   white-space: nowrap;
+  /* A button folds to its picture at once while its word shrinks away: the word never spills out. */
+  overflow: hidden;
 }
 .door-word {
   max-width: 9em;
@@ -40,6 +42,8 @@
 .corner.folded .door-word,
 #app.in-game .door-word {
   max-width: 0;
+  /* No padding of its own either, or a sliver of the word stays beside the door's picture. */
+  padding-right: 0;
 }
 .corner.folded .door-btn,
 .corner.folded .corner-btn,
