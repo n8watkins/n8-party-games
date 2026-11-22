@@ -422,6 +422,10 @@ try {
     await walkPat(150, 1);
     // In a line, the slowest in front, so nobody catches anybody up (a slime would shove what it walks into).
     const lane = { [B]: 300, [A]: 640, [C]: 980 };
+    // (Each from where the room has it: the charged kick into Cy's hardened slime sent it sliding,
+    // a move client.mjs does not follow.)
+    at = await where();
+    for (const c of [ada, bo, cy]) [c.x, c.rev] = [Math.round(at[c.seat].x), at[c.seat].rev];
     for (const c of [ada, bo, cy]) c.goto(lane[c.seat]);
     await sleep(500);
     // Long enough that a page drawing few frames has caught up with each piece's walk well before it ends.
