@@ -11,13 +11,13 @@ import { bumpPose, resumeKnock } from "../public/look3d/pieces.js";
 import { IMMUNE_MS, KNOCK_CLEAR, STUN_MS, landingGround } from "../shared/bump.js";
 import { wallFor } from "../shared/rooms.js";
 import { CHARACTERS, LOOK_COOLDOWN_MS, moveOf } from "../shared/characters.js";
-import { FADE_MS } from "../shared/ghost.js";
-import { HOOK_SCARE_MS, MOVED, movedPose, movedResumed, slideLanding, touchAt } from "../shared/moves.js";
+import { FADE_MS, SPOOK_REACH } from "../shared/ghost.js";
+import { HOOK_SCARE_MS, MOVED, TOUCH_GRACE_MS, movedPose, movedResumed, slideLanding, touchAt } from "../shared/moves.js";
 import {
   BONK_MS, HOOK_AIM_MS, HOOK_COOLDOWN_MS, HOOK_FLIGHT_MS, HOOK_HAND, HOOK_HOLD, HOOK_LATE_MS, HOOK_RANGE, HOOK_SPEED, PULL_MS, STILT_COOLDOWN_MS, STILT_MS,
   firstCatch, hookDrawn, hookTipAt, jumpedOver, battedAway, pullPose, stiltPose,
 } from "../shared/robot.js";
-import { ABSORB_MS, ABSORB_TURN_MS, HARDEN_MS, HOLD_MS, SHOVE_AGAIN_MS, SHOVE_MS, SHOVE_STEP, SLIME_COOLDOWN_MS, shovePose, slimeLook } from "../shared/slime.js";
+import { ABSORB_MS, ABSORB_TURN_MS, HARDEN_MS, HOLD_MS, SHOVE_AGAIN_MS, SHOVE_MS, SHOVE_REACH, SHOVE_STEP, SLIME_COOLDOWN_MS, shovePose, slimeLook } from "../shared/slime.js";
 import { COUNT_MS, boxFromManifest } from "../shared/vote.js";
 import { POSITION_SLACK, ROOM, boxCentre, lightAt, lightHalf, posAt } from "../shared/world.js";
 import { TEST_WALL, WALL } from "../wall.js";
@@ -874,6 +874,98 @@ describe("the room's own look along the floor (sweep): a slow phone cannot walk 
     expect(core.nextTouch(2100)).toBeNull();
   });
 
+  it("wakes exactly for a touch however far ahead, and judges a late one as it was when it happened", () => {
+    // From 200 toward Bo at 1100: the touch is 830 units, almost two seconds, away.
+    const core = party(["Sam", "Bo"]);
+    be(core, 0, "slime");
+    place(core, 0, 200, 1000);
+    place(core, 1, 1100, 1000);
+    walk(core, 0, 200, 1, 2000);
+    core.dueMoves(2000);
+    const due = 2000 + ((1100 - SHOVE_REACH - 200) / 430) * 1000;
+    expect(core.nextWake(2000)).toBeCloseTo(due, 3);
+    // Looked at only 3.5 s later (no alarm, no message): Bo is pushed one step, as the slime's own
+    // phone would have, not across the room; and the slime, whose phone said nothing more, stops
+    // where it touched him.
+    const out = core.dueMoves(5500);
+    expect(out).toEqual([expect.objectContaining({ t: "shove", s: 0, to: 1, x: 1100 + SHOVE_STEP, sx: 1100 - SHOVE_REACH })]);
+    expect(core.members[0]).toMatchObject({ x: 1100 - SHOVE_REACH, d: 0 });
+    // A touch to come against a wall is still found (the slime stops there, the piece stands at it).
+    const wall = party(["Sam", "Bo"]);
+    be(wall, 0, "slime");
+    place(wall, 0, ROOM.maxX - 300, 1000);
+    place(wall, 1, ROOM.maxX - 20, 1000);
+    walk(wall, 0, ROOM.maxX - 300, 1, 2000);
+    expect(wall.nextTouch(2000)).toBeCloseTo(2000 + ((ROOM.maxX - 20 - SHOVE_REACH - (ROOM.maxX - 300)) / 430) * 1000, 3);
+  });
+
+  it("does not count a touch its phone says never happened: a slime or a faded ghost that stopped just short", () => {
+    // The slime stops on its phone 8 units short of reach; the room hears the stop 100 ms later.
+    const core = party(["Sam", "Bo"]);
+    be(core, 0, "slime");
+    place(core, 0, 600, 1000);
+    place(core, 1, 760, 1000);
+    walk(core, 0, 600, 1, 2000);
+    core.dueMoves(2000);
+    expect(core.dueMoves(2290)).toEqual([]);
+    expect(core.move(0, { x: Math.round(600 + 0.43 * 190), d: 0, r: core.members[0].rev }, 2290).touches).toEqual([]);
+    expect(core.dueMoves(2800)).toEqual([]);
+    expect(core.members[1].x).toBe(760);
+    // The ghost stops 6 units outside reach; likewise.
+    const g = party(["Gus", "Bo"]);
+    be(g, 0, "ghost");
+    g.members[0].fadeAt = -Infinity;
+    place(g, 0, 500, 1000);
+    place(g, 1, 600, 1000);
+    g.fade(0, 2000);
+    walk(g, 0, 500, 1, 2000);
+    g.dueMoves(2000);
+    const stopAt = ((600 - SPOOK_REACH - 6 - 500) / 430) * 1000;
+    expect(g.dueMoves(Math.round(2000 + stopAt + 100))).toEqual([]);
+    expect(g.move(0, { x: Math.round(500 + 0.43 * stopAt), d: 0, r: g.members[0].rev }, Math.round(2000 + stopAt + 100)).touches).toEqual([]);
+    expect(g.dueMoves(3000)).toEqual([]);
+    expect(g.members[1].x).toBe(600);
+  });
+
+  it("counts a held touch at once on its phone's own word, and after the grace when the phone says nothing (a stalled phone), once", () => {
+    const setup = () => {
+      const core = party(["Sam", "Bo"]);
+      be(core, 0, "slime");
+      place(core, 0, 600, 1000);
+      place(core, 1, 760, 1000);
+      walk(core, 0, 600, 1, 2000);
+      core.dueMoves(2000);
+      return core;
+    };
+    const touched = 2000 + ((760 - SHOVE_REACH - 600) / 430) * 1000;
+    // A step on (where that is not in another light): what a page's own shove at the touch gives.
+    const step = (core) => slideLanding(760, 760 + SHOVE_STEP, core.landingWall(), core.litPlaces());
+    // Its own shove, inside the grace: counted then, judged at the touch.
+    const own = setup();
+    expect(own.dueMoves(Math.round(touched + 50))).toEqual([]);
+    expect(own.shove(0, 1, Math.round(touched + 60))).toMatchObject({ ok: true, relay: { t: "shove", s: 0, to: 1, x: step(own) } });
+    expect(own.members[0].d).toBe(1);
+    expect(own.dueMoves(Math.round(touched + TOUCH_GRACE_MS + 10))).toEqual([]);
+    // Its word that it walked on past the touch, inside the grace: counted then.
+    const walked = setup();
+    walked.dueMoves(Math.round(touched + 50));
+    expect(walked.move(0, { x: 700, d: 0, r: walked.members[0].rev }, Math.round(touched + 60)).touches).toEqual([expect.objectContaining({ t: "shove", to: 1, x: step(walked) })]);
+    // Stalled: nothing more is heard. The room wakes when the grace ends and counts it, once.
+    const stalled = setup();
+    stalled.dueMoves(Math.round(touched + 50));
+    expect(stalled.nextWake(Math.round(touched + 50))).toBeCloseTo(touched + TOUCH_GRACE_MS, 3);
+    expect(stalled.dueMoves(Math.ceil(touched + TOUCH_GRACE_MS))).toEqual([expect.objectContaining({ t: "shove", to: 1, x: step(stalled), sx: 760 - SHOVE_REACH })]);
+    expect(stalled.dueMoves(Math.ceil(touched + 2000))).toEqual([]);
+    // A phone that drops and comes back inside the grace, and then says it stopped short: not counted.
+    const back = setup();
+    back.dueMoves(Math.round(touched + 30));
+    back.disconnect(back.members[0].token, Math.round(touched + 40));
+    back.connect(back.members[0].token, Math.round(touched + 80));
+    expect(back.move(0, { x: 685, d: 0, r: back.members[0].rev }, Math.round(touched + 120)).touches).toEqual([]);
+    expect(back.dueMoves(Math.ceil(touched + 1000))).toEqual([]);
+    expect(back.members[1].x).toBe(760);
+  });
+
   it("never shoves a piece into another light along the path, on the production wall and the test wall", () => {
     for (const wall of [WALL, TEST_WALL]) {
       const core = party(["Ann", "Bo"], wall);
@@ -996,9 +1088,16 @@ describe("the robot's and the slime's moves on the real room", () => {
     say(ws[1], { t: "m", x: core.members[1].x, d: 1, r: core.members[1].rev });
     await settle();
     expect(since(ws[2], before[2]).some((m) => m.t === "shove")).toBe(false);
-    await vi.advanceTimersByTimeAsync(Math.ceil(((900 - 600) / 430) * 1000) + 100);
-    for (const [i, page] of [ws[0], ws[1], ws[2], ws.screen].entries()) expect(since(page, before[i]).find((m) => m.t === "shove"), `page ${i}`).toMatchObject({ t: "shove", s: 1, to: 2 });
-    expect(core.members[2].x).toBeGreaterThan(900);
+    // The touch is due once Bo is within reach of Cy; the room holds it for the grace in case Bo's
+    // phone says it stopped short, then (no word came) it counts, and Bo is stopped where he touched.
+    const due = Math.ceil(((900 - SHOVE_REACH - 600) / 430) * 1000);
+    await vi.advanceTimersByTimeAsync(due + TOUCH_GRACE_MS - 50);
+    expect(since(ws[2], before[2]).some((m) => m.t === "shove")).toBe(false);
+    await vi.advanceTimersByTimeAsync(100);
+    for (const [i, page] of [ws[0], ws[1], ws[2], ws.screen].entries()) expect(since(page, before[i]).find((m) => m.t === "shove"), `page ${i}`).toMatchObject({ t: "shove", s: 1, to: 2, sx: 900 - SHOVE_REACH });
+    expect(core.members[2].x).toBe(900 + SHOVE_STEP);
+    expect(core.members[1].d).toBe(0);
+    expect(core.members[1].x).toBeCloseTo(900 - SHOVE_REACH, 2);
   });
 
   it("refuses moves to the sender only, with the wait, and says nothing of a shove it did not take", async () => {

@@ -319,6 +319,8 @@ export function createLobbyRoom(wallFor) {
           this.broadcast(moved.relay, entry);
           if (moved.fix) this.send(entry, moved.fix);
           this.keep(entry);
+          // Touches the room held for this piece that its word confirms (LobbyCore.settleTouches).
+          if (moved.touches?.length) this.tellMoves(moved.touches);
           this.settle(now);
           return;
         }

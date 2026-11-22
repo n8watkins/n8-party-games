@@ -100,6 +100,16 @@ export function slideLanding(from, to, n, lit) {
 }
 
 /**
+ * How long the room holds a touch it worked out on a walk its phone has not confirmed (LobbyCore
+ * sweep). A walking phone says nothing until it stops or turns, so the room's reckoning runs on
+ * past where the player let go of the key by however long that word takes to arrive: up to
+ * SEND_GAP_MS (60, shared/pilot.js) while the page gathers it, a frame or two (about 35 ms), and
+ * the trip to the room (50 to 150 ms on a phone). 250 ms covers that with room to spare, and is
+ * short enough that a stalled phone's touch still lands while its piece is plainly there.
+ */
+export const TOUCH_GRACE_MS = 250;
+
+/**
  * The swept touch: the gap from one piece to another goes from `r0` to `r1` (both walking at a
  * steady speed in between, so evenly), and a touch is that gap in [lo, hi]. Returns how far
  * through (0 to 1) the gap first comes into it, or null when it never does. A gap that jumps
