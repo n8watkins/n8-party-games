@@ -238,6 +238,8 @@ export function attackState(ms, landed = false) {
 
 /** The victim's state `ms` after the bump that hit it. `safeFor` is how long it stays safe after getting up; `extra`, how much longer it lies down. */
 export function knockState(ms, safeFor = IMMUNE_MS, extra = 0) {
+  // A knock still to come (a domino, a curling stone's target: shared/counters.js) stands until it does.
+  if (ms < 0) return "standing";
   if (!(ms >= 0) || ms >= STUN_MS + extra + safeFor) return "up";
   if (ms < IMPACT_MS) return "standing";
   if (ms < IMPACT_MS + HIT_PAUSE_MS) return "hit";

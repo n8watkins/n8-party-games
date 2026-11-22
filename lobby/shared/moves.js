@@ -10,6 +10,10 @@
 //   shove      a slime walked into it (shared/slime.js)
 //   freed      freed from a pull where it was: its chain cut, or a ghost that slipped the hook (shared/robot.js)
 //   tug        held between two hooks that reached it at once (shared/robot.js)
+//   curl       a hardened slime sent sliding by a charged kick: the curling stone (shared/counters.js)
+//   swallowed  a hardened slime swallowed by a soft one and spat out the far side (shared/counters.js)
+//   stick      two soft slimes stuck together, wobbling, then apart (shared/counters.js)
+//   pop        two faded ghosts that met, popped solid (shared/counters.js)
 //
 // And the one rule every slide across the floor keeps (slideLanding): a piece the room drags may
 // leave the light it stands in (as a kick does), but it never comes to rest in another light that
@@ -18,7 +22,11 @@ import { IMMUNE_MS, KNOCK_CLEAR, landingGround } from "./bump.js";
 import { BIG_SCARE, BIG_SCARE_MS, SCARE, SCARE_MS, SPOOK, SPOOK_MS, frightPose, SCARE_START_MS, SCARE_FREEZE_MS, SCARE_RUN_MS, SCARE_HOP } from "./ghost.js";
 import { BONK, FREED, PULL, PULLED_SAFE_MS, TUG } from "./robot.js";
 import { SHOVE } from "./slime.js";
+import { CURL, POPPED, STUCK, SWALLOWED } from "./counters.js";
 import { lightAt } from "./world.js";
+
+/** A piece a touch counter moved (shared/counters.js) cannot be knocked, shoved or spooked again for this long after: a counter resolves once. */
+export const COUNTER_SAFE_MS = 600;
 
 /** A robot scared by its own hook: the start, the freeze and the scurry, from the moment the room says so (no kick on its way first). */
 export const HOOK_SCARE = { lead: 0, freeze: SCARE_FREEZE_MS, run: SCARE_RUN_MS, hop: SCARE_HOP };
@@ -38,6 +46,10 @@ export const MOVED = {
   shove: { how: SHOVE, ms: SHOVE.ms, safe: 0 },
   freed: { how: FREED, ms: FREED.ms, safe: PULLED_SAFE_MS },
   tug: { how: TUG, ms: TUG.ms, safe: PULLED_SAFE_MS },
+  curl: { how: CURL, ms: CURL.ms, safe: COUNTER_SAFE_MS },
+  swallowed: { how: SWALLOWED, ms: SWALLOWED.ms, safe: COUNTER_SAFE_MS },
+  stick: { how: STUCK, ms: STUCK.ms, safe: COUNTER_SAFE_MS },
+  pop: { how: POPPED, ms: POPPED.ms, safe: COUNTER_SAFE_MS },
 };
 
 /** Whether `kind` is one of the room's frights (a page may hear of a kind newer than it is: drawn as a knock). */

@@ -588,6 +588,20 @@ link.on("message", (msg) => {
         if (pilot && msg.cut === link.you.seat) pilot.knock(msg.x, msg.rev, now, MOVED.freed.ms);
         moveSound("hook-clang", msg.cut);
       }
+      // Dominoes and the curling stone's target (shared/counters.js): knocked over as it reaches them, `at` ms on.
+      for (const hit of [msg.dm, msg.cv]) {
+        if (!hit) continue;
+        lastMoves.set(hit.to, { x: hit.x, d: 0, t: now });
+        noBoo(hit.to, now + hit.at - IMPACT_MS + STUN_MS + IMMUNE_MS);
+        if (pilot && hit.to === link.you.seat) pilot.knock(hit.x, hit.rev, now, hit.at - IMPACT_MS + STUN_MS);
+        setTimeout(() => roomSounds?.struck(msg.s, hit.to), hit.at);
+      }
+      // The curling stone itself, sliding off as the kick lands.
+      if (msg.cu) {
+        lastMoves.set(msg.cu.s, { x: msg.cu.x, d: 0, t: now });
+        noBoo(msg.cu.s, now + IMPACT_MS + MOVED.curl.ms + MOVED.curl.safe);
+        if (pilot && msg.cu.s === link.you.seat) pilot.knock(msg.cu.x, msg.cu.rev, now, IMPACT_MS + MOVED.curl.ms);
+      }
       feelBump(msg);
       // The swing (the viewer's own was heard when the button went down), and the blow when it lands.
       if (msg.s !== link.you.seat || !isPlayer()) roomSounds?.swung(msg.s);
@@ -643,10 +657,16 @@ link.on("message", (msg) => {
       scene.onSpook(msg, now);
       stirAt = now;
       if (pilot && msg.to === link.you.seat) {
-        pilot.knock(msg.x, msg.rev, now, SPOOK_MS);
+        // A robot up on its legs topples instead (`tp`, shared/counters.js): down as long as a knock.
+        pilot.knock(msg.x, msg.rev, now, msg.tp ? STUN_MS : SPOOK_MS);
         buzz(40);
       }
       ghostSound("ghost-boo", msg.to === link.you.seat ? msg.to : msg.s);
+      break;
+    case "goo":
+    case "pop":
+      // The slimes met (swallowed or stuck), or two faded ghosts met and popped solid (shared/counters.js).
+      touched(msg, now);
       break;
     case "boo-no":
       // The room did not find this ghost close enough to that piece (or it was spooked a moment
@@ -730,6 +750,8 @@ link.on("message", (msg) => {
         if (pilot && msg.to === link.you.seat) pilot.knock(msg.x, msg.rev, now);
         moveSound("hook-clang", msg.to);
       }
+      // Hard or soft beside another slime already: they met at once (shared/counters.js).
+      if (msg.goo) touched(msg.goo, now);
       break;
     case "slime-no":
       if (msg.k === "harden") {
@@ -870,6 +892,28 @@ function tossSounds(before, after, now) {
   roomSounds?.play("toss-flip", -1, { gain: 0.8 });
   const at = now + after.toss.endsIn;
   setTimeout(() => roomSounds?.play("toss-land", -1), Math.max(0, at - performance.now()));
+}
+
+/**
+ * Two slimes met ({t: "goo", k: "swallow" | "stick"}) or two faded ghosts did ({t: "pop"})
+ * (shared/counters.js): every piece it moved is where the room put it, and still while it plays.
+ */
+function touched(msg, now) {
+  stirAt = now;
+  scene.onTouch(msg, now);
+  const kind = msg.t === "pop" ? "pop" : msg.k === "swallow" ? "swallowed" : "stick";
+  // The swallow moves only the one it spat out (`to`); the stick and the pop move both.
+  const moved = msg.k === "swallow" ? [[msg.to, msg.x, msg.rev]] : [[msg.s, msg.x, msg.rev], [msg.to, msg.ox, msg.orev]];
+  for (const [seat, x, rev] of moved) {
+    if (!Number.isFinite(x)) continue;
+    lastMoves.set(seat, { x, d: 0, t: now });
+    noBoo(seat, now + MOVED[kind].ms + MOVED[kind].safe);
+    if (pilot && seat === link.you?.seat && isPlayer()) pilot.knock(x, rev, now, MOVED[kind].ms);
+  }
+  // The ghosts are solid again: their own fade is over.
+  if (msg.t === "pop" && isPlayer() && (msg.s === link.you.seat || msg.to === link.you.seat)) ownFade(0, now);
+  if (msg.t === "pop") ghostSound("ghost-boo", msg.s);
+  else moveSound(msg.k === "swallow" ? "slime-absorb" : "slime-harden", msg.s);
 }
 
 /** The blow lands a moment after the bump: both phones buzz then, the one that was hit longer. */

@@ -14,7 +14,7 @@ import { EmoteFigure, Sticker, bodyTransform } from "./emotes/svg.js";
 import { IMPACT_MS } from "./shared/bump.js";
 import { OWN_FADED } from "./shared/ghost.js";
 import { MoveDraw } from "./move-draw.js";
-import { gooNow, heardCannon, heardCharge, heardChargedKick, heardCut, heardEmpty, heardHook, heardShove, heardSlime, heardStilts, heardVerdict, hookNow, hookStop, netOf, refusedOwn, resumeMoves, startCharge, startGoo, startHook, startRelease, startStilts, stiltsNow } from "./move-state.js";
+import { dropStilts, gooNow, heardCannon, heardCharge, heardChargedKick, heardCut, heardEmpty, heardKickCounters, heardTouch, heardHook, heardShove, heardSlime, heardStilts, heardVerdict, hookNow, hookStop, netOf, refusedOwn, resumeMoves, startCharge, startGoo, startHook, startRelease, startStilts, stiltsNow } from "./move-state.js";
 import { STILT_RISE } from "./shared/robot.js";
 import { tagLevels } from "./tag-levels.js";
 import { standings } from "./shared/tonight.js";
@@ -661,6 +661,13 @@ export class Scene {
     }
     // The kick cut the chain someone was being pulled along (`cut`, shared/robot.js): set down where they were.
     if (msg.cut !== undefined) heardCut(this.pieces, msg, now, this.moveDrawing);
+    // Dominoes, the curling stone and what it reached (shared/counters.js).
+    if (msg.dm || msg.cv || msg.cu) heardKickCounters(this.pieces, msg, began, this.moveDrawing);
+  }
+
+  /** The slimes met (`goo`: swallowed or stuck), or two faded ghosts met and popped solid (`pop`): shared/counters.js. */
+  onTouch(msg, now) {
+    heardTouch(this.pieces, msg, now, this.moveDrawing);
   }
 
   // The robot's and the slime's moves (move-state.js keeps what both drawings know of them).
@@ -726,7 +733,7 @@ export class Scene {
     if (msg.ct === "empty") heardEmpty(this.pieces, msg, now, this.moveDrawing);
   }
 
-  /** A faded ghost drifted through a piece (boo): the piece is spooked to where the room put it. */
+  /** A faded ghost drifted through a piece (boo): the piece is spooked to where the room put it; a robot up on its legs topples (`tp`, shared/counters.js). */
   onSpook(msg, now) {
     const ghost = this.pieces.get(msg.s);
     if (ghost) ghost.booAt = now;
@@ -734,7 +741,10 @@ export class Scene {
     if (!p) return;
     p.net = { x: msg.x, d: 0, t: now };
     p.rev = msg.rev;
-    this.bumps.fright(p, msg.x, now, "spook");
+    if (msg.tp) {
+      dropStilts(p, now);
+      this.bumps.knock(p, msg.x, now - IMPACT_MS);
+    } else this.bumps.fright(p, msg.x, now, "spook");
   }
 
   /** The viewer's own piece jumped (its Pilot says so; nothing comes back from the room). */
