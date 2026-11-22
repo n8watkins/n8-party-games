@@ -91,7 +91,12 @@ export class BumpDraw {
     const f = p.fright;
     if (f) {
       const pose = movedPose(f, now - f.at, calm());
-      if (pose.state === "up") p.fright = null;
+      if (pose.state === "up") {
+        p.fright = null;
+        // Over before this page drew its landing (a move with no safe time after it, a shove, or a
+        // page that drew nothing all the while): this one frame is drawn where the move put it too.
+        if (!f.landed && now >= f.at) return { ...STILL, x: f.to };
+      }
       // Until the kick reaches the ghost the kicker's own kick is drawn (below).
       else if (pose.state !== "standing") {
         if (pose.face) p.face = pose.face;

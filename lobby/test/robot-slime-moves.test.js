@@ -1017,6 +1017,30 @@ describe("what a page that arrives in the middle is told, and draws", () => {
     expect(bumpPose(solid, now + PULL_MS + 320).x).toBeNull();
   });
 
+  it("draws a shoved piece where the shove put it on the first frame after it, in both looks, though a shove has no safe time to land in", () => {
+    const now = 10_000;
+    expect(MOVED.shove.safe).toBe(0);
+    // A page that drew no frame of the shove: its next frame comes after it is over ("up" at once).
+    const flat = { rx: 900, face: 1 };
+    BumpDraw.prototype.fright.call(null, flat, 960, now, "shove");
+    const solid = { rx: 900, face: 1 };
+    solid.fright = { ...flat.fright, landed: false };
+    const draw = Object.create(BumpDraw.prototype);
+    expect(draw.pose(flat, now + SHOVE_MS + 300)).toMatchObject({ x: 960, state: "idle", safe: false });
+    expect(flat.fright).toBeNull();
+    // Then it is left to the look's ease: it walks on from there.
+    expect(draw.pose(flat, now + SHOVE_MS + 320).x).toBeNull();
+    expect(bumpPose(solid, now + SHOVE_MS + 300)).toMatchObject({ x: 960, state: "idle", safe: false });
+    expect(solid.fright).toBeNull();
+    expect(bumpPose(solid, now + SHOVE_MS + 320).x).toBeNull();
+    // A page that drew the shove lands it the same way, and only once.
+    const seen = { rx: 900, face: 1 };
+    BumpDraw.prototype.fright.call(null, seen, 960, now, "shove");
+    expect(draw.pose(seen, now + SHOVE_MS / 2).x).toBeGreaterThan(900);
+    expect(draw.pose(seen, now + SHOVE_MS + 16).x).toBe(960);
+    expect(draw.pose(seen, now + SHOVE_MS + 32).x).toBeNull();
+  });
+
   it("draws a pull, a shove, a bonk and a robot's scare as themselves in both looks, already where the room put them", () => {
     const now = 10_000;
     for (const kind of ["pull", "shove", "bonk", "hookscare"]) {

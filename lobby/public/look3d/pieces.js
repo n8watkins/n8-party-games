@@ -182,7 +182,11 @@ export function bumpPose(piece, now, calm = false) {
   const f = piece.fright;
   if (f) {
     const pose = movedPose(f, now - f.at, calm);
-    if (pose.state === "up") piece.fright = null;
+    if (pose.state === "up") {
+      piece.fright = null;
+      // Over before this page drew its landing (a shove has no safe time after it): drawn there this frame too.
+      if (!f.landed && now >= f.at) return { ...UPRIGHT, x: f.to };
+    }
     // Until the kick reaches the ghost the kicker's own kick is drawn (below).
     else if (pose.state !== "standing") {
       if (pose.face) piece.face = pose.face;
