@@ -6,7 +6,8 @@ import { tmpdir } from "node:os";
 import { dirname, join, sep } from "node:path";
 import { unstable_readConfig } from "wrangler";
 import { afterAll, describe, expect, it } from "vitest";
-import { OUT as DIST, SERVED, build } from "../../scripts/build-public.mjs";
+import { COMPUTED_IMPORTS, OUT as DIST, SERVED, build } from "../../scripts/build-public.mjs";
+import { WALL } from "../../lobby/wall.js";
 import { BOT_CHECK_MODULE, headersFile, moduleGraph, roomMakingPages } from "../build/public.mjs";
 
 const read = (env) => unstable_readConfig({ config: "wrangler.jsonc", env });
@@ -72,6 +73,8 @@ describe("the public folder", () => {
   const OUT = mkdtempSync(join(tmpdir(), "party-public-"));
   afterAll(() => rmSync(OUT, { recursive: true, force: true }));
   const files = build(OUT);
+  /** The site's own computed imports, known to the build (scripts/build-public.mjs). */
+  const known = { computedImports: COMPUTED_IMPORTS };
 
   it("builds into the folder it is given, leaving the served dist/public alone", () => {
     expect(OUT).not.toBe(DIST);
@@ -157,7 +160,7 @@ describe("the public folder", () => {
     expect(csp(rules.find((rule) => rule.startsWith("/party/*\n")))).not.toContain(TURNSTILE);
     // The pages that load the kit's bot check: Cork & Bell's own page (the kit's lobby), the party
     // room's way in and the Table's start page. Tin Derby's page makes no rooms, and is not one.
-    const pages = roomMakingPages(OUT);
+    const pages = roomMakingPages(OUT, known);
     expect(pages).toEqual(["/cork-and-bell/*", "/lobby/*", "/table/*"]);
     const widened = rules.filter((rule) => rule.includes(TURNSTILE));
     expect(widened.map((rule) => rule.split("\n")[0])).toEqual(pages);
@@ -198,20 +201,32 @@ describe("the public folder", () => {
     const htmlPages = files.filter(({ path }) => path.endsWith(".html")).map(({ path }) => join(OUT, path));
     const callsCreate = (file) => !file.endsWith(join("party-kit", "client", "party-client.js")) && !file.includes(`${sep}vendor${sep}`) && /\b\w+\.create\(\s*\{/.test(readFileSync(file, "utf8"));
     const folderOf = (page) => `/${dirname(page).slice(OUT.length + 1).split(sep).join("/")}/*`.replace(/^\/\/\*$/, "/*");
-    const listed = roomMakingPages(OUT);
+    const listed = roomMakingPages(OUT, known);
     const covered = (folder) => listed.some((path) => folder.startsWith(path.slice(0, -1)));
-    const makers = htmlPages.filter((page) => moduleGraph(OUT, page).some(callsCreate));
+    const makers = htmlPages.filter((page) => moduleGraph(OUT, page, known).some(callsCreate));
     expect(makers.length).toBeGreaterThan(0);
     for (const page of makers) expect(covered(folderOf(page)), page).toBe(true);
     for (const path of listed) expect(makers.some((page) => folderOf(page).startsWith(path.slice(0, -1))), path).toBe(true);
     // The pages that only join or show a game load no bot check, and are not listed.
     for (const page of ["party/index.html", "tin-derby/page/index.html", "index.html"]) {
-      expect(moduleGraph(OUT, join(OUT, page)).includes(join(OUT, BOT_CHECK_MODULE)), page).toBe(false);
+      expect(moduleGraph(OUT, join(OUT, page), known).includes(join(OUT, BOT_CHECK_MODULE)), page).toBe(false);
     }
-    expect(moduleGraph(OUT, join(OUT, "party/index.html")).some((f) => f.endsWith("party-client.js"))).toBe(true);
+    expect(moduleGraph(OUT, join(OUT, "party/index.html"), known).some((f) => f.endsWith("party-client.js"))).toBe(true);
     // The graph follows site paths, relative paths and an import map, and skips imports named in comments.
-    const lobbyGraph = moduleGraph(OUT, join(OUT, "lobby/index.html")).map((f) => f.slice(OUT.length + 1));
+    const lobbyGraph = moduleGraph(OUT, join(OUT, "lobby/index.html"), known).map((f) => f.slice(OUT.length + 1));
     expect(lobbyGraph).toEqual(expect.arrayContaining(["lobby/main.js", "lobby/door.js", BOT_CHECK_MODULE]));
+  });
+
+  it("reads every page's imports, with only the two known computed ones, and no game view a party loads that way makes rooms", () => {
+    expect(COMPUTED_IMPORTS).toEqual(["lobby/main.js", "party/stage.js"]);
+    // The build itself ran roomMakingPages with that list (a computed import anywhere else throws).
+    const views = [...WALL.boxes, ...WALL.table].map((entry) => entry.view).filter(Boolean);
+    expect(views.length).toBeGreaterThan(0);
+    for (const view of views) {
+      const file = join(OUT, view);
+      expect(statSync(file).isFile(), view).toBe(true);
+      expect(moduleGraph(OUT, file, known).includes(join(OUT, BOT_CHECK_MODULE)), view).toBe(false);
+    }
   });
 
   it("lets the zone's Cloudflare Web Analytics beacon load and report, and nothing else from outside", () => {

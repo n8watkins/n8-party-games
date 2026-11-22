@@ -76,6 +76,7 @@
     "test:tin-derby:full": "node floor/games/tin-derby/test/e2e-room.mjs --only=solo,two,four,panes,trouble,stalls,noscreen,screens,look,lag,tvlag"
   },
   "dependencies": {
+    "es-module-lexer": "3.0.4",
     "lean-qr": "^2.7.4"
   },
   "devDependencies": {
