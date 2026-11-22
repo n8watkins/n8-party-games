@@ -64,7 +64,8 @@ try {
   const res = await fetch(base + "/manifest.webmanifest");
   const manifest = await res.json();
   check(res.headers.get("content-type")?.startsWith("application/manifest+json") && /default-src 'self'/.test(res.headers.get("content-security-policy") ?? ""), "the manifest is served as application/manifest+json, under a CSP whose default-src allows it");
-  check(manifest.display === "standalone" && manifest.orientation === "landscape" && manifest.icons.some((i) => i.purpose === "maskable"), `standalone, landscape, with a maskable icon: ${manifest.name}`);
+  // Any way up since the three doors home (#66): the front page stands upright on a phone, the room turns it sideways.
+  check(manifest.display === "standalone" && manifest.orientation === "any" && manifest.icons.some((i) => i.purpose === "maskable"), `standalone, any way up, with a maskable icon: ${manifest.name}`);
   for (const icon of manifest.icons) {
     const r = await fetch(base + icon.src);
     check(r.ok && r.headers.get("content-type") === "image/png", `${icon.src} is served as a PNG`);

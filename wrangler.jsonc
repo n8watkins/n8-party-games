@@ -53,9 +53,13 @@
     // are refused and solo play carries on. All games on this Worker share the one allowance.
     "PARTY_ROOM_BUDGET_SHARE": "0.1",
     "PARTY_RATE_LIMIT": "on",
-    "PARTY_SIM_LATENCY": "off"
-    // The bot check on new rooms (Cloudflare Turnstile) is off until both keys exist:
-    // TURNSTILE_SITE_KEY here (it is public), TURNSTILE_SECRET_KEY as a secret. See DEPLOY.md.
+    "PARTY_SIM_LATENCY": "off",
+    // The bot check on new rooms (Cloudflare Turnstile) is off until both keys exist: the site
+    // key here (it is public: the widget "Party games new party", Managed, for
+    // partygames.n8builds.dev only) and TURNSTILE_SECRET_KEY as a secret. With the site key alone
+    // the site behaves as if there were none: /api/party/config hands it out only once the secret
+    // is set too. See DEPLOY.md, "The bot check". The local environment has neither.
+    "TURNSTILE_SITE_KEY": "0x4AAAAAAGM24cDseqMFt3A0"
   },
   "env": {
     // Local play and the test runs: npm run dev, npm run dev:lan. Never deployed.

@@ -22,6 +22,14 @@ export const TABLE_PAGES = "/party/*";
 import { GAMES, TURN_GAMES } from "../games.js";
 import { WALL } from "../lobby/wall.js";
 
+/**
+ * The files whose import() names a module the build cannot read (party-kit/build/public.mjs,
+ * moduleGraph): any other one fails the build. Both load the view of a game the party is playing,
+ * named by the room's wall (lobby/wall.js, a box's or a Table entry's `view`), into a party already
+ * made; a test checks that no such view loads the bot check.
+ */
+export const COMPUTED_IMPORTS = ["lobby/main.js", "party/stage.js"];
+
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 export const OUT = join(ROOT, "dist", "public");
 
@@ -153,8 +161,11 @@ export function build(out = OUT) {
   // Hot Potato (one-device/hot-potato) and its hearing test (lab/hot-potato) listen through the
   // microphone; no other page may. Who Am I? at the Table shows each name's picture straight from
   // Wikimedia, as its own site does (party/games/who-am-i/README.md, "For the page builder"): the
-  // Table's pages, and only those, may load pictures from there.
-  const files = buildPublic({ out, entries, frames: "self", microphone: ["/lab/hot-potato/*", "/one-device/hot-potato/*"], images: { [TABLE_PAGES]: [PICTURE_HOST] } });
+  // Table's pages, and only those, may load pictures from there. Only the pages that make rooms
+  // (those that load the kit's bot check: the party room's way in, the Table's start page, a
+  // hosted game's own page with the kit's lobby) may load anything from Turnstile, found in what
+  // was built (party-kit/build/public.mjs, roomMakingPages).
+  const files = buildPublic({ out, entries, frames: "self", microphone: ["/lab/hot-potato/*", "/one-device/hot-potato/*"], images: { [TABLE_PAGES]: [PICTURE_HOST] }, botCheck: "room-making", computedImports: COMPUTED_IMPORTS });
   const text = homeWallModule();
   writeFileSync(join(out, HOME_WALL_PATH), text);
   return [...files, { path: HOME_WALL_PATH, bytes: Buffer.byteLength(text) }].sort((a, b) => a.path.localeCompare(b.path));
