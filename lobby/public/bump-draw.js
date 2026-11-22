@@ -9,7 +9,7 @@
 // does them (`scared` in its flat definition). Neither jolts the picture.
 import { s, set } from "./dom.js";
 import { IMMUNE_MS, IMPACT_MS, PIECE_PIVOT, STUN_MS, attackPose, cooldownFraction, impactPoint, knockPose } from "./shared/bump.js";
-import { SCARE, SPOOK, frightPose, frightResumed } from "./shared/ghost.js";
+import { isMoved, moved, movedPose, movedResumed } from "./shared/moves.js";
 import { ROOM } from "./shared/world.js";
 
 const BURST_MS = 240;
@@ -61,22 +61,23 @@ export class BumpDraw {
   }
 
   /**
-   * A piece was frightened by a ghost and runs from where it is drawn to `to`: `kind` is "scare"
-   * (it kicked a faded ghost; `at` is when its kick began) or "spook" (a faded ghost drifted
-   * through it; `at` is now).
+   * The room moved a piece some other way than a kick, from where it is drawn to `to`
+   * (shared/moves.js): `kind` "scare" (it kicked a faded ghost; `at` is when its kick began),
+   * "spook" (a faded ghost drifted through it), "hookscare" (its hook went through one), "pull" (a
+   * robot's hook dragged it), "bonk" (the hook back) or "shove" (a slime walked into it).
    */
   fright(p, to, at, kind) {
-    p.fright = { at, from: p.rx, to, how: kind === "scare" ? SCARE : SPOOK, safeFor: IMMUNE_MS };
+    p.fright = moved(kind, p.rx, to, at);
     p.knock = null;
   }
 
   /**
    * The room says a piece is on the floor or just up from it (for a page that arrived in the
-   * middle): knocked, or scared or spooked (`fright`), drawn as what it is.
+   * middle): knocked, or moved another way (`fright`, shared/moves.js), drawn as what it is.
    */
   resume(p, x, down, safe, now, fright) {
     if (p.knock || p.fright || !(safe > 0)) return;
-    if (fright) return void (p.fright = frightResumed(x, down, safe, fright, now));
+    if (isMoved(fright)) return void (p.fright = movedResumed(x, down, safe, fright, now));
     p.knock = { at: now - (STUN_MS - down), from: x, to: x, safeFor: safe - down, burst: true, dust: true };
   }
 
@@ -89,12 +90,12 @@ export class BumpDraw {
   pose(p, now) {
     const f = p.fright;
     if (f) {
-      const pose = frightPose(now - f.at, f.from, f.to, f.how, f.safeFor, calm());
+      const pose = movedPose(f, now - f.at, calm());
       if (pose.state === "up") p.fright = null;
       // Until the kick reaches the ghost the kicker's own kick is drawn (below).
       else if (pose.state !== "standing") {
         if (pose.face) p.face = pose.face;
-        return { x: pose.x, dx: pose.dx, lift: pose.lift, tilt: pose.tilt, pivot: 0, sx: pose.sx, sy: pose.sy, state: pose.state, dizzy: false, safe: pose.state === "safe", scared: pose.scared, pale: pose.pale };
+        return { x: pose.x, dx: pose.dx, lift: pose.lift, tilt: pose.tilt, pivot: 0, sx: pose.sx, sy: pose.sy, state: pose.state, dizzy: !!pose.dizzy, safe: pose.state === "safe", scared: pose.scared, pale: pose.pale };
       }
     }
     const k = p.knock;

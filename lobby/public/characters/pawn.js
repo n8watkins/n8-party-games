@@ -73,11 +73,15 @@ export const pawn = {
       }
       if (a.whites) set(a.whites, { display: k > 0.3 ? null : "none" });
     },
-    /** Two little crosses for eyes: a piece that has just been knocked over. */
+    /**
+     * Eyes squeezed shut, a wince (> <), for a piece that has just been knocked over: it reads as
+     * "oof", never as hurt (the owner's pick, character preview round three; crosses read as dead).
+     */
     dizzy(a, on) {
       if (!a.crosses) {
-        const cross = (cx) => s("path", { d: `M${cx - 5},-118 l10,10 M${cx + 5},-118 l-10,10`, stroke: "#1a1210", "stroke-width": 3.4, "stroke-linecap": "round", fill: "none" });
-        a.crosses = s("g", { display: "none" }, cross(-10), cross(10));
+        // `point`: which way the chevron's tip faces (the two tips face each other).
+        const wince = (cx, point) => s("path", { d: `M${cx - point * 4.5},-118.5 L${cx + point * 3.5},-113 L${cx - point * 4.5},-107.5`, stroke: "#1a1210", "stroke-width": 3.2, "stroke-linecap": "round", "stroke-linejoin": "round", fill: "none" });
+        a.crosses = s("g", { display: "none", class: "pawn-shut" }, wince(-9, 1), wince(9, -1));
         a.inner.append(a.crosses);
       }
       set(a.crosses, { display: on ? null : "none" });

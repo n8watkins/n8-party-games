@@ -11,14 +11,15 @@
 
 /**
  * The characters, in the order the picker shows them. `move` is what the character's action
- * button does: every character kicks until its own move is built (the ghost's is "fade"; the
- * slime's will be "harden", the robot's "hook").
+ * button does ("Only the pawn kicks; every character has one move button"): the pawn's kick
+ * (lobby/shared/bump.js), the ghost's fade (ghost.js), the slime's harden, held to absorb
+ * (slime.js), and the robot's hook (robot.js), whose jump is its stilt legs.
  */
 export const CHARACTERS = [
   { id: "pawn", name: "Pawn", move: "kick" },
   { id: "ghost", name: "Ghost", move: "fade" },
-  { id: "slime", name: "Slime", move: "kick" },
-  { id: "robot", name: "Robot", move: "kick" },
+  { id: "slime", name: "Slime", move: "harden" },
+  { id: "robot", name: "Robot", move: "hook" },
 ];
 
 /** What everyone is until they choose, and what an unknown character is read as. */
@@ -34,8 +35,8 @@ export const characterOr = (id) => (isCharacter(id) ? id : DEFAULT_CHARACTER);
 export const characterName = (id) => CHARACTERS.find((c) => c.id === id)?.name ?? "Pawn";
 
 /**
- * What a character's action button does: "kick", or the ghost's "fade" (lobby/shared/ghost.js).
- * A ghost does not kick. An unknown character is read as the default.
+ * What a character's action button does: "kick", the ghost's "fade", the slime's "harden" or the
+ * robot's "hook". Only the pawn kicks. An unknown character is read as the default.
  */
 export const moveOf = (id) => CHARACTERS.find((c) => c.id === characterOr(id))?.move ?? "kick";
 

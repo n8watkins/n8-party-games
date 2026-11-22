@@ -13,6 +13,9 @@ import { Expressions } from "./emotes/play.js";
 import { EmoteFigure, Sticker, bodyTransform } from "./emotes/svg.js";
 import { IMPACT_MS } from "./shared/bump.js";
 import { OWN_FADED } from "./shared/ghost.js";
+import { MoveDraw } from "./move-draw.js";
+import { gooNow, heardHook, heardShove, heardSlime, heardStilts, heardVerdict, hookNow, hookStop, refusedOwn, resumeMoves, startGoo, startHook, startStilts, stiltsNow } from "./move-state.js";
+import { STILT_RISE } from "./shared/robot.js";
 import { tagLevels } from "./tag-levels.js";
 import { standings } from "./shared/tonight.js";
 import { BADGES, COUNT_MS, playersLabel } from "./shared/vote.js";
@@ -185,6 +188,8 @@ export class Scene {
     const fx = s("g");
     this.layers.tags.before(fx);
     this.bumps = new BumpDraw({ fx, floor: this.layers.shadows });
+    // The robot's hook and its chain, over the pieces; its tell along the floor (move-draw.js).
+    this.moves = new MoveDraw({ fx, floor: this.layers.shadows });
   }
 
   /** One game box: lamp, cone of light, poster, sign and the pool on the floor. */
@@ -377,6 +382,8 @@ export class Scene {
       // drawn the moment its button goes down, before the room has said so: left as it is.
       if (m.faded > 0) p.fadeUntil = now + m.faded;
       else if (m.seat !== this.opts.own) p.fadeUntil = 0;
+      // A robot's hook out or legs up, a slime hard or soft (move-state.js), likewise.
+      resumeMoves(p, m, now, m.seat === this.opts.own);
       this.dress(p, m);
     }
     for (const [seat, p] of this.pieces) {
@@ -514,6 +521,9 @@ export class Scene {
     p.emote = null;
     p.sticker?.show(null);
     this.expressions.stop(p.seat);
+    // Its old move ends with its old body.
+    p.hook = p.stilt = p.goo = null;
+    this.moves?.hook(p.seat, null);
     this.cast(p, m);
   }
 
@@ -550,6 +560,7 @@ export class Scene {
   }
 
   removePiece(p) {
+    this.moves?.hook(p.seat, null);
     p.shadow.remove();
     p.g.remove();
     p.tag.remove();
@@ -626,6 +637,7 @@ export class Scene {
       hit.net = { x: msg.x, d: 0, t: now };
       hit.rev = msg.rev;
       this.bumps.knock(hit, msg.x, began);
+      hit.goo = null;
     }
     // The kick went through a faded ghost (`sc`, shared/ghost.js): the kicker is scared off to
     // where the room put it, and the ghost says boo as the kick passes through.
@@ -636,6 +648,69 @@ export class Scene {
       const ghost = this.pieces.get(msg.sc);
       if (ghost) ghost.booAt = began + IMPACT_MS;
     }
+    // The kick bounced off a hardened slime (`bo`, shared/slime.js): the kicker is knocked back itself.
+    if (msg.bo !== undefined && by) {
+      by.net = { x: msg.x, d: 0, t: now };
+      by.rev = msg.rev;
+      this.bumps.knock(by, msg.x, began);
+      const slime = this.pieces.get(msg.bo);
+      if (slime) setTimeout(() => this.moves.spark(slime.rx - (msg.f || 1) * 40, 820, performance.now()), IMPACT_MS);
+    }
+  }
+
+  // The robot's and the slime's moves (move-state.js keeps what both drawings know of them).
+
+  /** How this look starts a slide or a fright, and a spark (`h`: how high above the floor). */
+  get moveDrawing() {
+    return { fright: (p, x, at, kind) => this.bumps.fright(p, x, at, kind), spark: (x, h, now) => this.moves.spark(x, ROOM.floorY - h, now) };
+  }
+
+  /** A robot threw its hook ({t: "hook", s, f, x}). */
+  onHook(msg, now) {
+    heardHook(this.pieces, this.opts.own, msg, now);
+  }
+
+  /** What came of a hook ({t: "hk", ...}): shared/robot.js. */
+  onHookVerdict(msg, now) {
+    heardVerdict(this.pieces, msg, now, this.moveDrawing);
+  }
+
+  /** A robot's legs went up ({t: "stilts", s}). */
+  onStilts(msg, now) {
+    heardStilts(this.pieces, msg, now);
+  }
+
+  /** A slime hardened or went soft ({t: "slime", s, k}). */
+  onSlime(msg, now) {
+    heardSlime(this.pieces, msg, now);
+  }
+
+  /** A walking slime shoved a piece a step on ({t: "shove", s, to, x, rev}). */
+  onShove(msg, now) {
+    heardShove(this.pieces, msg, now, this.moveDrawing);
+  }
+
+  /** The viewer's own robot threw its hook: the wind-up starts at once, before the room has answered. */
+  ownHook(now) {
+    const p = this.pieces.get(this.opts.own);
+    if (p) startHook(p, p.face, now);
+  }
+
+  /** The viewer's own robot went up on its legs. */
+  ownStilts(now) {
+    const p = this.pieces.get(this.opts.own);
+    if (p) startStilts(p, now);
+  }
+
+  /** The viewer's own slime pressed ("harden") or held ("absorb") its button. */
+  ownSlime(kind, now) {
+    const p = this.pieces.get(this.opts.own);
+    if (p) startGoo(p, kind, now);
+  }
+
+  /** The room turned down the viewer's own move ("hook", "stilts", "slime"): what it began at once is taken back. */
+  ownRefused(what, now) {
+    refusedOwn(this.pieces.get(this.opts.own), what, now);
   }
 
   /** A ghost faded for `msg.for` milliseconds (0: it is solid again). */
@@ -720,31 +795,54 @@ export class Scene {
         set(p.g, { "data-faded": faded || null });
       }
       // The character's own way of holding itself: where it looks, and how far off the floor it hangs (a pawn stands).
-      // It is told whether it walks, where it is and whether it stands in a game's light (its vote), for characters that show them.
+      // It is told whether it walks, where it is and whether it stands in a game's light (its vote), for characters that show them;
+      // a robot how far out its legs are and what its hook is doing, a slime how hard or soft it is (move-state.js).
       const voting = !!this.vote?.standing?.[seat];
+      const calm = !!this.calmQuery?.matches;
+      const stilt = stiltsNow(p, now, calm);
+      const goo = gooNow(p, now);
+      const legs = stilt ? Math.max(0, stilt.out) * STILT_RISE : 0;
       const hover = flat.frame(p.actor, {
-        now, dt, face: p.face, seat, calm: !!this.calmQuery?.matches, grounded: pose.dizzy,
+        now, dt, face: p.face, seat, calm, grounded: pose.dizzy,
         faded, booAt: p.booAt ?? -Infinity, walking: walking && pose.x === null, x: p.rx, voting,
+        stilt: stilt && { ...stilt, lift: legs * (1 + stilt.shake) }, goo, throwing: p.hook ? (p.hook.verdict ? "back" : now - p.hook.at < 150 ? "aim" : "throw") : null,
       });
+      p.legs = legs;
       set(p.g, { transform: poseTransform(p.rx, ROOM.floorY - up - bob - hover, pose) });
       this.bumps.dress(p, pose, now);
       const air = up + Math.max(0, pose.lift);
-      const squeeze = 1 - Math.min(0.45, (air + hover) / 260);
+      // A robot on its legs still stands on the floor: its shadow stays whole.
+      const squeeze = 1 - Math.min(0.45, (air + hover - legs) / 260);
       set(p.shadow, { cx: (p.rx + pose.dx).toFixed(1), rx: (flat.shadow.rx * squeeze).toFixed(1), ry: (flat.shadow.ry * squeeze).toFixed(1) });
       // `rise`: how far its foot is off the floor; `up`: how far the top of its head is above a standing pawn's, for the name tag.
       p.rise = air + bob + hover;
       p.up = p.rise + flat.tall;
       ordered.push(p);
     }
+    // The robots' hooks: each flies until the room's word, stopping at the first piece it meets.
+    for (const p of ordered) {
+      if (!p.hook) {
+        this.moves.hook(p.seat, null);
+        continue;
+      }
+      const others = ordered.filter((o) => o !== p && !o.leaving).map((o) => o.rx);
+      const drawn = hookNow(p, now, p.rx, p.hook.verdict ? null : hookStop(p.rx, p.hook.dir, others));
+      this.moves.hook(p.seat, drawn, p.rx, p.hook?.dir ?? p.face, p.legs ?? 0, p.colour);
+    }
+    this.moves.frame(now);
     const mine = own ? this.pieces.get(this.opts.own) : null;
     if (mine) this.bumps.cooldown(mine.rx, own.cooling(now), now, own.coolShare?.(now));
     this.bumps.frame(now);
     // Name tags that would sit on top of each other step up instead.
     tagLevels(ordered, (p) => p.tagW, (p) => p.up, () => this.tagSize + 20);
     const bounds = view ? { left: view.x, right: view.x + view.width } : null;
+    // A robot up on its stilt legs lifts its tag with it, but never into the row of signs over the
+    // boxes: the tag stops just under it (over the robot's head) while the legs are out.
+    const signsEnd = Math.max(SIGN_TOP, ...this.boxes.map((b) => b.rowY2 + (this.opts.compact ? 30 : 24))) + 8 + this.tagSize + 14;
     for (const p of ordered) {
       p.level += (p.want - p.level) * Math.min(1, dt * 12);
-      set(p.tag, { transform: `translate(${p.rx.toFixed(1)}, ${(ROOM.floorY - 156 - p.up - p.level * (this.tagSize + 20)).toFixed(1)})` });
+      const tagY = ROOM.floorY - 156 - p.up - p.level * (this.tagSize + 20);
+      set(p.tag, { transform: `translate(${p.rx.toFixed(1)}, ${(p.legs > 0 ? Math.max(tagY, signsEnd) : tagY).toFixed(1)})` });
       this.express(p, now, bounds);
     }
     this.paint(now);

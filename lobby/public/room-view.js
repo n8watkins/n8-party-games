@@ -126,7 +126,7 @@ export function hardware3D(params) {
 }
 
 /** The flat drawing as a room view: the Scene, plus the SVG it draws into. */
-class FlatRoomView extends Scene {
+export class FlatRoomView extends Scene {
   constructor(root, opts) {
     const svg = s("svg", { class: "scene", preserveAspectRatio: "xMidYMid slice", role: "img", "aria-label": "The party room" });
     root.append(svg);

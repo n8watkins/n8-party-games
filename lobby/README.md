@@ -190,7 +190,7 @@ The 3D look also loads two small fonts of its own (`public/look3d/fonts/`, with 
 
 Pieces move with weight in the 3D look: they lean into a walk, rock from foot to foot, stretch in the air and squash on landing (`public/look3d/pieces.js`).
 The bump is the shared one (`shared/bump.js`): the 3D look draws the same states at the same moments as the flat drawing, from the same poses, in `bumpPose` in that file under the heading "THE BUMP, DRAWN".
-The bumper is picked up by its head and kicks with its base; whoever it hits is squashed, thrown feet first, lies on the floor with crosses for eyes, gets up and flickers while it cannot be knocked again.
+The bumper is picked up by its head and kicks with its base; whoever it hits is squashed, thrown feet first, lies on the floor with its eyes squeezed shut in a wince (> <; a robot's are crosses), gets up and flickers while it cannot be knocked again.
 There is a burst of sparks where the blow lands, dust where the piece comes down, a small jolt of the picture, and a ring under your own piece that fills as your bump recharges.
 The 3D wall follows the flat one: a game's name is on its box and nowhere else, the sign under it says one thing about the game, how many play and on what, and the Tonight board opens when it is tapped.
 
@@ -437,6 +437,41 @@ The rules are `shared/ghost.js`, the numbers the owner approved in the character
   The party with no ghost never builds these sounds, and draws nothing new.
 - Nothing jolts the picture, and for someone who asked for less motion a frightened piece does not shiver.
 
+### The robot's and the slime's moves
+
+The rules are `shared/robot.js` and `shared/slime.js` (every number of each in its own file), what they do to a piece `shared/moves.js`; the numbers are the ones the owner approved in the character previews (rounds two and three), with the hook a little faster as he asked.
+Only the pawn kicks: the robot's move button is Hook and its jump button its stilt legs ("Legs"); the slime's move button is Harden, held to go soft.
+
+- **The hook**: `{t: "hook"}`.
+  The robot stops where it stands, rocks back for a 150 ms wind-up with a line of light along the floor as far as the hook reaches (the tell), then the hook flies at 1,650 units a second to 300 units out (about four piece widths) and grabs the first piece it meets.
+  Everybody hears `{t: "hook", s, f, x}` at once; the room judges the hook by its own clock 100 ms after its tip reaches a piece (or the end of its reach), so a jump or a kick that left the target's phone as it arrived counts, and tells everybody `{t: "hk", s, o, to, hx, x, rev}`.
+  That is one wake-up of the room a hook (`LobbyCore.dueHooks`, `nextWake`).
+  What can come of it (`o`): `pull` (the piece is dragged across the floor to the robot, upright and unharmed, in 260 ms, and cannot be knocked for 1.5 s after), `jumped` (it was in the air: the hook flies on and may take the piece behind), `parry` (a pawn kicked toward the robot as it arrived: batted away), `clang` (a hardened slime), `stuck` (an absorbing slime: the robot is dragged to the slime), `scare` (a faded ghost: the robot is scared off the other way), `bonk` (two robots hooking each other, or one hooking the robot that just pulled it: both yanked to the middle, heads bonked, stunned 0.6 s; the owner's pick, a bonk and no swap), `miss`, and `off` (dropped: its robot was knocked, became something else, or the party left the room).
+  A robot pulled while it drags a catch brings the catch along behind it, and a robot pulled while its own hook flies keeps its throw from where it now stands: both end in a line (the hook train).
+  A 6 s cooldown from the throw, hit or miss.
+- **The legs**: `{t: "stilts"}` (the robot's jump key or button).
+  A squat as the tell, a quick rise of 120 units with one small overshoot, a steady hold, a shake in the last 0.3 s, a fast drop and a flash on landing that says it can be hit again: 1.15 s in all, again 2.5 s after the last.
+  While up a kick swings through the gap under it (`bump` leaves it out), a slime cannot shove it, and it cannot hook; it still votes.
+  `{t: "stilts", s, for}` to everybody.
+- **Harden**: `{t: "slime", k: "harden"}`, a tap.
+  Glossy and solid like a gem for 1 s: a pawn that kicks it bounces off and is knocked back itself (`{t: "b", s, to: -1, bo: slime, x, rev}`), and a hook clangs off.
+  Then it is soft again and open to anything until it may harden again, 5 s after it began.
+- **Absorb**: the same button held past 280 ms turns the harden just begun soft and sticky for 1 s (`{t: "slime", k: "absorb"}`, taken only within 0.7 s of that harden, once a press, on the same cooldown).
+  A hook that reaches it sticks and the robot is dragged across the floor to the slime: the hook turned around. A kick still lands.
+- **Heavy**: a walking slime that touches a piece says so, `{t: "shove", to}`, and the room checks it by its own reckoning (close, in front, walking, not hard or soft).
+  The piece is pushed a step on and in front of the slime (`{t: "shove", s, to, x, rev}`), upright, so a slime that keeps walking keeps pushing it along.
+  Nobody shoves a slime, a robot up on its legs or a faded ghost.
+- **The vote**: everything the room drags across the floor may leave the light it stood in (as a kick does), but never comes to rest in another light that is on (`slideLanding`): no move puts a vote where its player did not choose it.
+  None of these moves holds a count back, and all are allowed during it (the hook and the shove as the kick is); a hook judged as the count ends that took a voter out stops the count rather than starting the game.
+  Every move ends when the party leaves the room (a game, the Table, a switch of waiting room) or the piece becomes another character.
+- **Refusals** go to that page only, as `{t: "hook-no" | "stilts-no" | "slime-no", why, wait}`; a shove the room does not take says nothing (the slime was only walking by).
+  Only what no real page sends counts against the socket's rate limit: a move the piece's character does not have (after a moment's grace for a change of character), a cooldown far from over, a shove from across the room.
+- **A page that arrives in the middle** (a reload) is told what is going on in the room view (`hook`, `stilts`, `hard`, `soft`, each cooldown, and the `fright` of a pulled, shoved or bonked piece) and draws it from there (`public/move-state.js`, `resumeMoves`).
+- **Drawn** in every look: the hook, its chain and the tell by `public/move-draw.js` (flat) and `public/look3d/moves3d.js` (3D, and the baked and made-real looks through it); the legs by the robot's own drawings, the gem and the soft melt by the slime's.
+  What both looks keep about the moves is `public/move-state.js`.
+  Nine sounds made in code (`public/move-sounds.js`: no recordings), built only once a robot or a slime does anything; not judged by ear yet.
+- Tests: `test/robot-slime-moves.test.js` (the rules, the room's judgement, the real Durable Object) and `npm run test:moves` (`test/e2e-moves.mjs`: every move by the keys, as every phone draws it, flat and 3D).
+
 To add another character: write its emote rig, its flat drawing and its model, and add it to the three lists.
 A body without a pawn's shoulders can take the ghost's emotes fitted to it (`bodyRig` in `public/characters/body-rig.js`) instead of a rig of its own, as the slime and the robot do.
 The picker, the room's check, the wheel's pictures and every draw site pick it up from there.
@@ -444,7 +479,7 @@ The picker, the room's check, the wheel's pictures and every draw site pick it u
 ### The ghost
 
 A white sheet with a hem dipped in the player's colour, scalloped along its edge, and two nub arms.
-It hangs above the floor and bobs, its hem trails behind it, and it squeezes its eyes shut when it is knocked over, where the pawn gets crosses.
+It hangs above the floor and bobs, its hem trails behind it, and it squeezes its eyes shut when it is knocked over.
 In the 3D and baked looks the sheet keeps its own white under any room's light: it takes only how bright the light is, never its hue, part of it glows by itself, and a cool rim outlines it (`SHEET_LIGHT` in `public/look3d/ghost.js`).
 It hangs a little higher there than in the flat drawing, over one soft shadow, so the air under it shows from the whole room.
 Its idle hover, bob and breath are laid on outside its springs, so an idle ghost is never "moving" (`STILL`; `test/ghost-model.test.js`).
@@ -457,12 +492,8 @@ Its emotes are in `public/characters/ghost-rig.js`, with the fits the owner chos
 - Its hands are two fifths larger than a pawn's (`GHOST.hand`) and held close to the sheet, so they read at phone size.
 - On a very pale colour the hands get a dark outline, because they would be lost against the white sheet.
 
-Not built yet, and where each goes:
-
-- The ghost's own move (fade, the scare, boo with its cap).
-  `CHARACTERS[].move` is `"kick"` for every character until then, so a ghost bumps as a pawn does.
-  The model already draws a faded ghost: set `piece.faded` on the piece's record (`fadeK` in `public/look3d/ghost.js`); the flat drawing needs the same.
-- Squeezed-shut eyes for every knocked piece: `flat.dizzy` in `public/characters/pawn.js` and the crosses in `public/look3d/pieces.js`.
+Its own move is above ("The ghost's move: the fade, the scare and boo").
+A knocked pawn's eyes squeeze shut too, as a wince (> <), in both looks, and so do a knocked slime's; only the robot keeps its crosses (`test/knocked-eyes.test.js`).
 
 ### The slime and the robot
 
@@ -470,7 +501,7 @@ Both are the landing scene's, which the owner approved in the character previews
 
 The slime is a soft dome that sags outward at its foot, two drips at the foot, a wet highlight, and two big eyes low on its front.
 It is a shade lighter than the player's colour with a darker rim and a gloss streak, front and back (the Tin Derby reviewer's fix for a dome that read as nothing from behind), so it reads on a light wall and a dark floor alike.
-It has no feet: it creeps, squashing and stretching as it goes, its top drags behind when it sets off, runs on and wobbles back when it stops, it flattens when it is knocked over and its eyes squeeze shut (swirls in the flat look).
+It has no feet: it creeps, squashing and stretching as it goes, its top drags behind when it sets off, runs on and wobbles back when it stops, it flattens when it is knocked over and its eyes squeeze shut (a wince, > <, in both looks).
 Its hands are joined on with arms of its own goo, in the body's own material in the 3D looks, so they are lit and reddened as it is.
 Fuming turns it red and swells it.
 
@@ -496,7 +527,8 @@ What one piece costs in the 3D look, with its shadow, measured with `npm run tes
 The robot's two more draws are its head and its mast, which move apart from its body; its paint, steel and dark parts are one material coloured point by point (`pointLitMat` in `public/look3d/body-kit.js`).
 The slime is turned finer than the pawn (44 sides) so a lit room's lines of light run smoothly over its gloss.
 Four of any one character in the 3D bar held 60 frames a second, on the graphics card and in software, drawing in 0.6 to 1.0 ms a picture (a quiet PC, phone held sideways).
-Not built yet: their own moves (the slime's harden and absorb, the robot's hook and stilt legs); `move` is `"kick"` until then.
+Their own moves are above ("The robot's and the slime's moves").
+Not built yet, from character preview round three (approved, and the next lane's): plant, ride the hook, cannonball, empty hook, boo the stilts, cut the line, curling stone, dominoes, steal, tug of war, the slimes' swallow and stick, ghosts that meet; the pawn's charged kick; the speeds (pawn 110%, robot 100%, ghost 95%, slime 80%); the rule that pieces pass through each other except during a move.
 
 ## Sound
 

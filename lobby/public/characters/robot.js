@@ -85,6 +85,18 @@ function shapes(colour, connected = true) {
   a.glowGrad = s("radialGradient", { id }, a.glowIn, a.glowOut);
   a.glow = s("circle", { cx: 0, cy: ROBOT.mastTop, r: 20, fill: `url(#${id})`, opacity: 0 });
   a.lamp = s("circle", { cx: 0, cy: ROBOT.mastTop, r: 0.055 * u * 1.15, stroke: DARK_EDGE, "stroke-width": 1.4 });
+  // Its stilt legs (lobby/shared/robot.js): two telescoping tubes from under its base to little
+  // feet on the floor, a wide dark one and a thinner steel one sliding out of it. Hidden when down.
+  a.stilts = [-15, 15].map((x) => {
+    const outer = s("rect", { x: x - 6, y: -4, width: 12, height: 0, rx: 3, fill: DARK, stroke: DARK_EDGE, "stroke-width": 1.4 });
+    const inner = s("rect", { x: x - 3.8, y: 0, width: 7.6, height: 0, rx: 2, fill: STEEL, stroke: DARK_EDGE, "stroke-width": 1.2 });
+    const collar = s("rect", { x: x - 7.5, y: 0, width: 15, height: 4, rx: 2, fill: STEEL, stroke: DARK_EDGE, "stroke-width": 1 });
+    const foot = s("ellipse", { cx: x, cy: 0, rx: 10, ry: 4, fill: "#3b404c", stroke: DARK_EDGE, "stroke-width": 1.4 });
+    return { g: s("g", {}, inner, outer, collar, foot), outer, inner, collar, foot };
+  });
+  a.legs = s("g", { display: "none", class: "robot-stilts" }, ...a.stilts.map((l) => l.g));
+  // The flash on landing that says it can be hit again.
+  a.landFlash = s("ellipse", { cx: 0, cy: -2, rx: 46, ry: 9, fill: "none", stroke: "#fff6d8", "stroke-width": 3, opacity: 0 });
   tint(a, colour, connected);
   return a;
 }
@@ -162,7 +174,7 @@ export const robot = {
       a.mastG = s("g", {}, a.glowGrad, a.mast, a.glow, a.lamp);
       a.headG.prepend(a.mastG);
       a.upper = s("g", {}, a.armsL, a.armsR, a.torso, a.torsoHi, a.plate, a.headG);
-      a.inner = s("g", {}, a.base, a.upper);
+      a.inner = s("g", {}, a.legs, a.base, a.upper, a.landFlash);
       return a;
     },
     dress(a, colour, connected) {
@@ -175,9 +187,25 @@ export const robot = {
      * its vote, and flashes red from the moment it is hit (`grounded`: thrown, lying or getting up)
      * until it is up. Each part is written only when it changed.
      */
-    frame(a, { now, dt, face: dir, seat, calm, grounded, walking, x, voting }) {
+    frame(a, { now, dt, face: dir, seat, calm, grounded, walking, x, voting, stilt = null, throwing = null }) {
       const step = Math.min(dt, 1 / 30);
       const moving = !!walking && !grounded;
+      // Its legs (lobby/shared/robot.js, stiltPose): a squat as the tell, out, a shake, down, a flash.
+      // `stilt.lift`: how high the legs hold it, in room units (the scene works it out from lobby/shared/robot.js).
+      const lift = stilt ? Math.max(0, stilt.lift ?? 0) : 0;
+      const squat = stilt ? Math.min(0, stilt.out) * 40 : 0;
+      put(a, "legs", a.legs, { display: lift > 0.5 ? null : "none" });
+      if (lift > 0.5) {
+        for (const l of a.stilts) {
+          // The steel tube slides out of the dark one: the dark one is the top half, the steel one the rest to the floor.
+          const top = Math.min(lift * 0.5, 54);
+          put(a, `leg${l.foot.getAttribute("cx")}`, l.outer, { height: (top + 4).toFixed(1) });
+          set(l.collar, { y: (top - 1).toFixed(1) });
+          set(l.inner, { y: (top - 2).toFixed(1), height: Math.max(0, lift - top).toFixed(1) });
+          set(l.foot, { cy: (lift - 2).toFixed(1) });
+        }
+      }
+      put(a, "flash", a.landFlash, { opacity: (stilt?.flash ?? 0).toFixed(2) });
       if (typeof x === "number") {
         if (a.lastX !== null) a.rolled += x - a.lastX;
         a.lastX = x;
@@ -187,8 +215,10 @@ export const robot = {
         a.shown.wheels = roll;
         for (const w of a.wheels) set(w.lastChild, { transform: roll });
       }
-      const bob = moving && !calm ? Math.abs(Math.sin(now / 55)) * 2.2 : 0;
-      [a.lean, a.leanV] = spring(a.lean, a.leanV, moving ? dir * 5 : 0, 140, calm ? 30 : 11, step);
+      const bob = (moving && !calm ? Math.abs(Math.sin(now / 55)) * 2.2 : 0) + squat;
+      // Throwing its hook: it rocks back for the wind-up (the tell), then forward as the hook flies.
+      const heave = throwing === "aim" ? -7 * dir : throwing === "throw" ? 6 * dir : 0;
+      [a.lean, a.leanV] = spring(a.lean, a.leanV, (moving ? dir * 5 : 0) + heave, 140, calm ? 30 : 11, step);
       // The head lags the body's lean, and the mast lags the head: on a stop both run on and wobble back.
       [a.nod, a.nodV] = spring(a.nod, a.nodV, a.lean, 170, calm ? 30 : 7, step);
       [a.mastA, a.mastV] = spring(a.mastA, a.mastV, a.nod * 1.4, 90, calm ? 30 : 4, step);
@@ -223,7 +253,8 @@ export const robot = {
           transform: `translate(${dir * 3},${(ROBOT.visorY * (1 - sy)).toFixed(1)}) scale(${wide.toFixed(2)},${sy.toFixed(2)})`,
         });
       }
-      return 0;
+      // Up on its legs it hangs above the floor by their height.
+      return lift;
     },
     /** Frightened by a ghost (0 to 1): its eyes go wide (frame draws them). */
     scared(a, k) {

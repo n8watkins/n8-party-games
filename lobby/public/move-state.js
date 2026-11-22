@@ -1,0 +1,203 @@
+// What both drawings keep about the robot's and the slime's moves on each piece, from what the
+// room says (lobby/shared/robot.js, slime.js): a thrown hook and the room's word on it, the legs,
+// the harden and the absorb. The flat look (scene.js) and the 3D looks (look3d/room3d.js, and the
+// baked and made-real looks through it) keep the same records on their pieces and draw them their
+// own way; nothing here draws.
+//
+//   p.hook   {at, dir, verdict}   verdict: {at, o, hitX, from} once the room has judged it
+//   p.stilt  {at}                 when its legs went up (by this page's clock)
+//   p.goo    {at, turnAt, hardFor, softFor}   the slime's press, and when (if) it turned soft
+import { HARDEN_MS, slimeLook } from "./shared/slime.js";
+import { HOOK_HAND, STILT_MS, hookDrawn, stiltPose } from "./shared/robot.js";
+
+/** A robot threw its hook (`msg` {s, f}): drawn from now, unless this page already began it at the press. */
+export function startHook(p, dir, now) {
+  if (p.hook && !p.hook.verdict && now - p.hook.at < 400) {
+    p.hook.dir = dir || p.hook.dir;
+    return;
+  }
+  p.hook = { at: now, dir: dir || p.face || 1, verdict: null };
+}
+
+/**
+ * The room's word on a hook (`hk` {s, o, to, hx, x}): what the robot's drawn hook does now. `tip`
+ * is where this page has the tip at that moment, so a hook winding back starts from where it is.
+ */
+export function judgeHook(p, msg, now, tip) {
+  if (!p.hook) p.hook = { at: now - 400, dir: p.face || 1, verdict: null };
+  // A hook that a jump cleared flies on: no word yet on where it ends.
+  if (msg.o === "jumped") return;
+  const hitX = Number.isFinite(msg.hx) ? msg.hx : null;
+  p.hook.verdict = { at: now, o: msg.o, hitX, from: tip ?? hitX };
+}
+
+/** Where a piece's hook is drawn now (shared/robot.js, hookDrawn), or null; the record goes once it is put away. */
+export function hookNow(p, now, robotX, stop) {
+  if (!p.hook) return null;
+  const drawn = hookDrawn(p.hook, now, robotX, stop);
+  if (!drawn) p.hook = null;
+  return drawn;
+}
+
+/** How far out the first piece in a hook's way is, from the robot at `x` facing `dir`, among `others` ([x]): for a hook still waiting for the room's word. */
+export function hookStop(x, dir, others) {
+  let best = null;
+  for (const ox of others) {
+    const ahead = (ox - x) * dir;
+    if (ahead < HOOK_HAND - 20) continue;
+    const out = ahead - HOOK_HAND - 18;
+    if (best === null || out < best) best = Math.max(0, out);
+  }
+  return best;
+}
+
+/** A robot's legs went up `since` milliseconds before `now`. */
+export function startStilts(p, now, since = 0) {
+  p.stilt = { at: now - since };
+}
+
+/** How far out a robot's legs are now (shared/robot.js, stiltPose), or null when they are down and the flash is over. */
+export function stiltsNow(p, now, calm) {
+  if (!p.stilt) return null;
+  const pose = stiltPose(now - p.stilt.at, calm);
+  if (pose.state === "down") p.stilt = null;
+  return pose;
+}
+
+/** The legs are down at once (knocked, hooked, or the room says they are). */
+export function dropStilts(p, now) {
+  if (p.stilt && now - p.stilt.at < STILT_MS) p.stilt = { at: now - STILT_MS };
+}
+
+/** A slime pressed (`kind` "harden") or held (`kind` "absorb"): its look from now. `left`: for a page that arrives in the middle, how long the room keeps it so. */
+export function startGoo(p, kind, now, left = null) {
+  if (kind === "harden") {
+    p.goo = { at: left === null ? now : now - (HARDEN_MS - left), turnAt: null, hardFor: HARDEN_MS, softFor: 0 };
+    return;
+  }
+  const softFor = left ?? 1000;
+  // Turned soft: the harden ends there.
+  if (!p.goo || p.goo.turnAt !== null) p.goo = { at: now, turnAt: 0, hardFor: 0, softFor };
+  else {
+    p.goo.turnAt = now - p.goo.at;
+    p.goo.softFor = softFor;
+  }
+}
+
+/** The room said the slime is neither hard nor soft (a refusal, a change of character): it melts back. */
+export function endGoo(p, now) {
+  if (!p.goo) return;
+  const ms = now - p.goo.at;
+  if (p.goo.turnAt === null) p.goo.hardFor = Math.min(p.goo.hardFor, ms);
+  else p.goo.softFor = Math.min(p.goo.softFor, ms - p.goo.turnAt);
+}
+
+/** How hard and how soft a slime is drawn now: {hard, soft, ms} (0 to 1 each), or null. */
+export function gooNow(p, now) {
+  if (!p.goo) return null;
+  const ms = now - p.goo.at;
+  const look = slimeLook(ms, p.goo.hardFor, p.goo.turnAt, p.goo.softFor);
+  if (look.hard === 0 && look.soft === 0 && ms > 100) {
+    p.goo = null;
+    return null;
+  }
+  return { ...look, ms };
+}
+
+// ---------------------------------------------------------------- what the room says, for either drawing
+//
+// Both drawings hand these their pieces (seat -> piece, each with rx, face, net, rev) and a way to
+// start a piece's slide or fright (`fright(p, x, at, kind)`, the look's own: bump-draw.js or
+// look3d/pieces.js) and a spark (`spark(x, y, now)`, world units).
+
+/** A robot threw its hook ({t: "hook", s, f, x}): it stands where the room stopped it, and the hook flies. `own`: the viewer's seat. */
+export function heardHook(pieces, own, msg, now) {
+  const p = pieces.get(msg.s);
+  if (!p) return;
+  p.face = msg.f || p.face;
+  if (msg.s !== own) p.net = { x: msg.x, d: 0, t: now };
+  startHook(p, msg.f, now);
+}
+
+/**
+ * What came of a hook ({t: "hk", s, o, to, hx, x, rev, ox, orev, tr}): the piece it caught is
+ * dragged to the robot (and a hook train's catch behind it), or the robot to an absorbing slime,
+ * or both robots bonk, or the robot is scared off a faded ghost; anything else winds it back, with
+ * a spark where it clangs off or is batted away.
+ */
+export function heardVerdict(pieces, msg, now, { fright, spark }) {
+  const r = pieces.get(msg.s);
+  if (r) judgeHook(r, msg, now, r.hook ? hookDrawn(r.hook, now, r.rx, null)?.tip : null);
+  const hit = pieces.get(msg.to);
+  const slide = (p, x, rev, kind) => {
+    if (!p || !Number.isFinite(x)) return;
+    p.net = { x, d: 0, t: now };
+    p.rev = rev;
+    dropStilts(p, now);
+    fright(p, x, now, kind);
+  };
+  if (msg.o === "pull") {
+    slide(hit, msg.x, msg.rev, "pull");
+    if (msg.tr) slide(pieces.get(msg.tr.s), msg.tr.x, msg.tr.rev, "pull");
+  } else if (msg.o === "stuck") slide(r, msg.x, msg.rev, "pull");
+  else if (msg.o === "scare") {
+    slide(r, msg.x, msg.rev, "hookscare");
+    if (hit) hit.booAt = now;
+  } else if (msg.o === "bonk") {
+    slide(r, msg.x, msg.rev, "bonk");
+    slide(hit, msg.ox, msg.orev, "bonk");
+    if (hit?.hook && !hit.hook.verdict) judgeHook(hit, { o: "off" }, now, hookDrawn(hit.hook, now, hit.rx, null)?.tip);
+  } else if ((msg.o === "clang" || msg.o === "parry") && hit) spark(hit.rx - (r?.hook?.dir ?? r?.face ?? 1) * 30, 44, now);
+}
+
+/** A robot's legs went up ({t: "stilts", s}): drawn from now, unless this page began them at the press. */
+export function heardStilts(pieces, msg, now) {
+  const p = pieces.get(msg.s);
+  if (p && !(p.stilt && now - p.stilt.at < 400)) startStilts(p, now);
+}
+
+/** A slime hardened or went soft ({t: "slime", s, k}), unless this page began it at the press. */
+export function heardSlime(pieces, msg, now) {
+  const p = pieces.get(msg.s);
+  if (!p) return;
+  if (msg.k === "harden" && p.goo && p.goo.turnAt === null && now - p.goo.at < 400) return;
+  if (msg.k === "absorb" && p.goo && p.goo.turnAt !== null && now - p.goo.at - p.goo.turnAt < 400) return;
+  startGoo(p, msg.k === "absorb" ? "absorb" : "harden", now);
+}
+
+/** A walking slime shoved a piece a step on ({t: "shove", s, to, x, rev}). */
+export function heardShove(pieces, msg, now, { fright }) {
+  const p = pieces.get(msg.to);
+  if (!p) return;
+  p.net = { x: msg.x, d: 0, t: now };
+  p.rev = msg.rev;
+  fright(p, msg.x, now, "shove");
+}
+
+/** The room turned down the viewer's own move ("hook", "stilts", "slime"): what this page began at once is taken back. */
+export function refusedOwn(p, what, now) {
+  if (!p) return;
+  if (what === "hook" && p.hook && !p.hook.verdict) judgeHook(p, { o: "off" }, now, null);
+  if (what === "stilts") dropStilts(p, now);
+  if (what === "slime") endGoo(p, now);
+  // A refused absorb: the turn this page drew is taken back, and the harden runs on.
+  if (what === "absorb" && p.goo && p.goo.turnAt !== null) {
+    p.goo.turnAt = null;
+    p.goo.softFor = 0;
+  }
+}
+
+/**
+ * The room view's word on a piece's moves (LobbyCore.bumpView), for a page that arrives in the
+ * middle or missed a message: a hook out, legs up, a harden or an absorb. `own`: the viewer's own
+ * piece, whose moves this page began itself (left alone when it has them already).
+ */
+export function resumeMoves(p, m, now, own = false) {
+  if (m.hook && !p.hook) p.hook = { at: now - m.hook.in, dir: m.hook.f, verdict: null };
+  else if (!m.hook && p.hook && !p.hook.verdict && now - p.hook.at > 500 && !own) p.hook.verdict = { at: now, o: "off", hitX: null, from: null };
+  if (m.stilts !== undefined && !p.stilt) startStilts(p, now, m.stilts);
+  else if (m.stilts === undefined && !own) dropStilts(p, now);
+  if (m.hard > 0 && !p.goo) startGoo(p, "harden", now, m.hard);
+  else if (m.soft > 0 && !(p.goo && p.goo.turnAt !== null)) startGoo(p, "absorb", now, m.soft);
+  else if (!(m.hard > 0) && !(m.soft > 0) && p.goo && !own && now - p.goo.at > 300) endGoo(p, now);
+}

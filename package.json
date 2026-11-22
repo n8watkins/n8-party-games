@@ -45,6 +45,7 @@
     "test:feel": "node lobby/test/e2e-feel.mjs",
     "test:characters": "node lobby/test/e2e-characters.mjs",
     "test:ghost": "node lobby/test/e2e-ghost.mjs",
+    "test:moves": "node lobby/test/e2e-moves.mjs",
     "test:emotes": "node lobby/test/e2e-emotes.mjs",
     "test:frames": "node lobby/test/e2e-frames.mjs",
     "test:leave-rooms": "node lobby/test/e2e-leave-rooms.mjs",
@@ -76,6 +77,7 @@
     "test:tin-derby:full": "node floor/games/tin-derby/test/e2e-room.mjs --only=solo,two,four,panes,trouble,stalls,noscreen,screens,look,lag,tvlag"
   },
   "dependencies": {
+    "es-module-lexer": "3.0.4",
     "lean-qr": "^2.7.4"
   },
   "devDependencies": {

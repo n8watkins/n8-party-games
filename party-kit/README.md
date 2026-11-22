@@ -41,7 +41,7 @@ Only the kit is installed that way (the `files` list in this repository's `packa
 | --- | --- |
 | `n8-party-games/kit` | The Worker side: `createPartyRoom`, `PinDirectory`, `RateLimiter`, `RoomBudget`, `handlePartyApi`. |
 | `n8-party-games/kit/core`, `/kit/rng`, `/kit/http` | The room as plain logic, the seeded generator, and the HTTP helpers (no Workers runtime needed, so tests can use them). |
-| `n8-party-games/kit/build` | `buildPublic` and `kitClientEntry`: builds a site's public folder from an allowlist. |
+| `n8-party-games/kit/build` | `buildPublic` and `kitClientEntry`: builds a site's public folder from an allowlist. Its `botCheck` option lists the site paths whose pages may load Turnstile (every page by default; `"room-making"` finds the pages that load the kit's bot check in what was built, as the party site does). |
 | `n8-party-games/kit/client/*` | The browser files. A site serves them at `/party-kit/client/`; a game imports them by that site path. |
 
 What a game must export so the party site can host it is in [GAME-CONTRACT.md](GAME-CONTRACT.md).
@@ -105,7 +105,7 @@ Variables (all optional):
 | `PARTY_PUBLIC_ORIGIN` | The address phones can reach, used in the join link and QR code (for local play: `http://<laptop LAN address>:<port>`). |
 | `PARTY_SIM_LATENCY` | `"on"` lets a client ask for simulated latency with `?lag=<ms>` on its socket. Otherwise a socket asking for it is refused (400). Off in production. |
 | `TURNSTILE_SITE_KEY` | The Turnstile widget's public site key. The lobby shows the bot check only when this and the secret are both set. |
-| `TURNSTILE_SECRET_KEY` | A secret, never a plain variable. When set, `POST /api/party/rooms` needs a Turnstile token (`turnstile` in the body). Joining by PIN never does. |
+| `TURNSTILE_SECRET_KEY` | A secret, never a plain variable. When set, `POST /api/party/rooms` needs a Turnstile token (`turnstile` in the body), checked with siteverify once, for the action `create-room` and the site's own hostname (or `PARTY_PUBLIC_ORIGIN`'s). Refused: 403 `bot_check`; siteverify unreachable (5 s): 503 `bot_check_unavailable` (fails closed). Joining by PIN never needs it. |
 | `PARTY_RATE_LIMIT` | `"off"` disables the limits (for local test runs with many headless players). |
 | `PARTY_ROOM_BUDGET_SHARE` | The part of the Workers Paid plan's included Durable Object time that rooms may use each month (`"0.05"` is 5%). Unset means no budget. |
 | `PARTY_ROOM_BUDGET_DAY_SHARE` | The part of that monthly budget one day may use. Default `"0.1"`. |

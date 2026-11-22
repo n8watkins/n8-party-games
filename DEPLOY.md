@@ -100,13 +100,25 @@ Make at most a handful of rooms when checking.
 
 ## The bot check (Turnstile)
 
-Optional: until both keys exist, rooms are made without it and the rate limits and the room budget still apply.
+Making a party (a new room, which is what costs room time) is checked; joining a party by its code, the big screen joining, and a reload of a page already in a party never are.
+The widget is Managed with appearance "interaction-only", so a normal phone sees nothing; only a visitor Turnstile is unsure of gets a box to tick.
+The Worker checks the token with siteverify before the room is made, once (a spent token is refused), for the action `create-room` and this site's hostname (`party-kit/src/worker/turnstile.js`).
+It fails closed: if siteverify cannot be reached in 5 seconds, no room is made and the page says "Could not check you are a person just now. Try again in a moment."; a refused check says "Could not check you are a person. Try again.", and the button works again.
+If Turnstile's script is blocked (often a content blocker) or does not load in 15 seconds, the page says so and the button works again; joining by code still works.
+Only the pages that make rooms may load anything from `https://challenges.cloudflare.com`: the build finds them as the pages that load the kit's bot check (today `/lobby/*`, `/table/*` and `/cork-and-bell/*`; `roomMakingPages` in `party-kit/build/public.mjs`).
+A deploy whose secret is one of Cloudflare's public test secrets makes no room at all (they pass any token) and logs why; so does a secret set without `TURNSTILE_SITE_KEY`, once.
 
-26. **Owner:** in the Cloudflare dashboard, open Turnstile, add a widget in Managed mode for the hostname `partygames.n8builds.dev` only, and keep the page with its two keys open.
-27. **Owner:** store the secret key with `! pass-env set n8-party-games/TURNSTILE_SECRET_KEY` and add the line `TURNSTILE_SECRET_KEY=n8-party-games/TURNSTILE_SECRET_KEY` to the project's `.env.pass`.
-28. Put the site key in the top-level `vars` of `wrangler.jsonc` as `TURNSTILE_SITE_KEY` (it is public), through a pull request, and deploy.
-29. **Owner:** set the secret with `pass-env pipe n8-party-games/TURNSTILE_SECRET_KEY -- npx wrangler secret put TURNSTILE_SECRET_KEY --env=''`.
-30. Check step 9 again (the site key shows), then make one room in a browser: the bot check runs and usually shows nothing.
+It is off until the secret exists: with no secret, rooms are made without it, `/api/party/config` hands out no site key, and the rate limits and the room budget still apply.
+The widget "Party games new party" (Managed, hostname `partygames.n8builds.dev` only, site key `0x4AAAAAAGM24cDseqMFt3A0`) was made on 2026-11-21 and its site key is already in the top-level `vars` of `wrangler.jsonc`.
+To switch it on:
+
+26. **Owner:** in the Cloudflare dashboard open Turnstile, the widget "Party games new party", copy its secret key, and store it with `! pass-env set n8-party-games/TURNSTILE_SECRET_KEY` (`.env.pass` already names it).
+27. Deploy the code that holds the site key, if it is not live yet (steps 1 to 8); until step 28 the live site behaves exactly as before.
+28. **On the owner's word:** set the secret, which switches the check on at once: `pass-env pipe n8-party-games/TURNSTILE_SECRET_KEY -- npx wrangler secret put TURNSTILE_SECRET_KEY --env=''`.
+29. Check step 9 again (the site key shows), then start a party on a phone: nothing should show, and the party should open as before. Join it by code from a second phone: no check.
+30. To switch it off again: `npx wrangler secret delete TURNSTILE_SECRET_KEY --env=''` (on the owner's word; it is a delete), and the site behaves as before.
+
+`npm run test:turnstile` checks all of it locally with Cloudflare's test keys (its header lists the servers to start; `--lobby=1` adds the party room's way in on phones and a big screen).
 
 ## The high score board
 

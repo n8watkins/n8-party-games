@@ -11,11 +11,18 @@ import { createHash } from "node:crypto";
 import { cpSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
+import { init as initLexer, parse as parseModule } from "es-module-lexer";
+
+await initLexer();
 
 /** Workers Static Assets refuses any single file over 25 MiB. */
 const MAX_FILE_BYTES = 25 * 1024 * 1024;
 
-/** Cloudflare Turnstile's script and widget frame, allowed so a configured bot check can render. */
+/**
+ * Cloudflare Turnstile's script, widget frame and the calls its script makes, allowed on the pages
+ * that make rooms (headersFile, `botCheck`) so a configured bot check can run there.
+ * https://developers.cloudflare.com/turnstile/reference/content-security-policy/
+ */
 const TURNSTILE = "https://challenges.cloudflare.com";
 
 /**
@@ -54,6 +61,100 @@ function inlineScriptHashes(files) {
   return [...hashes].sort();
 }
 
+/** The kit's bot check module: a page can make a room with the check on only if it loads this. */
+export const BOT_CHECK_MODULE = `${KIT_CLIENT_PATH}/bot-check.js`;
+
+/**
+ * The module specifiers a script names, read with a real JavaScript lexer (es-module-lexer), so a
+ * comment, a string or a regular expression that looks like an import is never taken for one and
+ * never hides one: static imports, re-exports (`export ... from`, `export * from`) and import() of
+ * a plain string or a template with no substitution. An import() whose target the lexer cannot
+ * name (a computed string, a template with a substitution) is "cannot tell": it throws, naming the
+ * file, unless `computed` (the caller's short allow list) says this file's are known and harmless.
+ */
+function specifiers(code, file, computed) {
+  let imports;
+  try {
+    [imports] = parseModule(code, file);
+  } catch (err) {
+    throw new Error(`Cannot read the imports of ${file}: ${err.message}`);
+  }
+  const found = [];
+  for (const record of imports) {
+    if (record.type === "import-meta") continue;
+    const literal = typeof record.specifier === "string" && record.glob !== true;
+    if (literal) found.push(record.specifier);
+    else if (record.type === "dynamic" && !computed) {
+      const at = code.slice(record.importStart ?? record.dynamicStart ?? 0).split("\n")[0].slice(0, 80);
+      throw new Error(`Cannot tell what ${file} loads with import() (${at}): name the module as a plain string, or add the file to the build's list of known computed imports`);
+    }
+  }
+  return found;
+}
+
+/**
+ * Every file in `out` that the page at `page` (a path inside `out`) loads as a module, the page's
+ * own module scripts first: followed through static imports, re-exports and import() of a plain
+ * string, resolving site paths ("/x.js"), relative ones and the page's import map. A computed
+ * import() throws (see specifiers) unless its file's site path is in `computedImports`, where it is
+ * not followed.
+ */
+export function moduleGraph(out, page, { computedImports = [] } = {}) {
+  const known = new Set(computedImports);
+  const sitePath = (file) => relative(out, file).split(sep).join("/");
+  // A module may stand for the page (one a page loads by a computed import()): its graph is its own.
+  const html = page.endsWith(".html") ? readFileSync(page, "utf8") : `<script type="module" src="/${sitePath(page)}"></script>`;
+  const map = {};
+  for (const m of html.matchAll(/<script\b[^>]*type=["']importmap["'][^>]*>([\s\S]*?)<\/script>/gi)) Object.assign(map, JSON.parse(m[1]).imports ?? {});
+  // A script tag's src is a URL ("main.js" is next to the page); a module specifier without ./ is bare.
+  const resolveFrom = (from, spec, url = false) => {
+    if (/^[a-z]+:/i.test(spec) || spec.startsWith("//")) return null;
+    const bare = !url && !spec.startsWith("/") && !spec.startsWith("./") && !spec.startsWith("../");
+    if (bare) {
+      const key = Object.keys(map).find((k) => spec === k || (k.endsWith("/") && spec.startsWith(k)));
+      if (!key) return null;
+      spec = map[key] + spec.slice(key.length);
+      from = page;
+    }
+    const path = spec.startsWith("/") ? join(out, spec.split(/[?#]/)[0]) : resolve(dirname(from), spec.split(/[?#]/)[0]);
+    return path.startsWith(out + sep) ? path : null;
+  };
+  const seen = new Set();
+  const queue = [];
+  const add = (path) => {
+    if (path && !seen.has(path) && statSync(path, { throwIfNoEntry: false })?.isFile()) {
+      seen.add(path);
+      queue.push(path);
+    }
+  };
+  for (const m of html.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script>/gi)) {
+    if (!/type=["']module["']/.test(m[1])) continue;
+    const src = m[1].match(/\bsrc=["']([^"']+)["']/)?.[1];
+    if (src) add(resolveFrom(page, src, true));
+    else for (const spec of specifiers(m[2], `${sitePath(page)} (inline module)`, known.has(sitePath(page)))) add(resolveFrom(page, spec));
+  }
+  while (queue.length) {
+    const file = queue.shift();
+    if (file.endsWith(".js") || file.endsWith(".mjs")) for (const spec of specifiers(readFileSync(file, "utf8"), sitePath(file), known.has(sitePath(file)))) add(resolveFrom(file, spec));
+  }
+  return [...seen];
+}
+
+/**
+ * The site paths (for headersFile's `botCheck`) of the pages in `out` that can make a room with the
+ * bot check on: those whose module graph loads the kit's bot check (BOT_CHECK_MODULE). Each is
+ * the page's folder ("/lobby/*"); a page inside a folder already listed adds nothing.
+ * `computedImports` is passed to moduleGraph.
+ */
+export function roomMakingPages(out, { computedImports = [] } = {}) {
+  const target = join(out, BOT_CHECK_MODULE);
+  const folders = walk(out)
+    .filter((f) => f.endsWith(".html") && moduleGraph(out, f, { computedImports }).includes(target))
+    .map((f) => `/${relative(out, dirname(f)).split(sep).join("/")}/`.replace(/^\/\/$/, "/") + "*")
+    .sort();
+  return folders.filter((path) => !folders.some((other) => other !== path && path.startsWith(other.slice(0, -1))));
+}
+
 /**
  * The headers for every static file (Workers Static Assets reads `_headers`; it is not served).
  * Responses made by the Worker itself (the API) set their own: see party-kit/src/worker/http.js.
@@ -64,18 +165,37 @@ function inlineScriptHashes(files) {
  *
  * `images` maps a site path ("/party/*") to the outside origins (https only) its pages may show
  * pictures from; none by default. Those pages get the very same policy with only img-src widened.
+ *
+ * `botCheck` lists the site paths whose pages may run the bot check on making a room (Cloudflare
+ * Turnstile, client/bot-check.js): they may load its script, show its frame and let it call home,
+ * all from https://challenges.cloudflare.com and nowhere else. ["/*"] (the default) is every page,
+ * for a game's own site whose pages all make rooms; a site that lists its room-making pages gives
+ * the rest no Turnstile at all. A listed page gets the very same policy with only those widened.
+ *
+ * A page path may be listed in `images` and `botCheck` both (its policy has both), but two
+ * different listed paths may not overlap: a page matched by two would be sent two policies, and a
+ * browser keeps to both.
  */
-export function headersFile(scriptHashes, { frames = "none", microphone = [], images = {} } = {}) {
+export function headersFile(scriptHashes, { frames = "none", microphone = [], images = {}, botCheck = ["/*"] } = {}) {
   const own = frames === "self";
   for (const origins of Object.values(images)) for (const origin of origins) if (!/^https:\/\/[a-z0-9.-]+$/.test(origin)) throw new Error(`Not an https origin for img-src: ${origin}`);
-  const csp = (extra = []) => [
+  for (const path of botCheck) if (!/^\/[A-Za-z0-9._~/-]*\*?$/.test(path)) throw new Error(`Not a site path for the bot check: ${path}`);
+  const everywhere = botCheck.includes("/*");
+  // The pages whose policy differs from the site-wide one, each with what it adds.
+  const widened = new Map();
+  for (const [path, origins] of Object.entries(images)) widened.set(path, { images: origins, turnstile: everywhere });
+  if (!everywhere) for (const path of botCheck) widened.set(path, { images: widened.get(path)?.images ?? [], turnstile: true });
+  const paths = [...widened.keys()];
+  const covers = (wide, path) => wide !== path && wide.endsWith("*") && path.startsWith(wide.slice(0, -1));
+  for (const a of paths) for (const b of paths) if (covers(a, b)) throw new Error(`Overlapping header paths: ${a} covers ${b}`);
+  const csp = ({ images: extra = [], turnstile = everywhere } = {}) => [
     "default-src 'self'",
-    `script-src 'self' ${scriptHashes.join(" ")} ${TURNSTILE} ${WEB_ANALYTICS_SCRIPT}`.replace(/\s+/g, " "),
+    ["script-src 'self'", ...scriptHashes, ...(turnstile ? [TURNSTILE] : []), WEB_ANALYTICS_SCRIPT].join(" "),
     "style-src 'self'",
     ["img-src 'self' data: blob:", ...extra].join(" "),
     "font-src 'self'",
-    `connect-src 'self' ${WEB_ANALYTICS_REPORT}`,
-    `frame-src ${own ? "'self' " : ""}${TURNSTILE}`,
+    ["connect-src 'self'", ...(turnstile ? [TURNSTILE] : []), WEB_ANALYTICS_REPORT].join(" "),
+    `frame-src ${[...(own ? ["'self'"] : []), ...(turnstile ? [TURNSTILE] : [])].join(" ") || "'none'"}`,
     "worker-src 'self' blob:",
     "object-src 'none'",
     "base-uri 'none'",
@@ -93,8 +213,8 @@ export function headersFile(scriptHashes, { frames = "none", microphone = [], im
     // A path in `microphone` may use the microphone on this site's own pages: the site-wide
     // policy is detached ("!") and the same one sent with only microphone=(self) changed.
     ...microphone.flatMap((path) => [path, "  ! Permissions-Policy", `  Permissions-Policy: ${policy("(self)")}`]),
-    // A path in `images` may show pictures from its outside origins: the same, detached and resent.
-    ...Object.entries(images).flatMap(([path, origins]) => [path, "  ! Content-Security-Policy", `  Content-Security-Policy: ${csp(origins)}`]),
+    // A path in `images` or `botCheck` gets what it adds: the same policy, detached and resent.
+    ...[...widened].flatMap(([path, adds]) => [path, "  ! Content-Security-Policy", `  Content-Security-Policy: ${csp(adds)}`]),
     "",
   ].join("\n");
 }
@@ -104,9 +224,14 @@ export function headersFile(scriptHashes, { frames = "none", microphone = [], im
  * absolute path `from` to the site path `to` (no leading slash). Writes the `_headers` file.
  * Returns every file written as `{path, bytes}`, sorted by path. `frames`, `microphone` (the
  * site paths, such as "/lab/x/*", whose pages may use the microphone) and `images` (site path ->
- * the outside origins its pages may show pictures from) are passed to headersFile.
+ * the outside origins its pages may show pictures from) and `botCheck` (the site paths whose
+ * pages may run the bot check; every page by default) are passed to headersFile. `botCheck:
+ * "room-making"` finds those paths in what was built: the pages that load the kit's bot check
+ * (roomMakingPages). `computedImports` lists the site paths of files whose computed import() is
+ * known and harmless (it then goes unfollowed); any other one fails the build, since a page that
+ * reaches the bot check through one would be missed.
  */
-export function buildPublic({ out, entries, frames = "none", microphone = [], images = {} }) {
+export function buildPublic({ out, entries, frames = "none", microphone = [], images = {}, botCheck = ["/*"], computedImports = [] }) {
   rmSync(out, { recursive: true, force: true });
   mkdirSync(out, { recursive: true });
   for (const { from, to } of entries) {
@@ -120,7 +245,8 @@ export function buildPublic({ out, entries, frames = "none", microphone = [], im
   const files = walk(out);
   const tooBig = files.filter((f) => statSync(f).size > MAX_FILE_BYTES);
   if (tooBig.length) throw new Error(`Over the 25 MiB per-file limit: ${tooBig.map((f) => relative(out, f)).join(", ")}`);
-  writeFileSync(join(out, "_headers"), headersFile(inlineScriptHashes(files), { frames, microphone, images }));
+  const botPages = botCheck === "room-making" ? roomMakingPages(resolve(out), { computedImports }) : botCheck;
+  writeFileSync(join(out, "_headers"), headersFile(inlineScriptHashes(files), { frames, microphone, images, botCheck: botPages }));
   return files.map((f) => ({ path: relative(out, f).split(sep).join("/"), bytes: statSync(f).size })).sort((a, b) => a.path.localeCompare(b.path));
 }
 
