@@ -41,13 +41,14 @@ export const walkSpeed = (character) => WALK_SPEED * (SPEED_SHARE[character] ?? 
 export const FLOAT_MS = 260;
 export const floats = (character) => character === "ghost";
 export const JUMP_MS = 520;
-/** How high a jump goes: every character's but the pawn's, which jumps highest (round three, "Speeds"). */
-export const JUMP_HEIGHT = 110;
-export const PAWN_JUMP_HEIGHT = 136;
-/** The highest any piece jumps (what a name tag must clear: card-clear.js). */
-export const JUMP_TOP = Math.max(JUMP_HEIGHT, PAWN_JUMP_HEIGHT);
+/**
+ * How high a jump goes at the most: the pawn's, which jumps highest (round three, "Speeds"), and so
+ * what a name tag in the air must clear (card-clear.js). Every other character jumps LOW_JUMP_HEIGHT.
+ */
+export const JUMP_HEIGHT = 136;
+export const LOW_JUMP_HEIGHT = 110;
 /** How high a character jumps. */
-export const jumpTopOf = (character) => (character === "pawn" ? PAWN_JUMP_HEIGHT : JUMP_HEIGHT);
+export const jumpTopOf = (character) => (character === "pawn" ? JUMP_HEIGHT : LOW_JUMP_HEIGHT);
 
 /** How far from where the room thinks a piece is a client may say it is. Beyond it, the room corrects the client. */
 export const POSITION_SLACK = 420;
@@ -324,7 +325,7 @@ export function walkChanges(piece, steps = 8, character = piece.character) {
   return out;
 }
 
-/** How high a piece is, `ms` after it jumped: `top` at the top (a pawn's PAWN_JUMP_HEIGHT; jumpTopOf). */
+/** How high a piece is, `ms` after it jumped: `top` at the top (a pawn's JUMP_HEIGHT, the others' less: jumpTopOf). */
 export function jumpHeight(ms, top = JUMP_HEIGHT) {
   if (!(ms > 0) || ms >= JUMP_MS) return 0;
   const u = ms / JUMP_MS;

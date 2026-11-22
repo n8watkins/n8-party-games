@@ -23,7 +23,7 @@ import * as THREE from "./three.js";
 import { GHOST, WISP, joinOf, wispAt, wispHalf } from "../characters/ghost-rig.js";
 import { isPale } from "../shared/characters.js";
 import { booAmount } from "../shared/ghost.js";
-import { JUMP_MS, WALK_SPEED, jumpHeight } from "../shared/world.js";
+import { JUMP_MS, LOW_JUMP_HEIGHT, WALK_SPEED, jumpHeight } from "../shared/world.js";
 import { EmoteArms, RIG_UNIT } from "./emote-arms.js";
 import { HOP_HEIGHT, HOP_MS, PAWN_HEIGHT, SIZE, bumpPose } from "./pieces.js";
 import { PX, SPACE, walkX } from "./space.js";
@@ -397,7 +397,7 @@ export function poseGhost(g, piece, now, dt, how) {
   g.prevX = piece.rx;
 
   const sinceJump = now - piece.jumpAt;
-  const up = jumpHeight(sinceJump);
+  const up = jumpHeight(sinceJump, LOW_JUMP_HEIGHT);
   const air = sinceJump >= 0 && sinceJump < JUMP_MS;
   if (air && !g.air) g.sqV += 2.6;
   if (!air && g.air) g.sqV -= 5.2;

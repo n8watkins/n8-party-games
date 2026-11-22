@@ -1062,7 +1062,8 @@ export class LobbyCore {
 
   /** What a walking piece touches by the room's own rules: "shove" for a slime, "spook" for a ghost, or null. */
   toucher(m) {
-    if (!m.d) return null;
+    // Walking, or (a floaty ghost) still drifting on from its last word as it eases to a stand.
+    if (!m.d && !(m.vt === m.t && m.v)) return null;
     const move = moveOf(m.character);
     return move === "harden" ? "shove" : move === "fade" ? "spook" : null;
   }
@@ -1187,7 +1188,7 @@ export class LobbyCore {
         done.add(touch.key);
         // Kept with it: where the toucher's walk began and which way it walked then, so it is judged
         // as it was even if the room moves or stops the piece meanwhile (a knock, a dropped phone).
-        const held = { kind: touch.kind, s: touch.m.seat, to: touch.o.seat, t: touch.t, ox: posAt(touch.o, touch.t), band: this.touchBand(touch.kind, touch.m), from: touch.m.x, d: touch.m.d, sx: posAt(touch.m, touch.t) };
+        const held = { kind: touch.kind, s: touch.m.seat, to: touch.o.seat, t: touch.t, ox: posAt(touch.o, touch.t), band: this.touchBand(touch.kind, touch.m), from: touch.m.x, d: Math.sign(velAt(touch.m, touch.t)) || touch.m.d, sx: posAt(touch.m, touch.t), orev: touch.o.rev };
         const said = touch.t <= (touch.m.saidAt ?? -Infinity) + 1;
         // On the phone's own word (the touch came as it said where it is), or held long enough already: it counts now.
         if (said || touch.t + TOUCH_GRACE_MS <= now) {
@@ -1205,7 +1206,12 @@ export class LobbyCore {
    * boo with its time). Returns the message for everybody, or null when it was refused.
    */
   applyTouch(p, now) {
-    const result = p.kind === "spook" ? this.boo(p.s, p.to, now, p.t, p.d) : this.shove(p.s, p.to, now, p);
+    // A piece the room has moved itself since the touch (a kick, a hook, another shove) is where
+    // that put it now: a held touch from before would move it again from there. It is looked at
+    // afresh instead, from where it is now (firstTouch).
+    const o = this.members[p.to];
+    const moved = !o || (p.orev !== undefined && o.rev !== p.orev);
+    const result = moved ? { ok: false, why: "Moved since." } : p.kind === "spook" ? this.boo(p.s, p.to, now, p.t, p.d) : this.shove(p.s, p.to, now, p);
     // Judged: not judged again while the two stay in reach; forgotten as soon as they part. A touch
     // that was refused is not marked (it may yet count while they are in reach), except one against
     // a piece that will not go further (a wall, or a light it may not be pushed into): that stays so
@@ -1405,6 +1411,8 @@ export class LobbyCore {
     if (isUp(o, now)) o.stiltsUntil = now;
     if (isSoft(o, now)) o.softUntil = now;
     if (isHard(o, now)) o.hardUntil = now;
+    // A pawn charging its kick loses the charge, as it does when anything else moves it.
+    o.chargeAt = null;
     if (o.hook) o.hook.x0 += o.x - from;
     Object.assign(o, { stunUntil: now + PULL_MS, immuneUntil: now + PULL_MS + PULLED_SAFE_MS, fright: "pull" });
   }
@@ -1470,7 +1478,9 @@ export class LobbyCore {
     // A touch the room saw itself is judged as it was when it happened: both pieces where they
     // were then, the slime walking and not hard, soft or down then, the piece shovable then.
     const at = touchedAt ?? now;
-    if (isDown(m, at) || isHard(m, at) || isSoft(m, at)) return { ok: false, why: "Not now.", bad: false };
+    // (A touch the room saw was found only where the slime could touch then (touchOf), and a knock
+    // since leaves stunUntil saying "down" for that moment too: not asked again.)
+    if (!seen && (isDown(m, at) || isHard(m, at) || isSoft(m, at))) return { ok: false, why: "Not now.", bad: false };
     const sx = seen?.sx ?? posAt(m, at);
     const d = seen?.d ?? held?.d ?? m.d;
     const x = posAt(o, at);
@@ -1487,8 +1497,9 @@ export class LobbyCore {
     // Nowhere to go (a wall, or a light it may not be pushed into): it stays, and nothing is said.
     if (Math.abs(slideLanding(from, clampX(dest), this.landingWall(), this.litPlaces()) - from) < 1) return { ok: false, why: "It will not go further.", bad: false, stuck: true };
     this.slidePiece(o, dest, now);
-    // A robot shoved with its hook out throws it from where it now stands.
+    // A robot shoved with its hook out throws it from where it now stands; a pawn charging its kick loses the charge.
     if (o.hook) o.hook.x0 += o.x - from;
+    o.chargeAt = null;
     Object.assign(o, shoved(now));
     this.lastActive = now;
     return { ok: true, relay: { t: "shove", s: seat, to, x: o.x, rev: o.rev } };

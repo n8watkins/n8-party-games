@@ -21,7 +21,7 @@ import { EmoteArms, RIG_UNIT } from "./emote-arms.js";
 import { blinkAt, clamp, merged, paintPoints, pointLitMat, roundedBox, spring, tintPaint } from "./body-kit.js";
 import { HOP_HEIGHT, HOP_MS, PALE, PAWN_HEIGHT, SIZE, bumpPose } from "./pieces.js";
 import { PX, SPACE, walkX } from "./space.js";
-import { JUMP_MS, WALK_SPEED, jumpHeight } from "../shared/world.js";
+import { JUMP_MS, LOW_JUMP_HEIGHT, WALK_SPEED, jumpHeight } from "../shared/world.js";
 import { STILT_RISE } from "../shared/robot.js";
 import { stiltsNow } from "../move-state.js";
 
@@ -247,7 +247,7 @@ export function poseRobot(r, piece, now, dt, how) {
   r.prevX = piece.rx;
 
   const sinceJump = now - piece.jumpAt;
-  const up = jumpHeight(sinceJump);
+  const up = jumpHeight(sinceJump, LOW_JUMP_HEIGHT);
   const air = sinceJump >= 0 && sinceJump < JUMP_MS;
   // It is stiff: a jump and a landing only shake its suspension a little, and its mast a lot.
   if (air && !r.air) {

@@ -137,6 +137,11 @@ export class Pilot {
     this.rootedUntil = -Infinity;
   }
 
+  /** Whether the piece is going anywhere now: walking, or a floaty one still drifting to a stand. */
+  moving(now) {
+    return velAt(this.walk(), now) !== 0;
+  }
+
   /** Knocked down right now? */
   down(now) {
     return now < this.stunUntil;
@@ -201,6 +206,11 @@ export class Pilot {
   chargeRefused() {
     this.chargeAt = null;
     this.rootedUntil = -Infinity;
+  }
+
+  /** Whether a press of the kick would go off now, as far as this page knows: not cooling, not down. */
+  mayKick(now) {
+    return !(now < this.coolUntil) && !this.down(now);
   }
 
   /** The room's word on the cooldown: the piece may bump again in `left` milliseconds. */

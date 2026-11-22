@@ -274,8 +274,17 @@ const SETTLE = 0.24;
  * dx: its head, sideways from where it stands (it barely moves). lift: off the floor.
  * tilt: degrees, clockwise, about a point `pivot` above its foot: its head, so a tilt swings
  * the base (clockwise swings it to the left). sx, sy: stretch, about its foot.
+ * `lunge` ({from, to, power}): a charge let go (chargePose): in place of the wind-up it dashes
+ * along the floor from `from` to `to` (state "dashing", with `x` and its fading `charge`), then
+ * kicks there (`x` is `to` until the kick is over).
  */
 export function attackPose(ms, dir = 1, landed = false, lunge = null) {
+  const pose = kickPose(ms, dir, landed, lunge);
+  // After its dash a charged kick is drawn where the room put it, however late a frame comes.
+  return lunge && pose.x === undefined && pose.state !== "idle" ? { ...pose, x: lunge.to } : pose;
+}
+
+function kickPose(ms, dir, landed, lunge) {
   const state = attackState(ms, landed);
   const side = dir < 0 ? -1 : 1;
   const down = { dx: 0, lift: 0, tilt: 0, sx: 1, sy: 1 };

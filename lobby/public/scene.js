@@ -14,13 +14,13 @@ import { EmoteFigure, Sticker, bodyTransform } from "./emotes/svg.js";
 import { IMPACT_MS } from "./shared/bump.js";
 import { OWN_FADED } from "./shared/ghost.js";
 import { MoveDraw } from "./move-draw.js";
-import { gooNow, heardHook, heardShove, heardSlime, heardStilts, heardVerdict, hookNow, hookStop, refusedOwn, resumeMoves, startGoo, startHook, startStilts, stiltsNow } from "./move-state.js";
+import { gooNow, heardCharge, heardChargedKick, heardHook, heardShove, heardSlime, heardStilts, heardVerdict, hookNow, hookStop, netOf, refusedOwn, resumeMoves, startCharge, startGoo, startHook, startRelease, startStilts, stiltsNow } from "./move-state.js";
 import { STILT_RISE } from "./shared/robot.js";
 import { tagLevels } from "./tag-levels.js";
 import { standings } from "./shared/tonight.js";
 import { BADGES, COUNT_MS, playersLabel } from "./shared/vote.js";
 import { wallFor } from "./shared/rooms.js";
-import { ROOM, drawnLight, jumpHeight, poolOf, posAt } from "./shared/world.js";
+import { ROOM, drawnLight, jumpHeight, jumpTopOf, poolOf, posAt } from "./shared/world.js";
 
 const GREY = "#9b948b";
 const BADGE_COLOURS = { any: ["#3db8ff", "#06263a"], phones: ["#b79cf7", "#24124d"], screen: ["#ffc93c", "#3a2a00"] };
@@ -367,13 +367,13 @@ export class Scene {
       }
       // The room's word on where a piece is: news for everyone's piece but the viewer's own,
       // which is moved by its Pilot.
-      p.net = { x: m.x, d: m.d, t: now };
+      p.net = netOf(m.x, m.d, now, m.v);
       if (m.d) p.face = m.d;
       if (p.rev !== m.rev) p.rx = m.x; // the room put it somewhere: no sliding across the floor
       p.rev = m.rev;
       // The player chose another character: the same piece, where it stands, with a new body.
       if (p.kind !== drawingOf(m.character)) this.recast(p, m);
-      this.bumps.resume(p, m.x, m.down ?? 0, m.safe ?? 0, now, m.fright);
+      this.bumps.resume(p, m.x, m.down ?? 0, m.safe ?? 0, now, m.fright, m.ke ?? 0);
       // A ghost that is faded (shared/ghost.js), for a page that arrives in the middle; the room's
       // word that it is solid too (a fade this page missed the end of). The viewer's own fade is
       // drawn the moment its button goes down, before the room has said so: left as it is.
@@ -608,9 +608,11 @@ export class Scene {
   onMove(msg, now) {
     const p = this.pieces.get(msg.s);
     if (!p) return;
-    p.net = { x: msg.x, d: msg.d, t: now };
+    p.net = netOf(msg.x, msg.d, now, msg.v);
     if (msg.d) p.face = msg.d;
     if (msg.j) p.jumpAt = now;
+    // A pawn that walks has let its charge go.
+    if (msg.d && p.attack?.charging) p.attack = null;
   }
 
   /**
@@ -621,7 +623,11 @@ export class Scene {
     const by = this.pieces.get(msg.s);
     const landed = msg.to >= 0;
     let began = now;
-    if (by) {
+    if (by && msg.c !== undefined) {
+      // A charged kick (shared/bump.js): the kicker dashes to where the room put it, then kicks.
+      began = heardChargedKick(by, msg, now, msg.s === this.opts.own);
+      by.g.parentNode?.append(by.g);
+    } else if (by) {
       by.face = msg.f || by.face;
       if (msg.s === this.opts.own && by.attack && now - by.attack.at < 600) {
         // The viewer's own bump began when the button went down (ownBump), not when the room answered.
@@ -637,19 +643,19 @@ export class Scene {
       hit.goo = null;
     }
     // The kick went through a faded ghost (`sc`, shared/ghost.js): the kicker is scared off to
-    // where the room put it, and the ghost says boo as the kick passes through.
+    // where the room put it, and the ghost says boo as the kick passes through (longer, for a charged kick).
     if (msg.sc !== undefined && by) {
       by.net = { x: msg.x, d: 0, t: now };
       by.rev = msg.rev;
-      this.bumps.fright(by, msg.x, began, "scare");
+      this.bumps.fright(by, msg.x, began, msg.c !== undefined ? "bigscare" : "scare", msg.kx);
       const ghost = this.pieces.get(msg.sc);
       if (ghost) ghost.booAt = began + IMPACT_MS;
     }
-    // The kick bounced off a hardened slime (`bo`, shared/slime.js): the kicker is knocked back itself.
+    // The kick bounced off a hardened slime (`bo`, shared/slime.js): the kicker is knocked back itself (down `ke` longer, for a charged kick).
     if (msg.bo !== undefined && by) {
       by.net = { x: msg.x, d: 0, t: now };
       by.rev = msg.rev;
-      this.bumps.knock(by, msg.x, began);
+      this.bumps.knock(by, msg.x, began, msg.ke ?? 0, msg.kx);
       const slime = this.pieces.get(msg.bo);
       if (slime) setTimeout(() => this.moves.spark(slime.rx - (msg.f || 1) * 40, 820, performance.now()), IMPACT_MS);
     }
@@ -739,6 +745,24 @@ export class Scene {
     if (p) this.bumps.attack(p, p.face, now);
   }
 
+  /** A pawn holds its kick to charge it ({t: "kc", s, f, x}): it winds up where the room stopped it (shared/bump.js). */
+  onCharge(msg, now) {
+    heardCharge(this.pieces, this.opts.own, msg, now);
+    this.pieces.get(msg.s)?.g.parentNode?.append(this.pieces.get(msg.s).g);
+  }
+
+  /** The viewer's own pawn held its kick past a tap: its wind-up goes on as a charge. */
+  ownCharge(now) {
+    const p = this.pieces.get(this.opts.own);
+    if (p) startCharge(p, now);
+  }
+
+  /** The viewer's own pawn let its charge go, of `power`: it dashes at once toward `to`, before the room has said where it stops. */
+  ownRelease(power, to, now) {
+    const p = this.pieces.get(this.opts.own);
+    if (p) startRelease(p, power, now, to);
+  }
+
   /** How far the whole picture is jolted by a blow right now, in world units. */
   jolt(now) {
     return this.bumps.jolt(now);
@@ -773,13 +797,15 @@ export class Scene {
         p.face = own.face;
         walking = own.d !== 0 && own.x > ROOM.minX && own.x < ROOM.maxX;
       } else {
-        const target = posAt(p.net, now);
+        // At its character's own speed, a floaty one easing as the room has it (shared/world.js).
+        const target = posAt(p.net, now, p.kind.id);
         p.rx += (target - p.rx) * (1 - Math.exp(-dt * EASE));
         if (Math.abs(target - p.rx) < 0.3) p.rx = target;
         walking = p.net.d !== 0 && target > ROOM.minX && target < ROOM.maxX;
       }
       const flat = p.kind.flat;
-      const up = jumpHeight(now - p.jumpAt);
+      // The pawn jumps highest (shared/world.js, jumpTopOf).
+      const up = jumpHeight(now - p.jumpAt, jumpTopOf(p.kind.id));
       // A piece with feet hops from one to the other as it walks; one that glides does not.
       const bob = walking && !up && !flat.glides ? Math.abs(Math.sin(now / 95)) * 5 : 0;
       // Winding up, striking, thrown, lying or getting up: the bump's pose, on top of the walk.

@@ -31,8 +31,9 @@ import { hangsOwnBoxes } from "./shared/rooms.js";
  * @property {(room: object, now: number) => void} setRoom   the room changed: who is here, the code, the board
  * @property {(vote: object, now: number) => void} setVote   the vote changed: lights, who stands where, count, toss
  * @property {(msg: object, now: number) => void} onMove     someone moved
- * @property {(msg: object, now: number) => void} onBump     someone bumped (and perhaps hit someone, or was scared off by a faded ghost: `sc`)
- * @property {(msg: object, now: number) => void} onFade     a ghost faded ({t: "fade", s, for}; for 0: solid again) (shared/ghost.js)
+ * @property {(msg: object, now: number) => void} onBump     someone bumped (and perhaps hit someone, or was scared off by a faded ghost: `sc`); a charged kick (`c`) dashes to `kx` first
+ * @property {(msg: object, now: number) => void} onCharge   a pawn holds its kick to charge it ({t: "kc", s, f, x}) (shared/bump.js)
+ * @property {(msg: object, now: number) => void} onFade    a ghost faded ({t: "fade", s, for}; for 0: solid again) (shared/ghost.js)
  * @property {(msg: object, now: number) => void} onSpook    a faded ghost spooked a piece ({t: "spook", s, to, x, rev})
  * @property {(msg: object, now: number) => void} onExpress  someone sent an emote ({t: "e", s, e}): performed by
  *   their piece, with its word over their head (the kit's rules: party-kit/client/emotes.js; how
@@ -41,6 +42,8 @@ import { hangsOwnBoxes } from "./shared/rooms.js";
  *   players' emotes overlap as they come.
  * @property {(now: number) => void} ownJump                 the viewer's own piece jumped
  * @property {(now: number) => void} ownBump                 the viewer's own piece began a bump (the room has not answered yet)
+ * @property {(now: number) => void} ownCharge               the viewer's own pawn held its kick past a tap: a charge
+ * @property {(power: number, to: number, now: number) => void} ownRelease  the viewer's own pawn let its charge go, of `power` (0 to 1), dashing toward `to`
  * @property {() => number} ownX                             where the viewer's own piece is drawn, for the camera
  * @property {(compact: boolean, room: object, now: number) => void} setCompact  the phone's bigger signs and tags, on or off
  * @property {(now: number, dt: number, pilot: object | null, view: object) => void} frame
