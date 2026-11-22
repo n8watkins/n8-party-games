@@ -111,6 +111,11 @@ function pageHelpers() {
               for (const type of ["keydown", "keyup"]) document.body.dispatchEvent(new KeyboardEvent(type, { key: "x", code: "KeyX", bubbles: true }));
             }, after);
           }
+          // And (__kickOnHarden: a slime's seat), this page kicks the moment it hears that slime harden.
+          if (m?.t === "slime" && m.k === "harden" && m.s === window.__kickOnHarden) {
+            window.__kickOnHarden = null;
+            for (const type of ["keydown", "keyup"]) document.body.dispatchEvent(new KeyboardEvent(type, { key: "x", code: "KeyX", bubbles: true }));
+          }
           // Every whole room this page heard (its own clock), and each seat's move state in it: its
           // harden cooldown, how long its legs have been up and how long it stays soft
           // (shared/robot.js, slime.js). A page that is loading takes in the last one before it
@@ -618,16 +623,17 @@ try {
     await walkTo(sam, S, 1000);
     await rested(P);
     await walkTo(pat, P, 920, 1);
-    await sleep(300);
+    // Both standing still where the room has them (a late key-up can leave a piece drifting).
+    at = await settled(S, P);
     await watchAll(S, 1200);
     mark = ada.seen.length;
+    // Pat's phone kicks the moment it hears Sam harden, timed by the page: a key press from here
+    // could reach a busy page after the harden (HARDEN_MS) is over.
+    await pat.evaluate((s) => (window.__kickOnHarden = s), S);
     await sam.keyboard.press("KeyX");
     const hard = await after((m) => m.t === "slime" && m.s === S, 2000, mark);
     check(hard?.k === "harden", `a tap: the room tells everybody Sam hardened (${hard?.k})`);
-    await sleep(100);
-    at = await where();
-    await pat.keyboard.press("KeyX");
-    const bounced = await after((m) => m.t === "b" && m.s === P, 2000, mark);
+    const bounced = await after((m) => m.t === "b" && m.s === P, 3000, mark);
     check(bounced?.bo === S && bounced.to === -1, `Pat's kick bounces off and Pat is knocked back himself (${JSON.stringify(bounced && { to: bounced.to, bo: bounced.bo, x: bounced.x })})`);
     check(bounced && bounced.x < at[P].x - 60 && Math.abs((await where())[S].x - at[S].x) < 2, "Pat lands back the way he came; Sam stays put");
     await sleep(1300);
@@ -789,6 +795,8 @@ try {
     // on a walk the phone has not confirmed for TOUCH_GRACE_MS and then counts it as it was, a step
     // on, so a phone that draws few frames (and so confirms late) can see its slime catch up with
     // Pat and pass him; a slime that never pushes him along at all still fails.
+    // Sam's own page watched too: whether it was drawing (and so looking for the touch) while it walked.
+    await sam.evaluate((s) => window.watchMoves(s, 6000), S);
     await sam.keyboard.down("ArrowRight");
     const walkFrom = Date.now();
     let shoves = [];
@@ -800,10 +808,21 @@ try {
       through ||= now[S].x > now[P].x;
       if (shoves.length >= 2 && now[P].x - at[P].x >= 100) break;
     }
+    const walkMs = Date.now() - walkFrom;
     await sam.keyboard.up("ArrowRight");
     await sleep(400);
     const moved = (await where())[P].x - at[P].x;
-    check(shoves.length >= 2 && moved >= 100, `Sam's walk shoves Pat ${shoves.length} times, ${moved} units along in ${Date.now() - walkFrom - 400} ms${through ? " (and at one moment walked through him)" : ""}`);
+    // What the room guarantees depends on Sam's page. Drawing (a frame at least every 150 ms: it
+    // walks no further than its reach between two looks), it asks for each touch itself and keeps
+    // Pat ahead: at least two shoves and 100 units. Starved of frames, it asks late or not at all,
+    // and the room pushes on its own after the grace: at least one shove, by the rule accepted
+    // for a slow phone (it may then pass him).
+    const samFrames = (await sam.evaluate((s) => window.__moves[s]?.path ?? [], S)).map(([t]) => t);
+    const walkFrames = samFrames.filter((t, i) => i > 0 && t - samFrames[0] < walkMs + 200);
+    const gap = walkFrames.reduce((most, t, i) => (i ? Math.max(most, t - walkFrames[i - 1]) : most), 0);
+    const drawing = walkFrames.length >= 3 && gap <= 150;
+    const pushes = `Sam's walk shoves Pat ${shoves.length} times, ${moved} units along in ${walkMs} ms (Sam's page drew ${walkFrames.length} frames, the longest gap ${Math.round(gap)} ms)${through ? " (and at one moment walked through him)" : ""}`;
+    check(drawing ? shoves.length >= 2 && moved >= 100 : shoves.length >= 1 && moved > 0, drawing ? `${pushes}: a page drawing pushes him along` : `${pushes}: a page starved of frames gets at least the room's own push`);
     await sleep(900);
     const shoved = await drewDuring(rob, P, (h) => h.t === "shove" && h.to === P, 20, MOVED.shove.ms - 20, (f) => f[6] === "shove");
     seen(shoved.ok, `Rob's phone draws Pat shoved, upright (${shoved.story})`);
