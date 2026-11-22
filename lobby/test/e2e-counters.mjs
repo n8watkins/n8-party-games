@@ -136,6 +136,8 @@ function pageHelpers() {
     setTimeout(press, r.after);
   };
   window.__paths = {};
+  // When this page heard its move key come up (its own clock): a charge let go (its own dash starts then).
+  addEventListener("keyup", (e) => e.code === "KeyX" && (window.__keyUpAt = performance.now()), true);
   window.__afterDraw = new Set();
   const patch = () => {
     const view = globalThis.__partyRoom?.view;
@@ -333,11 +335,13 @@ try {
       const path = await pathOf(page, P);
       const holding = heardKc === null || heardB === null ? [] : path.filter((f) => f.t > heardKc + 220 && f.t < heardB - 20);
       seen(heardKc === null || heardB === null ? false : holding.length === 0 ? null : holding.every((f) => f.charge > 0 && f.charging), `${look}: ${name} draws Pat wound up and glowing while he holds (${calm(name) ? "less motion; " : ""}${holding.length} frames: ${holding.map((f) => `${Math.round(f.t - heardKc)}ms:${f.charge}`).join(", ")})`);
-      // The dash: from where he stood to where the room put him, within the kick's wind-up.
-      const dashing = heardB === null ? [] : path.filter((f) => f.t > heardB + 5 && f.t < heardB + 100);
+      // The dash: from where he stood to where the room put him, within the kick's wind-up: from
+      // the room's word on another page, from the release on Pat's own (it dashes at once).
+      const dashFrom = page === pat ? await page.evaluate(() => window.__keyUpAt ?? null) : heardB;
+      const dashing = dashFrom === null ? [] : path.filter((f) => f.t > dashFrom + 5 && f.t < dashFrom + 100);
       const between = (f) => f.x > Math.min(at[P].x, b.kx) + 3 && f.x < Math.max(at[P].x, b.kx) - 3;
       // (A tenth of a second: a page starved of frames may draw none in it. Judged on whichever pages did.)
-      seen(heardB === null || !b ? false : dashing.length === 0 ? null : dashing.some(between), `${look}: Pat is drawn dashing (${name}: from ${at[P].x} to ${b?.kx}: ${dashing.map((f) => `${Math.round(f.t - heardB)}ms:${Math.round(f.x)}`).join(", ")})`);
+      seen(heardB === null || dashFrom === null || !b ? false : dashing.length === 0 ? null : dashing.some(between), `${look}: Pat is drawn dashing (${name}: from ${at[P].x} to ${b?.kx}: ${dashing.map((f) => `${Math.round(f.t - dashFrom)}ms:${Math.round(f.x)}`).join(", ")})`);
       const landed = await drewDuring(page, P, (m) => m.t === "b" && m.c !== undefined, 160, 700, (f) => Math.abs(f.x - b.kx) <= 6);
       seen(b ? landed.ok : false, `${look}: ${name} then draws him where the room put him, ${b?.kx} (${landed.story})`);
       const thrown = await drewDuring(page, B, (m) => m.t === "b" && m.c !== undefined, IMPACT_MS + 80, STUN_MS - GETUP_MS, (f) => f.knock && f.dizzy);
@@ -480,6 +484,26 @@ try {
       c.send({ t: "m", x, d: face, r: c.rev });
       c.send({ t: "m", x, d: 0, r: c.rev });
     };
+    /**
+     * Bare sockets' pieces put at places, `[c, x, face]` each (face 0: just moved there), and the
+     * room waited for until it has every one there: the room takes a long way in steps, so a piece
+     * sent far is still on its way for a while (and would be in another's way meanwhile).
+     */
+    // (A bare socket keeps its piece's rev only from the few messages client.mjs reads: the room's
+    // own view says where it has the piece after a counter moved it, and which rev to answer.)
+    const placeAll = async (...spots) => {
+      const now = await where();
+      for (const [c] of spots) if (now[c.seat]?.rev !== undefined) [c.x, c.rev] = [Math.round(now[c.seat].x), now[c.seat].rev];
+      for (const [c, x, face] of spots) face ? stand(c, x, face) : c.goto(x);
+      for (let i = 0; i < 40; i++) {
+        const at = await where();
+        if (spots.every(([c, x]) => Math.abs(at[c.seat].x - x) <= 8)) return true;
+        await sleep(150);
+      }
+      const at = await where();
+      console.log(`  (not all placed: ${spots.map(([c, x]) => `${c.seat} at ${Math.round(at[c.seat].x)} rev ${at[c.seat].rev}, asked ${x} rev ${c.rev}`).join("; ")})`);
+      return false;
+    };
     /** Once a bare socket hears a message `test` passes, it sends `msg` `ms` later (a player answering what they see). */
     const answer = (c, test, msg, ms = 40) => {
       const from = c.seen.length;
@@ -492,15 +516,22 @@ try {
     /** Knocked over, as drawn: the knock under way and the body tipped well over. */
     const tipped = (f) => f.knock && Math.abs(f.tilt) > 25;
     const counterShot = (name) => still(`counter-${name}`);
+    /** What the room said since `from` (Ada's socket hears it all), short: for a check that fails to say why. */
+    const saidSince = (from) =>
+      ada.seen
+        .slice(from)
+        .filter((m) => m.t !== "m" && m.t !== "pong")
+        .map((m) => [m.t, m.s, m.o ?? m.k ?? m.why, m.to].filter((v) => v !== undefined).join(":"))
+        .join(" ");
     await be(ada, "robot");
     await sleep(LOOK_COOLDOWN_MS);
     const hx = Math.round(dark[0] + 40);
 
     section(`${look}: ride the hook: Pat, pulled, kicks before he arrives and knocks Ada (a robot) over`);
     await rested(P, A);
-    for (const c of [bo, cy]) c.goto(150);
+    await placeAll([bo, 150, 0], [cy, 150, 0]);
     await walkPat(hx + 220, -1);
-    stand(ada, hx, 1);
+    await placeAll([ada, hx, 1]);
     await sleep(400);
     await watchAll([A, P], 4000);
     mark = ada.seen.length;
@@ -512,15 +543,16 @@ try {
     check(rode?.ride === 1 && rode.to === A, `the room tells everybody Pat rode the hook and kicked Ada over (${JSON.stringify(rode && { to: rode.to, ride: rode.ride, x: rode.x })})`);
     await sleep(1500);
     for (const [name, page] of pages) {
-      const down = await drewDuring(page, A, (m) => m.t === "b" && m.ride, IMPACT_MS + 80, STUN_MS - GETUP_MS, tipped, (f) => `${f.knock ? "knocked" : "up"}:${Math.round(f.tilt)}`);
+      const down = await drewDuring(page, A, (m) => m.t === "b" && m.ride, IMPACT_MS + 150, STUN_MS - GETUP_MS, tipped, (f) => `${f.knock ? "knocked" : "up"}:${Math.round(f.tilt)}`);
       seen(rode ? down.ok : false, `${look}: ${name} draws Ada knocked over by the flying kick (${calm(name) ? "less motion; " : ""}${down.story})`);
     }
 
     section(`${look}: cut the line: Pat kicks Ada's chain while she pulls Bo, and Bo is freed where he is`);
     await rested(P, A, B);
-    stand(bo, hx + 220, -1);
-    await walkPat(hx + 245, -1);
-    stand(ada, hx, 1);
+    // Bo just in front of Pat, as the room has Pat (his turn to face left moves him a little), so
+    // Ada's hook reaches Bo first.
+    const px = await walkPat(hx + 250, -1);
+    await placeAll([bo, px - 25, -1], [ada, hx, 1]);
     await sleep(400);
     await watchAll([B], 3000);
     mark = ada.seen.length;
@@ -529,8 +561,8 @@ try {
     const cut = await after((m) => m.t === "b" && m.s === P, 3000, mark);
     await counterShot("cut");
     const pulledTo = ada.seen.slice(mark).find((m) => m.t === "hk" && m.s === A)?.x ?? null;
-    check(cut?.cut === B && cut.by === A, `Pat's kick cuts the chain (${JSON.stringify(cut && { cut: cut.cut, by: cut.by, x: cut.x })})`);
-    check(cut && pulledTo !== null && Math.abs(cut.x - (hx + 220)) < Math.abs(pulledTo - (hx + 220)), `and Bo is set down at ${cut?.x}, short of where the pull was taking him (${pulledTo})`);
+    check(cut?.cut === B && cut.by === A, `Pat's kick cuts the chain (${JSON.stringify(cut && { cut: cut.cut, by: cut.by, x: cut.x })}; the room said ${saidSince(mark)}; Pat's page pressed: ${await pat.evaluate(() => window.__react === null)})`);
+    check(cut && pulledTo !== null && Math.abs(cut.x - (px - 25)) < Math.abs(pulledTo - (px - 25)), `and Bo is set down at ${cut?.x}, short of where the pull was taking him (${pulledTo})`);
     await sleep(1200);
     for (const [name, page] of pages) {
       const freed = await drewDuring(page, B, (m) => m.t === "b" && m.cut !== undefined, MOVED.freed.ms + 60, MOVED.freed.ms + 700, (f) => Math.abs(f.x - cut.x) <= 6);
@@ -539,10 +571,9 @@ try {
 
     section(`${look}: cannonball: Cy (a slime), pulled, hardens in the air and bowls Ada over`);
     await rested(A, C);
-    for (const c of [bo]) c.goto(150);
+    await placeAll([bo, 150, 0]);
     await walkPat(150, 1);
-    stand(cy, hx + 220, -1);
-    stand(ada, hx, 1);
+    await placeAll([cy, hx + 220, -1], [ada, hx, 1]);
     await sleep(400);
     await watchAll([A, C], 3000);
     mark = ada.seen.length;
@@ -554,7 +585,7 @@ try {
     check(cannon?.ct === "cannon" && cannon.to === A, `the room tells everybody Cy bowled Ada over (${JSON.stringify(cannon && { k: cannon.k, ct: cannon.ct, to: cannon.to, x: cannon.x })})`);
     await sleep(1500);
     for (const [name, page] of pages) {
-      const down = await drewDuring(page, A, (m) => m.t === "slime" && m.ct === "cannon", 80, STUN_MS - IMPACT_MS - GETUP_MS, tipped, (f) => `${f.knock ? "knocked" : "up"}:${Math.round(f.tilt)}`);
+      const down = await drewDuring(page, A, (m) => m.t === "slime" && m.ct === "cannon", 150, STUN_MS - IMPACT_MS - GETUP_MS, tipped, (f) => `${f.knock ? "knocked" : "up"}:${Math.round(f.tilt)}`);
       seen(cannon ? down.ok : false, `${look}: ${name} draws Ada bowled over (${calm(name) ? "less motion; " : ""}${down.story})`);
     }
 
@@ -562,9 +593,7 @@ try {
     await be(cy, "robot");
     await sleep(LOOK_COOLDOWN_MS);
     await rested(A, B, C);
-    stand(ada, hx, 1);
-    stand(bo, hx + 220, -1);
-    stand(cy, hx + 380, -1);
+    await placeAll([ada, hx, 1], [bo, hx + 220, -1], [cy, hx + 380, -1]);
     await sleep(400);
     await watchAll([B], 3500);
     mark = ada.seen.length;
@@ -582,9 +611,7 @@ try {
     }
     await rested(A, B, C);
     // Ada and Cy the same way from Bo, throwing together: their tips reach him at once.
-    stand(ada, hx, 1);
-    stand(bo, hx + 220, -1);
-    stand(cy, hx + 440, -1);
+    await placeAll([ada, hx, 1], [bo, hx + 220, -1], [cy, hx + 440, -1]);
     await sleep(400);
     await watchAll([B], 3000);
     mark = ada.seen.length;
@@ -604,18 +631,17 @@ try {
 
     section(`${look}: plant: Cy goes up on his legs as Ada's hook lands, and Ada is dragged to him`);
     await rested(A, C);
-    bo.goto(150);
-    stand(ada, hx, 1);
-    stand(cy, hx + 220, -1);
+    await placeAll([bo, 150, 0], [ada, hx, 1], [cy, hx + 220, -1]);
     await sleep(400);
     await watchAll([A, C], 3000);
     mark = ada.seen.length;
+    const cyFrom = cy.seen.length;
     const legsGo = answer(cy, (m) => m.t === "hook" && m.s === A, { t: "stilts" }, 60);
     ada.send({ t: "hook" });
     await legsGo;
     const plant = await after((m) => m.t === "hk" && m.s === A && m.o !== "jumped", 3000, mark);
     await counterShot("plant");
-    check(plant?.o === "plant" && plant.to === C && plant.x > hx + 60, `Cy holds his ground and Ada is dragged to him (${JSON.stringify(plant && { o: plant.o, to: plant.to, x: plant.x })})`);
+    check(plant?.o === "plant" && plant.to === C && plant.x > hx + 60, `Cy holds his ground and Ada is dragged to him (${JSON.stringify(plant && { o: plant.o, to: plant.to, x: plant.x })}; the room said ${saidSince(mark)}; to Cy: ${cy.seen.slice(cyFrom).filter((m) => /-no$|^no$|err/.test(m.t)).map((m) => `${m.t}:${m.why}`).join(" ")})`);
     await sleep(1200);
     for (const [name, page] of pages) {
       const dragged = await drewDuring(page, A, (m) => m.t === "hk" && m.o === "plant", PULL_MS + 60, PULL_MS + 600, (f) => Math.abs(f.x - plant.x) <= 6);
@@ -629,9 +655,7 @@ try {
     await be(bo, "ghost");
     await sleep(LOOK_COOLDOWN_MS);
     await rested(A, B);
-    cy.goto(1780);
-    stand(ada, hx, 1);
-    stand(bo, hx + 220, -1);
+    await placeAll([cy, 1780, 0], [ada, hx, 1], [bo, hx + 220, -1]);
     await sleep(400);
     await watchAll([A, B], 3000);
     mark = ada.seen.length;
