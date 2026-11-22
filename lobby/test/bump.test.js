@@ -329,7 +329,7 @@ describe("a player's own piece through a bump", () => {
     const { sent, p } = pilot();
     expect(p.cooling(2000)).toBe(0);
     expect(p.bump(2000)).toBe(true);
-    expect(sent).toEqual([{ t: "b" }]);
+    expect(sent).toEqual([{ t: "b", f: 1 }]);
     expect(p.cooling(2100)).toBe(BUMP_COOLDOWN_MS - 100);
     expect(p.bump(2100)).toBe(false);
     expect(p.bump(2000 + BUMP_COOLDOWN_MS - 1)).toBe(false);
@@ -367,7 +367,7 @@ describe("a player's own piece through a bump", () => {
     // Up: the held key walks it on, with the room's new revision.
     p.steer(1, 1100 + STUN_MS);
     expect(p.down(1100 + STUN_MS)).toBe(false);
-    expect(sent.at(-1)).toEqual({ t: "m", x: 900, d: 1, r: 4 });
+    expect(sent.at(-1)).toEqual({ t: "m", x: 900, d: 1, f: 1, r: 4 });
     expect(p.bump(1100 + STUN_MS)).toBe(true);
   });
 
