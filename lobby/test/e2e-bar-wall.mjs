@@ -266,12 +266,13 @@ try {
     const more = [connect(await call("POST", "/join/" + code, { nickname: "Ed" })), connect(await call("POST", "/join/" + code, { nickname: "Flo" }))];
     sockets.push(...more);
     await Promise.all(more.map((c) => c.opened));
-    await ann.wait((m) => more.every((c) => m.room?.members[c.seat]), 10000, 0);
+    // Each has heard where the room put it (a step sent before that would start from nowhere).
+    await Promise.all(more.map((c) => c.wait((m) => m.room?.members?.[c.seat], 10000, 0)));
     more[0].goto(Math.round(corkPool.x - 40));
     more[1].goto(Math.round(corkPool.x + 70));
     const inCork = () => Object.values(standingOf(ann)).filter((v) => v === "cork-and-bell").length;
     await until(() => inCork() === 4);
-    check(inCork() === 4, "four players stand in Cork & Bell's light, all counted");
+    check(inCork() === 4, `four players stand in Cork & Bell's light, all counted (${JSON.stringify(standingOf(ann))}; seats ${[ann, cy, ...more].map((c) => c.seat).join(", ")})`);
     await sleep(600);
     await shot(p, `${look}-pool-four-1280x720`);
     // Ann steps out (no game starts), and the two who joined leave the party, giving their seats back.
