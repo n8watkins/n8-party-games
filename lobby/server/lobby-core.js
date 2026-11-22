@@ -1099,7 +1099,7 @@ export class LobbyCore {
     // Held touches whose grace is over: nobody said otherwise, so they happened.
     for (const p of this.pending.filter((p) => p.t + TOUCH_GRACE_MS <= now)) {
       this.pending.splice(this.pending.indexOf(p), 1);
-      const relay = this.applyTouch(p, now, true);
+      const relay = this.applyTouch(p, now);
       if (relay) out.push(relay);
     }
     if (now > from) {
@@ -1112,7 +1112,7 @@ export class LobbyCore {
         const said = touch.t <= (touch.m.saidAt ?? -Infinity) + 1;
         // On the phone's own word (the touch came as it said where it is), or held long enough already: it counts now.
         if (said || touch.t + TOUCH_GRACE_MS <= now) {
-          const relay = this.applyTouch(held, now, !said);
+          const relay = this.applyTouch(held, now);
           if (relay) out.push(relay);
         } else this.pending.push(held);
       }
@@ -1122,33 +1122,16 @@ export class LobbyCore {
   }
 
   /**
-   * A held or seen touch counts: the shove or the spook, judged when it happened. `unheard`: the
-   * phone never said its piece got there (a stalled phone): a slime is then stopped where it
-   * touched, so the room's reckoning of a walk its phone is not making does not carry it through
-   * the piece it pushed. Returns the message for everybody, or null.
+   * A held or seen touch counts: the shove or the spook, judged when it happened (LobbyCore.shove,
+   * boo with its time). Returns the message for everybody, or null when it was refused.
    */
-  applyTouch(p, now, unheard) {
-    const relay = this.judgeTouch(p, now, unheard);
+  applyTouch(p, now) {
+    const result = p.kind === "spook" ? this.boo(p.s, p.to, now, p.t) : this.shove(p.s, p.to, now, p.t);
     // Judged: not judged again while the two stay in reach; forgotten as soon as they part.
     this.touching ??= new Set();
     this.touching.add(`${p.s}>${p.to}`);
     this.partTouches(now);
-    return relay;
-  }
-
-  judgeTouch(p, now, unheard) {
-    if (p.kind === "spook") {
-      const result = this.boo(p.s, p.to, now, p.t);
-      return result.ok ? result.relay : null;
-    }
-    const m = this.members[p.s];
-    const result = this.shove(p.s, p.to, now, p.t);
-    if (!result.ok) return null;
-    if (unheard && m && m.d) {
-      Object.assign(m, { x: clampX(posAt(m, p.t)), d: 0, t: now, rev: m.rev + 1 });
-      Object.assign(result.relay, { sx: Math.round(m.x), srev: m.rev });
-    }
-    return result.relay;
+    return result.ok ? result.relay : null;
   }
 
   /** Takes the held touch of `kind` by seat `s` on seat `to`, if there is one. */
@@ -1169,7 +1152,7 @@ export class LobbyCore {
       this.pending.splice(this.pending.indexOf(p), 1);
       const [lo, hi] = p.band;
       if (touchAt(p.ox - fromX, p.ox - toX, lo, hi) === null) continue;
-      const relay = this.applyTouch(p, now, false);
+      const relay = this.applyTouch(p, now);
       if (relay) out.push(relay);
     }
     return out;
