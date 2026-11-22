@@ -88,15 +88,17 @@ export function maySlime(piece, kind, now, { slimes, lobby, slack }) {
 /**
  * Whether a slime at `slimeX`, walking in direction `d`, may shove `target` ({x, seat, slime,
  * up, faded, ...times}) at `now`: {ok} or {ok: false, why}. A slime shoves only what is in front
- * of it as it walks.
+ * of it as it walks. `touched`: the room itself saw the slime walk into it along its path
+ * (LobbyCore.sweep), so where the two stand now is not asked.
  */
-export function mayShove(slimeX, d, target, now) {
+export function mayShove(slimeX, d, target, now, touched = false) {
   if (!d) return { ok: false, why: "Not walking." };
   if (target.slime) return { ok: false, why: "Nobody can shove a slime." };
   if (target.up) return { ok: false, why: "It steps over you." };
   if (target.faded) return { ok: false, why: "Nothing touches a faded ghost." };
   if (now < (target.shovedUntil ?? 0)) return { ok: false, why: "Shoved a moment ago." };
   if (now < (target.stunUntil ?? 0) || now < (target.immuneUntil ?? 0)) return { ok: false, why: "Knocked over, or just up." };
+  if (touched) return { ok: true };
   const ahead = (target.x - slimeX) * d;
   if (ahead < -SHOVE_SLACK / 2 || ahead > SHOVE_REACH + SHOVE_SLACK) return { ok: false, why: "Too far away." };
   return { ok: true };

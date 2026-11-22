@@ -42,10 +42,10 @@ import { viewerFor } from "../../party-kit/src/core/views.js";
 import { IDLE_SHUTDOWN_MS, NAME_MAX, SEAT_COLOURS, STALE_ROOM_MS, cleanName, randomToken } from "../../party-kit/src/core/room-core.js";
 import { COUNT_MS, SETTLE_MS, TOSS_MS, leaders, pointsForPlace, spotLights, standingsFromRows, tally, whyNot } from "../shared/vote.js";
 import { COOLDOWN_SLACK_MS, IMMUNE_MS, bumpTarget, cooldownLeft, isDown, isSafe, knockLanding, knocked, mayBump } from "../shared/bump.js";
-import { BOO_LATE_MS, FADE_MS, SCARE_LANDING, SPOOK_FAR, SPOOK_LANDING, fadeLeft, isFaded, mayFade, maySpook, scared, spooked } from "../shared/ghost.js";
-import { HOOK_SCARE_MS, slideLanding } from "../shared/moves.js";
+import { BOO_LATE_MS, FADE_MS, SCARE_LANDING, SPOOK_FAR, SPOOK_LANDING, SPOOK_REACH, fadeLeft, isFaded, mayFade, maySpook, scared, spooked } from "../shared/ghost.js";
+import { HOOK_SCARE_MS, slideLanding, touchAt } from "../shared/moves.js";
 import { BONK_MS, HOOK_BACK_MS, HOOK_HOLD, HOOK_LATE_MS, HOOK_LIFE_MS, PULLED_SAFE_MS, PULL_MS, STILT_MS, TRAIN_MS, battedAway, firstCatch, hookEndsAt, hookLeft, isUp, jumpedOver, mayHook, mayStilt, stiltLeft } from "../shared/robot.js";
-import { ABSORB_MS, HARDEN_MS, SHOVE_AHEAD, SHOVE_FAR, SHOVE_LATE_MS, SHOVE_STEP, isHard, isSoft, mayShove, maySlime, shoved, slimeLeft } from "../shared/slime.js";
+import { ABSORB_MS, HARDEN_MS, SHOVE_AHEAD, SHOVE_FAR, SHOVE_LATE_MS, SHOVE_REACH, SHOVE_STEP, isHard, isSoft, mayShove, maySlime, shoved, slimeLeft } from "../shared/slime.js";
 import { DEFAULT_ROOM, ROOM_COOLDOWN_MS, isRoom, roomLocked, wallFor } from "../shared/rooms.js";
 import { COLOUR_PRESETS, DEFAULT_CHARACTER, LOOK_COOLDOWN_MS, LOOK_SLACK_MS, characterOr, cleanColour, moveOf, readLook } from "../shared/characters.js";
 import { record } from "../shared/tonight.js";
@@ -882,7 +882,7 @@ export class LobbyCore {
    * `bad`: no real page sends that boo (lobby/shared/ghost.js, BOO_LATE_MS and SPOOK_FAR), so it
    * counts against the socket's rate limit; the rest are honest boos the room got a moment late.
    */
-  boo(seat, to, now) {
+  boo(seat, to, now, touchedAt = null) {
     const m = this.members[seat];
     if (!m) return { ok: false, why: "You are not in this party." };
     const fades = moveOf(m.character) === "fade";
@@ -891,12 +891,15 @@ export class LobbyCore {
     if (!fades) return { ok: false, why: "Only a faded ghost can spook.", bad: !(now - (m.lookAt ?? -Infinity) <= BOO_LATE_MS) };
     if (!real) return { ok: false, why: "Nobody there to spook.", bad: true };
     if (this.activity.kind !== "lobby" || this.plainRoom()) return { ok: false, why: "Nobody there to spook.", bad: false };
-    if (!this.faded(m, now)) return { ok: false, why: "Only a faded ghost can spook.", bad: !(now - (m.fadedUntil ?? -Infinity) <= BOO_LATE_MS) };
+    // A touch the room saw itself (sweep) counts when it happened: the fade may have ended since.
+    if (!this.faded(m, touchedAt ?? now)) return { ok: false, why: "Only a faded ghost can spook.", bad: !(now - (m.fadedUntil ?? -Infinity) <= BOO_LATE_MS) };
     const o = this.members[to];
     if (!o) return { ok: false, why: "Nobody there to spook.", bad: false };
+    // The room may have spooked it already as the ghost drifted through (sweep): an honest page's boo then is only late.
+    if ((m.spooks ?? []).includes(to)) return { ok: false, why: "Already spooked by this fade.", bad: false };
     const ghostX = posAt(m, now);
     const x = posAt(o, now);
-    const may = maySpook(ghostX, { ...o, x, fades: moveOf(o.character) === "fade" }, now, m.spooks ?? []);
+    const may = maySpook(ghostX, { ...o, x, fades: moveOf(o.character) === "fade" }, now, m.spooks ?? [], touchedAt !== null);
     if (!may.ok) return { ...may, bad: Math.abs(x - ghostX) > SPOOK_FAR };
     (m.spooks ??= []).push(to);
     const dir = m.d || (x === ghostX ? m.face : Math.sign(x - ghostX)) || 1;
@@ -965,6 +968,112 @@ export class LobbyCore {
     }
     if (out.length) this.lastActive = now;
     return out;
+  }
+
+  /**
+   * Everything that came due on the floor by itself (call it on every wake-up and every message,
+   * before anything else changes a piece): the touches along the pieces' paths (sweep), then the
+   * hooks whose time has come (dueHooks). Returns the messages for everybody.
+   */
+  dueMoves(now) {
+    return [...this.sweep(now), ...this.dueHooks(now)];
+  }
+
+  /**
+   * What a piece touches as it walks, by the room's own rules: "shove" for a slime walking (not
+   * down, hard or soft), "spook" for a ghost walking while faded at some time since `since`, or null.
+   */
+  toucher(m, now, since = now) {
+    if (!m.d) return null;
+    const move = moveOf(m.character);
+    if (move === "harden") return !isDown(m, now) && !isHard(m, now) && !isSoft(m, now) ? "shove" : null;
+    if (move === "fade") return (m.fadedUntil ?? 0) > since ? "spook" : null;
+    return null;
+  }
+
+  /** The gap a touch is, from the toucher to the other piece: in front of a walking slime, either side of a ghost. */
+  touchBand(kind, m) {
+    if (kind === "spook") return [-SPOOK_REACH, SPOOK_REACH];
+    return m.d > 0 ? [0, SHOVE_REACH] : [-SHOVE_REACH, 0];
+  }
+
+  /**
+   * The room's own look along the floor: a walking slime shoves what it walks into, and a ghost
+   * walking while faded spooks what it drifts through, judged along the path each piece covered
+   * since the room last looked (`sweptAt`), not only where it stands now. So a phone that draws
+   * slowly or stalls (and so says late, or never, that its piece touched someone) cannot walk
+   * through anyone: the room sees the touch on the way. A touch counts exactly as the page's
+   * shove or boo does (LobbyCore.shove, boo: the same pieces, cooldowns and landing rules), once
+   * per pair in a look; the page's own word after is refused quietly. Returns the messages.
+   */
+  sweep(now) {
+    const from = this.sweptAt ?? now;
+    this.sweptAt = now;
+    const out = [];
+    if (!this.floorTime() || !(now > from)) return out;
+    const done = new Set();
+    for (let guard = 0; guard < 16; guard++) {
+      const touch = this.firstTouch(from, now, done);
+      if (!touch) break;
+      done.add(touch.key);
+      const result = touch.kind === "shove" ? this.shove(touch.m.seat, touch.o.seat, now, true) : this.boo(touch.m.seat, touch.o.seat, now, touch.t);
+      if (result.ok) out.push(result.relay);
+    }
+    if (out.length) this.lastActive = now;
+    return out;
+  }
+
+  /**
+   * The first touch between `from` and `to` not yet in `done`: {t, m, o, kind, key}, or null. Each
+   * piece walks steadily over that time (every change to a piece comes after a look: dueMoves),
+   * except one the room moved meanwhile, which is looked at from when it was moved.
+   */
+  firstTouch(from, to, done) {
+    let best = null;
+    for (const m of this.present()) {
+      const kind = this.toucher(m, to, from);
+      if (!kind) continue;
+      const [lo, hi] = this.touchBand(kind, m);
+      for (const o of this.present()) {
+        const key = `${m.seat}>${o.seat}`;
+        if (o === m || done.has(key)) continue;
+        const start = Math.max(from, m.t, o.t);
+        if (!(start < to)) continue;
+        const u = touchAt(posAt(o, start) - posAt(m, start), posAt(o, to) - posAt(m, to), lo, hi);
+        if (u === null) continue;
+        const t = start + u * (to - start);
+        // A ghost spooks only while it is faded.
+        if (kind === "spook" && !(t < m.fadedUntil)) continue;
+        if (!best || t < best.t) best = { t, m, o, kind, key };
+      }
+    }
+    return best;
+  }
+
+  /**
+   * When the room should next look along the floor (sweep): the moment a walking slime or a faded
+   * ghost, as everyone walks now, will reach another piece, or a piece a slime pushes against may
+   * be shoved again. null when nobody is on their way to touch anyone.
+   */
+  nextTouch(now) {
+    if (!this.floorTime()) return null;
+    const AHEAD_MS = 1500;
+    let at = Infinity;
+    for (const m of this.present()) {
+      const kind = this.toucher(m, now);
+      if (!kind) continue;
+      const [lo, hi] = this.touchBand(kind, m);
+      for (const o of this.present()) {
+        if (o === m) continue;
+        const u = touchAt(posAt(o, now) - posAt(m, now), posAt(o, now + AHEAD_MS) - posAt(m, now + AHEAD_MS), lo, hi);
+        if (u === null) continue;
+        // Touching now: looked at already. A slime still pushing against a piece it shoved a moment ago shoves again when it may.
+        const t = u > 0 ? now + u * AHEAD_MS : kind === "shove" && (o.shovedUntil ?? 0) > now ? o.shovedUntil : Infinity;
+        if (kind === "spook" && !(t < m.fadedUntil)) continue;
+        at = Math.min(at, t);
+      }
+    }
+    return at === Infinity ? null : at;
   }
 
   /** One robot's hook, judged: what it caught and what came of it (shared/robot.js). Returns `hk` for everybody, or null when it is not time yet. */
@@ -1117,7 +1226,7 @@ export class LobbyCore {
    * pushed a step on, upright: out of its light perhaps, but never into another
    * (shared/moves.js). Returns {relay} or {ok: false, why, bad}; `bad`: no real page sends it.
    */
-  shove(seat, to, now) {
+  shove(seat, to, now, touched = false) {
     const m = this.members[seat];
     if (!m) return { ok: false, why: "You are not in this party." };
     const slimes = moveOf(m.character) === "harden";
@@ -1129,7 +1238,7 @@ export class LobbyCore {
     if (isDown(m, now) || isHard(m, now) || isSoft(m, now)) return { ok: false, why: "Not now.", bad: false };
     const sx = posAt(m, now);
     const x = posAt(o, now);
-    const may = mayShove(sx, m.d, { ...o, x, slime: moveOf(o.character) === "harden", up: isUp(o, now), faded: this.faded(o, now) }, now);
+    const may = mayShove(sx, m.d, { ...o, x, slime: moveOf(o.character) === "harden", up: isUp(o, now), faded: this.faded(o, now) }, now, touched);
     if (!may.ok) return { ...may, bad: Math.abs(x - sx) > SHOVE_FAR };
     // A step on, and in front of the slime: it keeps pushing what it walks into (shared/slime.js).
     const dest = m.d > 0 ? Math.max(x + SHOVE_STEP, sx + SHOVE_AHEAD) : Math.min(x - SHOVE_STEP, sx - SHOVE_AHEAD);
@@ -1338,8 +1447,9 @@ export class LobbyCore {
   tick(now) {
     const out = { start: null, chosen: false, close: null, changed: false };
     // A robot's hook whose time has come is judged first: a voter pulled out of the light just
-    // before the count ends stops it, as a kick would (shared/robot.js). `hooks`: what came of each.
-    out.hooks = this.dueHooks(now);
+    // before the count ends stops it, as a kick would (shared/robot.js); and so is a touch along
+    // the floor (sweep). `hooks`: the messages for each.
+    out.hooks = this.dueMoves(now);
     const inLobby = this.activity.kind === "lobby";
     const choosing = this.activity.kind === "settings";
     if (choosing && this.choosingFails(now)) out.changed = true;
@@ -1533,6 +1643,9 @@ export class LobbyCore {
     // A robot's hook is judged when its tip reaches a piece (shared/robot.js): one wake-up a hook.
     // Whatever the room is doing: one still out when the party left the room is dropped then.
     for (const m of this.present()) if (m.hook) at = Math.min(at, m.hook.judgeAt);
+    // A walking slime or faded ghost about to reach someone: the room looks then (sweep), whether
+    // or not that phone says so.
+    at = Math.min(at, this.nextTouch(now) ?? Infinity);
     return at === Infinity ? null : Math.max(at, now + 20);
   }
 

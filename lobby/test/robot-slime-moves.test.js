@@ -12,7 +12,7 @@ import { IMMUNE_MS, KNOCK_CLEAR, STUN_MS, landingGround } from "../shared/bump.j
 import { wallFor } from "../shared/rooms.js";
 import { CHARACTERS, LOOK_COOLDOWN_MS, moveOf } from "../shared/characters.js";
 import { FADE_MS } from "../shared/ghost.js";
-import { HOOK_SCARE_MS, MOVED, movedPose, movedResumed, slideLanding } from "../shared/moves.js";
+import { HOOK_SCARE_MS, MOVED, movedPose, movedResumed, slideLanding, touchAt } from "../shared/moves.js";
 import {
   BONK_MS, HOOK_AIM_MS, HOOK_COOLDOWN_MS, HOOK_FLIGHT_MS, HOOK_HAND, HOOK_HOLD, HOOK_LATE_MS, HOOK_RANGE, HOOK_SPEED, PULL_MS, STILT_COOLDOWN_MS, STILT_MS,
   firstCatch, hookDrawn, hookTipAt, jumpedOver, battedAway, pullPose, stiltPose,
@@ -781,6 +781,118 @@ describe("the room's judgement of the legs, the harden and the shove", () => {
   });
 });
 
+describe("the room's own look along the floor (sweep): a slow phone cannot walk through anyone", () => {
+  /** A seat starts walking at x in direction d at `now`, as its page says. */
+  const walk = (core, seat, x, d, now) => core.move(seat, { x, d, r: core.members[seat].rev }, now);
+
+  it("touchAt finds where a gap first comes into a touch, even when it jumps right across in one step", () => {
+    expect(touchAt(50, 30, 0, 70)).toBe(0);
+    expect(touchAt(170, 70, 0, 70)).toBe(1);
+    expect(touchAt(170, -130, 0, 70)).toBeCloseTo(100 / 300);
+    expect(touchAt(-100, 100, -46, 46)).toBeCloseTo(54 / 200);
+    expect(touchAt(170, 120, 0, 70)).toBeNull();
+    expect(touchAt(-10, -200, 0, 70)).toBeNull();
+  });
+
+  it("shoves a piece once that a slime's walk jumped right across between two looks, and puts it ahead of the slime", () => {
+    const core = party(["Ann", "Bo"]);
+    be(core, 0, "slime");
+    place(core, 0, 600, 1000);
+    place(core, 1, 700, 1000);
+    walk(core, 0, 600, 1, 2000);
+    expect(core.dueMoves(2000)).toEqual([]);
+    // 400 ms with no word from the slime's phone: the room has it at 772, past Bo at 700.
+    const out = core.dueMoves(2400);
+    expect(out).toHaveLength(1);
+    expect(out[0]).toMatchObject({ t: "shove", s: 0, to: 1 });
+    expect(core.members[1].x).toBeGreaterThan(posAt(core.members[0], 2400));
+    expect(core.members[1]).toMatchObject({ fright: "shove" });
+    // Its page's own word on the same touch, coming late, is refused quietly.
+    expect(core.shove(0, 1, 2410)).toMatchObject({ ok: false, bad: false });
+    // Looked at again a moment later: not shoved twice for the one touch.
+    expect(core.dueMoves(2450)).toEqual([]);
+  });
+
+  it("spooks a piece once that a faded ghost drifted right through in one step, and never twice in the fade, however often its path crosses her", () => {
+    const core = party(["Ann", "Bo"]);
+    be(core, 0, "ghost");
+    core.members[0].fadeAt = -Infinity;
+    place(core, 0, 500, 1000);
+    place(core, 1, 600, 1000);
+    expect(core.fade(0, 2000)).toMatchObject({ ok: true });
+    walk(core, 0, 500, 1, 2000);
+    expect(core.dueMoves(2000)).toEqual([]);
+    // 500 ms with no boo from the ghost's phone: it is at 715, through Ann at 600.
+    const out = core.dueMoves(2500);
+    expect(out).toEqual([expect.objectContaining({ t: "spook", s: 0, to: 1 })]);
+    // Its phone's boo about her after is refused quietly: the room heard it already.
+    expect(core.boo(0, 1, 2510)).toMatchObject({ ok: false, why: "Already spooked by this fade.", bad: false });
+    // Back through where she is now, and on through again: never a second spook in this fade.
+    const there = core.members[1].x;
+    walk(core, 0, posAt(core.members[0], 2600), Math.sign(there - posAt(core.members[0], 2600)) || -1, 2600);
+    expect(core.dueMoves(3100)).toEqual([]);
+    walk(core, 0, posAt(core.members[0], 3100), -core.members[0].d, 3100);
+    expect(core.dueMoves(3600)).toEqual([]);
+  });
+
+  it("does not spook after the fade is over, and never shoves or spooks a piece a page would not (a slime, a ghost, a robot up)", () => {
+    const core = party(["Ann", "Bo", "Cy"]);
+    be(core, 0, "ghost");
+    core.members[0].fadeAt = -Infinity;
+    place(core, 0, 300, 1000);
+    place(core, 1, 300 + 430 * (FADE_MS / 1000) + 200, 1000);
+    // Cy behind the ghost, out of its way.
+    place(core, 2, 150, 1000);
+    core.fade(0, 2000);
+    walk(core, 0, 300, 1, 2000);
+    core.dueMoves(2000);
+    // It reaches Bo only after its fade has ended: nothing.
+    expect(core.dueMoves(2000 + FADE_MS + 1000)).toEqual([]);
+    for (const [now, character, setup] of [[20_000, "slime", () => {}], [30_000, "robot", (t) => core.stilts(2, t)], [40_000, "ghost", (t) => core.fade(2, t)]]) {
+      be(core, 1, "slime");
+      be(core, 2, character);
+      Object.assign(core.members[2], { stiltAt: -Infinity, fadeAt: -Infinity });
+      place(core, 1, 600, now);
+      place(core, 2, 700, now);
+      setup(now);
+      walk(core, 1, 600, 1, now);
+      core.dueMoves(now);
+      expect(core.dueMoves(now + 400), character).toEqual([]);
+    }
+  });
+
+  it("wakes the room when a walking slime or faded ghost will reach someone, and not for a piece it is already against", () => {
+    const core = party(["Ann", "Bo"]);
+    be(core, 0, "slime");
+    place(core, 0, 600, 1000);
+    place(core, 1, 800, 1000);
+    walk(core, 0, 600, 1, 2000);
+    // 200 apart, a touch at 70: 130 units at 430 a second.
+    expect(core.nextTouch(2000)).toBeCloseTo(2000 + (130 / 430) * 1000, 0);
+    expect(core.nextWake(2000)).toBeLessThanOrEqual(core.nextTouch(2000));
+    walk(core, 0, 600, 0, 2100);
+    expect(core.nextTouch(2100)).toBeNull();
+  });
+
+  it("never shoves a piece into another light along the path, on the production wall and the test wall", () => {
+    for (const wall of [WALL, TEST_WALL]) {
+      const core = party(["Ann", "Bo"], wall);
+      be(core, 0, "slime");
+      const lit = core.litPlaces();
+      const pool = core.wall.pools.find((p) => lit.includes(p.i));
+      const edge = pool.x - pool.half;
+      place(core, 1, Math.round(edge - KNOCK_CLEAR - 5), 1000);
+      place(core, 0, Math.max(ROOM.minX, Math.round(edge - KNOCK_CLEAR - 200)), 1000);
+      walk(core, 0, core.members[0].x, 1, 2000);
+      core.dueMoves(2000);
+      // One look, well after the slime walked through where Bo stood.
+      const past = 2000 + Math.round(((core.members[1].x - core.members[0].x + 40) / 430) * 1000);
+      expect(core.dueMoves(past)).toEqual([expect.objectContaining({ t: "shove", s: 0, to: 1 })]);
+      expect(lightAt(core.members[1].x, core.wall)).toBe(-1);
+    }
+  });
+});
+
 describe("what a page that arrives in the middle is told, and draws", () => {
   it("tells it of a hook out, legs up, a harden or an absorb, and every cooldown", () => {
     const core = party(["Ann", "Bo"]);
@@ -863,6 +975,21 @@ describe("the robot's and the slime's moves on the real room", () => {
     await vi.advanceTimersByTimeAsync(HOOK_AIM_MS + HOOK_FLIGHT_MS + HOOK_LATE_MS + 50);
     for (const [i, page] of [ws[0], ws[1], ws[2], ws.screen].entries()) expect(since(page, before[i]).find((m) => m.t === "hk")).toMatchObject({ s: 0, o: "pull", to: 2, x: 600 + HOOK_HOLD });
     expect(core.members[2].x).toBe(600 + HOOK_HOLD);
+  });
+
+  it("shoves Cy when Bo's slime walks into him though Bo's phone never says so: the room wakes for the touch and tells every page", async () => {
+    const { ctx, say, ws, core } = await room();
+    await walkTo(say, ctx, ws[2], 2, 900);
+    await walkTo(say, ctx, ws[1], 1, 600);
+    await settle();
+    const before = mark(ws[0], ws[1], ws[2], ws.screen);
+    // Bo starts walking right, and his phone goes quiet: no shove, no stop.
+    say(ws[1], { t: "m", x: core.members[1].x, d: 1, r: core.members[1].rev });
+    await settle();
+    expect(since(ws[2], before[2]).some((m) => m.t === "shove")).toBe(false);
+    await vi.advanceTimersByTimeAsync(Math.ceil(((900 - 600) / 430) * 1000) + 100);
+    for (const [i, page] of [ws[0], ws[1], ws[2], ws.screen].entries()) expect(since(page, before[i]).find((m) => m.t === "shove"), `page ${i}`).toMatchObject({ t: "shove", s: 1, to: 2 });
+    expect(core.members[2].x).toBeGreaterThan(900);
   });
 
   it("refuses moves to the sender only, with the wait, and says nothing of a shove it did not take", async () => {

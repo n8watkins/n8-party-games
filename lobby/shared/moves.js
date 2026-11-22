@@ -98,3 +98,17 @@ export function slideLanding(from, to, n, lit) {
   }
   return Math.round(best);
 }
+
+/**
+ * The swept touch: the gap from one piece to another goes from `r0` to `r1` (both walking at a
+ * steady speed in between, so evenly), and a touch is that gap in [lo, hi]. Returns how far
+ * through (0 to 1) the gap first comes into it, or null when it never does. A gap that jumps
+ * right across in one step (a slow phone's walk, a long wait between the room's looks) still
+ * touches, at the moment it reached the near edge: the room judges the path, not where it ends.
+ */
+export function touchAt(r0, r1, lo, hi) {
+  if (r0 >= lo && r0 <= hi) return 0;
+  if (r0 > hi && r1 <= hi) return (r0 - hi) / (r0 - r1);
+  if (r0 < lo && r1 >= lo) return (lo - r0) / (r1 - r0);
+  return null;
+}

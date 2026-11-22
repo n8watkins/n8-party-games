@@ -300,8 +300,9 @@ export function createLobbyRoom(wallFor) {
       }
       const now = Date.now();
       const player = entry.role === "player";
-      // A hook whose time came while the alarm was still on its way is judged before anything else is.
-      const due = core.dueHooks(now);
+      // A hook whose time came while the alarm was still on its way is judged before anything else
+      // is, and so is a touch along the floor since the room last looked (LobbyCore.dueMoves).
+      const due = core.dueMoves(now);
       if (due.length) {
         this.tellMoves(due);
         this.settle(now);
