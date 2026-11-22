@@ -140,7 +140,10 @@ function pageHelpers() {
   };
   window.__send = (m) => window.__ws.send(JSON.stringify(m));
   const view = () => globalThis.__partyRoom?.view;
-  window.movesOn = (seat) => {
+  // `now`: the moment it is read for (a frame's own clock when read right after it was drawn: a
+  // 3D frame on a busy machine can take a few hundred milliseconds to draw, and the goo's state
+  // must be the one that frame drew, not the one it has once the drawing is done).
+  window.movesOn = (seat, now = performance.now()) => {
     const v = view();
     const p = v?.pieces?.get(seat);
     if (!p) return null;
@@ -157,7 +160,7 @@ function pageHelpers() {
     const gem = flat ? !!g?.querySelector(".slime-gem") && g.querySelector(".slime-gem").getAttribute("display") !== "none" : !!p.body.gem?.visible;
     // Soft as drawn now: from its turn until its soft time and melt are over (move-state.js gooNow
     // clears p.goo only when a frame draws it, so a goo whose time is up can still be there).
-    const soft = !!p.goo && p.goo.turnAt !== null && performance.now() - p.goo.at - p.goo.turnAt < p.goo.softFor + window.__MELT_MS;
+    const soft = !!p.goo && p.goo.turnAt !== null && now - p.goo.at - p.goo.turnAt < p.goo.softFor + window.__MELT_MS;
     // frightAt: when the page began drawing the piece's fright (its own clock), and from where.
     // goo, stilt: what the page holds of a slime's harden or absorb and a robot's legs (move-state.js), for a failure's message.
     return { x: p.rx, hook: p.hook ? (p.hook.verdict?.o ?? "out") : null, chain, legs, gem, soft, fright: p.fright?.kind ?? null, frightAt: p.fright?.at ?? null, frightFrom: p.fright?.from ?? null, knock: !!p.knock, character: p.kind?.id, goo: p.goo ? { at: Math.round(p.goo.at), turnAt: p.goo.turnAt, softFor: p.goo.softFor, hardFor: p.goo.hardFor } : null, stilt: p.stilt ? { at: Math.round(p.stilt.at) } : null };
@@ -199,7 +202,7 @@ function pageHelpers() {
     const until = performance.now() + ms;
     const sample = (frameAt) => {
       if (frameAt > until) return void window.__afterDraw.delete(sample);
-      const m = window.movesOn(seat);
+      const m = window.movesOn(seat, frameAt);
       if (m) {
         most.frames++;
         most.legs = Math.max(most.legs, m.legs);
