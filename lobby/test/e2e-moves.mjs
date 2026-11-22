@@ -88,7 +88,7 @@ function pageHelpers() {
           return;
         }
         for (const m of Array.isArray(msg) ? msg : [msg]) {
-          if (m && ["hook", "hk", "stilts", "slime", "shove"].includes(m.t)) window.__heard.push({ t: m.t, s: m.s, to: m.to, o: m.o, k: m.k, at: performance.now() });
+          if (m && ["hook", "hk", "stilts", "slime", "shove", "hook-no", "stilts-no", "slime-no"].includes(m.t)) window.__heard.push({ t: m.t, s: m.s, to: m.to, o: m.o, k: m.k, why: m.why, wait: m.wait, at: performance.now() });
           // Told to (__jumpOnHookOf: a robot's seat), this page jumps the moment it hears that robot
           // throw, as a player who sees it coming does: the jump is timed by the page, not the test.
           if (m?.t === "hook" && m.s === window.__jumpOnHookOf) {
@@ -566,7 +566,9 @@ try {
     mark = ada.seen.length;
     await rob.keyboard.press("ArrowUp");
     const upAgain = await after((m) => m.t === "stilts" && m.s === R, 2000, mark);
-    check(upAgain?.for === STILT_MS, `Rob's legs go up again (${upAgain?.for} ms)`);
+    // When not: what Rob's own page heard of its legs (a refusal says why), and its key's arrival.
+    const upWhy = upAgain ? "" : `; Rob's page heard ${JSON.stringify((await rob.evaluate(() => window.__heard ?? [])).filter((h) => h.t.startsWith("stilts")).slice(-3))}, the room has him ${JSON.stringify((await where())[R])}`;
+    check(upAgain?.for === STILT_MS, `Rob's legs go up again (${upAgain?.for} ms${upWhy})`);
     await pat.evaluate((s) => sessionStorage.setItem("watchOnLoad", JSON.stringify({ seat: s, ms: 2500 })), R);
     await pat.goto(`${base}/lobby/?${lookQuery}`);
     await drawn(pat);
