@@ -136,7 +136,13 @@ function pageHelpers() {
     // path: every frame drawn, [when (this page's clock), where the piece was drawn].
     const most = (window.__moves[seat] = { legs: 0, chain: false, gem: false, soft: false, frights: [], knocked: false, hooks: [], minX: Infinity, maxX: -Infinity, frames: 0, from: performance.now(), path: [] });
     const until = performance.now() + ms;
-    const look = () => {
+    // Read once every callback of the frame has run (the page's own drawing among them), so what
+    // is read is what that frame drew, not the one before; timed when the frame began.
+    const look = (frameAt) => {
+      setTimeout(() => sample(frameAt), 0);
+      if (performance.now() < until) requestAnimationFrame(look);
+    };
+    const sample = (frameAt) => {
       const m = window.movesOn(seat);
       if (m) {
         most.frames++;
@@ -149,11 +155,10 @@ function pageHelpers() {
         if (m.hook && !most.hooks.includes(m.hook)) most.hooks.push(m.hook);
         most.minX = Math.min(most.minX, m.x);
         most.maxX = Math.max(most.maxX, m.x);
-        most.path.push([performance.now(), m.x, m.legs, m.soft, m.chain, m.gem, m.fright, m.knock, document.querySelector(".ctl-bump")?.className ?? null]);
+        most.path.push([frameAt, m.x, m.legs, m.soft, m.chain, m.gem, m.fright, m.knock, document.querySelector(".ctl-bump")?.className ?? null]);
       }
       // The first frame this page's own move button showed ready.
-      if (window.__readyAt == null && document.querySelector(".ctl-bump")?.classList.contains("ready")) window.__readyAt = performance.now();
-      if (performance.now() < until) requestAnimationFrame(look);
+      if (window.__readyAt == null && document.querySelector(".ctl-bump")?.classList.contains("ready")) window.__readyAt = frameAt;
     };
     requestAnimationFrame(look);
   };
@@ -362,11 +367,11 @@ try {
         const u = (t - heardAt) / PULL_MS;
         return u <= 0 ? start : u >= 1 ? end : start + (end - start) * pullEase(u);
       };
-      // On the path within a frame's lag: the page starts the slide as it handles the verdict,
-      // which may be a frame after this listener heard it.
+      // On the path within a frame either way: the page starts the slide as it handles the verdict
+      // and draws at its own moment in the frame, a little before or after what this watch times.
       const FRAME_LAG = 40;
       const onPath = (t, x) => {
-        const [a, b] = [due(t - FRAME_LAG), due(t)];
+        const [a, b] = [due(t - FRAME_LAG), due(t + FRAME_LAG)];
         return x >= Math.min(a, b) - 6 && x <= Math.max(a, b) + 6;
       };
       const wrong = heardAt === null ? [] : path.filter(([t, x]) => !onPath(t, x));
