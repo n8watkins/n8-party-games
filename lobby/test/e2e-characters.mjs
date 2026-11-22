@@ -385,6 +385,10 @@ try {
     // ================================================================ a fuming robot, by its pixels
     if (look !== "flat") {
       section(`${look}: a fuming robot's paint is red in every colour, read off the pixels`);
+      // Cy's page asks for less motion while the pictures are taken: the room's lamps and candles
+      // flicker and its lightning flashes otherwise (look3d/rendered/bar/room.js), enough to tip a
+      // dark paint's red (Violet read 108 against the 110 it needs) one way or the other.
+      await cy.emulateMedia({ reducedMotion: "reduce" });
       for (const { hex, name } of COLOUR_PRESETS) {
         await sleep(Math.max(LOOK_COOLDOWN_MS, EMOTE_COOLDOWN_MS) + 200);
         from = ada.seen.length;
@@ -409,6 +413,7 @@ try {
         }
         check(isRed(seen), `${name} (${hex}): fuming, its paint shows red (${JSON.stringify(plain)} to ${JSON.stringify(seen)}), not its colour times red`);
       }
+      await cy.emulateMedia({ reducedMotion: null });
     }
 
     // Ada is a cream ghost again, as she was before the slime and the robot (the ghost's move below asks a ghost's fade of her).
@@ -574,8 +579,10 @@ try {
     ada.send({ t: "look", c: "pawn" });
     await sleep(300);
     ada.goto(light - 60);
-    await walkTo(bea, B, light);
-    await walkTo(cy, C, light + 60);
+    // Each well inside the light: walkTo stops within `near` of its mark, so a mark near the
+    // light's edge could leave a piece just outside it (Cy once stood at 492, the light ending short of it).
+    await walkTo(bea, B, light, 15);
+    await walkTo(cy, C, light + 40, 15);
     // The count as it stands now (one that started while a piece walked through a light, and
     // stopped as it walked on, is not one): up to five seconds for it.
     let counting = false;
