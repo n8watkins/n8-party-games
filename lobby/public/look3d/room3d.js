@@ -24,7 +24,7 @@ import { modelOf } from "./characters.js";
 import { RIG_UNIT } from "./emote-arms.js";
 import { Life } from "./life.js";
 import { Hooks3D } from "./moves3d.js";
-import { heardCharge, heardChargedKick, heardHook, heardShove, heardSlime, heardStilts, heardVerdict, hookNow, hookStop, netOf, refusedOwn, resumeMoves, startCharge, startGoo, startHook, startRelease, startStilts } from "../move-state.js";
+import { heardCannon, heardCharge, heardChargedKick, heardCut, heardEmpty, heardHook, heardShove, heardSlime, heardStilts, heardVerdict, hookNow, hookStop, netOf, refusedOwn, resumeMoves, startCharge, startGoo, startHook, startRelease, startStilts } from "../move-state.js";
 import { ART_IMAGES, boxArt, boxSide, canvasOf } from "./paint.js";
 import { PAWN_HEIGHT, resumeKnock, startAttack, startFright, startKnock } from "./pieces.js";
 import { SKINS, liveSkin } from "./skins.js";
@@ -790,6 +790,8 @@ export class Room3D {
       const slime = this.pieces.get(msg.bo);
       if (slime) setTimeout(() => this.spark(slime.rx - (msg.f || 1) * 40, 70, performance.now()), IMPACT_MS);
     }
+    // The kick cut the chain someone was being pulled along (`cut`, shared/robot.js): set down where they were.
+    if (msg.cut !== undefined) heardCut(this.pieces, msg, now, this.moveDrawing);
     if (hit) hit.goo = null;
     // If it happened by the room's feature, the feature is knocked too (look3d/life.js).
     // Where they are is taken from what the room said, not from where this device has drawn them
@@ -815,10 +817,11 @@ export class Room3D {
     if (p) startRelease(p, power, now, to);
   }
 
-  /** A ghost faded for `msg.for` milliseconds (0: it is solid again). */
+  /** A ghost faded for `msg.for` milliseconds (0: it is solid again); in the air on a chain, it slipped the hook (`ct` "empty"). */
   onFade(msg, now) {
     const p = this.pieces.get(msg.s);
     if (p) p.fadeUntil = msg.for > 0 ? now + msg.for : 0;
+    if (msg.ct === "empty") heardEmpty(this.pieces, msg, now, this.moveDrawing);
     this.idle = 0;
   }
 
@@ -836,9 +839,9 @@ export class Room3D {
 
   // The robot's and the slime's moves (../move-state.js keeps what both drawings know of them).
 
-  /** How this look starts a slide or a fright, and a spark (`h`: how high above the floor). */
+  /** How this look starts a slide, a fright or a knock, and a spark (`h`: how high above the floor). */
   get moveDrawing() {
-    return { fright: (p, x, at, kind) => startFright(p, x, at, kind), spark: (x, h, now) => this.spark(x, h, now) };
+    return { fright: (p, x, at, kind) => startFright(p, x, at, kind), knock: (p, x, at) => startKnock(p, x, at), spark: (x, h, now) => this.spark(x, h, now) };
   }
 
   onHook(msg, now) {
@@ -858,6 +861,7 @@ export class Room3D {
 
   onSlime(msg, now) {
     heardSlime(this.pieces, msg, now);
+    if (msg.ct === "cannon") heardCannon(this.pieces, msg, now, this.moveDrawing);
     this.idle = 0;
   }
 

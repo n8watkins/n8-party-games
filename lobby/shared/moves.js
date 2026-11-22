@@ -8,13 +8,15 @@
 //   pull       a robot's hook dragged it across the floor, upright (shared/robot.js)
 //   bonk       the hook back: two robots yanked together, heads bonked (shared/robot.js)
 //   shove      a slime walked into it (shared/slime.js)
+//   freed      freed from a pull where it was: its chain cut, or a ghost that slipped the hook (shared/robot.js)
+//   tug        held between two hooks that reached it at once (shared/robot.js)
 //
 // And the one rule every slide across the floor keeps (slideLanding): a piece the room drags may
 // leave the light it stands in (as a kick does), but it never comes to rest in another light that
 // is on. So no move ever puts a vote somewhere its player did not choose, during a count or not.
 import { IMMUNE_MS, KNOCK_CLEAR, landingGround } from "./bump.js";
 import { BIG_SCARE, BIG_SCARE_MS, SCARE, SCARE_MS, SPOOK, SPOOK_MS, frightPose, SCARE_START_MS, SCARE_FREEZE_MS, SCARE_RUN_MS, SCARE_HOP } from "./ghost.js";
-import { BONK, PULL, PULLED_SAFE_MS } from "./robot.js";
+import { BONK, FREED, PULL, PULLED_SAFE_MS, TUG } from "./robot.js";
 import { SHOVE } from "./slime.js";
 import { lightAt } from "./world.js";
 
@@ -34,6 +36,8 @@ export const MOVED = {
   pull: { how: PULL, ms: PULL.ms, safe: PULLED_SAFE_MS },
   bonk: { how: BONK, ms: BONK.ms, safe: PULLED_SAFE_MS },
   shove: { how: SHOVE, ms: SHOVE.ms, safe: 0 },
+  freed: { how: FREED, ms: FREED.ms, safe: PULLED_SAFE_MS },
+  tug: { how: TUG, ms: TUG.ms, safe: PULLED_SAFE_MS },
 };
 
 /** Whether `kind` is one of the room's frights (a page may hear of a kind newer than it is: drawn as a knock). */

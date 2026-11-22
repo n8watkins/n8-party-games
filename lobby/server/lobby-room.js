@@ -358,6 +358,8 @@ export function createLobbyRoom(wallFor) {
           if (hit.bo !== undefined) this.keep(entry);
           // A charged kick dashed the kicker forward (lobby/shared/bump.js): moved by the room as well.
           if (hit.kx !== undefined) this.keep(entry);
+          // A kick that cut a chain (lobby/shared/robot.js) set the piece on it down where it was.
+          if (hit.cut !== undefined) this.keepSeat(hit.cut);
           this.settle(now);
           return;
         }
@@ -605,8 +607,18 @@ export function createLobbyRoom(wallFor) {
         return;
       }
       this.broadcast(out.relay);
-      if (out.relay.t === "spook") for (const other of this.sockets.values()) if (other.seat === out.relay.to) this.keep(other);
+      if (out.relay.t === "spook") this.keepSeat(out.relay.to);
+      // The empty hook (lobby/shared/robot.js): the ghost slipped its hook where it was, and the robot was spooked.
+      if (out.relay.ct === "empty") {
+        this.keep(entry);
+        if (Number.isInteger(out.relay.to)) this.keepSeat(out.relay.to);
+      }
       this.settle(now);
+    }
+
+    /** The socket of the piece in `seat` carries it as the room has it now (through a sleep). */
+    keepSeat(seat) {
+      for (const other of this.sockets.values()) if (other.seat === seat) this.keep(other);
     }
 
     /**
@@ -632,7 +644,9 @@ export function createLobbyRoom(wallFor) {
       this.broadcast(out.relay);
       // The room stopped a robot to throw its hook, and moved a shoved piece: each socket carries its piece.
       if (out.relay.t === "hook") this.keep(entry);
-      if (out.relay.t === "shove") for (const other of this.sockets.values()) if (other.seat === out.relay.to) this.keep(other);
+      if (out.relay.t === "shove") this.keepSeat(out.relay.to);
+      // A cannonball (lobby/shared/robot.js) bowled the robot over.
+      if (out.relay.ct === "cannon") this.keepSeat(out.relay.to);
       this.settle(now);
     }
 

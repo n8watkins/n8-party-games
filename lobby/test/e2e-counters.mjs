@@ -17,12 +17,18 @@
 //   into a faded ghost Pat's charged kick goes through Ada's fade: frozen longer than a scare
 //   speeds             a pawn, a slime and a ghost walk side by side, each at its own speed, and
 //                      the ghost floats on when it stops; the pawn jumps highest
+//   the hook's counters (Ada a robot): ride the hook (Pat kicks as he is pulled), cut the line
+//                      (Pat kicks the chain Bo is on), the cannonball (Cy, a slime, hardens in the
+//                      air), steal and tug of war (Cy, now a robot, hooks Bo too: later, then at
+//                      once), plant (Cy up on his legs as the hook lands), the empty hook (Bo, now a
+//                      ghost, fades in the air)
 import { mkdirSync } from "node:fs";
 import { GETUP_MS, IMPACT_MS, KICK_CONTACT, STUN_MS, chargeBounce, chargeDash, chargeThrow, knockLanding, landingGround } from "../shared/bump.js";
 import { LOOK_COOLDOWN_MS } from "../shared/characters.js";
 import { BIG_SCARE_FREEZE_MS, BIG_SCARE_MS, SCARE_FREEZE_MS, SCARE_MS, SCARE_START_MS } from "../shared/ghost.js";
 import { HARDEN_MS } from "../shared/slime.js";
-import { slideLanding } from "../shared/moves.js";
+import { MOVED, slideLanding } from "../shared/moves.js";
+import { PULL_MS, TUG_HOLD_MS } from "../shared/robot.js";
 import { wallFor } from "../shared/rooms.js";
 import { FLOAT_MS, JUMP_HEIGHT, LOW_JUMP_HEIGHT, walkSpeed } from "../shared/world.js";
 import { launchBrowser } from "./browser.mjs";
@@ -79,7 +85,11 @@ function pageHelpers() {
         } catch {
           return;
         }
-        for (const m of Array.isArray(msg) ? msg : [msg]) if (m?.t && m.t !== "pong") window.__heard.push({ ...m, at: performance.now() });
+        for (const m of Array.isArray(msg) ? msg : [msg]) {
+          if (!m?.t || m.t === "pong") continue;
+          window.__heard.push({ ...m, at: performance.now() });
+          reactTo(m);
+        }
       });
     }
     window.__ws = this;
@@ -106,7 +116,23 @@ function pageHelpers() {
       fright: p.fright?.kind ?? null,
       knock: !!p.knock,
       charging: !!p.attack?.charging,
+      // How far the body is tipped (degrees) and stretched (wide over tall), as drawn.
+      tilt: flat ? Number(/rotate\((-?[\d.]+)/.exec(g?.getAttribute("transform") ?? "")?.[1] ?? 0) : ((p.body?.tilt?.rotation.z ?? 0) * 180) / Math.PI,
+      stretch: flat ? (([a, b]) => a / b)((/scale\(([\d.]+), ([\d.]+)\)/.exec(g?.getAttribute("transform") ?? "")?.slice(1) ?? [1, 1]).map(Number)) : (p.body?.tilt ? p.body.tilt.scale.x / p.body.tilt.scale.y : 1),
+      // A robot's legs, as drawn: how far out (0: down).
+      legs: flat ? (g?.querySelector(".robot-stilts")?.getAttribute("display") === "none" ? 0 : (p.legs ?? 0)) : p.body?.legsG?.visible ? (p.body.legs ?? 0) : 0,
     };
+  };
+  // This page presses its move key the moment it hears a message like `react.on` ({t, o, to, s}: each given must match), `react.after` ms later, once.
+  window.__react = null;
+  const press = () => {
+    for (const type of ["keydown", "keyup"]) document.body.dispatchEvent(new KeyboardEvent(type, { key: "x", code: "KeyX", bubbles: true }));
+  };
+  const reactTo = (m) => {
+    const r = window.__react;
+    if (!r || !Object.entries(r.on).every(([k, v]) => m[k] === v)) return;
+    window.__react = null;
+    setTimeout(press, r.after);
   };
   window.__paths = {};
   window.__afterDraw = new Set();
@@ -217,7 +243,7 @@ try {
     const rested = async (...seats) => {
       for (let i = 0; i < 80; i++) {
         const at = await where();
-        if (seats.every((s) => !(at[s].safe > 0) && !(at[s].cool > 0) && !(at[s].slimeCool > 0) && !(at[s].fadeCool > 0))) return;
+        if (seats.every((s) => !(at[s].safe > 0) && !(at[s].cool > 0) && !(at[s].slimeCool > 0) && !(at[s].fadeCool > 0) && !(at[s].hookCool > 0) && !(at[s].stiltCool > 0))) return;
         await sleep(200);
       }
     };
@@ -445,6 +471,186 @@ try {
       const ok = pawn === null || slime === null ? null : pawn > slime * 1.12;
       seen(ok, `${look}: ${name} draws the pawn jumping highest (${Math.round(pawn ?? -1)} against the slime's ${Math.round(slime ?? -1)}; the rule: ${JUMP_HEIGHT} and ${LOW_JUMP_HEIGHT})`);
     }
+
+    // ================================================================ the hook's counters
+    /** A bare socket's piece stood at x, facing `face`. */
+    const stand = (c, x, face) => {
+      c.goto(x);
+      c.send({ t: "m", x, d: face, r: c.rev });
+      c.send({ t: "m", x, d: 0, r: c.rev });
+    };
+    /** Once a bare socket hears a message `test` passes, it sends `msg` `ms` later (a player answering what they see). */
+    const answer = (c, test, msg, ms = 40) => {
+      const from = c.seen.length;
+      return c
+        .wait(test, 4000, from)
+        .then(() => sleep(ms))
+        .then(() => c.send(typeof msg === "function" ? msg() : msg))
+        .catch(() => null);
+    };
+    /** Knocked over, as drawn: the knock under way and the body tipped well over. */
+    const tipped = (f) => f.knock && Math.abs(f.tilt) > 25;
+    const counterShot = (name) => still(`counter-${name}`);
+    await be(ada, "robot");
+    await sleep(LOOK_COOLDOWN_MS);
+    const hx = Math.round(dark[0] + 40);
+
+    section(`${look}: ride the hook: Pat, pulled, kicks before he arrives and knocks Ada (a robot) over`);
+    await rested(P, A);
+    for (const c of [bo, cy]) c.goto(150);
+    await walkPat(hx + 220, -1);
+    stand(ada, hx, 1);
+    await sleep(400);
+    await watchAll([A, P], 4000);
+    mark = ada.seen.length;
+    // Pat's page kicks 60 ms after it hears the room pull him: before he arrives.
+    await pat.evaluate((s) => (window.__react = { on: { t: "hk", o: "pull", to: s }, after: 60 }), P);
+    ada.send({ t: "hook" });
+    const rode = await after((m) => m.t === "b" && m.s === P, 3000, mark);
+    await counterShot("ride");
+    check(rode?.ride === 1 && rode.to === A, `the room tells everybody Pat rode the hook and kicked Ada over (${JSON.stringify(rode && { to: rode.to, ride: rode.ride, x: rode.x })})`);
+    await sleep(1500);
+    for (const [name, page] of pages) {
+      const down = await drewDuring(page, A, (m) => m.t === "b" && m.ride, IMPACT_MS + 80, STUN_MS - GETUP_MS, tipped, (f) => `${f.knock ? "knocked" : "up"}:${Math.round(f.tilt)}`);
+      seen(rode ? down.ok : false, `${look}: ${name} draws Ada knocked over by the flying kick (${calm(name) ? "less motion; " : ""}${down.story})`);
+    }
+
+    section(`${look}: cut the line: Pat kicks Ada's chain while she pulls Bo, and Bo is freed where he is`);
+    await rested(P, A, B);
+    stand(bo, hx + 220, -1);
+    await walkPat(hx + 245, -1);
+    stand(ada, hx, 1);
+    await sleep(400);
+    await watchAll([B], 3000);
+    mark = ada.seen.length;
+    await pat.evaluate((s) => (window.__react = { on: { t: "hk", o: "pull", to: s }, after: 40 }), B);
+    ada.send({ t: "hook" });
+    const cut = await after((m) => m.t === "b" && m.s === P, 3000, mark);
+    await counterShot("cut");
+    const pulledTo = ada.seen.slice(mark).find((m) => m.t === "hk" && m.s === A)?.x ?? null;
+    check(cut?.cut === B && cut.by === A, `Pat's kick cuts the chain (${JSON.stringify(cut && { cut: cut.cut, by: cut.by, x: cut.x })})`);
+    check(cut && pulledTo !== null && Math.abs(cut.x - (hx + 220)) < Math.abs(pulledTo - (hx + 220)), `and Bo is set down at ${cut?.x}, short of where the pull was taking him (${pulledTo})`);
+    await sleep(1200);
+    for (const [name, page] of pages) {
+      const freed = await drewDuring(page, B, (m) => m.t === "b" && m.cut !== undefined, MOVED.freed.ms + 60, MOVED.freed.ms + 700, (f) => Math.abs(f.x - cut.x) <= 6);
+      seen(cut ? freed.ok : false, `${look}: ${name} draws Bo freed where the room set him down, ${cut?.x} (${calm(name) ? "less motion; " : ""}${freed.story})`);
+    }
+
+    section(`${look}: cannonball: Cy (a slime), pulled, hardens in the air and bowls Ada over`);
+    await rested(A, C);
+    for (const c of [bo]) c.goto(150);
+    await walkPat(150, 1);
+    stand(cy, hx + 220, -1);
+    stand(ada, hx, 1);
+    await sleep(400);
+    await watchAll([A, C], 3000);
+    mark = ada.seen.length;
+    const cannonGo = answer(cy, (m) => m.t === "hk" && m.o === "pull" && m.to === C, { t: "slime", k: "harden" });
+    ada.send({ t: "hook" });
+    await cannonGo;
+    const cannon = await after((m) => m.t === "slime" && m.s === C, 3000, mark);
+    await counterShot("cannonball");
+    check(cannon?.ct === "cannon" && cannon.to === A, `the room tells everybody Cy bowled Ada over (${JSON.stringify(cannon && { k: cannon.k, ct: cannon.ct, to: cannon.to, x: cannon.x })})`);
+    await sleep(1500);
+    for (const [name, page] of pages) {
+      const down = await drewDuring(page, A, (m) => m.t === "slime" && m.ct === "cannon", 80, STUN_MS - IMPACT_MS - GETUP_MS, tipped, (f) => `${f.knock ? "knocked" : "up"}:${Math.round(f.tilt)}`);
+      seen(cannon ? down.ok : false, `${look}: ${name} draws Ada bowled over (${calm(name) ? "less motion; " : ""}${down.story})`);
+    }
+
+    section(`${look}: steal and tug of war: Cy (now a robot) and Ada both hook Bo`);
+    await be(cy, "robot");
+    await sleep(LOOK_COOLDOWN_MS);
+    await rested(A, B, C);
+    stand(ada, hx, 1);
+    stand(bo, hx + 220, -1);
+    stand(cy, hx + 380, -1);
+    await sleep(400);
+    await watchAll([B], 3500);
+    mark = ada.seen.length;
+    // Cy throws a while after Ada: his tip reaches Bo in the air on Ada's chain.
+    ada.send({ t: "hook" });
+    await sleep(250);
+    cy.send({ t: "hook" });
+    const stolen = await after((m) => m.t === "hk" && m.s === C && m.o !== "jumped", 3000, mark);
+    await counterShot("steal");
+    check(stolen?.o === "pull" && stolen.to === B && stolen.st === A, `Cy's hook takes Bo off Ada's chain: the later hook takes it (${JSON.stringify(stolen && { o: stolen.o, to: stolen.to, st: stolen.st, x: stolen.x })})`);
+    await sleep(1600);
+    for (const [name, page] of pages) {
+      const taken = await drewDuring(page, B, (m) => m.t === "hk" && m.st !== undefined, PULL_MS + 80, PULL_MS + 800, (f) => Math.abs(f.x - stolen.x) <= 6);
+      seen(stolen ? taken.ok : false, `${look}: ${name} draws Bo taken over to Cy, at ${stolen?.x} (${calm(name) ? "less motion; " : ""}${taken.story})`);
+    }
+    await rested(A, B, C);
+    // Ada and Cy the same way from Bo, throwing together: their tips reach him at once.
+    stand(ada, hx, 1);
+    stand(bo, hx + 220, -1);
+    stand(cy, hx + 440, -1);
+    await sleep(400);
+    await watchAll([B], 3000);
+    mark = ada.seen.length;
+    ada.send({ t: "hook" });
+    cy.send({ t: "hook" });
+    const tug = await after((m) => m.t === "hk" && m.o === "tug", 3000, mark);
+    // (Each robot's word on it comes in the same wake-up of the room.)
+    await sleep(300);
+    await counterShot("tug-of-war");
+    const both = ada.seen.slice(mark).filter((m) => m.t === "hk" && m.o === "tug");
+    check(tug && both.length === 2 && both.every((m) => m.to === B && m.x === tug.x) && new Set(both.map((m) => m.s)).size === 2, `Ada and Cy hook Bo at once: a tug of war, and Bo stays where he is (${JSON.stringify(both.map((m) => ({ s: m.s, to: m.to, x: m.x })))})`);
+    await sleep(1200);
+    for (const [name, page] of pages) {
+      const held = await drewDuring(page, B, (m) => m.t === "hk" && m.o === "tug", 120, TUG_HOLD_MS - 140, (f) => f.fright === "tug" && f.stretch > 1.15 && Math.abs(f.x - tug.x) <= 6, (f) => `${f.fright}:${f.stretch.toFixed(2)}@${Math.round(f.x)}`);
+      seen(tug ? held.ok : false, `${look}: ${name} draws Bo stretched between the two chains where he stood (${calm(name) ? "less motion; " : ""}${held.story})`);
+    }
+
+    section(`${look}: plant: Cy goes up on his legs as Ada's hook lands, and Ada is dragged to him`);
+    await rested(A, C);
+    bo.goto(150);
+    stand(ada, hx, 1);
+    stand(cy, hx + 220, -1);
+    await sleep(400);
+    await watchAll([A, C], 3000);
+    mark = ada.seen.length;
+    const legsGo = answer(cy, (m) => m.t === "hook" && m.s === A, { t: "stilts" }, 60);
+    ada.send({ t: "hook" });
+    await legsGo;
+    const plant = await after((m) => m.t === "hk" && m.s === A && m.o !== "jumped", 3000, mark);
+    await counterShot("plant");
+    check(plant?.o === "plant" && plant.to === C && plant.x > hx + 60, `Cy holds his ground and Ada is dragged to him (${JSON.stringify(plant && { o: plant.o, to: plant.to, x: plant.x })})`);
+    await sleep(1200);
+    for (const [name, page] of pages) {
+      const dragged = await drewDuring(page, A, (m) => m.t === "hk" && m.o === "plant", PULL_MS + 60, PULL_MS + 600, (f) => Math.abs(f.x - plant.x) <= 6);
+      seen(plant ? dragged.ok : false, `${look}: ${name} draws Ada dragged to Cy, at ${plant?.x} (${calm(name) ? "less motion; " : ""}${dragged.story})`);
+      // Legs out: world units in the flat look, a share of their reach in 3D.
+      const up = await drewDuring(page, C, (m) => m.t === "hk" && m.o === "plant", 60, 500, (f) => (look === "3d" ? f.legs > 0.5 : f.legs > 30));
+      seen(plant ? up.ok : false, `${look}: ${name} draws Cy up on his legs as he holds (${up.story})`);
+    }
+
+    section(`${look}: the empty hook: Bo (now a ghost), pulled, fades and slips the hook; Ada is spooked`);
+    await be(bo, "ghost");
+    await sleep(LOOK_COOLDOWN_MS);
+    await rested(A, B);
+    cy.goto(1780);
+    stand(ada, hx, 1);
+    stand(bo, hx + 220, -1);
+    await sleep(400);
+    await watchAll([A, B], 3000);
+    mark = ada.seen.length;
+    const fadeGo = answer(bo, (m) => m.t === "hk" && m.o === "pull" && m.to === B, { t: "fade" }, 60);
+    ada.send({ t: "hook" });
+    await fadeGo;
+    const empty = await after((m) => m.t === "fade" && m.s === B, 3000, mark);
+    await counterShot("empty-hook");
+    const emptyPull = ada.seen.slice(mark).find((m) => m.t === "hk" && m.s === A)?.x ?? null;
+    check(empty?.ct === "empty" && empty.to === A && Math.abs(empty.gx - (hx + 220)) < Math.abs((emptyPull ?? hx) - (hx + 220)), `Bo slips the hook at ${empty?.gx}, short of ${emptyPull}, and Ada is spooked (${JSON.stringify(empty && { ct: empty.ct, gx: empty.gx, to: empty.to, x: empty.x })})`);
+    await sleep(1500);
+    for (const [name, page] of pages) {
+      const slipped = await drewDuring(page, B, (m) => m.t === "fade" && m.ct === "empty", MOVED.freed.ms + 60, MOVED.freed.ms + 700, (f) => Math.abs(f.x - empty.gx) <= 6);
+      seen(empty ? slipped.ok : false, `${look}: ${name} draws Bo where he slipped the hook, ${empty?.gx} (${calm(name) ? "less motion; " : ""}${slipped.story})`);
+      const spooked = await drewDuring(page, A, (m) => m.t === "fade" && m.ct === "empty", 40, 160, (f) => f.fright === "spook" && f.scared > 0.3, (f) => `${f.fright}:${f.scared}`);
+      seen(empty ? spooked.ok : false, `${look}: ${name} draws Ada spooked, eyes wide (${calm(name) ? "less motion; " : ""}${spooked.story})`);
+    }
+    // Back as they were, for the stills.
+    await be(bo, "pawn");
+    await sleep(LOOK_COOLDOWN_MS);
 
     if (shots) {
       // Stills for the owner, taken apart from the checks (a picture takes a while on a busy machine).

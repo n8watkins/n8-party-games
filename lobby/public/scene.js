@@ -14,7 +14,7 @@ import { EmoteFigure, Sticker, bodyTransform } from "./emotes/svg.js";
 import { IMPACT_MS } from "./shared/bump.js";
 import { OWN_FADED } from "./shared/ghost.js";
 import { MoveDraw } from "./move-draw.js";
-import { gooNow, heardCharge, heardChargedKick, heardHook, heardShove, heardSlime, heardStilts, heardVerdict, hookNow, hookStop, netOf, refusedOwn, resumeMoves, startCharge, startGoo, startHook, startRelease, startStilts, stiltsNow } from "./move-state.js";
+import { gooNow, heardCannon, heardCharge, heardChargedKick, heardCut, heardEmpty, heardHook, heardShove, heardSlime, heardStilts, heardVerdict, hookNow, hookStop, netOf, refusedOwn, resumeMoves, startCharge, startGoo, startHook, startRelease, startStilts, stiltsNow } from "./move-state.js";
 import { STILT_RISE } from "./shared/robot.js";
 import { tagLevels } from "./tag-levels.js";
 import { standings } from "./shared/tonight.js";
@@ -659,13 +659,15 @@ export class Scene {
       const slime = this.pieces.get(msg.bo);
       if (slime) setTimeout(() => this.moves.spark(slime.rx - (msg.f || 1) * 40, 820, performance.now()), IMPACT_MS);
     }
+    // The kick cut the chain someone was being pulled along (`cut`, shared/robot.js): set down where they were.
+    if (msg.cut !== undefined) heardCut(this.pieces, msg, now, this.moveDrawing);
   }
 
   // The robot's and the slime's moves (move-state.js keeps what both drawings know of them).
 
-  /** How this look starts a slide or a fright, and a spark (`h`: how high above the floor). */
+  /** How this look starts a slide, a fright or a knock, and a spark (`h`: how high above the floor). */
   get moveDrawing() {
-    return { fright: (p, x, at, kind) => this.bumps.fright(p, x, at, kind), spark: (x, h, now) => this.moves.spark(x, ROOM.floorY - h, now) };
+    return { fright: (p, x, at, kind) => this.bumps.fright(p, x, at, kind), knock: (p, x, at) => this.bumps.knock(p, x, at), spark: (x, h, now) => this.moves.spark(x, ROOM.floorY - h, now) };
   }
 
   /** A robot threw its hook ({t: "hook", s, f, x}). */
@@ -683,9 +685,10 @@ export class Scene {
     heardStilts(this.pieces, msg, now);
   }
 
-  /** A slime hardened or went soft ({t: "slime", s, k}). */
+  /** A slime hardened or went soft ({t: "slime", s, k}); in the air on a chain, it bowled the robot over (`ct` "cannon"). */
   onSlime(msg, now) {
     heardSlime(this.pieces, msg, now);
+    if (msg.ct === "cannon") heardCannon(this.pieces, msg, now, this.moveDrawing);
   }
 
   /** A walking slime shoved a piece a step on ({t: "shove", s, to, x, rev}). */
@@ -716,10 +719,11 @@ export class Scene {
     refusedOwn(this.pieces.get(this.opts.own), what, now);
   }
 
-  /** A ghost faded for `msg.for` milliseconds (0: it is solid again). */
+  /** A ghost faded for `msg.for` milliseconds (0: it is solid again); in the air on a chain, it slipped the hook (`ct` "empty"). */
   onFade(msg, now) {
     const p = this.pieces.get(msg.s);
     if (p) p.fadeUntil = msg.for > 0 ? now + msg.for : 0;
+    if (msg.ct === "empty") heardEmpty(this.pieces, msg, now, this.moveDrawing);
   }
 
   /** A faded ghost drifted through a piece (boo): the piece is spooked to where the room put it. */

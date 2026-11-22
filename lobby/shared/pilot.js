@@ -62,6 +62,12 @@ export class Pilot {
     this.turned = true;
     /** Knocked down until then: no walking, jumping or bumping. */
     this.stunUntil = -Infinity;
+    /**
+     * In the air on a robot's chain until then (its pull and the network's allowance after it,
+     * shared/robot.js): off its feet, but it may still answer the hook with its move (ride the
+     * hook, the cannonball, the empty hook).
+     */
+    this.pulledUntil = -Infinity;
     /** The lights that are on, by their place on the wall; null means all of them. */
     this.lit = null;
     this.zone = this.zoneAt(x);
@@ -135,6 +141,8 @@ export class Pilot {
     // A charge being held is lost with the knock (the room forgets it too: LobbyCore.interrupt).
     this.chargeAt = null;
     this.rootedUntil = -Infinity;
+    // Whatever moved it now, it is no longer in the air on a chain (pulled says so after, when it is).
+    this.pulledUntil = -Infinity;
   }
 
   /** Whether the piece is going anywhere now: walking, or a floaty one still drifting to a stand. */
@@ -179,7 +187,7 @@ export class Pilot {
     const charged = this.chargeAt !== null;
     this.chargeAt = null;
     if (charged) this.rootedUntil = -Infinity;
-    if (now < this.coolUntil || this.down(now)) return false;
+    if (now < this.coolUntil || (this.down(now) && !this.flying(now))) return false;
     this.coolUntil = now + BUMP_COOLDOWN_MS;
     this.send(charged ? { t: "b", c: 1 } : { t: "b" });
     return true;
@@ -208,9 +216,20 @@ export class Pilot {
     this.rootedUntil = -Infinity;
   }
 
-  /** Whether a press of the kick would go off now, as far as this page knows: not cooling, not down. */
+  /** Whether a press of the kick would go off now, as far as this page knows: not cooling, not down (or down only in the air on a chain). */
   mayKick(now) {
-    return !(now < this.coolUntil) && !this.down(now);
+    return !(now < this.coolUntil) && (!this.down(now) || this.flying(now));
+  }
+
+  /** In the air on a robot's chain (shared/robot.js): its move may still answer the hook. */
+  flying(now) {
+    return now < this.pulledUntil;
+  }
+
+  /** The room pulled the piece to `x` on a robot's chain: off its feet for `ms`, and its move may answer the hook until `until`. */
+  pulled(x, rev, now, ms, until) {
+    this.knock(x, rev, now, ms);
+    this.pulledUntil = until;
   }
 
   /** The room's word on the cooldown: the piece may bump again in `left` milliseconds. */
@@ -274,7 +293,8 @@ export class Pilot {
    * harden just begun turns soft. Returns whether it was sent.
    */
   slime(kind, now) {
-    if (this.down(now)) return false;
+    // (In the air on a chain it may harden: the cannonball. Not absorb.)
+    if (this.down(now) && !(kind === "harden" && this.flying(now))) return false;
     if (kind === "absorb") {
       if (this.turned || now - this.hardenAt < HOLD_MS - 20) return false;
       this.turned = true;
@@ -300,7 +320,8 @@ export class Pilot {
    * The room decides, and enforces the cooldown; its word comes back as fadeCool.
    */
   fade(now) {
-    if (now < this.fadeCoolUntil || this.down(now)) return false;
+    // (In the air on a chain it may fade: the empty hook.)
+    if (now < this.fadeCoolUntil || (this.down(now) && !this.flying(now))) return false;
     this.fadeCoolUntil = now + FADE_COOLDOWN_MS;
     this.send({ t: "fade" });
     return true;

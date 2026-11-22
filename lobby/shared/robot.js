@@ -72,6 +72,59 @@ export const TRAIN_MS = PULL_MS + 200;
 /** How long a page draws a thrown hook waiting for the room's word before it winds it back by itself. */
 export const HOOK_WAIT_MS = 900;
 
+// ---------------------------------------------------------------- the hook's counters
+//
+// What happens when moves meet a hook (the owner's round three, "Counters"):
+//
+//   plant   a robot up on its legs as the hook lands holds its ground: the thrower is dragged to it
+//   ride    a pawn being pulled kicks before it arrives: a flying kick knocks the robot over
+//   cannon  a slime being pulled hardens in the air: it bowls the robot over
+//   empty   a ghost being pulled fades: it slips the hook where it is, and the robot is spooked
+//   cut     a pawn kicks the chain while someone is pulled: they are freed where they are
+//   steal   a robot hooks a piece another robot is pulling: the later hook takes it (the owner's
+//           pick), and the first snaps back empty
+//   tug     two robots hook the same piece at once: it stays where it is, stretched between them,
+//           and both cooldowns are spent (the owner's pick: nobody wins)
+//
+// Two limits on all of them: a counter can be countered once, and then it resolves (a pull that is
+// itself a counter, a steal, cannot be countered again); and the windows are about a third of a
+// second: the pull itself (PULL_MS), and COUNTER_LATE_MS after it for the network.
+
+/** A counter to a pull the room hears this long after the piece arrived still counts (the network's allowance). */
+export const COUNTER_LATE_MS = 120;
+/** Two hooks whose tips reach the same piece this close together reach it at once: a tug of war. */
+export const TUG_MS = 120;
+/** A piece in a tug of war is held stretched between the two chains this long, then let go where it stood. */
+export const TUG_HOLD_MS = 520;
+/** A piece freed from a pull (its chain cut, or a ghost that slipped it) stumbles to a stand in this long. */
+export const FREED_MS = 200;
+
+/** Where a pulled piece is `t` into its pull ({from, to, at}): eased along the floor, as every page draws it (pullPose). */
+export function pullAt(pull, t) {
+  const u = Math.min(1, Math.max(0, (t - pull.at) / PULL_MS));
+  return pull.from + (pull.to - pull.from) * pullEase(u);
+}
+
+/**
+ * Whether a piece's pull is still under way at `t`, so a counter to it counts: from the moment the
+ * room pulled it until it arrived and COUNTER_LATE_MS after, if nothing has moved it since (its
+ * `rev` is the pull's). A pull that is itself a counter (`countered`) cannot be countered.
+ */
+export function counterable(piece, t) {
+  const p = piece.pull;
+  return !!p && !p.countered && p.rev === piece.rev && t >= p.at && t <= p.at + PULL_MS + COUNTER_LATE_MS;
+}
+
+/** Whether a chain from a robot's hand at `handX` to a piece at `tipX` passes within the reach of a pawn's kick at `x` facing `face`. */
+export function chainInReach(handX, tipX, x, face, reach, behind) {
+  const lo = Math.min(handX, tipX);
+  const hi = Math.max(handX, tipX);
+  // The stretch of floor the kick sweeps: from just behind the pawn to its reach in front.
+  const a = face > 0 ? x - behind : x - reach;
+  const b = face > 0 ? x + reach : x + behind;
+  return a <= hi && b >= lo;
+}
+
 // What an honest page can and cannot send. A page hooks only when its own cooldown is over and its
 // legs are down. What no page sends: a hook from a piece that is not a robot (or has not been one
 // for a while), or one far too soon. Those count against the socket's rate limit (lobby-room.js).
@@ -221,7 +274,7 @@ export const pullEase = (u) => 1 - (1 - u) ** 3;
  * `robotX`: where the robot is drawn; `stop`: how far out the first piece in its way is (world
  * units from the robot, or null). `tip` is a world x, `y` its height off the floor, `aim` how
  * bright the line of light on the floor is (0 to 1, during the wind-up), `link` how far the chain
- * is paid out (0 to 1). States: aim, fly, wait, pull, stuck, back.
+ * is paid out (0 to 1). States: aim, fly, wait, pull, stuck (an absorb, a plant, a tug held), back.
  */
 export function hookDrawn(h, now, robotX, stop = null) {
   const t = now - h.at;
@@ -242,14 +295,18 @@ export function hookDrawn(h, now, robotX, stop = null) {
     const from = v.hitX ?? flying;
     return { state: "pull", tip: mix(from, robotX + h.dir * (HOOK_HOLD - 14), pullEase(Math.max(0, since) / PULL_MS)), y: HOOK_Y, aim: 0, link: 1 };
   }
-  if (v.o === "stuck") {
-    // The robot is dragged to the slime along its own chain: the tip stays where it stuck.
+  if (v.o === "stuck" || v.o === "plant") {
+    // The robot is dragged to the slime (or the planted robot) along its own chain: the tip stays where it stuck.
     if (since >= PULL_MS) return null;
     return { state: "stuck", tip: v.hitX ?? flying, y: HOOK_Y, aim: 0, link: 1 };
   }
+  if (v.o === "tug" && since < TUG_HOLD_MS) {
+    // A tug of war: the chain held taut on the piece until it is let go, then wound back from there.
+    return { state: "stuck", tip: v.hitX ?? flying, y: HOOK_Y, aim: 0, link: 1 };
+  }
   // Everything else winds back in from where it was when the word came (a parried hook is knocked up as it goes).
-  const at = v.from ?? flying;
-  const u = Math.max(0, since) / HOOK_RETRACT_MS;
+  const at = v.o === "tug" ? (v.hitX ?? flying) : (v.from ?? flying);
+  const u = Math.max(0, v.o === "tug" ? since - TUG_HOLD_MS : since) / HOOK_RETRACT_MS;
   if (u >= 1) return null;
   const up = v.o === "parry" ? Math.sin(u * Math.PI) * 46 : 0;
   return { state: "back", tip: mix(at, hand, smooth(u)), y: HOOK_Y + up, aim: 0, link: 1 - u };
@@ -288,6 +345,29 @@ export function bonkPose(ms, from, to, safeFor, calm = false) {
   return { state: "bonked", x: to, dx: -towards * 6 * Math.sin(Math.min(1, k * 4) * Math.PI), lift: 0, tilt: wobble, sx: 1, sy: 1 - 0.05 * Math.sin(Math.min(1, k * 4) * Math.PI), scared: 0, pale: 0, face: towards, dizzy: true };
 }
 
-/** How a pull and a bonk are named for the drawings (shared/moves.js). */
+/** Freed from a pull (a chain cut, a ghost slipping it): it stumbles from where it was drawn to where the room let it go, and rights itself. */
+export function freedPose(ms, from, to, safeFor, calm = false) {
+  const away = to < from ? -1 : 1;
+  if (!(ms >= 0) || ms >= FREED_MS + safeFor) return { state: "up", x: null, dx: 0, lift: 0, tilt: 0, sx: 1, sy: 1, scared: 0, pale: 0, face: 0 };
+  if (ms >= FREED_MS) return { state: "safe", x: null, dx: 0, lift: 0, tilt: 0, sx: 1, sy: 1, scared: 0, pale: 0, face: 0 };
+  const u = ms / FREED_MS;
+  const k = Math.sin(u * Math.PI);
+  return { state: "freed", x: mix(from, to, smooth(u)), dx: 0, lift: calm ? 0 : k * 10, tilt: (calm ? 4 : 12) * away * k, sx: 1, sy: 1, scared: 0, pale: 0, face: 0 };
+}
+
+/** A tug of war: held where it stands, stretched one way and the other between the two chains, then let go. */
+export function tugPose(ms, from, to, safeFor, calm = false) {
+  if (!(ms >= 0) || ms >= TUG_HOLD_MS + safeFor) return { state: "up", x: null, dx: 0, lift: 0, tilt: 0, sx: 1, sy: 1, scared: 0, pale: 0, face: 0 };
+  if (ms >= TUG_HOLD_MS) return { state: "safe", x: null, dx: 0, lift: 0, tilt: 0, sx: 1, sy: 1, scared: 0, pale: 0, face: 0 };
+  const u = ms / TUG_HOLD_MS;
+  // Pulled wide at once, held there quivering, and let go with a wobble back to its own shape.
+  const wide = u < 0.15 ? smooth(u / 0.15) : u < 0.75 ? 1 : 1 - smooth((u - 0.75) / 0.25);
+  const quiver = calm ? 0 : Math.sin(ms / 23) * 0.04 * wide;
+  return { state: "tugged", x: to, dx: 0, lift: 6 * wide, tilt: 0, sx: 1 + 0.3 * wide + quiver, sy: 1 - 0.16 * wide, scared: 0.5 * wide, pale: 0, face: 0, dizzy: false };
+}
+
+/** How a pull and a bonk are named for the drawings (shared/moves.js), and a piece freed from a pull or held in a tug of war. */
 export const PULL = { kind: "pull", ms: PULL_MS, pose: pullPose };
 export const BONK = { kind: "bonk", ms: BONK_MS, pose: bonkPose };
+export const FREED = { kind: "freed", ms: FREED_MS, pose: freedPose };
+export const TUG = { kind: "tug", ms: TUG_HOLD_MS, pose: tugPose };

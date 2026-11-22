@@ -9,7 +9,7 @@
 //   p.goo    {at, turnAt, hardFor, softFor}   the slime's press, and when (if) it turned soft
 import { HARDEN_MS, slimeLook } from "./shared/slime.js";
 import { HOOK_HAND, STILT_MS, hookDrawn, stiltPose } from "./shared/robot.js";
-import { CHARGE_HOLD_MS, CHARGE_MIN_MS, attackPose, chargeDash, chargePose } from "./shared/bump.js";
+import { CHARGE_HOLD_MS, CHARGE_MIN_MS, IMPACT_MS, attackPose, chargeDash, chargePose } from "./shared/bump.js";
 
 // ---------------------------------------------------------------- the pawn's kick, and its charge
 //
@@ -227,8 +227,14 @@ export function heardVerdict(pieces, msg, now, { fright, spark }) {
   if (msg.o === "pull") {
     slide(hit, msg.x, msg.rev, "pull");
     if (msg.tr) slide(pieces.get(msg.tr.s), msg.tr.x, msg.tr.rev, "pull");
-  } else if (msg.o === "stuck") slide(r, msg.x, msg.rev, "pull");
-  else if (msg.o === "scare") {
+    // Stolen off another robot's chain (shared/robot.js, steal): that robot's hook snaps back empty.
+    const robbed = Number.isInteger(msg.st) ? pieces.get(msg.st) : null;
+    if (robbed?.hook) judgeHook(robbed, { o: "off" }, now, hookDrawn(robbed.hook, now, robbed.rx, null)?.tip);
+  } else if (msg.o === "stuck" || msg.o === "plant") slide(r, msg.x, msg.rev, "pull");
+  else if (msg.o === "tug") {
+    // Two hooks at once (shared/robot.js, tug): held where it is, stretched between them (told once by each robot's word).
+    if (hit && hit.fright?.kind !== "tug") slide(hit, msg.x, msg.rev, "tug");
+  } else if (msg.o === "scare") {
     slide(r, msg.x, msg.rev, "hookscare");
     if (hit) hit.booAt = now;
   } else if (msg.o === "bonk") {
@@ -236,6 +242,61 @@ export function heardVerdict(pieces, msg, now, { fright, spark }) {
     slide(hit, msg.ox, msg.orev, "bonk");
     if (hit?.hook && !hit.hook.verdict) judgeHook(hit, { o: "off" }, now, hookDrawn(hit.hook, now, hit.rx, null)?.tip);
   } else if ((msg.o === "clang" || msg.o === "parry") && hit) spark(hit.rx - (r?.hook?.dir ?? r?.face ?? 1) * 30, 44, now);
+}
+
+// ---------------------------------------------------------------- the hook's counters (shared/robot.js)
+//
+// Each look hands these its pieces and its own way to start a fright, a knock and a spark
+// ({fright(p, x, at, kind), knock(p, x, at), spark(x, h, now)}).
+
+/** A robot's hook snaps back from wherever it is drawn (its catch was cut free, stolen, or slipped). */
+function snapBack(r, now) {
+  if (r?.hook) judgeHook(r, { o: "off" }, now, hookDrawn(r.hook, now, r.rx, null)?.tip);
+}
+
+/** A pawn's kick cut a chain ({t: "b", s, cut, by, x, rev}): the piece on it is set down where it was, and the chain snaps back. */
+export function heardCut(pieces, msg, now, { fright, spark }) {
+  const p = pieces.get(msg.cut);
+  const r = pieces.get(msg.by);
+  snapBack(r, now);
+  if (!p || !Number.isFinite(msg.x)) return;
+  spark((p.rx + (r?.rx ?? p.rx)) / 2, 44, now);
+  p.net = { x: msg.x, d: 0, t: now };
+  p.rev = msg.rev;
+  fright(p, msg.x, now, "freed");
+}
+
+/** A slime in the air on a robot's chain hardened ({t: "slime", ct: "cannon", to, x, rev}): it bowls the robot over. */
+export function heardCannon(pieces, msg, now, { knock, spark }) {
+  const r = pieces.get(msg.to);
+  const slime = pieces.get(msg.s);
+  if (!r || !Number.isFinite(msg.x)) return;
+  spark(r.rx, 70, now);
+  snapBack(r, now);
+  r.net = { x: msg.x, d: 0, t: now };
+  r.rev = msg.rev;
+  dropStilts(r, now);
+  // The blow lands at once, as the slime meets it: the knock's story from its impact (shared/bump.js).
+  knock(r, msg.x, now - IMPACT_MS);
+  if (slime) slime.face = Math.sign(r.rx - slime.rx) || slime.face;
+}
+
+/** A ghost in the air on a robot's chain faded ({t: "fade", ct: "empty", gx, grev, to, x, rev}): it slips the hook where it is, and the robot is spooked. */
+export function heardEmpty(pieces, msg, now, { fright }) {
+  const g = pieces.get(msg.s);
+  const r = Number.isInteger(msg.to) ? pieces.get(msg.to) : null;
+  if (g && Number.isFinite(msg.gx)) {
+    g.net = { x: msg.gx, d: 0, t: now };
+    g.rev = msg.grev;
+    fright(g, msg.gx, now, "freed");
+    g.booAt = now;
+  }
+  if (r && Number.isFinite(msg.x)) {
+    snapBack(r, now);
+    r.net = { x: msg.x, d: 0, t: now };
+    r.rev = msg.rev;
+    fright(r, msg.x, now, "spook");
+  }
 }
 
 /** A robot's legs went up ({t: "stilts", s}): drawn from now, unless this page began them at the press. */
