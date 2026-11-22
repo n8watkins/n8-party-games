@@ -31,6 +31,26 @@ export function viewerAtTable(you, game) {
 }
 
 /**
+ * A view brings its own stylesheet (a <link> it puts in `box`): until it has loaded, the view is
+ * kept out of sight, so nobody sees (or taps) its buttons unstyled for a moment, as happened after
+ * a reload on a slow connection. A sheet that fails to load shows the view anyway.
+ */
+function hideUntilStyled(box) {
+  const pending = [...box.querySelectorAll('link[rel="stylesheet"]')].filter((link) => !link.sheet);
+  if (!pending.length) return;
+  box.style.visibility = "hidden";
+  let left = pending.length;
+  const done = () => {
+    left -= 1;
+    if (left === 0) box.style.visibility = "";
+  };
+  for (const link of pending) {
+    link.addEventListener("load", done, { once: true });
+    link.addEventListener("error", done, { once: true });
+  }
+}
+
+/**
  * Mounts the game the room is playing in `box`. `link` is the PartyClient, `room` the room view.
  * Returns the stage: {key, snapshot, events, unmount}. `onError` hears a view that could not load.
  * `onDecided(true|false)` hears a view that calls the optional `ctx.decided(on)`: its match is
@@ -62,6 +82,7 @@ export function mountStage(box, { link, room, snapshot, onError, onDecided }) {
       if (!module?.mount) throw new Error(`${room.game.name} has no view for the Table`);
       mine.view = module.mount(box, ctx);
       for (const [method, args] of mine.waiting.splice(0)) mine.view[method]?.(...args);
+      hideUntilStyled(box);
     })
     .catch((err) => onError?.(err));
   return {
