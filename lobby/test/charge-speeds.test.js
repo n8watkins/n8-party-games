@@ -518,6 +518,18 @@ describe("the charged kick, drawn in both looks (move-state.js)", () => {
     expect(attackDrawn(p, 1700 + IMPACT_MS + 10, false).x).toBe(620);
   });
 
+  it("draws the dash from where the room had the pawn, though a slow page last drew it elsewhere", () => {
+    const pieces = new Map([[1, piece()]]);
+    heardCharge(pieces, 0, { t: "kc", s: 1, f: 1, x: 510 }, 1000);
+    const p = pieces.get(1);
+    p.rx = 300;
+    heardChargedKick(p, { t: "b", s: 1, f: 1, c: 0.8, kx: 620, kr: 4, to: -1 }, 1700, false);
+    expect(p.attack.lunge.from).toBe(510);
+    const mid = attackDrawn(p, 1700 + WINDUP_MS / 2, false).x;
+    expect(mid).toBeGreaterThan(510);
+    expect(mid).toBeLessThan(620);
+  });
+
   it("puts a kicker whose dash no frame drew the end of where it dashed to on the first frame after, once", () => {
     const p = piece();
     heardChargedKick(p, { t: "b", s: 1, f: 1, c: 1, kx: 640, kr: 3, to: -1 }, 1000, false);

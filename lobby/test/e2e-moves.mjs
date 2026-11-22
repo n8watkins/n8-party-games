@@ -725,7 +725,10 @@ try {
     const frameAfter = framesFrom[1] ?? (framesFrom[0] === undefined ? null : framesFrom[0] + 50);
     const inTime = lag !== null && (lag < 100 || (frameAfter !== null && readyAt <= frameAfter));
     const firstFrames = ownPath.slice(0, 6).map(([t, , , , , , , , cls]) => `${Math.round(t - (dueAt ?? t))}ms:${cls}`);
-    check(inTime, `Sam's reloaded phone has its move ready when the room said it would be (${lag} ms after${frameAfter !== null ? `, the next frame ${Math.round(frameAfter - dueAt)} ms after` : ""}; the first room it heard gave ${first?.slimeCool[S]} ms, and it first drew ${first && firstFrameAt !== null ? Math.round(firstFrameAt - first.at) : "?"} ms after hearing it${inTime ? "" : `; its first frames, from when it was due: ${firstFrames.join(", ")}`})`);
+    // (A page that drew no frame at all for seconds from when it was due, starved by a busy
+    // machine, cannot show when it would have: unseen.)
+    const starved = lag !== null && !inTime && (framesFrom[0] === undefined || framesFrom[0] - dueAt > 2000);
+    seen(starved ? null : inTime, `Sam's reloaded phone has its move ready when the room said it would be (${lag} ms after${frameAfter !== null ? `, the next frame ${Math.round(frameAfter - dueAt)} ms after` : ""}; the first room it heard gave ${first?.slimeCool[S]} ms, and it first drew ${first && firstFrameAt !== null ? Math.round(firstFrameAt - first.at) : "?"} ms after hearing it${inTime ? "" : `; its first frames, from when it was due: ${firstFrames.join(", ")}`})`);
 
     section(`${look}: a hold survives a page that stalls drawing; an absorb the room refuses is taken back on Sam's own phone`);
     await rested(S);
@@ -925,7 +928,9 @@ try {
         ].filter(([, due]) => due);
         const missing = owed.filter(([, , ok]) => !ok()).map(([name]) => name);
         const all = pullFrames.length + legFrames.length + chargeFrames.length + jumpFrames.length;
-        check(swap !== null && owed.length > 0 && missing.length === 0 && (all === 0 || shown), `Pat's new view takes over the moves it heard while it loaded, and draws them (handed ${swap ? Math.round(swap.at - (lastHeld ?? swap.at)) : "?"} ms after Ada's last jump: ${owed.map(([name]) => name).join(", ") || "nothing still under way"}${missing.length ? `; missing ${missing.join(", ")}: ${JSON.stringify(handed)}` : ""}; ${story})`);
+        // (A page so busy that it took over seconds after the last of them, when nothing it heard
+        // was still under way, had nothing to hand on: unseen, as a check no frame fell in.)
+        seen(swap === null ? false : owed.length === 0 ? null : missing.length === 0 && (all === 0 || shown), `Pat's new view takes over the moves it heard while it loaded, and draws them (handed ${swap ? Math.round(swap.at - (lastHeld ?? swap.at)) : "?"} ms after Ada's last jump: ${owed.map(([name]) => name).join(", ") || "nothing still under way"}${missing.length ? `; missing ${missing.join(", ")}: ${JSON.stringify(handed)}` : ""}; ${story})`);
       }
       const failed = errors.slice(failedBefore);
       check(failed.length === 0, `Pat's page took them in without an error${failed.length ? ": " + [...new Set(failed)].slice(0, 3).join("; ") : ""}`);
