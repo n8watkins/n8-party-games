@@ -23,6 +23,9 @@
 import { LOOK_COOLDOWN_MS } from "../shared/characters.js";
 import { HOOK_COOLDOWN_MS, PULL_MS, STILT_COOLDOWN_MS, STILT_MS } from "../shared/robot.js";
 import { ABSORB_MS, HOLD_MS, SLIME_COOLDOWN_MS } from "../shared/slime.js";
+import { slideLanding } from "../shared/moves.js";
+import { wallFor } from "../shared/rooms.js";
+import { clampX } from "../shared/world.js";
 import { launchBrowser } from "./browser.mjs";
 import { partyApi, sleep } from "./client.mjs";
 
@@ -54,6 +57,13 @@ function pageHelpers() {
         }
         for (const m of Array.isArray(msg) ? msg : [msg]) {
           if (m && (m.t === "hook" || m.t === "hk")) window.__heard.push({ t: m.t, s: m.s, to: m.to, at: performance.now() });
+          // Told to (__jumpOnHookOf: a robot's seat), this page jumps the moment it hears that robot
+          // throw, as a player who sees it coming does: the jump is timed by the page, not the test.
+          if (m?.t === "hook" && m.s === window.__jumpOnHookOf) {
+            window.__jumpOnHookOf = null;
+            window.__jumpedAt = performance.now();
+            for (const type of ["keydown", "keyup"]) document.body.dispatchEvent(new KeyboardEvent(type, { key: "ArrowUp", code: "ArrowUp", bubbles: true }));
+          }
           // The first whole room this page heard, and each seat's move state in it: its harden
           // cooldown, how long its legs have been up and how long it stays soft (shared/robot.js, slime.js).
           const members = m?.room?.members ?? m?.members;
@@ -182,7 +192,14 @@ try {
     await ada.wait((m) => m.room?.members.filter((x) => x?.connected).length === 4, 10000, 0);
     const seat = (name) => ada.room.members.find((m) => m?.name === name).seat;
     const [A, R, S, P] = ["Ada", "Rob", "Sam", "Pat"].map(seat);
-    const where = async () => (await (await fetch(`${api}/debug/${host.code}`)).json()).room.view.members;
+    const roomView = async () => (await (await fetch(`${api}/debug/${host.code}`)).json()).room.view;
+    const where = async () => (await roomView()).members;
+    /** Where the room drags a piece from `from` toward `to` to rest (shared/moves.js: never in another's light). */
+    const landing = async (from, to) => {
+      const v = await roomView();
+      const lit = v.boxes.map((b, i) => (v.vote.lights[b.id] === null ? i : -1)).filter((i) => i >= 0);
+      return slideLanding(from, clampX(to), wallFor(v.room, v.boxes), lit);
+    };
     // Each phone becomes its character (the picker itself is test:characters' business).
     async function become(page, s, c) {
       const from = ada.seen.length;
@@ -323,9 +340,9 @@ try {
     await sleep(300);
     await sam.evaluate((s) => window.watchMoves(s, 900), R);
     mark = ada.seen.length;
+    // Pat's phone jumps as it hears Rob throw: a key press from here could reach it too late on a busy machine.
+    await pat.evaluate((s) => (window.__jumpOnHookOf = s), R);
     await rob.keyboard.press("KeyX");
-    await sleep(90);
-    await pat.keyboard.press("ArrowUp");
     const jumped = await after((m) => m.t === "hk" && m.s === R, 3000, mark);
     check(jumped?.o === "jumped" && jumped.to === P, `Pat jumps as it arrives: the hook passes under him (${JSON.stringify(jumped && { o: jumped.o, to: jumped.to })})`);
     const miss = await after((m) => m.t === "hk" && m.s === R && m.o !== "jumped", 3000, mark);
@@ -487,7 +504,9 @@ try {
     await sam.keyboard.up("KeyX");
     at = await where();
     check(stuck?.o === "stuck" && stuck.to === S, `Rob's hook sticks to Sam (${stuck?.o})`);
-    check(Math.abs(at[R].x - (at[S].x - 64)) <= 2 && at[S].x === stood[S].x, `and Rob is dragged across to Sam (${at[R].x}, Sam at ${at[S].x}, where he stood as he went soft: ${stood[S].x})`);
+    // Touching Sam, unless that spot is in a light that is on (a box's pool): then just short of it.
+    const dragTo = await landing(stood[R].x, stood[S].x - 64);
+    check(Math.abs(at[R].x - dragTo) <= 2 && at[S].x === stood[S].x, `and Rob is dragged across to Sam (${at[R].x}, where the room's landing rule puts him: ${Math.round(dragTo)}; Sam at ${at[S].x}, where he stood as he went soft: ${stood[S].x})`);
     await sleep(1200);
     for (const [name, page] of [["Rob", rob], ["Pat", pat]]) check((await seenOn(page, S)).soft, `${name}'s phone drew Sam soft`);
 
@@ -565,20 +584,23 @@ try {
       window.__sent = [];
     });
     mark = ada.seen.length;
+    // Every frame Sam's phone draws from before the press, judged on its own clock.
+    await sam.evaluate((s) => window.watchMoves(s, 4000), S);
     // Held until the page sends its (held back) absorb; the press is timed from when the page heard the key.
     await sam.keyboard.down("KeyX");
     await sam.waitForFunction(() => window.__sent.some((m) => m.k === "absorb"), null, { timeout: 2000, polling: 15 }).catch(() => null);
     await sam.keyboard.up("KeyX");
-    await sam.evaluate(() => (window.__pressAt = window.__keyAt));
-    const drewSoft = await sam.evaluate((s) => window.movesOn(s)?.soft, S);
+    await sleep(2200);
+    await sam.evaluate(() => (window.__late = null));
     // When, after the press, Sam's phone stopped drawing him soft: by about 1.05 s with the refusal,
     // 1.44 s (its own absorb's end and melt) without it.
-    const backAt = await sam
-      .waitForFunction((s) => !window.movesOn(s)?.soft && performance.now() - window.__pressAt, S, { timeout: 4000, polling: 15 })
-      .then((h) => h.jsonValue())
-      .catch(() => null);
-    await sam.evaluate(() => (window.__late = null));
-    check(drewSoft && backAt !== null && backAt < 1250 && !ada.seen.slice(mark).some((m) => m.t === "slime" && m.k === "absorb"), `the late absorb is refused, and Sam's phone, which drew it soft (${drewSoft}), stops ${Math.round(backAt ?? -1)} ms after the press`);
+    const lateSeen = await sam.evaluate((s) => ({ key: window.__keyAt, path: window.__moves[s]?.path ?? [] }), S);
+    const softFrames = lateSeen.path.filter(([t, , , soft]) => soft && t >= lateSeen.key).map(([t]) => t - lateSeen.key);
+    const drewSoft = softFrames.length > 0;
+    // The last frame it drew him soft in, and that it drew him firm again after.
+    const backAt = drewSoft ? softFrames.at(-1) : null;
+    const firmAfter = drewSoft && lateSeen.path.some(([t, , , soft]) => !soft && t - lateSeen.key > backAt);
+    check(drewSoft && firmAfter && backAt < 1250 && !ada.seen.slice(mark).some((m) => m.t === "slime" && m.k === "absorb"), `the late absorb is refused, and Sam's phone, which drew it soft (${drewSoft}: ${softFrames.length} frames from ${Math.round(softFrames[0] ?? -1)} ms), last drew it soft ${Math.round(backAt ?? -1)} ms after the press, of ${lateSeen.path.length} frames`);
 
     section(`${look}: Sam walks into Pat and shoves him along`);
     await rested(S, P);
@@ -588,13 +610,24 @@ try {
     at = await where();
     await watchAll(P, 2200);
     mark = ada.seen.length;
+    // Walked until the room has shoved Pat twice and 100 units along (or 5 s): a page that draws few
+    // frames on a busy machine looks for the touch less often, so a fixed walk could end first.
+    // However slowly it draws, the slime pushes Pat ahead of it, never walks through him.
     await sam.keyboard.down("ArrowRight");
-    await sleep(1200);
+    const walkFrom = Date.now();
+    let shoves = [];
+    let through = false;
+    while (Date.now() - walkFrom < 5000) {
+      await sleep(100);
+      shoves = ada.seen.slice(mark).filter((m) => m.t === "shove" && m.s === S && m.to === P);
+      const now = await where();
+      through ||= now[S].x > now[P].x;
+      if (shoves.length >= 2 && now[P].x - at[P].x >= 100) break;
+    }
     await sam.keyboard.up("ArrowRight");
     await sleep(400);
-    const shoves = ada.seen.slice(mark).filter((m) => m.t === "shove" && m.s === S && m.to === P);
     const moved = (await where())[P].x - at[P].x;
-    check(shoves.length >= 2 && moved >= 100, `Sam's walk shoves Pat ${shoves.length} times, ${moved} units along`);
+    check(shoves.length >= 2 && moved >= 100 && !through, `Sam's walk shoves Pat ${shoves.length} times, ${moved} units along in ${Date.now() - walkFrom - 400} ms${through ? ", but walked through him" : ""}`);
     await sleep(900);
     const shoved = await seenOn(rob, P);
     check(shoved.frights.includes("shove") && !shoved.knocked, `Rob's phone draws Pat shoved, upright (${JSON.stringify(shoved.frights)})`);
