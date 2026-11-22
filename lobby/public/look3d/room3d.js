@@ -315,7 +315,10 @@ export class Room3D {
     back.position.set(0, SPACE.h / 2, SPACE.zBack);
     const sideTex = painted(depth, SPACE.h, skin.wall, true);
     const sideGeo = new THREE.PlaneGeometry(depth, SPACE.h);
-    const sideMat = new THREE.MeshBasicMaterial({ map: sideTex, color: 0x9aa4c4 });
+    // The end walls are a shade darker than the back wall, which the room's lights fall on; no
+    // darker than that, or the strip of end wall at a wide screen's edge reads as the room ending.
+    const endShade = 0xd0d4e2;
+    const sideMat = new THREE.MeshBasicMaterial({ map: sideTex, color: endShade });
     // The two end walls run on toward the viewer as far as the floor does (the same wall, turned
     // over at the join, as the floor is), so a screen wider than the room for its height (a
     // sideways phone: reach.js) sees end wall at its edges and never past the front of the room.
@@ -331,7 +334,7 @@ export class Room3D {
     ends(sideGeo, sideMat, SPACE.h / 2);
     // Above the painted wall: its top colour carried on up, for screens taller than the room.
     const above = new THREE.MeshBasicMaterial({ color: skin.above });
-    const aboveSide = new THREE.MeshBasicMaterial({ color: new THREE.Color(skin.above).multiply(new THREE.Color(0x9aa4c4)) });
+    const aboveSide = new THREE.MeshBasicMaterial({ color: new THREE.Color(skin.above).multiply(new THREE.Color(endShade)) });
     const top = add(new THREE.Mesh(new THREE.PlaneGeometry(SPACE.w, 14), above));
     top.position.set(0, SPACE.h + 7, SPACE.zBack);
     ends(new THREE.PlaneGeometry(depth, 14), aboveSide, SPACE.h + 7);

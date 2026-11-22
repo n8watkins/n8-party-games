@@ -14,10 +14,11 @@
 // The baked look draws only an evenly hung bar, which that wall is not, so it is shot from the
 // posed room (look3d/still.html?look=baked), a player's whole room on its wall of five.
 //
-// What it checks: in no still is there a band of dark columns at either end of the picture (the
-// strip above the bottom bar, below the corner buttons), measured against the picture's middle.
-// A 3D room's own end walls are in the picture at its ends and some rooms paint them dark, so a
-// narrow band (BAND) is allowed; the fault this looks for took a sixth of a sideways phone.
+// What it checks: in the flat, baked and real looks, no still has a band of dark columns at either
+// end of the picture (the strip above the bottom bar, below the corner buttons), measured against
+// the picture's middle; a narrow one (BAND) is allowed, the fault this looks for took a sixth of a
+// sideways phone. The 3D rooms are dark rooms whose own end walls are in the picture at its ends,
+// so there it checks that none of the picture is the empty background past the room.
 //
 // WSL has no graphics card, so these pages draw WebGL in software (?gl=any): right for a still.
 import { mkdirSync } from "node:fs";
@@ -75,6 +76,22 @@ async function darkEnds(png, top, bottom) {
   return { left: left / width, right: right / width };
 }
 
+/** The 3D look's empty background (look3d/room3d.js, scene.background 0x03050c): what shows past the room. */
+const EMPTY = [3, 5, 12];
+/** How much of the picture (rows `top` to `bottom`) is the 3D look's empty background. */
+async function emptyShare(png, top, bottom) {
+  const { data, info } = await sharp(png).raw().toBuffer({ resolveWithObject: true });
+  const { width, height, channels } = info;
+  const [y0, y1] = [Math.max(0, Math.round(top)), Math.min(height, Math.round(bottom))];
+  let n = 0;
+  for (let y = y0; y < y1; y++)
+    for (let x = 0; x < width; x++) {
+      const i = (y * width + x) * channels;
+      if (EMPTY.every((v, c) => Math.abs(data[i + c] - v) <= 1)) n++;
+    }
+  return n / (width * Math.max(1, y1 - y0));
+}
+
 const browser = await launchBrowser({ args: ["--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--ignore-gpu-blocklist"] });
 const errors = [];
 try {
@@ -97,7 +114,11 @@ try {
     }));
     const ends = await darkEnds(png, 64, h - bar);
     check(drew === look, `${name}: drawn by the ${drew} look`);
-    check(ends.left < BAND && ends.right < BAND, `${name}: no dark band at either end (left ${(ends.left * 100).toFixed(1)}%, right ${(ends.right * 100).toFixed(1)}% of the width)`);
+    const band = `left ${(ends.left * 100).toFixed(1)}%, right ${(ends.right * 100).toFixed(1)}% of the width`;
+    if (look === "3d") {
+      const empty = await emptyShare(png, 64, h - bar);
+      check(empty < 0.002, `${name}: nothing past the room shows (${(empty * 100).toFixed(2)}% of the picture is the empty background; dark at the ends: ${band})`);
+    } else check(ends.left < BAND && ends.right < BAND, `${name}: no dark band at either end (${band})`);
   }
 
   for (const look of LOOKS) {
