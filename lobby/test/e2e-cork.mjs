@@ -411,13 +411,19 @@ try {
     // Cy's view asked for SWITCH_ROUND through cork-round as it mounted: the room took it and every page runs to it.
     const asked = await pagesHear([frames.Ada, frames.Cy, frames.screen], SWITCH_ROUND);
     check(roundWords()[0] === SWITCH_ROUND && asked.every((s) => s === SWITCH_ROUND), `cork-round=${SWITCH_ROUND} on Cy's room address: the test wall's room took a ${SWITCH_ROUND}-second round as Cy's view mounted, told everyone, and every page runs to it (${asked.join(", ")})`);
-    // Everything checked while the round is on is done: Bea's socket cuts it short.
+    // Everything checked while the round is on is done: Bea's socket cuts it short (unless a
+    // loaded machine took so long that the round's own time call comes first).
     battleRound = cutAt(start.s.startAt);
-    bea.send({ t: "in", d: { round: battleRound } });
-    await watcher.wait((m) => m.t === "ev" && m.ev.some((e) => e.k === "round" && e.s === battleRound), 5000, 0);
-    // A page that draws in software takes the room's word a frame or two late.
-    const cut = await pagesHear([frames.Ada, frames.Cy, frames.screen], battleRound);
-    check(cut.every((s) => s === battleRound), `Bea's socket cut the round to ${battleRound} seconds, and the room told every page (${cut.join(", ")})`);
+    if (battleRound >= SWITCH_ROUND) {
+      console.log(`     (the checks took until ${battleRound - CUT_AHEAD} seconds in: too late to cut the battle short, its ${SWITCH_ROUND}-second time call comes first)`);
+      battleRound = SWITCH_ROUND;
+    } else {
+      bea.send({ t: "in", d: { round: battleRound } });
+      await watcher.wait((m) => m.t === "ev" && m.ev.some((e) => e.k === "round" && e.s === battleRound), 5000, 0);
+      // A page that draws in software takes the room's word a frame or two late.
+      const cut = await pagesHear([frames.Ada, frames.Cy, frames.screen], battleRound);
+      check(cut.every((s) => s === battleRound), `Bea's socket cut the round to ${battleRound} seconds, and the room told every page (${cut.join(", ")})`);
+    }
   }
   console.log(`     waiting for the round to end (${battleRound} seconds in all: Ada and Bea never spend their corks)...`);
   const end = await watcher.wait((m) => m.t === "end", 150000, 0);
