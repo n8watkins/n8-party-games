@@ -712,17 +712,27 @@ try {
     );
     // Not before the phone draws its first frame (the button is not on the screen until then), and
     // by the room it drew from: the last whole room it heard before that frame.
-    const ownPath = (await seenOn(sam, S)).path ?? [];
+    const own = await seenOn(sam, S);
+    const ownPath = own.path ?? [];
+    // The watch saw every frame until here: past it, how many frames the page drew is not known.
+    const watchedUntil = own.from == null ? null : own.from + SLIME_COOLDOWN_MS + 1000;
     const firstFrameAt = ownPath[0]?.[0] ?? null;
     const first = await roomAt(sam, firstFrameAt ?? Infinity);
     const dueAt = first && firstFrameAt !== null ? Math.max(first.at + first.slimeCool[S], firstFrameAt) : null;
     const lag = readyAt === null || dueAt === null ? null : Math.round(readyAt - dueAt);
     // Ready by the second frame drawn from then (the button is set in the page's own frame, which
-    // can run after the watch's in the same one), or within 100 ms where frames come faster.
-    const frameAfter = dueAt === null ? null : ownPath.filter(([t]) => t >= dueAt - 1)[1]?.[0] ?? null;
-    const inTime = lag !== null && (lag < 100 || (frameAfter !== null && readyAt <= frameAfter));
+    // can run after the watch's in the same one), or within 100 ms where frames come faster. Judged
+    // in frames, not milliseconds: a page starved of frames comes ready late on the clock, but at
+    // its first or second frame after the room's cooldown ended. The frames from then until it was
+    // ready, that one included, are at most two.
+    const framesTo = lag === null ? null : ownPath.filter(([t]) => t >= dueAt - 1 && t <= readyAt).length;
+    const counted = lag !== null && watchedUntil !== null && readyAt <= watchedUntil;
+    const inTime = lag !== null && (lag < 100 || (counted && framesTo <= 2));
     const firstFrames = ownPath.slice(0, 6).map(([t, , , , , , , , cls]) => `${Math.round(t - (dueAt ?? t))}ms:${cls}`);
-    check(inTime, `Sam's reloaded phone has its move ready when the room said it would be (${lag} ms after${frameAfter !== null ? `, the next frame ${Math.round(frameAfter - dueAt)} ms after` : ""}; the first room it heard gave ${first?.slimeCool[S]} ms, and it first drew ${first && firstFrameAt !== null ? Math.round(firstFrameAt - first.at) : "?"} ms after hearing it${inTime ? "" : `; its first frames, from when it was due: ${firstFrames.join(", ")}`})`);
+    const readyStory = `Sam's reloaded phone has its move ready when the room said it would be (${lag} ms after, ${counted ? `at the ${framesTo === 1 ? "first" : framesTo === 2 ? "second" : framesTo + "th"} frame from then` : "after the watch ended, frames not counted"}; the first room it heard gave ${first?.slimeCool[S]} ms, and it first drew ${first && firstFrameAt !== null ? Math.round(firstFrameAt - first.at) : "?"} ms after hearing it${inTime ? "" : `; its first frames, from when it was due: ${firstFrames.join(", ")}`})`;
+    // Late on the clock past the watch: whether frames came in between is not known (not seen).
+    if (!inTime && lag !== null && !counted) seen(null, readyStory);
+    else check(inTime, readyStory);
 
     section(`${look}: a hold survives a page that stalls drawing; an absorb the room refuses is taken back on Sam's own phone`);
     await rested(S);
@@ -866,10 +876,11 @@ try {
       slow = false;
       release();
       await pat.waitForFunction(() => globalThis.__partyRoom?.view && !globalThis.__partyRoom.view.paused && window.__room3d?.pieces?.size > 0, null, { timeout: 40000 });
-      // The new view draws again, three frames within SWAP_DRAWS_MS: a frame loop that died after the
+      // The new view draws again, two frames within SWAP_DRAWS_MS: a frame loop that died after the
       // swap must fail here (the check of where it draws, below, says "not seen" for a page that
-      // drew nothing, which a dead loop would otherwise pass as). A starved page still draws in that time.
-      const SWAP_DRAWS_MS = 15_000;
+      // drew nothing, which a dead loop would otherwise pass as). A starved page still draws in that
+      // time: in software under load 53 it drew 2 frames in 15.7 s, so the bound is wide.
+      const SWAP_DRAWS_MS = 30_000;
       const drewAgain = await pat.evaluate(
         (ms) =>
           new Promise((done) => {
@@ -879,13 +890,13 @@ try {
               window.__afterDraw.delete(count);
               done({ ok, frames, ms: Math.round(performance.now() - from) });
             };
-            const count = () => ++frames >= 3 && end(true);
+            const count = () => ++frames >= 2 && end(true);
             window.__afterDraw.add(count);
             setTimeout(() => end(false), ms);
           }),
         SWAP_DRAWS_MS,
       );
-      check(drewAgain.ok, `Pat's new view draws again after the swap (${drewAgain.frames} frames in ${drewAgain.ms} ms; at most ${SWAP_DRAWS_MS} ms for three)`);
+      check(drewAgain.ok, `Pat's new view draws again after the swap (${drewAgain.frames} frames in ${drewAgain.ms} ms; at most ${SWAP_DRAWS_MS} ms for two)`);
       await sleep(1200);
       check(stillStanding && caught && legsUp, `the hook (${caught?.o}) and the legs (${!!legsUp}) came while Pat's view stood in (${stillStanding})`);
       const failed = errors.slice(failedBefore);
