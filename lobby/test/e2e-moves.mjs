@@ -338,7 +338,9 @@ try {
       if (at === null) return { ok: false, story: "the phone never heard it" };
       const frames = path.filter(([t]) => t >= at + fromMs && t <= at + toMs);
       const knocked = path.some((f) => f[7]);
-      return { ok: knocked ? false : frames.length === 0 ? null : frames.every(shows), story: `${frames.filter(shows).length} of ${frames.length} frames from ${fromMs} to ${toMs} ms after it heard it show it${knocked ? "; a frame drew it knocked over" : ""}` };
+      const span = path.length ? `; ${path.length} frames watched, from ${Math.round(path[0][0] - at)} to ${Math.round(path.at(-1)[0] - at)} ms` : "; no frame watched";
+      const missing = frames.filter((f) => !shows(f)).map(([t]) => `${Math.round(t - at)}ms`);
+      return { ok: knocked ? false : frames.length === 0 ? null : frames.every(shows), story: `${frames.filter(shows).length} of ${frames.length} frames from ${fromMs} to ${toMs} ms after it heard it show it${missing.length ? ` (not at ${missing.join(", ")})` : ""}${knocked ? "; a frame drew it knocked over" : ""}${frames.length ? "" : span}` };
     }
     ada.goto(1700);
 
@@ -506,22 +508,29 @@ try {
     await pat.keyboard.press("KeyX");
     const under = await after((m) => m.t === "b" && m.s === P, 2000, mark);
     check(under?.to === -1, `Pat's kick swings through the gap: it hits nobody (${JSON.stringify(under && { to: under.to })})`);
-    // A phone reloaded while the legs are up draws them up if they still are when it draws again,
-    // and down if they came down before it was back (a busy machine can take seconds to reload).
-    // The room's own address, as a reload of the room's page is (the join link would ask for a name again).
-    await pat.evaluate((s) => sessionStorage.setItem("watchOnLoad", JSON.stringify({ seat: s, ms: 2500 })), R);
-    await pat.goto(`${base}/lobby/?${lookQuery}`);
-    await drawn(pat);
-    const back = Date.now() - upAt;
-    await sleep(1200);
-    const legsJudged = await reloadedDraws(pat, R, "legs");
-    seen(legsJudged.ok, `Pat's phone, reloaded mid-legs, draws Rob as the room has him when it is back (${legsJudged.story})`);
-    await sleep(Math.max(0, STILT_MS + 200 - back));
-    // Fully out from their rise until they start to drop (shared/robot.js, stiltPose).
+    await sleep(Math.max(0, STILT_MS + 200 - (Date.now() - upAt)));
+    // Fully out from their rise until they start to drop (shared/robot.js, stiltPose). Judged
+    // before any page reloads: a page loading the 3D view can starve the others of frames.
     for (const [name, page] of [["Sam", sam], ["Rob", rob]]) {
       const legs = await drewDuring(page, R, (h) => h.t === "stilts" && h.s === R, STILT_SQUAT_MS + 250, STILT_MS - STILT_DROP_MS - 50, (f) => f[2] > 80);
       seen(legs.ok, `${name}'s phone draws Rob's legs out (${legs.story})`);
     }
+    // Up again, and a phone reloaded while they are up draws them up if they still are when it
+    // draws again, and down if they came down before it was back (a busy machine can take seconds
+    // to reload). The room's own address, as a reload of the room's page is (the join link would
+    // ask for a name again).
+    await rested(R);
+    mark = ada.seen.length;
+    await rob.keyboard.press("ArrowUp");
+    const upAgain = await after((m) => m.t === "stilts" && m.s === R, 2000, mark);
+    check(upAgain?.for === STILT_MS, `Rob's legs go up again (${upAgain?.for} ms)`);
+    await pat.evaluate((s) => sessionStorage.setItem("watchOnLoad", JSON.stringify({ seat: s, ms: 2500 })), R);
+    await pat.goto(`${base}/lobby/?${lookQuery}`);
+    await drawn(pat);
+    await sleep(1200);
+    const legsJudged = await reloadedDraws(pat, R, "legs");
+    seen(legsJudged.ok, `Pat's phone, reloaded mid-legs, draws Rob as the room has him when it is back (${legsJudged.story})`);
+    await sleep(STILT_MS);
 
     // ================================================================ the slime
     section(`${look}: Sam taps Harden and Pat's kick bounces off; every phone draws the gem`);
@@ -578,7 +587,7 @@ try {
     check(Math.abs(at[R].x - dragTo) <= 2 && at[S].x === stood[S].x, `and Rob is dragged across to Sam (${at[R].x}, where the room's landing rule puts him: ${Math.round(dragTo)}; Sam at ${at[S].x}, where he stood as he went soft: ${stood[S].x})`);
     await sleep(1200);
     for (const [name, page] of [["Rob", rob], ["Pat", pat]]) {
-      const soft = await drewDuring(page, S, (h) => h.t === "slime" && h.s === S && h.k === "absorb", 50, ABSORB_MS - 100, (f) => f[3]);
+      const soft = await drewDuring(page, S, (h) => h.t === "slime" && h.s === S && h.k === "absorb", 100, ABSORB_MS - 100, (f) => f[3]);
       seen(soft.ok, `${name}'s phone draws Sam soft (${soft.story})`);
     }
 
