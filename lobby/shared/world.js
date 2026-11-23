@@ -19,10 +19,36 @@ export const ROOM = {
   boxesRight: 1580,
 };
 
-/** Walking speed in units per second. Movement has no acceleration, so anyone can work out where a piece is. */
+/**
+ * Walking speed in units per second: the measure each character's own speed is a share of
+ * (SPEED_SHARE). A piece walks at its speed or stands; only the ghost eases between the two
+ * (FLOAT_MS), by a rule everyone works out the same way, so anyone can work out where a piece is.
+ */
 export const WALK_SPEED = 430;
+/**
+ * Each character's walking speed as a share of WALK_SPEED (the owner's round three, "Speeds"): the
+ * pawn fastest, the robot as before, the ghost a little slower and floaty, the slime slowest. A
+ * piece of a character this file does not know walks at WALK_SPEED.
+ */
+export const SPEED_SHARE = Object.freeze({ pawn: 1.1, robot: 1, ghost: 0.95, slime: 0.8 });
+/** How fast a character walks, in units per second. */
+export const walkSpeed = (character) => WALK_SPEED * (SPEED_SHARE[character] ?? 1);
+/**
+ * The floaty ghost: slow to stop and to turn. Its speed changes evenly, taking FLOAT_MS to go from
+ * walking to standing (or from standing to walking), twice that to turn round. Every other
+ * character starts, stops and turns at once.
+ */
+export const FLOAT_MS = 260;
+export const floats = (character) => character === "ghost";
 export const JUMP_MS = 520;
-export const JUMP_HEIGHT = 110;
+/**
+ * How high a jump goes at the most: the pawn's, which jumps highest (round three, "Speeds"), and so
+ * what a name tag in the air must clear (card-clear.js). Every other character jumps LOW_JUMP_HEIGHT.
+ */
+export const JUMP_HEIGHT = 136;
+export const LOW_JUMP_HEIGHT = 110;
+/** How high a character jumps. */
+export const jumpTopOf = (character) => (character === "pawn" ? JUMP_HEIGHT : LOW_JUMP_HEIGHT);
 
 /** How far from where the room thinks a piece is a client may say it is. Beyond it, the room corrects the client. */
 export const POSITION_SLACK = 420;
@@ -242,17 +268,66 @@ function endSpots(w) {
 }
 
 /**
- * Where a piece is at `now`, from the last thing known about it: it was at `x` at time `t`,
- * walking in direction `d` (-1, 0 or 1). It stops at the walls.
+ * A floaty piece's change of speed under way at its last known moment, or null: it was at `x` at
+ * `t` going at `v` (a share of its speed, -1 to 1) and is easing to `d`. `vt` says when `v` was
+ * true: a `v` from any other moment than `t` (the room or a page moved the piece since, and wrote
+ * only x, d and t) is not a change under way. {v0, ms (how long it takes), s (+1 or -1)}.
  */
-export function posAt(piece, now) {
-  if (!piece.d) return piece.x;
-  return clampX(piece.x + (piece.d * WALK_SPEED * Math.max(0, now - piece.t)) / 1000);
+function rampOf(piece, character) {
+  if (!floats(character) || piece.vt !== piece.t || !Number.isFinite(piece.v)) return null;
+  const v0 = Math.max(-1, Math.min(1, piece.v));
+  if (v0 === piece.d) return null;
+  return { v0, ms: Math.abs(piece.d - v0) * FLOAT_MS, s: Math.sign(piece.d - v0) };
 }
 
-/** How high a piece is, `ms` after it jumped. */
-export function jumpHeight(ms) {
+/**
+ * Where a piece is at `now`, from the last thing known about it: it was at `x` at time `t`,
+ * walking in direction `d` (-1, 0 or 1) at its character's speed (`character`, the piece's own by
+ * default: walkSpeed), and for a floaty one easing from `v` to `d` (rampOf). It stops at the walls.
+ */
+export function posAt(piece, now, character = piece.character) {
+  const ramp = rampOf(piece, character);
+  if (!piece.d && !ramp) return piece.x;
+  const ms = Math.max(0, now - piece.t);
+  const speed = walkSpeed(character);
+  if (!ramp) return clampX(piece.x + (piece.d * speed * ms) / 1000);
+  const easing = Math.min(ms, ramp.ms);
+  const went = ramp.v0 * easing + (ramp.s * easing * easing) / (2 * FLOAT_MS) + piece.d * Math.max(0, ms - ramp.ms);
+  return clampX(piece.x + (went * speed) / 1000);
+}
+
+/** How fast a piece goes at `now`, as a share of its speed (-1 to 1): `d`, or for a floaty piece still easing, on the way to it (walls aside). */
+export function velAt(piece, now, character = piece.character) {
+  const ramp = rampOf(piece, character);
+  const ms = Math.max(0, now - piece.t);
+  if (!ramp || ms >= ramp.ms) return piece.d || 0;
+  return ramp.v0 + (ramp.s * ms) / FLOAT_MS;
+}
+
+/**
+ * The moments after `t` at which a piece's walk, as last known, changes its speed: the end of a
+ * floaty piece's easing (and `steps` even moments inside it, where its speed changes all the
+ * time), and the moment it reaches a wall. Between two of them it walks evenly.
+ */
+export function walkChanges(piece, steps = 8, character = piece.character) {
+  const out = [];
+  const ramp = rampOf(piece, character);
+  let settled = piece.t;
+  if (ramp) {
+    for (let k = 1; k <= steps; k++) out.push(piece.t + (ramp.ms * k) / steps);
+    settled = piece.t + ramp.ms;
+  }
+  if (piece.d) {
+    const x = posAt(piece, settled, character);
+    const wall = piece.d > 0 ? ROOM.maxX : ROOM.minX;
+    if (x !== wall) out.push(settled + ((wall - x) / (piece.d * walkSpeed(character))) * 1000);
+  }
+  return out;
+}
+
+/** How high a piece is, `ms` after it jumped: `top` at the top (a pawn's JUMP_HEIGHT, the others' less: jumpTopOf). */
+export function jumpHeight(ms, top = JUMP_HEIGHT) {
   if (!(ms > 0) || ms >= JUMP_MS) return 0;
   const u = ms / JUMP_MS;
-  return 4 * JUMP_HEIGHT * u * (1 - u);
+  return 4 * top * u * (1 - u);
 }

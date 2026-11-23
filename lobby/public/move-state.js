@@ -9,6 +9,111 @@
 //   p.goo    {at, turnAt, hardFor, softFor}   the slime's press, and when (if) it turned soft
 import { HARDEN_MS, slimeLook } from "./shared/slime.js";
 import { HOOK_HAND, STILT_MS, hookDrawn, stiltPose } from "./shared/robot.js";
+import { CHARGE_HOLD_MS, CHARGE_MIN_MS, attackPose, chargeDash, chargePose } from "./shared/bump.js";
+import { posAt } from "./shared/world.js";
+
+// ---------------------------------------------------------------- the pawn's kick, and its charge
+//
+//   p.attack {at, dir, landed}             a kick from `at` (its press, or the room's word)
+//            {at, dir, charging: true}      the move button held: a charge, from its press at `at`
+//            {at, dir, landed, lunge}       a charge let go at `at`: it dashes from lunge.from to
+//                                           lunge.to (where the room put it), then kicks
+
+/**
+ * Where to draw a piece the room moved (a knock or a fright, `rec` {to, landed}) once its move is
+ * over (`state` "safe" or "up"): where the room put it, on the first such frame only (after that it
+ * is wherever it walks); null otherwise. A page that draws few frames would otherwise leave it
+ * where its last frame of the move had it and ease it over from there.
+ *
+ * (#86 also asked `now >= rec.at` before drawing an "up" piece at its landing. It is not needed:
+ * every knock's and fright's `at` is at or before the moment its message arrived, so no frame
+ * judges one before it began, though movedPose would call a negative time "up".)
+ */
+export function landing(rec, state) {
+  if ((state !== "safe" && state !== "up") || rec.landed) return null;
+  rec.landed = true;
+  return rec.to;
+}
+
+/** A piece's place as the room last said it, for posAt (shared/world.js): at `x` now, walking `d`, and for a floaty one still easing, going at `v`. */
+export const netOf = (x, d, now, v) => (v === undefined || v === null ? { x, d, t: now } : { x, d, t: now, v, vt: now });
+
+/** How a piece's kick has it now, either look (shared/bump.js: attackPose, chargePose), or null; the record goes once it is over. */
+export function attackDrawn(p, now, calm) {
+  const a = p.attack;
+  if (!a) return null;
+  if (a.charging) {
+    // A charge whose release this page never heard (a dropped phone): put away after the longest hold.
+    if (now - a.at > CHARGE_HOLD_MS + 1500) {
+      p.attack = null;
+      return null;
+    }
+    return chargePose(now - a.at, a.dir, calm);
+  }
+  const pose = attackPose(now - a.at, a.dir, a.landed, a.lunge ?? null);
+  if (pose.state === "idle") {
+    p.attack = null;
+    // A charged kick's dash that no frame drew the end of (a page starved of frames): the first
+    // frame after it puts the piece where the dash took it, as landing() does for a knock, rather
+    // than easing it over from where the last frame had it.
+    return a.lunge ? { ...pose, x: a.lunge.to } : null;
+  }
+  return pose;
+}
+
+/** The viewer's own pawn holds its kick past CHARGE_MIN_MS: the wind-up it began at the press goes on as a charge. */
+export function startCharge(p, now) {
+  const pressed = p.attack && !p.attack.lunge && !p.attack.charging && now - p.attack.at < CHARGE_MIN_MS + 400 ? p.attack.at : now - CHARGE_MIN_MS;
+  p.attack = { at: pressed, dir: p.face || 1, landed: false, charging: true };
+}
+
+/** A pawn's charge let go at `now`, of `power`: it dashes toward `to` (the room's word; until then, as far as the charge carries). */
+export function startRelease(p, power, now, to = null) {
+  const dir = p.attack?.dir ?? p.face ?? 1;
+  p.attack = { at: now, dir, landed: false, lunge: { from: p.rx, to: to ?? p.rx + dir * chargeDash(power), power } };
+}
+
+/** A pawn began to charge its kick ({t: "kc", s, f, x}): it stands where the room stopped it, wound up. `own`: the viewer's seat. */
+export function heardCharge(pieces, own, msg, now) {
+  const p = pieces.get(msg.s);
+  if (!p) return;
+  p.face = msg.f || p.face;
+  if (msg.s === own) {
+    // Its own page began the charge at the hold. A quick release can beat the room's word of it
+    // here: the dash it began is then left alone, not wound back into a charge and dashed again.
+    if (!p.attack?.charging && !p.attack?.lunge) startCharge(p, now);
+    return;
+  }
+  p.net = { x: msg.x, d: 0, t: now };
+  p.attack = { at: now - CHARGE_MIN_MS, dir: p.face || 1, landed: false, charging: true };
+}
+
+/**
+ * A charged kick, as the room judged it ({t: "b", s, f, c, kx}): the kicker dashes to `kx`. The
+ * viewer's own began its dash at the release (startRelease) and is told where it ends; anyone
+ * else's dashes from where it is drawn. Returns when the kick began, for whoever it hits.
+ */
+export function heardChargedKick(p, msg, now, own) {
+  p.face = msg.f || p.face;
+  const to = Number.isFinite(msg.kx) ? msg.kx : p.rx;
+  // The viewer's own dash began at its release (startRelease), however late the room's answer comes:
+  // it is told where it ends, and never drawn a second time.
+  if (own && p.attack?.lunge) {
+    p.attack.lunge.to = to;
+    p.attack.lunge.power = msg.c;
+    p.attack.landed = msg.to >= 0;
+    return p.attack.at;
+  }
+  // From where the room had it as it charged (it stood still), not where a page starved of frames
+  // last drew it: such a page would otherwise draw the dash from somewhere it never was. The
+  // viewer's own piece (its drawn dash already over) goes on from where it is drawn: its `net` is
+  // only the room's last snapshot, which can be from before it walked anywhere.
+  const from = own ? p.rx : p.net ? Math.round(posAt(p.net, now, p.kind?.id)) : p.rx;
+  p.attack = { at: now, dir: msg.f || p.face || 1, landed: msg.to >= 0, lunge: { from, to, power: msg.c } };
+  p.net = { x: to, d: 0, t: now };
+  if (Number.isFinite(msg.kr)) p.rev = msg.kr;
+  return now;
+}
 
 /** A robot threw its hook (`msg` {s, f}): drawn from now, unless this page already began it at the press. */
 export function startHook(p, dir, now) {
@@ -174,12 +279,13 @@ export function heardShove(pieces, msg, now, { fright }) {
   fright(p, msg.x, now, "shove");
 }
 
-/** The room turned down the viewer's own move ("hook", "stilts", "slime"): what this page began at once is taken back. */
+/** The room turned down the viewer's own move ("hook", "stilts", "slime", "charge"): what this page began at once is taken back. */
 export function refusedOwn(p, what, now) {
   if (!p) return;
   if (what === "hook" && p.hook && !p.hook.verdict) judgeHook(p, { o: "off" }, now, null);
   if (what === "stilts") dropStilts(p, now);
   if (what === "slime") endGoo(p, now);
+  if (what === "charge" && p.attack?.charging) p.attack = null;
   // A refused absorb: the turn this page drew is taken back, and the harden runs on.
   if (what === "absorb" && p.goo && p.goo.turnAt !== null) {
     p.goo.turnAt = null;
@@ -200,4 +306,7 @@ export function resumeMoves(p, m, now, own = false) {
   if (m.hard > 0 && !p.goo) startGoo(p, "harden", now, m.hard);
   else if (m.soft > 0 && !(p.goo && p.goo.turnAt !== null)) startGoo(p, "absorb", now, m.soft);
   else if (!(m.hard > 0) && !(m.soft > 0) && p.goo && !own && now - p.goo.at > 300) endGoo(p, now);
+  // A pawn charging its kick (`charge`: how long since the press), or no longer.
+  if (m.charge !== undefined && !own && !p.attack?.charging) p.attack = { at: now - m.charge, dir: p.face || 1, landed: false, charging: true };
+  else if (m.charge === undefined && !own && p.attack?.charging) p.attack = null;
 }

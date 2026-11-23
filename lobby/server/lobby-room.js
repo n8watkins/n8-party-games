@@ -330,16 +330,36 @@ export function createLobbyRoom(wallFor, { release = null } = {}) {
         case "m": {
           const moved = player ? core.move(entry.seat, msg, now) : null;
           if (!moved) return;
-          this.broadcast(moved.relay, entry);
-          if (moved.fix) this.send(entry, moved.fix);
-          this.keep(entry);
+          // (A word sent before the phone heard the room move its piece only settles touches.)
+          if (moved.relay) {
+            this.broadcast(moved.relay, entry);
+            if (moved.fix) this.send(entry, moved.fix);
+            this.keep(entry);
+          }
           // Touches the room held for this piece that its word confirms (LobbyCore.settleTouches).
           if (moved.touches?.length) this.tellMoves(moved.touches);
           this.settle(now);
           return;
         }
+        case "kc": {
+          // A pawn holds its kick to charge it (lobby/shared/bump.js): everybody draws it winding up;
+          // a refusal goes to that page only, and one no real page sends counts against its socket.
+          if (!player) return;
+          const out = core.charge(entry.seat, now, msg.f);
+          if (!out.ok) {
+            this.send(entry, { t: "kc-no", why: out.why, ...(out.wait ? { wait: Math.ceil(out.wait) } : {}) });
+            if (out.bad && strike(entry.bucket, SOCKET_RATE, EAGER_STRIKE) === "close") this.kick(ws, entry);
+            return;
+          }
+          this.broadcast(out.relay);
+          // The room stopped the pawn where it charges: its socket carries the piece, and the vote
+          // and the room's wake-up are looked at again, as for any word that moves a piece.
+          this.keep(entry);
+          this.settle(now);
+          return;
+        }
         case "b": {
-          const hit = player ? core.bump(entry.seat, now, msg.f) : null;
+          const hit = player ? core.bump(entry.seat, now, msg.f, msg.c === 1) : null;
           if (!hit) {
             // Too soon: only the room knows for sure, so it tells that page how long is left.
             const wait = player ? core.bumpWait(entry.seat, now) : null;
@@ -352,6 +372,8 @@ export function createLobbyRoom(wallFor, { release = null } = {}) {
           if (hit.sc !== undefined) this.keep(entry);
           // A kick into a hardened slime bounced the kicker back (lobby/shared/slime.js): the room moved it too.
           if (hit.bo !== undefined) this.keep(entry);
+          // A charged kick dashed the kicker forward (lobby/shared/bump.js): moved by the room as well.
+          if (hit.kx !== undefined) this.keep(entry);
           this.settle(now);
           return;
         }

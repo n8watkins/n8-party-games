@@ -47,6 +47,7 @@
     "test:characters": "node lobby/test/e2e-characters.mjs",
     "test:ghost": "node lobby/test/e2e-ghost.mjs",
     "test:moves": "node lobby/test/e2e-moves.mjs",
+    "test:counters": "node lobby/test/e2e-counters.mjs",
     "test:emotes": "node lobby/test/e2e-emotes.mjs",
     "test:frames": "node lobby/test/e2e-frames.mjs",
     "test:leave-rooms": "node lobby/test/e2e-leave-rooms.mjs",

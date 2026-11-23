@@ -150,8 +150,9 @@ describe("moving", () => {
     const moved = core.move(0, { x: 200, d: 1, r: 0, j: 1 }, 1000);
     expect(moved.relay).toEqual({ t: "m", s: 0, x: 200, d: 1, j: 1 });
     expect(moved.fix).toBeNull();
-    // A second later the room knows where the piece has got to without being told.
-    expect(core.view(2000).members[0].x).toBe(630);
+    // A second later the room knows where the piece has got to without being told: a pawn walks at
+    // 110% of WALK_SPEED (shared/world.js, walkSpeed).
+    expect(core.view(2000).members[0].x).toBe(200 + 473);
   });
 
   it("corrects a piece that claims to be somewhere it could not have reached", () => {

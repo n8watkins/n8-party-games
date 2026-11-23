@@ -24,7 +24,7 @@ import { modelOf } from "./characters.js";
 import { RIG_UNIT } from "./emote-arms.js";
 import { Life } from "./life.js";
 import { Hooks3D } from "./moves3d.js";
-import { heardHook, heardShove, heardSlime, heardStilts, heardVerdict, hookNow, hookStop, refusedOwn, resumeMoves, startGoo, startHook, startStilts } from "../move-state.js";
+import { heardCharge, heardChargedKick, heardHook, heardShove, heardSlime, heardStilts, heardVerdict, hookNow, hookStop, netOf, refusedOwn, resumeMoves, startCharge, startGoo, startHook, startRelease, startStilts } from "../move-state.js";
 import { ART_IMAGES, boxArt, boxSide, canvasOf } from "./paint.js";
 import { PAWN_HEIGHT, resumeKnock, startAttack, startFright, startKnock } from "./pieces.js";
 import { SKINS, liveSkin } from "./skins.js";
@@ -650,7 +650,7 @@ export class Room3D {
       }
       // The room's word on where a piece is: news for everyone's piece but the viewer's own,
       // which is moved by its Pilot.
-      p.net = { x: m.x, d: m.d, t: now };
+      p.net = netOf(m.x, m.d, now, m.v);
       if (m.d) p.face = m.d;
       if (p.rev !== m.rev) p.rx = m.x; // the room put it somewhere: no sliding across the floor
       p.rev = m.rev;
@@ -665,7 +665,7 @@ export class Room3D {
       }
       p.member = m;
       // On the floor or just up from it already (this page arrived in the middle of a bump).
-      resumeKnock(p, m.x, m.down ?? 0, m.safe ?? 0, now, m.fright);
+      resumeKnock(p, m.x, m.down ?? 0, m.safe ?? 0, now, m.fright, m.ke ?? 0);
       // A ghost that is faded (shared/ghost.js), for a page that arrives in the middle; the room's
       // word that it is solid too (a fade this page missed the end of). The viewer's own fade is
       // drawn the moment its button goes down, before the room has said so: left as it is.
@@ -753,11 +753,13 @@ export class Room3D {
   onMove(msg, now) {
     const p = this.pieces.get(msg.s);
     if (!p) return;
-    p.net = { x: msg.x, d: msg.d, t: now };
+    p.net = netOf(msg.x, msg.d, now, msg.v);
     // Standing, it faces the way the room says (`f`: a quick turn); walking, the way it walks.
     if (msg.d) p.face = msg.d;
     else if (msg.f === 1 || msg.f === -1) p.face = msg.f;
     if (msg.j) p.jumpAt = now;
+    // A pawn that walks has let its charge go.
+    if (msg.d && p.attack?.charging) p.attack = null;
   }
 
   /** A bump: the bumper lunges, and whoever it lands on is knocked along. How that looks is pieces.js, bumpPose. */
@@ -765,11 +767,15 @@ export class Room3D {
     const by = this.pieces.get(msg.s);
     const landed = msg.to >= 0;
     let began = now;
-    if (by) {
+    // A charged kick (shared/bump.js): the kicker dashes to where the room put it, then kicks.
+    if (by && msg.c !== undefined) began = heardChargedKick(by, msg, now, msg.s === this.opts.own);
+    else if (by) {
       by.face = msg.f || by.face;
       if (msg.s === this.opts.own && by.attack && now - by.attack.at < 600) {
         // The viewer's own bump began when the button went down (ownBump), not when the room answered.
         by.attack.landed = landed;
+        // The room took it as a plain kick (it had lost the charge): no dash drawn (as scene.js).
+        by.attack.lunge = null;
         began = Math.max(by.attack.at, now - IMPACT_MS);
       } else startAttack(by, msg.f, now, landed);
     }
@@ -784,7 +790,7 @@ export class Room3D {
     if (msg.sc !== undefined && by) {
       by.net = { x: msg.x, d: 0, t: now };
       by.rev = msg.rev;
-      startFright(by, msg.x, began, "scare");
+      startFright(by, msg.x, began, msg.c !== undefined ? "bigscare" : "scare", msg.kx);
       const ghost = this.pieces.get(msg.sc);
       if (ghost) ghost.booAt = began + IMPACT_MS;
     }
@@ -792,7 +798,7 @@ export class Room3D {
     if (msg.bo !== undefined && by) {
       by.net = { x: msg.x, d: 0, t: now };
       by.rev = msg.rev;
-      startKnock(by, msg.x, began);
+      startKnock(by, msg.x, began, msg.ke ?? 0, msg.kx);
       const slime = this.pieces.get(msg.bo);
       if (slime) setTimeout(() => this.spark(slime.rx - (msg.f || 1) * 40, 70, performance.now()), IMPACT_MS);
     }
@@ -800,7 +806,25 @@ export class Room3D {
     // If it happened by the room's feature, the feature is knocked too (look3d/life.js).
     // Where they are is taken from what the room said, not from where this device has drawn them
     // so far, so that a slow screen and a fast one agree.
-    this.life?.onBump(by ? (msg.s === this.opts.own ? by.rx : posAt(by.net, now)) : null, hit ? msg.x : null);
+    this.life?.onBump(by ? (msg.s === this.opts.own ? by.rx : posAt(by.net, now, by.kind.id)) : null, hit ? msg.x : null);
+  }
+
+  /** A pawn holds its kick to charge it ({t: "kc", s, f, x}): it winds up where the room stopped it (shared/bump.js). */
+  onCharge(msg, now) {
+    heardCharge(this.pieces, this.opts.own, msg, now);
+    this.idle = 0;
+  }
+
+  /** The viewer's own pawn held its kick past a tap: its wind-up goes on as a charge. */
+  ownCharge(now) {
+    const p = this.pieces.get(this.opts.own);
+    if (p) startCharge(p, now);
+  }
+
+  /** The viewer's own pawn let its charge go, of `power`: it dashes at once toward `to`, before the room has said where it stops. */
+  ownRelease(power, to, now) {
+    const p = this.pieces.get(this.opts.own);
+    if (p) startRelease(p, power, now, to);
   }
 
   /** A ghost faded for `msg.for` milliseconds (0: it is solid again). */
@@ -1148,14 +1172,28 @@ export class Room3D {
         p.face = own.face;
         walking = own.d !== 0 && own.x > ROOM.minX && own.x < ROOM.maxX;
       } else {
-        const target = posAt(p.net, now);
+        // At its character's own speed, a floaty one easing as the room has it (shared/world.js).
+        const target = posAt(p.net, now, p.kind.id);
         p.rx += (target - p.rx) * (1 - Math.exp(-dt * EASE));
         if (Math.abs(target - p.rx) < 0.3) p.rx = target;
         walking = (p.net.d !== 0 && target > ROOM.minX && target < ROOM.maxX) || Math.abs(target - p.rx) > 6;
       }
       // A faded ghost (shared/ghost.js): its own player sees it more clearly than everyone else does.
       p.faded = now < (p.fadeUntil ?? 0) ? (seat === this.opts.own ? OWN_FADED : 1) : 0;
-      const pose = p.kind.pose(p.body, p, now, dt, { walking, lit: this.lightAt(p.rx), calm });
+      // `lit` is read where the piece is drawn this frame: each character's pose first puts a piece
+      // the room is moving (scared, pulled, knocked) where its move has it (p.rx = bump.x), and only
+      // then reads the light. Read before that, it was the light at the place easing toward where
+      // the room will land it: a scared robot frozen under its lamp was drawn dimmed as if already
+      // in the dark (on a slow page, where a frame's ease goes nearly all the way).
+      const room = this;
+      const how = {
+        walking,
+        calm,
+        get lit() {
+          return room.lightAt(p.rx);
+        },
+      };
+      const pose = p.kind.pose(p.body, p, now, dt, how);
       // A look with its own finish (the baked look's real light) gives it here, before an emote lays its red on top.
       this.finish(p);
       if (pose.burst) this.burst(pose.burst, now, calm);

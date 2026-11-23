@@ -19,7 +19,11 @@ import {
 } from "../shared/robot.js";
 import { ABSORB_MS, ABSORB_TURN_MS, HARDEN_MS, HOLD_MS, SHOVE_AGAIN_MS, SHOVE_MS, SHOVE_REACH, SHOVE_STEP, SLIME_COOLDOWN_MS, shovePose, slimeLook } from "../shared/slime.js";
 import { COUNT_MS, boxFromManifest } from "../shared/vote.js";
-import { POSITION_SLACK, ROOM, boxCentre, lightAt, lightHalf, posAt } from "../shared/world.js";
+import { POSITION_SLACK, ROOM, boxCentre, lightAt, lightHalf, posAt, walkSpeed } from "../shared/world.js";
+
+/** How fast a slime and a ghost walk (shared/world.js, walkSpeed: 80% and 95% of WALK_SPEED), units a second. */
+const SLIME_SPEED = walkSpeed("slime");
+const GHOST_SPEED = walkSpeed("ghost");
 import { TEST_WALL, WALL } from "../wall.js";
 import { dropFakeRuntime, fakeCtx, fakeEnv, openRoom, settle, useFakeRuntime, walkTo } from "./fake-room.js";
 import { turnGame } from "./turn-game.js";
@@ -867,8 +871,8 @@ describe("the room's own look along the floor (sweep): a slow phone cannot walk 
     place(core, 0, 600, 1000);
     place(core, 1, 800, 1000);
     walk(core, 0, 600, 1, 2000);
-    // 200 apart, a touch at 70: 130 units at 430 a second.
-    expect(core.nextTouch(2000)).toBeCloseTo(2000 + (130 / 430) * 1000, 0);
+    // 200 apart, a touch at 70: 130 units at the slime's speed.
+    expect(core.nextTouch(2000)).toBeCloseTo(2000 + (130 / SLIME_SPEED) * 1000, 0);
     expect(core.nextWake(2000)).toBeLessThanOrEqual(core.nextTouch(2000));
     walk(core, 0, 600, 0, 2100);
     expect(core.nextTouch(2100)).toBeNull();
@@ -882,7 +886,7 @@ describe("the room's own look along the floor (sweep): a slow phone cannot walk 
     place(core, 1, 1100, 1000);
     walk(core, 0, 200, 1, 2000);
     core.dueMoves(2000);
-    const due = 2000 + ((1100 - SHOVE_REACH - 200) / 430) * 1000;
+    const due = 2000 + ((1100 - SHOVE_REACH - 200) / SLIME_SPEED) * 1000;
     expect(core.nextWake(2000)).toBeCloseTo(due, 3);
     // Looked at only 3.5 s later (no alarm, no message): Bo is pushed one step, judged when the
     // slime reached him, as the slime's own phone would have pushed him, not across the room.
@@ -894,7 +898,7 @@ describe("the room's own look along the floor (sweep): a slow phone cannot walk 
     place(wall, 0, ROOM.maxX - 300, 1000);
     place(wall, 1, ROOM.maxX - 20, 1000);
     walk(wall, 0, ROOM.maxX - 300, 1, 2000);
-    expect(wall.nextTouch(2000)).toBeCloseTo(2000 + ((ROOM.maxX - 20 - SHOVE_REACH - (ROOM.maxX - 300)) / 430) * 1000, 3);
+    expect(wall.nextTouch(2000)).toBeCloseTo(2000 + ((ROOM.maxX - 20 - SHOVE_REACH - (ROOM.maxX - 300)) / SLIME_SPEED) * 1000, 3);
   });
 
   it("does not count a touch its phone says never happened: a slime or a faded ghost that stopped just short", () => {
@@ -906,7 +910,8 @@ describe("the room's own look along the floor (sweep): a slow phone cannot walk 
     walk(core, 0, 600, 1, 2000);
     core.dueMoves(2000);
     expect(core.dueMoves(2290)).toEqual([]);
-    expect(core.move(0, { x: Math.round(600 + 0.43 * 190), d: 0, r: core.members[0].rev }, 2290).touches).toEqual([]);
+    // (Stopped 8 short: 760 - 70 - 8 = 682.)
+    expect(core.move(0, { x: 682, d: 0, r: core.members[0].rev }, 2000 + Math.round((82 / SLIME_SPEED) * 1000) + 100).touches).toEqual([]);
     expect(core.dueMoves(2800)).toEqual([]);
     expect(core.members[1].x).toBe(760);
     // The ghost stops 6 units outside reach; likewise.
@@ -918,9 +923,9 @@ describe("the room's own look along the floor (sweep): a slow phone cannot walk 
     g.fade(0, 2000);
     walk(g, 0, 500, 1, 2000);
     g.dueMoves(2000);
-    const stopAt = ((600 - SPOOK_REACH - 6 - 500) / 430) * 1000;
+    const stopAt = ((600 - SPOOK_REACH - 6 - 500) / GHOST_SPEED) * 1000;
     expect(g.dueMoves(Math.round(2000 + stopAt + 100))).toEqual([]);
-    expect(g.move(0, { x: Math.round(500 + 0.43 * stopAt), d: 0, r: g.members[0].rev }, Math.round(2000 + stopAt + 100)).touches).toEqual([]);
+    expect(g.move(0, { x: Math.round(500 + (GHOST_SPEED / 1000) * stopAt), d: 0, r: g.members[0].rev }, Math.round(2000 + stopAt + 100)).touches).toEqual([]);
     expect(g.dueMoves(3000)).toEqual([]);
     expect(g.members[1].x).toBe(600);
   });
@@ -935,7 +940,7 @@ describe("the room's own look along the floor (sweep): a slow phone cannot walk 
       core.dueMoves(2000);
       return core;
     };
-    const touched = 2000 + ((760 - SHOVE_REACH - 600) / 430) * 1000;
+    const touched = 2000 + ((760 - SHOVE_REACH - 600) / SLIME_SPEED) * 1000;
     // A step on (where that is not in another light): what a page's own shove at the touch gives.
     const step = (core) => slideLanding(760, 760 + SHOVE_STEP, core.landingWall(), core.litPlaces());
     // Its own shove, inside the grace: counted then, as its own shove always is (where the light
@@ -977,7 +982,7 @@ describe("the room's own look along the floor (sweep): a slow phone cannot walk 
       walk(core, 0, core.members[0].x, 1, 2000);
       core.dueMoves(2000);
       // One look, well after the slime walked through where Bo stood.
-      const past = 2000 + Math.round(((core.members[1].x - core.members[0].x + 40) / 430) * 1000);
+      const past = 2000 + Math.round(((core.members[1].x - core.members[0].x + 40) / SLIME_SPEED) * 1000);
       expect(core.dueMoves(past)).toEqual([expect.objectContaining({ t: "shove", s: 0, to: 1 })]);
       expect(lightAt(core.members[1].x, core.wall)).toBe(-1);
     }
@@ -1128,7 +1133,7 @@ describe("the robot's and the slime's moves on the real room", () => {
     expect(since(ws[2], before[2]).some((m) => m.t === "shove")).toBe(false);
     // The touch is due once Bo is within reach of Cy; the room holds it for the grace in case Bo's
     // phone says it stopped short, then (no word came) it counts, judged as it was when Bo got there.
-    const due = Math.ceil(((900 - SHOVE_REACH - 600) / 430) * 1000);
+    const due = Math.ceil(((900 - SHOVE_REACH - 600) / SLIME_SPEED) * 1000);
     await vi.advanceTimersByTimeAsync(due + TOUCH_GRACE_MS - 50);
     expect(since(ws[2], before[2]).some((m) => m.t === "shove")).toBe(false);
     await vi.advanceTimersByTimeAsync(100);

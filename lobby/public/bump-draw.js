@@ -8,7 +8,8 @@
 // piece starts, freezes and scurries off, with wide eyes and a pale tint, as its own character
 // does them (`scared` in its flat definition). Neither jolts the picture.
 import { s, set } from "./dom.js";
-import { IMMUNE_MS, IMPACT_MS, PIECE_PIVOT, STUN_MS, attackPose, cooldownFraction, impactPoint, knockPose } from "./shared/bump.js";
+import { IMMUNE_MS, IMPACT_MS, PIECE_PIVOT, STUN_MS, cooldownFraction, impactPoint, knockPose } from "./shared/bump.js";
+import { attackDrawn, landing } from "./move-state.js";
 import { isMoved, moved, movedPose, movedResumed } from "./shared/moves.js";
 import { ROOM } from "./shared/world.js";
 
@@ -55,9 +56,11 @@ export class BumpDraw {
     p.g.parentNode?.append(p.g);
   }
 
-  /** A piece was knocked from where it is drawn to `to`. `at` is when the bump that did it began. */
-  knock(p, to, at) {
-    p.knock = { at, from: p.rx, to, safeFor: IMMUNE_MS, burst: false, dust: false };
+  /** A piece was knocked from where it is drawn to `to`. `at` is when the bump that did it began; `extra`, how much longer than a knock it lies down. */
+  knock(p, to, at, extra = 0, from = p.rx) {
+    p.knock = { at, from: from ?? p.rx, to, safeFor: IMMUNE_MS, burst: false, dust: false, extra };
+    // A kick it was charging is lost with it (the room forgets it too).
+    if (p.attack?.charging) p.attack = null;
   }
 
   /**
@@ -66,19 +69,21 @@ export class BumpDraw {
    * "spook" (a faded ghost drifted through it), "hookscare" (its hook went through one), "pull" (a
    * robot's hook dragged it), "bonk" (the hook back) or "shove" (a slime walked into it).
    */
-  fright(p, to, at, kind) {
-    p.fright = moved(kind, p.rx, to, at);
+  fright(p, to, at, kind, from = p.rx) {
+    p.fright = moved(kind, from ?? p.rx, to, at);
     p.knock = null;
+    if (p.attack?.charging) p.attack = null;
   }
 
   /**
    * The room says a piece is on the floor or just up from it (for a page that arrived in the
-   * middle): knocked, or moved another way (`fright`, shared/moves.js), drawn as what it is.
+   * middle): knocked (`extra`: down that much longer), or moved another way (`fright`,
+   * shared/moves.js), drawn as what it is.
    */
-  resume(p, x, down, safe, now, fright) {
+  resume(p, x, down, safe, now, fright, extra = 0) {
     if (p.knock || p.fright || !(safe > 0)) return;
     if (isMoved(fright)) return void (p.fright = movedResumed(x, down, safe, fright, now));
-    p.knock = { at: now - (STUN_MS - down), from: x, to: x, safeFor: safe - down, burst: true, dust: true };
+    p.knock = { at: now - (STUN_MS + extra - down), from: x, to: x, safeFor: safe - down, burst: true, dust: true, extra };
   }
 
   // ---------------------------------------------------------------- every frame
@@ -88,32 +93,34 @@ export class BumpDraw {
    * where it is along the floor while it is being thrown (null: wherever it walks).
    */
   pose(p, now) {
+    // Where a piece the room has already moved stands until its fright or knock begins: its own kick is drawn there.
+    let pin = null;
     const f = p.fright;
     if (f) {
       const pose = movedPose(f, now - f.at, calm());
+      // The first frame after its move is over (safe, or already up on a page that drew nothing all
+      // the while, or a shove with no safe time) puts it where the room put it, however few frames
+      // came in between, not eased there from where this page last drew it (move-state.js, landing).
+      const x = pose.x ?? landing(f, pose.state);
       if (pose.state === "up") {
         p.fright = null;
-        // Over before this page drew its landing (a move with no safe time after it, a shove, or a
-        // page that drew nothing all the while): this one frame is drawn where the move put it too.
-        if (!f.landed && now >= f.at) return { ...STILL, x: f.to };
+        if (x !== null) pin = x;
       }
-      // Until the kick reaches the ghost the kicker's own kick is drawn (below).
-      else if (pose.state !== "standing") {
+      // Until the kick reaches the ghost the kicker's own kick is drawn (below), where it kicked.
+      else if (pose.state === "standing") pin = f.from;
+      else {
         if (pose.face) p.face = pose.face;
-        // Over, and safe for a while: the first frame after it is drawn where the move put it, not
-        // eased there from wherever this page last drew it (a page that drew no frame of the
-        // slide would glide it in at the look's ease, behind where it is). It may walk on after.
-        const landing = pose.x === null && pose.state === "safe" && !f.landed;
-        if (landing) f.landed = true;
-        const x = landing ? f.to : pose.x;
         return { x, dx: pose.dx, lift: pose.lift, tilt: pose.tilt, pivot: 0, sx: pose.sx, sy: pose.sy, state: pose.state, dizzy: !!pose.dizzy, safe: pose.state === "safe", scared: pose.scared, pale: pose.pale };
       }
     }
     const k = p.knock;
     if (k) {
-      const pose = knockPose(now - k.at, k.from, k.to, k.safeFor);
-      if (pose.state === "up") p.knock = null;
-      else {
+      const pose = knockPose(now - k.at, k.from, k.to, k.safeFor, k.extra ?? 0);
+      if (pose.state === "up") {
+        p.knock = null;
+        const x = landing(k, "up");
+        if (x !== null) pin = x;
+      } else {
         if (!k.burst && now - k.at >= IMPACT_MS) {
           k.burst = true;
           const at = impactPoint(k.from, k.to);
@@ -123,19 +130,19 @@ export class BumpDraw {
           k.dust = true;
           this.dust(k.to, now);
         }
-        // Until the blow lands the piece stands where it stood, although the room has already put it where it will land.
+        // Until the blow lands the piece stands where it stood, although the room has already put it
+        // where it will land; a kicker knocked back by its own kick (a hardened slime) is drawn
+        // kicking until then, as a scared one is.
         const thrown = pose.state !== "standing" && pose.state !== "safe";
-        return { x: pose.state === "safe" ? null : pose.x, dx: 0, lift: pose.lift, tilt: pose.tilt, pivot: PIECE_PIVOT, sx: pose.sx, sy: pose.sy, state: pose.state, dizzy: thrown, safe: pose.state === "safe" };
+        if (pose.state === "standing" && p.attack) pin = k.from;
+        else return { x: pose.state === "safe" ? landing(k, "safe") : pose.x, dx: 0, lift: pose.lift, tilt: pose.tilt, pivot: PIECE_PIVOT, sx: pose.sx, sy: pose.sy, state: pose.state, dizzy: thrown, safe: pose.state === "safe" };
       }
     }
-    const a = p.attack;
-    if (a) {
-      const pose = attackPose(now - a.at, a.dir, a.landed);
-      if (pose.state === "idle") p.attack = null;
-      // The bumper swings from its head (pose.pivot), so a tilt throws its base, not its head.
-      else return { x: null, dx: pose.dx, lift: pose.lift, tilt: pose.tilt, pivot: pose.pivot, sx: pose.sx, sy: pose.sy, state: pose.state, dizzy: false, safe: false };
-    }
-    return STILL;
+    // Winding up, charging, dashing, striking or recovering (move-state.js, attackDrawn).
+    const pose = attackDrawn(p, now, calm());
+    // The bumper swings from its head (pose.pivot), so a tilt throws its base, not its head.
+    if (pose) return { x: pose.x ?? pin, dx: pose.dx, lift: pose.lift, tilt: pose.tilt, pivot: pose.pivot, sx: pose.sx, sy: pose.sy, state: pose.state, dizzy: false, safe: false, charge: pose.charge ?? 0 };
+    return pin === null ? STILL : { ...STILL, x: pin };
   }
 
   /**
@@ -164,9 +171,16 @@ export class BumpDraw {
       flat.scared(p.actor, scared);
       set(p.g, { "data-scared": scared || null });
     }
-    if (pale !== (p.paleK ?? 0)) {
+    // A pawn charging its kick glows warm, brighter the harder it is held (shared/bump.js,
+    // chargePose): the same with less motion, so the charge always shows.
+    const charge = Math.round((pose.charge || 0) * 20) / 20;
+    if (pale !== (p.paleK ?? 0) || charge !== (p.chargeK ?? 0)) {
       p.paleK = pale;
-      p.g.style.filter = pale > 0 ? `saturate(${(1 - 0.55 * pale).toFixed(2)}) brightness(${(1 + 0.32 * pale).toFixed(2)})` : "";
+      p.chargeK = charge;
+      set(p.g, { "data-charge": charge || null });
+      const paled = pale > 0 ? `saturate(${(1 - 0.55 * pale).toFixed(2)}) brightness(${(1 + 0.32 * pale).toFixed(2)})` : "";
+      const glow = charge > 0 ? `drop-shadow(0 0 ${(4 + 14 * charge).toFixed(1)}px rgba(255, 196, 80, ${(0.55 + 0.4 * charge).toFixed(2)})) brightness(${(1 + 0.25 * charge).toFixed(2)})` : "";
+      p.g.style.filter = [paled, glow].filter(Boolean).join(" ");
     }
   }
 

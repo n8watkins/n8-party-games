@@ -9,8 +9,8 @@ const ROOT = resolve(import.meta.dirname, "..", "..");
 const scripts = JSON.parse(readFileSync(resolve(ROOT, "package.json"), "utf8")).scripts;
 
 describe("the pre-deploy gate's steps", () => {
-  it("include the room, the party room, Cork & Bell, Hot Potato, the Table's suites, Paper Masks, the front page's, Tin Derby's, the robot's and slime's moves, Who Am I?'s, Cork & Bell's switches and a new build's", () => {
-    expect(STEPS.map(([, script]) => script)).toEqual(["test:room", "test:lobby", "test:cork", "test:hot-potato", "test:hearing", "test:mode", "test:two-rooms", "test:table", "test:paper-masks", "test:home", "test:tin-derby", "test:moves", "test:who-am-i", "test:cork:switches", "test:release"]);
+  it("include the room, the party room, Cork & Bell, Hot Potato, the Table's suites, Paper Masks, the front page's, Tin Derby's, the robot's and slime's moves, the characters' counters, Who Am I?'s, Cork & Bell's switches and a new build's", () => {
+    expect(STEPS.map(([, script]) => script)).toEqual(["test:room", "test:lobby", "test:cork", "test:hot-potato", "test:hearing", "test:mode", "test:two-rooms", "test:table", "test:paper-masks", "test:home", "test:tin-derby", "test:moves", "test:counters", "test:who-am-i", "test:cork:switches", "test:release"]);
   });
 
   it("run Cork & Bell's test switches against a Worker of their own with the production settings, and every other step on the local ones", () => {
@@ -41,7 +41,7 @@ describe("the pre-deploy gate's steps", () => {
   it("each get a port of their own side by side, with test:cork alone on its server", () => {
     const ports = STEPS.map((_, i) => stepPort(8853, i));
     expect(new Set(ports).size).toBe(STEPS.length);
-    expect(ports).toEqual([8853, 8855, 8856, 8857, 8858, 8859, 8860, 8861, 8862, 8863, 8864, 8865, 8866, 8867, 8868]);
+    expect(ports).toEqual([8853, 8855, 8856, 8857, 8858, 8859, 8860, 8861, 8862, 8863, 8864, 8865, 8866, 8867, 8868, 8869]);
   });
 });
 

@@ -41,8 +41,8 @@ import { copyState, deadlineOf, gameProblems, inputOutcome, isTurnBased, loadSta
 import { viewerFor } from "../../party-kit/src/core/views.js";
 import { IDLE_SHUTDOWN_MS, NAME_MAX, SEAT_COLOURS, STALE_ROOM_MS, cleanName, randomToken } from "../../party-kit/src/core/room-core.js";
 import { COUNT_MS, SETTLE_MS, TOSS_MS, leaders, pointsForPlace, spotLights, standingsFromRows, tally, whyNot } from "../shared/vote.js";
-import { COOLDOWN_SLACK_MS, IMMUNE_MS, bumpTarget, cooldownLeft, isDown, isSafe, knockLanding, knocked, mayBump } from "../shared/bump.js";
-import { BOO_LATE_MS, FADE_MS, SCARE_LANDING, SPOOK_FAR, SPOOK_LANDING, SPOOK_REACH, fadeLeft, isFaded, mayFade, maySpook, scared, spooked } from "../shared/ghost.js";
+import { BUMP_REACH, CHARGE_HOLD_MS, CHARGE_MIN_MS, COOLDOWN_SLACK_MS, IMMUNE_MS, KICK_CONTACT, bumpTarget, chargeBounce, chargeDash, chargePower, chargeThrow, cooldownLeft, isDown, isSafe, knockLanding, knocked, mayBump, mayCharge } from "../shared/bump.js";
+import { BOO_LATE_MS, FADE_MS, SCARE_LANDING, SPOOK_FAR, SPOOK_LANDING, SPOOK_REACH, bigScared, fadeLeft, isFaded, mayFade, maySpook, scared, spooked } from "../shared/ghost.js";
 import { HOOK_SCARE_MS, TOUCH_GRACE_MS, slideLanding, touchAt } from "../shared/moves.js";
 import { BONK_MS, HOOK_BACK_MS, HOOK_HOLD, HOOK_LATE_MS, HOOK_LIFE_MS, PULLED_SAFE_MS, PULL_MS, STILT_MS, TRAIN_MS, battedAway, firstCatch, hookEndsAt, hookLeft, isUp, jumpedOver, mayHook, mayStilt, stiltLeft } from "../shared/robot.js";
 import { ABSORB_MS, HARDEN_MS, SHOVE_AHEAD, SHOVE_FAR, SHOVE_LATE_MS, SHOVE_REACH, SHOVE_SLACK, SHOVE_STEP, isHard, isSoft, mayShove, maySlime, shoved, slimeLeft } from "../shared/slime.js";
@@ -50,7 +50,7 @@ import { DEFAULT_ROOM, ROOM_COOLDOWN_MS, isRoom, roomLocked, wallFor } from "../
 import { COLOUR_PRESETS, DEFAULT_CHARACTER, LOOK_COOLDOWN_MS, LOOK_SLACK_MS, characterOr, cleanColour, moveOf, readLook } from "../shared/characters.js";
 import { record } from "../shared/tonight.js";
 import { DURING_PLAY, cooldownLeft as emoteLeft, mayEmote, relayEmote, tooEager, waitMessage } from "../../party-kit/client/emotes.js";
-import { JUMP_MS, POSITION_SLACK, ROOM, WALK_SPEED, acrossWalls, clampX, evenWall, lightAt, posAt, sameWall, spawnX } from "../shared/world.js";
+import { JUMP_MS, POSITION_SLACK, acrossWalls, clampX, evenWall, floats, lightAt, posAt, sameWall, spawnX, velAt, walkChanges } from "../shared/world.js";
 import { DEFAULT_MODE, MODE_COOLDOWN_MS, isMode, modeLocked, modeNote } from "../shared/mode.js";
 import { PLAY_BEAT_MS, tableWhyNot } from "../shared/table.js";
 
@@ -108,6 +108,8 @@ export const HOST_GRACE_MS = 8000;
 export const TABLE_STALE_MS = 2 * 60 * 60_000;
 /** How many people who left are remembered by name, so coming back restores their points. */
 const MAX_REMEMBERED = 12;
+/** A charging pawn stands still (its page roots it): a word that puts it further than this from where the charge stopped it lets the charge go. */
+const CHARGE_STILL = 4;
 
 export class LobbyCore {
   /**
@@ -317,7 +319,7 @@ export class LobbyCore {
       m.connected = true;
       m.droppedAt = null;
       // The socket's copy is never older than the saved one: it is rewritten on every move.
-      if (piece) Object.assign(m, { x: piece.x, d: piece.d, t: piece.t, face: piece.face, rev: piece.rev });
+      if (piece) Object.assign(m, { x: piece.x, d: piece.d, t: piece.t, face: piece.face, rev: piece.rev, v: piece.v, vt: piece.vt ?? null });
     }
     this.emptySince = null;
     return who;
@@ -326,7 +328,7 @@ export class LobbyCore {
   /** What a socket has to carry for resume(): the seat's piece as last heard. */
   pieceOf(seat) {
     const m = this.members[seat];
-    return m ? { x: m.x, d: m.d, t: m.t, face: m.face, rev: m.rev } : null;
+    return m ? { x: m.x, d: m.d, t: m.t, face: m.face, rev: m.rev, ...(m.vt === m.t ? { v: m.v, vt: m.vt } : {}) } : null;
   }
 
   /** The last socket for this token closed: the piece stays where it is, grey, for the grace. */
@@ -343,6 +345,8 @@ export class LobbyCore {
       m.x = posAt(m, now);
       m.d = 0;
       m.t = now;
+      m.vt = null;
+      m.chargeAt = null;
       m.connected = false;
       m.droppedAt = now;
       // Who is voting has changed, so the count starts over.
@@ -718,8 +722,13 @@ export class LobbyCore {
     const m = this.members[seat];
     if (!m || !this.piecesWalk() || !data) return null;
     if (typeof data.x !== "number" || !Number.isFinite(data.x)) return null;
-    // Sent before the player's page heard that the room had moved the piece: out of date.
-    if ((data.r ?? 0) !== m.rev) return null;
+    // Sent before the player's page heard that the room had moved the piece: out of date as a
+    // place, but still the phone's word on the walk it had made until then, so a touch the room
+    // is holding for that walk is settled by it now (not at the end of its grace).
+    if ((data.r ?? 0) !== m.rev) {
+      const touches = this.settleTouches(seat, null, clampX(data.x), now);
+      return touches.length ? { relay: null, fix: null, touches } : null;
+    }
     // A piece that was knocked down lies where it landed until it is up again.
     if (isDown(m, now)) return null;
     const d = data.d === 1 ? 1 : data.d === -1 ? -1 : 0;
@@ -739,12 +748,21 @@ export class LobbyCore {
     m.d = d;
     m.t = now;
     m.saidAt = now;
+    // A floaty piece (the ghost: shared/world.js) says how fast it still goes as it eases to `d`:
+    // carried forward from here by everyone the same way. Any other piece goes at `d` at once.
+    const v = floats(m.character) && typeof data.v === "number" && Number.isFinite(data.v) ? Math.max(-1, Math.min(1, Math.round(data.v * 100) / 100)) : d;
+    if (v !== d) Object.assign(m, { v, vt: now });
+    else m.vt = null;
     // A walk faces the way it goes; a piece standing faces the way its page says (`f`: a quick
     // turn's walk can end before the page sends it). A page that does not say keeps its facing.
     if (d) m.face = d;
     else faceAsSaid(m, data.f);
+    // A pawn that walks while it charges its kick has let the charge go: its release is a plain kick.
+    // So has one whose page says it stands somewhere else than where the charge stopped it (a
+    // page stands still while it charges: Pilot.charge roots it), however it got there.
+    if (m.chargeAt !== null && m.chargeAt !== undefined && (d || Math.abs(x - expected) > CHARGE_STILL)) m.chargeAt = null;
     this.lastActive = now;
-    const relay = { t: "m", s: seat, x: Math.round(x), d };
+    const relay = { t: "m", s: seat, x: Math.round(x), d, ...(v !== d ? { v } : {}) };
     if (!d && isFacing(data.f)) relay.f = m.face;
     if (data.j) {
       relay.j = 1;
@@ -762,11 +780,16 @@ export class LobbyCore {
    * bump yet (bumpWait says how long). `face`: which way the page shows the piece facing (-1 or
    * 1; anything else, or none from an older page, leaves the room's).
    */
-  bump(seat, now, face) {
+  bump(seat, now, face, charged = false) {
     const m = this.members[seat];
     // Only a piece whose move is the kick kicks (a ghost fades instead: fade).
     if (!m || moveOf(m.character) !== "kick" || this.activity.kind !== "lobby" || this.plainRoom() || !mayBump(m, now).ok) return null;
     faceAsSaid(m, face);
+    // A charged kick (shared/bump.js): as strong as the room itself timed the hold, from the charge
+    // it heard (`kc`); a release with no charge the room took, or one held too long ago, is a tap.
+    const heldFor = charged && m.chargeAt !== null && m.chargeAt !== undefined ? now - m.chargeAt + CHARGE_MIN_MS : null;
+    m.chargeAt = null;
+    const power = heldFor !== null && heldFor <= CHARGE_HOLD_MS + CHARGE_MIN_MS + COOLDOWN_SLACK_MS ? chargePower(heldFor) : null;
     m.bumpAt = now;
     // Which way it kicked: a kick toward a robot as its hook arrives bats the hook away (shared/robot.js).
     m.bumpFace = m.face;
@@ -776,26 +799,72 @@ export class LobbyCore {
     const others = this.present()
       .filter((o) => o.seat !== seat && !isSafe(o, now) && !isUp(o, now))
       .map((o) => ({ seat: o.seat, x: posAt(o, now) }));
-    const to = bumpTarget(posAt(m, now), m.face, others);
-    if (to === -1) return { t: "b", s: seat, f: m.face, to: -1 };
+    const x0 = posAt(m, now);
+    // The dash: as far as the charge carries it, stopping at the piece it reaches (KICK_CONTACT
+    // short of it), and never into a light it did not stand in (shared/moves.js, slideLanding).
+    const dash = power === null ? 0 : Math.abs(slideLanding(x0, clampX(x0 + m.face * chargeDash(power)), this.landingWall(), this.litPlaces()) - x0);
+    const to = bumpTarget(x0, m.face, others, BUMP_REACH + dash);
+    const charge = power === null ? {} : { c: Math.round(power * 100) / 100 };
+    if (power !== null) {
+      const reach = to === -1 ? dash : Math.max(0, Math.min(dash, (posAt(this.members[to], now) - x0) * m.face - KICK_CONTACT));
+      const x1 = Math.round(x0 + m.face * reach);
+      if (x1 !== Math.round(x0)) {
+        Object.assign(m, { x: x1, d: 0, t: now, vt: null });
+        m.rev += 1;
+      } else Object.assign(m, { x: x0, d: 0, t: now, vt: null });
+      Object.assign(charge, { kx: m.x, kr: m.rev });
+    }
+    const base = { t: "b", s: seat, f: m.face, ...charge };
+    if (to === -1) return { ...base, to: -1 };
     const o = this.members[to];
     // A kick that reaches a faded ghost passes through it, and the kicker is scared: it runs as
     // far from the ghost as a kick would have thrown it (lobby/shared/ghost.js). `sc` is the ghost.
+    // A charged kick is punished harder: frozen longer, and as far as the charge would have thrown.
     if (this.faded(o, now)) {
-      this.throwPiece(m, -m.face, now, SCARE_LANDING);
-      Object.assign(m, scared(now, IMMUNE_MS));
-      return { t: "b", s: seat, f: m.face, to: -1, sc: to, x: m.x, rev: m.rev };
+      this.throwPiece(m, -m.face, now, power === null ? SCARE_LANDING : chargeThrow(power));
+      Object.assign(m, power === null ? scared(now, IMMUNE_MS) : bigScared(now, IMMUNE_MS));
+      return { ...base, to: -1, sc: to, x: m.x, rev: m.rev };
     }
     // A kick into a hardened slime bounces off: the kicker is knocked back itself, a kick's
-    // distance the other way (shared/slime.js). `bo` is the slime.
+    // distance the other way (shared/slime.js). `bo` is the slime. A charged kick bounces the
+    // kicker back further, and keeps it down longer (shared/bump.js, chargeBounce).
     if (isHard(o, now)) {
-      this.throwPiece(m, -m.face, now);
-      Object.assign(m, knocked(now), { fright: null });
-      return { t: "b", s: seat, f: m.face, to: -1, bo: to, x: m.x, rev: m.rev };
+      const bounce = power === null ? null : chargeBounce(power);
+      this.throwPiece(m, -m.face, now, bounce?.reach);
+      Object.assign(m, knocked(now, bounce?.down ?? 0), { fright: null });
+      return { ...base, to: -1, bo: to, x: m.x, rev: m.rev, ...(bounce?.down ? { ke: bounce.down } : {}) };
     }
-    this.throwPiece(o, m.face, now);
+    this.throwPiece(o, m.face, now, power === null ? undefined : chargeThrow(power));
     Object.assign(o, knocked(now), { fright: null });
-    return { t: "b", s: seat, f: m.face, to, x: o.x, rev: o.rev };
+    return { ...base, to, x: o.x, rev: o.rev };
+  }
+
+  /**
+   * A pawn holds its kick to charge it (shared/bump.js): the room stops it where it stands and
+   * times the hold from now; the release is the kick (bump, `charged`). Returns {relay} for
+   * everybody, or {ok: false, why, wait, bad} for that page only. Nothing is timed on the room's
+   * side: a charge it never hears the release of is forgotten (CHARGE_HOLD_MS) when it next looks.
+   */
+  charge(seat, now, face) {
+    const m = this.members[seat];
+    if (!m) return { ok: false, why: "You are not in this party." };
+    const kicks = moveOf(m.character) === "kick";
+    if (!kicks) return { ok: false, why: "Only a pawn kicks.", bad: !(now - (m.lookAt ?? -Infinity) <= SHOVE_LATE_MS) };
+    if (!this.floorTime()) return { ok: false, why: "You can kick in the room, between games." };
+    const may = mayCharge(m, now);
+    if (!may.ok) return { ...may, bad: !!may.cooling && tooEager(may.wait) };
+    // Wound up the way the page shows it facing (as a kick: bump), unless the room has it walking;
+    // the relay's `f` then tells every page which way it faces as it charges.
+    faceAsSaid(m, face);
+    const x = posAt(m, now);
+    Object.assign(m, { x, d: 0, t: now, vt: null, chargeAt: now });
+    this.lastActive = now;
+    return { ok: true, relay: { t: "kc", s: seat, f: m.face, x: Math.round(x) } };
+  }
+
+  /** Whether a pawn is charging its kick at `now` (a charge the room never heard the release of is over after CHARGE_HOLD_MS). */
+  charging(m, now) {
+    return m.chargeAt !== null && m.chargeAt !== undefined && now - m.chargeAt < CHARGE_HOLD_MS + COOLDOWN_SLACK_MS;
   }
 
   /**
@@ -806,6 +875,7 @@ export class LobbyCore {
     o.x = knockLanding(posAt(o, now), dir, this.landingWall(), this.litPlaces(), reach);
     o.d = 0;
     o.t = now;
+    o.vt = null;
     o.rev += 1;
     this.interrupt(o, now);
   }
@@ -830,6 +900,7 @@ export class LobbyCore {
     o.x = slideLanding(posAt(o, now), clampX(to), this.landingWall(), this.litPlaces());
     o.d = 0;
     o.t = now;
+    o.vt = null;
     o.rev += 1;
     return o.x;
   }
@@ -843,6 +914,8 @@ export class LobbyCore {
     if (isUp(o, now)) o.stiltsUntil = now;
     if (isSoft(o, now)) o.softUntil = now;
     if (isHard(o, now)) o.hardUntil = now;
+    // A pawn charging its kick loses the charge: its release is a plain kick, if it is up by then.
+    o.chargeAt = null;
     this.dropHook(o);
   }
 
@@ -893,7 +966,7 @@ export class LobbyCore {
    * `bad`: no real page sends that boo (lobby/shared/ghost.js, BOO_LATE_MS and SPOOK_FAR), so it
    * counts against the socket's rate limit; the rest are honest boos the room got a moment late.
    */
-  boo(seat, to, now, touchedAt = null) {
+  boo(seat, to, now, touchedAt = null, walked = null) {
     const m = this.members[seat];
     if (!m) return { ok: false, why: "You are not in this party." };
     const fades = moveOf(m.character) === "fade";
@@ -906,7 +979,7 @@ export class LobbyCore {
     // (sweep, pending): that touch is confirmed now, judged when it happened.
     if (touchedAt === null) {
       const held = this.takePending("spook", seat, to);
-      if (held) return this.boo(seat, to, now, held.t);
+      if (held) return this.boo(seat, to, now, held.t, held.d);
     }
     // A touch the room saw itself (sweep) counts when it happened: the fade may have ended since.
     const at = touchedAt ?? now;
@@ -921,8 +994,9 @@ export class LobbyCore {
     const may = maySpook(ghostX, { ...o, x, fades: moveOf(o.character) === "fade" }, at, m.spooks ?? [], touchedAt !== null);
     if (!may.ok) return { ...may, bad: Math.abs(x - ghostX) > SPOOK_FAR };
     (m.spooks ??= []).push(to);
-    // The way the ghost was going then; the spook throws the piece from where it stands now, its usual distance.
-    const dir = m.d || (x === ghostX ? m.face : Math.sign(x - ghostX)) || 1;
+    // The way the ghost was going then (as the room saw it touch, when it did); the spook throws the
+    // piece from where it stands now, its usual distance.
+    const dir = walked || m.d || (x === ghostX ? m.face : Math.sign(x - ghostX)) || 1;
     this.throwPiece(o, dir, now, SPOOK_LANDING);
     Object.assign(o, spooked(now, IMMUNE_MS));
     this.lastActive = now;
@@ -954,7 +1028,7 @@ export class LobbyCore {
     faceAsSaid(m, face);
     const x0 = posAt(m, now);
     // It stands still to throw: the room says so to every page with the hook.
-    Object.assign(m, { x: x0, d: 0, t: now, hookAt: now });
+    Object.assign(m, { x: x0, d: 0, t: now, vt: null, hookAt: now });
     const dir = m.face || 1;
     m.hook = { at: now, x0, dir, past: [] };
     m.hook.judgeAt = this.nextCatch(m, now) + HOOK_LATE_MS;
@@ -1003,7 +1077,8 @@ export class LobbyCore {
 
   /** What a walking piece touches by the room's own rules: "shove" for a slime, "spook" for a ghost, or null. */
   toucher(m) {
-    if (!m.d) return null;
+    // Walking, or (a floaty ghost) still drifting on from its last word as it eases to a stand.
+    if (!m.d && !(m.vt === m.t && m.v)) return null;
     const move = moveOf(m.character);
     return move === "harden" ? "shove" : move === "fade" ? "spook" : null;
   }
@@ -1013,7 +1088,9 @@ export class LobbyCore {
    * (Infinity when it no longer will). Judged at the touch's own time, not the look's.
    */
   touchFrom(kind, m, t) {
-    if (kind === "spook") return t < (m.fadedUntil ?? 0) ? t : Infinity;
+    // A ghost spooks only while it moves: walking, or still easing to a stand. Once its drift is
+    // over it stands, and a standing ghost spooks nobody who walks into it (as its own page judges).
+    if (kind === "spook") return t < (m.fadedUntil ?? 0) && (m.d || velAt(m, t) !== 0) ? t : Infinity;
     return Math.max(t, isDown(m, t) ? (m.stunUntil ?? t) : t, m.hardUntil ?? t, m.softUntil ?? t);
   }
 
@@ -1039,12 +1116,20 @@ export class LobbyCore {
   touchOf(kind, m, o, a, b) {
     const [lo, hi] = this.touchBand(kind, m);
     let t = this.touchTime(m, o, a, b, lo, hi);
-    for (let i = 0; i < 4 && t !== null; i++) {
+    // Each look further on starts where the last one may not touch, so it settles in a few steps
+    // (every reason there is ends at a time written on a piece). One that has not settled by the
+    // end is no touch: never a touch at a moment it may not happen.
+    let settled = false;
+    for (let i = 0; i < 24 && t !== null; i++) {
       const may = Math.max(this.touchFrom(kind, m, t), this.touchedFrom(kind, m, o, t));
-      if (may <= t) break;
+      if (may <= t) {
+        settled = true;
+        break;
+      }
       t = may <= b ? this.touchTime(m, o, may, b, lo, hi) : null;
     }
-    if (t !== null && kind === "spook" && !(t < m.fadedUntil)) return null;
+    if (!settled) return null;
+    if (kind === "spook" && !(t < m.fadedUntil)) return null;
     return t;
   }
 
@@ -1060,19 +1145,21 @@ export class LobbyCore {
 
   /**
    * When, between `a` and `b` (Infinity: ever), the gap from piece `m` to piece `o` first comes into
-   * [lo, hi], as both walk on as they are (each stops at a wall): exact, piece by piece between the
-   * moments either reaches a wall. null when it does not.
+   * [lo, hi], as both walk on as they are (each at its own speed, a floaty one easing, each stopping
+   * at a wall): piece by piece between the moments either changes speed (shared/world.js,
+   * walkChanges), in each of which the gap changes evenly (exact, but for a floaty piece's easing,
+   * which is followed in short steps). null when it does not.
    */
   touchTime(m, o, a, b, lo, hi) {
-    const wallAt = (p) => (p.d ? p.t + ((((p.d > 0 ? ROOM.maxX : ROOM.minX) - p.x) / (p.d * WALK_SPEED)) * 1000) : -Infinity);
-    const cuts = [a, ...[wallAt(m), wallAt(o)].filter((t) => t > a && t < b).sort((x, y) => x - y), b];
+    const gap = (t) => posAt(o, t) - posAt(m, t);
+    const inner = [...walkChanges(m), ...walkChanges(o)].filter((t) => t > a && t < b).sort((x, y) => x - y);
+    const cuts = [a, ...inner, b];
     for (let i = 0; i < cuts.length - 1; i++) {
       const [s, e] = [cuts[i], cuts[i + 1]];
-      const r = posAt(o, s) - posAt(m, s);
+      const r = gap(s);
       if (r >= lo && r <= hi) return s;
-      // How fast the gap changes in this piece of time: each piece walks until its wall.
-      const speed = (p) => (p.d && s < wallAt(p) ? (p.d * WALK_SPEED) / 1000 : 0);
-      const v = speed(o) - speed(m);
+      // How fast the gap changes in this piece of time (after the last change the pieces walk on evenly for good).
+      const v = e === Infinity ? gap(s + 1) - r : (gap(e) - r) / (e - s);
       const t = v < 0 && r > hi ? s + (r - hi) / -v : v > 0 && r < lo ? s + (lo - r) / v : Infinity;
       if (t <= e) return t;
     }
@@ -1116,7 +1203,9 @@ export class LobbyCore {
         const touch = this.firstTouch(from, now, done);
         if (!touch) break;
         done.add(touch.key);
-        const held = { kind: touch.kind, s: touch.m.seat, to: touch.o.seat, t: touch.t, ox: posAt(touch.o, touch.t), band: this.touchBand(touch.kind, touch.m) };
+        // Kept with it: where the toucher's walk began and which way it walked then, so it is judged
+        // as it was even if the room moves or stops the piece meanwhile (a knock, a dropped phone).
+        const held = { kind: touch.kind, s: touch.m.seat, to: touch.o.seat, t: touch.t, ox: posAt(touch.o, touch.t), band: this.touchBand(touch.kind, touch.m), from: touch.m.x, d: Math.sign(velAt(touch.m, touch.t)) || touch.m.d, sx: posAt(touch.m, touch.t), orev: touch.o.rev };
         const said = touch.t <= (touch.m.saidAt ?? -Infinity) + 1;
         // On the phone's own word (the touch came as it said where it is), or held long enough already: it counts now.
         if (said || touch.t + TOUCH_GRACE_MS <= now) {
@@ -1134,10 +1223,20 @@ export class LobbyCore {
    * boo with its time). Returns the message for everybody, or null when it was refused.
    */
   applyTouch(p, now) {
-    const result = p.kind === "spook" ? this.boo(p.s, p.to, now, p.t) : this.shove(p.s, p.to, now, p.t);
-    // Judged: not judged again while the two stay in reach; forgotten as soon as they part.
-    this.touching ??= new Set();
-    this.touching.add(`${p.s}>${p.to}`);
+    // A piece the room has moved itself since the touch (a kick, a hook, another shove) is where
+    // that put it now: a held touch from before would move it again from there. It is looked at
+    // afresh instead, from where it is now (firstTouch).
+    const o = this.members[p.to];
+    const moved = !o || (p.orev !== undefined && o.rev !== p.orev);
+    const result = moved ? { ok: false, why: "Moved since." } : p.kind === "spook" ? this.boo(p.s, p.to, now, p.t, p.d) : this.shove(p.s, p.to, now, p);
+    // Judged: not judged again while the two stay in reach; forgotten as soon as they part. A touch
+    // that was refused is not marked (it may yet count while they are in reach), except one against
+    // a piece that will not go further (a wall, or a light it may not be pushed into): that stays so
+    // while the two stay in reach, and looking at it again would only refuse it again.
+    if (result.ok || result.stuck) {
+      this.touching ??= new Set();
+      this.touching.add(`${p.s}>${p.to}`);
+    }
     this.partTouches(now);
     return result.ok ? result.relay : null;
   }
@@ -1149,17 +1248,17 @@ export class LobbyCore {
   }
 
   /**
-   * The phone of seat `s` said where its piece is: the walk from where it last said it was, `fromX`,
-   * to `toX`. Each touch held for that piece happened if that walk reached it (it counts now,
-   * judged when it happened), and did not if the piece stopped short (it is dropped). Returns the
-   * messages for everybody.
+   * The phone of seat `s` said where its piece is: the walk from where it began (where the room
+   * last had it when the touch was held: `from` on each, else `fromX`) to `toX`. Each touch held for
+   * that piece happened if that walk reached it (it counts now, judged when it happened), and did
+   * not if the piece stopped short (it is dropped). Returns the messages for everybody.
    */
   settleTouches(s, fromX, toX, now) {
     const out = [];
     for (const p of (this.pending ?? []).filter((p) => p.s === s)) {
       this.pending.splice(this.pending.indexOf(p), 1);
       const [lo, hi] = p.band;
-      if (touchAt(p.ox - fromX, p.ox - toX, lo, hi) === null) continue;
+      if (touchAt(p.ox - (p.from ?? fromX), p.ox - toX, lo, hi) === null) continue;
       const relay = this.applyTouch(p, now);
       if (relay) out.push(relay);
     }
@@ -1329,6 +1428,8 @@ export class LobbyCore {
     if (isUp(o, now)) o.stiltsUntil = now;
     if (isSoft(o, now)) o.softUntil = now;
     if (isHard(o, now)) o.hardUntil = now;
+    // A pawn charging its kick loses the charge, as it does when anything else moves it.
+    o.chargeAt = null;
     if (o.hook) o.hook.x0 += o.x - from;
     Object.assign(o, { stunUntil: now + PULL_MS, immuneUntil: now + PULL_MS + PULLED_SAFE_MS, fright: "pull" });
   }
@@ -1374,7 +1475,11 @@ export class LobbyCore {
    * pushed a step on, upright: out of its light perhaps, but never into another
    * (shared/moves.js). Returns {relay} or {ok: false, why, bad}; `bad`: no real page sends it.
    */
-  shove(seat, to, now, touchedAt = null) {
+  shove(seat, to, now, seen = null) {
+    // A touch the room saw along the slime's path (sweep): when it happened, which way the slime
+    // walked then and where it stood ({t, d, sx}), judged as it was then, not as the slime is now
+    // (its phone may have dropped, or the room knocked or hooked it since).
+    const touchedAt = seen?.t ?? null;
     const m = this.members[seat];
     if (!m) return { ok: false, why: "You are not in this party." };
     const slimes = moveOf(m.character) === "harden";
@@ -1390,24 +1495,28 @@ export class LobbyCore {
     // A touch the room saw itself is judged as it was when it happened: both pieces where they
     // were then, the slime walking and not hard, soft or down then, the piece shovable then.
     const at = touchedAt ?? now;
-    if (isDown(m, at) || isHard(m, at) || isSoft(m, at)) return { ok: false, why: "Not now.", bad: false };
-    const sx = posAt(m, at);
+    // (A touch the room saw was found only where the slime could touch then (touchOf), and a knock
+    // since leaves stunUntil saying "down" for that moment too: not asked again.)
+    if (!seen && (isDown(m, at) || isHard(m, at) || isSoft(m, at))) return { ok: false, why: "Not now.", bad: false };
+    const sx = seen?.sx ?? posAt(m, at);
+    const d = seen?.d ?? held?.d ?? m.d;
     const x = posAt(o, at);
-    const may = mayShove(sx, m.d, { ...o, x, slime: moveOf(o.character) === "harden", up: isUp(o, at), faded: this.faded(o, at) }, at, touchedAt !== null || !!held);
+    const may = mayShove(sx, d, { ...o, x, slime: moveOf(o.character) === "harden", up: isUp(o, at), faded: this.faded(o, at) }, at, touchedAt !== null || !!held);
     if (!may.ok) return { ...may, bad: Math.abs(x - sx) > SHOVE_FAR };
     // A step on, and in front of the slime: it keeps pushing what it walks into (shared/slime.js).
     // Judged as it was when it happened: never further than a page's own shove then moved it
     // (SHOVE_AHEAD), however late it is counted, from where the piece stands now (it may have
     // walked since).
     const from = posAt(o, now);
-    const ahead = m.d > 0 ? Math.max(x + SHOVE_STEP, sx + SHOVE_AHEAD) : Math.min(x - SHOVE_STEP, sx - SHOVE_AHEAD);
+    const ahead = d > 0 ? Math.max(x + SHOVE_STEP, sx + SHOVE_AHEAD) : Math.min(x - SHOVE_STEP, sx - SHOVE_AHEAD);
     const shift = Math.max(-SHOVE_AHEAD, Math.min(SHOVE_AHEAD, ahead - x));
     const dest = from + shift;
     // Nowhere to go (a wall, or a light it may not be pushed into): it stays, and nothing is said.
-    if (Math.abs(slideLanding(from, clampX(dest), this.landingWall(), this.litPlaces()) - from) < 1) return { ok: false, why: "It will not go further.", bad: false };
+    if (Math.abs(slideLanding(from, clampX(dest), this.landingWall(), this.litPlaces()) - from) < 1) return { ok: false, why: "It will not go further.", bad: false, stuck: true };
     this.slidePiece(o, dest, now);
-    // A robot shoved with its hook out throws it from where it now stands.
+    // A robot shoved with its hook out throws it from where it now stands; a pawn charging its kick loses the charge.
     if (o.hook) o.hook.x0 += o.x - from;
+    o.chargeAt = null;
     Object.assign(o, shoved(now));
     this.lastActive = now;
     return { ok: true, relay: { t: "shove", s: seat, to, x: o.x, rev: o.rev } };
@@ -1418,6 +1527,7 @@ export class LobbyCore {
     if (isUp(m, now)) m.stiltsUntil = now;
     if (isHard(m, now)) m.hardUntil = now;
     if (isSoft(m, now)) m.softUntil = now;
+    m.chargeAt = null;
     this.dropHook(m);
     // And any touch the room was holding for it, either way round.
     if (this.pending) this.pending = this.pending.filter((p) => p.s !== m.seat && p.to !== m.seat);
@@ -1463,7 +1573,11 @@ export class LobbyCore {
     const unfaded = character !== m.character && this.faded(m, now);
     if (unfaded) m.fadedUntil = now;
     // Whatever else its move had going ends too: a robot's legs and hook, a slime's harden.
-    if (character !== m.character) this.endMoves(m, now);
+    if (character !== m.character) {
+      this.endMoves(m, now);
+      // It walks on from here at the new character's own speed (shared/world.js, walkSpeed).
+      Object.assign(m, { x: posAt(m, now), t: now, vt: null });
+    }
     Object.assign(m, { character, colour, lookAt: now });
     this.lastActive = now;
     return { ok: true, changed: true, ...(unfaded ? { unfaded: true } : {}) };
@@ -2702,7 +2816,7 @@ export class LobbyCore {
       game: a.kind === "game" ? this.gameView() : null,
       boxes: this.boxes,
       members: this.members.map((m) =>
-        m ? { seat: m.seat, name: m.name, colour: m.colour, character: m.character, connected: m.connected, ...(m.connected && m.away ? { away: true } : {}), x: Math.round(posAt(m, now)), d: m.d, rev: m.rev, points: m.points, ...this.bumpView(m, now), emoteCool: Math.round(emoteLeft(m.emoteAt, now)) } : null,
+        m ? { seat: m.seat, name: m.name, colour: m.colour, character: m.character, connected: m.connected, ...(m.connected && m.away ? { away: true } : {}), x: Math.round(posAt(m, now)), d: m.d, ...this.easingView(m, now), rev: m.rev, points: m.points, ...this.bumpView(m, now), emoteCool: Math.round(emoteLeft(m.emoteAt, now)) } : null,
       ),
       screens: this.screensConnected(),
       vote: this.voteView(now),
@@ -2776,6 +2890,12 @@ export class LobbyCore {
    * again (`fadeCool`), for a page that arrives in the middle. A scare or a spook (`fright`) in
    * place of a knock, and how long until the piece may be spooked again (`spooked`).
    */
+  /** A floaty piece still easing (shared/world.js): how fast it goes now, `v`, for a page that carries it on from this view. */
+  easingView(m, now) {
+    const v = velAt(m, now);
+    return v !== m.d ? { v: Math.round(v * 100) / 100 } : {};
+  }
+
   bumpView(m, now) {
     const faded = this.faded(m, now) ? m.fadedUntil - now : 0;
     const move = moveOf(m.character);
@@ -2799,6 +2919,10 @@ export class LobbyCore {
       ...(hard > 0 ? { hard } : {}),
       ...(soft > 0 ? { soft } : {}),
       ...(m.hook ? { hook: { in: now - m.hook.at, f: m.hook.dir } } : {}),
+      // A pawn charging its kick: how long since the press (shared/bump.js, chargePose).
+      ...(this.floorTime() && this.charging(m, now) ? { charge: now - m.chargeAt + CHARGE_MIN_MS } : {}),
+      // Knocked by a charged kick's bounce: down this much longer than a knock (shared/bump.js, knocked).
+      ...((m.knockExtra ?? 0) > 0 && (m.immuneUntil ?? 0) > now && !m.fright ? { ke: m.knockExtra } : {}),
     };
     return {
       ...moves,
@@ -2919,7 +3043,7 @@ export class LobbyCore {
     room.pin = data.pin;
     // Nobody is connected until their socket is seen again; a piece left mid-stride stands still.
     // A member saved before characters is a pawn in its seat's colour; a character or colour this room does not know is read the same way.
-    room.members = data.members.slice(0, TABLE_MAX_PLAYERS).map((m) => (m ? { ...m, character: characterOr(m.character), colour: cleanColour(m.colour) ?? seatColour(m.seat), x: m.d ? posAt(m, now) : m.x, d: 0, t: now, connected: false, away: false, droppedAt: m.droppedAt ?? now, bumpAt: -Infinity } : null));
+    room.members = data.members.slice(0, TABLE_MAX_PLAYERS).map((m) => (m ? { ...m, character: characterOr(m.character), colour: cleanColour(m.colour) ?? seatColour(m.seat), x: m.d || m.vt === m.t ? posAt({ ...m, character: characterOr(m.character) }, now) : m.x, d: 0, t: now, vt: null, chargeAt: null, connected: false, away: false, droppedAt: m.droppedAt ?? now, bumpAt: -Infinity } : null));
     // One screen at most. A screen that had dropped before the room slept keeps the moment it
     // dropped, so its grace runs on through the sleep; one that was connected is seen again by
     // its socket (resume). A room saved before screens had a grace kept bare tokens.
