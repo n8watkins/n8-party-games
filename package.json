@@ -83,18 +83,18 @@
     "hooks": "git config core.hooksPath .githooks"
   },
   "dependencies": {
-    "es-module-lexer": "3.0.4",
+    "es-module-lexer": "3.0.5",
     "lean-qr": "^2.7.4"
   },
   "devDependencies": {
     "cork-and-bell": "github:n8watkins/cork-and-bell#32a420b8c1538a82e175f8f318389050c38ad387",
-    "playwright": "^1.64.1",
+    "playwright": "^1.65.1",
     "release-kit": "github:n8watkins/release-kit#v2.10.1",
     "sharp": "^0.35.5",
-    "three": "^0.186.1",
+    "three": "^0.187.0",
     "tin-derby": "file:floor/games/tin-derby",
     "vitest": "5.1",
-    "wrangler": "^4.157.0"
+    "wrangler": "^4.165.0"
   },
   "allowScripts": {
     "esbuild@0.28.2": true,
