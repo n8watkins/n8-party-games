@@ -354,25 +354,35 @@ try {
       // piece that never got there fails here, by name, instead of in whatever the section checks next.
       const giveUp = Date.now() + 45_000;
       let gap = x - (await where())[s].x;
-      for (let walks = 0; walks < 16 && Math.abs(gap) >= near && Date.now() < giveUp; ) {
-        const key = gap > 0 ? "ArrowRight" : "ArrowLeft";
-        await page.keyboard.down(key);
-        await sleep(Math.max(25, Math.min(900, ((Math.abs(gap) - near / 3) / 430) * 1000)));
-        await page.keyboard.up(key);
-        await sleep(260);
-        const left = x - (await where())[s].x;
-        if (left !== gap) walks++;
-        gap = left;
-      }
-      if (Math.abs(gap) >= near) check(false, `setup: seat ${s}'s piece was walked to ${x} by its keys (it is ${Math.round(gap)} short)`);
-      if (face) {
+      // Turned toward `face` at the end, and walked again if the turn itself carried it off: on a busy
+      // page the tap's key-up can come late, and a pawn (the fastest piece) once walked on 100 units,
+      // past the slime it was set to kick ("Pat's kick bounces off ... Pat 1019, Sam 989").
+      for (let turns = 0; turns < 3; turns++) {
+        for (let walks = 0; walks < 16 && Math.abs(gap) >= near && Date.now() < giveUp; ) {
+          const key = gap > 0 ? "ArrowRight" : "ArrowLeft";
+          await page.keyboard.down(key);
+          await sleep(Math.max(25, Math.min(900, ((Math.abs(gap) - near / 3) / 430) * 1000)));
+          await page.keyboard.up(key);
+          await sleep(260);
+          const left = x - (await where())[s].x;
+          if (left !== gap) walks++;
+          gap = left;
+        }
+        if (!face || Math.abs(gap) >= near) break;
         // A tap the other way first would walk it off: a tap toward `face` turns it there, a step at most.
         // Held past the page's send gap (60 ms), so the turn reaches the room.
         await page.keyboard.down(face > 0 ? "ArrowRight" : "ArrowLeft");
         await sleep(75);
         await page.keyboard.up(face > 0 ? "ArrowRight" : "ArrowLeft");
         await sleep(250);
+        gap = x - (await where())[s].x;
+        // (The tap's own step, up to about 40 units at the pawn's speed, is allowed.)
+        if (Math.abs(gap) < near + 45) {
+          gap = 0;
+          break;
+        }
       }
+      if (Math.abs(gap) >= near) check(false, `setup: seat ${s}'s piece was walked to ${x} by its keys${face ? " and turned" : ""} (it is ${Math.round(gap)} short)`);
     };
     const after = (test, ms = 3000, from = ada.seen.length) => ada.wait(test, ms, from).catch(() => null);
     /**
