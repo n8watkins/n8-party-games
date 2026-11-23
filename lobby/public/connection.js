@@ -6,7 +6,10 @@
 //     fades after DROP_FADE_MS, the seat is kept for SEAT_HOLD_MS).
 //   - Except during a turn-based game (`room.game.turns`, a match of people talking): there a
 //     hidden page is away, not gone. It keeps its socket, tells the room it is away, and says it
-//     is back when it is shown, so the game may pause its turn timer and nobody's grace runs down.
+//     is back when it is shown, so the game may pause its turn timer. While the game needs that
+//     seat (`game.needs`: Who Am I?'s guesser on their turn) its grace runs meanwhile, as a
+//     dropped phone's does: hidden for the whole of it, the player forfeits (lobby-core.js,
+//     trackClocks), everyone else is shown the time left, and the player, back, how much was left.
 //     If the socket died while the page was hidden (the phone suspended it, the signal went),
 //     the page reconnects the moment it is shown and takes its seat back; the room took the gap
 //     for a drop, with the game's own grace.
@@ -51,6 +54,147 @@ export function awayLine(names) {
   if (!names.length) return "";
   const who = names.length === 1 ? names[0] : `${names.slice(0, -1).join(", ")} and ${names.at(-1)}`;
   return `${who} ${names.length === 1 ? "is" : "are"} away`;
+}
+
+/** The time left as the page shows it: "0:45", "1:00", rounded up to the second, never below "0:00". */
+export function clockText(ms) {
+  const s = Math.max(0, Math.ceil(ms / 1000));
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+}
+
+/** The Table's away note in its two parts, as the page lays it out on two lines: `who` ("Bo is away") and `left` ("back within 0:45 or the match ends", or ""). */
+export function awayParts(names, leftMs = null) {
+  return { who: awayLine(names), left: names.length && leftMs !== null ? `back within ${clockText(leftMs)} or the match ends` : "" };
+}
+
+/**
+ * What a player's own page says when it is shown again after an absence that ran their clock
+ * (`awaySpare` on their member): the time they have left, plainly, in two lines, as the away note.
+ * The hidden player cannot see the countdown the others see: this is where they learn it.
+ */
+export function backParts(spareMs) {
+  const left = clockText(spareMs);
+  return { who: `You're back, with ${left} to spare`, left: `Hidden on your turn for ${left} more, you forfeit. Time comes back while this page is shown.` };
+}
+
+/** How long a returning page at the Table says how close it came (party/public/away.js). */
+export const BACK_NOTE_MS = 6000;
+
+/**
+ * At the Table: the other members of the game being played whose page is hidden or whose grace is
+ * running, as this device (`you`) should see them: never itself, and only the game's seats.
+ */
+export function awayAtTable(room, you) {
+  if (room?.phase !== "playing" || !room.game) return [];
+  const seats = Array.isArray(room.game.seats) ? room.game.seats : [];
+  return room.members.filter((m) => m && seats.includes(m.seat) && (m.away || typeof m.awayIn === "number") && !(you?.role === "player" && m.seat === you.seat));
+}
+
+/**
+ * What the Table's away note says now (party/public/away.js): `{kind, who, left, dots}` ("back"
+ * for this player's own return, "away" for others), or null for nothing. `seenAt` is when `room`
+ * arrived, on the clock of `now`; `back` is `{spare, until}` while this player's return is told.
+ */
+export function awayNote(room, you, seenAt, now, back = null) {
+  if (back && now < back.until) return { kind: "back", ...backParts(back.spare), dots: [] };
+  const away = awayAtTable(room, you);
+  if (!away.length) return null;
+  const { who, left } = awayParts(
+    away.map((m) => m.name),
+    awayLeft(away, seenAt, now),
+  );
+  return { kind: "away", who, left, dots: away.map((m) => m.colour) };
+}
+
+/**
+ * The time left before the first of these members runs out, in ms, counted down from when the
+ * room view that said so arrived (`seenAt`, on the same clock as `now`), or null when none of them
+ * has a limit. The room's word, not this page's guess: every room view carries it afresh.
+ */
+export function awayLeft(members, seenAt, now) {
+  const limits = members.map((m) => m.awayIn).filter((ms) => typeof ms === "number");
+  return limits.length ? Math.max(0, Math.min(...limits) - (now - seenAt)) : null;
+}
+
+/**
+ * Whether a room view answers this player's return (the "You're back" note waits for it): the
+ * room has heard the page is shown (its member is connected and not away) and runs no clock for
+ * it. A view sent before the room heard "back" still says away, and is not the answer.
+ */
+export function returnHeard(member) {
+  return !!member?.connected && !member.away && typeof member.awayIn !== "number";
+}
+
+/**
+ * Keeps a Table player's screen awake while they play a turn-based game: a phone left on the
+ * table mid-conversation must not lock itself and be taken for hidden. With no browser in it: the
+ * caller says when the room changed and when the page is shown or tapped.
+ *   - Wanted while the room plays a turn-based game this player is in; let go when it ends.
+ *   - Taken again when the page is shown (a browser lets a lock go when the page is hidden) and on
+ *     a tap (some browsers need one first). Let go by the browser while showing (low battery), it
+ *     is asked for again.
+ *   - When the page cannot hold one (no `wakeLock`, refused, low-power mode) it tells the room
+ *     (`link.setWake(false)`), and the room then never charges this seat for being hidden, only for
+ *     a dropped phone; once it holds one it says so (`setWake(true)`).
+ */
+export class WakeKeeper {
+  /**
+   * @param {{setWake: (held: boolean) => boolean, you: object | null}} link
+   * @param {{wakeLock?: {request: (type: string) => Promise<any>} | null, hidden?: () => boolean}} opts
+   */
+  constructor(link, { wakeLock = null, hidden = () => false } = {}) {
+    this.link = link;
+    this.wakeLock = wakeLock;
+    this.hidden = hidden;
+    this.want = false;
+    this.lock = null;
+    this.asking = null;
+  }
+
+  /** The room view: a lock is wanted while this player plays a turn-based game. */
+  room(room) {
+    const you = this.link.you;
+    const want = turnBased(room) && you?.role === "player" && Array.isArray(room.game.seats) && room.game.seats.includes(you.seat);
+    if (want === this.want) return null;
+    this.want = want;
+    if (want) return this.take();
+    const lock = this.lock;
+    this.lock = null;
+    lock?.release?.()?.catch?.(() => {});
+    return null;
+  }
+
+  /** The page is shown again, or tapped: the lock is taken if it is wanted and not held. */
+  shown() {
+    return this.take();
+  }
+
+  take() {
+    if (!this.want || this.lock || this.asking || this.hidden()) return this.asking;
+    if (!this.wakeLock?.request) {
+      this.link.setWake(false);
+      return null;
+    }
+    this.asking = (async () => {
+      try {
+        const lock = await this.wakeLock.request("screen");
+        if (!this.want) return void lock?.release?.()?.catch?.(() => {});
+        this.lock = lock;
+        lock?.addEventListener?.("release", () => {
+          if (this.lock !== lock) return;
+          this.lock = null;
+          // Let go while showing (low battery, the system's own say): asked for again, or said it cannot.
+          if (this.want && !this.hidden()) queueMicrotask(() => void this.take());
+        });
+        this.link.setWake(true);
+      } catch {
+        this.link.setWake(false);
+      } finally {
+        this.asking = null;
+      }
+    })();
+    return this.asking;
+  }
 }
 
 /**

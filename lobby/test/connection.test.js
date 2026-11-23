@@ -6,7 +6,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { PartyClient } from "../../party-kit/client/party-client.js";
 import { FakeWebSocket } from "../../party-kit/test/fake-browser-socket.js";
-import { ConnectionWatch, DEAD_AFTER_MS, KEEP_ALIVE_MS, awayLine, turnBased, whenHidden } from "../public/connection.js";
+import { BACK_NOTE_MS, ConnectionWatch, DEAD_AFTER_MS, KEEP_ALIVE_MS, WakeKeeper, awayLeft, awayLine, awayNote, awayParts, backParts, clockText, returnHeard, turnBased, whenHidden } from "../public/connection.js";
 
 const lobby = { phase: "lobby", game: null, members: [] };
 const turns = { phase: "playing", game: { id: "who-am-i", name: "Who Am I?", round: 1, turns: true }, members: [] };
@@ -271,5 +271,162 @@ describe("awayLine", () => {
     expect(awayLine(["Bo"])).toBe("Bo is away");
     expect(awayLine(["Bo", "Cy"])).toBe("Bo and Cy are away");
     expect(awayLine(["Ann", "Bo", "Cy"])).toBe("Ann, Bo and Cy are away");
+  });
+
+  it("at the Table, with the room's time left, says on a second line what happens then", () => {
+    expect(awayParts(["Bo"], 45_000)).toEqual({ who: "Bo is away", left: "back within 0:45 or the match ends" });
+    expect(awayParts(["Bo", "Cy"], 60_000)).toEqual({ who: "Bo and Cy are away", left: "back within 1:00 or the match ends" });
+    expect(awayParts(["Bo"])).toEqual({ who: "Bo is away", left: "" });
+    expect(awayParts([], 1000)).toEqual({ who: "", left: "" });
+  });
+});
+
+describe("the time left on the away note", () => {
+  it("is shown to the second, rounded up, and never below 0:00", () => {
+    expect(clockText(60_000)).toBe("1:00");
+    expect(clockText(44_001)).toBe("0:45");
+    expect(clockText(9_000)).toBe("0:09");
+    expect(clockText(0)).toBe("0:00");
+    expect(clockText(-5_000)).toBe("0:00");
+  });
+
+  it("counts down from when the room view came, from the first of them to run out", () => {
+    const members = [{ awayIn: 30_000 }, { awayIn: 12_000 }, {}];
+    expect(awayLeft(members, 1000, 1000)).toBe(12_000);
+    expect(awayLeft(members, 1000, 6000)).toBe(7_000);
+    expect(awayLeft(members, 1000, 60_000)).toBe(0);
+    // An endless grace sends no time: the note says only who is away.
+    expect(awayLeft([{ away: true }], 0, 0)).toBeNull();
+  });
+
+  it("takes only a room view sent after the room heard the page is back as the answer to its return", () => {
+    expect(returnHeard({ connected: true, awaySpare: 28_000 })).toBe(true);
+    expect(returnHeard({ connected: true })).toBe(true);
+    // Sent before the room heard "back": still away (a held clock has no awayIn), or still counting.
+    expect(returnHeard({ connected: true, away: true })).toBe(false);
+    expect(returnHeard({ connected: true, away: true, awayIn: 30_000 })).toBe(false);
+    expect(returnHeard({ connected: false })).toBe(false);
+    expect(returnHeard(null)).toBe(false);
+  });
+});
+
+describe("the Table's screen wake lock (WakeKeeper)", () => {
+  const playing = (seats = [0, 1]) => ({ phase: "playing", game: { id: "who-am-i", turns: true, seats }, members: [] });
+  const fakeLink = () => {
+    const said = [];
+    return { said, you: { role: "player", seat: 0 }, setWake: (held) => said.push(held) };
+  };
+  /** A wake lock API: `grant` decides each request; locks can be let go as the browser would. */
+  const fakeWakeLock = (grant = () => true) => {
+    const locks = [];
+    return {
+      locks,
+      request: async () => {
+        if (!grant()) throw new Error("NotAllowedError");
+        const handlers = [];
+        const lock = { released: false, addEventListener: (_, fn) => handlers.push(fn), release: async () => (lock.released = true), drop: () => handlers.forEach((fn) => fn()) };
+        locks.push(lock);
+        return lock;
+      },
+    };
+  };
+
+  it("holds a lock while this player plays a turn-based game, says so, and lets it go when the game ends", async () => {
+    const link = fakeLink();
+    const api = fakeWakeLock();
+    const keeper = new WakeKeeper(link, { wakeLock: api });
+    await keeper.room(lobby);
+    expect(api.locks).toEqual([]);
+    await keeper.room(playing());
+    expect(api.locks).toHaveLength(1);
+    expect(link.said).toEqual([true]);
+    await keeper.room(playing());
+    expect(api.locks).toHaveLength(1);
+    await keeper.room(lobby);
+    expect(api.locks[0].released).toBe(true);
+  });
+
+  it("wants none for a member who is not playing, the big screen, or a ticking game", async () => {
+    const api = fakeWakeLock();
+    const watcher = fakeLink();
+    await new WakeKeeper(watcher, { wakeLock: api }).room(playing([1, 2]));
+    const screen = { ...fakeLink(), you: { role: "screen", seat: -1 } };
+    await new WakeKeeper(screen, { wakeLock: api }).room(playing());
+    await new WakeKeeper(fakeLink(), { wakeLock: api }).room({ phase: "playing", game: { id: "cork", turns: false, seats: [0] }, members: [] });
+    expect(api.locks).toEqual([]);
+  });
+
+  it("a page that cannot hold one tells the room, and says so again once a tap gets it one", async () => {
+    const link = fakeLink();
+    let allowed = false;
+    const keeper = new WakeKeeper(link, { wakeLock: fakeWakeLock(() => allowed) });
+    await keeper.room(playing());
+    expect(link.said).toEqual([false]);
+    allowed = true;
+    await keeper.shown();
+    expect(link.said).toEqual([false, true]);
+    // A browser with no wake lock at all says it cannot, at once.
+    const bare = fakeLink();
+    await new WakeKeeper(bare, { wakeLock: null }).room(playing());
+    expect(bare.said).toEqual([false]);
+  });
+
+  it("takes the lock again when the page is shown after the browser let it go on hiding, and asks again when it is let go while showing", async () => {
+    const link = fakeLink();
+    const api = fakeWakeLock();
+    let hidden = false;
+    const keeper = new WakeKeeper(link, { wakeLock: api, hidden: () => hidden });
+    await keeper.room(playing());
+    // Hidden: the browser lets it go; nothing is asked while hidden.
+    hidden = true;
+    api.locks[0].drop();
+    await Promise.resolve();
+    expect(api.locks).toHaveLength(1);
+    await keeper.shown();
+    expect(api.locks).toHaveLength(1);
+    hidden = false;
+    await keeper.shown();
+    expect(api.locks).toHaveLength(2);
+    // Let go while showing (low battery): asked for again.
+    api.locks[1].drop();
+    await vi.advanceTimersByTimeAsync(0);
+    await keeper.asking;
+    expect(api.locks).toHaveLength(3);
+  });
+});
+
+describe("the Table's away note", () => {
+  const room = (members, seats = [0, 1]) => ({ phase: "playing", game: { id: "who-am-i", turns: true, seats }, members });
+  const ann = { seat: 0, name: "Ann", colour: "#a00", connected: true };
+  const bo = { seat: 1, name: "Bo", colour: "#0a0", connected: true };
+
+  it("says nothing when nobody in the game is away, and nothing outside a game", () => {
+    expect(awayNote(room([ann, bo]), { role: "player", seat: 0 }, 0, 0)).toBeNull();
+    expect(awayNote({ phase: "lobby", game: null, members: [ann, { ...bo, away: true }] }, { role: "player", seat: 0 }, 0, 0)).toBeNull();
+  });
+
+  it("names the other player who is away, with no time while the room runs no clock for them (not their turn)", () => {
+    expect(awayNote(room([ann, { ...bo, away: true }]), { role: "player", seat: 0 }, 0, 0)).toEqual({ kind: "away", who: "Bo is away", left: "", dots: ["#0a0"] });
+  });
+
+  it("counts the room's time down on the phones and the big screen alike", () => {
+    const r = room([ann, { ...bo, away: true, awayIn: 105_000 }]);
+    const note = (you, now) => awayNote(r, you, 1000, now);
+    expect(note({ role: "player", seat: 0 }, 1000)).toMatchObject({ who: "Bo is away", left: "back within 1:45 or the match ends" });
+    expect(note({ role: "screen", seat: -1 }, 61_000)).toMatchObject({ left: "back within 0:45 or the match ends" });
+    expect(note({ role: "screen", seat: -1 }, 500_000)).toMatchObject({ left: "back within 0:00 or the match ends" });
+    // Never about oneself, and never about a member who is not in the game.
+    expect(note({ role: "player", seat: 1 }, 1000)).toBeNull();
+    expect(awayNote(room([ann, { ...bo, away: true }], [0]), { role: "player", seat: 0 }, 0, 0)).toBeNull();
+    // A seat whose phone dropped mid-match while its clock runs is listed too.
+    expect(awayNote(room([ann, { ...bo, connected: false, awayIn: 5000 }]), { role: "screen", seat: -1 }, 0, 0)).toMatchObject({ who: "Bo is away", left: "back within 0:05 or the match ends" });
+  });
+
+  it("tells the player who came back how close it was, for a few seconds", () => {
+    const r = room([ann, bo]);
+    const back = { spare: 28_000, until: 1000 + BACK_NOTE_MS };
+    expect(awayNote(r, { role: "player", seat: 0 }, 1000, 1000, back)).toEqual({ kind: "back", who: "You're back, with 0:28 to spare", left: "Hidden on your turn for 0:28 more, you forfeit. Time comes back while this page is shown.", dots: [] });
+    expect(awayNote(r, { role: "player", seat: 0 }, 1000, 1000 + BACK_NOTE_MS, back)).toBeNull();
+    expect(backParts(119_500).who).toBe("You're back, with 2:00 to spare");
   });
 });

@@ -65,7 +65,7 @@ async function resolveRoom(env, value) {
  *   POST /api/party/join/:pinOrCode    {nickname, as?}                                   -> {code, pin, token, seat, role}
  *   GET  /api/party/rooms/:code/ws[?lag=ms]                                              WebSocket; its first message is {t: "hello", token}
  *   GET  /api/party/qr.svg?text=<this site's join link>                                  a QR code as SVG
- *   GET  /api/party/config                                                               {publicOrigin, simLatency, testGames, turnstileSiteKey}
+ *   GET  /api/party/config                                                               {publicOrigin, simLatency, testGames, testAwayGraceMs, turnstileSiteKey}
  *   GET  /api/party/scores/:game                                                         -> {top: [{name, score, at}]}
  *   POST /api/party/scores/:game       {name: "ABC", seed, ...what scoreRun reads}       -> {top, place, score}  (a game with scoreRun)
  *   POST /api/party/scores/:game       {name: "ABC", score}                              -> {top, place}  (a game without)
@@ -106,6 +106,9 @@ async function route(request, env, url, options) {
       // The server's test games and test switches are on (a local test server, never production):
       // a game's page may then honour its own test switches, such as a bot playing a seat.
       testGames: env.PARTY_TEST_GAMES === "on",
+      // A shorter away clock for the browser tests (lobby/server/lobby-room.js, testAwayGrace): read
+      // only where PARTY_DEBUG is on, a test server, never production. Null otherwise.
+      testAwayGraceMs: env.PARTY_DEBUG === "on" && Number(env.PARTY_TEST_AWAY_GRACE_MS) > 0 ? Number(env.PARTY_TEST_AWAY_GRACE_MS) : null,
       // The widget only appears when the server will also check its token.
       turnstileSiteKey: botCheckEnabled(env) && env.TURNSTILE_SITE_KEY ? env.TURNSTILE_SITE_KEY : null,
     }, 200, { "Cache-Control": CONFIG_CACHE });

@@ -906,6 +906,28 @@ export function decided(state) {
 }
 
 /**
+ * Whether the match is waiting on this seat right now. Through the Table's adapter the room then
+ * runs that seat's grace while its page is hidden, and a player hidden for the whole of it
+ * forfeits (`leave`). The match waits on:
+ *   - the guesser whose turn it is, while they ask (not while their guess waits to be confirmed);
+ *   - in trade turns, the other player while a question typed in the app waits for their
+ *     answer: until they answer, the guesser can neither guess nor pass (`question_waiting`).
+ *     In keep-going turns the guesser can still guess, give up, take hints and ask out loud, so
+ *     a typed question waits on nobody (and the guesser cannot make the other player needed).
+ * Nobody else: the player waiting answers spoken questions out loud, a guess they do not confirm
+ * is covered by `selfConfirm` and `confirmLapse`, and the setup, the reveal and watchers wait on
+ * nobody.
+ */
+export function needs(state, seat) {
+  const t = state.turn;
+  if (state.phase !== "playing" || t?.phase !== "asking") return false;
+  const p = playerOf(state, seat);
+  if (!p || p.left) return false;
+  if (t.seat === seat) return true;
+  return isTrade(state) && pendingQuestion(t) && state.round.order.includes(seat);
+}
+
+/**
  * The final rows, best first: seat, score, correct, skips, hints, place, left. A player who forfeits
  * (left a match not yet decided) has no place, and the one who stayed is first whatever the score.
  * Ties share a place. A match that ended before it began has no rows. Readable mid-match.

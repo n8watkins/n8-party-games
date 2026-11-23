@@ -63,6 +63,17 @@ const CLOSE_REASONS = { empty: "room_closed", stale: "room_idle", expired: "room
  *   point (release-points.js), so an older page can load the new build. Without one the room says
  *   nothing about builds.
  */
+/**
+ * A shorter grace for a seat's away clock (LobbyCore.clockGrace), in ms, so the browser tests need
+ * not wait out two real minutes: PARTY_TEST_AWAY_GRACE_MS, read only where PARTY_DEBUG is "on" (a
+ * local test server, never production). Null otherwise. A dropped phone's grace is never shortened.
+ */
+export function testAwayGrace(env) {
+  if (env?.PARTY_DEBUG !== "on") return null;
+  const ms = Number(env.PARTY_TEST_AWAY_GRACE_MS);
+  return Number.isFinite(ms) && ms > 0 ? ms : null;
+}
+
 export function createLobbyRoom(wallFor, { release = null } = {}) {
   return class LobbyRoom extends DurableObject {
     constructor(ctx, env) {
@@ -94,6 +105,7 @@ export function createLobbyRoom(wallFor, { release = null } = {}) {
           return;
         }
         this.core = LobbyCore.restore(wall, saved, this.wokeAt);
+        this.core.awayGraceMs = testAwayGrace(env);
         this.alarmAt = await ctx.storage.getAlarm();
         // Waking from sleep: the sockets are still open, so their owners are still here, and each
         // socket carried its piece and what it owes the budget through the sleep.
@@ -127,6 +139,7 @@ export function createLobbyRoom(wallFor, { release = null } = {}) {
       if (this.core) return { ok: false, error: "exists", message: "Room code already in use." };
       const now = Date.now();
       const core = new LobbyCore({ ...this.wall, seed: newSeed(), code, now });
+      core.awayGraceMs = testAwayGrace(this.env);
       const joined = as === "screen" ? core.watch(now) : core.join(nickname, now);
       if (!joined.ok) return joined;
       this.core = core;
@@ -394,6 +407,8 @@ export function createLobbyRoom(wallFor, { release = null } = {}) {
         case "away":
         case "back":
           return this.presence(entry, msg, now);
+        case "wake":
+          return this.wake(entry, msg, now);
         case "release?":
           return this.answerRelease(entry, now);
         case "in": {
@@ -694,15 +709,40 @@ export function createLobbyRoom(wallFor, { release = null } = {}) {
       if (entry.kept.away === away) return;
       entry.kept.away = away;
       entry.ws.serializeAttachment(entry.kept);
-      if (!this.syncAway(entry.token)) return;
+      if (!this.syncAway(entry.token, now)) return;
       this.broadcastRoom(now);
+      // In a turn-based game the seat's grace now runs (or stops): its end is a wake-up, so a
+      // hidden page is given up on at the limit even when nothing else happens in the room. Shown
+      // again, that wake-up is taken back, however far off it was.
+      this.arm(now, { exact: !away });
       void this.upkeep(now);
     }
 
-    /** Works out whether a token is away from all its open sockets. Returns whether that changed. */
-    syncAway(token) {
-      const mine = [...this.sockets.values()].filter((e) => e.token === token).map((e) => ({ away: !!e.kept.away }));
-      return this.core?.setAway(token, allAway(mine)) ?? false;
+    /**
+     * A page says whether it can keep its screen awake (`{ t: "wake", ok }`, the Table's page during
+     * a turn-based game). One that cannot is never charged for being hidden (LobbyCore.setWake).
+     */
+    wake(entry, msg, now) {
+      if (entry.role !== "player" || typeof msg.ok !== "boolean") return;
+      const noWake = !msg.ok;
+      if (!!entry.kept.noWake === noWake) return;
+      entry.kept.noWake = noWake;
+      entry.ws.serializeAttachment(entry.kept);
+      if (!this.syncAway(entry.token, now)) return;
+      this.broadcastRoom(now);
+      this.arm(now, { exact: noWake });
+      void this.upkeep(now);
+    }
+
+    /**
+     * Works out from a token's open sockets whether it is away (every one hidden) and whether it
+     * cannot keep its screen awake (any one says so). Returns whether either changed.
+     */
+    syncAway(token, now = Date.now()) {
+      const mine = [...this.sockets.values()].filter((e) => e.token === token);
+      const away = this.core?.setAway(token, allAway(mine.map((e) => ({ away: !!e.kept.away }))), now) ?? false;
+      const wake = this.core?.setWake(token, mine.some((e) => !!e.kept.noWake), now) ?? false;
+      return away || wake;
     }
 
     /**
@@ -804,13 +844,11 @@ export function createLobbyRoom(wallFor, { release = null } = {}) {
         const away = this.awayInTurnGame(entry);
         if (now - heard < (away ? this.awayLimit() : SILENT_MS)) continue;
         this.drop(ws, entry, 1001, "silent");
-        if (!this.isConnected(entry.token)) {
-          this.core.disconnect(entry.token, now);
-          // An away phone was already given the grace while silent: its drop dates from its last
-          // sign of life, so the seat is held one grace in all, and is gone at once if that is past.
-          const m = this.core.members[entry.seat];
-          if (away && m && !m.connected && m.droppedAt > heard) m.droppedAt = heard;
-        } else this.syncAway(entry.token);
+        // An away phone was already given the grace while silent: its drop dates from its last sign
+        // of life (its grace and its clock both), so the seat is held one grace in all, and is gone
+        // at once if that is past.
+        if (!this.isConnected(entry.token)) this.core.disconnect(entry.token, now, away ? heard : now);
+        else this.syncAway(entry.token);
         this.broadcastRoom(now);
         reaped = true;
       }
@@ -886,13 +924,16 @@ export function createLobbyRoom(wallFor, { release = null } = {}) {
      *     billed request.
      *   - The slow "forgotten room" check creeps later with every message and is left alone:
      *     it rings early once in twenty minutes, finds nothing to do and is set again.
+     *   - `exact`: the alarm is set to the next wake-up whichever way it moved. For a page shown
+     *     again in a turn-based game: its grace's end, perhaps a minute off, is no longer wanted,
+     *     and the page says so once, not with every message.
      */
-    arm(now) {
+    arm(now, { exact = false } = {}) {
       const wake = this.core?.nextWake(now) ?? null;
       if (wake === null) return;
       const armed = this.alarmAt !== null && this.alarmAt > now ? this.alarmAt : null;
       const sooner = armed === null || wake < armed - 5;
-      const unwanted = armed !== null && armed - now < SHORT_FUSE_MS && wake > armed + 1000;
+      const unwanted = armed !== null && (exact || armed - now < SHORT_FUSE_MS) && wake > armed + 1000;
       if (!sooner && !unwanted) return;
       this.alarmAt = wake;
       void this.ctx.storage.setAlarm(wake);
@@ -1038,6 +1079,9 @@ export function createLobbyRoom(wallFor, { release = null } = {}) {
       // reason when it puts the game away.
       if (out.ended) this.tellNotes();
       this.sendGame(out, now);
+      // A hidden seat's clock started or stopped with the turn: the room view says so (`awayIn`),
+      // unless it has just gone out for another reason (upkeep).
+      if (out.clocks && !out.room && !out.ended) this.broadcastRoom(now);
       if (out.ended) {
         this.finish(out.ended, now);
         this.changed(now);

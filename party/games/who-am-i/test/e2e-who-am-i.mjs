@@ -1,6 +1,6 @@
 // End to end, in real pages (headless and muted): Who Am I? at the Table.
 //
-//   node party/games/who-am-i/test/e2e-who-am-i.mjs [--base=http://localhost:8791] [--out=<folder for stills>] [--only=1,2,3]
+//   node party/games/who-am-i/test/e2e-who-am-i.mjs [--base=http://localhost:8791] [--out=<folder for stills>] [--only=1,2,4,3]
 //
 // One party plays three whole matches through real browsers:
 //   1. Ann and Bo alone, first to 3, trade turns: typed questions (one of them markup), every
@@ -11,6 +11,17 @@
 //   2. Ann and Bo again, five rounds, keep going, with the big screen on, and Cy and Di arriving
 //      mid-match: they watch. Questions counted out loud, a give-up, and every phase at 320x568,
 //      390x844, 844x390, 1280x720 and 1920x1080 (the big screen at the last two).
+//   4. (run before 3) The away timer, with the big screen: the player waiting hides their page
+//      (no time shown, nothing lost); the guesser's phone refuses its screen wake lock (low-power
+//      mode) and hides on its own turn (named, no time), then its connection drops (now the clock
+//      runs, with a dropped phone's full grace) and it comes back; the guesser hides on their own
+//      turn for the stills (the countdown at 320x568, 844x390, 390x844, 1280x720 and 1920x1080, and
+//      the "You're back" note), then, timed with nothing slow in it, hides again, everyone counts
+//      down from the whole grace, the guesser comes back at 60% and is told what is left, then
+//      hides for good and forfeits when the rest runs out, on time: "Bo did not come back, so Ann
+//      wins." The grace is the server's (`testAwayGraceMs` in its config: 20 s on the local test
+//      server, so about two minutes in all; two minutes elsewhere). The pages' screen wake lock is
+//      a stand-in, granted unless the test refuses it.
 //   3. Cy and Di leave; Ann and Bo play Clues, and Bo leaves the party mid-round: he forfeits and
 //      Ann is first.
 // Every tap is a real click. Every message any page receives, and after every step each page's
@@ -24,6 +35,7 @@
 import { mkdirSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { launchBrowser } from "../../../../lobby/test/browser.mjs";
+import { BACK_NOTE_MS, clockText } from "../../../../lobby/public/connection.js";
 import { still as takeStill } from "../../../../party-kit/test/stills.mjs";
 import { IDENTITIES } from "../deck.js";
 
@@ -31,7 +43,7 @@ const args = process.argv.slice(2);
 const opt = (k, d) => (args.find((a) => a.startsWith("--" + k + "=")) ?? "--" + k + "=" + d).split("=").slice(1).join("=");
 const base = opt("base", "http://localhost:8791");
 const out = resolve(opt("out", "/tmp/claude-who-am-i-table/stills"));
-const only = new Set(opt("only", "1,2,3").split(",").map(Number));
+const only = new Set(opt("only", "1,2,4,3").split(",").map(Number));
 mkdirSync(out, { recursive: true });
 // This suite's own stills from an earlier run (numbered, so a shorter run would leave old ones beside the new).
 for (const f of readdirSync(out)) if (/^\d\d-.*\.png$/.test(f)) rmSync(resolve(out, f));
@@ -125,6 +137,33 @@ async function open(name, { width = 390, height = 844, screen = false } = {}) {
   await context.route("https://upload.wikimedia.org/**", (route) => {
     pictureRequests.push({ who: name, url: route.request().url(), referer: route.request().headers().referer ?? null });
     route.fulfill({ status: 200, contentType: "image/svg+xml", body: PICTURE });
+  });
+  // A stand-in screen wake lock, let go when the page is hidden as a browser does. A headless
+  // browser may refuse the real one, and a page that cannot hold one is (rightly) never charged
+  // for being hidden, which match 4 must choose, not fall into: `refuseWake(p, true)` makes it
+  // refuse, as a phone in low-power mode does.
+  await context.addInitScript(() => {
+    window.__wake = { refuse: false, locks: [] };
+    const lock = () => {
+      const handlers = [];
+      const l = {
+        released: false,
+        addEventListener: (_, fn) => handlers.push(fn),
+        release: async () => {
+          if (l.released) return;
+          l.released = true;
+          handlers.forEach((fn) => fn());
+        },
+      };
+      document.addEventListener("visibilitychange", () => document.hidden && void l.release());
+      window.__wake.locks.push(l);
+      return l;
+    };
+    const request = async () => {
+      if (window.__wake.refuse) throw new DOMException("Low power", "NotAllowedError");
+      return lock();
+    };
+    Object.defineProperty(navigator, "wakeLock", { configurable: true, value: { request } });
   });
   const page = await context.newPage();
   const p = { name, page, context, seat: null, views: [], view: null, screen, gone: false };
@@ -431,6 +470,18 @@ async function rightGuess(label) {
   await audit(`${label}: the guess confirmed`);
 }
 
+/** The page as the browser shows it when the phone goes to another app or locks (`document.hidden`), and back. */
+async function setHidden(p, hidden) {
+  await p.page.evaluate((on) => {
+    Object.defineProperty(document, "hidden", { configurable: true, get: () => on });
+    Object.defineProperty(document, "visibilityState", { configurable: true, get: () => (on ? "hidden" : "visible") });
+    document.dispatchEvent(new Event("visibilitychange"));
+  }, hidden);
+  await wait(300);
+}
+const hide = (p) => setHidden(p, true);
+const show = (p) => setHidden(p, false);
+
 async function nextRound(p) {
   const label = await p.page.locator(".wa-act .wa-btn").first().textContent();
   await tap(p, label);
@@ -646,6 +697,164 @@ try {
     await leaveParty(di);
   }
 
+  // ---------------------------------------------------------------- match 4: a page hidden, the away timer
+  if (only.has(4)) {
+    if (!tv) tv = await openScreen(pin);
+    // The away clock's grace: two minutes, or a test server's shorter one (PARTY_TEST_AWAY_GRACE_MS,
+    // 20 s in wrangler.jsonc's local environment), as the server says in its config.
+    const AWAY_MS = (await (await fetch(`${base}/api/party/config`)).json()).testAwayGraceMs ?? 120_000;
+    check(AWAY_MS >= 15_000, `the away clock's grace is long enough to look at (${AWAY_MS} ms)`);
+    // No timer and keep-going turns: the guesser's own turn lasts longer than the grace.
+    await pickWhoAmI(ann, [["Turns", "Keep going"], ["Timer", "No timer"]]);
+    await tap(ann, "Start the game");
+    await allAt("playing");
+    await wait(400);
+    let [g, w] = turnPages();
+    const note = (p) =>
+      p.page.evaluate(() => {
+        const el = document.querySelector(".stage .away-note");
+        if (!el || el.hidden) return null;
+        const r = el.getBoundingClientRect();
+        return { kind: el.classList.contains("back") ? "back" : "away", who: el.querySelector(".away-who")?.textContent ?? "", left: el.querySelector(".away-left")?.textContent ?? "", inside: r.left >= 0 && r.right <= innerWidth + 0.5 && document.documentElement.scrollWidth <= innerWidth };
+      });
+    const secondsIn = (text) => {
+      const m = /(\d+):(\d\d)/.exec(text ?? "");
+      return m ? Number(m[1]) * 60 + Number(m[2]) : null;
+    };
+    const waitNote = (p, test, what, timeout = 10000) =>
+      p.page
+        .waitForFunction(test, null, { timeout })
+        .then(() => true)
+        .catch(() => check(false, what));
+
+    // The player waiting hides their page (a text message): "away", but no clock, no time, nothing lost.
+    await hide(w);
+    await waitNote(g, () => /is away$/.test(document.querySelector(".stage .away-note:not([hidden]) .away-who")?.textContent ?? ""), `${w.name} hidden while waiting: ${g.name}'s stage says so`);
+    await wait(5000);
+    for (const p of [g, tv]) {
+      const n = await note(p);
+      check(n?.who === `${w.name} is away` && n.left === "", `${w.name} hidden while waiting: ${p.name} reads "${n?.who}" with no time ("${n?.left}")`);
+    }
+    await show(w);
+    await wait(800);
+    check((await note(w)) === null, `${w.name}, shown again after waiting: nothing to tell (no time was used)`);
+    check((await note(g)) === null, `${w.name} is back: ${g.name}'s note is gone`);
+
+    const counting = () => /back within \d:\d\d or the match ends/.test(document.querySelector(".stage .away-note:not([hidden]) .away-left")?.textContent ?? "");
+    const quiet = () => document.querySelector(".stage .away-note:not([hidden])") === null;
+    /** Waits until the guesser's clock has wound all the way back up (shown as long as it ran) and every note is gone. */
+    const rested = async (ranMs) => {
+      await wait(ranMs + 1000);
+      for (const p of [g, w, tv]) await waitNote(p, quiet, `${p.name}'s away note is gone once ${g.name} is back`, BACK_NOTE_MS + 4000);
+    };
+
+    // A phone that cannot keep its screen awake (low-power mode: its wake lock is refused) is
+    // never charged for its page being hidden, even on its own turn; only a dropped phone counts.
+    await g.page.evaluate(() => {
+      window.__wake.refuse = true;
+      // The browser lets the lock go while the page shows: the page asks again, is refused, and says so.
+      for (const l of window.__wake.locks) void l.release();
+    });
+    await wait(500);
+    await hide(g);
+    await waitNote(w, () => /is away$/.test(document.querySelector(".stage .away-note:not([hidden]) .away-who")?.textContent ?? ""), `${g.name}, who cannot keep awake, hidden on their turn: ${w.name}'s stage says so`);
+    await wait(Math.min(5000, AWAY_MS / 3));
+    for (const p of [w, tv]) {
+      const n = await note(p);
+      check(n?.who === `${g.name} is away` && n.left === "", `${g.name} cannot keep awake and is hidden on their turn: ${p.name} reads "${n?.who}" with no time ("${n?.left}")`);
+    }
+    // Its connection drops (the phone suspends it): now the clock runs, with a dropped phone's full grace.
+    await g.context.setOffline(true);
+    await g.page.evaluate(() => dispatchEvent(new Event("offline")));
+    const droppedAt = Date.now();
+    await waitNote(w, counting, `${g.name}'s phone dropped on their turn: ${w.name}'s stage counts down`);
+    check(secondsIn((await note(w))?.left) > AWAY_MS / 1000 || AWAY_MS >= 120_000, `a dropped phone's grace is never the test server's shorter one ("${(await note(w))?.left}")`);
+    // Back: the connection returns, the page is shown, and it holds its lock again.
+    await g.context.setOffline(false);
+    await g.page.evaluate(() => {
+      window.__wake.refuse = false;
+    });
+    await show(g);
+    await waitNote(w, quiet, `${g.name} is back after the drop: ${w.name}'s countdown is gone`, 15000);
+    await rested(Date.now() - droppedAt);
+
+    // The stills: the guesser hides on their own turn and everyone counts down. Taken in a hide of
+    // their own, so nothing slow sits in the timed part below.
+    const stillsAt = Date.now();
+    await hide(g);
+    await waitNote(w, counting, `${g.name} hidden on their turn: ${w.name}'s stage counts down`);
+    await still(w, "away-countdown-390x844", `${g.name} hid the page on their own turn: ${w.name}'s phone counts down to the forfeit.`);
+    await still(tv, "away-countdown-screen-1280x720", `${g.name} hid the page on their own turn: the big screen counts down too.`);
+    for (const [width, height] of [[320, 568], [844, 390]]) {
+      await w.page.setViewportSize({ width, height });
+      await wait(350);
+      const n = await note(w);
+      check(!!n?.inside, `the away note fits a ${width}x${height} phone with no sideways scroll`);
+      await still(w, `away-countdown-${width}x${height}`, `The away note on a ${width}x${height} phone.`);
+    }
+    await w.page.setViewportSize({ width: 390, height: 844 });
+    await tv.page.setViewportSize({ width: 1920, height: 1080 });
+    await wait(350);
+    check(!!(await note(tv))?.inside, "the away note fits a 1920x1080 big screen");
+    await still(tv, "away-countdown-screen-1920x1080", "The away note on a 1920x1080 big screen.");
+    await tv.page.setViewportSize({ width: 1280, height: 720 });
+    const stillsTook = Date.now() - stillsAt;
+    check(stillsTook < AWAY_MS - 2000 && (await note(w))?.left, `the stills were taken inside the grace (${stillsTook} ms of ${AWAY_MS})`);
+    await show(g);
+    await waitNote(g, () => document.querySelector(".stage .away-note.back:not([hidden])") !== null, `${g.name}, back after the stills: the stage says how much is left`);
+    await still(g, "away-back-390x844", `${g.name} came back: how much of the grace is left, and that it comes back while the page is shown.`);
+    await rested(stillsTook);
+
+    // Timed, with nothing slow in it: the guesser hides on their own turn, everyone counts down
+    // from the whole grace, and at 60% of it they come back and are told how much is left.
+    const hidAt = Date.now();
+    await hide(g);
+    await waitNote(w, counting, `${g.name} hidden on their turn again: ${w.name}'s stage counts down`);
+    const first = await note(w);
+    const graceS = Math.ceil(AWAY_MS / 1000);
+    check(first?.who === `${g.name} is away` && secondsIn(first.left) >= graceS - 4 && secondsIn(first.left) <= graceS, `${w.name} reads "${first?.who}" / "${first?.left}" (from ${graceS} s)`);
+    const firstTv = await note(tv);
+    check(firstTv?.who === `${g.name} is away` && /back within/.test(firstTv.left), `the big screen reads "${firstTv?.who}" / "${firstTv?.left}"`);
+    await wait(2000);
+    const later = await note(w);
+    check(secondsIn(later?.left) <= secondsIn(first.left) - 1, `the countdown runs on ${w.name}'s phone (${first.left} -> ${later?.left})`);
+    const backAt = hidAt + AWAY_MS * 0.6;
+    check(Date.now() < backAt, `the timed part reached its wait before 60% of the grace (${Date.now() - hidAt} ms of ${AWAY_MS})`);
+    await wait(Math.max(0, backAt - Date.now()));
+    const shownAt = Date.now();
+    await show(g);
+    await waitNote(g, () => document.querySelector(".stage .away-note.back:not([hidden])") !== null, `${g.name}, back: the stage says how close it was`);
+    const back = await note(g);
+    const spare = secondsIn(/with (\d+:\d\d) to spare/.exec(back?.who ?? "")?.[1]);
+    const expected = (AWAY_MS - (shownAt - hidAt)) / 1000;
+    check(back?.kind === "back" && spare !== null && Math.abs(spare - expected) <= 2 && back.left.includes(`for ${clockText(spare * 1000)} more, you forfeit`), `${g.name} reads "${back?.who}" / "${back?.left}" (about ${Math.round(expected)} s to spare)`);
+    await wait(1000);
+    check((await note(w)) === null, `${g.name} is back: ${w.name}'s countdown is gone`);
+    await wait(BACK_NOTE_MS);
+    check((await note(g)) === null, `${g.name}'s own note goes after a few seconds`);
+
+    // Hidden again for good: the guesser forfeits when what is left of the grace runs out (it wound
+    // back up while the page was shown), and the other player wins.
+    const hidAgainAt = Date.now();
+    const used = Math.max(0, shownAt - hidAt - (hidAgainAt - shownAt));
+    const endsAt = hidAgainAt + AWAY_MS - used;
+    await hide(g);
+    await waitNote(w, () => document.querySelector(".card:not([hidden]) .card-early") !== null, `${g.name} hidden for the whole grace: ${w.name} gets the card`, AWAY_MS + 30000);
+    const cardAt = Date.now();
+    check(cardAt >= endsAt - 2000 && cardAt <= endsAt + 5000, `the forfeit came when the grace ran out (${((cardAt - hidAgainAt) / 1000).toFixed(1)} s after hiding again; expected about ${((endsAt - hidAgainAt) / 1000).toFixed(1)} s)`);
+    const early = await w.page.locator(".card-early").textContent().catch(() => "");
+    check(early === `${g.name} did not come back, so ${w.name} wins.`, `the card says "${early}"`);
+    const title = await w.page.locator(".card-head h3").textContent().catch(() => "");
+    check(title.includes(`${w.name} won`), `the card's title names ${w.name} ("${title}")`);
+    await still(w, "away-forfeit-390x844", `${g.name} never came back: ${w.name} wins by forfeit.`);
+    await tv.page.waitForSelector(".card:not([hidden]) .card-early", { timeout: 15000 }).catch(() => check(false, "the big screen shows the forfeit card"));
+    // The guesser's page, shown again, is at the Table with the same card: its socket stayed open.
+    await show(g);
+    await g.page.waitForSelector(".card:not([hidden]) .card-early", { timeout: 15000 }).catch(() => check(false, `${g.name}'s page, shown again, has the card`));
+    await audit("after the away forfeit");
+    for (const p of all()) await p.page.click(".card-done").catch(() => {});
+  }
+
   // ---------------------------------------------------------------- match 3: Clues, and a leave
   if (only.has(3)) {
     await pickWhoAmI(ann, [["Mode", "Clues"], ["Hints", "Off"]]);
@@ -673,7 +882,8 @@ try {
   // Every picture asked for came from the page, with no referrer.
   check(pictureRequests.length > 0, `pictures were loaded from upload.wikimedia.org (${pictureRequests.length})`);
   check(pictureRequests.every((r) => r.referer === null), `no picture request carried a referrer${pictureRequests.some((r) => r.referer) ? `: ${pictureRequests.find((r) => r.referer).referer}` : ""}`);
-  check(compared.same >= 4, `a player's screen in the same role was compared across rounds with different own names (${compared.same} times)`);
+  // (Matches 1 and 2 compare them; a run of other matches alone, such as --only=4, compares none.)
+  if (only.has(1) || only.has(2)) check(compared.same >= 4, `a player's screen in the same role was compared across rounds with different own names (${compared.same} times)`);
 } finally {
   await browser.close();
 }
