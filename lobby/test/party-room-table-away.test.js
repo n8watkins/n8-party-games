@@ -282,7 +282,7 @@ describe("Who Am I? at the Table: a question typed in the app waits on the other
 
   it("answered, the other player is not waited on any more: hidden then costs nothing", async () => {
     const r = await party(2);
-    await whoAmIBegun(r, { timer: 0, turnFormat: "keep_going", questions: "app" });
+    await whoAmIBegun(r, { timer: 0, turnFormat: "trade", questions: "app" });
     const g = r.state().turn.seat;
     const j = 1 - g;
     await send(r, key(g), { t: "ask", text: "Am I a real person?" });
@@ -293,9 +293,25 @@ describe("Who Am I? at the Table: a question typed in the app waits on the other
     expect(lastRoom(r.ws.screen).members[j]).not.toHaveProperty("awayIn");
   });
 
+  it("keep-going turns: a typed question waits on nobody (the guesser plays on out loud), so the other player hidden for minutes costs nothing", async () => {
+    const r = await party(2);
+    await whoAmIBegun(r, { timer: 0, turnFormat: "keep_going", questions: "both" });
+    const g = r.state().turn.seat;
+    const j = 1 - g;
+    expect(await send(r, key(g), { t: "ask", text: "Am I a real person?" })).toMatchObject({ t: "ack" });
+    expect(rules.needs(r.state(), j)).toBe(false);
+    await hide(r, key(j));
+    expect(lastRoom(r.ws.screen).members[j]).not.toHaveProperty("awayIn");
+    // The guesser goes on without the answer: a hint, a question counted out loud.
+    expect(await send(r, key(g), { t: "hint" })).toMatchObject({ t: "ack" });
+    await vi.advanceTimersByTimeAsync(GRACE + 60_000);
+    expect(r.core().activity.kind).toBe("game");
+    expect(r.state().turn.seat).toBe(g);
+  });
+
   it("showing the page for one answer between long hides gives no grace back, so it cannot stall the asker", async () => {
     const r = await party(2);
-    await whoAmIBegun(r, { timer: 0, turnFormat: "keep_going", questions: "app" });
+    await whoAmIBegun(r, { timer: 0, turnFormat: "trade", questions: "app" });
     const g = r.state().turn.seat;
     const j = 1 - g;
     await send(r, key(g), { t: "ask", text: "Am I a real person?" });
@@ -304,7 +320,9 @@ describe("Who Am I? at the Table: a question typed in the app waits on the other
     await show(r, key(j));
     const q = r.state().turn.log.at(-1);
     await send(r, key(j), { t: "answer", id: q.id, answer: "yes" });
-    await send(r, key(g), { t: "ask", text: "Am I an actor?" });
+    // The guesser ends the move: now it is the other player's own turn, and they hide again.
+    expect(await send(r, key(g), { t: "pass" })).toMatchObject({ t: "ack" });
+    expect(r.state().turn.seat).toBe(j);
     await hide(r, key(j));
     // About 10 s left, not a fresh two minutes.
     expect(lastRoom(r.ws.screen).members[j].awayIn).toBeLessThanOrEqual(10_000);

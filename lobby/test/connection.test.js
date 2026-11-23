@@ -425,7 +425,7 @@ describe("the Table's away note", () => {
   it("tells the player who came back how close it was, for a few seconds", () => {
     const r = room([ann, bo]);
     const back = { spare: 28_000, until: 1000 + BACK_NOTE_MS };
-    expect(awayNote(r, { role: "player", seat: 0 }, 1000, 1000, back)).toEqual({ kind: "back", who: "You're back, with 0:28 to spare", left: "Hidden on your turn for too long, you forfeit", dots: [] });
+    expect(awayNote(r, { role: "player", seat: 0 }, 1000, 1000, back)).toEqual({ kind: "back", who: "You're back, with 0:28 to spare", left: "Hidden on your turn for 0:28 more, you forfeit. Time comes back while this page is shown.", dots: [] });
     expect(awayNote(r, { role: "player", seat: 0 }, 1000, 1000 + BACK_NOTE_MS, back)).toBeNull();
     expect(backParts(119_500).who).toBe("You're back, with 2:00 to spare");
   });

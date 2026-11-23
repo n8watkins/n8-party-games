@@ -68,11 +68,13 @@ export function awayParts(names, leftMs = null) {
 }
 
 /**
- * What a player's own page says when it is shown again and the room says some of their grace is
- * used (`awaySpare` on their member): how close it came, in two lines, as the away note.
+ * What a player's own page says when it is shown again after an absence that ran their clock
+ * (`awaySpare` on their member): the time they have left, plainly, in two lines, as the away note.
+ * The hidden player cannot see the countdown the others see: this is where they learn it.
  */
 export function backParts(spareMs) {
-  return { who: `You're back, with ${clockText(spareMs)} to spare`, left: "Hidden on your turn for too long, you forfeit" };
+  const left = clockText(spareMs);
+  return { who: `You're back, with ${left} to spare`, left: `Hidden on your turn for ${left} more, you forfeit. Time comes back while this page is shown.` };
 }
 
 /** How long a returning page at the Table says how close it came (party/public/away.js). */

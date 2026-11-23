@@ -154,15 +154,16 @@ export function goneWhy(member, now, grace, clock = null, clockGrace = grace) {
 /**
  * When a seat's grace runs out, or null while it is here or held for ever. The sooner of:
  *   - a dropped phone's grace from when it dropped (`grace`), the rule with or without a clock;
- *   - the end of the seat's clock while it runs (`clockGrace`, the same grace unless a test
- *     server shortens the clock's: lobby-room.js, PARTY_TEST_AWAY_GRACE_MS).
+ *   - the end of the seat's clock while it runs: by `clockGrace` while the phone is connected and
+ *     its page hidden (the same grace unless a test server shortens it: lobby-room.js,
+ *     PARTY_TEST_AWAY_GRACE_MS), by `grace` while the phone is dropped, which is never shortened.
  * A clock held still (a seat the game does not need now) never ends anything, so a phone that
  * drops then has the plain grace from its drop, whatever its clock used before.
  */
 export function graceEndsAt(member, grace, clock = null, clockGrace = grace) {
   if (!member) return null;
   const dropped = !member.connected && member.droppedAt !== null && member.droppedAt !== undefined ? member.droppedAt + grace : null;
-  const ends = [dropped, clock ? clockEndsAt(clock, clockGrace) : null].filter((at) => at !== null && Number.isFinite(at));
+  const ends = [dropped, clock ? clockEndsAt(clock, member.connected ? clockGrace : grace) : null].filter((at) => at !== null && Number.isFinite(at));
   return ends.length ? Math.min(...ends) : null;
 }
 

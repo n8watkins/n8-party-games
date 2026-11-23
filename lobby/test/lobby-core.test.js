@@ -890,10 +890,14 @@ describe("a hidden page's grace only while the game needs the seat (`game.needs`
     core.setAway(tokens[0], true, 3000);
     expect(core.view(3000).members[0].awayIn).toBe(20_000);
     expect(core.turnUpkeep(23_000).ended.last.early).toMatchObject({ seat: 0, why: "gone" });
-    const other = matchOf();
-    other.core.awayGraceMs = 20_000;
-    other.core.disconnect(other.tokens[1], 3000);
-    expect(ended(other.core.turnUpkeep(3000 + GRACE - 1))).toBeNull();
+    // A phone that drops, needed (seat 0, its turn) or not (seat 1): the full grace either way.
+    for (const seat of [0, 1]) {
+      const other = matchOf();
+      other.core.awayGraceMs = 20_000;
+      other.core.disconnect(other.tokens[seat], 3000);
+      expect(ended(other.core.turnUpkeep(3000 + GRACE - 1))).toBeNull();
+      expect(other.core.turnUpkeep(3000 + GRACE).ended.last.early).toMatchObject({ seat, why: "gone" });
+    }
   });
 
   it("a `needs` that throws is taken as not needed: nothing runs", () => {

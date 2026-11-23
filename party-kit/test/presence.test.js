@@ -190,6 +190,8 @@ describe("a seat's grace clock", () => {
     // A shorter clock grace (a test server) shortens only the clock.
     expect(graceEndsAt({ connected: true, away: true }, GRACE, running, 20_000)).toBe(100_000);
     expect(graceEndsAt(dropped, GRACE, held, 20_000)).toBe(100_000 + GRACE);
+    // A dropped phone's running clock runs out by the full grace, never the shortened one.
+    expect(graceEndsAt(dropped, GRACE, running, 20_000)).toBe(80_000 + GRACE);
     expect(goneWhy(dropped, 100_000 + GRACE - 1, GRACE, held)).toBeNull();
     expect(goneWhy(dropped, 100_000 + GRACE, GRACE, held)).toBe("gone");
   });
