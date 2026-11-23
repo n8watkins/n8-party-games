@@ -41,7 +41,10 @@ describe("the test switches", () => {
     const box = fakeContainer("?" + ASKED);
     const v = mount(box, ctx(WALL, null)); // no params: the view reads the room page's own address
     expect(v.frame.partyHost.switches).toBe("");
-    expect(v.frame.src).not.toMatch(/auto|lag|touch/);
+    // Judged on the address's query and hash only: its path is the checkout's own folder, which may
+    // be called anything (a worktree named "...-touch-counters" matched the whole URL).
+    const src = new URL(v.frame.src);
+    expect(src.search + src.hash).not.toMatch(/auto|lag|touch/);
     v.unmount();
   });
 

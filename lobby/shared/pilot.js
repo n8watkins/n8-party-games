@@ -189,7 +189,11 @@ export class Pilot {
     if (charged) this.rootedUntil = -Infinity;
     if (now < this.coolUntil || (this.down(now) && !this.flying(now))) return false;
     this.coolUntil = now + BUMP_COOLDOWN_MS;
-    this.send(charged ? { t: "b", c: 1 } : { t: "b" });
+    // Where it stands and which way it faces said first (a turn still waiting out the send gap),
+    // and the kick carries its facing too: the room kicks the way this page shows it facing.
+    if (this.dirty) this.sentAt = -Infinity;
+    this.step(now);
+    this.send(charged ? { t: "b", f: this.face, c: 1 } : { t: "b", f: this.face });
     return true;
   }
 
@@ -206,7 +210,8 @@ export class Pilot {
     this.steer(0, now);
     if (this.dirty) this.sentAt = -Infinity;
     this.step(now);
-    this.send({ t: "kc" });
+    // It carries its facing too (as the kick does): the room winds it up the way this page shows it.
+    this.send({ t: "kc", f: this.face });
     return true;
   }
 
@@ -263,7 +268,7 @@ export class Pilot {
     this.steer(0, now);
     if (this.dirty) this.sentAt = -Infinity;
     this.step(now);
-    this.send({ t: "hook" });
+    this.send({ t: "hook", f: this.face });
     return true;
   }
 
@@ -341,7 +346,9 @@ export class Pilot {
   step(now) {
     this.advance(now);
     if (!this.dirty || now - this.sentAt < SEND_GAP_MS) return;
-    const message = { t: "m", x: Math.round(this.x), d: this.d, r: this.rev };
+    // `f`: which way it faces, so a turn whose walk ended inside the send gap (a quick tap: its
+    // d of 1 overwritten by its key-up's 0 before it went) still reaches the room.
+    const message = { t: "m", x: Math.round(this.x), d: this.d, f: this.face, r: this.rev };
     // A floaty piece still easing says how fast it goes now, so everyone eases it the same way.
     const v = velAt(this.walk(), now);
     if (v !== this.d) message.v = Math.round(v * 100) / 100;

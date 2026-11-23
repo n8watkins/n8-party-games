@@ -17,6 +17,7 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { mkdirSync } from "node:fs";
 import { launchBrowser } from "../../../lobby/test/browser.mjs";
+import { still as takeStill } from "../../../party-kit/test/stills.mjs";
 import { FACES, FRAME, HEATS, REACTIONS } from "../public/specimen-draw.js";
 
 const arg = (name, fallback) => process.argv.find((a) => a.startsWith(`--${name}=`))?.slice(name.length + 3) ?? fallback;
@@ -260,7 +261,7 @@ async function still(page, name) {
   }, null, { timeout: 8000 });
   // The steam of getting worse has blown away by now.
   await page.waitForTimeout(1300);
-  await page.locator("#pot").screenshot({ path: `${SHOTS}/${name}.png` });
+  await takeStill(page.locator("#pot"), { path: `${SHOTS}/${name}.png` });
   return drawnParts(page);
 }
 
@@ -535,7 +536,7 @@ const ONLY = arg("only", "");
     check(DEAF.test(note) && /type any city, or check the mic/i.test(note), `and says why in plain words ("${note.trim()}")`);
     check(await page.evaluate(() => document.activeElement?.id === "g-word"), "and the word box has the keyboard");
     check((await page.evaluate(() => window.__starts)) > starts, "the microphone still listens while the box is up");
-    await page.screenshot({ path: `${SHOTS}/390-muted-mic-box.png` });
+    await takeStill(page, { path: `${SHOTS}/390-muted-mic-box.png` });
     if (!(await page.isVisible("#g-typed"))) {
       check(false, "a muted microphone: with no word box the turn cannot be played (the rest of this check is skipped)");
       await context.close();
@@ -562,7 +563,7 @@ const ONLY = arg("only", "");
         return out;
       });
       check(kbd.length === 0, `${w}x${h} with the keyboard up: the word box, the word and whose turn are on screen ${kbd.join(" | ")}`);
-      await page.screenshot({ path: `${SHOTS}/${w}x${h}-keyboard-word-box.png` });
+      await takeStill(page, { path: `${SHOTS}/${w}x${h}-keyboard-word-box.png` });
     }
     await page.setViewportSize({ width: 390, height: 844 });
     // A typed word counts; the microphone is still deaf, so the next turn brings the box up again.
@@ -797,7 +798,7 @@ for (const [name, viewport] of SIZES) task("rest", `${name} screens`, async () =
     check(off.length === 0, `${name} ${what}: everything inside the screen ${off.join(" | ")}`);
     const over = await overlaps(page);
     check(over.length === 0, `${name} ${what}: nothing overlaps ${over.join(" | ")}`);
-    await page.screenshot({ path: `${SHOTS}/${name}-${what}.png` });
+    await takeStill(page, { path: `${SHOTS}/${name}-${what}.png` });
   };
   await look("start");
   // On the start screen the potato rests: once drawn, nothing is redrawn.
@@ -873,7 +874,7 @@ task("rest", "phone round", async () => {
   const flinch = await page.evaluate(() => window.__hotPotato.art.look());
   check(flinch.reaction === "wrong" && REACTIONS.wrong.some((x) => x.id === flinch.face) && (await page.getAttribute("#game", "data-react")) === "wrong", `a wrong word: it flinches, and the screen says Nope (${flinch.reaction}, ${flinch.face})`);
   await page.waitForTimeout(350);
-  await page.locator("#pot").screenshot({ path: `${SHOTS}/potato-steam.png` });
+  await takeStill(page.locator("#pot"), { path: `${SHOTS}/potato-steam.png` });
   check(/"Salmon" is not a city/.test(await page.textContent("#g-status")), "the verdict says plainly why");
   await stillAndFace("potato-stage-1");
   r = await say(page, word("Paris"), "tap");
@@ -903,7 +904,7 @@ task("rest", "phone round", async () => {
   await page.waitForTimeout(1200);
   const mid = await round(page);
   check(mid.fuse < mid.fuseMax - 900 && mid.phase === "listen", `the fuse burns while listening (${Math.round(mid.fuse)} of ${mid.fuseMax} ms)`);
-  await page.locator(".game").screenshot({ path: `${SHOTS}/390-listening-stage-3.png` });
+  await takeStill(page.locator(".game"), { path: `${SHOTS}/390-listening-stage-3.png` });
   // Stressed, the potato trembles inside its rig, but the screen, the layout, the text and the
   // potato's box never move.
   const motion = await page.evaluate(async () => {
@@ -949,7 +950,7 @@ task("rest", "phone round", async () => {
   check(await page.isVisible("#g-appeal"), "the appeal is still offered before it bursts");
   await waitPhase(page, "burst", 5000);
   await page.waitForTimeout(500);
-  await page.locator("#pot").screenshot({ path: `${SHOTS}/potato-burst-0.5s.png` });
+  await takeStill(page.locator("#pot"), { path: `${SHOTS}/potato-burst-0.5s.png` });
   await waitPhase(page, "over", 6000);
   await still(page, "potato-burst");
   check((await page.textContent("#e-who")) === `Player ${who + 1}`, `the end screen names who it burst on (Player ${who + 1})`);
@@ -959,7 +960,7 @@ task("rest", "phone round", async () => {
   const buzzes = await page.evaluate(() => window.__buzz.length);
   check(buzzes > 0, `it vibrates where it can (${buzzes} calls)`);
   check((await page.evaluate(() => window.__wake)) >= 1, "the screen is kept on during the round");
-  await page.screenshot({ path: `${SHOTS}/390-end.png` });
+  await takeStill(page, { path: `${SHOTS}/390-end.png` });
   // Play again: healthy again, the same setup.
   await page.click("#e-again");
   await waitPhase(page, "ready");
@@ -992,18 +993,18 @@ task("rest", "desktop keyboard round", async () => {
     r = await say(page, word("table"), "Space");
     if (i === 0) {
       await page.waitForTimeout(350);
-      await page.locator("#pot").screenshot({ path: `${SHOTS}/1280-potato-steam.png` });
+      await takeStill(page.locator("#pot"), { path: `${SHOTS}/1280-potato-steam.png` });
     }
     if (i < 4) await still(page, `1280-potato-stage-${i + 1}`);
   }
   check(r.phase === "doom", "five misses: it is going to burst");
   await waitPhase(page, "burst", 5000);
   await page.waitForTimeout(350);
-  await page.locator("#pot").screenshot({ path: `${SHOTS}/1280-potato-burst-0.35s.png` });
+  await takeStill(page.locator("#pot"), { path: `${SHOTS}/1280-potato-burst-0.35s.png` });
   await waitPhase(page, "over", 8000);
   await page.waitForTimeout(1500);
-  await page.locator("#pot").screenshot({ path: `${SHOTS}/1280-potato-burst.png` });
-  await page.screenshot({ path: `${SHOTS}/1280-end.png` });
+  await takeStill(page.locator("#pot"), { path: `${SHOTS}/1280-potato-burst.png` });
+  await takeStill(page, { path: `${SHOTS}/1280-end.png` });
   check((await page.textContent("#e-who")) === "Player 1", "it burst on Player 1");
   check(errors.length === 0, `animals: no console errors ${errors.join(" | ")}`);
   await page.close();
@@ -1066,14 +1067,14 @@ task("rest", "pause and hidden page", async () => {
 task("rest", "no speech recognition", async () => {
   const { context, page, errors } = await open({ width: 390, height: 844 }, [fake, noSpeech]);
   check(/cannot listen/.test(await page.textContent("#s-note")), "a browser that cannot listen says so on the start screen");
-  await page.screenshot({ path: `${SHOTS}/390-typed-start.png` });
+  await takeStill(page, { path: `${SHOTS}/390-typed-start.png` });
   await start(page, "cities", 2);
   await waitReady(page);
   await page.tap("#g-go");
   await page.waitForSelector("#g-typed:not([hidden])");
   check(await page.evaluate(() => document.activeElement?.id === "g-word"), "the word box has the keyboard");
   await page.fill("#g-word", "Paris");
-  await page.screenshot({ path: `${SHOTS}/390-typed-turn.png` });
+  await takeStill(page, { path: `${SHOTS}/390-typed-turn.png` });
   await page.keyboard.press("Enter");
   await waitPhase(page, "ready");
   let r = await round(page);
@@ -1202,7 +1203,7 @@ for (const broken of ["silent", "abort-at-once", "start-then-abort"]) task("rest
     await waitPhase(page, "ready");
     check((await round(page)).chain.includes("Paris"), `${broken}: the typed word counts`);
   } else check((await round(page)).last?.reason === "slow", `${broken}: the fuse ran out while nobody typed: too slow`);
-  await page.screenshot({ path: `${SHOTS}/390-broken-${broken}.png` });
+  await takeStill(page, { path: `${SHOTS}/390-broken-${broken}.png` });
   check(errors.length === 0, `${broken}: no console errors ${errors.join(" | ")}`);
   await context.close();
 });
@@ -1223,7 +1224,7 @@ task("rest", "#plain", async () => {
     parts.push(await still(page, `plain-stage-${i}`));
   }
   check(parts.every((p) => p === parts[0]) && parts[0].split(",").length > 40, `#plain: every stage draws the same parts (${parts.map((p) => p.split(",").length).join(", ")})`);
-  await page.screenshot({ path: `${SHOTS}/390-plain.png` });
+  await takeStill(page, { path: `${SHOTS}/390-plain.png` });
   check(errors.length === 0, `#plain: no console errors ${errors.join(" | ")}`);
   await context.close();
 });
@@ -1253,7 +1254,7 @@ for (const [w, h] of [[568, 320], [667, 375], [740, 340], [844, 390]]) task("res
   await page.evaluate(() => document.fonts.ready);
   const bad = await startFits(page);
   check(/cannot listen/.test(await page.textContent("#s-note")) && bad.length === 0, `${w}x${h}: the start screen fits with "cannot listen" ${bad.join(" | ")}`);
-  await page.screenshot({ path: `${SHOTS}/${w}x${h}-start-note.png` });
+  await takeStill(page, { path: `${SHOTS}/${w}x${h}-start-note.png` });
   check(errors.length === 0, `${w}x${h} start note: no console errors ${errors.join(" | ")}`);
   await context.close();
   // The longest note: the microphone blocked, on an iPhone (it says how to allow it in Settings).
@@ -1268,7 +1269,7 @@ for (const [w, h] of [[568, 320], [667, 375], [740, 340], [844, 390]]) task("res
   await blocked.page.tap("#p-quit");
   const bad2 = await startFits(blocked.page);
   check(/microphone is blocked/.test(await blocked.page.textContent("#s-note")) && bad2.length === 0, `${w}x${h}: the start screen fits with "microphone is blocked" ${bad2.join(" | ")}`);
-  await blocked.page.screenshot({ path: `${SHOTS}/${w}x${h}-start-blocked.png` });
+  await takeStill(blocked.page, { path: `${SHOTS}/${w}x${h}-start-blocked.png` });
   await ctx.close();
 });
 
@@ -1282,7 +1283,7 @@ task("rest", "320 typed turn", async () => {
   const off = await offscreen(page);
   const send = await page.evaluate(() => Math.round(document.getElementById("g-send").getBoundingClientRect().right));
   check(off.length === 0 && send <= 320 - 8, `320x568 typed turn: "Say it" fits (its right edge at ${send}px) ${off.join(" | ")}`);
-  await page.screenshot({ path: `${SHOTS}/320x568-typed-turn.png` });
+  await takeStill(page, { path: `${SHOTS}/320x568-typed-turn.png` });
   check(errors.length === 0, `320 typed: no console errors ${errors.join(" | ")}`);
   await context.close();
 });

@@ -22,6 +22,7 @@ import { MODES, MODE_NAME, modeLocked, modeTitle } from "/lobby/shared/mode.js";
 import { stageStale } from "/lobby/shared/stage.js";
 import { PLAY_BEAT_MS, partyFull, showsTests, tableLine, tablePlayers } from "/lobby/shared/table.js";
 import { mountStage, viewerAtTable } from "/party/stage.js";
+import { releaseLine } from "/release-line.js";
 
 const app = document.getElementById("app");
 const link = new PartyClient({ api: "/api/lobby", quietPing: { text: "ping", everyMs: KEEP_ALIVE_MS } });
@@ -168,6 +169,8 @@ function build() {
   h("h2", "", "Who is here", peopleHead);
   const count = h("span", "count", "", peopleHead);
   const list = h("ul", "list", "", people);
+  // Which build this page is, small and quiet under who is here.
+  h("p", "release-ver", releaseLine(), people);
 
   ui = { top, status, rooms, options, line, lineText, lineNote, why, code, kicker, codeRow, fullWords, digits, qr, where, count, list, shown: "", grid, stageWrap, stageName, stageBox, stop, gamesBy, cardBox, banner, gameList, playWhy, listKey: "", cardKey: "", bannerKey: "" };
   void fillQr();

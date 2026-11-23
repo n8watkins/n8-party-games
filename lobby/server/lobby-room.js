@@ -331,7 +331,7 @@ export function createLobbyRoom(wallFor) {
           // A pawn holds its kick to charge it (lobby/shared/bump.js): everybody draws it winding up;
           // a refusal goes to that page only, and one no real page sends counts against its socket.
           if (!player) return;
-          const out = core.charge(entry.seat, now);
+          const out = core.charge(entry.seat, now, msg.f);
           if (!out.ok) {
             this.send(entry, { t: "kc-no", why: out.why, ...(out.wait ? { wait: Math.ceil(out.wait) } : {}) });
             if (out.bad && strike(entry.bucket, SOCKET_RATE, EAGER_STRIKE) === "close") this.kick(ws, entry);
@@ -343,7 +343,7 @@ export function createLobbyRoom(wallFor) {
           return;
         }
         case "b": {
-          const hit = player ? core.bump(entry.seat, now, msg.c === 1) : null;
+          const hit = player ? core.bump(entry.seat, now, msg.f, msg.c === 1) : null;
           if (!hit) {
             // Too soon: only the room knows for sure, so it tells that page how long is left.
             const wait = player ? core.bumpWait(entry.seat, now) : null;
@@ -636,7 +636,7 @@ export function createLobbyRoom(wallFor) {
       if (entry.role !== "player") return;
       const core = this.core;
       const seat = entry.seat;
-      const out = msg.t === "hook" ? core.hook(seat, now) : msg.t === "stilts" ? core.stilts(seat, now) : msg.t === "slime" ? core.slime(seat, msg.k, now) : core.shove(seat, msg.to, now);
+      const out = msg.t === "hook" ? core.hook(seat, now, msg.f) : msg.t === "stilts" ? core.stilts(seat, now) : msg.t === "slime" ? core.slime(seat, msg.k, now) : core.shove(seat, msg.to, now);
       if (!out.ok) {
         // A shove the room did not take is only a slime walking by: nothing is said.
         if (msg.t !== "shove") this.send(entry, { t: `${msg.t}-no`, why: out.why, ...(out.wait ? { wait: Math.ceil(out.wait) } : {}), ...(msg.t === "slime" ? { k: msg.k === "absorb" ? "absorb" : "harden" } : {}) });

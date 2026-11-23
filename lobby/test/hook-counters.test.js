@@ -433,7 +433,8 @@ describe("what a page does for the hook's counters", () => {
     expect(p.down(1100)).toBe(true);
     expect(p.mayKick(1100)).toBe(true);
     expect(p.bump(1100)).toBe(true);
-    expect(sent.at(-1)).toEqual({ t: "b" });
+    // (Its facing rides with it, as every kick's does: facing.test.js.)
+    expect(sent.at(-1)).toEqual({ t: "b", f: 1 });
     const s = new Pilot({ lights: 1, send: (m) => sent.push(m), x: 500, character: "slime" });
     s.pulled(400, 2, 1000, PULL_MS, 1000 + PULL_MS + COUNTER_LATE_MS);
     expect(s.slime("harden", 1100)).toBe(true);

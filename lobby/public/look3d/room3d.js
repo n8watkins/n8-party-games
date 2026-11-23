@@ -31,6 +31,7 @@ import { SKINS, liveSkin } from "./skins.js";
 import { CAM, D_WALL, FEET_Y, FRAME, PX, SPACE, U, layout, place, walkX, wallX, wallY } from "./space.js";
 import * as THREE from "./three.js";
 import { Words } from "./words.js";
+import { REACH } from "../reach.js";
 
 /** How quickly another player's piece closes on where it should be (per second). The flat drawing's number. */
 const EASE = 14;
@@ -318,22 +319,29 @@ export class Room3D {
     back.position.set(0, SPACE.h / 2, SPACE.zBack);
     const sideTex = painted(depth, SPACE.h, skin.wall, true);
     const sideGeo = new THREE.PlaneGeometry(depth, SPACE.h);
-    const sideMat = new THREE.MeshBasicMaterial({ map: sideTex, color: 0x9aa4c4 });
-    for (const sgn of [-1, 1]) {
-      const m = add(new THREE.Mesh(sideGeo, sideMat));
-      m.position.set((sgn * SPACE.w) / 2, SPACE.h / 2, (SPACE.zFront + SPACE.zBack) / 2);
-      m.rotation.y = (-sgn * Math.PI) / 2;
-    }
+    // The end walls are a shade darker than the back wall, which the room's lights fall on; no
+    // darker than that, or the strip of end wall at a wide screen's edge reads as the room ending.
+    const endShade = 0xd0d4e2;
+    const sideMat = new THREE.MeshBasicMaterial({ map: sideTex, color: endShade });
+    // The two end walls run on toward the viewer as far as the floor does (the same wall, turned
+    // over at the join, as the floor is), so a screen wider than the room for its height (a
+    // sideways phone: reach.js) sees end wall at its edges and never past the front of the room.
+    const ends = (geo, mat, y) => {
+      for (const sgn of [-1, 1])
+        for (const on of [0, 1]) {
+          const m = add(new THREE.Mesh(geo, mat));
+          m.position.set((sgn * SPACE.w) / 2, y, (SPACE.zFront + SPACE.zBack) / 2 + on * depth);
+          m.rotation.y = (-sgn * Math.PI) / 2;
+          if (on) m.scale.x = -1;
+        }
+    };
+    ends(sideGeo, sideMat, SPACE.h / 2);
     // Above the painted wall: its top colour carried on up, for screens taller than the room.
     const above = new THREE.MeshBasicMaterial({ color: skin.above });
-    const aboveSide = new THREE.MeshBasicMaterial({ color: new THREE.Color(skin.above).multiply(new THREE.Color(0x9aa4c4)) });
+    const aboveSide = new THREE.MeshBasicMaterial({ color: new THREE.Color(skin.above).multiply(new THREE.Color(endShade)) });
     const top = add(new THREE.Mesh(new THREE.PlaneGeometry(SPACE.w, 14), above));
     top.position.set(0, SPACE.h + 7, SPACE.zBack);
-    for (const sgn of [-1, 1]) {
-      const m = add(new THREE.Mesh(new THREE.PlaneGeometry(depth, 14), aboveSide));
-      m.position.set((sgn * SPACE.w) / 2, SPACE.h + 7, (SPACE.zFront + SPACE.zBack) / 2);
-      m.rotation.y = (-sgn * Math.PI) / 2;
-    }
+    ends(new THREE.PlaneGeometry(depth, 14), aboveSide, SPACE.h + 7);
     this.floor = add(new THREE.Mesh(new THREE.PlaneGeometry(SPACE.w, depth), floorMat(painted(SPACE.w, depth, skin.floor, false), skin.light)));
     this.floor.rotation.x = -Math.PI / 2;
     this.floor.position.set(0, 0, (SPACE.zFront + SPACE.zBack) / 2);
@@ -746,7 +754,9 @@ export class Room3D {
     const p = this.pieces.get(msg.s);
     if (!p) return;
     p.net = netOf(msg.x, msg.d, now, msg.v);
+    // Standing, it faces the way the room says (`f`: a quick turn); walking, the way it walks.
     if (msg.d) p.face = msg.d;
+    else if (msg.f === 1 || msg.f === -1) p.face = msg.f;
     if (msg.j) p.jumpAt = now;
     // A pawn that walks has let its charge go.
     if (msg.d && p.attack?.charging) p.attack = null;
@@ -1183,7 +1193,20 @@ export class Room3D {
       }
       // A faded ghost (shared/ghost.js): its own player sees it more clearly than everyone else does.
       p.faded = now < (p.fadeUntil ?? 0) ? (seat === this.opts.own ? OWN_FADED : 1) : 0;
-      const pose = p.kind.pose(p.body, p, now, dt, { walking, lit: this.lightAt(p.rx), calm });
+      // `lit` is read where the piece is drawn this frame: each character's pose first puts a piece
+      // the room is moving (scared, pulled, knocked) where its move has it (p.rx = bump.x), and only
+      // then reads the light. Read before that, it was the light at the place easing toward where
+      // the room will land it: a scared robot frozen under its lamp was drawn dimmed as if already
+      // in the dark (on a slow page, where a frame's ease goes nearly all the way).
+      const room = this;
+      const how = {
+        walking,
+        calm,
+        get lit() {
+          return room.lightAt(p.rx);
+        },
+      };
+      const pose = p.kind.pose(p.body, p, now, dt, how);
       // A look with its own finish (the baked look's real light) gives it here, before an emote lays its red on top.
       this.finish(p);
       if (pose.burst) this.burst(pose.burst, now, calm);
@@ -1304,6 +1327,11 @@ export class Room3D {
    */
   get drawing() {
     return { skin: this.skin.id, frames: this.drawn.frames, cpu: this.drawn.cpu, sharpness: this.renderer.getPixelRatio() };
+  }
+
+  /** How far to either side this drawing is room, in world units: the page keeps its view inside it (../reach.js). */
+  get reach() {
+    return REACH["3d"];
   }
 
   /** For tests and for measuring: how much is being drawn, and at what size. */
