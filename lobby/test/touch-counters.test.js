@@ -675,6 +675,19 @@ describe("what a page's own piece does when the room moves it (found in review o
     q.slime("harden", 1000);
     expect(q.slime("absorb", 1000 + HOLD_MS)).toBe(true);
   });
+
+  it("drops a toppled robot's legs with the knock, as the room does: it may hook as soon as it is up", () => {
+    const sent = [];
+    const p = new Pilot({ lights: 1, send: (m) => sent.push(m), x: 500, character: "robot" });
+    expect(p.stilts(1000)).toBe(true);
+    // Toppled (boo the stilts) 50 ms into its legs-up time: down for far less than they would have lasted.
+    const down = 300;
+    expect(down + 50).toBeLessThan(STILT_MS);
+    p.knock(560, 2, 1050, down);
+    expect(p.hook(1050 + down - 10)).toBe(false);
+    expect(p.hook(1050 + down + 10)).toBe(true);
+    expect(sent.at(-1)).toMatchObject({ t: "hook" });
+  });
 });
 
 describe("the touch counters, drawn in both looks", () => {

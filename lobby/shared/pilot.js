@@ -152,6 +152,9 @@ export class Pilot {
     // A slime's harden ends with it too (LobbyCore.interrupt, swallow, curl): a hold still down
     // when it is up again turns nothing, so none is sent (the room would refuse it: maySlime).
     this.turned = true;
+    // And a robot's legs drop (LobbyCore.interrupt, pulledTo): up again, it may hook at once, as
+    // the room lets it, with no wait for the legs-up time it never finished.
+    this.upUntil = -Infinity;
     // Whatever moved it now, it is no longer in the air on a chain (pulled says so after, when it is).
     this.pulledUntil = -Infinity;
   }
