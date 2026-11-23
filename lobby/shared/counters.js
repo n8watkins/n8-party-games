@@ -50,13 +50,18 @@ export const DOMINO_CONTACT = 60;
 
 /**
  * When, from the kick, a piece knocked from `from` to `to` (shared/bump.js, knockPose) reaches the
- * spot `x` (its middle within DOMINO_CONTACT of it), or null when its flight never comes that near.
+ * spot `x` ahead of it (its middle within DOMINO_CONTACT of it), or null when its flight never comes
+ * that near. A spot already that near as the flight begins is reached at once (as the curling stone
+ * meets a piece standing against it: LobbyCore.curl); one level with it or behind is never reached.
+ * `dir`: which way it was knocked, for a flight that goes nowhere (a wall at its back).
  */
-export function flightReaches(from, to, x) {
-  const dir = Math.sign(to - from) || 1;
-  const reach = (x - from) * dir - DOMINO_CONTACT;
+export function flightReaches(from, to, x, dir = Math.sign(to - from) || 1) {
+  const ahead = (x - from) * dir;
   const span = Math.abs(to - from);
-  if (reach < 0 || reach > span) return null;
+  if (!(ahead > 0) || ahead - DOMINO_CONTACT > span) return null;
+  const reach = Math.max(0, ahead - DOMINO_CONTACT);
+  // Against a wall it does not fly, and still meets what stands against it, at once.
+  if (!(span > 0)) return IMPACT_MS + HIT_PAUSE_MS;
   // knockPose's flight eases out: 1 - (1 - u)^2 of the way after the blow and the pause.
   const u = 1 - Math.sqrt(1 - reach / span);
   return Math.round(IMPACT_MS + HIT_PAUSE_MS + u * FLIGHT_MS);

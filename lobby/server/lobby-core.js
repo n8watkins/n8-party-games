@@ -882,12 +882,14 @@ export class LobbyCore {
    */
   domino(o, from, dir, now, kicker) {
     for (const { o: d } of this.inTheWay(from, dir, now, [o.seat, kicker])) {
-      const at = flightReaches(from, o.x, posAt(d, now));
+      const at = flightReaches(from, o.x, posAt(d, now), dir);
       if (at === null) return null;
       // A hardened slime stands, as it does against a kick: the flying piece stops there, short of
       // it (never in a light it did not stand in), and knocks nobody.
       if (isHard(d, now)) {
-        const stop = clampX(Math.round(posAt(d, now) - dir * DOMINO_CONTACT));
+        // (One standing closer than that already stops it where it stood: never back toward the kicker.)
+        const short = Math.max(0, (posAt(d, now) - from) * dir - DOMINO_CONTACT);
+        const stop = clampX(Math.round(from + dir * short));
         if ((stop - from) * dir < (o.x - from) * dir) o.x = slideLanding(from, stop, this.landingWall(), this.litPlaces());
         return null;
       }

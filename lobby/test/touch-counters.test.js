@@ -77,6 +77,12 @@ describe("the touch counters, as numbers", () => {
     expect(flightReaches(500, 710, 800)).toBeNull();
     expect(flightReaches(500, 290, 400)).not.toBeNull();
     expect(flightReaches(500, 290, 600)).toBeNull();
+    // A piece already within contact of where the flight begins is met at once, as the flight starts
+    // (as the curling stone meets one: reach 0); one behind it is never met.
+    expect(flightReaches(500, 710, 540)).toBe(flightReaches(500, 710, 500 + DOMINO_CONTACT));
+    expect(flightReaches(500, 290, 480)).toBe(flightReaches(500, 290, 500 - DOMINO_CONTACT));
+    expect(flightReaches(500, 710, 500)).toBeNull();
+    expect(flightReaches(500, 710, 480)).toBeNull();
   });
 
   it("draw each one, and still with less motion", () => {
@@ -262,6 +268,37 @@ describe("dominoes: a kicked piece that flies into another knocks it over too", 
     expect(core.members[1].x).toBe(b.x);
     expect(core.members[2]).toMatchObject({ x: 500 });
     expect(core.members[2].stunUntil ?? 0).toBeLessThan(2000);
+  });
+
+  it("knocks a piece standing right behind the kicked one (inside contact distance) at once, not the one beyond it", () => {
+    const core = party(["Pat", "Bo", "Cy", "Di"]);
+    place(core, 0, 300, 1500, 1);
+    place(core, 1, 380, 1500, -1);
+    place(core, 2, 420, 1500, -1);
+    place(core, 3, 520, 1500, -1);
+    const b = core.bump(0, 2000);
+    const [wall, lit] = lights(core);
+    expect(b.to).toBe(1);
+    // Met as the flight begins: every page knocks it over then (heardKickCounters draws `at`).
+    expect(b.dm).toMatchObject({ to: 2, at: flightReaches(380, b.x, 380 + DOMINO_CONTACT), x: knockLanding(420, 1, wall, lit) });
+    expect(core.members[2].stunUntil).toBe(2000 + b.dm.at - IMPACT_MS + STUN_MS);
+    expect(core.members[3].stunUntil ?? 0).toBeLessThan(2000);
+  });
+
+  it("is stopped at once by a hardened slime standing right behind the kicked one: it lands where it stood", () => {
+    const core = party(["Pat", "Bo", "Sam", "Di"]);
+    be(core, 2, "slime");
+    place(core, 0, 300, 1500, 1);
+    place(core, 1, 380, 1500, -1);
+    place(core, 2, 420, 1500, -1);
+    place(core, 3, 520, 1500, -1);
+    core.slime(2, "harden", 1950);
+    const b = core.bump(0, 2000);
+    expect(b).toMatchObject({ to: 1, x: 380 });
+    expect(b.dm).toBeUndefined();
+    expect(core.members[1]).toMatchObject({ x: 380, stunUntil: 2000 + STUN_MS });
+    expect(core.members[2]).toMatchObject({ x: 420 });
+    for (const s of [2, 3]) expect(core.members[s].stunUntil ?? 0).toBeLessThan(2000);
   });
 
   it("passes a piece it cannot knock: one down or just up, a robot up on its legs, a faded ghost", () => {
