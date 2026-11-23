@@ -111,7 +111,7 @@ describe("the curling stone: a charged kick sends a hardened slime sliding", () 
   it("slides the stone off as the kick lands; it knocks the first piece in its way over as it reaches it, and slides on past it into the dark", () => {
     const core = setup();
     const now = 2000 + CHARGE_FULL_MS;
-    const b = core.bump(0, now, true);
+    const b = core.bump(0, now, undefined, true);
     const [wall, lit] = lights(core);
     expect(b).toMatchObject({ bo: 1, c: 1 });
     const dist = curlDistance(1);
@@ -138,7 +138,7 @@ describe("the curling stone: a charged kick sends a hardened slime sliding", () 
     place(core, 0, Math.round(pool.x - pool.half - 240), 1500, 1);
     core.charge(0, 2000);
     core.slime(1, "harden", 2400);
-    const b = core.bump(0, 2000 + CHARGE_FULL_MS, true);
+    const b = core.bump(0, 2000 + CHARGE_FULL_MS, undefined, true);
     expect(b.cv?.to).toBe(2);
     expect(lightAt(core.members[2].x, wall)).toBe(-1);
     expect(lightAt(b.cu.x, wall)).toBe(-1);
@@ -147,7 +147,7 @@ describe("the curling stone: a charged kick sends a hardened slime sliding", () 
 
   it("slides the whole way with nobody in reach, and a tap does no curling", () => {
     const far = setup(1200 - 390);
-    const b = far.bump(0, 2000 + CHARGE_FULL_MS, true);
+    const b = far.bump(0, 2000 + CHARGE_FULL_MS, undefined, true);
     expect(b.cv).toBeUndefined();
     expect(b.cu).toBeDefined();
     const tap = party(["Pat", "Sam"]);
@@ -168,7 +168,7 @@ describe("the curling stone: a charged kick sends a hardened slime sliding", () 
     place(core, 3, 720, 1500, -1);
     core.charge(0, 2000);
     core.slime(1, "harden", 2400);
-    const b = core.bump(0, 2000 + CHARGE_FULL_MS, true);
+    const b = core.bump(0, 2000 + CHARGE_FULL_MS, undefined, true);
     expect(b.cv?.to).toBe(2);
     expect(b.dm).toBeUndefined();
     expect(core.members[3].stunUntil ?? 0).toBeLessThan(2000);
