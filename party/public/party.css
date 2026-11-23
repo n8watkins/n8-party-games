@@ -141,9 +141,13 @@ p {
   overflow: hidden;
   text-overflow: ellipsis;
 }
-/* "New version, tap to load": the line is a button, in gold, as wide as its words and no taller
-   than its line, so it never reaches over the rows above and below it. */
+/* "New version, tap to load": the line is a button, in gold, as wide as its words and 44 pixels
+   tall (the smallest tap target anywhere): a real row of its own, so it never reaches over the
+   rows above and below it. */
 .title button.release-note {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
   justify-self: start;
   max-width: calc(100% - 25px);
   border: 0;

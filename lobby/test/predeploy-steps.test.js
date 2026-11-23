@@ -3,7 +3,7 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
-import { STEPS, stepPort } from "../../.github/scripts/predeploy-steps.mjs";
+import { STEPS, releaseIdIn, releaseMismatch, stepPort } from "../../.github/scripts/predeploy-steps.mjs";
 
 const ROOT = resolve(import.meta.dirname, "..", "..");
 const scripts = JSON.parse(readFileSync(resolve(ROOT, "package.json"), "utf8")).scripts;
@@ -42,5 +42,32 @@ describe("the pre-deploy gate's steps", () => {
     const ports = STEPS.map((_, i) => stepPort(8853, i));
     expect(new Set(ports).size).toBe(STEPS.length);
     expect(ports).toEqual([8853, 8855, 8856, 8857, 8858, 8859, 8860, 8861, 8862, 8863, 8864, 8865, 8866, 8867, 8868]);
+  });
+});
+
+describe("the gate's check that its local Workers and their pages name one build", () => {
+  const A = "4af2ff5586e4";
+  const B = "e0453eb6247d";
+
+  it("passes when every Worker names the build in the shared release.js", () => {
+    expect(releaseMismatch([{ base: "http://localhost:8853", release: A }, { base: "http://localhost:8867", release: A }], A)).toBeNull();
+  });
+
+  it("fails, naming each Worker that does not, as after #88 (a local and a production-settings build of one tree)", () => {
+    const problem = releaseMismatch([{ base: "http://localhost:8853", release: B }, { base: "http://localhost:8867", release: A }], A);
+    expect(problem).toMatch(/do not all name the build their pages load \(dist\/public\/release\.js: 4af2ff5586e4\)/);
+    expect(problem).toContain("http://localhost:8853 says e0453eb6247d");
+    expect(problem).not.toContain("8867");
+  });
+
+  it("fails when a Worker gives no answer, or the shared release.js names no build", () => {
+    expect(releaseMismatch([{ base: "http://localhost:8853", release: null }], A)).toContain("says nothing");
+    expect(releaseMismatch([{ base: "http://localhost:8853", release: A }], null)).toMatch(/names no release id/);
+  });
+
+  it("reads the id from a release.js module as the build writes it", () => {
+    expect(releaseIdIn(`export const RELEASE = Object.freeze({"id":"${A}","site":"0.1.0"});`)).toBe(A);
+    expect(releaseIdIn("export const RELEASE = {};")).toBeNull();
+    expect(releaseIdIn(null)).toBeNull();
   });
 });
