@@ -1,5 +1,5 @@
 // A player who hides their page in a turn-based game (another tab, another app; the socket stays
-// open) runs the same clock as a phone that dropped: missing for the game's grace, the seat is
+// open) while the game needs them (`game.needs`) runs the same clock as a phone that dropped: missing for the game's grace, the seat is
 // gone and the room ends the match through `game.abandon`, with the player who stayed first. The
 // owner's rule (2026-11-15): "put a timer so they can't hide their page, and if they don't come
 // back they just lose". Proved on the real party room class, with the Who Am I?-shaped test game
@@ -26,8 +26,12 @@ const { createLobbyRoom } = await import("../server/lobby-room.js");
 /** Who Am I?'s grace: a minute. */
 const GRACE = 60_000;
 
-/** Who Am I? in small: first to 3, with presence (its turn timer pauses while a seat is missing), and the game's grace. */
-const whoAmI = (fields = {}) => turnGame({ presence: true, firstTo: 3, fields: { reconnectGraceMs: GRACE, ...fields } });
+/**
+ * Who Am I? in small: first to 3, with presence (its turn timer pauses while a seat is missing),
+ * the game's grace, and a `needs` hook that needs both seats all the time, so every hidden page
+ * runs its grace. (Who Am I? itself needs only the guesser whose turn it is: away-at-table.test.js.)
+ */
+const whoAmI = (fields = {}) => turnGame({ presence: true, firstTo: 3, fields: { reconnectGraceMs: GRACE, needs: () => true, ...fields } });
 const started = (game) => startedIn(createLobbyRoom, game);
 const roomOf = (msgs) => msgs.filter((m) => m.room).at(-1)?.room;
 const endedNote = (ws) => ws.messages().find((m) => m.t === "note" && m.k === "ended");

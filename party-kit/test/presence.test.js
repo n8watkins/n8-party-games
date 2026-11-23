@@ -1,7 +1,7 @@
 // Presence during a turn-based game, the plain logic (party-kit/src/core/presence.js): what a page
 // says, who is away, what a game is told, when a seat is gone for good, what presence and abandon
 // give back, and the room's lifetimes for a game.
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import * as cork from "cork-and-bell";
 import { game as coinFlip } from "../../lobby/games/coin-flip.js";
 import {
@@ -11,6 +11,7 @@ import {
   clockEndsAt,
   goneWhy,
   graceEndsAt,
+  graceLeft,
   graceOf,
   graceUsed,
   isClock,
@@ -20,6 +21,8 @@ import {
   presenceSignal,
   reportOf,
   sameReport,
+  seatNeeded,
+  stillClock,
   trackAbsence,
 } from "../src/core/presence.js";
 import { gameProblems } from "../src/core/turns.js";
@@ -133,6 +136,55 @@ describe("a seat's grace clock", () => {
     expect(isClock(absenceClock())).toBe(true);
     expect(isClock(trackAbsence(absenceClock(), true, 1))).toBe(true);
     for (const bad of [null, {}, { since: "now", used: 0, at: 0 }, { since: null, used: 0 }]) expect(isClock(bad)).toBe(false);
+  });
+
+  it("held still (a hidden page the game does not need now) neither runs nor winds back, and starts again from when it is looked at next", () => {
+    let c = trackAbsence(absenceClock(), true, 0);
+    c = stillClock(c, 50_000);
+    expect(c).toMatchObject({ since: null, used: 50_000, still: true });
+    expect(clockEndsAt(c, GRACE)).toBeNull();
+    expect(graceUsed(c, 1e9)).toBe(50_000);
+    expect(stillClock(c, 90_000)).toBe(c);
+    expect(isClock(structuredClone(c))).toBe(true);
+    expect(isClock({ ...c, still: "yes" })).toBe(false);
+    // Needed again while still hidden: it runs from then, never counting the time it was held.
+    const again = trackAbsence(c, true, 300_000, 0);
+    expect(clockEndsAt(again, GRACE)).toBe(300_000 + 10_000);
+    // Shown while held: it winds back from then.
+    const shown = trackAbsence(c, false, 300_000);
+    expect(shown.still).toBeUndefined();
+    expect(graceUsed(shown, 320_000)).toBe(30_000);
+  });
+
+  it("says how much of the grace is left, or nothing for an endless one", () => {
+    const c = trackAbsence(absenceClock(), true, 0);
+    expect(graceLeft(c, GRACE, 15_000)).toBe(45_000);
+    expect(graceLeft(c, GRACE, 90_000)).toBe(0);
+    expect(graceLeft(c, Infinity, 15_000)).toBeNull();
+  });
+
+  it("asks the game whether it needs the seat now, and takes anything but true, a missing hook or one that throws, as no", () => {
+    const state = { turn: 1 };
+    expect(seatNeeded({ needs: (s, seat) => s.turn === seat }, state, 1)).toBe(true);
+    expect(seatNeeded({ needs: (s, seat) => s.turn === seat }, state, 0)).toBe(false);
+    expect(seatNeeded({ needs: () => "yes" }, state, 1)).toBe(false);
+    expect(seatNeeded({}, state, 1)).toBe(false);
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    expect(
+      seatNeeded(
+        {
+          id: "boom",
+          needs: () => {
+            throw new Error("boom");
+          },
+        },
+        state,
+        1,
+      ),
+    ).toBe(false);
+    expect(error).toHaveBeenCalled();
+    error.mockRestore();
+    expect(presenceProblems({ needs: true })).toEqual(["needs, when given, is a function."]);
   });
 
   it("takes the game's grace, or the room's when the game chooses none", () => {

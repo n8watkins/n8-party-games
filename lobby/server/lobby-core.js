@@ -36,7 +36,7 @@
 import { ID_REUSED, answerOf, inputDigest, lookup, remember } from "../../party-kit/src/core/answers.js";
 import { hasAudience, needsSpots, openSpots, spotSeats, spotsFull, takeSpots, validSpots } from "../../party-kit/src/core/audience.js";
 import { makeRng } from "../../party-kit/src/core/rng.js";
-import { abandonOutcome, absenceClock, clockEndsAt, goneWhy, graceEndsAt, graceOf, graceUsed, isClock, isMissing, lifetimesOf, presenceOutcome, reportOf, sameReport, trackAbsence } from "../../party-kit/src/core/presence.js";
+import { abandonOutcome, absenceClock, clockEndsAt, goneWhy, graceEndsAt, graceLeft, graceOf, graceUsed, isClock, isMissing, lifetimesOf, presenceOutcome, reportOf, sameReport, seatNeeded, stillClock, trackAbsence } from "../../party-kit/src/core/presence.js";
 import { applyChange, carryFor, carryOf, checkSettings, fieldDefaults, hasCarry, hasSettings, seatsKey, settingFields, settingsProblems } from "../../party-kit/src/core/settings.js";
 import { copyState, deadlineOf, gameProblems, inputOutcome, isTurnBased, loadState, saveState, stateKey } from "../../party-kit/src/core/turns.js";
 import { viewerFor } from "../../party-kit/src/core/views.js";
@@ -375,31 +375,56 @@ export class LobbyCore {
   /**
    * Keeps each seat's clock of the turn-based game being played (presence.js, absenceClock) in
    * step with who is missing: call it whenever a seat's player may have dropped, come back, or
-   * hidden or shown their page. A seat whose phone dropped runs from when it dropped. Nothing
-   * outside a turn-based game, and only the game's seats: an audience page never starts a clock.
+   * hidden or shown their page, and whenever the game changed (the turn moved on). Returns whether
+   * any clock started or stopped running, so the room view (`awayIn`) is sent again.
+   *   - Only a game with a `needs` hook keeps clocks, and a seat has one from the first time the
+   *     game needs it (its turn). Every other seat, and every seat of any other game, keeps the
+   *     plain grace of a dropped phone (goneWhy without a clock): a hidden page there costs nothing.
+   *   - While the game needs the seat, a dropped phone or a hidden page runs the clock.
+   *   - While it does not (the other player's turn), a dropped phone still runs it, as it would
+   *     without a clock; a hidden page holds it still (stillClock): glancing at a message while
+   *     waiting costs nothing, and the time used on the seat's own turn is not given back by it.
    */
   trackClocks(now) {
     const a = this.activity;
-    if (a.kind !== "game" || !this.turnGame()) return;
+    const game = this.turnGame();
+    if (a.kind !== "game" || !game || typeof game.needs !== "function") return false;
     a.clocks ??= {};
+    let moved = false;
     for (const seat of a.seats) {
       const m = this.members[seat];
       if (!m) continue;
-      a.clocks[seat] = trackAbsence(a.clocks[seat] ?? absenceClock(), isMissing(m), now, m.connected ? now : (m.droppedAt ?? now));
+      const before = a.clocks[seat];
+      const needed = seatNeeded(game, a.state, seat);
+      if (!before && !needed) continue;
+      const from = m.connected ? now : (m.droppedAt ?? now);
+      let clock = before ?? absenceClock(from);
+      if (needed || !m.connected) clock = trackAbsence(clock, isMissing(m), now, from);
+      else clock = m.away ? stillClock(clock, now) : trackAbsence(clock, false, now);
+      a.clocks[seat] = clock;
+      if ((before?.since ?? null) === null !== (clock.since === null)) moved = true;
     }
+    return moved;
   }
 
   /**
-   * How long a seat of the turn-based game being played has before it is gone, while its player is
-   * missing (dropped, or away) and the game's grace is not endless: `{awayIn}` in milliseconds, as
-   * the room view's member carries it. The pages count down from it ("back within 0:45").
+   * A seat's clock as the room view's member carries it, for a seat of the turn-based game being
+   * played whose game's grace is not endless:
+   *   - `awayIn`: while the clock runs (the player is missing and needed), the milliseconds left
+   *     before the seat is gone. The other pages count down from it ("back within 0:45").
+   *   - `awaySpare`: while the player is back and some of the grace is still used, the milliseconds
+   *     it has left. The returning page says how close it came ("You came back with 0:28 to spare").
    */
   awayView(m, now) {
     const a = this.activity;
-    if (a.kind !== "game" || !a.seats.includes(m.seat) || !a.clocks?.[m.seat]) return {};
-    const game = this.turnGame();
-    const at = game ? clockEndsAt(a.clocks[m.seat], graceOf(game, TURN_GRACE_MS)) : null;
-    return at === null ? {} : { awayIn: Math.max(0, Math.round(at - now)) };
+    const clock = a.kind === "game" && a.seats.includes(m.seat) ? a.clocks?.[m.seat] : null;
+    const game = clock ? this.turnGame() : null;
+    if (!game) return {};
+    const grace = graceOf(game, TURN_GRACE_MS);
+    const at = clockEndsAt(clock, grace);
+    if (at !== null) return { awayIn: Math.max(0, Math.round(at - now)) };
+    const left = graceLeft(clock, grace, now);
+    return !clock.still && !isMissing(m) && left !== null && left < grace ? { awaySpare: Math.round(left) } : {};
   }
 
   /**
@@ -2386,7 +2411,12 @@ export class LobbyCore {
   turnOut(game, events, now, gone = null) {
     const a = this.activity;
     const out = { events, snapshot: (viewer) => game.snapshot(a.state, now, viewer), viewerOf: (who) => this.viewerOf(who, a), ended: null };
-    if (!game.isOver(a.state)) return out;
+    if (!game.isOver(a.state)) {
+      // The game moved on (the turn passed): a hidden seat's clock may start or stop with it, and
+      // then the room view (`awayIn`) goes out again (lobby-room.js, deliverTurn).
+      if (this.trackClocks(now)) out.clocks = true;
+      return out;
+    }
     const places = gone && game.standings ? game.standings(a.state) : null;
     if (gone && Array.isArray(places) && !places.some((p) => p?.place >= 1)) {
       out.ended = this.finishGame(now, { standings: [], result: game.result ? game.result(a.state) : null, early: this.endedByGoing(gone.seat, gone.why) });

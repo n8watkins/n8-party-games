@@ -53,6 +53,21 @@ export function isMissing(member) {
 }
 
 /**
+ * Whether the game needs this seat's player right now (`game.needs(state, seat)`, say the player
+ * whose turn it is): only then does a hidden page run the seat's grace. False for a game without
+ * the hook, and for one whose hook throws or says anything but `true`.
+ */
+export function seatNeeded(game, state, seat) {
+  if (typeof game?.needs !== "function") return false;
+  try {
+    return game.needs(state, seat) === true;
+  } catch (err) {
+    console.error(`party room: ${game.id} needs() failed; the seat is taken as not needed`, err);
+    return false;
+  }
+}
+
+/**
  * The clock a seat's grace runs on during a turn-based game. A dropped phone and a hidden page
  * (away) run the same clock: one clock per seat, so a page that is hidden and then drops is not
  * given a second grace. The rule:
@@ -61,8 +76,12 @@ export function isMissing(member) {
  *     missing, they have the whole grace again. So blinking in and out (hidden 50 seconds, shown
  *     2, hidden again) does not start it over: each second missing needs a second back.
  *   - A move the game takes from the seat (an input it accepts) gives the whole grace back at once.
- * `{since, used, at}`: `since` is when the seat went missing (null while it is here), `used` is
- * how much of the grace was used then (or, while it is here, at `at`, when it came back).
+ *   - Held still (`still`): a hidden page the game does not need right now (`game.needs`, say
+ *     while the other player has the turn) neither runs nor winds back: the time it has used waits
+ *     for the seat's next turn, and nothing runs out meanwhile.
+ * `{since, used, at, still?}`: `since` is when the seat went missing (null while it is here or
+ * held still), `used` is how much of the grace was used then (or, while it is here, at `at`, when
+ * it came back; or, held still, all it has used).
  */
 export function absenceClock(now = -Infinity) {
   return { since: null, used: 0, at: now };
@@ -70,16 +89,25 @@ export function absenceClock(now = -Infinity) {
 
 /** How much of the grace a seat's clock has used at `now`. */
 export function graceUsed(clock, now) {
+  if (clock.still) return clock.used;
   if (clock.since !== null) return clock.used + Math.max(0, now - clock.since);
   return Math.max(0, clock.used - Math.max(0, now - clock.at));
+}
+
+/** The clock held still at `now`: what it has used is kept, and nothing runs or winds back until trackAbsence looks again. */
+export function stillClock(clock, now) {
+  if (clock.still) return clock;
+  return { since: null, used: graceUsed(clock, now), at: now, still: true };
 }
 
 /**
  * The clock after a look at whether the seat is missing: it starts running when the seat goes
  * missing (from `from`, when it dropped earlier than now, never before its own last change), and
- * stops when the seat is back. The same clock comes back when nothing changed.
+ * stops when the seat is back. A clock held still starts again from `now`, either way. The same
+ * clock comes back when nothing changed.
  */
 export function trackAbsence(clock, missing, now, from = now) {
+  if (clock.still) clock = { since: null, used: clock.used, at: now };
   if (missing && clock.since === null) {
     const since = Math.max(Number.isFinite(clock.at) ? clock.at : -Infinity, Math.min(now, from));
     return { since, used: graceUsed(clock, since), at: since };
@@ -97,7 +125,12 @@ export function clockEndsAt(clock, grace) {
 
 /** Whether a clock read back from storage has the right shape. */
 export function isClock(clock) {
-  return !!clock && typeof clock === "object" && (clock.since === null || typeof clock.since === "number") && typeof clock.used === "number" && typeof clock.at === "number";
+  return !!clock && typeof clock === "object" && (clock.since === null || typeof clock.since === "number") && typeof clock.used === "number" && typeof clock.at === "number" && (clock.still === undefined || clock.still === true);
+}
+
+/** How much of the grace a seat has left by its clock, in ms, or null when the grace never ends. */
+export function graceLeft(clock, grace, now) {
+  return Number.isFinite(grace) ? Math.max(0, grace - graceUsed(clock, now)) : null;
 }
 
 /**
@@ -175,7 +208,7 @@ export function presenceProblems(game) {
     const ms = game[name];
     if (ms !== undefined && !(typeof ms === "number" && Number.isFinite(ms) && ms > 0)) problems.push(`${name} is a number of milliseconds, more than 0.`);
   }
-  for (const name of ["presence", "abandon"]) {
+  for (const name of ["presence", "abandon", "needs"]) {
     if (game[name] !== undefined && typeof game[name] !== "function") problems.push(`${name}, when given, is a function.`);
   }
   return problems;

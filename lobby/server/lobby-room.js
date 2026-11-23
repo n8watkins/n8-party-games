@@ -986,6 +986,9 @@ export function createLobbyRoom(wallFor) {
       // reason when it puts the game away.
       if (out.ended) this.tellNotes();
       this.sendGame(out, now);
+      // A hidden seat's clock started or stopped with the turn: the room view says so (`awayIn`),
+      // unless it has just gone out for another reason (upkeep).
+      if (out.clocks && !out.room && !out.ended) this.broadcastRoom(now);
       if (out.ended) {
         this.finish(out.ended, now);
         this.changed(now);

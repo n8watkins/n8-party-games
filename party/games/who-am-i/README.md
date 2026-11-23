@@ -87,12 +87,15 @@ Two more rules end a match nobody is playing:
 
 A turn that runs out while the players are here is ordinary play: in a spoken match they may talk through every turn without a tap.
 
-**Not checked on a phone:** a phone put face down with the page still open stays here, but a phone that locks hides the page (away), so two players who lock both phones for a whole round end the match as idle.
+**Not checked on a phone:** a phone put face down with the page still open stays here, but a phone that locks hides the page (away), so two players who lock both phones for a whole round end the match as idle, and a guesser whose phone locks on their own turn forfeits after two minutes (below, "Hidden on your own turn").
 
 ### Leaving, dropping, reconnecting, reloading
 
 - **Dropping and coming back, reloading, a restart of the room:** the room keeps the seat for its grace (two minutes at the Table) and the rules hear only that it is not here, then here again; `view` is a pure function of the state, so a phone that comes back gets exactly the view it had.
-- **Gone for good** (left the party, or the phone gone past the room's grace) reaches the rules as `{ t: "leave", seat }`:
+- **Hidden on your own turn** (another app, a text message, the lock screen, with the socket open): the rules export `needs(state, seat)`, true only for the guesser whose turn it is while they ask, so the room runs that seat's grace (two minutes) while its page is hidden then, and gives it up as gone at the end of it (the owner's rule of 2026-11-15: "put a timer so they can't hide their page, and if they don't come back they just lose").
+  Hidden while waiting (the other player's turn, a guess waiting to be confirmed, the setup, the reveal, a watcher) costs nothing: the clock is held still, and the time used on one's own turn waits for the next one.
+  The other phone and the big screen show "Bo is away" and, while the clock runs, "back within 1:45 or the match ends"; the player who comes back is told how much was left (`party-kit/GAME-CONTRACT.md`, "One clock for a missing seat"; `lobby/test/party-room-table-away.test.js`).
+- **Gone for good** (left the party, the phone gone past the room's grace, or hidden on one's own turn for the whole of it) reaches the rules as `{ t: "leave", seat }`:
   - a watcher just goes;
   - before the match begins, the table goes on without the seat (the default pair is worked out again), and ends with no points below two;
   - one of the two players, in a match not yet decided: **they forfeit**, and the player who stayed is first whatever the score (the owner's rule of 2026-11-15), even with their page hidden at that moment (another app, a locked phone: "something's gotta make you forfeit, go with something safe"); the unfinished round's names are revealed to everyone, and the room's card says it plainly ("Bo left, so Ann wins.");
