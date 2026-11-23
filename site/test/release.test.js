@@ -17,11 +17,12 @@ vi.mock("cloudflare:workers", () => ({
     }
   },
 }));
-import { ALLOW_DIRTY, RELEASE_FILE, RELEASE_ID, SEMVER, buildKind, builtFiles, gameVersions, gitState, releaseId, releaseModule, releaseProblem, releaseRecord, testBuildProblem } from "../../scripts/release.mjs";
-import { SERVED, build } from "../../scripts/build-public.mjs";
+import { ALLOW_DIRTY, PREVIEW_DIR, RELEASE_FILE, RELEASE_ID, SEMVER, buildKind, builtFiles, gameVersions, gitState, releaseId, releaseModule, releaseProblem, releaseRecord, testBuildProblem } from "../../scripts/release.mjs";
+import { BUILD_FLAGS, SERVED, build, readArgs } from "../../scripts/build-public.mjs";
 import { headersFile } from "../../party-kit/build/public.mjs";
 import { GAMES, TURN_GAMES } from "../../games.js";
 import { VERSION_PATH, handleVersion, versionInfo } from "../../party-kit/src/worker/version.js";
+import { unstable_readConfig } from "wrangler";
 import { releaseLine } from "../release-line.js";
 
 const ROOT = join(import.meta.dirname, "..", "..");
@@ -327,6 +328,53 @@ describe("GET /api/version", () => {
     const res = await site.fetch(get(VERSION_PATH), {});
     expect(res.headers.get("Cache-Control")).toBe("no-store");
     expect((await res.json()).release).toBe(RELEASE.id);
+  });
+});
+
+describe("two builds of one tree", () => {
+  const site = { "index.html": "<p>hi</p>", "main.js": "export {}" };
+  /** Builds the tree for real into a folder of its own, as the command line `flags` would, and gives its release id. */
+  const built = [];
+  afterAll(() => {
+    for (const dir of built) rmSync(dir, { recursive: true, force: true });
+  });
+  const idBuiltWith = (flags) => {
+    const args = readArgs(["node", "build-public.mjs", ...flags]);
+    expect(args.problem, flags.join(" ")).toBeNull();
+    const dir = mkdtempSync(join(tmpdir(), "party-release-flags-"));
+    built.push(dir);
+    // --production only refuses a tree a deploy may not ship (a test's tree may be dirty): what it
+    // builds is the same code, called here directly, with what the flags ask of it.
+    build(dir, { git: CLEAN, preview: args.preview });
+    return recordIn(readFileSync(join(dir, RELEASE_FILE), "utf8")).id;
+  };
+  /** The build command's flags of a wrangler environment ("" is production's settings). */
+  const flagsOf = (env) => unstable_readConfig({ config: join(ROOT, "wrangler.jsonc"), env: env || undefined }).build.command.split(/\s+/).slice(2);
+
+  it("are one release whether or not the local preview pages were built with them", () => {
+    expect(idOf({ ...site, [`${PREVIEW_DIR}/landing/index.html`]: "<p>preview</p>" })).toBe(idOf(site));
+    // Anything else added is another release.
+    expect(idOf({ ...site, "previewer/index.html": "x" })).not.toBe(idOf(site));
+  });
+
+  it("are one release with the exact flags the gate's Workers build with: the local ones and the production settings", () => {
+    const local = flagsOf("local");
+    const production = flagsOf("");
+    expect(local).toContain("--preview");
+    expect(production).toContain("--production");
+    const ids = [idBuiltWith(local), idBuiltWith(production), idBuiltWith([])];
+    expect(new Set(ids).size, ids.join(" ")).toBe(1);
+  }, 120_000);
+
+  it("are one release with every flag the build takes: none of them changes a file a deploy ships", () => {
+    const plain = idBuiltWith([]);
+    for (const flag of Object.keys(BUILD_FLAGS)) expect(idBuiltWith([flag]), flag).toBe(plain);
+  }, 120_000);
+
+  it("refuses a flag it does not know, so a new one is in BUILD_FLAGS and in the test above", () => {
+    expect(readArgs(["node", "x", "--prevew"]).problem).toMatch(/--prevew is not a flag/);
+    expect(readArgs(["node", "x", "--out", "/tmp/x"]).problem).toMatch(/--out=VALUE/);
+    expect(readArgs(["node", "x", "--preview", "--production", "--list", "--out=/tmp/x", "--salt=a1"]).problem).toBeNull();
   });
 });
 

@@ -1733,8 +1733,12 @@ input {
 }
 /* "New version, tap to load": the line is a button, in amber. Only its words take the tap (the
    row's empty ends do not): the bar's words sit between the thumbs' pads, and a jump or a bump
-   that lands a little off must never reload the page. */
+   that lands a little off must never reload the page. The words' tap area is 44 pixels tall, the
+   smallest tap target anywhere, as a real row of its own (nothing reaches over the words above
+   it), and the big screen's bar, otherwise of a fixed height, grows to hold it. */
 button.status-release {
+  display: flex;
+  justify-content: center;
   margin: 0;
   padding: 0;
   border: 0;
@@ -1744,9 +1748,17 @@ button.status-release {
   pointer-events: none;
 }
 button.status-release > span {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  padding: 0 10px;
   pointer-events: auto;
   text-decoration: underline;
   text-underline-offset: 2px;
   cursor: pointer;
   touch-action: manipulation;
+}
+.bar-screen:has(button.status-release) {
+  height: auto;
+  min-height: var(--bar);
 }
