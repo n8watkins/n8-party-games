@@ -1188,7 +1188,9 @@ export class LobbyCore {
    * (Infinity when it no longer will). Judged at the touch's own time, not the look's.
    */
   touchFrom(kind, m, t) {
-    if (kind === "spook") return t < (m.fadedUntil ?? 0) ? t : Infinity;
+    // A ghost spooks only while it moves: walking, or still easing to a stand. Once its drift is
+    // over it stands, and a standing ghost spooks nobody who walks into it (as its own page judges).
+    if (kind === "spook") return t < (m.fadedUntil ?? 0) && (m.d || velAt(m, t) !== 0) ? t : Infinity;
     return Math.max(t, isDown(m, t) ? (m.stunUntil ?? t) : t, m.hardUntil ?? t, m.softUntil ?? t);
   }
 
