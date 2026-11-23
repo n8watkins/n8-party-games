@@ -133,7 +133,7 @@ describe("the first message", () => {
     const ws = FakeWebSocket.last;
     expect(ws.sent).toEqual([]);
     ws.open();
-    expect(frames(ws)[0]).toEqual({ t: "hello", token: TOKEN });
+    expect(frames(ws)[0]).toEqual({ t: "hello", token: TOKEN, protocol: PROTOCOL });
     expect(frames(ws).filter((m) => m.t === "hello")).toHaveLength(1);
   });
 
@@ -143,7 +143,7 @@ describe("the first message", () => {
     c.connect();
     const ws = FakeWebSocket.last;
     ws.open();
-    expect(frames(ws)).toEqual([{ t: "hello", token: TOKEN }, { t: "away" }, "ping"]);
+    expect(frames(ws)).toEqual([{ t: "hello", token: TOKEN, protocol: PROTOCOL }, { t: "away" }, "ping"]);
   });
 
   it("is sent again on every new socket: after a drop, and after a page comes back", () => {
@@ -157,13 +157,13 @@ describe("the first message", () => {
     const second = FakeWebSocket.last;
     expect(second).not.toBe(first);
     second.open();
-    expect(frames(second)[0]).toEqual({ t: "hello", token: TOKEN });
+    expect(frames(second)[0]).toEqual({ t: "hello", token: TOKEN, protocol: PROTOCOL });
 
     c.dropConnection();
     c.connect();
     const third = FakeWebSocket.last;
     third.open();
-    expect(frames(third)[0]).toEqual({ t: "hello", token: TOKEN });
+    expect(frames(third)[0]).toEqual({ t: "hello", token: TOKEN, protocol: PROTOCOL });
   });
 
   it("is the saved session's token after a reload", () => {
@@ -174,7 +174,7 @@ describe("the first message", () => {
     const ws = FakeWebSocket.last;
     expect(ws.url).toBe("wss://party.test/api/party/rooms/BCDFGH/ws");
     ws.open();
-    expect(frames(ws)[0]).toEqual({ t: "hello", token: TOKEN });
+    expect(frames(ws)[0]).toEqual({ t: "hello", token: TOKEN, protocol: PROTOCOL });
   });
 });
 
@@ -224,7 +224,7 @@ describe("what the room answers", () => {
     expect(FakeWebSocket.made).toHaveLength(2);
     expect(storage.kept.size).toBe(1);
     FakeWebSocket.last.open();
-    expect(frames(FakeWebSocket.last)[0]).toEqual({ t: "hello", token: TOKEN });
+    expect(frames(FakeWebSocket.last)[0]).toEqual({ t: "hello", token: TOKEN, protocol: PROTOCOL });
   });
 
   it("sockets that open and are closed before the room's hello back off more each time, and only the hello starts the count again", () => {

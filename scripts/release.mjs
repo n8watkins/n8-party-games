@@ -39,10 +39,12 @@ export const SEMVER = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/;
  * The release id of a built folder: sha256 over each file's site path and bytes, in path order,
  * cut to ID_LENGTH hex digits. `files` is [{path, bytes}] as buildPublic returns; `read(path)`
  * gives a file's bytes. release.js is left out (it holds the id), and so is anything a build adds
- * after it.
+ * after it. `salt`, for a local test build only (TEST_SALT), is hashed first: the same files under
+ * another salt are another release, as a deploy of changed files would be.
  */
-export function releaseId(files, read) {
+export function releaseId(files, read, salt = "") {
   const hash = createHash("sha256");
+  if (salt) hash.update(`salt:${salt.length}:${salt}:`);
   for (const { path } of [...files].sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0))) {
     if (path === RELEASE_FILE) continue;
     const bytes = read(path);
@@ -99,6 +101,20 @@ export function gitState(root, { sources = [] } = {}) {
 
 /** The environment variable that lets a production-settings build of a dirty tree through, for a local server only. */
 export const ALLOW_DIRTY = "RELEASE_ALLOW_DIRTY";
+
+/**
+ * A build's test options (scripts/build-public.mjs `--out=DIR` and `--salt=TEXT`), for the
+ * end-to-end test of a new build (lobby/test/e2e-release.mjs): it builds into a folder of its own,
+ * so it never touches dist/public that other local Workers serve, and a salt makes the same files
+ * another release, so restarting its Worker is a deploy. Neither may reach the live site: they
+ * are refused with --production and on an upload. Returns the problem, or null.
+ */
+export function testBuildProblem({ out = null, salt = null }, { upload, production }) {
+  if (!out && !salt) return null;
+  if (upload || production) return "--out and --salt are for a local test build only: a production build and a deploy never take them.";
+  if (salt !== null && !/^[A-Za-z0-9_-]{1,40}$/.test(salt)) return "--salt takes 1 to 40 letters, digits, - or _.";
+  return null;
+}
 
 /**
  * Wrangler names the command a custom build runs for in WRANGLER_COMMAND: "dev" for `wrangler dev`,
@@ -170,10 +186,10 @@ export function builtFiles(out) {
 }
 
 /** The release record for a built folder: its id covers every file in it but release.js. */
-export function releaseRecord({ root, out, games, git = gitState(root), now = new Date() }) {
+export function releaseRecord({ root, out, games, git = gitState(root), now = new Date(), salt = "" }) {
   const pkg = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
   return {
-    id: releaseId(builtFiles(out), (path) => readFileSync(join(out, path))),
+    id: releaseId(builtFiles(out), (path) => readFileSync(join(out, path)), salt),
     site: pkg.version,
     commit: git.commit ?? "unknown",
     dirty: git.dirty,

@@ -17,7 +17,7 @@ vi.mock("cloudflare:workers", () => ({
     }
   },
 }));
-import { ALLOW_DIRTY, RELEASE_FILE, RELEASE_ID, SEMVER, buildKind, builtFiles, gameVersions, gitState, releaseId, releaseModule, releaseProblem, releaseRecord } from "../../scripts/release.mjs";
+import { ALLOW_DIRTY, RELEASE_FILE, RELEASE_ID, SEMVER, buildKind, builtFiles, gameVersions, gitState, releaseId, releaseModule, releaseProblem, releaseRecord, testBuildProblem } from "../../scripts/release.mjs";
 import { SERVED, build } from "../../scripts/build-public.mjs";
 import { headersFile } from "../../party-kit/build/public.mjs";
 import { GAMES, TURN_GAMES } from "../../games.js";
@@ -55,6 +55,32 @@ describe("the release id", () => {
 
   it("cannot be fooled by moving bytes between a name and a file", () => {
     expect(idOf({ ab: "c" })).not.toBe(idOf({ a: "bc" }));
+  });
+
+  it("is another release for the same files under a test build's salt, the same again for the same salt", () => {
+    const salted = (salt) => releaseId(files(site), (path) => Buffer.from(site[path]), salt);
+    expect(salted("")).toBe(idOf(site));
+    expect(salted("one")).toMatch(RELEASE_ID);
+    expect(salted("one")).not.toBe(idOf(site));
+    expect(salted("one")).not.toBe(salted("two"));
+    expect(salted("one")).toBe(salted("one"));
+  });
+});
+
+describe("a local test build's options (testBuildProblem)", () => {
+  it("are let through for a local build, and none is no problem anywhere", () => {
+    expect(testBuildProblem({ out: "/tmp/x", salt: "a1" }, { upload: false, production: false })).toBeNull();
+    expect(testBuildProblem({}, { upload: true, production: true })).toBeNull();
+  });
+
+  it("never reach the live site: refused with --production and on an upload", () => {
+    expect(testBuildProblem({ out: "/tmp/x" }, { upload: false, production: true })).toMatch(/local test build only/);
+    expect(testBuildProblem({ salt: "a1" }, { upload: true, production: false })).toMatch(/local test build only/);
+  });
+
+  it("take a plain salt only", () => {
+    expect(testBuildProblem({ salt: "a b" }, { upload: false, production: false })).toMatch(/--salt/);
+    expect(testBuildProblem({ salt: "x".repeat(41) }, { upload: false, production: false })).toMatch(/--salt/);
   });
 });
 

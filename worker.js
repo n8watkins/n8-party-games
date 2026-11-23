@@ -18,7 +18,7 @@ const first = GAMES[0];
 
 export const PartyRoom = createPartyRoom(first.game);
 /** The party room: one room that holds the lobby and whichever game the party voted for. */
-export const LobbyRoom = createLobbyRoom(wallFor);
+export const LobbyRoom = createLobbyRoom(wallFor, { release: RELEASE });
 export { PinDirectory, RateLimiter, RoomBudget, ScoreBoard };
 
 /** Where the party room's API lives. The same guards as the kit's own API apply to it. */
