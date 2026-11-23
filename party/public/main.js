@@ -24,9 +24,48 @@ import { PLAY_BEAT_MS, partyFull, showsTests, tableLine, tablePlayers } from "/l
 import { mountStage, viewerAtTable } from "/party/stage.js";
 import { mountAway } from "/party/away.js";
 import { releaseLine } from "/release-line.js";
+import { PAGE_RELEASE, testProtocol, watchRoomRelease } from "/release-switch.js";
 
 const app = document.getElementById("app");
-const link = new PartyClient({ api: "/api/lobby", quietPing: { text: "ping", everyMs: KEEP_ALIVE_MS } });
+// ?protocol= is for the end-to-end tests on a local server only (release-switch.js testProtocol).
+const link = new PartyClient({ api: "/api/lobby", quietPing: { text: "ping", everyMs: KEEP_ALIVE_MS }, release: PAGE_RELEASE, protocol: testProtocol() ?? undefined });
+// An older page loads the new build at the room's next safe point, back in its seat (site/release-switch.js).
+// Not while a sheet of this page's own is open (leaving, ending a game): its question would be lost.
+// A big screen never reloads by itself (nobody may be near it): it offers "New version, tap to load".
+// A player's phone does, in full screen too (the owner's choice, 2026-11-23).
+let releaseNote = [null, null];
+watchRoomRelease(link, {
+  canReload: () => !app.querySelector(".confirm-back"),
+  auto: () => link.you?.role !== "screen",
+  notice: (text, tap) => {
+    releaseNote = [text, tap ?? null];
+    drawRelease();
+  },
+});
+/**
+ * The notice, under the heading's line, in the page's flow (party.css: nothing here lies over
+ * anything); with a tap ("New version, tap to load") it is a button. Drawn again when the page is built.
+ */
+function drawRelease() {
+  const title = app.querySelector(".title");
+  if (!title) return;
+  const [text, tap] = releaseNote;
+  let el = title.querySelector(".release-note");
+  if (el && (el.localName === "button") !== !!tap) {
+    el.remove();
+    el = null;
+  }
+  if (!text) return el?.remove();
+  if (!el) {
+    el = h(tap ? "button" : "p", tap ? "release-note tap" : "release-note", "", title);
+    el.setAttribute("role", "status");
+    if (tap) {
+      el.type = "button";
+      el.addEventListener("click", () => releaseNote[1]?.());
+    }
+  }
+  el.textContent = text;
+}
 const isPlayer = () => link.you?.role === "player";
 // A locked phone closes its socket and opens it again when it is shown (connection.js).
 watchConnection(link, { player: () => isPlayer() });
@@ -83,6 +122,7 @@ function build() {
   line.setAttribute("aria-live", "polite");
   const lineText = h("span", "line-text", "", line);
   const lineNote = h("span", "line-note", "", line);
+  drawRelease();
   const status = h("p", "status", "", top);
   status.setAttribute("role", "status");
   const leave = h("button", "leave", "", top);
@@ -643,6 +683,8 @@ link.on("status", (status) => {
 });
 
 link.on("closed", (why, reason) => {
+  // The room needs a newer page: it reloads into its seat (watchRoomRelease), and does not leave.
+  if (why === "update_required") return;
   const said = bye ?? (why === "seat_lost" ? (reason === "left" ? "left" : "seat_lost") : reason || "room_closed");
   bye = null;
   closed(said);

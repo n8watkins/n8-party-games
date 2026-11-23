@@ -10,6 +10,12 @@
 //   node scripts/build-public.mjs --list     build and list every file that will be served
 //   node scripts/build-public.mjs --preview  also build the pages that are not approved yet (below)
 //   node scripts/build-public.mjs --production  the deploy's build: refuses a dirty working tree
+//   node scripts/build-public.mjs --preview --out=DIR --salt=TEXT
+//                                            a local test build (lobby/test/e2e-release.mjs): the
+//                                            site into DIR/public and the Worker's record into
+//                                            DIR/release.js, nothing in dist/; TEXT makes the same
+//                                            files another release. Refused with --production and
+//                                            on an upload (testBuildProblem).
 //
 // Every build writes the release record (scripts/release.mjs): release.js in the public folder for
 // the pages, and dist/release.js for the Worker.
@@ -18,7 +24,7 @@ import { createRequire } from "node:module";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { KIT_CLIENT_PATH, buildPublic, kitClientEntry, report } from "../party-kit/build/public.mjs";
-import { RELEASE_FILE, buildKind, gitState, releaseModule, releaseProblem, releaseRecord } from "./release.mjs";
+import { RELEASE_FILE, buildKind, gitState, releaseModule, releaseProblem, releaseRecord, testBuildProblem } from "./release.mjs";
 
 /** Where Who Am I?'s pictures load from: the one outside host any page of this site may show images from. */
 export const PICTURE_HOST = "https://upload.wikimedia.org";
@@ -80,6 +86,8 @@ const siteEntries = [
   { from: join(ROOT, "site", "home-model.js"), to: "home-model.js" },
   // The quiet "Version ..., build ..." line the front page, the Floor and the Table show (from release.js, written by the build).
   { from: join(ROOT, "site", "release-line.js"), to: "release-line.js" },
+  // "New version available": a page older than the live site loads the new one at a safe moment.
+  { from: join(ROOT, "site", "release-switch.js"), to: "release-switch.js" },
   { from: join(ROOT, "site", "art"), to: "art" },
   { from: join(ROOT, "site", "fonts"), to: "fonts" },
   // Starting a party at the Table: the party room's way in, then straight to the Table.
@@ -166,7 +174,7 @@ export const SOURCES = entries.map((entry) => entry.from);
  * The release record goes into `out` as release.js, and to `workerRelease` too when given (the
  * command line gives WORKER_RELEASE). `git` is the commit and tree state to record (gitState).
  */
-export function build(out = OUT, { workerRelease = null, git = repoState() } = {}) {
+export function build(out = OUT, { workerRelease = null, git = repoState(), salt = "" } = {}) {
   // The party room shows a hosted game by putting the game's own page in a frame, so this site's
   // pages may be framed by this site's pages, and by nobody else.
   // Hot Potato (one-device/hot-potato) and its hearing test (lab/hot-potato) listen through the
@@ -181,7 +189,7 @@ export function build(out = OUT, { workerRelease = null, git = repoState() } = {
   writeFileSync(join(out, HOME_WALL_PATH), text);
   const built = [...files, { path: HOME_WALL_PATH, bytes: Buffer.byteLength(text) }];
   // Last, so its id covers every other file in the folder, `_headers` included.
-  const release = releaseModule(releaseRecord({ root: ROOT, out, games: [...GAMES, ...TURN_GAMES], git }));
+  const release = releaseModule(releaseRecord({ root: ROOT, out, games: [...GAMES, ...TURN_GAMES], git, salt }));
   writeFileSync(join(out, RELEASE_FILE), release);
   if (workerRelease) {
     mkdirSync(dirname(workerRelease), { recursive: true });
@@ -199,12 +207,18 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
   const git = repoState();
   // An upload (wrangler deploy) is held to the deploy's rules whatever flags the command has.
   const upload = buildKind() === "upload";
-  if (upload || process.argv.includes("--production")) {
-    const problem = releaseProblem(git, { upload });
-    if (problem) {
-      console.error(`build-public: ${problem}`);
-      process.exit(1);
-    }
+  const production = process.argv.includes("--production");
+  const arg = (name) => process.argv.find((a) => a.startsWith(`--${name}=`))?.slice(name.length + 3) ?? null;
+  // A local test build into a folder of its own, its release made another by a salt (testBuildProblem).
+  const test = { out: arg("out"), salt: arg("salt") };
+  // "--out DIR" (a space, not "=") would otherwise be ignored and build into dist/public.
+  const spaced = process.argv.find((a) => /^--(out|salt)=?$/.test(a))?.replace("=", "");
+  const problem = (spaced ? `write ${spaced}=VALUE, with "=": ${spaced} VALUE is not read.` : null) ?? testBuildProblem(test, { upload, production }) ?? (upload || production ? releaseProblem(git, { upload }) : null);
+  if (problem) {
+    console.error(`build-public: ${problem}`);
+    process.exit(1);
   }
-  report(build(OUT, { workerRelease: WORKER_RELEASE, git }), OUT);
+  const out = test.out ? join(resolve(test.out), "public") : OUT;
+  const workerRelease = test.out ? join(resolve(test.out), RELEASE_FILE) : WORKER_RELEASE;
+  report(build(out, { workerRelease, git, salt: test.salt ?? "" }), out);
 }

@@ -92,6 +92,28 @@ export class ScreenFit {
     this.wanted = !!document.fullscreenElement;
     this.draw();
     if (iPhone()) this.homeTip(false);
+    this.backAfterReload();
+  }
+
+  /**
+   * A reload (a new version of the site loading by itself, site/release-switch.js) takes a page
+   * out of full screen, and a browser lets it back in only from a tap: a page that was full screen
+   * as it went goes back at the player's next tap, wherever it lands.
+   */
+  backAfterReload() {
+    const key = "party-room:full-again";
+    addEventListener("pagehide", () => {
+      try {
+        if (document.fullscreenElement) sessionStorage.setItem(key, "1");
+      } catch {}
+    });
+    let again = false;
+    try {
+      again = sessionStorage.getItem(key) === "1";
+      sessionStorage.removeItem(key);
+    } catch {}
+    if (!again || document.fullscreenElement) return;
+    addEventListener("click", () => goFullscreen(true), { once: true, capture: true });
   }
 
   /** Adds the choice to the door button's sheet when it opens (hud.js draws the sheet). */

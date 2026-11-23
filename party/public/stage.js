@@ -7,6 +7,7 @@
 // players who join during the game). The module is fetched when the game starts, so the stage stands in for the
 // view at once and hands on whatever the room says in the meantime.
 import { stageKey } from "/lobby/shared/stage.js";
+import { hideUntilStyled } from "/party/styled.js";
 
 const modules = new Map();
 
@@ -39,7 +40,7 @@ export function viewerAtTable(you, game) {
  */
 export function mountStage(box, { link, room, snapshot, onError, onDecided }) {
   const entry = room.table?.find((e) => e.id === room.game.id) ?? null;
-  const mine = { view: null, waiting: [], gone: false };
+  const mine = { view: null, waiting: [], gone: false, shown: null };
   const pass = (method, args) => (mine.view ? mine.view[method]?.(...args) : mine.waiting.push([method, args]));
   const ctx = {
     room,
@@ -62,6 +63,8 @@ export function mountStage(box, { link, room, snapshot, onError, onDecided }) {
       if (!module?.mount) throw new Error(`${room.game.name} has no view for the Table`);
       mine.view = module.mount(box, ctx);
       for (const [method, args] of mine.waiting.splice(0)) mine.view[method]?.(...args);
+      // Out of sight until its own stylesheet has loaded, four seconds at most (styled.js).
+      mine.shown = hideUntilStyled(box);
     })
     .catch((err) => onError?.(err));
   return {
@@ -74,6 +77,7 @@ export function mountStage(box, { link, room, snapshot, onError, onDecided }) {
       mine.gone = true;
       mine.view?.unmount?.();
       box.textContent = "";
+      mine.shown?.();
     },
   };
 }

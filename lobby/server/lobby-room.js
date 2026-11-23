@@ -18,7 +18,9 @@ import { LagLine, eventsFor, fanOut } from "../../party-kit/src/core/room-core.j
 import { answerMessage, inputId } from "../../party-kit/src/core/answers.js";
 import { allAway, graceOf, presenceSignal } from "../../party-kit/src/core/presence.js";
 import { newSeed } from "../../party-kit/src/core/rng.js";
-import { CLOSE_BAD_TOKEN, CLOSE_HELLO_EXPECTED, HONOUR_TOKEN_IN_ADDRESS, UnknownSockets, clientOf, closeQuietly, readHello, seatToken } from "../../party-kit/src/worker/hello-logic.js";
+import { CLOSE_BAD_TOKEN, CLOSE_HELLO_EXPECTED, HONOUR_TOKEN_IN_ADDRESS, LEGACY_HELLO_PROTOCOL, UPDATE_REQUIRED, UnknownSockets, clientOf, closeQuietly, readHelloFields, seatToken } from "../../party-kit/src/worker/hello-logic.js";
+import { PROTOCOL } from "../../party-kit/src/worker/http.js";
+import { releaseSafe } from "./release-points.js";
 import { SOCKET_RATE, newBucket, strike, takeMessage } from "../../party-kit/src/worker/limit-logic.js";
 import { PIN_DIRECTORY_NAME } from "../../party-kit/src/worker/pin-logic.js";
 import { AwakeMeter, EVENT_FLOOR_MS, MESSAGES_PER_REQUEST, REPORT_EVERY_MS, roomBudgetState, spendRoomTime } from "../../party-kit/src/worker/room-budget.js";
@@ -56,8 +58,12 @@ const CLOSE_REASONS = { empty: "room_closed", stale: "room_idle", expired: "room
  * Makes the party room class.
  * @param {(env: object) => {boxes: object[], games: Map<string, object>}} wallFor  the boxes on the
  *   wall and the games that can start, for a Worker's environment (lobby/wall.js)
+ * @param {{release?: {id: string} | null}} [opts]  release: the build's release record
+ *   (scripts/release.mjs), which the room tells every page in its hello and again at each safe
+ *   point (release-points.js), so an older page can load the new build. Without one the room says
+ *   nothing about builds.
  */
-export function createLobbyRoom(wallFor) {
+export function createLobbyRoom(wallFor, { release = null } = {}) {
   return class LobbyRoom extends DurableObject {
     constructor(ctx, env) {
       super(ctx, env);
@@ -192,28 +198,33 @@ export function createLobbyRoom(wallFor) {
       const opened = this.unknown.take(ws);
       this.unknown.clear(now);
       this.meter.event(now, now, "message");
-      const token = readHello(data, MAX_MESSAGE_BYTES);
-      if (token === null) return closeQuietly(ws, CLOSE_HELLO_EXPECTED, "hello_expected");
-      this.seat(ws, token, opened.lag, now);
+      const hello = readHelloFields(data, MAX_MESSAGE_BYTES);
+      if (hello === null) return closeQuietly(ws, CLOSE_HELLO_EXPECTED, "hello_expected");
+      this.seat(ws, hello.token, opened.lag, now, hello);
     }
 
     /**
      * Seats a socket whose hello named `token`, or closes it with nothing said if that names no
      * seat. Only now does the socket hear anything: the room, and a game as its seat may see it.
+     * `hello` is what else the hello said: the page's release and protocol (readHelloFields).
      */
-    seat(ws, token, lag, now) {
+    seat(ws, token, lag, now, hello = {}) {
       const core = this.core;
       const who = core ? core.connect(token, now) : null;
       if (!who) return closeQuietly(ws, CLOSE_BAD_TOKEN, "bad_token");
       // What the room has to know about the socket rides along on it, since the room's memory
       // does not survive sleep: from here on that is its seat (the waiting attachment, and the
-      // client it came from, are replaced).
-      const kept = { token, role: who.role, seat: who.seat, lag, at: now, piece: core.pieceOf(who.seat), owed: { ms: 0, n: 0, r: 0 }, flushedAt: this.flushedAt, pinAt: this.pinAt };
+      // client it came from, are replaced). With it, which build its page is (release-switch).
+      const kept = { token, role: who.role, seat: who.seat, lag, at: now, piece: core.pieceOf(who.seat), owed: { ms: 0, n: 0, r: 0 }, flushedAt: this.flushedAt, pinAt: this.pinAt, release: hello.release ?? null, protocol: hello.protocol ?? LEGACY_HELLO_PROTOCOL };
       ws.serializeAttachment(kept);
       const entry = this.entryFor(ws, kept);
       this.sockets.set(ws, entry);
 
-      this.send(entry, { t: "hello", you: { role: who.role, seat: who.seat }, room: core.view(now) });
+      const view = core.view(now);
+      // The room's own build answers the page's, with whether now is a moment to load a new one.
+      this.send(entry, { t: "hello", you: { role: who.role, seat: who.seat }, room: view, ...(release && { release: this.releaseWord(releaseSafe(view)) }) });
+      // A page that speaks an older protocol than the room can only reload: at once when nothing is going on.
+      if (release && this.mustUpdate(entry) && releaseSafe(view)) return this.closeForUpdate(ws, entry, now);
       // Mid-game (a reload, a phone back from a drop, a late joiner): the game as this socket may see it.
       // A view that throws ends the game (gameBroke); the rest of the seating goes on as ever.
       if (core.activity.kind === "game") this.sendView(entry, () => ({ t: "snap", s: core.snapshotFor(core.viewerOf(entry), now), now, full: true }));
@@ -299,6 +310,9 @@ export function createLobbyRoom(wallFor) {
         return;
       }
       const now = Date.now();
+      // The first message since the room woke: pages of another build hear the room's (offerRelease).
+      if (release && this.releaseSafeWas === undefined) this.offerRelease(core.view(now), now);
+      if (!this.sockets.has(ws)) return;
       const player = entry.role === "player";
       // A hook whose time came while the alarm was still on its way is judged before anything else
       // is, and so is a touch along the floor since the room last looked (LobbyCore.dueMoves).
@@ -354,6 +368,8 @@ export function createLobbyRoom(wallFor) {
         case "away":
         case "back":
           return this.presence(entry, msg, now);
+        case "release?":
+          return this.answerRelease(entry, now);
         case "in": {
           // A turn-based game's input is answered when it carries an id, and so is the same id
           // sent again just after that game ended. A ticking game's input is fire and forget.
@@ -797,6 +813,9 @@ export function createLobbyRoom(wallFor) {
       if (change.view) this.broadcast({ t: "vote", vote: core.voteView(now) });
       // Who stands on a game's spots changed (choosing its players): it is in the room view.
       if (change.room) this.broadcastRoom(now);
+      // A count started or stopped (only a vote message): pages of another build hear whether now is safe.
+      // Only the vote changed, so the rest of the last room view still stands (releaseView).
+      else if (change.view && release) this.offerRelease(this.releaseView ? { ...this.releaseView, vote: core.voteView(now) } : core.view(now), now);
       if (change.state) void this.save();
       this.arm(now);
     }
@@ -1190,7 +1209,79 @@ export function createLobbyRoom(wallFor) {
     }
 
     broadcastRoom(now) {
-      if (this.core) this.broadcast({ t: "room", room: this.core.view(now) });
+      if (!this.core) return;
+      const view = this.core.view(now);
+      this.broadcast({ t: "room", room: view });
+      this.offerRelease(view, now);
+    }
+
+    // ------------------------------------------------------------ a new build (site/release-switch.js)
+
+    /**
+     * The protocol this room speaks: http.js PROTOCOL, or, for the end-to-end tests only (where
+     * PARTY_DEBUG is "on"), PARTY_TEST_PROTOCOL, so a test can stand for a room of another one.
+     */
+    protocol() {
+      const test = this.env.PARTY_DEBUG === "on" ? this.env.PARTY_TEST_PROTOCOL : undefined;
+      return typeof test === "string" && /^[0-9]{1,4}$/.test(test) ? test : PROTOCOL;
+    }
+
+    /**
+     * Whether a socket's page speaks an OLDER protocol than the room, compared as numbers: it can
+     * only reload. A page of a newer one (loaded after a deploy, talking to a busy room still on its
+     * old code for a few minutes) is never let go: it waits for the room (site/release-switch.js).
+     */
+    mustUpdate(entry) {
+      return Number(entry.kept.protocol ?? LEGACY_HELLO_PROTOCOL) < Number(this.protocol());
+    }
+
+    /**
+     * What the room says of its build, in its hello and in each `release` message: `{id, safe,
+     * protocol}`, its release id, whether now is a moment a page may reload, and the protocol it
+     * speaks (a page of a newer one waits for the room to take the new code: release-switch.js).
+     */
+    releaseWord(safe) {
+      return { id: release.id, safe, protocol: this.protocol() };
+    }
+
+    /**
+     * The room as it now is, said to the pages of another build. Each time whether it is at a safe
+     * point (release-points.js) changes, both ways, and the first time it looks since it woke (a
+     * deploy gives a room that sleeps the new code without closing its sockets), each socket whose
+     * page said another release hears `{t: "release", id, safe, protocol}`, and decides itself
+     * whether it is the older one: a page waiting to reload stops when the room becomes busy, and
+     * goes when it is safe again. Looked at whenever the room view changes (broadcastRoom) and
+     * whenever the vote does (settle: a count starting or stopping is only a vote message). A page
+     * of an older protocol is closed at a safe point with UPDATE_REQUIRED (its seat is kept: it
+     * comes back by reloading). Sends nothing in a room without a release, or to a page that said
+     * none (one from before the release record).
+     */
+    offerRelease(view, now) {
+      if (!release || !this.core) return;
+      // What a safe point is read from, kept so a vote change alone needs no whole room view (settle).
+      this.releaseView = { phase: view?.phase, game: view?.game, closing: view?.closing, starting: view?.starting, vote: view?.vote };
+      const safe = releaseSafe(view);
+      const was = this.releaseSafeWas;
+      this.releaseSafeWas = safe;
+      for (const [ws, entry] of [...this.sockets]) {
+        if (safe && this.mustUpdate(entry)) this.closeForUpdate(ws, entry, now);
+        else if (was !== safe && entry.kept.release && entry.kept.release !== release.id) this.send(entry, { t: "release", ...this.releaseWord(safe) });
+      }
+    }
+
+    /** A page that asks (`{t: "release?"}`: it has heard a new build is out) is told the room's, and whether now is safe. */
+    answerRelease(entry, now) {
+      if (!release || !this.core) return;
+      this.send(entry, { t: "release", ...this.releaseWord(releaseSafe(this.core.view(now))) });
+    }
+
+    /**
+     * Closes a socket whose page cannot speak to this room, keeping its seat as a drop keeps it:
+     * its page reloads (party-client.js, UPDATE_REQUIRED) and comes back with its saved session.
+     */
+    closeForUpdate(ws, entry, now) {
+      this.drop(ws, entry, CLOSE_ROOM_CLOSED, UPDATE_REQUIRED);
+      if (this.core && !this.isConnected(entry.token)) this.core.disconnect(entry.token, now);
     }
 
     /**
