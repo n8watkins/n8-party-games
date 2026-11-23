@@ -41,6 +41,7 @@ import { stageKey, stageStale, tellRoom } from "./shared/stage.js";
 import { playerLine, statusLine } from "./shared/status.js";
 import { JUMP_HEIGHT, acrossWalls, posAt, sameWall } from "./shared/world.js";
 import { withinReach } from "./reach.js";
+import { PAGE_RELEASE, testProtocol, watchRoomRelease } from "/release-switch.js";
 
 const params = new URLSearchParams(location.search);
 const app = document.getElementById("app");
@@ -50,7 +51,25 @@ let look = chosen.look === "3d" && !hardware3D(params) ? "flat" : chosen.look;
 /** A start link may name the room the party starts in (?start&room=ship). */
 const startRoom = params.has("start") && isRoom(params.get("room")) ? params.get("room") : null;
 // The keep-alive is a fixed text the room answers without waking up (lobby/server/lobby-room.js).
-const link = new PartyClient({ api: "/api/lobby", quietPing: { text: "ping", everyMs: KEEP_ALIVE_MS }, lag: Number(params.get("lag") ?? 0) });
+// ?protocol= is for the end-to-end tests on a local server only (release-switch.js testProtocol).
+const link = new PartyClient({ api: "/api/lobby", quietPing: { text: "ping", everyMs: KEEP_ALIVE_MS }, lag: Number(params.get("lag") ?? 0), release: PAGE_RELEASE, protocol: testProtocol() ?? undefined });
+// An older page loads the new build at the room's next safe point, back in its seat (site/release-switch.js).
+// Not while one of this page's own sheets is open (the room picker, a piece being chosen), nor
+// while the last game's result card is up: a reloaded Floor does not show it again (only the
+// `end` message does), so the reload waits until it has had its moment. A big screen never
+// reloads by itself (nobody may be near it): it offers "New version, tap to load". A player's
+// phone in full screen does reload (the owner's choice, 2026-11-23); it goes back into full
+// screen at the player's next tap (ScreenFit.backAfterReload).
+// The notice is a line of the bottom bar (Hud.release), kept here for a bar built later.
+let releaseNote = [null, null];
+watchRoomRelease(link, {
+  canReload: () => !document.querySelector(".sheet-back, .card-back"),
+  auto: () => link.you?.role !== "screen",
+  notice: (text, tap) => {
+    releaseNote = [text, tap];
+    hud?.release(text, tap);
+  },
+});
 // A locked phone, an offline browser and a connection that quietly died are seen at once (connection.js).
 watchConnection(link, { player: () => isPlayer() });
 // One party, two waiting rooms: when the party is in the plain one, this page moves itself there (hop.js).
@@ -226,6 +245,7 @@ async function enter() {
       },
     },
   });
+  if (releaseNote[0]) hud.release(...releaseNote);
   menu = new RoomMenu(hud.el, { role: link.you.role, seat: link.you.seat, onPick: (id) => link.send({ t: "pick", v: id }), onMode: (v) => link.send({ t: "mode", v }), quiet: modeHop.came });
   hud.muteButton(menu.corner);
   if (menu.mine(room)) menu.hint();
@@ -971,6 +991,8 @@ link.on("status", (status) => {
 });
 
 link.on("closed", (why, reason) => {
+  // The room needs a newer page: it reloads into its seat (watchRoomRelease), and does not leave.
+  if (why === "update_required") return;
   // A seat let go because its person left from another device of theirs says so ("left").
   const said = bye ?? (why === "seat_lost" ? (reason === "left" ? "left" : "seat_lost") : reason || "room_closed");
   bye = null;
