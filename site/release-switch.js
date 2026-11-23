@@ -54,6 +54,9 @@ export const LOADING_NOTICE = "Loading the new version";
 /** A page the room let go that cannot come back to its seat: one tap, and it is honest about the seat. */
 export const REJOIN_NOTICE = "Out of date: tap, then join again";
 const RELOADED_KEY = "party:reloaded-for";
+const RETRIED_KEY = "party:retried-for";
+/** A page let go for its protocol that came up old after its reload tries once more after this long. */
+export const RETRY_MS = 30_000;
 /** How long a page waits for /api/version before it gives up and decides nothing. */
 const VERSION_TIMEOUT_MS = 4000;
 /** An answer from /api/version that did not name the room's build is asked again after this long at the soonest. */
@@ -95,6 +98,25 @@ export function decide({ mine, room, live, safe, reloadedFor, auto = true, remem
   if (!remembers) return safe ? "stay" : "wait";
   if (!safe) return auto && reloadedFor !== room ? "notice" : "wait";
   return auto && reloadedFor !== room ? "reload" : "tap";
+}
+
+/** The release this tab, let go and still old after its reload, last tried once more for, if any. */
+export function retriedFor(storage = safeSession()) {
+  try {
+    return storage?.getItem(RETRIED_KEY) ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/** Remembers the one more try for `id`; false when it cannot be remembered (then it is not made). */
+function markRetried(id, storage) {
+  try {
+    storage.setItem(RETRIED_KEY, id);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /** The release this tab last reloaded for, if any. */
@@ -229,12 +251,18 @@ export function watchRoomRelease(link, opts = {}) {
 
   let latest = null; // the room's last word: {id, safe, protocol}
   let forced = false; // the room let this page go for its protocol
+  let retry = null; // let go and still old after its reload: its one more try, while it waits
   let pending = null; // the timer of what is to be done next
   let rechecks = 0;
   let run = 0;
+  // `pending` is the timer only while it waits: once it has run, nothing is waiting any more.
   const later = (ms, fn) => {
     timers.clearTimeout(pending);
-    pending = timers.setTimeout(fn, ms);
+    const handle = timers.setTimeout(() => {
+      if (pending === handle) pending = null;
+      fn();
+    }, ms);
+    pending = handle;
   };
   const jitter = () => Math.floor(random() * spreadMs(people()));
 
@@ -308,7 +336,19 @@ export function watchRoomRelease(link, opts = {}) {
     latest = { id, safe: true, protocol: null };
     const go = reloadClean;
     if (!remembers) return show(REJOIN_NOTICE, go);
-    if (reloadedFor(storage) === id) return show(TAP_NOTICE, go);
+    if (reloadedFor(storage) === id) {
+      // It already reloaded for this build and came up old again (a stale copy on the way): it has
+      // no socket, so it tries once more by itself, RETRY_MS later or when it is shown again,
+      // never more than once per build (retriedFor), and offers the tap meanwhile.
+      show(TAP_NOTICE, go);
+      if (retriedFor(storage) === id) return;
+      retry = () => {
+        if (!canReload()) return later(LOCAL_WAIT_MS, retry);
+        retry = null;
+        if (markRetried(id, storage)) go();
+      };
+      return later(RETRY_MS + jitter(), retry);
+    }
     show(LOADING_NOTICE);
     const attempt = () => {
       if (!canReload()) return later(LOCAL_WAIT_MS, attempt);
@@ -318,7 +358,9 @@ export function watchRoomRelease(link, opts = {}) {
   });
   // Shown again (a phone unlocked, a tab come back to): if a new build is out, ask the room for its own.
   visibility?.addEventListener?.("visibilitychange", async () => {
-    if (visibility.visibilityState !== "visible" || forced) return;
+    if (visibility.visibilityState !== "visible") return;
+    // Let go and still old after its reload: shown again, its one more try comes now.
+    if (forced) return void (retry && later(jitter(), retry));
     const id = await askLive();
     if (!id || id === PAGE_RELEASE) return;
     rechecks = 0;

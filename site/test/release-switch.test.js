@@ -18,6 +18,7 @@ import {
   PAGE_RELEASE,
   RECHECK_MS,
   REJOIN_NOTICE,
+  RETRY_MS,
   SOON_NOTICE,
   STAY_NOTICE,
   TAP_NOTICE,
@@ -27,6 +28,7 @@ import {
   reloadFor,
   reloadIfNewer,
   reloadedFor,
+  retriedFor,
   spreadMs,
   testProtocol,
   watchRoomRelease,
@@ -493,5 +495,65 @@ describe("a page in a room", () => {
       vi.clearAllTimers();
     }
     expect(reloads).toBe(1);
+  });
+
+  /** A fresh page over `storage` that the room lets go for build NEW; its reloads are counted in `count`. */
+  const letGoPage = (storage, count, { visibility = null } = {}) => {
+    const handlers = new Map();
+    watchRoomRelease(
+      { on: (t, h) => handlers.set(t, h), room: { members: [{}, {}, {}, {}], screens: 0 }, roomRelease: NEW, helloProtocol: "2", askRelease: () => {} },
+      { notice: () => {}, live: async () => NEW, random: () => 0.5, storage, reload: count, reloadClean: count, visibility, auto: () => true },
+    );
+    handlers.get("release")({ id: NEW, safe: true, protocol: "3" });
+    handlers.get("closed")("update_required");
+  };
+
+  it("let go and still old after its reload, it tries once more by itself after a while, never twice", async () => {
+    const storage = memory();
+    let reloads = 0;
+    for (let load = 0; load < 6; load++) {
+      let dead = false;
+      letGoPage(storage, () => {
+        if (!dead) reloads++;
+      });
+      // Each load waits long enough for every timer it may set.
+      await wait(RETRY_MS + 2 * SPREAD + LOCAL_WAIT_MS);
+      dead = true;
+      vi.clearAllTimers();
+      // The first reload, then the one more try: no more, however many loads come up old.
+      expect(reloads).toBe(Math.min(load + 1, 2));
+    }
+    expect(retriedFor(storage)).toBe(NEW);
+  });
+
+  it("let go and still old after its reload, shown again it makes its one more try then", async () => {
+    const storage = memory();
+    storage.setItem("party:reloaded-for", NEW);
+    let reloads = 0;
+    let shown = null;
+    letGoPage(storage, () => reloads++, { visibility: { visibilityState: "visible", addEventListener: (_, fn) => (shown = fn) } });
+    await wait(SPREAD);
+    expect(reloads).toBe(0);
+    shown();
+    await wait(SPREAD);
+    expect(reloads).toBe(1);
+    // And not again when its later timer would have come.
+    await wait(RETRY_MS + SPREAD);
+    expect(reloads).toBe(1);
+  });
+
+  it("acts on the same word again once its earlier waits have run out (review probe)", async () => {
+    // Nobody could tell which build is live while its rechecks ran; the deploy then settled, and
+    // the room, woken, said the same word again. Before, the spent timer still counted as a wait.
+    let live = null;
+    const p = page({ live: () => live });
+    p.link.fire("release", { id: NEW, safe: true, protocol: "2" });
+    await wait(RECHECK_MS.reduce((a, b) => a + b, 0) + 10 * SPREAD);
+    live = NEW;
+    await wait(60_000);
+    expect(p.reload).not.toHaveBeenCalled(); // its rechecks are spent, as designed
+    p.link.fire("release", { id: NEW, safe: true, protocol: "2" });
+    await wait(SPREAD + ASK_AGAIN_MS);
+    expect(p.reload).toHaveBeenCalledTimes(1);
   });
 });
