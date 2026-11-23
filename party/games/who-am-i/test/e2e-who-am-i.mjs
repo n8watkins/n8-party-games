@@ -24,6 +24,7 @@
 import { mkdirSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { launchBrowser } from "../../../../lobby/test/browser.mjs";
+import { still as takeStill } from "../../../../party-kit/test/stills.mjs";
 import { IDENTITIES } from "../deck.js";
 
 const args = process.argv.slice(2);
@@ -313,8 +314,8 @@ async function sameRole(p, role, label) {
 
 async function still(p, name, caption) {
   const file = `${String(stills.length + 1).padStart(2, "0")}-${name}.png`;
-  await p.page.screenshot({ path: `${out}/${file}` });
-  stills.push({ file, caption });
+  // Best-effort (party-kit/test/stills.mjs): a still that cannot be taken is skipped, and said so.
+  if (await takeStill(p.page, { path: `${out}/${file}` })) stills.push({ file, caption });
 }
 
 /** No sideways scroll; on the big screen no scroll at all and nothing cut off; every tap target at least 44 px. */

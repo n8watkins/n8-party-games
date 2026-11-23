@@ -94,9 +94,16 @@ function pageHelpers() {
         const was = window.__fright[seat] ?? { scared: 0, moved: 0 };
         window.__fright[seat] = { scared: Math.max(was.scared, scared), moved: Math.round(Math.max(was.moved, Math.abs(x - start[seat]))) };
       }
-      if (performance.now() < until) requestAnimationFrame(look);
     };
-    requestAnimationFrame(look);
+    // Where each piece stands is read now, as the watch starts, not at the page's next frame: a page
+    // starved of frames can draw its first one with the piece already half way through its scurry,
+    // and would then measure only the rest of it.
+    look();
+    const frame = () => {
+      look();
+      if (performance.now() < until) requestAnimationFrame(frame);
+    };
+    requestAnimationFrame(frame);
   };
 }
 

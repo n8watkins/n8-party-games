@@ -187,7 +187,8 @@ export function bumpPose(piece, now, calm = false) {
   const f = piece.fright;
   if (f) {
     const pose = movedPose(f, now - f.at, calm);
-    // The first frame after its move is over puts it where the room put it, however few frames came in between.
+    // The first frame after its move is over puts it where the room put it, however few frames
+    // came in between (as the flat look's BumpDraw.pose: move-state.js, landing).
     const x = pose.x ?? landing(f, pose.state);
     if (pose.state === "up") {
       piece.fright = null;

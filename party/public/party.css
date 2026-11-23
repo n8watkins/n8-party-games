@@ -346,6 +346,13 @@ p {
   padding: 0;
   list-style: none;
 }
+/* Which build this page is (main.js): small and quiet under who is here. */
+.panel .release-ver {
+  margin: 12px 0 0;
+  font-size: 12px;
+  line-height: 1.3;
+  color: var(--dim);
+}
 .person {
   display: flex;
   align-items: center;

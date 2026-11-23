@@ -98,7 +98,9 @@ export class BumpDraw {
     const f = p.fright;
     if (f) {
       const pose = movedPose(f, now - f.at, calm());
-      // The first frame after its move is over puts it where the room put it, however few frames came in between.
+      // The first frame after its move is over (safe, or already up on a page that drew nothing all
+      // the while, or a shove with no safe time) puts it where the room put it, however few frames
+      // came in between, not eased there from where this page last drew it (move-state.js, landing).
       const x = pose.x ?? landing(f, pose.state);
       if (pose.state === "up") {
         p.fright = null;
