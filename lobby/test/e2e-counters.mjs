@@ -362,12 +362,13 @@ try {
       const mark = ada.seen.length;
       await pat.keyboard.down("KeyX");
       kc = await after((m) => m.t === "kc" && m.s === P, 3000, mark);
-      // A strong charge, so a long bounce (shared/bump.js, chargeBounce): Cy hardens part way
-      // through it, and Pat lets go well inside the harden.
-      await sleep(350);
+      // A strong charge, so a long bounce (shared/bump.js, chargeBounce): Cy hardens late in it
+      // and Pat lets go just after. The release is timed from the harden, not from the start of
+      // the charge: a busy machine that stalls during the charge then cannot use up the harden.
+      await sleep(Math.max(0, 620 - (Date.now() - (kc?.at ?? Date.now()))));
       cy.send({ t: "slime", k: "harden" });
       const hard = await after((m) => m.t === "slime" && m.s === C, 2000, mark);
-      await sleep(Math.max(0, 750 - (Date.now() - (kc?.at ?? Date.now()))));
+      await sleep(120);
       check(!!hard && Date.now() - hard.at < HARDEN_MS - 300, `Cy hardens while Pat charges (${hard ? Date.now() - hard.at : "?"} ms before the release)`);
       await pat.keyboard.up("KeyX");
       b = await after((m) => m.t === "b" && m.s === P, 3000, mark);
