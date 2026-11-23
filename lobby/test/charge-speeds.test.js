@@ -226,6 +226,48 @@ describe("the floaty ghost: slow to stop and to turn", () => {
     expect(out).toEqual([expect.objectContaining({ t: "spook", s: 0, to: 1 })]);
     expect(out[0].x).toBeGreaterThan(core.members[0].x);
   });
+
+  it("spooks nobody once its drift is over: a piece that walks into a standing faded ghost is left alone", () => {
+    const core = party(["Gus", "Bo"]);
+    be(core, 0, "ghost");
+    core.members[0].fadeAt = -Infinity;
+    place(core, 0, 500, 1000);
+    place(core, 1, 900, 1000);
+    // The ghost walks, says it stops at 600 at full speed, and drifts to a stand well short of Bo.
+    walk(core, 0, 500, 1, 2000);
+    const stopAt = 2000 + Math.round((100 / walkSpeed("ghost")) * 1000);
+    walk(core, 0, 600, 0, stopAt, 1);
+    const stood = stopAt + FLOAT_MS + 50;
+    expect(core.dueMoves(stood)).toEqual([]);
+    expect(velAt(core.members[0], stood)).toBe(0);
+    // Standing, it fades, and Bo walks right up to it within the fade.
+    core.fade(0, stood);
+    expect(core.members[0].fadedUntil).toBeGreaterThan(stood);
+    const rest = posAt(core.members[0], stood);
+    walk(core, 1, 900, -1, stood);
+    const reach = stood + Math.round(((900 - rest - SPOOK_REACH / 2) / walkSpeed("pawn")) * 1000);
+    expect(reach).toBeLessThan(core.members[0].fadedUntil);
+    expect(core.nextTouch(stood)).toBe(null);
+    expect(core.dueMoves(reach)).toEqual([]);
+    expect(core.dueMoves(reach + TOUCH_GRACE_MS + 50)).toEqual([]);
+    expect(core.members[1].d).toBe(-1);
+  });
+
+  it("spooks nobody by fading where it came to rest beside them", () => {
+    const core = party(["Gus", "Bo"]);
+    be(core, 0, "ghost");
+    core.members[0].fadeAt = -Infinity;
+    place(core, 0, 500, 1000);
+    walk(core, 0, 500, 1, 2000);
+    const stopAt = 2000 + Math.round((100 / walkSpeed("ghost")) * 1000);
+    walk(core, 0, 600, 0, stopAt, 1);
+    const stood = stopAt + FLOAT_MS + 50;
+    core.dueMoves(stood);
+    place(core, 1, Math.round(posAt(core.members[0], stood) + SPOOK_REACH - 6), stood);
+    core.fade(0, stood + 10);
+    expect(core.nextTouch(stood + 10)).toBe(null);
+    expect(core.dueMoves(stood + 10 + TOUCH_GRACE_MS + 50)).toEqual([]);
+  });
 });
 
 describe("the charged kick, as numbers (round three, 'Pawn charged kick')", () => {
@@ -630,6 +672,21 @@ describe("the charged kick, drawn in both looks (move-state.js)", () => {
     expect(p.rev).toBe(4);
     expect(attackDrawn(p, 1700 + WINDUP_MS / 2, false).x).toBeGreaterThan(520);
     expect(attackDrawn(p, 1700 + IMPACT_MS + 10, false).x).toBe(620);
+  });
+
+  it("keeps the viewer's own dash when the room's word of the charge comes after the release, and draws it once", () => {
+    const pieces = new Map([[1, piece()]]);
+    const p = pieces.get(1);
+    // Its own page began the charge at the hold and the dash at the release, before the room's echo.
+    startCharge(p, 1000);
+    startRelease(p, 0.2, 1040);
+    const lunge = p.attack.lunge;
+    heardCharge(pieces, 1, { t: "kc", s: 1, f: 1, x: 500 }, 1060);
+    expect(p.attack.lunge).toBe(lunge);
+    expect(p.attack.charging).toBeUndefined();
+    // The room's answer only says where the dash ends: it began at the release.
+    expect(heardChargedKick(p, { t: "b", s: 1, f: 1, c: 0.2, kx: 560, kr: 1, to: -1 }, 1090, true)).toBe(1040);
+    expect(p.attack.lunge).toMatchObject({ from: 500, to: 560 });
   });
 
   it("draws the dash from where the room had the pawn, though a slow page last drew it elsewhere", () => {

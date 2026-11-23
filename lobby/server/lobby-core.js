@@ -732,6 +732,10 @@ export class LobbyCore {
     }
     // A piece that was knocked down lies where it landed until it is up again.
     if (isDown(m, now)) return null;
+    // A pulled piece whose page walks it again has landed and stands on its own: its pull is no
+    // longer one to counter (shared/robot.js, counterable), so a move it or anyone makes from now
+    // is a plain one. (The pull is kept: a hook that reached it in the air is still judged by it.)
+    if (m.pull) m.pull.walked = true;
     const d = data.d === 1 ? 1 : data.d === -1 ? -1 : 0;
     const expected = posAt(m, now);
     let x = clampX(data.x);
@@ -1313,7 +1317,9 @@ export class LobbyCore {
    * (Infinity when it no longer will). Judged at the touch's own time, not the look's.
    */
   touchFrom(kind, m, t) {
-    if (kind === "spook") return t < (m.fadedUntil ?? 0) ? t : Infinity;
+    // A ghost spooks only while it moves: walking, or still easing to a stand. Once its drift is
+    // over it stands, and a standing ghost spooks nobody who walks into it (as its own page judges).
+    if (kind === "spook") return t < (m.fadedUntil ?? 0) && (m.d || velAt(m, t) !== 0) ? t : Infinity;
     // A slime meets another only while it is hard or soft (each ends, and none begins on its own).
     if (kind === "goo") return !isDown(m, t) && (isHard(m, t) || isSoft(m, t)) ? t : Infinity;
     return Math.max(t, isDown(m, t) ? (m.stunUntil ?? t) : t, m.hardUntil ?? t, m.softUntil ?? t);
