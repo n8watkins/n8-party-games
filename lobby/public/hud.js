@@ -169,6 +169,14 @@ export class Hud {
    */
   release(text, tap = null) {
     const status = this.bar.querySelector(".status");
+    // With the tap, the whole of the bar's words is the tap area (the line alone is too small to
+    // aim at); a click on the line itself comes here too.
+    if (!this.releaseBound) {
+      this.releaseBound = true;
+      status.addEventListener("click", () => this.releaseTap?.());
+    }
+    this.releaseTap = text ? tap : null;
+    status.classList.toggle("release-tap", !!this.releaseTap);
     if (!text) {
       this.releaseEl?.remove();
       this.releaseEl = null;
@@ -180,12 +188,8 @@ export class Hud {
       this.releaseEl?.remove();
       this.releaseEl = h(kind, `status-release${tap ? " tap" : ""}`, "", status);
       this.releaseEl.setAttribute("role", "status");
-      if (tap) {
-        this.releaseEl.type = "button";
-        this.releaseEl.addEventListener("click", () => this.releaseTap?.());
-      }
+      if (tap) this.releaseEl.type = "button";
     }
-    this.releaseTap = tap;
     this.releaseEl.textContent = text;
     status.classList.add("has-release");
   }
