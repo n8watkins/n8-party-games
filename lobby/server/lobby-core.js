@@ -44,7 +44,7 @@ import { COUNT_MS, SETTLE_MS, TOSS_MS, leaders, pointsForPlace, spotLights, stan
 import { BUMP_BEHIND, BUMP_REACH, CHARGE_HOLD_MS, CHARGE_MIN_MS, COOLDOWN_SLACK_MS, IMMUNE_MS, IMPACT_MS, KICK_CONTACT, bumpTarget, chargeBounce, chargeDash, chargePower, chargeThrow, cooldownLeft, isDown, isSafe, knockLanding, knocked, mayBump, mayCharge } from "../shared/bump.js";
 import { BOO_LATE_MS, FADE_MS, SCARE_LANDING, SPOOK_FAR, SPOOK_LANDING, SPOOK_REACH, bigScared, fadeLeft, isFaded, mayFade, maySpook, scared, spooked } from "../shared/ghost.js";
 import { COUNTER_SAFE_MS, HOOK_SCARE_MS, TOUCH_GRACE_MS, slideLanding, touchAt } from "../shared/moves.js";
-import { CURL_CONTACT, CURL_MS, GOO_REACH, POP_MS, STICK_APART, STICK_MS, SWALLOW_MS, SWALLOW_OUT, curlDistance, curlReaches, flightReaches } from "../shared/counters.js";
+import { CURL_CONTACT, CURL_MS, DOMINO_CONTACT, GOO_REACH, POP_MS, STICK_APART, STICK_MS, SWALLOW_MS, SWALLOW_OUT, curlDistance, curlReaches, flightReaches } from "../shared/counters.js";
 import { BONK_MS, COUNTER_LAG_MS, FREED_MS, HOOK_BACK_MS, HOOK_HAND, HOOK_HOLD, HOOK_LATE_MS, HOOK_LIFE_MS, PULLED_SAFE_MS, PULL_MS, STILT_MS, TRAIN_MS, TUG_HOLD_MS, TUG_MS, battedAway, chainInReach, counterable, firstCatch, hookEndsAt, hookLeft, isUp, jumpedOver, mayHook, mayStilt, pullAt, stiltLeft } from "../shared/robot.js";
 import { ABSORB_MS, HARDEN_MS, SHOVE_AHEAD, SHOVE_FAR, SHOVE_LATE_MS, SHOVE_REACH, SHOVE_SLACK, SHOVE_STEP, isHard, isSoft, mayShove, maySlime, shoved, slimeLeft } from "../shared/slime.js";
 import { DEFAULT_ROOM, ROOM_COOLDOWN_MS, isRoom, roomLocked, wallFor } from "../shared/rooms.js";
@@ -878,6 +878,13 @@ export class LobbyCore {
     for (const { o: d } of this.inTheWay(from, dir, now, [o.seat, kicker])) {
       const at = flightReaches(from, o.x, posAt(d, now));
       if (at === null) return null;
+      // A hardened slime stands, as it does against a kick: the flying piece stops there, short of
+      // it (never in a light it did not stand in), and knocks nobody.
+      if (isHard(d, now)) {
+        const stop = clampX(Math.round(posAt(d, now) - dir * DOMINO_CONTACT));
+        if ((stop - from) * dir < (o.x - from) * dir) o.x = slideLanding(from, stop, this.landingWall(), this.litPlaces());
+        return null;
+      }
       this.throwPiece(d, dir, now);
       // Its own knock begins as the flying piece reaches it: down from then, as a kick's victim is.
       Object.assign(d, knocked(now + at - IMPACT_MS), { fright: null });
@@ -896,20 +903,29 @@ export class LobbyCore {
   curl(o, dir, now, power, kicker) {
     const from = posAt(o, now);
     const dist = curlDistance(power);
-    const [hit] = this.inTheWay(from, dir, now, [o.seat, kicker]).filter(({ ahead }) => ahead - CURL_CONTACT <= dist);
-    // (It sets off as the kick lands, IMPACT_MS on.)
-    const reach = hit ? curlReaches(dist, Math.max(0, hit.ahead - CURL_CONTACT)) : null;
-    const at = reach === null ? null : IMPACT_MS + reach;
+    const [wall, lit] = [this.landingWall(), this.litPlaces()];
+    // Where it comes to rest alone: about its distance, and on into the dark when that is in a light
+    // that is on (knockLanding: never in a light). No cap beyond that: a stone that may not stop in a
+    // light slides on until it may, and the wall bounds it.
+    const alone = knockLanding(from, dir, wall, lit, { distance: dist, least: 0 });
+    const [hit] = this.inTheWay(from, dir, now, [o.seat, kicker]).filter(({ ahead }) => ahead - CURL_CONTACT <= Math.abs(alone - from));
     const out = {};
-    if (hit && at !== null) {
+    let x = alone;
+    if (hit && isHard(hit.o, now)) {
+      // A hardened slime in its way stands, as it does against a kick, and the stone stops there
+      // (short of it, never in a light it did not stand in).
+      x = slideLanding(from, clampX(from + dir * Math.max(0, hit.ahead - CURL_CONTACT)), wall, lit);
+    } else if (hit) {
+      // Past the piece it knocks over, into the dark; the knock timed on the slide it really makes
+      // (CURL_MS over from -> x, as every page draws it: curlPose), from when the kick lands.
+      x = knockLanding(from, dir, wall, lit, { distance: dist, least: Math.min(dist, hit.ahead + CURL_CONTACT) });
+      const at = IMPACT_MS + (curlReaches(Math.abs(x - from), Math.max(0, hit.ahead - CURL_CONTACT)) ?? CURL_MS);
       this.throwPiece(hit.o, dir, now);
       Object.assign(hit.o, knocked(now + at - IMPACT_MS), { fright: null });
       out.cv = { to: hit.o.seat, x: hit.o.x, rev: hit.o.rev, at };
     }
-    // Into the dark at about its distance, past the piece it knocked over (knockLanding: never in a light).
-    const least = hit && at !== null ? Math.min(dist, hit.ahead + CURL_CONTACT) : 0;
-    const x = knockLanding(from, dir, this.landingWall(), this.litPlaces(), { distance: dist, least });
-    Object.assign(o, { x, d: 0, t: now, vt: null, stunUntil: now + IMPACT_MS + CURL_MS, immuneUntil: now + IMPACT_MS + CURL_MS + COUNTER_SAFE_MS, fright: "curl", pull: null });
+    // It slides as a stone, its harden over: nothing else starts on it until it is up again.
+    Object.assign(o, { x, d: 0, t: now, vt: null, hardUntil: now, stunUntil: now + IMPACT_MS + CURL_MS, immuneUntil: now + IMPACT_MS + CURL_MS + COUNTER_SAFE_MS, fright: "curl", pull: null });
     o.rev += 1;
     o.chargeAt = null;
     this.dropHook(o);
@@ -1415,7 +1431,7 @@ export class LobbyCore {
         done.add(touch.key);
         // Kept with it: where the toucher's walk began and which way it walked then, so it is judged
         // as it was even if the room moves or stops the piece meanwhile (a knock, a dropped phone).
-        const held = { kind: touch.kind, s: touch.m.seat, to: touch.o.seat, t: touch.t, ox: posAt(touch.o, touch.t), band: this.touchBand(touch.kind, touch.m), from: touch.m.x, d: Math.sign(velAt(touch.m, touch.t)) || touch.m.d, sx: posAt(touch.m, touch.t), orev: touch.o.rev };
+        const held = { kind: touch.kind, s: touch.m.seat, to: touch.o.seat, t: touch.t, ox: posAt(touch.o, touch.t), band: this.touchBand(touch.kind, touch.m), from: touch.m.x, d: Math.sign(velAt(touch.m, touch.t)) || touch.m.d, sx: posAt(touch.m, touch.t), orev: touch.o.rev, srev: touch.m.rev };
         const said = touch.t <= (touch.m.saidAt ?? -Infinity) + 1;
         // On the phone's own word (the touch came as it said where it is), or held long enough already: it counts now.
         if (said || touch.t + TOUCH_GRACE_MS <= now) {
@@ -1437,7 +1453,12 @@ export class LobbyCore {
     // that put it now: a held touch from before would move it again from there. It is looked at
     // afresh instead, from where it is now (firstTouch).
     const o = this.members[p.to];
-    const moved = !o || (p.orev !== undefined && o.rev !== p.orev);
+    // So with the toucher, for a touch that moves it too (the swallow and the stick move both
+    // slimes): one the room knocked or hooked since is not moved again on top of that. (A shove
+    // or a boo never moves the toucher: a slime knocked inside the grace still pushes once.)
+    const s = this.members[p.s];
+    const movesToucher = p.kind === "goo";
+    const moved = !o || (p.orev !== undefined && o.rev !== p.orev) || (movesToucher && (!s || (p.srev !== undefined && s.rev !== p.srev)));
     const result = moved ? { ok: false, why: "Moved since." } : p.kind === "spook" ? this.boo(p.s, p.to, now, p.t, p.d) : p.kind === "goo" ? this.goo(p.s, p.to, now, p.t) : this.shove(p.s, p.to, now, p);
     // Judged: not judged again while the two stay in reach; forgotten as soon as they part. A touch
     // that was refused is not marked (it may yet count while they are in reach), except one against
@@ -1805,6 +1826,9 @@ export class LobbyCore {
     const a = this.members[seat];
     const b = this.members[to];
     if (!a || !b || !this.floorTime() || moveOf(a.character) !== "harden" || moveOf(b.character) !== "harden") return { ok: false, why: "No slimes there." };
+    // Neither down, just up or being moved by the room now (a stone mid-slide, a knocked or hooked
+    // slime): a counter does not start on a piece already in one, as the room's own sweep refuses it.
+    if (isSafe(a, now) || isSafe(b, now)) return { ok: false, why: "Not just now." };
     const [aSoft, aHard, bSoft, bHard] = [isSoft(a, at), isHard(a, at), isSoft(b, at), isHard(b, at)];
     if (aSoft && bHard) return this.swallow(a, b, now, at);
     if (aHard && bSoft) return this.swallow(b, a, now, at);

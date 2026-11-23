@@ -520,12 +520,16 @@ Each is judged by the room at the moment of the touch, as every touch is (the ro
 
 - **The curling stone**: a pawn's charged kick into a hardened slime sends the slime sliding along the floor as the kick lands (320 to 600 units, by the charge, slowing as it goes), and the pawn is still punished (thrown back, down longer).
   The stone knocks the first piece in its way over as it reaches it (a voter out of its light), and slides on past it into the dark: the decided rule, as nothing the room moves comes to rest in another box's light.
+  Where that rest is pushed on past its distance to clear a light, it slides on (no cap: the wall bounds it), and the piece it knocks is reached when the slide every page draws over that whole way gets there.
+  The stone's harden ends as it sets off: nothing else starts on it until it is up again.
   `{t: "b", ..., bo, cu: {s, x, rev}, cv: {to, x, rev, at}}` (`at`: ms from the kick).
 - **Dominoes**: a kicked piece that flies into another knocks it over too, a kick's distance on, as the flight reaches it: `{t: "b", ..., dm: {to, x, rev, at}}`. Once: the one it knocks over knocks nobody. It passes a piece that cannot be knocked (down or just up, a robot up on its legs, a faded ghost).
+- A hardened slime in the way of a domino or a stone stands, as it does against a kick: the piece that flies into it stops there, short of it (never in a light it did not stand in), and knocks nobody.
 - **Boo the stilts**: a faded ghost that drifts through a robot up on its legs topples it: a knock, its legs dropped: `{t: "spook", ..., tp: 1}`.
 - **The swallow**: a soft (absorbing) slime that touches a hardened one, either walking into the other, swallows it and spits it out past its own middle, on the far side from where it came in: `{t: "goo", k: "swallow", s: soft, to: hard, x, rev}`. Its absorb and the other's harden end.
 - **The stick**: two soft slimes that touch stick together, wobble, and come apart a slime's width apart: `{t: "goo", k: "stick", s, to, x, rev, ox, orev}`. Both absorbs end. Hard against hard does nothing.
   A slime that goes hard or soft beside another meets it at once (`{t: "slime", ..., goo}`).
+  Neither starts on a slime that is down, just up or being moved by the room (a stone mid-slide), and a held touch whose walking slime the room has moved since (a knock or a hook inside the grace) is not applied on top of that move.
 - **Ghosts that meet**: two faded ghosts that drift into each other both pop solid where they are, with a little shock; each has its vote back: `{t: "pop", s, to, x, rev, ox, orev}`.
 - Tests: `test/touch-counters.test.js` and `npm run test:counters`.
 
