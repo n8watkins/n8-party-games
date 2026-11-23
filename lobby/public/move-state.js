@@ -79,7 +79,9 @@ export function heardCharge(pieces, own, msg, now) {
   if (!p) return;
   p.face = msg.f || p.face;
   if (msg.s === own) {
-    if (!p.attack?.charging) startCharge(p, now);
+    // Its own page began the charge at the hold. A quick release can beat the room's word of it
+    // here: the dash it began is then left alone, not wound back into a charge and dashed again.
+    if (!p.attack?.charging && !p.attack?.lunge) startCharge(p, now);
     return;
   }
   p.net = { x: msg.x, d: 0, t: now };

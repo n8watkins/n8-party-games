@@ -674,6 +674,21 @@ describe("the charged kick, drawn in both looks (move-state.js)", () => {
     expect(attackDrawn(p, 1700 + IMPACT_MS + 10, false).x).toBe(620);
   });
 
+  it("keeps the viewer's own dash when the room's word of the charge comes after the release, and draws it once", () => {
+    const pieces = new Map([[1, piece()]]);
+    const p = pieces.get(1);
+    // Its own page began the charge at the hold and the dash at the release, before the room's echo.
+    startCharge(p, 1000);
+    startRelease(p, 0.2, 1040);
+    const lunge = p.attack.lunge;
+    heardCharge(pieces, 1, { t: "kc", s: 1, f: 1, x: 500 }, 1060);
+    expect(p.attack.lunge).toBe(lunge);
+    expect(p.attack.charging).toBeUndefined();
+    // The room's answer only says where the dash ends: it began at the release.
+    expect(heardChargedKick(p, { t: "b", s: 1, f: 1, c: 0.2, kx: 560, kr: 1, to: -1 }, 1090, true)).toBe(1040);
+    expect(p.attack.lunge).toMatchObject({ from: 500, to: 560 });
+  });
+
   it("draws the dash from where the room had the pawn, though a slow page last drew it elsewhere", () => {
     const pieces = new Map([[1, piece()]]);
     heardCharge(pieces, 0, { t: "kc", s: 1, f: 1, x: 510 }, 1000);
