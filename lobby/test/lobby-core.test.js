@@ -8,7 +8,7 @@ import * as cork from "cork-and-bell";
 import { COUNT_IN, END_HOLD } from "../../node_modules/cork-and-bell/game/shared/battle.js";
 import { CORKS_PER_ROUND, ROUND_SECONDS } from "../../node_modules/cork-and-bell/game/shared/sim.js";
 import { game as coinFlip, FLIP_MS, manifest as coinFlipManifest } from "../games/coin-flip.js";
-import { BUDGET_CLOSE_MS, DROP_FADE_MS as RECONNECT_GRACE_MS, LobbyCore, MAX_ROOM_LIFE_MS, SCREEN_GRACE_MS, SEAT_HOLD_MS } from "../server/lobby-core.js";
+import { BUDGET_CLOSE_MS, DROP_FADE_MS as RECONNECT_GRACE_MS, LobbyCore, MAX_ROOM_LIFE_MS, SCREEN_GRACE_MS, SEAT_HOLD_MS, TURN_GRACE_MS } from "../server/lobby-core.js";
 import { WALL } from "../wall.js";
 import { COUNT_MS, SETTLE_MS, TOSS_MS, boxFromManifest } from "../shared/vote.js";
 import { BUMP_COOLDOWN_MS, COOLDOWN_SLACK_MS, IMMUNE_MS, STUN_MS, knockLanding } from "../shared/bump.js";
@@ -662,14 +662,15 @@ describe("a hidden page's grace in a turn-based game (the owner's rule: hide and
     expect(woken.turnUpkeep(31_000 + GRACE).ended.last.early).toMatchObject({ seat: 1, why: "gone" });
   });
 
-  it("a move that changes the game gives the whole grace back, even to a player who was away a moment ago", () => {
+  it("a move gives no grace back: hidden most of the grace, shown for one move and hidden again, the player has only what they won back", () => {
     const { core, tokens } = matchOf();
     expect(core.playTurn(0, { say: "?" }, 3000)).toMatchObject({ ok: true });
     core.setAway(tokens[1], true, 4000);
     core.setAway(tokens[1], false, 54_000);
     expect(core.playTurn(1, { say: "Am I a bird?" }, 54_000)).toMatchObject({ ok: true, answer: { ok: true } });
-    core.setAway(tokens[1], true, 54_000);
-    expect(core.view(54_000).members[1].awayIn).toBe(GRACE);
+    core.setAway(tokens[1], true, 55_000);
+    // 50 s used, 1 s won back while shown: 11 s left, not a fresh minute.
+    expect(core.view(55_000).members[1].awayIn).toBe(11_000);
   });
 
   it("an ok answer that changes nothing (an old command sent again under a fresh id) gives no grace back, so a hidden player cannot stall with it", () => {
@@ -807,6 +808,92 @@ describe("a hidden page's grace only while the game needs the seat (`game.needs`
     expect(core.view(3000).members[0]).not.toHaveProperty("awayIn");
     expect(ended(core.turnUpkeep(3000 + 10 * GRACE))).toBeNull();
     expect(core.activity.kind).toBe("game");
+  });
+
+  it("the reviewer's probe: time used hidden on one's own turn does not shorten a drop on the other's turn (main's grace from the drop)", () => {
+    // Turns of 90 s that pass on their own, Bo's first.
+    const TURN = 90_000;
+    const fields = {
+      needs: onTurn,
+      nextDeadline: (state) => state.deadline,
+      create: ({ seats, now }) => ({ seats: seats.map((s) => s.seat), secrets: {}, turn: 1, turnMs: TURN, deadline: now + TURN, paused: null, missing: {}, moves: [], timeouts: 0, winner: null, scores: {}, decided: false, avoid: [] }),
+      reconnectGraceMs: undefined,
+    };
+    for (const hidFirst of [true, false]) {
+      const { core, tokens } = matchOf(fields);
+      const t0 = 2000;
+      if (hidFirst) core.setAway(tokens[1], true, t0);
+      // Bo's turn runs out while he is hidden: Ann's turn.
+      core.gameDeadline(t0 + TURN);
+      if (hidFirst) core.setAway(tokens[1], false, t0 + TURN + 1000);
+      // Bo loses signal 4 s later, on Ann's turn.
+      const dropAt = t0 + TURN + 5000;
+      core.disconnect(tokens[1], dropAt);
+      expect(ended(core.turnUpkeep(dropAt))).toBeNull();
+      // On Ann's turn his clock is held still: only main's grace from the drop can end him.
+      expect(core.nextWake(dropAt)).toBe(Math.min(t0 + 2 * TURN, dropAt + TURN_GRACE_MS));
+      expect(ended(core.turnUpkeep(t0 + 2 * TURN - 1))).toBeNull();
+      expect(core.activity.kind, hidFirst ? "hid first" : "never hid").toBe("game");
+    }
+  });
+
+  it("a drop while not needed is never given up on before main's grace from the drop, even with time used before", () => {
+    const { core, tokens } = matchOf();
+    // Ann (her turn) hides 50 s of her minute, comes back for 1 s; Ann plays, the turn is Bo's; Ann drops.
+    core.setAway(tokens[0], true, 3000);
+    core.setAway(tokens[0], false, 53_000);
+    expect(core.playTurn(0, { say: "Am I a cat?" }, 54_000)).toMatchObject({ ok: true });
+    core.disconnect(tokens[0], 54_000);
+    // (On Bo's turn: nobody plays on, so the turn stays his.) Not 11 s after the drop: a whole minute.
+    expect(ended(core.turnUpkeep(54_000 + GRACE - 1))).toBeNull();
+    expect(core.turnUpkeep(54_000 + GRACE).ended.last.early).toMatchObject({ seat: 0, why: "gone" });
+  });
+
+  it("a page that cannot keep its screen awake is not charged for being hidden, even on its own turn: only a drop counts, as on main", () => {
+    const { core, tokens } = matchOf();
+    expect(core.setWake(tokens[0], true, 2500)).toBe(true);
+    expect(core.setWake(tokens[0], true, 2500)).toBe(false);
+    core.setAway(tokens[0], true, 3000);
+    expect(core.view(3000).members[0]).not.toHaveProperty("awayIn");
+    expect(ended(core.turnUpkeep(3000 + 5 * GRACE))).toBeNull();
+    // Its phone drops on its own turn: the clock runs, with the grace of a drop.
+    core.disconnect(tokens[0], 400_000);
+    expect(core.view(400_000).members[0].awayIn).toBe(GRACE);
+    expect(core.turnUpkeep(400_000 + GRACE).ended.last.early).toMatchObject({ seat: 0, why: "gone" });
+  });
+
+  it("saying it can keep its screen awake again makes a hidden page count from then", () => {
+    const { core, tokens } = matchOf();
+    core.setWake(tokens[0], true, 2500);
+    core.setAway(tokens[0], true, 3000);
+    core.setWake(tokens[0], false, 50_000);
+    expect(core.view(50_000).members[0].awayIn).toBe(GRACE);
+  });
+
+  it("the returning player is told how close it came only when this absence ran the clock", () => {
+    const { core, tokens } = matchOf({ needs: onTurn, nextDeadline: (state) => state.deadline });
+    // Ann hides 45 s on her own turn, comes back: told.
+    core.setAway(tokens[0], true, 3000);
+    core.setAway(tokens[0], false, 48_000);
+    expect(core.view(48_000).members[0].awaySpare).toBe(GRACE - 45_000);
+    // She plays: Bo's turn. She hides 5 s while waiting: that cost nothing, so nothing is said,
+    // though some grace is still used from before.
+    expect(core.playTurn(0, { say: "Am I a cat?" }, 49_000)).toMatchObject({ ok: true });
+    core.setAway(tokens[0], true, 50_000);
+    core.setAway(tokens[0], false, 55_000);
+    expect(core.view(55_000).members[0]).not.toHaveProperty("awaySpare");
+  });
+
+  it("a test server's shorter away grace shortens the clock only, never a dropped phone's grace", () => {
+    const { core, tokens } = matchOf();
+    core.awayGraceMs = 20_000;
+    core.setAway(tokens[0], true, 3000);
+    expect(core.view(3000).members[0].awayIn).toBe(20_000);
+    expect(core.turnUpkeep(23_000).ended.last.early).toMatchObject({ seat: 0, why: "gone" });
+    const other = matchOf();
+    other.core.awayGraceMs = 20_000;
+    other.core.disconnect(other.tokens[1], 3000);
+    expect(ended(other.core.turnUpkeep(3000 + GRACE - 1))).toBeNull();
   });
 
   it("a `needs` that throws is taken as not needed: nothing runs", () => {

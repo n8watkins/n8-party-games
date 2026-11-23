@@ -103,6 +103,8 @@ export class PartyClient {
     this.clockTimers = [];
     /** Whether this page told the room it is hidden (setAway): said again on every new connection. */
     this.away = false;
+    /** Whether this page told the room it cannot keep its screen awake (setWake): said again on every new connection. */
+    this.noWake = false;
     /** The reconnect waiting out its back-off after a drop, if any. */
     this.retryTimer = null;
   }
@@ -221,7 +223,9 @@ export class PartyClient {
       // With it, which build this page is and which protocol it speaks (a room that cannot speak
       // it closes the socket with "update_required" at a safe point, below).
       ws.send(JSON.stringify({ t: "hello", token, protocol: this.helloProtocol, ...(this.release && { release: this.release }) }));
-      // A new socket is a page that is showing, to the room: one that is hidden says so first.
+      // A new socket is a page that is showing, to the room: one that is hidden says so first,
+      // after whether it can keep its screen awake (so a lock it could not hold is never charged).
+      if (this.noWake) this.send({ t: "wake", ok: false });
       if (this.away) this.send({ t: "away" });
       this.setStatus("open");
       this.pingPace = 0;
@@ -273,6 +277,20 @@ export class PartyClient {
         reconnectDelay(this.retry, this.random),
       );
     };
+  }
+
+  /**
+   * Tells the room whether this page can keep its screen awake (`true`: it holds a wake lock;
+   * `false`: not supported, refused, low-power mode). A seat whose page cannot is never charged for
+   * being hidden in a turn-based game, only for a dropped phone. Remembered, and said again on a new
+   * connection. Returns whether it was said to the room now.
+   */
+  setWake(held) {
+    const was = this.noWake;
+    this.noWake = !held;
+    if (was === this.noWake || this.ws?.readyState !== WebSocket.OPEN) return false;
+    this.send({ t: "wake", ok: !this.noWake });
+    return true;
   }
 
   /**

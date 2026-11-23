@@ -138,10 +138,10 @@ describe("a page hidden in a turn-based game", () => {
     expect(ctx.room.core.last.early).toMatchObject({ seat: 1, why: "gone" });
   });
 
-  it("a move the game takes gives the whole grace back", async () => {
+  it("a move gives no grace back: showing the page for one move between long hides cannot stall the match", async () => {
     const game = whoAmI();
-    const { ctx, say, ws } = await started(game);
-    // Ann's turn: she hides for 50 s, comes back and asks her question.
+    const { say, ws } = await started(game);
+    // Ann's turn: she hides for 50 s, comes back, asks her question and hides again at once.
     say(ws.ann, { t: "away" });
     await settle();
     await vi.advanceTimersByTimeAsync(50_000);
@@ -151,7 +151,7 @@ describe("a page hidden in a turn-based game", () => {
     await settle();
     say(ws.ann, { t: "away" });
     await settle();
-    expect(ctx.alarm.at).toBe(Date.now() + GRACE);
+    expect(roomOf(ws.bo.messages()).members[0].awayIn).toBe(GRACE - 50_000);
   });
 
   it("on the OTHER player's turn runs the same clock", async () => {

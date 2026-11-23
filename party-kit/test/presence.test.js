@@ -163,6 +163,37 @@ describe("a seat's grace clock", () => {
     expect(graceLeft(c, Infinity, 15_000)).toBeNull();
   });
 
+  it("remembers whether the latest absence ran the clock: only then is the player told how close it came", () => {
+    // Ran on one's own turn, then back.
+    let c = trackAbsence(trackAbsence(absenceClock(0), true, 0), false, 30_000);
+    expect(c.ran).toBe(true);
+    // A new absence held still from the start (the other's turn): it ran nothing.
+    c = stillClock(c, 40_000);
+    expect(c.ran).toBe(false);
+    expect(trackAbsence(c, false, 45_000).ran).toBe(false);
+    // Running, then held still (the turn passed while hidden), then back: it ran.
+    let d = trackAbsence(absenceClock(0), true, 0);
+    d = stillClock(d, 10_000);
+    expect(d.ran).toBe(true);
+    expect(trackAbsence(d, false, 20_000).ran).toBe(true);
+    expect(isClock({ ...d, ran: "yes" })).toBe(false);
+  });
+
+  it("ends a dropped seat at the sooner of its drop's grace and its running clock; a clock held still ends nothing", () => {
+    const dropped = { connected: false, droppedAt: 100_000 };
+    // Held still (not needed): the drop's own grace, whatever the clock used before.
+    const held = stillClock(trackAbsence(absenceClock(0), true, 0), 50_000);
+    expect(graceEndsAt(dropped, GRACE, held)).toBe(100_000 + GRACE);
+    // Running from before the drop (hidden, then dropped): one clock, not a second grace.
+    const running = trackAbsence(absenceClock(0), true, 80_000);
+    expect(graceEndsAt(dropped, GRACE, running)).toBe(80_000 + GRACE);
+    // A shorter clock grace (a test server) shortens only the clock.
+    expect(graceEndsAt({ connected: true, away: true }, GRACE, running, 20_000)).toBe(100_000);
+    expect(graceEndsAt(dropped, GRACE, held, 20_000)).toBe(100_000 + GRACE);
+    expect(goneWhy(dropped, 100_000 + GRACE - 1, GRACE, held)).toBeNull();
+    expect(goneWhy(dropped, 100_000 + GRACE, GRACE, held)).toBe("gone");
+  });
+
   it("asks the game whether it needs the seat now, and takes anything but true, a missing hook or one that throws, as no", () => {
     const state = { turn: 1 };
     expect(seatNeeded({ needs: (s, seat) => s.turn === seat }, state, 1)).toBe(true);

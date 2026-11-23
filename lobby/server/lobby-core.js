@@ -36,7 +36,7 @@
 import { ID_REUSED, answerOf, inputDigest, lookup, remember } from "../../party-kit/src/core/answers.js";
 import { hasAudience, needsSpots, openSpots, spotSeats, spotsFull, takeSpots, validSpots } from "../../party-kit/src/core/audience.js";
 import { makeRng } from "../../party-kit/src/core/rng.js";
-import { abandonOutcome, absenceClock, clockEndsAt, goneWhy, graceEndsAt, graceLeft, graceOf, graceUsed, isClock, isMissing, lifetimesOf, presenceOutcome, reportOf, sameReport, seatNeeded, stillClock, trackAbsence } from "../../party-kit/src/core/presence.js";
+import { abandonOutcome, absenceClock, clockEndsAt, goneWhy, graceEndsAt, graceLeft, graceOf, isClock, isMissing, lifetimesOf, presenceOutcome, reportOf, sameReport, seatNeeded, stillClock, trackAbsence } from "../../party-kit/src/core/presence.js";
 import { applyChange, carryFor, carryOf, checkSettings, fieldDefaults, hasCarry, hasSettings, seatsKey, settingFields, settingsProblems } from "../../party-kit/src/core/settings.js";
 import { copyState, deadlineOf, gameProblems, inputOutcome, isTurnBased, loadState, saveState, stateKey } from "../../party-kit/src/core/turns.js";
 import { viewerFor } from "../../party-kit/src/core/views.js";
@@ -129,6 +129,8 @@ export class LobbyCore {
     this.seed = seed >>> 0;
     this.code = code;
     this.pin = null;
+    /** A shorter grace for a seat's clock, on a test server only (clockGrace); null: the game's own. */
+    this.awayGraceMs = null;
     /** @type {Array<null | object>} */
     // One place per seat of the room the party is in (capacity): four on the Floor, more at the Table (fitMembers).
     this.members = new Array(MAX_PLAYERS).fill(null);
@@ -331,8 +333,12 @@ export class LobbyCore {
     return m ? { x: m.x, d: m.d, t: m.t, face: m.face, rev: m.rev } : null;
   }
 
-  /** The last socket for this token closed: the piece stays where it is, grey, for the grace. */
-  disconnect(token, now) {
+  /**
+   * The last socket for this token closed: the piece stays where it is, grey, for the grace.
+   * `droppedAt` is when the seat was last heard, when that was before `now` (a socket reaped as
+   * silent): its grace and its clock run from then.
+   */
+  disconnect(token, now, droppedAt = now) {
     const who = this.identify(token);
     if (!who) return;
     if (who.role === "screen") {
@@ -346,7 +352,7 @@ export class LobbyCore {
       m.d = 0;
       m.t = now;
       m.connected = false;
-      m.droppedAt = now;
+      m.droppedAt = Math.min(now, droppedAt);
       // Who is voting has changed, so the count starts over.
       this.count = null;
       // A page that was hidden and then dropped runs on the clock it already had.
@@ -373,6 +379,34 @@ export class LobbyCore {
   }
 
   /**
+   * Whether a player's page says it cannot keep its screen awake (no wake lock: not supported,
+   * refused, low-power mode), from any of its open sockets. Such a seat is never charged for a
+   * hidden page, only for a dropped phone, exactly as without a clock (trackClocks): a phone that
+   * locks by itself mid-conversation must not lose the match. The room takes the page's word for
+   * it, as it does for being hidden: a page that claims it gains only the rule of a game without
+   * `needs`. Returns whether it changed.
+   */
+  setWake(token, noWake, now) {
+    const who = this.identify(token);
+    if (!who || who.role !== "player") return false;
+    const m = this.members[who.seat];
+    if (!!m.noWake === !!noWake) return false;
+    m.noWake = !!noWake;
+    this.trackClocks(now);
+    return true;
+  }
+
+  /**
+   * How long a seat's clock may run before the seat is gone: the game's grace, or, on a test server
+   * that asks for it (`awayGraceMs`, lobby-room.js, PARTY_TEST_AWAY_GRACE_MS), a shorter one. A
+   * dropped phone's own grace is never shortened.
+   */
+  clockGrace(game) {
+    const grace = graceOf(game, TURN_GRACE_MS);
+    return this.awayGraceMs > 0 && Number.isFinite(grace) ? Math.min(grace, this.awayGraceMs) : grace;
+  }
+
+  /**
    * Keeps each seat's clock of the turn-based game being played (presence.js, absenceClock) in
    * step with who is missing: call it whenever a seat's player may have dropped, come back, or
    * hidden or shown their page, and whenever the game changed (the turn moved on). Returns whether
@@ -380,10 +414,13 @@ export class LobbyCore {
    *   - Only a game with a `needs` hook keeps clocks, and a seat has one from the first time the
    *     game needs it (its turn). Every other seat, and every seat of any other game, keeps the
    *     plain grace of a dropped phone (goneWhy without a clock): a hidden page there costs nothing.
-   *   - While the game needs the seat, a dropped phone or a hidden page runs the clock.
-   *   - While it does not (the other player's turn), a dropped phone still runs it, as it would
-   *     without a clock; a hidden page holds it still (stillClock): glancing at a message while
-   *     waiting costs nothing, and the time used on the seat's own turn is not given back by it.
+   *   - While the game needs the seat, a dropped phone or a hidden page runs the clock. A hidden
+   *     page that said it cannot keep its screen awake (setWake) holds it still instead.
+   *   - While it does not (the other player's turn), the clock is held still (stillClock) whether
+   *     the page is hidden or the phone dropped: glancing at a message while waiting costs nothing,
+   *     the time used on the seat's own turn is not given back by it, and a phone that drops then
+   *     has the plain grace from its drop (presence.js, graceEndsAt), never less.
+   *   - Back (connected and shown), the clock winds back up.
    */
   trackClocks(now) {
     const a = this.activity;
@@ -399,8 +436,10 @@ export class LobbyCore {
       if (!before && !needed) continue;
       const from = m.connected ? now : (m.droppedAt ?? now);
       let clock = before ?? absenceClock(from);
-      if (needed || !m.connected) clock = trackAbsence(clock, isMissing(m), now, from);
-      else clock = m.away ? stillClock(clock, now) : trackAbsence(clock, false, now);
+      const runs = needed && (!m.connected || (m.away && !m.noWake));
+      if (runs) clock = trackAbsence(clock, true, now, from);
+      else if (isMissing(m)) clock = stillClock(clock, now);
+      else clock = trackAbsence(clock, false, now);
       a.clocks[seat] = clock;
       if ((before?.since ?? null) === null !== (clock.since === null)) moved = true;
     }
@@ -412,19 +451,19 @@ export class LobbyCore {
    * played whose game's grace is not endless:
    *   - `awayIn`: while the clock runs (the player is missing and needed), the milliseconds left
    *     before the seat is gone. The other pages count down from it ("back within 0:45").
-   *   - `awaySpare`: while the player is back and some of the grace is still used, the milliseconds
-   *     it has left. The returning page says how close it came ("You came back with 0:28 to spare").
+   *   - `awaySpare`: while the player is back, when their last absence ran the clock and some of
+   *     the grace is still used, the milliseconds it has left. The returning page says how close it
+   *     came ("You're back, with 0:28 to spare"); an absence that cost nothing says nothing.
    */
   awayView(m, now) {
     const a = this.activity;
     const clock = a.kind === "game" && a.seats.includes(m.seat) ? a.clocks?.[m.seat] : null;
     const game = clock ? this.turnGame() : null;
     if (!game) return {};
-    const grace = graceOf(game, TURN_GRACE_MS);
-    const at = clockEndsAt(clock, grace);
-    if (at !== null) return { awayIn: Math.max(0, Math.round(at - now)) };
+    const grace = this.clockGrace(game);
+    if (clockEndsAt(clock, grace) !== null) return { awayIn: Math.max(0, Math.round(graceEndsAt(m, graceOf(game, TURN_GRACE_MS), clock, grace) - now)) };
     const left = graceLeft(clock, grace, now);
-    return !clock.still && !isMissing(m) && left !== null && left < grace ? { awaySpare: Math.round(left) } : {};
+    return clock.ran && !clock.still && !isMissing(m) && left !== null && left < grace ? { awaySpare: Math.round(left) } : {};
   }
 
   /**
@@ -1815,7 +1854,7 @@ export class LobbyCore {
       const m = this.members[seat];
       if (!m || m.connected || m.droppedAt === null || m.droppedAt === undefined) continue;
       if (grace === Infinity) limit = Math.max(limit, chose ? idleShutdownMs : staleRoomMs);
-      else limit = Math.max(limit, (graceEndsAt(m, grace, a.clocks?.[seat]) ?? m.droppedAt + grace) - since);
+      else limit = Math.max(limit, (graceEndsAt(m, grace, a.clocks?.[seat], this.clockGrace(game)) ?? m.droppedAt + grace) - since);
     }
     return limit;
   }
@@ -1859,7 +1898,8 @@ export class LobbyCore {
       at = Math.min(at, this.lastActive + this.lifetimes().staleRoomMs, this.createdAt + MAX_ROOM_LIFE_MS);
       if (this.closing) at = Math.min(at, this.closing.at);
       const grace = graceOf(this.turnGame(), TURN_GRACE_MS);
-      for (const seat of this.activity.seats) at = Math.min(at, graceEndsAt(this.members[seat], grace, this.activity.clocks?.[seat]) ?? Infinity);
+      const clockGrace = this.clockGrace(this.turnGame());
+      for (const seat of this.activity.seats) at = Math.min(at, graceEndsAt(this.members[seat], grace, this.activity.clocks?.[seat], clockGrace) ?? Infinity);
       // A game told who hosts hears when the host's controls pass on: when a dropped host's grace ends.
       const host = this.identify(this.hostToken);
       const m = host?.role === "player" ? this.members[host.seat] : null;
@@ -2357,16 +2397,11 @@ export class LobbyCore {
     if (!answer.ok && draft !== a.state && unchanged()) {
       return { ok: true, quiet: true, answer, events: outcome.events, snapshot: (viewer) => game.snapshot(a.state, now, viewer), viewerOf: (who) => this.viewerOf(who, a), ended: null };
     }
-    // A move the game took is the player here and playing: their seat has its whole grace again.
-    // Only a move that changed the game: an `ok` that changed nothing (an engine's answer to a
-    // command it has already seen, sent again under a fresh id) gives nothing back, or a hidden
-    // player could stall for ever by showing the page, re-sending an old command and hiding again.
-    // Compared only when some grace is used, so the common case pays nothing for it.
-    const clock = a.clocks?.[seat];
-    const moved = answer.ok && !!clock && !isMissing(this.members[seat]) && graceUsed(clock, now) > 0 && !(draft !== a.state && unchanged());
+    // A move gives no grace back: a seat's clock winds back up only while the player is here, so
+    // hiding most of the grace, showing the page for one move and hiding again cannot stall a match
+    // (each second hidden still needs a second back).
     a.state = draft;
     delete a.stuck;
-    if (moved) a.clocks[seat] = absenceClock(now);
     return { ok: true, answer, ...this.turnOut(game, outcome.events, now) };
   }
 
@@ -2465,7 +2500,7 @@ export class LobbyCore {
     const events = [];
     let changed = false;
     for (const seat of [...a.seats]) {
-      const why = goneWhy(this.members[seat], now, grace, a.clocks?.[seat]);
+      const why = goneWhy(this.members[seat], now, grace, a.clocks?.[seat], this.clockGrace(game));
       if (!why) continue;
       // A game without a `leave` hook ends when a seat is gone for good (abandon). One with it is
       // told (a Table game's `{t: "leave", seat}`) and goes on without that seat, or ends by itself.
@@ -3004,7 +3039,7 @@ export class LobbyCore {
     room.pin = data.pin;
     // Nobody is connected until their socket is seen again; a piece left mid-stride stands still.
     // A member saved before characters is a pawn in its seat's colour; a character or colour this room does not know is read the same way.
-    room.members = data.members.slice(0, TABLE_MAX_PLAYERS).map((m) => (m ? { ...m, character: characterOr(m.character), colour: cleanColour(m.colour) ?? seatColour(m.seat), x: m.d ? posAt(m, now) : m.x, d: 0, t: now, connected: false, away: false, droppedAt: m.droppedAt ?? now, bumpAt: -Infinity } : null));
+    room.members = data.members.slice(0, TABLE_MAX_PLAYERS).map((m) => (m ? { ...m, character: characterOr(m.character), colour: cleanColour(m.colour) ?? seatColour(m.seat), x: m.d ? posAt(m, now) : m.x, d: 0, t: now, connected: false, away: false, noWake: false, droppedAt: m.droppedAt ?? now, bumpAt: -Infinity } : null));
     // One screen at most. A screen that had dropped before the room slept keeps the moment it
     // dropped, so its grace runs on through the sleep; one that was connected is seen again by
     // its socket (resume). A room saved before screens had a grace kept bare tokens.

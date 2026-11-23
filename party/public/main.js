@@ -142,7 +142,8 @@ function build() {
   stop.addEventListener("click", () => openStop());
   const stageBox = h("div", "stage-box", "", stageWrap);
   // Who is away, and how long the room gives them (away.js): between the game's name and the game.
-  const away = mountAway(stageWrap, stageBox);
+  // It also keeps this phone's screen awake while it plays a turn-based game.
+  const away = mountAway(stageWrap, stageBox, { link });
 
   // What everyone must see without scrolling, under the bar: a game starting, a game on (for
   // whoever waits here), and the last game's card.

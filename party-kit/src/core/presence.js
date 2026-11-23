@@ -79,9 +79,11 @@ export function seatNeeded(game, state, seat) {
  *   - Held still (`still`): a hidden page the game does not need right now (`game.needs`, say
  *     while the other player has the turn) neither runs nor winds back: the time it has used waits
  *     for the seat's next turn, and nothing runs out meanwhile.
- * `{since, used, at, still?}`: `since` is when the seat went missing (null while it is here or
- * held still), `used` is how much of the grace was used then (or, while it is here, at `at`, when
- * it came back; or, held still, all it has used).
+ * `{since, used, at, still?, ran?}`: `since` is when the seat went missing (null while it is here
+ * or held still), `used` is how much of the grace was used then (or, while it is here, at `at`,
+ * when it came back; or, held still, all it has used). `ran` says the clock ran at some moment of
+ * the seat's latest absence (the one going on, or the last one): only then is a returning player
+ * told how close it came.
  */
 export function absenceClock(now = -Infinity) {
   return { since: null, used: 0, at: now };
@@ -94,10 +96,14 @@ export function graceUsed(clock, now) {
   return Math.max(0, clock.used - Math.max(0, now - clock.at));
 }
 
-/** The clock held still at `now`: what it has used is kept, and nothing runs or winds back until trackAbsence looks again. */
+/**
+ * The clock held still at `now`: what it has used is kept, and nothing runs or winds back until
+ * trackAbsence looks again. Held from a running clock, it is the same absence (`ran` kept); held
+ * from a seat that was here, a new absence begins that has not run the clock.
+ */
 export function stillClock(clock, now) {
   if (clock.still) return clock;
-  return { since: null, used: graceUsed(clock, now), at: now, still: true };
+  return { since: null, used: graceUsed(clock, now), at: now, still: true, ran: clock.since !== null };
 }
 
 /**
@@ -107,12 +113,12 @@ export function stillClock(clock, now) {
  * clock comes back when nothing changed.
  */
 export function trackAbsence(clock, missing, now, from = now) {
-  if (clock.still) clock = { since: null, used: clock.used, at: now };
+  if (clock.still) clock = { since: null, used: clock.used, at: now, ran: !!clock.ran };
   if (missing && clock.since === null) {
     const since = Math.max(Number.isFinite(clock.at) ? clock.at : -Infinity, Math.min(now, from));
-    return { since, used: graceUsed(clock, since), at: since };
+    return { since, used: graceUsed(clock, since), at: since, ran: true };
   }
-  if (!missing && clock.since !== null) return { since: null, used: graceUsed(clock, now), at: now };
+  if (!missing && clock.since !== null) return { since: null, used: graceUsed(clock, now), at: now, ran: true };
   return clock;
 }
 
@@ -125,7 +131,7 @@ export function clockEndsAt(clock, grace) {
 
 /** Whether a clock read back from storage has the right shape. */
 export function isClock(clock) {
-  return !!clock && typeof clock === "object" && (clock.since === null || typeof clock.since === "number") && typeof clock.used === "number" && typeof clock.at === "number" && (clock.still === undefined || clock.still === true);
+  return !!clock && typeof clock === "object" && (clock.since === null || typeof clock.since === "number") && typeof clock.used === "number" && typeof clock.at === "number" && (clock.still === undefined || clock.still === true) && (clock.ran === undefined || typeof clock.ran === "boolean");
 }
 
 /** How much of the grace a seat has left by its clock, in ms, or null when the grace never ends. */
@@ -135,29 +141,29 @@ export function graceLeft(clock, grace, now) {
 
 /**
  * Whether a seat in the game is gone for good, and why: `"left"` when its player is no longer in
- * the room (they left the party, or were put out), `"gone"` when the player has been missing
- * (dropped, or away with the page hidden) for the whole grace by the seat's clock, or null while
- * the seat is held. Only the game's seats are ever asked about: a member of the party who is not
- * playing never ends a game. Without a clock (a room class that keeps none), only a dropped
- * phone's grace runs, from when it dropped.
+ * the room (they left the party, or were put out), `"gone"` when its grace has run out
+ * (graceEndsAt), or null while the seat is held. Only the game's seats are ever asked about: a
+ * member of the party who is not playing never ends a game.
  */
-export function goneWhy(member, now, grace, clock = null) {
+export function goneWhy(member, now, grace, clock = null, clockGrace = grace) {
   if (!member) return "left";
-  if (clock) {
-    const at = clockEndsAt(clock, grace);
-    return at !== null && now >= at ? "gone" : null;
-  }
-  if (member.connected || member.droppedAt === null || member.droppedAt === undefined) return null;
-  return now - member.droppedAt >= grace ? "gone" : null;
+  const at = graceEndsAt(member, grace, clock, clockGrace);
+  return at !== null && now >= at ? "gone" : null;
 }
 
-/** When a seat's grace runs out (by its clock, or without one from when it dropped), or null while it is here or held forever. */
-export function graceEndsAt(member, grace, clock = null) {
+/**
+ * When a seat's grace runs out, or null while it is here or held for ever. The sooner of:
+ *   - a dropped phone's grace from when it dropped (`grace`), the rule with or without a clock;
+ *   - the end of the seat's clock while it runs (`clockGrace`, the same grace unless a test
+ *     server shortens the clock's: lobby-room.js, PARTY_TEST_AWAY_GRACE_MS).
+ * A clock held still (a seat the game does not need now) never ends anything, so a phone that
+ * drops then has the plain grace from its drop, whatever its clock used before.
+ */
+export function graceEndsAt(member, grace, clock = null, clockGrace = grace) {
   if (!member) return null;
-  if (clock) return clockEndsAt(clock, grace);
-  if (member.connected || member.droppedAt === null || member.droppedAt === undefined) return null;
-  const at = member.droppedAt + grace;
-  return Number.isFinite(at) ? at : null;
+  const dropped = !member.connected && member.droppedAt !== null && member.droppedAt !== undefined ? member.droppedAt + grace : null;
+  const ends = [dropped, clock ? clockEndsAt(clock, clockGrace) : null].filter((at) => at !== null && Number.isFinite(at));
+  return ends.length ? Math.min(...ends) : null;
 }
 
 /**

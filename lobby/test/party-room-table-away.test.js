@@ -33,8 +33,8 @@ const key = (seat) => NAMES[seat].toLowerCase();
 const GRACE = TURN_GRACE_MS;
 
 /** A party of `players` at the Table (Ann hosts) and a big screen. */
-async function party(players = 2) {
-  const env = fakeEnv();
+async function party(players = 2, vars = {}) {
+  const env = Object.assign(fakeEnv(), vars);
   const Room = createLobbyRoom(() => TEST_WALL);
   const ctx = fakeCtx();
   ctx.keepAlive = true;
@@ -214,6 +214,100 @@ describe("Who Am I? at the Table: a page hidden on the player's own turn", () =>
     await vi.advanceTimersByTimeAsync(1);
     expect(r.core().activity.kind).toBe("lobby");
     expect(r.core().last.early).toMatchObject({ seat: g, why: "gone" });
+  });
+});
+
+describe("Who Am I? at the Table on a test server with a shorter away clock", () => {
+  it("runs the hidden guesser out at PARTY_TEST_AWAY_GRACE_MS (PARTY_DEBUG on), and ignores it otherwise", async () => {
+    const r = await party(2, { PARTY_DEBUG: "on", PARTY_TEST_AWAY_GRACE_MS: "20000" });
+    await whoAmIBegun(r, { timer: 0, turnFormat: "keep_going" });
+    const g = r.state().turn.seat;
+    await hide(r, key(g));
+    expect(lastRoom(r.ws.screen).members[g].awayIn).toBe(20_000);
+    await vi.advanceTimersByTimeAsync(20_000);
+    expect(r.core().last.early).toMatchObject({ seat: g, why: "gone" });
+    const prod = await party(2, { PARTY_TEST_AWAY_GRACE_MS: "20000" });
+    await whoAmIBegun(prod, { timer: 0, turnFormat: "keep_going" });
+    const p = prod.state().turn.seat;
+    await hide(prod, key(p));
+    expect(lastRoom(prod.ws.screen).members[p].awayIn).toBe(GRACE);
+  });
+});
+
+describe("Who Am I? at the Table: a phone that cannot keep its screen awake", () => {
+  it("says so, and is then never charged for its page being hidden, even on its own turn: only a dropped phone counts, as on main", async () => {
+    const r = await party(2);
+    await whoAmIBegun(r, { timer: 0, turnFormat: "keep_going" });
+    const g = r.state().turn.seat;
+    r.say(r.ws[key(g)], { t: "wake", ok: false });
+    await settle();
+    expect(r.core().members[g].noWake).toBe(true);
+    await hide(r, key(g));
+    expect(lastRoom(r.ws.screen).members[g]).toMatchObject({ away: true });
+    expect(lastRoom(r.ws.screen).members[g]).not.toHaveProperty("awayIn");
+    await vi.advanceTimersByTimeAsync(GRACE + 30_000);
+    expect(r.core().activity.kind).toBe("game");
+    // The phone gets its wake lock after all (a tap): from then on, hidden on its turn counts.
+    r.say(r.ws[key(g)], { t: "wake", ok: true });
+    await settle();
+    expect(lastRoom(r.ws.screen).members[g].awayIn).toBe(GRACE);
+  });
+
+  it("a second tab that can keep awake does not undo the first one's word: any socket that cannot is enough", async () => {
+    const r = await party(2);
+    await whoAmIBegun(r, { timer: 0, turnFormat: "keep_going" });
+    const g = r.state().turn.seat;
+    const tab = await r.connect(r.tokens[key(g)]);
+    r.say(r.ws[key(g)], { t: "wake", ok: false });
+    r.say(tab, { t: "wake", ok: true });
+    await settle();
+    expect(r.core().members[g].noWake).toBe(true);
+  });
+});
+
+describe("Who Am I? at the Table: a question typed in the app waits on the other player", () => {
+  it("trade turns: hidden while a typed question waits for their answer, the other player runs their grace, and forfeits at it", async () => {
+    const r = await party(2);
+    await whoAmIBegun(r, { timer: 0, turnFormat: "trade", questions: "app" });
+    const g = r.state().turn.seat;
+    const j = 1 - g;
+    expect(await send(r, key(g), { t: "ask", text: "Am I a real person?" })).toMatchObject({ t: "ack" });
+    expect(rules.needs(r.state(), j)).toBe(true);
+    await hide(r, key(j));
+    expect(lastRoom(r.ws.screen).members[j].awayIn).toBe(GRACE);
+    await vi.advanceTimersByTimeAsync(GRACE);
+    expect(r.core().activity.kind).toBe("lobby");
+    expect(r.core().last.early).toMatchObject({ seat: j, why: "gone", text: `${NAMES[j]} did not come back, so ${NAMES[g]} wins.` });
+  });
+
+  it("answered, the other player is not waited on any more: hidden then costs nothing", async () => {
+    const r = await party(2);
+    await whoAmIBegun(r, { timer: 0, turnFormat: "keep_going", questions: "app" });
+    const g = r.state().turn.seat;
+    const j = 1 - g;
+    await send(r, key(g), { t: "ask", text: "Am I a real person?" });
+    const q = r.state().turn.log.at(-1);
+    expect(await send(r, key(j), { t: "answer", id: q.id, answer: "yes" })).toMatchObject({ t: "ack" });
+    expect(rules.needs(r.state(), j)).toBe(false);
+    await hide(r, key(j));
+    expect(lastRoom(r.ws.screen).members[j]).not.toHaveProperty("awayIn");
+  });
+
+  it("showing the page for one answer between long hides gives no grace back, so it cannot stall the asker", async () => {
+    const r = await party(2);
+    await whoAmIBegun(r, { timer: 0, turnFormat: "keep_going", questions: "app" });
+    const g = r.state().turn.seat;
+    const j = 1 - g;
+    await send(r, key(g), { t: "ask", text: "Am I a real person?" });
+    await hide(r, key(j));
+    await vi.advanceTimersByTimeAsync(GRACE - 10_000);
+    await show(r, key(j));
+    const q = r.state().turn.log.at(-1);
+    await send(r, key(j), { t: "answer", id: q.id, answer: "yes" });
+    await send(r, key(g), { t: "ask", text: "Am I an actor?" });
+    await hide(r, key(j));
+    // About 10 s left, not a fresh two minutes.
+    expect(lastRoom(r.ws.screen).members[j].awayIn).toBeLessThanOrEqual(10_000);
   });
 });
 

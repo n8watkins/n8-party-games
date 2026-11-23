@@ -63,6 +63,17 @@ const CLOSE_REASONS = { empty: "room_closed", stale: "room_idle", expired: "room
  *   point (release-points.js), so an older page can load the new build. Without one the room says
  *   nothing about builds.
  */
+/**
+ * A shorter grace for a seat's away clock (LobbyCore.clockGrace), in ms, so the browser tests need
+ * not wait out two real minutes: PARTY_TEST_AWAY_GRACE_MS, read only where PARTY_DEBUG is "on" (a
+ * local test server, never production). Null otherwise. A dropped phone's grace is never shortened.
+ */
+export function testAwayGrace(env) {
+  if (env?.PARTY_DEBUG !== "on") return null;
+  const ms = Number(env.PARTY_TEST_AWAY_GRACE_MS);
+  return Number.isFinite(ms) && ms > 0 ? ms : null;
+}
+
 export function createLobbyRoom(wallFor, { release = null } = {}) {
   return class LobbyRoom extends DurableObject {
     constructor(ctx, env) {
@@ -94,6 +105,7 @@ export function createLobbyRoom(wallFor, { release = null } = {}) {
           return;
         }
         this.core = LobbyCore.restore(wall, saved, this.wokeAt);
+        this.core.awayGraceMs = testAwayGrace(env);
         this.alarmAt = await ctx.storage.getAlarm();
         // Waking from sleep: the sockets are still open, so their owners are still here, and each
         // socket carried its piece and what it owes the budget through the sleep.
@@ -127,6 +139,7 @@ export function createLobbyRoom(wallFor, { release = null } = {}) {
       if (this.core) return { ok: false, error: "exists", message: "Room code already in use." };
       const now = Date.now();
       const core = new LobbyCore({ ...this.wall, seed: newSeed(), code, now });
+      core.awayGraceMs = testAwayGrace(this.env);
       const joined = as === "screen" ? core.watch(now) : core.join(nickname, now);
       if (!joined.ok) return joined;
       this.core = core;
@@ -368,6 +381,8 @@ export function createLobbyRoom(wallFor, { release = null } = {}) {
         case "away":
         case "back":
           return this.presence(entry, msg, now);
+        case "wake":
+          return this.wake(entry, msg, now);
         case "release?":
           return this.answerRelease(entry, now);
         case "in": {
@@ -663,10 +678,31 @@ export function createLobbyRoom(wallFor, { release = null } = {}) {
       void this.upkeep(now);
     }
 
-    /** Works out whether a token is away from all its open sockets. Returns whether that changed. */
+    /**
+     * A page says whether it can keep its screen awake (`{ t: "wake", ok }`, the Table's page during
+     * a turn-based game). One that cannot is never charged for being hidden (LobbyCore.setWake).
+     */
+    wake(entry, msg, now) {
+      if (entry.role !== "player" || typeof msg.ok !== "boolean") return;
+      const noWake = !msg.ok;
+      if (!!entry.kept.noWake === noWake) return;
+      entry.kept.noWake = noWake;
+      entry.ws.serializeAttachment(entry.kept);
+      if (!this.syncAway(entry.token, now)) return;
+      this.broadcastRoom(now);
+      this.arm(now, { exact: noWake });
+      void this.upkeep(now);
+    }
+
+    /**
+     * Works out from a token's open sockets whether it is away (every one hidden) and whether it
+     * cannot keep its screen awake (any one says so). Returns whether either changed.
+     */
     syncAway(token, now = Date.now()) {
-      const mine = [...this.sockets.values()].filter((e) => e.token === token).map((e) => ({ away: !!e.kept.away }));
-      return this.core?.setAway(token, allAway(mine), now) ?? false;
+      const mine = [...this.sockets.values()].filter((e) => e.token === token);
+      const away = this.core?.setAway(token, allAway(mine.map((e) => ({ away: !!e.kept.away }))), now) ?? false;
+      const wake = this.core?.setWake(token, mine.some((e) => !!e.kept.noWake), now) ?? false;
+      return away || wake;
     }
 
     /**
@@ -768,13 +804,11 @@ export function createLobbyRoom(wallFor, { release = null } = {}) {
         const away = this.awayInTurnGame(entry);
         if (now - heard < (away ? this.awayLimit() : SILENT_MS)) continue;
         this.drop(ws, entry, 1001, "silent");
-        if (!this.isConnected(entry.token)) {
-          this.core.disconnect(entry.token, now);
-          // An away phone was already given the grace while silent: its drop dates from its last
-          // sign of life, so the seat is held one grace in all, and is gone at once if that is past.
-          const m = this.core.members[entry.seat];
-          if (away && m && !m.connected && m.droppedAt > heard) m.droppedAt = heard;
-        } else this.syncAway(entry.token);
+        // An away phone was already given the grace while silent: its drop dates from its last sign
+        // of life (its grace and its clock both), so the seat is held one grace in all, and is gone
+        // at once if that is past.
+        if (!this.isConnected(entry.token)) this.core.disconnect(entry.token, now, away ? heard : now);
+        else this.syncAway(entry.token);
         this.broadcastRoom(now);
         reaped = true;
       }

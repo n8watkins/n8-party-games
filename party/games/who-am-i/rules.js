@@ -906,16 +906,23 @@ export function decided(state) {
 }
 
 /**
- * Whether the match is waiting on this seat right now: only the guesser whose turn it is, while
- * they ask (not while their guess waits to be confirmed). Through the Table's adapter the room
- * then runs that seat's grace while its page is hidden, and a player hidden for the whole of it
- * forfeits (`leave`). Nobody else is needed: the player waiting answers out loud, and a guess they
- * do not confirm is covered by `selfConfirm` and `confirmLapse`; the setup, the reveal and
- * watchers wait on nobody.
+ * Whether the match is waiting on this seat right now. Through the Table's adapter the room then
+ * runs that seat's grace while its page is hidden, and a player hidden for the whole of it
+ * forfeits (`leave`). The match waits on:
+ *   - the guesser whose turn it is, while they ask (not while their guess waits to be confirmed);
+ *   - the other player while a question typed in the app waits for their answer: until they
+ *     answer, the guesser can neither guess nor pass (`question_waiting`).
+ * Nobody else: the player waiting answers spoken questions out loud, a guess they do not confirm
+ * is covered by `selfConfirm` and `confirmLapse`, and the setup, the reveal and watchers wait on
+ * nobody.
  */
 export function needs(state, seat) {
-  if (state.phase !== "playing" || state.turn?.phase !== "asking" || state.turn.seat !== seat) return false;
-  return !!playerOf(state, seat) && !playerOf(state, seat).left;
+  const t = state.turn;
+  if (state.phase !== "playing" || t?.phase !== "asking") return false;
+  const p = playerOf(state, seat);
+  if (!p || p.left) return false;
+  if (t.seat === seat) return true;
+  return pendingQuestion(t) && state.round.order.includes(seat);
 }
 
 /**

@@ -105,3 +105,32 @@ describe("setAway", () => {
     expect(FakeWebSocket.made).toHaveLength(1);
   });
 });
+
+describe("setWake", () => {
+  const wakes = (ws) => ws.sent.filter((t) => t[0] === "{").map((t) => JSON.parse(t)).filter((m) => m.t === "wake");
+
+  it("says once per change whether the page can keep its screen awake", () => {
+    const { client, ws } = connected();
+    // Taken as able until it says otherwise: nothing to say for a lock it holds.
+    expect(client.setWake(true)).toBe(false);
+    expect(client.setWake(false)).toBe(true);
+    expect(client.setWake(false)).toBe(false);
+    expect(client.setWake(true)).toBe(true);
+    expect(wakes(ws)).toEqual([
+      { t: "wake", ok: false },
+      { t: "wake", ok: true },
+    ]);
+  });
+
+  it("is said again on a new connection, before away, so a hidden page that cannot keep awake is never charged", () => {
+    const { client, ws } = connected();
+    client.setWake(false);
+    client.setAway(true);
+    ws.die();
+    vi.advanceTimersByTime(4000);
+    const again = FakeWebSocket.last;
+    again.open();
+    expect(again.kinds().slice(1, 3)).toEqual(["wake", "away"]);
+    expect(wakes(again)).toEqual([{ t: "wake", ok: false }]);
+  });
+});

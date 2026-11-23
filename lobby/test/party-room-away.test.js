@@ -151,6 +151,31 @@ describe("an away socket in a turn-based game", () => {
     expect(note).toMatchObject({ why: "gone", seat: 1 });
   });
 
+  it.each([
+    ["just after the grace", 1_000],
+    ["long after the grace", 120_000],
+  ])("a game that needs the seat, a page that cannot keep its screen awake (its clock held), reaped %s: the drop dates from the last sign of life, so it is gone at once", async (_, late) => {
+    const grace = 60_000;
+    const game = turnGame({ fields: { reconnectGraceMs: grace, nextDeadline: () => null, needs: () => true } });
+    const { ctx, say, ws, quiet } = await startedWithQuiet(game);
+    say(ws.bo, { t: "wake", ok: false });
+    say(ws.bo, { t: "away" });
+    await settle();
+    const lastHeard = Date.now();
+    quiet.add(ws.bo);
+    expect(ctx.room.core.members[1]).toMatchObject({ away: true, noWake: true });
+    // Hidden with no wake lock: nothing runs, however long.
+    await wait(grace - 6_000);
+    await poke(say, ws);
+    expect(ctx.room.core.activity.kind).toBe("game");
+    await wait(6_000 + late);
+    await poke(say, ws);
+    expect(ws.bo.closed).toMatchObject({ code: 1001, reason: "silent" });
+    expect(ctx.room.core.members[1]).toMatchObject({ connected: false, droppedAt: lastHeard });
+    expect(ctx.room.core.activity.kind).toBe("lobby");
+    expect(ws.ann.messages().find((m) => m.t === "note" && m.k === "ended")).toMatchObject({ why: "gone", seat: 1 });
+  });
+
   it("a game that needs the seat, the reviewer's case, with presence and the default grace: an away phone that goes silent ends the game at the grace, not at the stale limit", async () => {
     const game = turnGame({ presence: true, fields: { needs: () => true } });
     const { ctx, say, ws, quiet } = await startedWithQuiet(game);
