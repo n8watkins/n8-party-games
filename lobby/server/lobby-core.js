@@ -108,6 +108,8 @@ export const HOST_GRACE_MS = 8000;
 export const TABLE_STALE_MS = 2 * 60 * 60_000;
 /** How many people who left are remembered by name, so coming back restores their points. */
 const MAX_REMEMBERED = 12;
+/** A charging pawn stands still (its page roots it): a word that puts it further than this from where the charge stopped it lets the charge go. */
+const CHARGE_STILL = 4;
 
 export class LobbyCore {
   /**
@@ -756,7 +758,9 @@ export class LobbyCore {
     if (d) m.face = d;
     else faceAsSaid(m, data.f);
     // A pawn that walks while it charges its kick has let the charge go: its release is a plain kick.
-    if (d && m.chargeAt !== null && m.chargeAt !== undefined) m.chargeAt = null;
+    // So has one whose page says it stands somewhere else than where the charge stopped it (a
+    // page stands still while it charges: Pilot.charge roots it), however it got there.
+    if (m.chargeAt !== null && m.chargeAt !== undefined && (d || Math.abs(x - expected) > CHARGE_STILL)) m.chargeAt = null;
     this.lastActive = now;
     const relay = { t: "m", s: seat, x: Math.round(x), d, ...(v !== d ? { v } : {}) };
     if (!d && isFacing(data.f)) relay.f = m.face;

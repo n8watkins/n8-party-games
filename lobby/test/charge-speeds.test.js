@@ -15,6 +15,8 @@ import {
   attackPose, chargeBounce, chargeDash, chargePose, chargePower, chargeThrow, knockLanding, knockPose, knockState,
 } from "../shared/bump.js";
 import { LOOK_COOLDOWN_MS } from "../shared/characters.js";
+import { ROOMS } from "../shared/rooms.js";
+import { WALL } from "../wall.js";
 import { BIG_SCARE_MS, FADE_MS, SCARE_MS, SPOOK_REACH } from "../shared/ghost.js";
 import { MOVED, TOUCH_GRACE_MS, slideLanding } from "../shared/moves.js";
 import { Pilot } from "../shared/pilot.js";
@@ -416,7 +418,76 @@ describe("the room's judgement of a charged kick", () => {
     for (let t = 2000; t <= 2000 + HOOK_AIM_MS + 400; t += 5) core.dueHooks(t);
     expect(core.members[0].fright).toBe("pull");
     expect(core.members[0].chargeAt ?? null).toBeNull();
-    expect(core.bump(0, 2000 + HOOK_AIM_MS + PULL_MS + 600, undefined, true)?.c).toBeUndefined();
+    expect(core.view(2000 + HOOK_AIM_MS + 400).members[0].charge).toBeUndefined();
+    // Its release, once it may kick again, is a plain kick: no `c`, no dash.
+    const release = core.bump(0, 2000 + HOOK_AIM_MS + PULL_MS + 2000, undefined, true);
+    expect(release).toMatchObject({ t: "b", s: 0 });
+    expect(release.c).toBeUndefined();
+    expect(release.kx).toBeUndefined();
+  });
+
+  it("is lost when the pawn is shoved, spooked, the room changes or it becomes another character", () => {
+    const lost = (core, what) => {
+      expect(core.members[0].chargeAt ?? null, what).toBeNull();
+      expect(core.view(2400).members[0].charge, what).toBeUndefined();
+    };
+    {
+      // A slime beside it walks into it and shoves it along.
+      const { core, x } = setup(60, ["Sam"]);
+      be(core, 1, "slime");
+      core.charge(0, 2000);
+      core.move(1, { x: x + 60, d: -1, r: core.members[1].rev }, 2200);
+      expect(core.shove(1, 0, 2250)).toMatchObject({ ok: true });
+      lost(core, "shoved");
+    }
+    {
+      // A faded ghost drifts through it.
+      const { core, x } = setup(40, ["Gus"]);
+      be(core, 1, "ghost");
+      core.members[1].fadeAt = -Infinity;
+      core.charge(0, 2000);
+      core.fade(1, 2100);
+      core.move(1, { x: x + 40, d: -1, r: core.members[1].rev }, 2200);
+      expect(core.boo(1, 0, 2250)).toMatchObject({ ok: true });
+      lost(core, "spooked");
+    }
+    // The host takes the party to another room: one that hangs its boxes elsewhere carries every
+    // piece across (carryAcross), and the charge goes with the move; one whose boxes hang in the
+    // same places moves nobody, and the pawn charges on where it stands.
+    for (const [wall, to, carries] of [[WALL, "ship", true], [coinWall(), ROOMS.find((r) => r.id !== "bar").id, false]]) {
+      const core = party(["Pat", "Bo"], wall);
+      core.room = "bar";
+      const x = darkSpot(core, 400);
+      place(core, 0, x, 1000);
+      core.charge(0, 2000);
+      const out = core.setRoom(core.hostToken, to, 2200);
+      expect(out, to).toMatchObject({ ok: true, moved: carries });
+      if (carries) lost(core, `the room changed to ${to}`);
+      else {
+        expect(core.members[0].chargeAt, to).toBe(2000);
+        expect(core.members[0].x, to).toBe(x);
+      }
+    }
+    {
+      // It becomes a robot while it holds the button.
+      const { core } = setup(300);
+      core.members[0].lookAt = -Infinity;
+      core.charge(0, 2000);
+      expect(core.setLook(0, { c: "robot", v: core.members[0].colour }, 2200)).toMatchObject({ ok: true });
+      lost(core, "another character");
+    }
+  });
+
+  it("is lost when its page says it stands anywhere but where the charge stopped it", () => {
+    const { core, x } = setup(300);
+    core.charge(0, 2000);
+    // A word that it still stands there (rounded) keeps it.
+    core.move(0, { x: x + 0.4, d: 0, f: 1, r: core.members[0].rev }, 2100);
+    expect(core.members[0].chargeAt).toBe(2000);
+    // One that has it 200 units on, standing (inside the room's slack for a walk), lets it go.
+    core.move(0, { x: x + 200, d: 0, f: 1, r: core.members[0].rev }, 2200);
+    expect(core.members[0].chargeAt ?? null).toBeNull();
+    expect(core.bump(0, 2600, 1, true)?.c).toBeUndefined();
   });
 
   it("is forgotten when a game starts, and the room does not wake for it", () => {
@@ -499,6 +570,48 @@ describe("what a page sends for the charged kick (shared/pilot.js)", () => {
     p.step(2000);
     expect(p.x).toBeCloseTo(500 + walkSpeed("slime") + walkSpeed("pawn"));
   });
+
+  it("lets a charge go when the pawn becomes another character while it is held, as the room does", () => {
+    const sent = [];
+    const p = new Pilot({ lights: 1, send: (m) => sent.push(m), x: 500 });
+    p.step(0);
+    expect(p.charge(200)).toBe(true);
+    // Robot picked while the button is held: the room ends its charge (LobbyCore.look, endMoves).
+    p.setCharacter("robot", 400);
+    expect(p.chargeAt).toBeNull();
+    // The robot walks at once (it is not rooted for the rest of the hold).
+    p.steer(1, 500);
+    expect(p.d).toBe(1);
+    // Back as a pawn, a new charge is taken, and a tap is a tap.
+    p.steer(0, 4000);
+    p.setCharacter("pawn", 5000);
+    expect(p.charge(6000)).toBe(true);
+    p.chargeRefused();
+    p.bump(6100);
+    expect(sent.at(-1)).toEqual({ t: "b", f: 1 });
+  });
+
+  it("lets a charge go when the room puts the piece somewhere (a room switch, a respawn, a correction)", () => {
+    const sent = [];
+    const p = new Pilot({ lights: 1, send: (m) => sent.push(m), x: 500 });
+    p.step(0);
+    expect(p.charge(200)).toBe(true);
+    p.place(900, 3, 400);
+    expect(p.chargeAt).toBeNull();
+    p.steer(1, 500);
+    expect(p.d).toBe(1);
+    p.steer(0, 600);
+    p.bump(700);
+    expect(sent.at(-1)).toEqual({ t: "b", f: 1 });
+  });
+
+  it("keeps a robot's hook rooting when there is no charge to let go of", () => {
+    const p = new Pilot({ lights: 1, send: () => {}, x: 500, character: "robot" });
+    p.step(0);
+    p.rootedUntil = 1000;
+    expect(p.chargeRefused()).toBe(false);
+    expect(p.rootedUntil).toBe(1000);
+  });
 });
 
 describe("the charged kick, drawn in both looks (move-state.js)", () => {
@@ -548,6 +661,20 @@ describe("the charged kick, drawn in both looks (move-state.js)", () => {
     expect(attackDrawn(p, 1900, false)).toMatchObject({ state: "dashing", x: 500 });
     heardChargedKick(p, { t: "b", s: 0, f: 1, c: 1, kx: 610, kr: 2, to: -1 }, 1950, true);
     expect(attackDrawn(p, 1900 + IMPACT_MS + 10, false).x).toBe(610);
+  });
+
+  it("draws the viewer's own dash once however late the room answers, from where its own piece is", () => {
+    // The answer 900 ms after the release, its dash still on record: told where it ends, not begun again.
+    const p = piece();
+    p.net = { x: 200, d: 0, t: 0 }; // the room's last snapshot, from before it walked to 500
+    startRelease(p, 1, 1900, 650);
+    expect(heardChargedKick(p, { t: "b", s: 0, f: 1, c: 1, kx: 610, kr: 2, to: -1 }, 2800, true)).toBe(1900);
+    expect(p.attack.lunge).toMatchObject({ from: 500, to: 610 });
+    // Its drawn dash already over and put away: the rest goes on from where the piece is drawn, not from its stale `net`.
+    const q = piece(640);
+    q.net = { x: 200, d: 0, t: 0 };
+    heardChargedKick(q, { t: "b", s: 0, f: 1, c: 1, kx: 610, kr: 2, to: -1 }, 3000, true);
+    expect(q.attack.lunge).toMatchObject({ from: 640, to: 610 });
   });
 
   it("puts away a charge the room says is over, and one it never hears the release of", () => {

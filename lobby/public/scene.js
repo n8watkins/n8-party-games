@@ -637,6 +637,9 @@ export class Scene {
       if (msg.s === this.opts.own && by.attack && now - by.attack.at < 600) {
         // The viewer's own bump began when the button went down (ownBump), not when the room answered.
         by.attack.landed = landed;
+        // The room took it as a plain kick (it had lost the charge: a room switch, a drop, a release
+        // heard too late): no dash, so none is drawn, and the piece is not snapped back after one.
+        by.attack.lunge = null;
         began = Math.max(by.attack.at, now - IMPACT_MS);
       } else this.bumps.attack(by, msg.f, now, landed);
     }

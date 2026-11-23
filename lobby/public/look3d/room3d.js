@@ -774,6 +774,8 @@ export class Room3D {
       if (msg.s === this.opts.own && by.attack && now - by.attack.at < 600) {
         // The viewer's own bump began when the button went down (ownBump), not when the room answered.
         by.attack.landed = landed;
+        // The room took it as a plain kick (it had lost the charge): no dash drawn (as scene.js).
+        by.attack.lunge = null;
         began = Math.max(by.attack.at, now - IMPACT_MS);
       } else startAttack(by, msg.f, now, landed);
     }
