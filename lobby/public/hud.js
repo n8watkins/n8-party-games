@@ -169,14 +169,9 @@ export class Hud {
    */
   release(text, tap = null) {
     const status = this.bar.querySelector(".status");
-    // With the tap, the whole of the bar's words is the tap area (the line alone is too small to
-    // aim at); a click on the line itself comes here too.
-    if (!this.releaseBound) {
-      this.releaseBound = true;
-      status.addEventListener("click", () => this.releaseTap?.());
-    }
+    // Only the line itself takes the tap: the bar's words sit between the thumbs' pads, and a jump
+    // or a bump that lands a little off must never reload the page.
     this.releaseTap = text ? tap : null;
-    status.classList.toggle("release-tap", !!this.releaseTap);
     if (!text) {
       this.releaseEl?.remove();
       this.releaseEl = null;
@@ -188,9 +183,14 @@ export class Hud {
       this.releaseEl?.remove();
       this.releaseEl = h(kind, `status-release${tap ? " tap" : ""}`, "", status);
       this.releaseEl.setAttribute("role", "status");
-      if (tap) this.releaseEl.type = "button";
+      if (tap) {
+        this.releaseEl.type = "button";
+        this.releaseEl.addEventListener("click", () => this.releaseTap?.());
+      }
     }
-    this.releaseEl.textContent = text;
+    // A button's words are in a span of their own: only they take the tap (lobby.css).
+    if (tap) this.releaseEl.replaceChildren(h("span", "", text));
+    else this.releaseEl.textContent = text;
     status.classList.add("has-release");
   }
 

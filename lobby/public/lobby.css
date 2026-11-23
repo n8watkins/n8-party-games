@@ -1731,13 +1731,9 @@ input {
 .bar-screen .status-release {
   font-size: 0.62em;
 }
-/* "New version, tap to load": the line is a button, in amber, and the whole of the bar's words
-   around it takes the tap (Hud.release), so the target is as tall as the bar's words, not one
-   small line, without making the bar any taller. */
-.status.release-tap {
-  cursor: pointer;
-  touch-action: manipulation;
-}
+/* "New version, tap to load": the line is a button, in amber. Only its words take the tap (the
+   row's empty ends do not): the bar's words sit between the thumbs' pads, and a jump or a bump
+   that lands a little off must never reload the page. */
 button.status-release {
   margin: 0;
   padding: 0;
@@ -1745,6 +1741,10 @@ button.status-release {
   background: none;
   font-family: inherit;
   color: var(--amber);
+  pointer-events: none;
+}
+button.status-release > span {
+  pointer-events: auto;
   text-decoration: underline;
   text-underline-offset: 2px;
   cursor: pointer;

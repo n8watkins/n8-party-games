@@ -232,6 +232,10 @@ describe("making a room with the bot check", () => {
     const { env } = site(on);
     const res = await handlePartyApi(api("/config", { method: "GET" }), env);
     expect(res.headers.get("Cache-Control")).toBe("private, max-age=60");
+    // The join code's picture: the same text always draws the same code, kept longer than a room lasts.
+    const qr = await handlePartyApi(api(`/qr.svg?text=${encodeURIComponent(`https://${SITE}/lobby/?join=1234`)}`, { method: "GET" }), env);
+    expect(qr.status).toBe(200);
+    expect(qr.headers.get("Cache-Control")).toBe("public, max-age=86400, immutable");
     // Nothing else changes: a room is still never cached.
     const made = await handlePartyApi(api("/rooms", { body: { nickname: "Ann", turnstile: "T1" } }), env, { siteverify: fakeSiteverify({ T1: good }).fetcher });
     expect(made.headers.get("Cache-Control")).toBe("no-store");

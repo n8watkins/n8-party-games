@@ -27,7 +27,8 @@
 //     the game, each reloads once, back in its seat.
 //   - The front page and Hot Potato, shown again after a deploy (Hot Potato only on its start screen).
 //   - A rollback: the build before comes back, and the pages go back to it, once each.
-//   - Blocked storage: a page whose browser keeps no session storage never reloads by itself.
+//   - Blocked storage: a page whose browser keeps no session storage could not come back to its
+//     seat after a reload: it says the new version loads the next time it joins, and stays seated.
 //   - No page reloads twice for one build, none runs modules of two builds, none reports an error.
 //
 //   node lobby/test/e2e-release.mjs [--port=9540] [--out=/tmp/party-games-release-test]
@@ -52,6 +53,8 @@ const OUT = resolve(opt("out", "/tmp/party-games-release-test"));
 const base = `http://localhost:${port}`;
 const NOTICE = "New version ready, it will load after this round";
 const TAP_NOTICE = "New version, tap to load";
+const BEHIND_NOTICE = "New version ready, waiting for the room to catch up";
+const STAY_NOTICE = "New version out: it loads the next time you join";
 const SESSION = "party-kit:session:/api/lobby";
 /** A build id no deploy makes: what a page "of another build" says it is, where a test needs one. */
 const FAKE = "0123456789ab";
@@ -161,6 +164,18 @@ async function stopWorker() {
   worker = null;
 }
 
+// The Worker runs in a process group of its own (so it can be stopped whole), which a signal to
+// this script's group does not reach: however this script ends (the gate stopping it with
+// SIGTERM, Ctrl-C, a crash), the Worker's group is killed with it and its storage removed.
+process.on("exit", () => {
+  if (worker)
+    try {
+      process.kill(-worker.child.pid, "SIGKILL");
+    } catch {}
+  rmSync(work, { recursive: true, force: true });
+});
+for (const [signal, code] of [["SIGINT", 130], ["SIGTERM", 143], ["SIGHUP", 129]]) process.on(signal, () => process.exit(code));
+
 const builds = new Map();
 /** A deploy of the build for `salt` (built the first time; deployed again later, a rollback), with `vars`. Returns its id. */
 async function deploy(salt, vars = {}) {
@@ -181,6 +196,16 @@ try {
   async function open(name, { width = 390, height = 844, mobile = true, init = null } = {}) {
     const context = await browser.newContext({ viewport: { width, height }, deviceScaleFactor: 2, hasTouch: mobile, isMobile: mobile, ...(mobile && { userAgent: PHONE_UA }) });
     if (init) await context.addInitScript(init);
+    // Whether the release line ever showed on this tab, remembered across its reloads (a check
+    // made after a reload could not see a line the old page showed and took away).
+    await context.addInitScript(() => {
+      new MutationObserver(() => {
+        if (!document.querySelector(".status-release, .release-note")) return;
+        try {
+          sessionStorage.setItem("e2e:saw-release-line", "1");
+        } catch {}
+      }).observe(document, { childList: true, subtree: true });
+    });
     const page = await context.newPage();
     page.label = name;
     page.loads = 0;
@@ -190,9 +215,20 @@ try {
     page.on("request", (r) => {
       // A new document in the main frame (a load or a reload; not a history change within the page).
       if (r.isNavigationRequest() && r.frame() === page.mainFrame()) page.navs.push(Date.now());
-      if (new URL(r.url()).pathname.startsWith("/api/")) page.api.push({ at: Date.now(), url: r.url() });
     });
-    page.on("websocket", (ws) => new URL(ws.url()).pathname.startsWith("/api/") && page.api.push({ at: Date.now(), url: ws.url() }));
+    // Requests to /api/ that really went to the network (the zone's rule counts only those): one
+    // served from the browser's cache is not counted. Read from the browser itself (CDP).
+    const cdp = await context.newCDPSession(page);
+    await cdp.send("Network.enable");
+    const fromCache = new Set();
+    const sent = new Map();
+    cdp.on("Network.requestWillBeSent", (e) => new URL(e.request.url).pathname.startsWith("/api/") && sent.set(e.requestId, e.request.url));
+    cdp.on("Network.requestServedFromCache", (e) => fromCache.add(e.requestId));
+    cdp.on("Network.responseReceived", (e) => {
+      if (!sent.has(e.requestId) || fromCache.has(e.requestId) || e.response.fromDiskCache || e.response.fromServiceWorker || e.response.fromPrefetchCache) return;
+      page.api.push({ at: Date.now(), url: sent.get(e.requestId) });
+    });
+    cdp.on("Network.webSocketCreated", (e) => new URL(e.url).pathname.startsWith("/api/") && page.api.push({ at: Date.now(), url: e.url }));
     page.on("pageerror", (e) => errors.push(`${name}: ${e.message}`));
     page.on("console", (m) => m.type() === "error" && !/Failed to load resource|WebSocket connection/.test(m.text()) && errors.push(`${name}: ${m.text()}`));
     return page;
@@ -228,7 +264,7 @@ try {
       () => false,
     );
   /** Joins the party with `pin` on the Floor as `name`; `query` is more of the address. */
-  async function join(page, pin, name, query = "&look=flat") {
+  async function joinParty(page, pin, name, query = "&look=flat") {
     await page.goto(`${base}/lobby/?join=${pin}${query}`);
     await page.fill("input[name=nickname]", name);
     await page.click("button[type=submit]");
@@ -265,7 +301,7 @@ try {
   await ann.waitForSelector(".bar", { timeout: 90_000 });
   const pin = (await sessionOf(ann)).pin;
   const bo = await open("Bo", { width: 844, height: 390 });
-  await join(bo, pin, "Bo");
+  await joinParty(bo, pin, "Bo");
   // A second party: its big screen, and a phone that went fullscreen as it joined.
   const tv = await open("TV", { width: 1280, height: 720, mobile: false });
   await tv.goto(`${base}/lobby/?start&as=screen&look=flat`);
@@ -273,7 +309,7 @@ try {
   await tv.waitForSelector(".bar", { timeout: 90_000 });
   const tvPin = (await sessionOf(tv)).pin;
   const fay = await open("Fay", { width: 844, height: 390 });
-  await join(fay, tvPin, "Fay", "&look=flat&full=on");
+  await joinParty(fay, tvPin, "Fay", "&look=flat&full=on");
   check(await fay.evaluate(() => !!document.fullscreenElement), "Fay's phone went fullscreen as she joined");
   check((await buildOf(ann)) === first && (await buildOf(tv)) === first, `the pages run the live build (${first})`);
   const seats = { Ann: await sessionOf(ann), Bo: await sessionOf(bo), TV: await sessionOf(tv), Fay: await sessionOf(fay) };
@@ -286,7 +322,7 @@ try {
     await page.waitForSelector(".bar", { timeout: 60_000 });
     const now = await sessionOf(page);
     check(now?.token === seats[name].token && now?.seat === seats[name].seat, `${name} is back in the same seat (${seats[name].seat}) with the same session`);
-    check(!(await barNote(page)), `${name} never saw the notice: the lobby is a safe point`);
+    check(!(await page.evaluate(() => sessionStorage.getItem("e2e:saw-release-line"))), `${name} never saw the notice, before or after the reload: the lobby is a safe point`);
   }
   for (const [name, page] of [["the big screen", tv], ["Fay (fullscreen)", fay]]) {
     check(await waitBarNote(page, TAP_NOTICE), `${name} shows "${TAP_NOTICE}"`);
@@ -302,11 +338,11 @@ try {
     check(asked.length <= API_REQUESTS_PER_RELOAD, `${name}'s reload asked /api/ ${asked.length} time(s), within the ${API_REQUESTS_PER_RELOAD} a reload may (${asked.map((r) => new URL(r.url).pathname).join(", ")})`);
   }
   // The tap loads it, back in the same seat.
-  await tv.click(".status-release");
+  await tv.click(".status-release > span");
   check(await reloadedInto(tv, second, loads.TV), "the tap on the big screen loads the new build");
   await tv.waitForSelector(".bar", { timeout: 60_000 });
   check((await sessionOf(tv))?.token === seats.TV.token, "and the big screen is back as the party's screen");
-  await fay.tap(".status-release");
+  await fay.tap(".status-release > span");
   check(await reloadedInto(fay, second, loads.Fay), "the tap on the fullscreen phone loads the new build");
   check((await sessionOf(fay))?.token === seats.Fay.token, "and Fay is back in her seat");
   await tv.context().close();
@@ -325,14 +361,23 @@ try {
     ["844x390-3d", { width: 844, height: 390 }, "3d&gl=any"],
   ];
   const newer = [];
+  const hosts = [];
   for (const [size, viewport, look] of sizes) {
     const page = await open(`Nia ${size}`, viewport);
     await pretend(page, { live: true });
-    await join(page, hal.pin, `N${newer.length}`, `&look=${look}&protocol=3`);
+    // The first in Hal's party (Oto joins it below), each other in a party of its own: a party has four places.
+    let party = hal;
+    if (newer.length) {
+      party = await call("POST", "/rooms", { nickname: `H${newer.length}` });
+      const host = connect(party);
+      await host.opened;
+      hosts.push(host);
+    }
+    await joinParty(page, party.pin, `N${newer.length}`, `&look=${look}&protocol=3`);
     newer.push([size, page]);
   }
   for (const [size, page] of newer) {
-    check(await waitBarNote(page, NOTICE), `${size}: "${NOTICE}" is a line of the bottom bar`);
+    check(await waitBarNote(page, BEHIND_NOTICE), `${size}: "${BEHIND_NOTICE}" is a line of the bottom bar`);
     await page.waitForTimeout(800);
     await page.screenshot({ path: join(shots, `release-notice-${size}.png`) });
     // One line, inside the bar, clear of the corner's buttons.
@@ -354,6 +399,7 @@ try {
   );
   check(await nia.evaluate(() => location.pathname === "/lobby/" && !!document.querySelector(".bar")), "and the room did not let it go");
   for (const [, page] of newer.slice(1)) await page.context().close();
+  for (const host of hosts) host.ws.close();
   // The room's build becomes the live one (the page's own is not any more): the page goes to it, once.
   await unpretend(nia);
   await nia.waitForTimeout(11_000); // the last answer from /api/version is kept ten seconds (ASK_AGAIN_MS)
@@ -496,7 +542,7 @@ try {
   check(ann.loads === rolled.Ann + 1 && bo.loads === rolled.Bo + 1, `once each (Ann ${ann.loads - rolled.Ann}, Bo ${bo.loads - rolled.Bo})`);
 
   // ================================================================ blocked storage
-  section("a browser that keeps no session storage: never a reload by itself, the tap instead");
+  section("a browser that keeps no session storage: a reload would cost its seat, so it says the new version loads next time, and stays");
   const blocked = () => {
     Object.defineProperty(window, "sessionStorage", {
       get() {
@@ -508,15 +554,18 @@ try {
   const idaSocket = connect(ida);
   await idaSocket.opened;
   const blo = await open("Blo", { width: 844, height: 390, init: blocked });
-  await join(blo, ida.pin, "Blo");
+  await joinParty(blo, ida.pin, "Blo");
   const bloLoads = blo.loads;
+  const bloSeat = await blo.evaluate(() => document.querySelector(".hud") && !!document.querySelector(".bar"));
   const fifth = await deploy("s5");
   console.log(`     deployed: ${back} -> ${fifth}`);
-  check(await waitBarNote(blo, TAP_NOTICE, 45_000), `the page shows "${TAP_NOTICE}"`);
+  check(await waitBarNote(blo, STAY_NOTICE, 45_000), `the page shows "${STAY_NOTICE}"`);
+  check((await barNote(blo))?.tap === false, "and it is no button: nothing on it reloads the page");
   await blo.waitForTimeout(5000);
-  check(blo.loads === bloLoads, "and did not reload by itself");
-  await blo.click(".status-release");
-  check(await reloadedInto(blo, fifth, bloLoads, 30_000), "the tap loads the new build");
+  check(blo.loads === bloLoads, "it did not reload by itself");
+  // Still in the party, in its seat: its socket came back after the deploy from the session it holds in memory.
+  const roomNow = await (await fetch(`${base}/api/lobby/join/${ida.pin}`)).json();
+  check(bloSeat && JSON.stringify(roomNow).includes("Blo") && (await blo.evaluate(() => location.pathname === "/lobby/" && !!document.querySelector(".bar"))), "and it is still in the party, in its seat");
   idaSocket.ws.close();
   await blo.context().close();
 

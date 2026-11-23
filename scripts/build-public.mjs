@@ -211,7 +211,9 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
   const arg = (name) => process.argv.find((a) => a.startsWith(`--${name}=`))?.slice(name.length + 3) ?? null;
   // A local test build into a folder of its own, its release made another by a salt (testBuildProblem).
   const test = { out: arg("out"), salt: arg("salt") };
-  const problem = testBuildProblem(test, { upload, production }) ?? (upload || production ? releaseProblem(git, { upload }) : null);
+  // "--out DIR" (a space, not "=") would otherwise be ignored and build into dist/public.
+  const spaced = process.argv.find((a) => /^--(out|salt)=?$/.test(a))?.replace("=", "");
+  const problem = (spaced ? `write ${spaced}=VALUE, with "=": ${spaced} VALUE is not read.` : null) ?? testBuildProblem(test, { upload, production }) ?? (upload || production ? releaseProblem(git, { upload }) : null);
   if (problem) {
     console.error(`build-public: ${problem}`);
     process.exit(1);

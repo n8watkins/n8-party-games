@@ -44,12 +44,17 @@ function busiest(times, ms) {
 }
 
 /** A party of `phones` meets build NEW after a deploy; returns every /api/ request's time and each reload's. */
-async function deployInto(phones, seed) {
+async function deployInto(phones, seed, { perReload = API_REQUESTS_PER_RELOAD, letGo = false } = {}) {
   const random = seeded(seed);
   const t0 = Date.now();
   const requests = [];
   const reloads = [];
   const ask = () => requests.push(Date.now() - t0);
+  const reloaded = () => {
+    reloads.push(Date.now() - t0);
+    // The new page: its socket, and what else a page asks for as it loads.
+    for (let k = 0; k < perReload; k++) ask();
+  };
   const links = [];
   for (let i = 0; i < phones; i++) {
     const handlers = new Map();
@@ -65,21 +70,23 @@ async function deployInto(phones, seed) {
       live: async () => (ask(), NEW),
       random,
       storage: memory(),
-      reload: () => {
-        reloads.push(Date.now() - t0);
-        // The new page: its socket, and what else a page may ask for as it loads.
-        for (let k = 0; k < API_REQUESTS_PER_RELOAD; k++) ask();
-      },
+      reload: () => reloaded(),
+      reloadClean: () => reloaded(),
       visibility: null,
     });
     links.push(link);
   }
-  // The room restarts: every socket opens again 250 to 500 ms later, and hears the new build.
+  // The room restarts: every socket opens again 250 to 500 ms later, and hears the new build. With
+  // `letGo`, the room speaks a newer protocol and lets every page go in the same moment instead.
   for (const link of links) {
     setTimeout(
       () => {
         ask();
-        link.fire("release", { id: NEW, safe: true, protocol: "2" });
+        link.fire("release", { id: NEW, safe: true, protocol: letGo ? "3" : "2" });
+        if (letGo) {
+          link.roomRelease = NEW;
+          link.fire("closed", "update_required");
+        }
       },
       250 + random() * 250,
     );
@@ -105,6 +112,23 @@ describe("a party of 30 behind one address meets a new build", () => {
       worst = Math.max(worst, busiest(requests, FLOOD_RULE.windowMs));
     }
     // With a fifth of the rule to spare for anything else the phones ask for meanwhile.
+    expect(worst).toBeLessThanOrEqual(FLOOD_RULE.requests * 0.8);
+  });
+
+  it("still stays under the rule if a reload cost one request more than measured (a cold QR code)", async () => {
+    let worst = 0;
+    for (let seed = 1; seed <= 25; seed++) worst = Math.max(worst, busiest((await deployInto(PHONES, seed, { perReload: API_REQUESTS_PER_RELOAD + 1 })).requests, FLOOD_RULE.windowMs));
+    expect(worst).toBeLessThan(FLOOD_RULE.requests);
+  });
+
+  it("a party let go all at once for its protocol reloads spread out too, under the rule", async () => {
+    let worst = 0;
+    for (let seed = 1; seed <= 25; seed++) {
+      const { requests, reloads } = await deployInto(PHONES, seed, { letGo: true });
+      expect(reloads).toHaveLength(PHONES);
+      expect(busiest(reloads, 1000)).toBeLessThanOrEqual(Math.ceil(PHONES / 3));
+      worst = Math.max(worst, busiest(requests, FLOOD_RULE.windowMs));
+    }
     expect(worst).toBeLessThanOrEqual(FLOOD_RULE.requests * 0.8);
   });
 

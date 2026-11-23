@@ -245,6 +245,19 @@ function startWorker(port, { persist = null, quiet = false, env = "local" } = {}
   };
 }
 
+/**
+ * Whether something still listens on `p` five seconds after a step that ran a Worker of its own
+ * there has ended: that Worker was left running (the step must stop it however it ends). Says so.
+ */
+async function leftListening(p) {
+  for (const until = Date.now() + 5000; Date.now() < until; ) {
+    if ((await freePort(p)) === p) return false;
+    await new Promise((r) => setTimeout(r, 250));
+  }
+  console.log(`\nA step left a Worker listening on port ${p}: it must stop its own Worker however it ends.`);
+  return true;
+}
+
 /** `wanted` if nothing listens there, else a free port the system picks. */
 async function freePort(wanted) {
   const tryPort = (p) =>
@@ -294,9 +307,11 @@ async function oneAfterAnother() {
     const t = Date.now();
     // A step that runs a Worker of its own (`own`) gets a free port and nothing else.
     if (options?.own) {
-      const c = await run(npm, ["run", script, "--", `--port=${await freePort(port + 1)}`]);
-      results.push({ name, status: c === 0 ? "ok" : "FAIL", seconds: seconds(t) });
-      if (c !== 0) break;
+      const p = await freePort(port + 1);
+      const c = await run(npm, ["run", script, "--", `--port=${p}`]);
+      const left = await leftListening(p);
+      results.push({ name, status: c === 0 && !left ? "ok" : "FAIL", seconds: seconds(t) });
+      if (c !== 0 || left) break;
       continue;
     }
     // A step that asks for an environment of its own gets a fresh Worker for it, with empty storage.
@@ -425,6 +440,10 @@ async function sideBySideSteps() {
   });
   await Promise.all(running.map((s) => s.done));
   await Promise.all(stopping);
+  // A step that ran a Worker of its own must have stopped it, also when the gate stopped the step.
+  for (const [i, w] of workers.entries()) {
+    if (w.own && (await leftListening(w.port))) results.push({ name: `${STEPS[i][0]}: its Worker stopped`, status: "FAIL", seconds: 0 });
+  }
   // The summary lists the steps in the gate's order, whatever order they finished in.
   const order = new Map(STEPS.map(([name], i) => [name, i]));
   results.sort((a, b) => (order.get(a.name) ?? -1) - (order.get(b.name) ?? -1));

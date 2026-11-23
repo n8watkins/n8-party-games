@@ -9,12 +9,17 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   ASK_AGAIN_MS,
+  BEHIND_NOTICE,
+  LOADING_NOTICE,
   LOCAL_WAIT_MS,
   MAX_SPREAD_MS,
   MIN_SPREAD_MS,
   NOTICE,
   PAGE_RELEASE,
   RECHECK_MS,
+  REJOIN_NOTICE,
+  SOON_NOTICE,
+  STAY_NOTICE,
   TAP_NOTICE,
   canRemember,
   decide,
@@ -63,6 +68,8 @@ describe("decide", () => {
     ["the room is older but speaks the page's protocol: nothing", { room: OLDER, live: MINE, safe: true, myProtocol: "2", roomProtocol: "2" }, "wait"],
     ["a room of an older protocol that IS live (a rollback): the page goes back to it", { room: OLDER, live: OLDER, safe: true, myProtocol: "3", roomProtocol: "2" }, "reload"],
     ["a room that says no protocol is taken to speak the page's", { room: OLDER, live: MINE, safe: true, myProtocol: "3", roomProtocol: null }, "wait"],
+    ["a page that cannot remember its seat, at a safe point: it says so and offers nothing", { room: NEW, live: NEW, safe: true, remembers: false }, "stay"],
+    ["... and nothing while the room is busy", { room: NEW, live: NEW, safe: false, remembers: false }, "wait"],
   ])("%s", (_, given, what) => {
     expect(decide({ mine: MINE, reloadedFor: null, ...given })).toBe(what);
   });
@@ -180,6 +187,7 @@ describe("a page in a room", () => {
     const notes = [];
     const taps = [];
     const reload = vi.fn();
+    const reloadClean = vi.fn();
     const asks = { n: 0 };
     let visible = null;
     const visibility = {
@@ -195,11 +203,12 @@ describe("a page in a room", () => {
       random: () => 0.5,
       storage,
       reload,
+      reloadClean,
       auto,
       canReload,
       visibility,
     });
-    return { link, notes, taps, reload, asks, storage, shownAgain: () => visible?.() };
+    return { link, notes, taps, reload, reloadClean, asks, storage, shownAgain: () => visible?.() };
   }
   /** Lets every timer due within `ms` run, and the promises after them. */
   const wait = (ms) => vi.advanceTimersByTimeAsync(ms);
@@ -308,10 +317,22 @@ describe("a page in a room", () => {
     const p = page({ canReload: () => !sheet });
     p.link.fire("release", { id: NEW, safe: true, protocol: "2" });
     await wait(SPREAD);
-    expect(p.notes).toEqual([NOTICE]);
+    // "In a moment", not "after this round": the room is at a safe point, the page is what waits.
+    expect(p.notes).toEqual([SOON_NOTICE]);
     expect(p.reload).not.toHaveBeenCalled();
     sheet = false;
     await wait(LOCAL_WAIT_MS);
+    expect(p.reload).toHaveBeenCalledTimes(1);
+  });
+
+  it("the same word again keeps the wait already running (a room that woke says it once more)", async () => {
+    const p = page();
+    p.link.fire("release", { id: NEW, safe: true, protocol: "2" });
+    // Just before its moment comes, the room says the same again, and again: the moment holds.
+    await wait(SPREAD / 2 - 100);
+    p.link.fire("release", { id: NEW, safe: true, protocol: "2" });
+    p.link.fire("release", { id: NEW, safe: true, protocol: "2" });
+    await wait(200);
     expect(p.reload).toHaveBeenCalledTimes(1);
   });
 
@@ -335,14 +356,16 @@ describe("a page in a room", () => {
     expect(p.reload).toHaveBeenCalledTimes(1);
   });
 
-  it("without session storage it never reloads by itself either: the tap", async () => {
+  it("without session storage a reload would cost the seat: it says the new version loads next time, and offers nothing", async () => {
     const p = page({ storage: blocked() });
+    p.link.fire("release", { id: NEW, safe: false, protocol: "2" });
+    await wait(SPREAD);
+    expect(p.notes).toEqual([]);
     p.link.fire("release", { id: NEW, safe: true, protocol: "2" });
     await wait(SPREAD);
     expect(p.reload).not.toHaveBeenCalled();
-    expect(p.notes).toEqual([TAP_NOTICE]);
-    p.taps[0]();
-    expect(p.reload).toHaveBeenCalledTimes(1);
+    expect(p.notes).toEqual([STAY_NOTICE]);
+    expect(p.taps).toEqual([null]);
   });
 
   it("still older after its one reload for a build: the tap, never a second reload by itself", async () => {
@@ -359,18 +382,18 @@ describe("a page in a room", () => {
     const p = page({ live: () => MINE, protocol: "3" });
     p.link.fire("release", { id: OLDER, safe: true, protocol: "2" });
     await wait(SPREAD);
-    expect(p.notes).toEqual([NOTICE]);
+    expect(p.notes).toEqual([BEHIND_NOTICE]);
     // The room becomes busy and safe again: it stays, and it waits.
     p.link.fire("release", { id: OLDER, safe: false, protocol: "2" });
     await wait(SPREAD);
     p.link.fire("release", { id: OLDER, safe: true, protocol: "2" });
     await wait(RECHECK_MS[0] + SPREAD);
     expect(p.reload).not.toHaveBeenCalled();
-    expect(p.notes).toEqual([NOTICE]);
+    expect(p.notes).toEqual([BEHIND_NOTICE]);
     // The room took the new code (its socket came back): the page's own build, and the notice goes.
     p.link.fire("release", { id: MINE, safe: true, protocol: "3" });
     await wait(0);
-    expect(p.notes).toEqual([NOTICE, null]);
+    expect(p.notes).toEqual([BEHIND_NOTICE, null]);
   });
 
   it("shown again with a new build out, it asks the room for its own", async () => {
@@ -383,23 +406,82 @@ describe("a page in a room", () => {
     expect(p.link.askRelease).toHaveBeenCalledTimes(1);
   });
 
-  it("let go by a room of a newer protocol, it reloads into its seat, the test protocol left out of the address", () => {
-    const replace = vi.fn();
-    vi.stubGlobal("location", { href: "http://localhost:9540/lobby/?protocol=1&look=flat", replace, reload: vi.fn() });
-    const p = page();
+  /** The room lets the page go for its protocol, as party-client.js says it (after the hello's word). */
+  const letGo = (p, id = NEW) => {
+    p.link.roomRelease = id;
     p.link.fire("closed", "update_required");
-    expect(replace).toHaveBeenCalledWith("http://localhost:9540/lobby/?look=flat");
-    expect(p.notes).toEqual([]);
+  };
+
+  it("let go by a room of a newer protocol, it reloads into its seat a moment of the spread later, not at once", async () => {
+    const p = page();
+    letGo(p);
+    expect(p.notes).toEqual([LOADING_NOTICE]);
+    expect(p.reloadClean).not.toHaveBeenCalled();
+    await wait(SPREAD / 2 + 10);
+    expect(p.reloadClean).toHaveBeenCalledTimes(1);
+    expect(p.reload).not.toHaveBeenCalled();
   });
 
-  it("let go by a room of a newer protocol, a big screen offers the tap instead", () => {
+  it("by default that reload leaves the test protocol out of the address", () => {
     const replace = vi.fn();
-    vi.stubGlobal("location", { href: "http://localhost:9540/lobby/", replace, reload: vi.fn() });
+    vi.stubGlobal("location", { href: "http://localhost:9540/lobby/?protocol=1&look=flat", replace });
+    const handlers = new Map();
+    watchRoomRelease({ on: (t, h) => handlers.set(t, h), room: null, roomRelease: NEW, helloProtocol: "1", askRelease: () => {} }, { notice: () => {}, storage: memory(), random: () => 0, visibility: null });
+    handlers.get("closed")("update_required");
+    vi.advanceTimersByTime(0);
+    expect(replace).toHaveBeenCalledWith("http://localhost:9540/lobby/?look=flat");
+  });
+
+  it("let go, it waits for its own sheet or result card first", async () => {
+    let sheet = true;
+    const p = page({ canReload: () => !sheet });
+    letGo(p);
+    await wait(SPREAD);
+    expect(p.reloadClean).not.toHaveBeenCalled();
+    sheet = false;
+    await wait(LOCAL_WAIT_MS);
+    expect(p.reloadClean).toHaveBeenCalledTimes(1);
+  });
+
+  it("let go, a big screen reloads by itself too: it has no socket left, and a reload is the only way back", async () => {
     const p = page({ auto: () => false });
-    p.link.fire("closed", "update_required");
-    expect(replace).not.toHaveBeenCalled();
-    expect(p.notes).toEqual([TAP_NOTICE]);
+    letGo(p);
+    await wait(SPREAD);
+    expect(p.reloadClean).toHaveBeenCalledTimes(1);
+  });
+
+  it("let go without session storage: it cannot come back to its seat, so it says so, and reloads only on a tap", async () => {
+    const p = page({ storage: blocked() });
+    letGo(p);
+    await wait(SPREAD);
+    expect(p.reloadClean).not.toHaveBeenCalled();
+    expect(p.notes).toEqual([REJOIN_NOTICE]);
     p.taps[0]();
-    expect(replace).toHaveBeenCalledTimes(1);
+    expect(p.reloadClean).toHaveBeenCalledTimes(1);
+  });
+
+  it("never loops between being let go and the room's word, when each reload still comes up old (review probe)", async () => {
+    // Each "load" is a fresh page over the same session storage: the room's hello says a newer
+    // build at a safe point, then lets the page go for its protocol. Before, the two paths kept
+    // two keys in one place and took turns reloading: 6 reloads in 6 loads.
+    const storage = memory();
+    let reloads = 0;
+    for (let load = 0; load < 6; load++) {
+      const handlers = new Map();
+      let dead = false;
+      const count = () => {
+        if (!dead) reloads++;
+      };
+      watchRoomRelease(
+        { on: (t, h) => handlers.set(t, h), room: { members: [{}, {}, {}, {}], screens: 0 }, roomRelease: NEW, helloProtocol: "2", askRelease: () => {} },
+        { notice: () => {}, live: async () => NEW, random: () => 0.5, storage, reload: count, reloadClean: count, visibility: null, auto: () => true },
+      );
+      handlers.get("release")({ id: NEW, safe: true, protocol: "3" });
+      handlers.get("closed")("update_required");
+      await wait(SPREAD);
+      dead = true;
+      vi.clearAllTimers();
+    }
+    expect(reloads).toBe(1);
   });
 });

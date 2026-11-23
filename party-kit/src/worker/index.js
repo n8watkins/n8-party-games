@@ -33,6 +33,8 @@ const CODE_ATTEMPTS = 8;
  * counting against the zone's limit on /api/ requests from one address (site/release-switch.js).
  */
 export const CONFIG_CACHE = "private, max-age=60";
+/** A QR code for a text never changes: kept a day, longer than any room lasts. */
+export const QR_CACHE = "public, max-age=86400, immutable";
 
 function randomCode() {
   const limit = 256 - (256 % CODE_ALPHABET.length);
@@ -113,7 +115,9 @@ async function route(request, env, url, options) {
     const text = url.searchParams.get("text") ?? "";
     if (!isJoinLink(text, allowedOrigins(request, env))) return error("bad_request", "Only this site's join links are drawn.");
     const svg = toSvgSource(generate(text), { on: "#1c1410", off: "#f4ead2", pad: 2, xmlDeclaration: true });
-    return new Response(svg, { headers: { ...API_HEADERS, "Content-Type": "image/svg+xml", "Cache-Control": "public, max-age=3600" } });
+    // The same text always draws the same code, and a room's join link lasts its four hours: kept a
+    // day, so a page reloading into a new build late in a party does not ask for it again.
+    return new Response(svg, { headers: { ...API_HEADERS, "Content-Type": "image/svg+xml", "Cache-Control": QR_CACHE } });
   }
 
   // A seat is handed out only to a page that will open its socket the current way (http.js,

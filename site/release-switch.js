@@ -16,10 +16,12 @@
 //     room says until the room has the new code too). When neither is live (a deploy still on its
 //     way round the world), it waits too, and asks /api/version again a little later.
 //   - A page that must not reload by itself (a big screen, nobody near it; a page in fullscreen,
-//     which a reload would leave; a browser that keeps no session storage, which could loop)
-//     shows "New version, tap to load" at the safe point instead, and loads on the tap.
+//     which a reload would leave) shows "New version, tap to load" at the safe point instead, and
+//     loads on the tap. A browser that keeps no session storage could not come back to its seat
+//     after a reload: it only says a new version loads the next time it joins.
 //   - A room that speaks a newer protocol closes an older page's socket with "update_required"
-//     (party-client.js): the page reloads into its seat (or, if it must not, offers the tap).
+//     (party-client.js): the page, which has no socket left, reloads into its seat with the same
+//     guards as any reload (the spread, its own sheet, once per build).
 //   - A whole party behind one address reloads at once after a round: every request counts
 //     against the zone's limit on /api/ requests from one address. So each page asks
 //     /api/version once per room build (the answer is kept), and each waits a random moment
@@ -36,8 +38,18 @@ import { RELEASE } from "/release.js";
 export const PAGE_RELEASE = RELEASE.id;
 /** The one notice an older page shows while its room is busy. */
 export const NOTICE = "New version ready, it will load after this round";
+/** An older page at a safe point that waits for something of its own (a sheet, the result card). */
+export const SOON_NOTICE = "New version ready, it will load in a moment";
+/** A page of a newer protocol than its room: the room has to take the new code first. */
+export const BEHIND_NOTICE = "New version ready, waiting for the room to catch up";
 /** What a page that may not reload by itself shows at a safe point: the line is a button. */
 export const TAP_NOTICE = "New version, tap to load";
+/** A page that cannot come back to its seat after a reload (no session storage): it says so, and offers nothing. */
+export const STAY_NOTICE = "New version out: it loads the next time you join";
+/** A page the room let go for its protocol, on its way to the new version. */
+export const LOADING_NOTICE = "Loading the new version";
+/** A page the room let go that cannot come back to its seat: one tap, and it is honest about the seat. */
+export const REJOIN_NOTICE = "This page is out of date: tap to reload, then join again";
 const RELOADED_KEY = "party:reloaded-for";
 /** How long a page waits for /api/version before it gives up and decides nothing. */
 const VERSION_TIMEOUT_MS = 4000;
@@ -67,13 +79,17 @@ export function spreadMs(people) {
  *            already did once for this build and is still older): the tap notice;
  *   "behind" the room is not the live build and speaks an older protocol than the page: the
  *            notice, and wait for the room to take the new code;
+ *   "stay"   the page is older and now is safe, but it cannot remember its seat across a reload
+ *            (`remembers` false: no session storage): it says so, and offers no reload that would
+ *            cost the seat in the middle of a party;
  *   "wait"   the room is older, or it cannot be told which is live yet: nothing.
  * `myProtocol` and `roomProtocol` are protocol numbers as strings; a room that says none is taken
  * to speak the page's own.
  */
-export function decide({ mine, room, live, safe, reloadedFor, auto = true, myProtocol = null, roomProtocol = null }) {
+export function decide({ mine, room, live, safe, reloadedFor, auto = true, remembers = true, myProtocol = null, roomProtocol = null }) {
   if (!room || room === mine) return "same";
   if (!live || live !== room) return roomProtocol != null && myProtocol != null && Number(roomProtocol) < Number(myProtocol) ? "behind" : "wait";
+  if (!remembers) return safe ? "stay" : "wait";
   if (!safe) return auto && reloadedFor !== room ? "notice" : "wait";
   return auto && reloadedFor !== room ? "reload" : "tap";
 }
@@ -151,9 +167,9 @@ export function withoutTestProtocol(href) {
  * - `canReload()` is the page's own say: false while something on this page alone would be lost
  *   (a sheet being filled in). The reload waits for it.
  * - `auto()`: whether this page may reload by itself at all (false for a big screen or a page in
- *   fullscreen); without session storage it never does.
+ *   fullscreen); without session storage it never does, and offers no tap either (decide, "stay").
  * - `people()`: how many are in the room, for the spread of the reloads.
- * - `live`, `random`, `storage`, `reload`, `timers` and `visibility` stand in for the browser's in
+ * - `live`, `random`, `storage`, `reload`, `reloadClean`, `timers` and `visibility` stand in for the browser's in
  *   the tests.
  */
 export function watchRoomRelease(link, opts = {}) {
@@ -166,6 +182,8 @@ export function watchRoomRelease(link, opts = {}) {
     random = Math.random,
     storage = safeSession(),
     reload = () => location.reload(),
+    // A page let go for its protocol loads its address again without the test protocol.
+    reloadClean = () => location.replace(withoutTestProtocol(location.href)),
     timers = globalThis,
     visibility = globalThis.document,
   } = opts;
@@ -207,6 +225,7 @@ export function watchRoomRelease(link, opts = {}) {
   };
 
   let latest = null; // the room's last word: {id, safe, protocol}
+  let forced = false; // the room let this page go for its protocol
   let pending = null; // the timer of what is to be done next
   let rechecks = 0;
   let run = 0;
@@ -227,20 +246,23 @@ export function watchRoomRelease(link, opts = {}) {
       live: id,
       safe: said.safe,
       reloadedFor: reloadedFor(storage),
-      auto: remembers && auto(),
+      auto: auto(),
+      remembers,
       myProtocol: link.helloProtocol ?? null,
       roomProtocol: said.protocol ?? null,
     });
     if (what === "reload") {
       if (!canReload()) {
-        show(NOTICE);
+        show(SOON_NOTICE);
         return later(LOCAL_WAIT_MS, () => void act(said));
       }
       if (!reloadFor(said.id, { storage, reload })) show(TAP_NOTICE, tapToLoad);
       return;
     }
-    if (what === "notice" || what === "behind") show(NOTICE);
+    if (what === "notice") show(NOTICE);
+    else if (what === "behind") show(BEHIND_NOTICE);
     else if (what === "tap") show(TAP_NOTICE, tapToLoad);
+    else if (what === "stay") show(STAY_NOTICE);
     else show(null);
     // Nobody could tell yet, or the room is the older side: ask again a little later, a few times.
     if ((what === "wait" || what === "behind") && !confirmed.has(said.id) && rechecks < RECHECK_MS.length) {
@@ -249,6 +271,9 @@ export function watchRoomRelease(link, opts = {}) {
   };
 
   const onRelease = (said) => {
+    if (forced) return; // let go for its protocol: that path decides (below)
+    // The same word again (a room that woke and says it once more) keeps the wait already running.
+    if (pending && latest && said.id === latest.id && said.safe === latest.safe && (said.protocol ?? null) === (latest.protocol ?? null)) return;
     latest = said;
     timers.clearTimeout(pending);
     pending = null;
@@ -264,15 +289,33 @@ export function watchRoomRelease(link, opts = {}) {
     else void act(said);
   };
   link.on("release", onRelease);
-  // A room of a newer protocol let this page go: it reloads into its seat (once for this build).
+  // A room of a newer protocol let this page go (it lets every such page go in the same moment).
+  // The page has no socket any more, so the only way back is a reload, and it takes it by itself,
+  // a big screen and a fullscreen page too, but with the same guards as any reload: a random
+  // moment of the party's spread, after its own sheet or result card, and once per room build,
+  // under the same key as every other reload (so no two paths can take turns reloading). A page
+  // that cannot come back to its seat (no session storage) says so and reloads only on a tap.
   link.on("closed", (why) => {
     if (why !== "update_required") return;
-    const go = () => location.replace(withoutTestProtocol(location.href));
-    if (!(remembers && auto()) || !reloadFor(`protocol:${link.roomRelease ?? "unknown"}`, { storage, reload: go })) show(TAP_NOTICE, go);
+    forced = true;
+    timers.clearTimeout(pending);
+    pending = null;
+    run += 1;
+    const id = link.roomRelease ?? "unknown";
+    latest = { id, safe: true, protocol: null };
+    const go = reloadClean;
+    if (!remembers) return show(REJOIN_NOTICE, go);
+    if (reloadedFor(storage) === id) return show(TAP_NOTICE, go);
+    show(LOADING_NOTICE);
+    const attempt = () => {
+      if (!canReload()) return later(LOCAL_WAIT_MS, attempt);
+      if (!reloadFor(id, { storage, reload: go })) show(TAP_NOTICE, go);
+    };
+    later(jitter(), attempt);
   });
   // Shown again (a phone unlocked, a tab come back to): if a new build is out, ask the room for its own.
   visibility?.addEventListener?.("visibilitychange", async () => {
-    if (visibility.visibilityState !== "visible") return;
+    if (visibility.visibilityState !== "visible" || forced) return;
     const id = await askLive();
     if (!id || id === PAGE_RELEASE) return;
     rechecks = 0;

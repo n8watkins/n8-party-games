@@ -810,7 +810,8 @@ export function createLobbyRoom(wallFor, { release = null } = {}) {
       // Who stands on a game's spots changed (choosing its players): it is in the room view.
       if (change.room) this.broadcastRoom(now);
       // A count started or stopped (only a vote message): pages of another build hear whether now is safe.
-      else if (change.view && release) this.offerRelease(core.view(now), now);
+      // Only the vote changed, so the rest of the last room view still stands (releaseView).
+      else if (change.view && release) this.offerRelease(this.releaseView ? { ...this.releaseView, vote: core.voteView(now) } : core.view(now), now);
       if (change.state) void this.save();
       this.arm(now);
     }
@@ -1247,6 +1248,8 @@ export function createLobbyRoom(wallFor, { release = null } = {}) {
      */
     offerRelease(view, now) {
       if (!release || !this.core) return;
+      // What a safe point is read from, kept so a vote change alone needs no whole room view (settle).
+      this.releaseView = { phase: view?.phase, game: view?.game, closing: view?.closing, starting: view?.starting, vote: view?.vote };
       const safe = releaseSafe(view);
       const was = this.releaseSafeWas;
       this.releaseSafeWas = safe;
