@@ -8,6 +8,10 @@
 //     said only when the party is still open, with the way back in. The room is asked once; if
 //     it has gone, or does not answer, nothing is shown. The page never moves by itself, so a
 //     rejoin that fails cannot loop or flash.
+//
+// It also writes the quiet line under "Made in the open" that says which build this is.
+import { releaseLine } from "/release-line.js";
+
 const NOTE_KEY = "party-room:note";
 /** A note older than this is about a party long gone. */
 const NOTE_LIFE_MS = 15 * 60_000;
@@ -105,5 +109,8 @@ async function show() {
   action.addEventListener("click", forget);
   chip(said.line, action);
 }
+
+const line = document.getElementById("releaseLine");
+if (line) line.textContent = releaseLine();
 
 void show();

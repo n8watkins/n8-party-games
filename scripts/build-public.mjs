@@ -9,11 +9,16 @@
 //   node scripts/build-public.mjs            build, print a one-line summary
 //   node scripts/build-public.mjs --list     build and list every file that will be served
 //   node scripts/build-public.mjs --preview  also build the pages that are not approved yet (below)
-import { writeFileSync } from "node:fs";
+//   node scripts/build-public.mjs --production  the deploy's build: refuses a dirty working tree
+//
+// Every build writes the release record (scripts/release.mjs): release.js in the public folder for
+// the pages, and dist/release.js for the Worker.
+import { mkdirSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { KIT_CLIENT_PATH, buildPublic, kitClientEntry, report } from "../party-kit/build/public.mjs";
+import { RELEASE_FILE, buildKind, gitState, releaseModule, releaseProblem, releaseRecord } from "./release.mjs";
 
 /** Where Who Am I?'s pictures load from: the one outside host any page of this site may show images from. */
 export const PICTURE_HOST = "https://upload.wikimedia.org";
@@ -73,6 +78,8 @@ const siteEntries = [
   { from: join(ROOT, "site", "home.js"), to: "home.js" },
   { from: join(ROOT, "site", "home-data.js"), to: "home-data.js" },
   { from: join(ROOT, "site", "home-model.js"), to: "home-model.js" },
+  // The quiet "Version ..., build ..." line the front page, the Floor and the Table show (from release.js, written by the build).
+  { from: join(ROOT, "site", "release-line.js"), to: "release-line.js" },
   { from: join(ROOT, "site", "art"), to: "art" },
   { from: join(ROOT, "site", "fonts"), to: "fonts" },
   // Starting a party at the Table: the party room's way in, then straight to the Table.
@@ -146,16 +153,20 @@ export function homeWallModule(wall = WALL) {
   ].join("\n");
 }
 
-/** Every site path that is served: the kit's browser files, the site's pages, each game's public files, and the front page's wall. */
-export const SERVED = [...entries.map((entry) => entry.to), HOME_WALL_PATH];
+/** Every site path that is served: the kit's browser files, the site's pages, each game's public files, the front page's wall and the release record. */
+export const SERVED = [...entries.map((entry) => entry.to), HOME_WALL_PATH, RELEASE_FILE];
+/** Where the Worker's copy of the release record is written (wrangler.jsonc's alias "n8-party-games/release" names it). */
+export const WORKER_RELEASE = join(ROOT, "dist", RELEASE_FILE);
 /** Where each served path is copied from. */
 export const SOURCES = entries.map((entry) => entry.from);
 
 /**
  * Builds the public folder into `out`, dist/public unless told otherwise. The unit tests build
  * into a temporary folder of their own, so they never empty the folder a local Worker serves.
+ * The release record goes into `out` as release.js, and to `workerRelease` too when given (the
+ * command line gives WORKER_RELEASE). `git` is the commit and tree state to record (gitState).
  */
-export function build(out = OUT) {
+export function build(out = OUT, { workerRelease = null, git = repoState() } = {}) {
   // The party room shows a hosted game by putting the game's own page in a frame, so this site's
   // pages may be framed by this site's pages, and by nobody else.
   // Hot Potato (one-device/hot-potato) and its hearing test (lab/hot-potato) listen through the
@@ -168,7 +179,32 @@ export function build(out = OUT) {
   const files = buildPublic({ out, entries, frames: "self", microphone: ["/lab/hot-potato/*", "/one-device/hot-potato/*"], images: { [TABLE_PAGES]: [PICTURE_HOST] }, botCheck: "room-making", computedImports: COMPUTED_IMPORTS });
   const text = homeWallModule();
   writeFileSync(join(out, HOME_WALL_PATH), text);
-  return [...files, { path: HOME_WALL_PATH, bytes: Buffer.byteLength(text) }].sort((a, b) => a.path.localeCompare(b.path));
+  const built = [...files, { path: HOME_WALL_PATH, bytes: Buffer.byteLength(text) }];
+  // Last, so its id covers every other file in the folder, `_headers` included.
+  const release = releaseModule(releaseRecord({ root: ROOT, out, games: [...GAMES, ...TURN_GAMES], git }));
+  writeFileSync(join(out, RELEASE_FILE), release);
+  if (workerRelease) {
+    mkdirSync(dirname(workerRelease), { recursive: true });
+    writeFileSync(workerRelease, release);
+  }
+  return [...built, { path: RELEASE_FILE, bytes: Buffer.byteLength(release) }].sort((a, b) => a.path.localeCompare(b.path));
 }
 
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) report(build(), OUT);
+/** This repository's state for the record: dirty includes a gitignored file in any folder the site serves (gitState). */
+export function repoState() {
+  return gitState(ROOT, { sources: SOURCES });
+}
+
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  const git = repoState();
+  // An upload (wrangler deploy) is held to the deploy's rules whatever flags the command has.
+  const upload = buildKind() === "upload";
+  if (upload || process.argv.includes("--production")) {
+    const problem = releaseProblem(git, { upload });
+    if (problem) {
+      console.error(`build-public: ${problem}`);
+      process.exit(1);
+    }
+  }
+  report(build(OUT, { workerRelease: WORKER_RELEASE, git }), OUT);
+}

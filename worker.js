@@ -5,6 +5,9 @@
 import { createPartyRoom, PinDirectory, RateLimiter, RoomBudget, ScoreBoard, handlePartyApi } from "./party-kit/src/worker/index.js";
 import { json } from "./party-kit/src/worker/http.js";
 import { partyFullMessage, roomBudgetReport } from "./party-kit/src/worker/room-budget.js";
+import { handleVersion } from "./party-kit/src/worker/version.js";
+// The release record the build wrote (scripts/release.mjs): the same one the pages import as /release.js.
+import { RELEASE } from "n8-party-games/release";
 import { GAMES, SCORE_BOARDS } from "./games.js";
 import { createLobbyRoom } from "./lobby/server/lobby-room.js";
 import { wallFor } from "./lobby/wall.js";
@@ -42,6 +45,8 @@ async function debug(url, env) {
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
+    const version = handleVersion(request, RELEASE, env);
+    if (version) return version;
     if (env.PARTY_DEBUG === "on" && request.method === "GET" && (url.pathname === `${LOBBY_API}/debug` || url.pathname.startsWith(`${LOBBY_API}/debug/`))) return debug(url, env);
     const lobby = await handlePartyApi(request, env, { prefix: LOBBY_API, rooms: env.PARTY_LOBBIES, fullMessage: partyFullMessage });
     if (lobby) return lobby;

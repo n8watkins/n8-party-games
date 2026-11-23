@@ -13,6 +13,10 @@ export const game = tableGame(rules);
 export const manifest = {
   id: rules.GAME_ID,
   name: "Paper Masks",
+  // The game's own version, in the release record (scripts/release.mjs). It lives in this
+  // repository, so release-kit does not move it: bump it in the pull request that changes the
+  // game (a feat a minor, a fix a patch; DEPLOY.md, "Releases").
+  version: "0.1.0",
   pitch: "Anonymous answers about you. Guess who wrote what.",
   path: "/party/",
   players: { min: rules.MIN_PLAYERS, max: rules.MAX_PLAYERS },

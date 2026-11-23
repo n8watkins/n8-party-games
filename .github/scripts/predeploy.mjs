@@ -3,13 +3,14 @@
 // Hot Potato's hearing test, the switch between the Floor and the Table, both rooms side by side,
 // and a game at the Table).
 //
-//   npm run predeploy                 (locally, from the owner's PC)
+//   npm run gate                      (locally, from the owner's PC, on any tree)
 //   .github/workflows/predeploy-gate.yml   (the same script, on a GitHub-hosted runner)
 //
-// The script is named `predeploy` on purpose: npm runs `pre<name>` before `npm run <name>`, so
-// `npm run deploy` runs this gate first by itself and stops if it fails. `npm run predeploy`
-// alone runs the gate without deploying. In an emergency, and only on the owner's word,
-// `npx wrangler deploy --env=''` deploys without the gate.
+// The npm script `predeploy` runs it with --deploy on purpose: npm runs `pre<name>` before
+// `npm run <name>`, so `npm run deploy` runs this gate first by itself and stops if it fails, and
+// with --deploy it first refuses a tree a deploy may not ship (below). `npm run gate` runs the
+// gate alone without deploying. In an emergency, and only on the owner's word,
+// `npx wrangler deploy --env=''` deploys without the gate (its build still refuses such a tree).
 //
 // Needs `npm ci` first, and Playwright's Chromium for the browser steps
 // (`npx playwright install chromium`). The Windows-Chrome playtest (`npm run playtest:battle`)
@@ -36,10 +37,10 @@
 //   their Workers up. Steps without a card browser (test:room, test:lobby, test:mode, and those
 //   whose browser draws in software) take no token and run beside them. Under gpu-run
 //   (`gpu-run --label gate --kind browser-test --tokens 3 --admit-timeout-runs -- npm run
-//   predeploy`), the tokens come from the ones gpu-run holds for it instead of from the card's
+//   gate`), the tokens come from the ones gpu-run holds for it instead of from the card's
 //   pool, and gpu-run's admission check (card load, video memory, heat, recent driver events)
 //   runs first; --admit-timeout-runs makes a busy card delay the gate, never fail it.
-//   Run bare (`npm run predeploy`, and `npm run deploy`, which runs it first), the gate has no
+//   Run bare (`npm run gate`, and `npm run deploy`, which runs it first), the gate has no
 //   admission check: it takes its tokens and starts whatever the card's state.
 //
 // One gate at a time on this machine: a gate holds the flock on
@@ -57,6 +58,29 @@ import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { STEPS, stepPort } from "./predeploy-steps.mjs";
+
+// The deploy's own run of the gate (`npm run deploy` runs `predeploy`, which passes --deploy):
+// before anything else, the tree must be what a deploy may ship (scripts/release.mjs,
+// releaseProblem): one clean commit already on origin/main, and no RELEASE_ALLOW_DIRTY. Wrangler's
+// build checks the same again, but only after the gate's minutes. `npm run gate` runs the gate
+// alone, on any tree.
+if (process.argv.includes("--deploy")) {
+  const { execFileSync } = await import("node:child_process");
+  console.log("Fetching origin/main (20 s at most) to check this commit is on it...");
+  try {
+    // Never waits for ever (a bad proxy hung it once) and never asks for a password.
+    execFileSync("git", ["fetch", "--quiet", "origin", "main"], { stdio: ["ignore", "ignore", "pipe"], timeout: 20_000, killSignal: "SIGKILL", env: { ...process.env, GIT_TERMINAL_PROMPT: "0" } });
+  } catch (err) {
+    console.log(`(could not fetch origin/main${err.signal ? " in 20 s" : ""}; checking against this clone's copy of it)`);
+  }
+  const { repoState } = await import("../../scripts/build-public.mjs");
+  const { releaseProblem } = await import("../../scripts/release.mjs");
+  const problem = releaseProblem(repoState(), { upload: true });
+  if (problem) {
+    console.error(`\nNot deploying: ${problem}\n\n(\`npm run gate\` runs the gate alone on any tree.)`);
+    process.exit(1);
+  }
+}
 
 const port = Number(process.env.PREDEPLOY_PORT ?? "8853");
 // How many of the gate's card browsers may draw at once when the steps run side by side.
@@ -183,7 +207,10 @@ function startWorker(port, { persist = null, quiet = false, env = "local" } = {}
   const child = spawn("npx", args, {
     stdio: ["ignore", "pipe", "pipe"],
     detached: true,
-    env: { ...process.env, WRANGLER_SEND_METRICS: "false", CI: "1" },
+    // A local server with the production settings builds with --production, which refuses a
+    // dirty tree (scripts/release.mjs); the gate may run on one, and only the deploy after it
+    // must come from a commit, so its own servers are let through.
+    env: { ...process.env, WRANGLER_SEND_METRICS: "false", CI: "1", ...(env === "" && { RELEASE_ALLOW_DIRTY: "1" }) },
   });
   let log = "";
   // Wrangler's own word that it listens on this port: a server something else started there
