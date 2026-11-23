@@ -290,7 +290,7 @@ describe("the room's judgement of a charged kick", () => {
     expect(core.members[0].d).toBe(0);
     expect(core.view(1700).members[0].charge).toBe(100 + CHARGE_MIN_MS);
     // Released 820 ms later: full power, however the phone says it.
-    const b = core.bump(0, 1600 + 820, true);
+    const b = core.bump(0, 1600 + 820, undefined, true);
     expect(b.c).toBe(1);
     expect(core.view(2500).members[0].charge).toBeUndefined();
   });
@@ -301,7 +301,7 @@ describe("the room's judgement of a charged kick", () => {
     expect(core.bump(0, 2000)).toMatchObject({ to: -1 });
     core.charge(0, 2000 + BUMP_COOLDOWN_MS);
     const now = 2000 + BUMP_COOLDOWN_MS + 600;
-    const b = core.bump(0, now, true);
+    const b = core.bump(0, now, undefined, true);
     const power = chargePower(600 + CHARGE_MIN_MS);
     expect(b).toMatchObject({ t: "b", s: 0, to: 1, c: Math.round(power * 100) / 100 });
     expect(b.kx).toBe(Math.round(x + Math.min(chargeDash(power), BUMP_REACH + 60 - KICK_CONTACT)));
@@ -320,7 +320,7 @@ describe("the room's judgement of a charged kick", () => {
     place(core, 0, edge, 1500);
     place(core, 1, ROOM.maxX - 10, 1500);
     core.charge(0, 2000);
-    const b = core.bump(0, 2000 + CHARGE_FULL_MS, true);
+    const b = core.bump(0, 2000 + CHARGE_FULL_MS, undefined, true);
     expect(b.to).toBe(-1);
     expect(b.kx).toBe(slideLanding(edge, edge + CHARGE_DASH, wall, lit));
     expect(b.kx).toBeLessThan(pool.x - pool.half);
@@ -331,7 +331,7 @@ describe("the room's judgement of a charged kick", () => {
     be(core, 1, "slime");
     core.charge(0, 2000);
     core.slime(1, "harden", 2300);
-    const b = core.bump(0, 2000 + CHARGE_FULL_MS, true);
+    const b = core.bump(0, 2000 + CHARGE_FULL_MS, undefined, true);
     const [wall, lit] = lights(core);
     expect(b).toMatchObject({ to: -1, bo: 1, c: 1, ke: CHARGE_DOWN_MS });
     expect(b.x).toBe(knockLanding(b.kx, -1, wall, lit, chargeBounce(1).reach));
@@ -353,7 +353,7 @@ describe("the room's judgement of a charged kick", () => {
     core.charge(0, 2000);
     core.fade(1, 2200);
     const now = 2000 + CHARGE_FULL_MS;
-    const b = core.bump(0, now, true);
+    const b = core.bump(0, now, undefined, true);
     expect(b).toMatchObject({ to: -1, sc: 1, c: 1 });
     expect(core.members[0]).toMatchObject({ stunUntil: now + BIG_SCARE_MS, fright: "bigscare" });
     expect(BIG_SCARE_MS).toBeGreaterThan(SCARE_MS + 400);
@@ -364,11 +364,11 @@ describe("the room's judgement of a charged kick", () => {
   it("cannot be made harder than the room timed it: a release with no charge, or one held too long ago, is a tap", () => {
     const { core } = setup(BUMP_REACH + 60);
     // A phone that says `c` without charging first: a tap.
-    expect(core.bump(0, 2000, true)).toMatchObject({ to: -1 });
-    expect(core.bump(0, 2000, true)?.c).toBeUndefined();
+    expect(core.bump(0, 2000, undefined, true)).toMatchObject({ to: -1 });
+    expect(core.bump(0, 2000, undefined, true)?.c).toBeUndefined();
     // A charge the room heard the release of only long after (a phone that stalled): a tap.
     core.charge(0, 2000 + BUMP_COOLDOWN_MS);
-    const late = core.bump(0, 2000 + BUMP_COOLDOWN_MS + CHARGE_HOLD_MS + COOLDOWN_SLACK_MS + 50, true);
+    const late = core.bump(0, 2000 + BUMP_COOLDOWN_MS + CHARGE_HOLD_MS + COOLDOWN_SLACK_MS + 50, undefined, true);
     expect(late.c).toBeUndefined();
     expect(late.to).toBe(-1);
   });
@@ -416,7 +416,7 @@ describe("the room's judgement of a charged kick", () => {
     for (let t = 2000; t <= 2000 + HOOK_AIM_MS + 400; t += 5) core.dueHooks(t);
     expect(core.members[0].fright).toBe("pull");
     expect(core.members[0].chargeAt ?? null).toBeNull();
-    expect(core.bump(0, 2000 + HOOK_AIM_MS + PULL_MS + 600, true)?.c).toBeUndefined();
+    expect(core.bump(0, 2000 + HOOK_AIM_MS + PULL_MS + 600, undefined, true)?.c).toBeUndefined();
   });
 
   it("is forgotten when a game starts, and the room does not wake for it", () => {
@@ -429,7 +429,7 @@ describe("the room's judgement of a charged kick", () => {
     core.charge(0, 2000 + BUMP_COOLDOWN_MS);
     core.startGame("coin-flip", 2000 + BUMP_COOLDOWN_MS + 100);
     expect(core.view(2000 + BUMP_COOLDOWN_MS + 200).members[0].charge).toBeUndefined();
-    expect(core.bump(0, 2000 + BUMP_COOLDOWN_MS + 300, true)).toBeNull();
+    expect(core.bump(0, 2000 + BUMP_COOLDOWN_MS + 300, undefined, true)).toBeNull();
   });
 
   it("bats a hook away on its release, as a kick does", () => {
@@ -439,7 +439,7 @@ describe("the room's judgement of a charged kick", () => {
     core.charge(0, 1700);
     core.hook(1, 2000);
     // The hook reaches Pat about HOOK_AIM_MS + 120 ms on: Pat lets go 100 ms before.
-    core.bump(0, 2000 + HOOK_AIM_MS + 40, true);
+    core.bump(0, 2000 + HOOK_AIM_MS + 40, undefined, true);
     const out = [];
     for (let t = 2000; t <= 2000 + HOOK_AIM_MS + 400 + HOOK_LATE_MS; t += 5) out.push(...core.dueHooks(t));
     expect(out.find((m) => m.t === "hk")).toMatchObject({ o: "parry" });
@@ -453,8 +453,8 @@ describe("the room's judgement of a charged kick", () => {
       place(core, 1, x + 220, 1000, -1);
       core.charge(0, 2000);
       core.charge(1, 2000);
-      const a = core.bump(first, 2600, true);
-      const b = core.bump(1 - first, 2600, true);
+      const a = core.bump(first, 2600, undefined, true);
+      const b = core.bump(1 - first, 2600, undefined, true);
       expect(a).toMatchObject({ s: first, to: 1 - first });
       // The other is on the floor: its release does nothing (the room keeps it down).
       expect(b).toBeNull();
@@ -470,12 +470,13 @@ describe("what a page sends for the charged kick (shared/pilot.js)", () => {
     p.step(0);
     p.steer(1, 10);
     expect(p.charge(200)).toBe(true);
-    expect(sent.slice(-2)).toEqual([expect.objectContaining({ t: "m", d: 0 }), { t: "kc" }]);
+    // Each carries the way the page shows the pawn facing (facing.test.js).
+    expect(sent.slice(-2)).toEqual([expect.objectContaining({ t: "m", d: 0, f: 1 }), { t: "kc", f: 1 }]);
     p.steer(1, 300);
     expect(p.d).toBe(0);
     expect(p.charge(300)).toBe(false);
     expect(p.bump(900)).toBe(true);
-    expect(sent.at(-1)).toEqual({ t: "b", c: 1 });
+    expect(sent.at(-1)).toEqual({ t: "b", f: 1, c: 1 });
     // Walks again, and the next press is a tap once its cooldown is over.
     p.steer(1, 950);
     expect(p.d).toBe(1);
@@ -485,7 +486,7 @@ describe("what a page sends for the charged kick (shared/pilot.js)", () => {
     p.knock(700, 3, 900 + BUMP_COOLDOWN_MS + 100);
     expect(p.chargeAt).toBeNull();
     p.bump(900 + BUMP_COOLDOWN_MS + STUN_MS + 200);
-    expect(sent.at(-1)).toEqual({ t: "b" });
+    expect(sent.at(-1)).toEqual({ t: "b", f: 1 });
   });
 
   it("walks at its character's speed from the moment it changes character", () => {

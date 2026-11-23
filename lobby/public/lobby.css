@@ -1414,6 +1414,8 @@ input {
   }
   .hud:has(.settings-back.spots) .corner .door-word {
     max-width: 0;
+    /* And none of its padding, or a sliver of the word stays beside the door's picture (rooms.css). */
+    padding-right: 0;
   }
   .hud:has(.settings-back.spots) .corner .door-btn,
   .hud:has(.settings-back.spots) .corner-btn {

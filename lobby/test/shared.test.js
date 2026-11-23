@@ -186,7 +186,7 @@ describe("what a player's page sends", () => {
     for (let t = 0; t < 5000; t += 16) p.step(t);
     expect(sent).toEqual([]);
     p.steer(1, 5000);
-    expect(sent).toEqual([{ t: "m", x: 150, d: 1, r: 0 }]);
+    expect(sent).toEqual([{ t: "m", x: 150, d: 1, f: 1, r: 0 }]);
     for (let t = 5016; t < 5300; t += 16) p.step(t);
     expect(sent.length).toBe(1);
   });
@@ -233,7 +233,7 @@ describe("what a player's page sends", () => {
     const { sent, p } = pilot();
     p.place(600, 3, 1000);
     expect(p.x).toBe(600);
-    expect(sent.at(-1)).toEqual({ t: "m", x: 600, d: 0, r: 3 });
+    expect(sent.at(-1)).toEqual({ t: "m", x: 600, d: 0, f: 1, r: 3 });
   });
 });
 

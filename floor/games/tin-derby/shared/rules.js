@@ -17,6 +17,7 @@
 // What the room sends everyone (game.tick): only what a page cannot work out for itself.
 //   { k: "i", n, c, j, s, b, q? }  car c's input (steer s, buttons b) takes effect at step n
 //   { k: "a", n, c, j, on }        from step n, car c is driven by the house (its phone dropped), or handed back
+//                                  (a test run's room adds quiet and gap to a hand-over for silence: see handOver)
 //   { k: "n", n }                  the room has run up to step n: nothing new will take effect at or before it
 // (j counts what the room has told about car c: 1, 2, 3 ...; q is the page's own number for its input.)
 // Everything else that happens (a bump, a spin, a lap, the finish) each page gets from running the same
@@ -127,8 +128,9 @@ export function makeRules(T = TUNE, { math: M = dmath, preview: PREVIEW = false 
     state.net = []; // what the room has to tell everyone at its next tick
     // The room's own notes on each car's page, never sent: whether its socket was away at the last tick (away), when
     // it last heard anything from it (heard, ms on its clock; -1 before the first word), whether the page said it
-    // cannot show the race (gave), and whether the house has the car just now (want).
-    state.host = { mark: [false, false, false, false], away: [false, false, false, false], heard: [-1, -1, -1, -1], gave: [false, false, false, false], want: [false, false, false, false], ticks: 0 };
+    // cannot show the race (gave), whether the house has the car just now (want), and when it last looked at all of
+    // this (looked, ms on its clock at the last tick; -1 before the first).
+    state.host = { mark: [false, false, false, false], away: [false, false, false, false], heard: [-1, -1, -1, -1], gave: [false, false, false, false], want: [false, false, false, false], ticks: 0, looked: -1 };
     state.rev = 0;
     state.stats = state.cars.map(newStats);
     return state;
@@ -227,7 +229,7 @@ export function makeRules(T = TUNE, { math: M = dmath, preview: PREVIEW = false 
     const on = houseWanted(state, c, now);
     if (on === state.host.want[c.i]) return;
     state.host.want[c.i] = on;
-    handOver(state, c, on);
+    handOver(state, c, on, now);
   }
   /**
    * Anything a seat's page sends: hands ({c: [...]}), a sign that it is still there ({h: 1}), or word that it cannot
@@ -256,11 +258,19 @@ export function makeRules(T = TUNE, { math: M = dmath, preview: PREVIEW = false 
     return hands ? takeInput(state, seat, data, now) : 0;
   }
   /** The room hands a seat to the house (its phone dropped) or back, from the next step, and everyone is told. */
-  function handOver(state, c, on) {
-    const R = state.room;
+  function handOver(state, c, on, now) {
+    const R = state.room, H = state.host;
     enqueue(state, [state.n + 1, c.i, 0, on ? 1 : 0]);
     if (!on) R.sent[c.i] = [0, BTN.GO];
-    state.net.push({ k: "a", n: state.n + 1, c: c.i, j: ++R.count[c.i], on: on ? 1 : 0 });
+    const e = { k: "a", n: state.n + 1, c: c.i, j: ++R.count[c.i], on: on ? 1 : 0 };
+    // On the test wall only, a hand-over for silence says how long the room had heard nothing (quiet, ms on its own
+    // clock) and how long before this it last looked (gap, ms; -1 at its first look). A test then judges the rule
+    // itself: the car went at the first look after NET.SILENT of silence, however late a busy machine made that look.
+    if (state.tests === true && on && !H.away[c.i] && !H.gave[c.i] && H.heard[c.i] >= 0) {
+      e.quiet = now - H.heard[c.i];
+      e.gap = H.looked < 0 ? -1 : now - H.looked;
+    }
+    state.net.push(e);
   }
   /**
    * A page hears what the room told everyone (game.tick's events) and keeps its copy of the race in step.
@@ -908,6 +918,7 @@ export function makeRules(T = TUNE, { math: M = dmath, preview: PREVIEW = false 
         H.mark[c.i] = false;
         settleHouse(state, c, now);
       }
+      H.looked = now;
       const before = state.n;
       advance(state, Math.min(stepOf(state, now - state.delay), state.n + NET.CATCH_UP));
       H.ticks++;

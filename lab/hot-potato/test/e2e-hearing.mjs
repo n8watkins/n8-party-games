@@ -7,6 +7,7 @@
 //   node lab/hot-potato/test/e2e-hearing.mjs --base=http://localhost:8875 [--shots=/tmp/claude-hot-potato/shots]
 import { mkdirSync } from "node:fs";
 import { chromium } from "playwright";
+import { still as takeStill } from "../../../party-kit/test/stills.mjs";
 
 const arg = (name, fallback) => process.argv.find((a) => a.startsWith(`--${name}=`))?.slice(name.length + 3) ?? fallback;
 const BASE = arg("base", "http://localhost:8875");
@@ -173,8 +174,8 @@ for (const [name, viewport] of SIZES) {
   check(await shownNow(), `${name}: suggestions shown (${await page.textContent("#suggestions")})`);
   const f = await fold();
   check(f.bottom <= f.h, `${name}: the turn button is above the fold with suggestions shown (bottom ${f.bottom} of ${f.h}px)`);
-  await page.screenshot({ path: `${SHOTS}/load-${name}.png` });
-  await page.screenshot({ path: `${SHOTS}/load-${name}-full.png`, fullPage: true });
+  await takeStill(page, { path: `${SHOTS}/load-${name}.png` });
+  await takeStill(page, { path: `${SHOTS}/load-${name}-full.png`, fullPage: true });
   // The longest picker label and the dead-end note must fit too.
   for (const id of ["food", "animals"]) {
     await page.selectOption("#category", id);
@@ -186,8 +187,8 @@ for (const [name, viewport] of SIZES) {
     if (name !== "320x568") check(g.bottom <= g.h, `${name}: the turn button is above the fold with ${id} suggestions (bottom ${g.bottom} of ${g.h}px)`);
   }
   check(await page.isVisible("#deadNote"), `${name}: the dead-end note is shown for animals`);
-  await page.screenshot({ path: `${SHOTS}/animals-${name}.png` });
-  await page.screenshot({ path: `${SHOTS}/animals-${name}-full.png`, fullPage: true });
+  await takeStill(page, { path: `${SHOTS}/animals-${name}.png` });
+  await takeStill(page, { path: `${SHOTS}/animals-${name}-full.png`, fullPage: true });
   check(errors.length === 0, `${name}: no console errors ${errors.join(" | ")}`);
   await context.close();
 }
@@ -217,7 +218,7 @@ for (const [name, viewport] of SIZES) {
   check((await page.textContent("#verdict")).includes("from the recogniser's guess 2"), "Space started a turn; Sydney from the second guess");
   await play([[200, "interim", "salmon"], [300, "final", [["salmon", 0.48], ["Salman", 0.48], ["salmen", 0.48]]]], 3, "Enter");
   check((await page.textContent("#verdict")).includes('heard "salmon", an ordinary word, not a city'), "Enter started a turn; salmon refused as an ordinary word");
-  await page.screenshot({ path: `${SHOTS}/game-salmon-1280.png` });
+  await takeStill(page, { path: `${SHOTS}/game-salmon-1280.png` });
   await play([[200, "interim", "Yokohama"], [300, "final", [["Yokohama", 0.9]]]], 4);
   await play([[200, "interim", "Amsterdam"], [300, "final", [["Amsterdam", 0.9]]]], 5);
   await play([[200, "interim", "Montreal"], [300, "final", [["Montreal", 0.9]]]], 6);
@@ -289,10 +290,10 @@ for (const [name, viewport] of SIZES) {
   check(interim > 0 && final >= interim && valid <= final, `turn 1 timings in order: first word ${interim}, city ${valid}, final ${final} ms`);
   check(/speech end>final 1[0-9]{2}\b/.test(report), "end of speech to final is measured (about 120 ms in the script)");
   check(!/natkins|natha/i.test(report), "the report holds nothing personal");
-  await page.screenshot({ path: `${SHOTS}/game-1280.png` });
-  await page.screenshot({ path: `${SHOTS}/game-1280-full.png`, fullPage: true });
+  await takeStill(page, { path: `${SHOTS}/game-1280.png` });
+  await takeStill(page, { path: `${SHOTS}/game-1280-full.png`, fullPage: true });
   await page.setViewportSize({ width: 2560, height: 1271 });
-  await page.screenshot({ path: `${SHOTS}/game-2560x1271.png` });
+  await takeStill(page, { path: `${SHOTS}/game-2560x1271.png` });
   check(errors.length === 0, `game: no console errors ${errors.join(" | ")}`);
   await context.close();
 }
@@ -307,7 +308,7 @@ for (const [name, viewport] of SIZES) {
   const report = await page.evaluate(() => navigator.clipboard.readText());
   check(/^device: phone \(Android, Chrome 157\)/m.test(report), "phone: the report names an Android phone");
   check(/RIGHT exact Oslo NO/.test(report), "phone: Oslo by tap");
-  await page.screenshot({ path: `${SHOTS}/game-390.png` });
+  await takeStill(page, { path: `${SHOTS}/game-390.png` });
 
   // Suggestions: for the letter needed (O after Oslo), never Oslo again; "more" shows others;
   // tapping one starts nothing; the switch hides them, and this device remembers it.
@@ -381,7 +382,7 @@ for (const [name, viewport] of SIZES) {
   const hello = await say([[200, "interim", "hello"], [300, "final", [["hello", 0.9]]]]);
   check(hello === 'No: heard "hello", an ordinary word, not an animal', `an ordinary word is refused as not an animal (${hello})`);
   check((await page.textContent("#appealSlot button")) === "That was a real animal", "the appeal names the category");
-  await page.screenshot({ path: `${SHOTS}/animals-game-1280.png` });
+  await takeStill(page, { path: `${SHOTS}/animals-game-1280.png` });
 
   await page.selectOption("#category", "food");
   await listLoaded(page);
@@ -454,7 +455,7 @@ for (const [name, viewport] of SIZES) {
   await page.waitForFunction(() => !document.getElementById("micNote").hidden);
   const note = await page.textContent("#micNote");
   check(/cannot be used here/.test(note) && (await page.inputValue("#mic")) === "", "no microphone choice: the page says so and stays on the default");
-  await page.screenshot({ path: `${SHOTS}/mic-unsupported-1280.png` });
+  await takeStill(page, { path: `${SHOTS}/mic-unsupported-1280.png` });
   check(errors.length === 0, `mic unsupported: no console errors ${errors.join(" | ")}`);
   await context.close();
 }
@@ -466,7 +467,7 @@ for (const [name, viewport] of SIZES) {
   await page.click("#turn");
   await turnsDone(page, 1);
   check(await page.isVisible("#micBlocked"), "a refused microphone shows how to allow it");
-  await page.screenshot({ path: `${SHOTS}/mic-denied-390.png` });
+  await takeStill(page, { path: `${SHOTS}/mic-denied-390.png` });
   check(errors.length === 0, `mic denied: no console errors ${errors.join(" | ")}`);
   await context.close();
 }
@@ -479,7 +480,7 @@ for (const [name, viewport] of SIZES) {
   });
   check(await page.isVisible("#noRecognition"), "no recognition: the page says so");
   check(await page.isDisabled("#turn"), "no recognition: the turn button is off");
-  await page.screenshot({ path: `${SHOTS}/no-recognition-390.png` });
+  await takeStill(page, { path: `${SHOTS}/no-recognition-390.png` });
   check(errors.length === 0, `no recognition: no console errors ${errors.join(" | ")}`);
   await context.close();
 }

@@ -751,11 +751,15 @@ export class LobbyCore {
     const v = floats(m.character) && typeof data.v === "number" && Number.isFinite(data.v) ? Math.max(-1, Math.min(1, Math.round(data.v * 100) / 100)) : d;
     if (v !== d) Object.assign(m, { v, vt: now });
     else m.vt = null;
+    // A walk faces the way it goes; a piece standing faces the way its page says (`f`: a quick
+    // turn's walk can end before the page sends it). A page that does not say keeps its facing.
     if (d) m.face = d;
+    else faceAsSaid(m, data.f);
     // A pawn that walks while it charges its kick has let the charge go: its release is a plain kick.
     if (d && m.chargeAt !== null && m.chargeAt !== undefined) m.chargeAt = null;
     this.lastActive = now;
     const relay = { t: "m", s: seat, x: Math.round(x), d, ...(v !== d ? { v } : {}) };
+    if (!d && isFacing(data.f)) relay.f = m.face;
     if (data.j) {
       relay.j = 1;
       // A jump clears a robot's hook (shared/robot.js, jumpedOver): the room keeps when it heard
@@ -769,9 +773,10 @@ export class LobbyCore {
   /**
    * A bump: the room decides who, if anyone, it lands on, and knocks them down (the rules are
    * lobby/shared/bump.js). Returns the message for everybody, or null when the piece may not
-   * bump yet (bumpWait says how long).
+   * bump yet (bumpWait says how long). `face`: which way the page shows the piece facing (-1 or
+   * 1; anything else, or none from an older page, leaves the room's).
    */
-  bump(seat, now, charged = false) {
+  bump(seat, now, face, charged = false) {
     const m = this.members[seat];
     // Only a piece whose move is the kick kicks (a ghost fades instead: fade).
     if (!m || moveOf(m.character) !== "kick" || this.activity.kind !== "lobby" || this.plainRoom()) return null;
@@ -779,6 +784,7 @@ export class LobbyCore {
     // allowing), though the pull has it off its feet.
     const riding = counterable(m, now) && cooldownLeft(m.bumpAt ?? -Infinity, now) <= COOLDOWN_SLACK_MS;
     if (!riding && !mayBump(m, now).ok) return null;
+    faceAsSaid(m, face);
     // A charged kick (shared/bump.js): as strong as the room itself timed the hold, from the charge
     // it heard (`kc`); a release with no charge the room took, or one held too long ago, is a tap.
     const heldFor = charged && m.chargeAt !== null && m.chargeAt !== undefined ? now - m.chargeAt + CHARGE_MIN_MS : null;
@@ -893,7 +899,7 @@ export class LobbyCore {
    * everybody, or {ok: false, why, wait, bad} for that page only. Nothing is timed on the room's
    * side: a charge it never hears the release of is forgotten (CHARGE_HOLD_MS) when it next looks.
    */
-  charge(seat, now) {
+  charge(seat, now, face) {
     const m = this.members[seat];
     if (!m) return { ok: false, why: "You are not in this party." };
     const kicks = moveOf(m.character) === "kick";
@@ -901,6 +907,9 @@ export class LobbyCore {
     if (!this.floorTime()) return { ok: false, why: "You can kick in the room, between games." };
     const may = mayCharge(m, now);
     if (!may.ok) return { ...may, bad: !!may.cooling && tooEager(may.wait) };
+    // Wound up the way the page shows it facing (as a kick: bump), unless the room has it walking;
+    // the relay's `f` then tells every page which way it faces as it charges.
+    faceAsSaid(m, face);
     const x = posAt(m, now);
     Object.assign(m, { x, d: 0, t: now, vt: null, chargeAt: now });
     this.lastActive = now;
@@ -1081,12 +1090,14 @@ export class LobbyCore {
    * for that page only. `bad`: no real page asks that (not a robot, or its cooldown far from
    * over), so it counts against the socket's rate limit.
    */
-  hook(seat, now) {
+  hook(seat, now, face) {
     const m = this.members[seat];
     if (!m) return { ok: false, why: "You are not in this party." };
     const hooks = moveOf(m.character) === "hook";
     const may = mayHook(m, now, { hooks, lobby: this.floorTime(), up: isUp(m, now), hooking: !!m.hook, slack: COOLDOWN_SLACK_MS });
     if (!may.ok) return { ...may, bad: (!hooks && !(now - (m.lookAt ?? -Infinity) <= SHOVE_LATE_MS)) || (!!may.cooling && tooEager(may.wait)) };
+    // Thrown the way the page shows it facing (as a kick: bump), unless the room has it walking.
+    faceAsSaid(m, face);
     const x0 = posAt(m, now);
     // It stands still to throw: the room says so to every page with the hook.
     Object.assign(m, { x: x0, d: 0, t: now, vt: null, hookAt: now });
@@ -3273,4 +3284,16 @@ function partyOf(saved) {
 
 function fail(error, message) {
   return { ok: false, error, message };
+}
+
+/** A facing a page may say: left (-1) or right (1). */
+const isFacing = (f) => f === -1 || f === 1;
+
+/**
+ * The page says which way piece `m` faces (`f`, from a move, a kick or a hook). Taken while the
+ * room has it standing; a piece the room has walking faces the way it walks (the room's call), and
+ * anything but -1 or 1 (or nothing, from an older page) leaves the room's facing as it was.
+ */
+function faceAsSaid(m, f) {
+  if (isFacing(f) && !m.d) m.face = f;
 }

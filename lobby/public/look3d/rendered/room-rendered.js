@@ -38,6 +38,7 @@
 import { Reflection } from "../characters.js";
 import { boxArt } from "../paint.js";
 import { Room3D } from "../room3d.js";
+import { pictureReach } from "../../reach.js";
 import { CAM, D_WALL, FRAME, PX, SPACE, U, WALK, walkX, wallX, wallY } from "../space.js";
 import * as THREE from "../three.js";
 import { drawnLight, poolOf } from "../../shared/world.js";
@@ -523,6 +524,11 @@ export class RoomRendered extends Room3D {
     el.append(span, shut);
     app.append(el);
     setTimeout(() => el.remove(), 12_000);
+  }
+
+  /** As far as the room's picture reads as room (../../reach.js, pictureReach), or the 3D look's reach when that draws the room. */
+  get reach() {
+    return this.plain || !this.plate ? super.reach : pictureReach(this.plate.rect);
   }
 
   /** What the frame meter calls this look: "real", or "3d" once it has fallen back (or the wall is not the picture's). */

@@ -1414,6 +1414,22 @@ body[data-sheet="open"] .detail {
 .made-link:active {
   translate: 0 2px;
 }
+/* Which build this is: small and quiet, under the card, on a plate of its own so a drifting floater
+   never shows through the words. */
+.made-ver {
+  display: table;
+  margin: 12px auto 0;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: var(--plate);
+  text-align: center;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--ink-soft);
+}
+.made-ver:empty {
+  display: none;
+}
 @media (min-width: 700px) {
   .made-card {
     grid-template-columns: minmax(0, 1fr) auto;

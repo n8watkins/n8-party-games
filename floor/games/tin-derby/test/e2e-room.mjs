@@ -40,6 +40,7 @@ import { mkdirSync } from "node:fs";
 import net from "node:net";
 import { resolve } from "node:path";
 import { launchBrowser } from "../../../../lobby/test/browser.mjs";
+import { still as takeStill } from "../../../../party-kit/test/stills.mjs";
 import { partyApi, sleep } from "../../../../lobby/test/client.mjs";
 import { boxCentre } from "../../../../lobby/shared/world.js";
 
@@ -111,8 +112,7 @@ try {
   };
   const shot = async (page, name, caption) => {
     if (!stills) return;
-    await page.screenshot({ path: `${resolve(stills)}/${name}.png`, timeout: 60000 }).catch((e) => console.log(`     (no still ${name}: ${e.message})`));
-    console.log(`     still ${name}.png: ${caption}`);
+    if (await takeStill(page, { path: `${resolve(stills)}/${name}.png` })) console.log(`     still ${name}.png: ${caption}`);
   };
 
   async function screenPage(name = "screen", viewport = { width: 1280, height: 720 }) {
@@ -406,6 +406,16 @@ try {
   };
   const raceT = (n) => n / 120 - 3;
   const GO = 3 * 120;
+  /**
+   * Was this hand-over the room's rule for a silent page, kept to the tick? Judged on the room's own clock, which a
+   * busy machine cannot stretch: a test run's room says how long it had heard nothing (quiet, ms) and how long
+   * before that it last looked (gap, ms). Right when the silence was over NET.SILENT (1 s) at this look and not yet
+   * at the one before, so the car went at the first look it could. (How late that look came is the machine's doing;
+   * the checks keep only a loose bound on it by the wall clock.)
+   */
+  const SILENT_MS = 1000;
+  const atFirstLook = (e) => !!e && typeof e.quiet === "number" && e.quiet > SILENT_MS && e.gap >= 0 && e.quiet - e.gap <= SILENT_MS;
+  const silence = (e) => (e && typeof e.quiet === "number" ? `silent ${Math.round(e.quiet)} ms on the room's clock, its look before ${Math.round(e.gap)} ms earlier` : "the room did not say how long it was silent");
   /** Seat by name, from a page's look: the car index. */
   const carOf = (l, name) => l.cars.findIndex((c) => c.name === name);
 
@@ -523,7 +533,10 @@ try {
         const backT = sOn ? (s.find(([o, et]) => o === 0 && et > sOn[1])?.[1] ?? Infinity) : Infinity, from = along.find(([t]) => t >= backT)?.[1], to = along.at(-1)?.[1];
         const gain = (name) => (from && to ? to[row(name)?.seat] - from[row(name)?.seat] : NaN), sGain = gain("Stall"), aGain = gain("Ada");
         const home = typeof row("Stall")?.time === "number" || (sGain >= 40 && sGain >= aGain / 4);
-        check(!!sOn && sOn[1] - at.freeze < 1.6 && backT < Infinity && home, `short: the stalled phone's car was the house's ${sOn ? (sOn[1] - at.freeze).toFixed(2) : "?"} s after the stall (${at.freeze?.toFixed(2)}), its own again after, and home (${JSON.stringify(s)}; ${JSON.stringify(row("Stall"))}; after ${backT}: Stall +${sGain?.toFixed(1)}, Ada +${aGain?.toFixed(1)})`);
+        // The hand-over itself, as the room told it: at its first look after a second of silence. By the wall clock
+        // only that it came well inside the 4 s stall (about 1 s on a quiet machine, 2 s seen with the machine at load 59).
+        const sRaw = sOn && ev.find((e) => e.k === "a" && e.c === carOf(l, "Stall") && e.on === 1 && +raceT(e.n).toFixed(2) === sOn[1]);
+        check(!!sOn && atFirstLook(sRaw) && sOn[1] - at.freeze < 3.5 && backT < Infinity && home, `short: the stalled phone's car was the house's at the room's first look after a second of silence (${silence(sRaw)}), ${sOn ? (sOn[1] - at.freeze).toFixed(2) : "?"} s after the stall (${at.freeze?.toFixed(2)}), its own again after, and home (${JSON.stringify(s)}; ${JSON.stringify(row("Stall"))}; after ${backT}: Stall +${sGain?.toFixed(1)}, Ada +${aGain?.toFixed(1)})`);
       }
       report.short = { seconds: Math.round((Date.now() - began) / 1000) };
       console.log(`     the short race, party to card: ${report.short.seconds} s`);
@@ -603,7 +616,7 @@ try {
         // The stalled phone: the house's within about a second, its own again after, and home with a time.
         const st = hand("Stall").filter((e) => raceT(e.n) > frozeAt - 1);
         const onT = st[0] && raceT(st[0].n);
-        check(st.length >= 2 && st[0].on === 1 && onT - frozeAt < 1.6 && st[1].on === 0, `stalls: the stalled phone's car was the house's ${onT !== undefined ? (onT - frozeAt).toFixed(2) : "?"} s after the stall began (race time ${frozeAt?.toFixed(1)}), and handed back at ${st[1] ? raceT(st[1].n).toFixed(1) : "never"} (${JSON.stringify(st.map((e) => [e.on, +raceT(e.n).toFixed(2)]))})`);
+        check(st.length >= 2 && st[0].on === 1 && atFirstLook(st[0]) && onT - frozeAt < 4 && st[1].on === 0, `stalls: the stalled phone's car was the house's at the room's first look after a second of silence (${silence(st[0])}), ${onT !== undefined ? (onT - frozeAt).toFixed(2) : "?"} s after the stall began (race time ${frozeAt?.toFixed(1)}), and handed back at ${st[1] ? raceT(st[1].n).toFixed(1) : "never"} (${JSON.stringify(st.map((e) => [e.on, +raceT(e.n).toFixed(2)]))})`);
         check(typeof rowOf("Stall")?.time === "number", `stalls: ... and the car finished (${JSON.stringify(rowOf("Stall"))})`);
         // The keyboard player: Left and Up let go of the moment the tab was hidden, the house's within about a second, its own on the way back.
         const kc = carOf(l, "Keys"), kin = ev.filter((e) => e.k === "i" && e.c === kc && raceT(e.n) > hidAt - 0.5);
