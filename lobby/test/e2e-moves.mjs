@@ -584,8 +584,12 @@ try {
     await watchAll(P, 2000);
     mark = ada.seen.length;
     await rob.keyboard.press("KeyX");
-    // Ada throws as Rob's hook reaches Pat: hers reaches Rob while he drags Pat in.
-    await sleep(170);
+    // Ada throws as Rob's hook reaches Pat: hers reaches Rob while he drags Pat in. Timed from the
+    // room's word on Rob's throw, not from the key press: on a busy machine the key reaches Rob's
+    // page late, and Ada's hook, thrown a fixed 170 ms after the press, once reached Rob before he
+    // had caught Pat (it pulled Rob alone: {"o":"pull","to":1}, no train).
+    const robThrew = await after((m) => m.t === "hook" && m.s === R, 3000, mark);
+    await sleep(Math.max(0, 140 - (Date.now() - (robThrew?.at ?? Date.now()))));
     ada.send({ t: "hook" });
     const robs = await after((m) => m.t === "hk" && m.s === R, 3000, mark);
     const adas = await after((m) => m.t === "hk" && m.s === A, 3000, mark);
