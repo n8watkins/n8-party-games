@@ -568,8 +568,11 @@ try {
   await blo.waitForTimeout(5000);
   check(blo.loads === bloLoads, "it did not reload by itself");
   // Still in the party, in its seat: its socket came back after the deploy from the session it holds in memory.
-  const roomNow = await (await fetch(`${base}/api/lobby/join/${ida.pin}`)).json();
-  check(bloSeat && JSON.stringify(roomNow).includes("Blo") && (await blo.evaluate(() => location.pathname === "/lobby/" && !!document.querySelector(".bar"))), "and it is still in the party, in its seat");
+  // The room's own view (the local test door): Blo's seat is held and its socket is connected
+  // (a name alone would be there for a dropped seat too).
+  const roomNow = (await (await fetch(`${base}/api/lobby/debug/${ida.code}`)).json()).room?.view;
+  const bloMember = roomNow?.members?.find((m) => m?.name === "Blo");
+  check(bloSeat && bloMember?.connected === true && (await blo.evaluate(() => location.pathname === "/lobby/" && !!document.querySelector(".bar"))), `and it is still in the party, in its seat, connected (${JSON.stringify(bloMember && { connected: bloMember.connected })})`);
   idaSocket.ws.close();
   await blo.context().close();
 
