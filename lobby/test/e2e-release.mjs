@@ -336,6 +336,24 @@ try {
   check(await fay.waitForFunction(() => !!document.fullscreenElement, null, { timeout: 5000 }).then(() => true, () => false), "and her next tap took it back into full screen");
   check(await waitBarNote(tv, TAP_NOTICE), `the big screen shows "${TAP_NOTICE}"`);
   check((await barNote(tv))?.tap === true, "the big screen's line is a button");
+  // The repo's rule for every tap target: at least 44 pixels each way. Its words take the tap, in a
+  // row of their own: inside the bar, under the bar's other words, never over them.
+  const target = await tv.evaluate(() => {
+    const words = document.querySelector(".status-release > span").getBoundingClientRect();
+    const button = document.querySelector(".status-release").getBoundingClientRect();
+    const bar = document.querySelector(".bar").getBoundingClientRect();
+    const above = [...document.querySelectorAll(".bar .status > :not(.status-release)")].map((el) => el.getBoundingClientRect());
+    const hit = document.elementFromPoint(words.left + words.width / 2, words.top + 3);
+    return {
+      words: [Math.round(words.width), Math.round(words.height)],
+      button: [Math.round(button.width), Math.round(button.height)],
+      inBar: words.top >= bar.top - 1 && words.bottom <= bar.bottom + 1,
+      clear: above.every((r) => r.bottom <= words.top + 1),
+      takes: !!hit?.closest(".status-release"),
+    };
+  });
+  check(target.words[0] >= 44 && target.words[1] >= 44 && target.button[1] >= 44, `its tap target is at least 44 pixels (its words ${target.words.join("x")}, the button ${target.button.join("x")})`);
+  check(target.inBar && target.clear && target.takes, "inside the bar, under the bar's other words and not over them, and its top edge takes the tap");
   await tv.screenshot({ path: join(shots, "release-tap-screen-1280x720.png") });
   await ann.waitForTimeout(4000);
   check(tv.loads === loads.TV, "the big screen did not reload by itself");

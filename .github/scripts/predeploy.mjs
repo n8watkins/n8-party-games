@@ -58,7 +58,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { STEPS, stepPort } from "./predeploy-steps.mjs";
+import { STEPS, releaseIdIn, releaseMismatch, stepPort } from "./predeploy-steps.mjs";
 
 // The deploy's own run of the gate (`npm run deploy` runs `predeploy`, which passes --deploy):
 // before anything else, the tree must be what a deploy may ship (scripts/release.mjs,
@@ -301,6 +301,7 @@ async function oneAfterAnother() {
     results.push({ name: "start local Worker", status: "FAIL", seconds: 0 });
     return;
   }
+  if (!(await sameBuild([worker.base]))) return;
   // Stop at the first failure: the later scripts only add noise once the room is broken.
   for (const [name, script, options] of STEPS) {
     console.log(`\n=== ${name} ===`);
@@ -316,11 +317,34 @@ async function oneAfterAnother() {
     }
     // A step that asks for an environment of its own gets a fresh Worker for it, with empty storage.
     const own = options?.env === undefined ? null : await ownWorker(await freePort(port + 1), options.env);
+    // That Worker rebuilt dist/public, which the gate's Worker serves too: both must still name one build.
+    if (own?.ok && !(await sameBuild([worker.base, own.base]))) {
+      await own.stop();
+      break;
+    }
     const c = own?.ok === false ? 1 : await run(npm, ["run", script, "--", `--base=${(own ?? worker).base}`]);
     await own?.stop();
     results.push({ name, status: c === 0 ? "ok" : "FAIL", seconds: seconds(t) });
     if (c !== 0) break;
   }
+}
+
+/**
+ * Whether every local Worker at `bases` names the build in the shared dist/public/release.js
+ * (releaseMismatch): if not, the gate fails at once, saying so, before any step runs.
+ */
+async function sameBuild(bases) {
+  const releases = await Promise.all(
+    bases.map(async (base) => ({ base, release: await fetch(`${base}/api/version`).then((r) => r.json()).then((v) => v.release ?? null, () => null) })),
+  );
+  let fileId = null;
+  try {
+    fileId = releaseIdIn(readFileSync(join(import.meta.dirname, "..", "..", "dist", "public", "release.js"), "utf8"));
+  } catch {}
+  const problem = releaseMismatch(releases, fileId);
+  results.push({ name: "the local Workers and their pages name one build", status: problem ? "FAIL" : "ok", seconds: 0 });
+  if (problem) console.log(`\n${problem}`);
+  return !problem;
 }
 
 /** A Worker of a step's own, in `env`, with an empty storage folder; stop() also removes the folder. */
@@ -372,6 +396,7 @@ async function sideBySideSteps() {
     }
   }
   results.push({ name: "start local Workers", status: "ok", seconds: seconds(begun) });
+  if (!(await sameBuild(workers.filter((w) => !w.own).map((w) => w.base)))) return;
 
   // The card tokens last, once everything else is ready, so they are never held idle.
   const waitedFrom = Date.now();
