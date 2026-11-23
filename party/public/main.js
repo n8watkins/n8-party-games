@@ -22,6 +22,7 @@ import { MODES, MODE_NAME, modeLocked, modeTitle } from "/lobby/shared/mode.js";
 import { stageStale } from "/lobby/shared/stage.js";
 import { PLAY_BEAT_MS, partyFull, showsTests, tableLine, tablePlayers } from "/lobby/shared/table.js";
 import { mountStage, viewerAtTable } from "/party/stage.js";
+import { mountAway } from "/party/away.js";
 import { releaseLine } from "/release-line.js";
 
 const app = document.getElementById("app");
@@ -100,6 +101,8 @@ function build() {
   stop.type = "button";
   stop.addEventListener("click", () => openStop());
   const stageBox = h("div", "stage-box", "", stageWrap);
+  // Who is away, and how long the room gives them (away.js): between the game's name and the game.
+  const away = mountAway(stageWrap, stageBox);
 
   // What everyone must see without scrolling, under the bar: a game starting, a game on (for
   // whoever waits here), and the last game's card.
@@ -172,7 +175,7 @@ function build() {
   // Which build this page is, small and quiet under who is here.
   h("p", "release-ver", releaseLine(), people);
 
-  ui = { top, status, rooms, options, line, lineText, lineNote, why, code, kicker, codeRow, fullWords, digits, qr, where, count, list, shown: "", grid, stageWrap, stageName, stageBox, stop, gamesBy, cardBox, banner, gameList, playWhy, listKey: "", cardKey: "", bannerKey: "" };
+  ui = { away, top, status, rooms, options, line, lineText, lineNote, why, code, kicker, codeRow, fullWords, digits, qr, where, count, list, shown: "", grid, stageWrap, stageName, stageBox, stop, gamesBy, cardBox, banner, gameList, playWhy, listKey: "", cardKey: "", bannerKey: "" };
   void fillQr();
 }
 
@@ -602,6 +605,7 @@ link.on("room", (next) => {
   if (stage && (stageStale(stage.key, room) || !showsGame())) endStage();
   stage?.room(room);
   update();
+  ui.away.room(room, link.you);
 });
 
 link.on("start", (msg) => startStage(msg.s));

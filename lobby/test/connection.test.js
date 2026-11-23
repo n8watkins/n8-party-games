@@ -6,7 +6,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { PartyClient } from "../../party-kit/client/party-client.js";
 import { FakeWebSocket } from "../../party-kit/test/fake-browser-socket.js";
-import { ConnectionWatch, DEAD_AFTER_MS, KEEP_ALIVE_MS, awayLeft, awayLine, awayParts, clockText, turnBased, whenHidden } from "../public/connection.js";
+import { BACK_NOTE_MS, ConnectionWatch, DEAD_AFTER_MS, KEEP_ALIVE_MS, awayLeft, awayLine, awayNote, awayParts, backParts, clockText, turnBased, whenHidden } from "../public/connection.js";
 
 const lobby = { phase: "lobby", game: null, members: [] };
 const turns = { phase: "playing", game: { id: "who-am-i", name: "Who Am I?", round: 1, turns: true }, members: [] };
@@ -307,5 +307,41 @@ describe("the time left on the away note", () => {
     const room = { game: { id: "turns", turns: true }, members: [{ seat: 0, name: "Ann", connected: true }, { seat: 1, name: "Bo", connected: false, awayIn: 30_000 }, { seat: 2, name: "Cy", connected: false }] };
     expect(awayOthers(room, { role: "player", seat: 0 }).map((m) => m.name)).toEqual(["Bo"]);
     expect(awayOthers(room, { role: "player", seat: 1 })).toEqual([]);
+  });
+});
+
+describe("the Table's away note", () => {
+  const room = (members, seats = [0, 1]) => ({ phase: "playing", game: { id: "who-am-i", turns: true, seats }, members });
+  const ann = { seat: 0, name: "Ann", colour: "#a00", connected: true };
+  const bo = { seat: 1, name: "Bo", colour: "#0a0", connected: true };
+
+  it("says nothing when nobody in the game is away, and nothing outside a game", () => {
+    expect(awayNote(room([ann, bo]), { role: "player", seat: 0 }, 0, 0)).toBeNull();
+    expect(awayNote({ phase: "lobby", game: null, members: [ann, { ...bo, away: true }] }, { role: "player", seat: 0 }, 0, 0)).toBeNull();
+  });
+
+  it("names the other player who is away, with no time while the room runs no clock for them (not their turn)", () => {
+    expect(awayNote(room([ann, { ...bo, away: true }]), { role: "player", seat: 0 }, 0, 0)).toEqual({ kind: "away", who: "Bo is away", left: "", dots: ["#0a0"] });
+  });
+
+  it("counts the room's time down on the phones and the big screen alike", () => {
+    const r = room([ann, { ...bo, away: true, awayIn: 105_000 }]);
+    const note = (you, now) => awayNote(r, you, 1000, now);
+    expect(note({ role: "player", seat: 0 }, 1000)).toMatchObject({ who: "Bo is away", left: "back within 1:45 or the match ends" });
+    expect(note({ role: "screen", seat: -1 }, 61_000)).toMatchObject({ left: "back within 0:45 or the match ends" });
+    expect(note({ role: "screen", seat: -1 }, 500_000)).toMatchObject({ left: "back within 0:00 or the match ends" });
+    // Never about oneself, and never about a member who is not in the game.
+    expect(note({ role: "player", seat: 1 }, 1000)).toBeNull();
+    expect(awayNote(room([ann, { ...bo, away: true }], [0]), { role: "player", seat: 0 }, 0, 0)).toBeNull();
+    // A seat whose phone dropped mid-match while its clock runs is listed too.
+    expect(awayNote(room([ann, { ...bo, connected: false, awayIn: 5000 }]), { role: "screen", seat: -1 }, 0, 0)).toMatchObject({ who: "Bo is away", left: "back within 0:05 or the match ends" });
+  });
+
+  it("tells the player who came back how close it was, for a few seconds", () => {
+    const r = room([ann, bo]);
+    const back = { spare: 28_000, until: 1000 + BACK_NOTE_MS };
+    expect(awayNote(r, { role: "player", seat: 0 }, 1000, 1000, back)).toEqual({ kind: "back", who: "You're back, with 0:28 to spare", left: "Hidden on your turn for too long, you forfeit", dots: [] });
+    expect(awayNote(r, { role: "player", seat: 0 }, 1000, 1000 + BACK_NOTE_MS, back)).toBeNull();
+    expect(backParts(119_500).who).toBe("You're back, with 2:00 to spare");
   });
 });

@@ -6,9 +6,10 @@
 //     fades after DROP_FADE_MS, the seat is kept for SEAT_HOLD_MS).
 //   - Except during a turn-based game (`room.game.turns`, a match of people talking): there a
 //     hidden page is away, not gone. It keeps its socket, tells the room it is away, and says it
-//     is back when it is shown, so the game may pause its turn timer. Its seat's grace runs
-//     meanwhile, as a dropped phone's does: hidden for the whole of it, the player forfeits
-//     (lobby-core.js, trackClocks), and everyone else is shown the time left.
+//     is back when it is shown, so the game may pause its turn timer. While the game needs that
+//     seat (`game.needs`: Who Am I?'s guesser on their turn) its grace runs meanwhile, as a
+//     dropped phone's does: hidden for the whole of it, the player forfeits (lobby-core.js,
+//     trackClocks), everyone else is shown the time left, and the player, back, how much was left.
 //     If the socket died while the page was hidden (the phone suspended it, the signal went),
 //     the page reconnects the moment it is shown and takes its seat back; the room took the gap
 //     for a drop, with the game's own grace.
@@ -71,6 +72,43 @@ export function awayParts(names, leftMs = null) {
   if (!names.length) return { who: "", left: "" };
   const list = names.length === 1 ? names[0] : `${names.slice(0, -1).join(", ")} and ${names.at(-1)}`;
   return { who: `${list} ${names.length === 1 ? "is" : "are"} away`, left: leftMs === null ? "" : `back within ${clockText(leftMs)} or the match ends` };
+}
+
+/**
+ * What a player's own page says when it is shown again and the room says some of their grace is
+ * used (`awaySpare` on their member): how close it came, in two lines, as the away note.
+ */
+export function backParts(spareMs) {
+  return { who: `You're back, with ${clockText(spareMs)} to spare`, left: "Hidden on your turn for too long, you forfeit" };
+}
+
+/** How long a returning page at the Table says how close it came (party/public/away.js). */
+export const BACK_NOTE_MS = 6000;
+
+/**
+ * At the Table: the other members of the game being played whose page is hidden or whose grace is
+ * running, as this device (`you`) should see them: never itself, and only the game's seats.
+ */
+export function awayAtTable(room, you) {
+  if (room?.phase !== "playing" || !room.game) return [];
+  const seats = Array.isArray(room.game.seats) ? room.game.seats : [];
+  return room.members.filter((m) => m && seats.includes(m.seat) && (m.away || typeof m.awayIn === "number") && !(you?.role === "player" && m.seat === you.seat));
+}
+
+/**
+ * What the Table's away note says now (party/public/away.js): `{kind, who, left, dots}` ("back"
+ * for this player's own return, "away" for others), or null for nothing. `seenAt` is when `room`
+ * arrived, on the clock of `now`; `back` is `{spare, until}` while this player's return is told.
+ */
+export function awayNote(room, you, seenAt, now, back = null) {
+  if (back && now < back.until) return { kind: "back", ...backParts(back.spare), dots: [] };
+  const away = awayAtTable(room, you);
+  if (!away.length) return null;
+  const { who, left } = awayParts(
+    away.map((m) => m.name),
+    awayLeft(away, seenAt, now),
+  );
+  return { kind: "away", who, left, dots: away.map((m) => m.colour) };
 }
 
 /**

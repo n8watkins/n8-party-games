@@ -1,7 +1,7 @@
 // Everything laid over the room: the bottom line a big screen shows, a player's buttons and
 // emote wheel, the door button and its sheet (leave, the emote wheel's six, sound), the one-tap
 // mute, notes ("Tom left"), the card after a game, and what to say when the connection is gone. When the room is gone the page goes to the front page (farewell.js).
-import { awayLeft, awayOthers, awayParts } from "./connection.js";
+import { awayLine, awayOthers } from "./connection.js";
 import { Controls } from "./controls.js";
 import { ICONS, h, icon } from "./dom.js";
 import { EmoteWheel, openLoadout } from "./emotes/wheel.js";
@@ -137,7 +137,7 @@ export class Hud {
         this.zoomIcon.replaceChildren(icon(zoom === "closer" ? ICONS.zoomOut : ICONS.zoomIn, 18));
       }
     }
-    this.showAway(room, now);
+    this.showAway(room);
     // A room near the end of its four hours says so, and so does one nobody has touched for a while.
     const left = room.closesIn - (now - voteAt);
     const quiet = room.idleLimit - idle;
@@ -172,31 +172,17 @@ export class Hud {
 
   /**
    * Who else has their page hidden with the socket open, during a turn-based game ("Bo is away"):
-   * still in the match, just not looking. The room view says so (`away` on a member), and how long
-   * the seat has before the match ends without it (`awayIn`): "Bo is away: back within 0:45 or the
-   * match ends", counted down from when that room view arrived.
+   * still in the match, just not looking. The room view says so (`away` on a member).
    */
-  showAway(room, now) {
-    // Every room view is a new object: the time it carries counts from when it came.
-    if (room !== this.awayRoom) {
-      this.awayRoom = room;
-      this.awaySeenAt = now;
-    }
+  showAway(room) {
     const away = awayOthers(room, this.opts);
-    const { who, left } = awayParts(
-      away.map((m) => m.name),
-      awayLeft(away, this.awaySeenAt, now),
-    );
-    const text = left ? `${who}: ${left}` : who;
+    const text = awayLine(away.map((m) => m.name));
     if (text === (this.awayEl?.dataset.text ?? "")) return;
     this.awayEl ??= h("div", "link-state away-mark", "", this.el);
     this.awayEl.dataset.text = text;
     this.awayEl.replaceChildren();
     for (const m of away) h("span", "dot", "", this.awayEl).style.background = m.colour;
-    // Two lines, so the note stays narrow: clear of the corner's buttons and of a game's stage.
-    const words = h("span", "away-words", "", this.awayEl);
-    h("span", "away-who", who, words);
-    if (left) h("span", "away-left", left, words);
+    h("span", "", text, this.awayEl);
     this.awayEl.hidden = !text;
   }
 

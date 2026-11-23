@@ -451,33 +451,6 @@ input {
 .link-state.away-mark {
   color: inherit;
   font-weight: 600;
-  /* Clear of the corner's round buttons at the top right (rooms.css), on as many lines as it needs. */
-  max-width: calc(100% - 150px);
-  white-space: normal;
-  border-radius: 1.2em;
-}
-/* Who is away, and under it the time the room gives them: "back within 0:45 or the match ends". */
-.away-words {
-  display: grid;
-  min-width: 0;
-}
-/* The dots stand by the names, on the first line, when the time runs onto more lines under it. */
-.away-mark .dot {
-  align-self: flex-start;
-  margin-top: 0.3em;
-}
-/* An upright game letterboxed on a phone held sideways: the note keeps to the dark band left of the
-   game's box, as the hint to turn the phone does (below), never over it. */
-@media (orientation: landscape) and (max-height: 520px) {
-  :root.upright #app.staged .away-mark {
-    max-width: calc((100vw - min(100vw, var(--seen-h, 100dvh) * 0.75)) / 2 - 24px);
-  }
-}
-.away-left {
-  font-size: 13px;
-  font-weight: 500;
-  color: var(--amber);
-  font-variant-numeric: tabular-nums;
 }
 .hud.linking .away-mark {
   top: calc(max(12px, env(safe-area-inset-top)) + 44px);
