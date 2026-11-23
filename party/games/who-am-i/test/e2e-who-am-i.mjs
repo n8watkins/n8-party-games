@@ -1,6 +1,6 @@
 // End to end, in real pages (headless and muted): Who Am I? at the Table.
 //
-//   node party/games/who-am-i/test/e2e-who-am-i.mjs [--base=http://localhost:8791] [--out=<folder for stills>] [--only=1,2,3]
+//   node party/games/who-am-i/test/e2e-who-am-i.mjs [--base=http://localhost:8791] [--out=<folder for stills>] [--only=1,2,4,3]
 //
 // One party plays three whole matches through real browsers:
 //   1. Ann and Bo alone, first to 3, trade turns: typed questions (one of them markup), every
@@ -11,6 +11,12 @@
 //   2. Ann and Bo again, five rounds, keep going, with the big screen on, and Cy and Di arriving
 //      mid-match: they watch. Questions counted out loud, a give-up, and every phase at 320x568,
 //      390x844, 844x390, 1280x720 and 1920x1080 (the big screen at the last two).
+//   4. (run before 3) The away timer, with the big screen: the player waiting hides their page
+//      (no time shown, nothing lost), then the guesser hides theirs on their own turn: the other
+//      phone and the big screen count down from two minutes (checked at 320x568, 844x390, 390x844,
+//      1280x720 and 1920x1080), the guesser comes back after about 30 s and is told how close it
+//      was, then hides for good and forfeits at the grace: "Bo did not come back, so Ann wins."
+//      About three and a half minutes, most of it the grace.
 //   3. Cy and Di leave; Ann and Bo play Clues, and Bo leaves the party mid-round: he forfeits and
 //      Ann is first.
 // Every tap is a real click. Every message any page receives, and after every step each page's
@@ -31,7 +37,7 @@ const args = process.argv.slice(2);
 const opt = (k, d) => (args.find((a) => a.startsWith("--" + k + "=")) ?? "--" + k + "=" + d).split("=").slice(1).join("=");
 const base = opt("base", "http://localhost:8791");
 const out = resolve(opt("out", "/tmp/claude-who-am-i-table/stills"));
-const only = new Set(opt("only", "1,2,3").split(",").map(Number));
+const only = new Set(opt("only", "1,2,4,3").split(",").map(Number));
 mkdirSync(out, { recursive: true });
 // This suite's own stills from an earlier run (numbered, so a shorter run would leave old ones beside the new).
 for (const f of readdirSync(out)) if (/^\d\d-.*\.png$/.test(f)) rmSync(resolve(out, f));
@@ -431,6 +437,18 @@ async function rightGuess(label) {
   await audit(`${label}: the guess confirmed`);
 }
 
+/** The page as the browser shows it when the phone goes to another app or locks (`document.hidden`), and back. */
+async function setHidden(p, hidden) {
+  await p.page.evaluate((on) => {
+    Object.defineProperty(document, "hidden", { configurable: true, get: () => on });
+    Object.defineProperty(document, "visibilityState", { configurable: true, get: () => (on ? "hidden" : "visible") });
+    document.dispatchEvent(new Event("visibilitychange"));
+  }, hidden);
+  await wait(300);
+}
+const hide = (p) => setHidden(p, true);
+const show = (p) => setHidden(p, false);
+
 async function nextRound(p) {
   const label = await p.page.locator(".wa-act .wa-btn").first().textContent();
   await tap(p, label);
@@ -644,6 +662,99 @@ try {
     for (const p of all()) await p.page.click(".card-done").catch(() => {});
     await leaveParty(cy);
     await leaveParty(di);
+  }
+
+  // ---------------------------------------------------------------- match 4: a page hidden, the away timer
+  if (only.has(4)) {
+    if (!tv) tv = await openScreen(pin);
+    // No timer and keep-going turns: the guesser's own turn lasts as long as the grace (two minutes).
+    await pickWhoAmI(ann, [["Turns", "Keep going"], ["Timer", "No timer"]]);
+    await tap(ann, "Start the game");
+    await allAt("playing");
+    await wait(400);
+    let [g, w] = turnPages();
+    const note = (p) =>
+      p.page.evaluate(() => {
+        const el = document.querySelector(".stage .away-note");
+        if (!el || el.hidden) return null;
+        const r = el.getBoundingClientRect();
+        return { kind: el.classList.contains("back") ? "back" : "away", who: el.querySelector(".away-who")?.textContent ?? "", left: el.querySelector(".away-left")?.textContent ?? "", inside: r.left >= 0 && r.right <= innerWidth + 0.5 && document.documentElement.scrollWidth <= innerWidth };
+      });
+    const secondsIn = (text) => {
+      const m = /(\d+):(\d\d)/.exec(text ?? "");
+      return m ? Number(m[1]) * 60 + Number(m[2]) : null;
+    };
+    const waitNote = (p, test, what, timeout = 10000) =>
+      p.page
+        .waitForFunction(test, null, { timeout })
+        .then(() => true)
+        .catch(() => check(false, what));
+
+    // The player waiting hides their page (a text message): "away", but no clock, no time, nothing lost.
+    await hide(w);
+    await waitNote(g, () => /is away$/.test(document.querySelector(".stage .away-note:not([hidden]) .away-who")?.textContent ?? ""), `${w.name} hidden while waiting: ${g.name}'s stage says so`);
+    await wait(5000);
+    for (const p of [g, tv]) {
+      const n = await note(p);
+      check(n?.who === `${w.name} is away` && n.left === "", `${w.name} hidden while waiting: ${p.name} reads "${n?.who}" with no time ("${n?.left}")`);
+    }
+    await show(w);
+    await wait(800);
+    check((await note(w)) === null, `${w.name}, shown again after waiting: nothing to tell (no time was used)`);
+    check((await note(g)) === null, `${w.name} is back: ${g.name}'s note is gone`);
+
+    // The guesser hides their page on their own turn: everyone else counts down from two minutes.
+    await hide(g);
+    await waitNote(w, () => /back within \d:\d\d or the match ends/.test(document.querySelector(".stage .away-note:not([hidden]) .away-left")?.textContent ?? ""), `${g.name} hidden on their turn: ${w.name}'s stage counts down`);
+    const first = await note(w);
+    check(first?.who === `${g.name} is away` && secondsIn(first.left) >= 115 && secondsIn(first.left) <= 120, `${w.name} reads "${first?.who}" / "${first?.left}"`);
+    const firstTv = await note(tv);
+    check(firstTv?.who === `${g.name} is away` && /back within/.test(firstTv.left), `the big screen reads "${firstTv?.who}" / "${firstTv?.left}"`);
+    await wait(3000);
+    const later = await note(w);
+    check(secondsIn(later?.left) <= secondsIn(first.left) - 2, `the countdown runs on ${w.name}'s phone (${first.left} -> ${later?.left})`);
+    await still(w, "away-countdown-390x844", `${g.name} hid the page on their own turn: ${w.name}'s phone counts down to the forfeit.`);
+    await still(tv, "away-countdown-screen-1280x720", `${g.name} hid the page on their own turn: the big screen counts down too.`);
+    for (const [width, height] of [[320, 568], [844, 390]]) {
+      await w.page.setViewportSize({ width, height });
+      await wait(350);
+      const n = await note(w);
+      check(!!n?.inside, `the away note fits a ${width}x${height} phone with no sideways scroll`);
+      await still(w, `away-countdown-${width}x${height}`, `The away note on a ${width}x${height} phone.`);
+    }
+    await w.page.setViewportSize({ width: 390, height: 844 });
+    await tv.page.setViewportSize({ width: 1920, height: 1080 });
+    await wait(350);
+    check(!!(await note(tv))?.inside, "the away note fits a 1920x1080 big screen");
+    await still(tv, "away-countdown-screen-1920x1080", "The away note on a 1920x1080 big screen.");
+    await tv.page.setViewportSize({ width: 1280, height: 720 });
+
+    // Back at about 30 s: the clock stops, and the guesser is told how close it was.
+    await wait(Math.max(0, 30000 - 3000 - 2500));
+    await show(g);
+    await waitNote(g, () => document.querySelector(".stage .away-note.back:not([hidden])") !== null, `${g.name}, back: the stage says how close it was`);
+    const back = await note(g);
+    check(back?.kind === "back" && /^You're back, with 1:[23]\d to spare$/.test(back.who) && /you forfeit/.test(back.left), `${g.name} reads "${back?.who}" / "${back?.left}"`);
+    await still(g, "away-back-390x844", `${g.name} came back after about 30 seconds: how close it was.`);
+    await wait(1000);
+    check((await note(w)) === null, `${g.name} is back: ${w.name}'s countdown is gone`);
+    await wait(6000);
+    check((await note(g)) === null, `${g.name}'s own note goes after a few seconds`);
+
+    // Hidden again for good: the guesser forfeits at the grace, and the other player wins.
+    await hide(g);
+    await waitNote(w, () => document.querySelector(".card:not([hidden]) .card-early") !== null, `${g.name} hidden for the whole grace: ${w.name} gets the card`, 160000);
+    const early = await w.page.locator(".card-early").textContent().catch(() => "");
+    check(early === `${g.name} did not come back, so ${w.name} wins.`, `the card says "${early}"`);
+    const title = await w.page.locator(".card-head h3").textContent().catch(() => "");
+    check(title.includes(`${w.name} won`), `the card's title names ${w.name} ("${title}")`);
+    await still(w, "away-forfeit-390x844", `${g.name} never came back: ${w.name} wins by forfeit.`);
+    await tv.page.waitForSelector(".card:not([hidden]) .card-early", { timeout: 15000 }).catch(() => check(false, "the big screen shows the forfeit card"));
+    // The guesser's page, shown again, is at the Table with the same card: its socket stayed open.
+    await show(g);
+    await g.page.waitForSelector(".card:not([hidden]) .card-early", { timeout: 15000 }).catch(() => check(false, `${g.name}'s page, shown again, has the card`));
+    await audit("after the away forfeit");
+    for (const p of all()) await p.page.click(".card-done").catch(() => {});
   }
 
   // ---------------------------------------------------------------- match 3: Clues, and a leave

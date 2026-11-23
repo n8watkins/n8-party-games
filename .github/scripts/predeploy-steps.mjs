@@ -19,7 +19,7 @@ export const STEPS = [
   ["the front page's three doors and every way out of them, headless browser (test:home)", "test:home"],
   ["Tin Derby in the party room, one short race with every trouble at once, headless browser (test:tin-derby)", "test:tin-derby"],
   ["the robot's and the slime's moves on the Floor, in both looks, every phone checked frame by frame, headless browser (test:moves)", "test:moves"],
-  ["Who Am I? at the Table, three whole matches with every secret checked, headless browser (test:who-am-i)", "test:who-am-i"],
+  ["Who Am I? at the Table, four matches with every secret checked and the away timer run out, headless browser (test:who-am-i)", "test:who-am-i"],
   ["Cork & Bell's test switches and high score board with the production settings, headless browser (test:cork:switches)", "test:cork:switches", { env: "" }],
   ["a new build reaching the pages already open: deploys, a rollback, both protocols, on a Worker of its own, headless browser (test:release)", "test:release", { own: true }],
 ];
