@@ -115,11 +115,12 @@ describe("the curling stone: a charged kick sends a hardened slime sliding", () 
     const [wall, lit] = lights(core);
     expect(b).toMatchObject({ bo: 1, c: 1 });
     const dist = curlDistance(1);
-    const at = IMPACT_MS + curlReaches(dist, 260 - CURL_CONTACT);
-    expect(b.cv).toMatchObject({ to: 2, at, x: knockLanding(650, 1, wall, lit) });
-    expect(core.members[2].stunUntil).toBe(now + at - IMPACT_MS + STUN_MS);
     // The stone: past Bo, in the dark.
     expect(b.cu.x).toBe(knockLanding(390, 1, wall, lit, { distance: dist, least: 260 + CURL_CONTACT }));
+    // Bo is reached when the slide every page draws (CURL_MS over 390 -> the stone's rest) gets there.
+    const at = IMPACT_MS + curlReaches(b.cu.x - 390, 260 - CURL_CONTACT);
+    expect(b.cv).toMatchObject({ to: 2, at, x: knockLanding(650, 1, wall, lit) });
+    expect(core.members[2].stunUntil).toBe(now + at - IMPACT_MS + STUN_MS);
     expect(b.cu.x).toBeGreaterThan(650);
     expect(lightAt(b.cu.x, wall)).toBe(-1);
     expect(core.members[1]).toMatchObject({ x: b.cu.x, fright: "curl", stunUntil: now + IMPACT_MS + CURL_MS });
@@ -173,6 +174,48 @@ describe("the curling stone: a charged kick sends a hardened slime sliding", () 
     expect(b.dm).toBeUndefined();
     expect(core.members[3].stunUntil ?? 0).toBeLessThan(2000);
   });
+
+  it("knocks the piece in its way when every page draws the stone reaching it, all over the production wall", () => {
+    // Every placement the review tried: the stone's rest can be pushed on well past its distance to
+    // clear a light, and the knock is timed on that real slide (curlPose), not the nominal one.
+    let tried = 0;
+    let worst = 0;
+    for (let sx = 100; sx < 2400; sx += 37) {
+      for (let gap = 70; gap < 640; gap += 29) {
+        if (sx - 90 < 110 || sx + gap > 1810) continue;
+        const core = party(["Pat", "Sam", "Bo"], WALL);
+        be(core, 1, "slime");
+        for (const [s, x, f] of [[0, sx - 90, 1], [1, sx, -1], [2, sx + gap, -1]]) Object.assign(core.members[s], { x, d: 0, t: 1500, face: f });
+        core.charge(0, 2000);
+        core.slime(1, "harden", 2400);
+        const b = core.bump(0, 2000 + CHARGE_FULL_MS, 1, true);
+        if (!b?.cu || !b.cv) continue;
+        tried++;
+        const reach = sx + gap - CURL_CONTACT;
+        let drawn = null;
+        for (let t = 0; t <= CURL_MS && drawn === null; t++) if (sx + (b.cu.x - sx) * curlEase(t) >= reach) drawn = IMPACT_MS + t;
+        expect(drawn, `stone from ${sx}, Bo ${gap} on`).not.toBeNull();
+        worst = Math.max(worst, Math.abs(drawn - b.cv.at));
+        // And the stone rests past the piece it knocked over.
+        expect(b.cu.x, `stone from ${sx}, Bo ${gap} on`).toBeGreaterThanOrEqual(reach);
+      }
+    }
+    expect(tried).toBeGreaterThan(100);
+    expect(worst).toBeLessThan(20);
+  });
+
+  it("stops short of a hardened slime in its way, which stands, as it does against a kick", () => {
+    const core = setup(260);
+    be(core, 2, "slime");
+    core.slime(2, "harden", 2900);
+    const now = 2000 + CHARGE_FULL_MS;
+    const b = core.bump(0, now, undefined, true);
+    expect(b.cv).toBeUndefined();
+    expect(b.cu.x).toBeLessThanOrEqual(650 - CURL_CONTACT);
+    expect(b.cu.x).toBeGreaterThan(390);
+    expect(core.members[2]).toMatchObject({ x: 650 });
+    expect(core.members[2].stunUntil ?? 0).toBeLessThan(now);
+  });
 });
 
 describe("dominoes: a kicked piece that flies into another knocks it over too", () => {
@@ -203,6 +246,22 @@ describe("dominoes: a kicked piece that flies into another knocks it over too", 
     place(short, 1, 380, 1500, -1);
     place(short, 2, 1500, 1500, -1);
     expect(short.bump(0, 2000).dm).toBeUndefined();
+  });
+
+  it("stops short of a hardened slime in the flight, which stands and knocks nobody", () => {
+    const core = party(["Pat", "Bo", "Sam"]);
+    be(core, 2, "slime");
+    place(core, 0, 300, 1500, 1);
+    place(core, 1, 380, 1500, -1);
+    place(core, 2, 500, 1500, -1);
+    core.slime(2, "harden", 1950);
+    const b = core.bump(0, 2000);
+    expect(b.to).toBe(1);
+    expect(b.dm).toBeUndefined();
+    expect(b.x).toBeLessThanOrEqual(500 - DOMINO_CONTACT);
+    expect(core.members[1].x).toBe(b.x);
+    expect(core.members[2]).toMatchObject({ x: 500 });
+    expect(core.members[2].stunUntil ?? 0).toBeLessThan(2000);
   });
 
   it("passes a piece it cannot knock: one down or just up, a robot up on its legs, a faded ghost", () => {
@@ -332,6 +391,67 @@ describe("the slimes: soft swallows hard, soft sticks to soft", () => {
     const out = core.dueMoves(now + HARDEN_MS + 2000);
     expect(out.find((m) => m.t === "goo")).toMatchObject({ k: "swallow" });
     expect(touched).toBeLessThan(now + HARDEN_MS);
+  });
+
+  it("do not stick a slime the room knocked inside the touch's grace: the knock stands", () => {
+    // Sam and Sue both soft; Sam walks into Sue, the room holds the touch; Pat kicks Sam 50 ms later.
+    const core = party(["Sam", "Sue", "Pat"]);
+    be(core, 0, "slime");
+    be(core, 1, "slime");
+    place(core, 0, 500, 1500);
+    place(core, 1, 640, 1500, -1);
+    place(core, 2, 420, 1500, 1);
+    for (const s of [0, 1]) {
+      core.slime(s, "harden", 2000);
+      core.slime(s, "absorb", 2000 + HOLD_MS);
+    }
+    const now = 2000 + HOLD_MS + 10;
+    walk(core, 0, 500, 1, now);
+    core.dueMoves(now);
+    const touched = Math.ceil(now + ((140 - GOO_REACH) / walkSpeed("slime")) * 1000);
+    core.dueMoves(touched + 1);
+    expect(core.pending.map((p) => p.kind)).toEqual(["goo"]);
+    const kickAt = touched + 50;
+    Object.assign(core.members[2], { x: Math.round(posAt(core.members[0], kickAt) - 60), d: 0, t: kickAt, face: 1 });
+    const kick = core.bump(2, kickAt, 1);
+    expect(kick).toMatchObject({ to: 0 });
+    const out = core.dueMoves(touched + TOUCH_GRACE_MS + 1);
+    expect(out.find((m) => m.t === "goo")).toBeUndefined();
+    expect(core.members[0]).toMatchObject({ x: kick.x, stunUntil: kickAt + STUN_MS });
+    expect(core.members[0].fright ?? null).toBeNull();
+  });
+
+  it("never start on a slime already in a move: a stone mid-slide (no longer hard), or one just up", () => {
+    // The stone: Pat's charged kick sends Sam sliding; Sue, hard beside where he will rest, goes soft mid-slide.
+    const core = party(["Pat", "Sam", "Sue"]);
+    be(core, 1, "slime");
+    be(core, 2, "slime");
+    place(core, 0, 300, 1500, 1);
+    place(core, 1, 390, 1500, -1);
+    place(core, 2, 1000, 1500, -1);
+    core.charge(0, 2000);
+    core.slime(1, "harden", 2400);
+    const now = 2000 + CHARGE_FULL_MS;
+    const b = core.bump(0, now, 1, true);
+    const stone = core.members[1];
+    expect(b.cu).toBeDefined();
+    expect(stone.hardUntil).toBe(now);
+    Object.assign(core.members[2], { x: b.cu.x + 50, d: 0, t: now });
+    core.slime(2, "harden", now + 50);
+    const soft = core.slime(2, "absorb", now + 50 + HOLD_MS);
+    expect(soft.relay?.goo).toBeUndefined();
+    expect(stone).toMatchObject({ x: b.cu.x, fright: "curl" });
+    // Just up from a knock (safe): a soft slime going soft beside it does not swallow it, as the room's own look would not.
+    const up = party(["Sam", "Sue"]);
+    be(up, 0, "slime");
+    be(up, 1, "slime");
+    place(up, 0, 500, 1500);
+    place(up, 1, 560, 1500, -1);
+    Object.assign(up.members[1], { stunUntil: 1900, immuneUntil: 5000 });
+    up.slime(1, "harden", 2000);
+    up.slime(0, "harden", 2000);
+    expect(up.slime(0, "absorb", 2000 + HOLD_MS).relay?.goo).toBeUndefined();
+    expect(up.members[1].fright ?? null).toBeNull();
   });
 });
 
