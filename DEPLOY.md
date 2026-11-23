@@ -100,6 +100,17 @@ Nothing needs deleting.
   Without it such a socket becomes an ordinary one that never says hello: it is closed 4009 at the next sweep, 4009 tells an old tab to try again for ever, and in a room that no longer exists nothing sweeps it at all.
   Change the old-form checks in the tests and end-to-end scripts to expect that 4003 (search for `oldForm` and `?token=`).
 
+## What open pages do after a deploy
+
+Pages already open load the new version by themselves (`site/release-switch.js`), and the room's side is `lobby/server/release-points.js`.
+- A player's page reloads at the room's next safe point (the lobby, a result put away; never mid-round, during a count or a game's settings) and comes straight back to its seat.
+  A phone in full screen reloads too and drops out of full screen; the player's next tap takes it back in.
+- Until then it shows "New version ready after this round" in the bottom bar (on the Floor) or under the heading (at the Table).
+- A big screen never reloads by itself: at a safe point it shows "New version, tap to load".
+- A browser that keeps no session storage cannot come back to its seat after a reload, so it only says "New version next time you join".
+- A party's reloads are spread over up to 30 seconds so that a party behind one address stays under the zone's "Slow down floods" rule.
+- `npm run test:release` (in the gate) plays this out against a local Worker of its own.
+
 ## Check it after a deploy
 
 The live address is shared by everyone, and Cloudflare sees your real address there, so the room limits (5 new rooms in ten minutes, 20 a day) count against you.

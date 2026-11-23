@@ -8,6 +8,7 @@
 //   view(state, seat)                  -> what that seat may see; seat -1 is a big screen
 //   nextDeadline(state), done(state), result(state), standings(state)
 //   decided(state)                     -> optional: true when the match is decided though not done
+//   needs(state, seat)                 -> optional: true while the match waits on that seat (its turn)
 // and takes these moves from SYSTEM: { t: "tick" } at nextDeadline, { t: "join", seat } for a late
 // joiner, { t: "leave", seat } for a seat gone for good, { t: "host", seat } when the host changes,
 // and, when it exports HEARS_PRESENCE = true, { t: "presence", seat, connected, away } whenever a
@@ -94,6 +95,9 @@ export function tableGame(rules, { id = rules.GAME_ID } = {}) {
           presence: (state, seat, { connected, away }, now) => system(state, { t: "presence", seat, connected: connected === true, away: away === true }, now).ok,
         }
       : {}),
+    // Only for rules that export it: true while the match cannot go on without this seat's player
+    // (their turn), so a hidden page then runs the seat's grace (GAME-CONTRACT.md, "needs").
+    ...(typeof rules.needs === "function" ? { needs: (state, seat) => rules.needs(state, seat) === true } : {}),
     // Only for rules that export it: true once the match is decided but not yet done (a final
     // screen still up), so the host's "End the game" then ends it as finished, scored once.
     ...(typeof rules.decided === "function" ? { decided: (state) => rules.decided(state) === true } : {}),

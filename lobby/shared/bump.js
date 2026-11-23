@@ -50,6 +50,62 @@ export const COOLDOWN_SLACK_MS = 150;
 /** How high the middle of a piece is: what it turns around when it tips over. */
 export const PIECE_PIVOT = 70;
 
+// ---------------------------------------------------------------- the charged kick
+//
+// The owner's round three ("Pawn charged kick"): hold to wind up for up to about a second, release
+// for a short dash and a harder knock. A tap is the normal kick. Punished harder by a hardened
+// slime or a faded ghost.
+//
+// The move button held past CHARGE_MIN_MS is a charge: the pawn's page tells the room (`kc`) and
+// the pawn stands still, wound up, until it lets go. The release is the kick (`b` with `c`), and
+// the room times the hold by its own clock, from the `kc` it heard: a page cannot make its kick
+// harder than it held it. The room judges a charged kick at once, as any kick: the pawn dashes
+// forward (CHARGE_DASH at full power, never into a light it does not stand in), and whoever it
+// reaches from there is thrown further than a kick throws. A charge held CHARGE_HOLD_MS goes off
+// by itself on the page; the room forgets one it hears no release for, with no wake-up of its own.
+
+/** A press held this long is a charge; a shorter one is a tap: the normal kick, on the release. */
+export const CHARGE_MIN_MS = 180;
+/** From the press, a charge is at full power this long after it (about a second). */
+export const CHARGE_FULL_MS = 1000;
+/** The longest a page holds a charge before it goes off by itself; the room keeps one no longer than this and a little. */
+export const CHARGE_HOLD_MS = 2500;
+/** How far the pawn dashes on its release: CHARGE_DASH_MIN at the least charge, CHARGE_DASH at full. */
+export const CHARGE_DASH_MIN = 40;
+export const CHARGE_DASH = 150;
+/** The dash stops this far short of the piece it reaches: the kick lands at the base. */
+export const KICK_CONTACT = 56;
+/** A full charge throws a piece this much further than a kick (a share of KNOCK_DISTANCE). */
+export const CHARGE_THROW = 0.7;
+/** A full charge that bounces off a hardened slime throws the pawn back twice as far, and keeps it down this much longer. */
+export const CHARGE_BOUNCE = 1;
+export const CHARGE_DOWN_MS = 500;
+
+/** How strong a charge held `heldMs` from the press is, 0 (just past a tap) to 1 (full). */
+export function chargePower(heldMs) {
+  if (!(heldMs >= CHARGE_MIN_MS)) return 0;
+  return Math.min(1, (heldMs - CHARGE_MIN_MS) / (CHARGE_FULL_MS - CHARGE_MIN_MS));
+}
+
+/** How far a charge of `power` dashes. */
+export const chargeDash = (power) => CHARGE_DASH_MIN + (CHARGE_DASH - CHARGE_DASH_MIN) * power;
+
+/** How far a charged kick of `power` throws what it hits (knockLanding's reach). */
+export const chargeThrow = (power) => ({ distance: KNOCK_DISTANCE * (1 + CHARGE_THROW * power) });
+
+/** How far, and how much longer down, a charged kick of `power` that bounced off a hardened slime sends the pawn. */
+export const chargeBounce = (power) => ({ reach: { distance: KNOCK_DISTANCE * (1 + CHARGE_BOUNCE * power) }, down: Math.round(CHARGE_DOWN_MS * power) });
+
+/**
+ * Whether the room takes a pawn's charge now: {ok} or {ok: false, why, wait, cooling}, as mayBump
+ * (a piece on the floor cannot, nor one whose kick is cooling), and not twice.
+ */
+export function mayCharge(piece, now) {
+  if (piece.chargeAt !== undefined && piece.chargeAt !== null && now - piece.chargeAt < CHARGE_HOLD_MS + COOLDOWN_SLACK_MS) return { ok: false, why: "Already winding up." };
+  const may = mayBump(piece, now);
+  return may.ok ? { ok: true } : { ok: false, why: "Not ready yet.", wait: may.wait, cooling: true };
+}
+
 // ---------------------------------------------------------------- the rules
 
 /** Milliseconds until a piece that last bumped at `bumpAt` may bump again (0: ready). */
@@ -88,12 +144,12 @@ export function mayBump(piece, now) {
  * standing right on top of it counts too). `others` is [{seat, x}], already without the pieces
  * that cannot be knocked. Returns a seat or -1.
  */
-export function bumpTarget(x, face, others) {
+export function bumpTarget(x, face, others, reach = BUMP_REACH) {
   let best = -1;
   let bestGap = Infinity;
   for (const other of others) {
     const ahead = (other.x - x) * (face || 1);
-    if (ahead < -BUMP_BEHIND || ahead > BUMP_REACH) continue;
+    if (ahead < -BUMP_BEHIND || ahead > reach) continue;
     if (Math.abs(ahead) < bestGap) {
       bestGap = Math.abs(ahead);
       best = other.seat;
@@ -164,9 +220,9 @@ export function knockLanding(x, dir, n, lit = null, { distance = KNOCK_DISTANCE,
   return inLight ? Math.round(aim) : x;
 }
 
-/** What the room writes on a piece that was just knocked at `now`. */
-export function knocked(now) {
-  return { stunUntil: now + STUN_MS, immuneUntil: now + STUN_MS + IMMUNE_MS };
+/** What the room writes on a piece that was just knocked at `now`; `extra`: it lies down that much longer (a charge's bounce). */
+export function knocked(now, extra = 0) {
+  return { stunUntil: now + STUN_MS + extra, immuneUntil: now + STUN_MS + extra + IMMUNE_MS, knockExtra: extra };
 }
 
 // ---------------------------------------------------------------- the states
@@ -180,14 +236,16 @@ export function attackState(ms, landed = false) {
   return "recovering";
 }
 
-/** The victim's state `ms` after the bump that hit it. `safeFor` is how long it stays safe after getting up. */
-export function knockState(ms, safeFor = IMMUNE_MS) {
-  if (!(ms >= 0) || ms >= STUN_MS + safeFor) return "up";
+/** The victim's state `ms` after the bump that hit it. `safeFor` is how long it stays safe after getting up; `extra`, how much longer it lies down. */
+export function knockState(ms, safeFor = IMMUNE_MS, extra = 0) {
+  // A knock still to come (a domino, a curling stone's target: shared/counters.js) stands until it does.
+  if (ms < 0) return "standing";
+  if (!(ms >= 0) || ms >= STUN_MS + extra + safeFor) return "up";
   if (ms < IMPACT_MS) return "standing";
   if (ms < IMPACT_MS + HIT_PAUSE_MS) return "hit";
   if (ms < IMPACT_MS + HIT_PAUSE_MS + FLIGHT_MS) return "flying";
-  if (ms < STUN_MS - GETUP_MS) return "down";
-  if (ms < STUN_MS) return "rising";
+  if (ms < STUN_MS - GETUP_MS + extra) return "down";
+  if (ms < STUN_MS + extra) return "rising";
   return "safe";
 }
 
@@ -218,13 +276,27 @@ const SETTLE = 0.24;
  * dx: its head, sideways from where it stands (it barely moves). lift: off the floor.
  * tilt: degrees, clockwise, about a point `pivot` above its foot: its head, so a tilt swings
  * the base (clockwise swings it to the left). sx, sy: stretch, about its foot.
+ * `lunge` ({from, to, power}): a charge let go (chargePose): in place of the wind-up it dashes
+ * along the floor from `from` to `to` (state "dashing", with `x` and its fading `charge`), then
+ * kicks there (`x` is `to` until the kick is over).
  */
-export function attackPose(ms, dir = 1, landed = false) {
+export function attackPose(ms, dir = 1, landed = false, lunge = null) {
+  const pose = kickPose(ms, dir, landed, lunge);
+  // After its dash a charged kick is drawn where the room put it, however late a frame comes.
+  return lunge && pose.x === undefined && pose.state !== "idle" ? { ...pose, x: lunge.to } : pose;
+}
+
+function kickPose(ms, dir, landed, lunge) {
   const state = attackState(ms, landed);
   const side = dir < 0 ? -1 : 1;
   const down = { dx: 0, lift: 0, tilt: 0, sx: 1, sy: 1 };
   // Picked up, with the base drawn back behind the head.
   const back = { dx: -8 * side, lift: 36, tilt: 40 * side, sx: 0.97, sy: 1.05 };
+  if (lunge && state === "winding") {
+    // A charge let go: drawn back already, it dashes along the floor to where the room put it, then kicks.
+    const u = ms / WINDUP_MS;
+    return { state: "dashing", pivot: PIECE_HEAD, ...blend(chargeBack(side, lunge.power ?? 1), back, u), x: mix(lunge.from, lunge.to, smooth(u)), charge: (lunge.power ?? 1) * (1 - u) };
+  }
   // The base has whipped forward and up into the other piece's belly; the head has hardly moved.
   const contact = { dx: 12 * side, lift: 12, tilt: -46 * side, sx: 0.97, sy: 1.07 };
   // The follow-through: the base carries on up past where the other piece was.
@@ -257,6 +329,32 @@ export function attackPose(ms, dir = 1, landed = false) {
   return { state, pivot: 0, ...REST };
 }
 
+/** Drawn back for a charged kick of `power`: further back and higher than a kick's wind-up, and squashed a little, the harder it is held. */
+function chargeBack(side, power) {
+  return { dx: -12 * side, lift: 38 + 12 * power, tilt: (44 + 16 * power) * side, sx: 0.97 + 0.05 * power, sy: 1.05 - 0.1 * power };
+}
+
+/**
+ * How a pawn holds itself while it charges its kick, `ms` after the press, facing `dir`: picked up
+ * and drawn back as for a kick, then held there, further back and trembling more as the charge
+ * grows. {state: "charging", dx, lift, tilt, pivot, sx, sy, charge}: `charge` is how strong it is
+ * (0 to 1, shared/bump.js chargePower), for the glow every look draws; `calm`: no tremble.
+ */
+export function chargePose(ms, dir = 1, calm = false) {
+  const side = dir < 0 ? -1 : 1;
+  const power = chargePower(ms);
+  const t = Math.max(0, ms);
+  if (t < WINDUP_MS) {
+    const u = t / WINDUP_MS;
+    const pose = blend(REST, chargeBack(side, 0), smooth(u));
+    return { state: "charging", pivot: PIECE_HEAD, ...pose, lift: chargeBack(side, 0).lift * (1 - (1 - u) * (1 - u)), charge: 0 };
+  }
+  const k = smooth(Math.min(1, (t - WINDUP_MS) / (CHARGE_FULL_MS - WINDUP_MS)));
+  const pose = chargeBack(side, k);
+  const shake = calm ? 0 : Math.sin(t / 17) * (0.6 + 2.6 * power);
+  return { state: "charging", pivot: PIECE_HEAD, ...pose, dx: pose.dx + shake, charge: power };
+}
+
 /**
  * How a knocked piece holds itself `ms` after the bump that sent it from `from` to `to`:
  * {state, x, lift, tilt, sx, sy}. x: where it is along the floor. lift: off the floor (below
@@ -267,8 +365,8 @@ export function attackPose(ms, dir = 1, landed = false) {
  * thrown and its head trailing, and comes down on its back with its feet pointing away from
  * whoever kicked it.
  */
-export function knockPose(ms, from, to, safeFor = IMMUNE_MS) {
-  const state = knockState(ms, safeFor);
+export function knockPose(ms, from, to, safeFor = IMMUNE_MS, extra = 0) {
+  const state = knockState(ms, safeFor, extra);
   const side = to < from ? -1 : 1;
   // Lying down, a piece rests on its side: its middle is nearer the floor than when it stands.
   const lying = { lift: -36, tilt: -90 * side };
@@ -290,7 +388,7 @@ export function knockPose(ms, from, to, safeFor = IMMUNE_MS) {
     return { state, x: to, lift: lying.lift + Math.sin(Math.min(1, u * 1.6) * Math.PI) * 9, tilt: lying.tilt, sx: 1, sy: 1 };
   }
   if (state === "rising") {
-    const u = smooth((ms - (STUN_MS - GETUP_MS)) / GETUP_MS);
+    const u = smooth((ms - extra - (STUN_MS - GETUP_MS)) / GETUP_MS);
     return { state, x: to, lift: lying.lift * (1 - u) + Math.sin(u * Math.PI) * 14, tilt: lying.tilt * (1 - u), sx: 1, sy: 1 };
   }
   return { state, x: to, ...REST };

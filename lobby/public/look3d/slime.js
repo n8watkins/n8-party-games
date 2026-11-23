@@ -19,7 +19,7 @@ import { EmoteArms, RIG_UNIT } from "./emote-arms.js";
 import { blinkAt, clamp, merged, spring, tube, tubeGeometry } from "./body-kit.js";
 import { HOP_HEIGHT, HOP_MS, PALE, PAWN_HEIGHT, SIZE, bumpPose } from "./pieces.js";
 import { PX, SPACE, walkX } from "./space.js";
-import { JUMP_MS, WALK_SPEED, jumpHeight } from "../shared/world.js";
+import { JUMP_MS, LOW_JUMP_HEIGHT, WALK_SPEED, jumpHeight } from "../shared/world.js";
 import { wispAt } from "../characters/ghost-rig.js";
 import { gooNow } from "../move-state.js";
 
@@ -206,7 +206,7 @@ export function poseSlime(b, piece, now, dt, how) {
   b.prevX = piece.rx;
 
   const sinceJump = now - piece.jumpAt;
-  const up = jumpHeight(sinceJump);
+  const up = jumpHeight(sinceJump, LOW_JUMP_HEIGHT);
   const air = sinceJump >= 0 && sinceJump < JUMP_MS;
   if (air && !b.air) b.sqV += 3.2;
   if (!air && b.air) b.sqV -= 6.5;

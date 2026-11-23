@@ -173,7 +173,7 @@ describe("a dropped phone in a turn-based game", () => {
 });
 
 describe("a page hidden with its socket open", () => {
-  it("is away: the game hears it, the room view shows it, and it never runs the grace down", async () => {
+  it("is away: the game hears it, the room view shows it, and in a game without `needs` it never runs the grace down (party-room-away-forfeits has the clock)", async () => {
     const game = turnGame({ presence: true });
     const { ctx, connect, say, ws, tokens } = await started(game);
     const since = from(ws.bo, ws.screen);
@@ -184,6 +184,7 @@ describe("a page hidden with its socket open", () => {
     for (const w of [ws.bo, ws.screen]) {
       const room = since(w).find((m) => m.t === "room").room;
       expect(room.members[0]).toMatchObject({ connected: true, away: true });
+      expect(room.members[0]).not.toHaveProperty("awayIn");
       expect(room.members[1]).not.toHaveProperty("away");
       expect(snapsOf(since(w)).at(-1)).toMatchObject({ paused: true, missing: [0] });
     }

@@ -9,11 +9,11 @@
 //
 // A bump is one more small message ("b"). Being knocked down sends nothing at all: the room
 // put the piece where it landed, and the piece simply cannot walk, jump or bump until it is up.
-import { BUMP_COOLDOWN_MS, STUN_MS } from "./bump.js";
+import { BUMP_COOLDOWN_MS, CHARGE_HOLD_MS, STUN_MS } from "./bump.js";
 import { FADE_COOLDOWN_MS } from "./ghost.js";
 import { HOOK_COOLDOWN_MS, HOOK_LIFE_MS, STILT_COOLDOWN_MS, STILT_MS } from "./robot.js";
 import { HOLD_MS, SLIME_COOLDOWN_MS } from "./slime.js";
-import { JUMP_MS, WALK_SPEED, clampX, lightAt } from "./world.js";
+import { JUMP_MS, clampX, floats, lightAt, posAt, velAt } from "./world.js";
 
 /** Each move's whole cooldown, for the ring and the button (shared/characters.js, moveOf). */
 export const MOVE_COOLDOWN = { kick: BUMP_COOLDOWN_MS, fade: FADE_COOLDOWN_MS, hook: HOOK_COOLDOWN_MS, harden: SLIME_COOLDOWN_MS };
@@ -28,12 +28,18 @@ export class Pilot {
    *   send: puts a message on the socket.
    *   Until setLit says otherwise every light counts as on.
    */
-  constructor({ lights, send, x = 0, rev = 0 }) {
+  constructor({ lights, send, x = 0, rev = 0, character = "pawn" }) {
     this.lights = lights;
     this.send = send;
     this.x = x;
     this.d = 0;
     this.face = 1;
+    /** Which character the piece is (shared/characters.js): its speed, and whether it floats (shared/world.js). */
+    this.character = character;
+    /** Where its walk since the last change began (shared/world.js, posAt): there, then, at that speed. */
+    this.walkFrom = { x, t: 0, v: 0 };
+    /** A pawn holding its kick to charge it (shared/bump.js), since then, by this page's clock; or null. */
+    this.chargeAt = null;
     /** How many times the room has moved this piece itself (a spawn, a bump). Echoed so the room can drop stale news. */
     this.rev = rev;
     this.at = null;
@@ -56,6 +62,12 @@ export class Pilot {
     this.turned = true;
     /** Knocked down until then: no walking, jumping or bumping. */
     this.stunUntil = -Infinity;
+    /**
+     * In the air on a robot's chain until then (its pull and the network's allowance after it,
+     * shared/robot.js): off its feet, but it may still answer the hook with its move (ride the
+     * hook, the cannonball, the empty hook).
+     */
+    this.pulledUntil = -Infinity;
     /** The lights that are on, by their place on the wall; null means all of them. */
     this.lit = null;
     this.zone = this.zoneAt(x);
@@ -82,14 +94,42 @@ export class Pilot {
     this.step(now);
   }
 
-  /** The room put the piece somewhere (the door, or where a bump sent it). The piece says so back. */
+  /**
+   * The room put the piece somewhere (the door, or where a bump sent it). The piece says so back.
+   * A charge being held is lost with it, as the room loses its own (a room switch, a respawn, a
+   * correction): its release is a tap, which is what the room will take it as.
+   */
   place(x, rev, now) {
+    this.chargeRefused();
     this.advance(now);
     this.x = clampX(x);
+    this.restart(now, this.d);
     this.rev = rev;
     this.zone = this.zoneAt(this.x);
     this.dirty = true;
     this.step(now);
+  }
+
+  /** The walk starts afresh from where the piece is now, going at `v` (a share of its speed). */
+  restart(now, v) {
+    this.walkFrom = { x: this.x, t: now, v: floats(this.character) ? v : this.d };
+  }
+
+  /** The walk as shared/world.js reckons it: from its start, in its direction, at its character's speed. */
+  walk() {
+    const w = this.walkFrom;
+    return { x: w.x, t: w.t, d: this.d, v: w.v, vt: w.t, character: this.character };
+  }
+
+  /** The player chose another character: from now it walks at that one's speed. */
+  setCharacter(character, now) {
+    if (character === this.character) return;
+    // A charge held as the pawn becomes something else is let go of, as the room lets go of its own
+    // (LobbyCore.look, endMoves): the new piece may walk, and a later kick starts afresh.
+    this.chargeRefused();
+    this.advance(now);
+    this.character = character;
+    this.restart(now, this.d);
   }
 
   /**
@@ -101,10 +141,27 @@ export class Pilot {
     this.x = clampX(x);
     this.rev = rev;
     this.d = 0;
+    this.restart(now, 0);
     this.zone = this.zoneAt(this.x);
     this.dirty = false;
     this.jumped = false;
     this.stunUntil = now + stun;
+    // A charge being held is lost with the knock (the room forgets it too: LobbyCore.interrupt).
+    this.chargeAt = null;
+    this.rootedUntil = -Infinity;
+    // A slime's harden ends with it too (LobbyCore.interrupt, swallow, curl): a hold still down
+    // when it is up again turns nothing, so none is sent (the room would refuse it: maySlime).
+    this.turned = true;
+    // And a robot's legs drop (LobbyCore.interrupt, pulledTo): up again, it may hook at once, as
+    // the room lets it, with no wait for the legs-up time it never finished.
+    this.upUntil = -Infinity;
+    // Whatever moved it now, it is no longer in the air on a chain (pulled says so after, when it is).
+    this.pulledUntil = -Infinity;
+  }
+
+  /** Whether the piece is going anywhere now: walking, or a floaty one still drifting to a stand. */
+  moving(now) {
+    return velAt(this.walk(), now) !== 0;
   }
 
   /** Knocked down right now? */
@@ -117,7 +174,10 @@ export class Pilot {
     const next = this.down(now) || now < this.rootedUntil ? 0 : d < 0 ? -1 : d > 0 ? 1 : 0;
     if (next === this.d) return;
     this.advance(now);
+    // A floaty piece goes on at the speed it had, and eases to the new one (shared/world.js).
+    const v = velAt(this.walk(), now);
     this.d = next;
+    this.restart(now, v);
     if (next) this.face = next;
     this.dirty = true;
     this.step(now);
@@ -133,16 +193,68 @@ export class Pilot {
     return true;
   }
 
-  /** Asks the room for a bump. The room decides whether it lands, and enforces the cooldown. */
+  /**
+   * Asks the room for a bump. The room decides whether it lands, and enforces the cooldown. A
+   * charge being held (charge) goes off: the room measures how long it was held by its own clock.
+   */
   bump(now) {
-    if (now < this.coolUntil || this.down(now)) return false;
+    const charged = this.chargeAt !== null;
+    this.chargeAt = null;
+    if (charged) this.rootedUntil = -Infinity;
+    if (now < this.coolUntil || (this.down(now) && !this.flying(now))) return false;
     this.coolUntil = now + BUMP_COOLDOWN_MS;
     // Where it stands and which way it faces said first (a turn still waiting out the send gap),
     // and the kick carries its facing too: the room kicks the way this page shows it facing.
     if (this.dirty) this.sentAt = -Infinity;
     this.step(now);
-    this.send({ t: "b", f: this.face });
+    this.send(charged ? { t: "b", f: this.face, c: 1 } : { t: "b", f: this.face });
     return true;
+  }
+
+  /**
+   * The pawn's charged kick (shared/bump.js): the move button held past CHARGE_MIN_MS. The pawn
+   * stands still and winds up, and the room is told it is charging, so it can time the hold and
+   * every page can draw it; the release is the kick (bump). Returns whether it was sent.
+   */
+  charge(now) {
+    if (this.chargeAt !== null || now < this.coolUntil || this.down(now) || now < this.rootedUntil) return false;
+    this.chargeAt = now;
+    this.rootedUntil = now + CHARGE_HOLD_MS;
+    // It stands still to charge: said first, so the room has it standing where it charges.
+    this.steer(0, now);
+    if (this.dirty) this.sentAt = -Infinity;
+    this.step(now);
+    // It carries its facing too (as the kick does): the room winds it up the way this page shows it.
+    this.send({ t: "kc", f: this.face });
+    return true;
+  }
+
+  /**
+   * A charge being held is let go of without a kick: the room did not take it (`kc-no`), or lost it
+   * (the piece moved, a drop, another character, a game). The pawn may walk, and its release is a
+   * plain kick. Returns whether there was one (a robot's hook keeps its own rooting).
+   */
+  chargeRefused() {
+    if (this.chargeAt === null) return false;
+    this.chargeAt = null;
+    this.rootedUntil = -Infinity;
+    return true;
+  }
+
+  /** Whether a press of the kick would go off now, as far as this page knows: not cooling, not down (or down only in the air on a chain). */
+  mayKick(now) {
+    return !(now < this.coolUntil) && (!this.down(now) || this.flying(now));
+  }
+
+  /** In the air on a robot's chain (shared/robot.js): its move may still answer the hook. */
+  flying(now) {
+    return now < this.pulledUntil;
+  }
+
+  /** The room pulled the piece to `x` on a robot's chain: off its feet for `ms`, and its move may answer the hook until `until`. */
+  pulled(x, rev, now, ms, until) {
+    this.knock(x, rev, now, ms);
+    this.pulledUntil = until;
   }
 
   /** The room's word on the cooldown: the piece may bump again in `left` milliseconds. */
@@ -206,7 +318,8 @@ export class Pilot {
    * harden just begun turns soft. Returns whether it was sent.
    */
   slime(kind, now) {
-    if (this.down(now)) return false;
+    // (In the air on a chain it may harden: the cannonball. Not absorb.)
+    if (this.down(now) && !(kind === "harden" && this.flying(now))) return false;
     if (kind === "absorb") {
       if (this.turned || now - this.hardenAt < HOLD_MS - 20) return false;
       this.turned = true;
@@ -232,7 +345,8 @@ export class Pilot {
    * The room decides, and enforces the cooldown; its word comes back as fadeCool.
    */
   fade(now) {
-    if (now < this.fadeCoolUntil || this.down(now)) return false;
+    // (In the air on a chain it may fade: the empty hook.)
+    if (now < this.fadeCoolUntil || (this.down(now) && !this.flying(now))) return false;
     this.fadeCoolUntil = now + FADE_COOLDOWN_MS;
     this.send({ t: "fade" });
     return true;
@@ -255,6 +369,9 @@ export class Pilot {
     // `f`: which way it faces, so a turn whose walk ended inside the send gap (a quick tap: its
     // d of 1 overwritten by its key-up's 0 before it went) still reaches the room.
     const message = { t: "m", x: Math.round(this.x), d: this.d, f: this.face, r: this.rev };
+    // A floaty piece still easing says how fast it goes now, so everyone eases it the same way.
+    const v = velAt(this.walk(), now);
+    if (v !== this.d) message.v = Math.round(v * 100) / 100;
     if (this.jumped) message.j = 1;
     this.dirty = false;
     this.jumped = false;
@@ -264,7 +381,9 @@ export class Pilot {
 
   /** Moves the piece to where it is at `now` and notices a light's edge being crossed. */
   advance(now) {
-    if (this.at !== null && this.d) this.x = clampX(this.x + (this.d * WALK_SPEED * Math.max(0, now - this.at)) / 1000);
+    // Always from where its walk began (not frame by frame), so it is exactly where the room and
+    // every other page reckon it from the same word (shared/world.js, posAt).
+    if (this.at !== null) this.x = posAt(this.walk(), now);
     this.at = now;
     const zone = this.zoneAt(this.x);
     if (zone !== this.zone) {

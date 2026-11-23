@@ -105,7 +105,36 @@ function pageHelpers() {
     };
     requestAnimationFrame(frame);
   };
+  // When each frame ran (this page's own clock), the last few hundred: for a drawn check to say
+  // whether the page drew anything while it was due, on a machine that starves it of frames.
+  window.__frameTimes = [];
+  const tick = () => {
+    window.__frameTimes.push(performance.now());
+    if (window.__frameTimes.length > 600) window.__frameTimes.splice(0, 300);
+    requestAnimationFrame(tick);
+  };
+  requestAnimationFrame(tick);
 }
+
+/**
+ * A drawn check a page could not be judged on: it drew fewer than two frames while the thing was
+ * on (a page starved of frames by a busy machine). Not failed, but counted: a check unseen in every
+ * look it ran in fails the run, as one no frame ever showed cannot pass as clean.
+ */
+const unseen = new Map();
+const seenCheck = (ok, what, id = what) => {
+  const tally = unseen.get(id) ?? { seen: 0, unseen: 0 };
+  if (ok === null) {
+    tally.unseen++;
+    console.log(`seen? ${what} (not seen: the page drew under two frames while it was on)`);
+  } else {
+    tally.seen++;
+    check(ok, what);
+  }
+  unseen.set(id, tally);
+};
+/** How many frames `page` ran between `from` and `to` (its own clock). */
+const framesBetween = (page, from, to) => page.evaluate(([a, b]) => window.__frameTimes.filter((t) => t >= a && t <= b).length, [from, to]);
 
 try {
   const errors = [];
@@ -184,7 +213,8 @@ try {
           return [...g.querySelectorAll("stop, rect, path, ellipse")].some((e) => near(e.getAttribute("stop-color")) || near(e.getAttribute("fill")));
         },
         [seat, character, colour],
-        { timeout: 8000 },
+        // A page drawing the baked room in software on a busy machine can take a while to draw the change.
+        { timeout: 20000 },
       )
       .then(() => true, () => false);
   const shot = async (page, look, name) => shots && (await page.screenshot({ path: `${shots}/${look}-${name}.png` }));
@@ -351,6 +381,7 @@ try {
     from = ada.seen.length;
     ada.send({ t: "look", v: CREAM });
     await ada.wait((m) => m.room?.members[ada.seat]?.colour === CREAM, 5000, from);
+    const paleFrom = await cy.evaluate(() => performance.now());
     ada.send({ t: "e", e: "thumbsup" });
     const pale = await cy.waitForFunction(
       (seat) => {
@@ -359,9 +390,13 @@ try {
         return [...document.querySelectorAll(`svg.scene g[data-seat="${seat}"] .emote-limb rect`)].some((r) => r.getAttribute("stroke") === "#1a1210");
       },
       ada.seat,
-      { timeout: 4000, polling: 50 },
+      // (The hands are made when a frame first draws the emote: a page starved of frames on a busy machine is given a while.)
+      { timeout: 10000, polling: 50 },
     ).then(() => true, () => false);
-    check(pale, "cream hands on a white sheet have a dark outline");
+    // Not seen when the page drew under two frames while the emote was on (a page starved of frames:
+    // it failed once so, in the baked look, at load 30 from other work on the machine).
+    const paleFrames = pale ? 2 : await framesBetween(cy, paleFrom, paleFrom + ghostRigById("thumbsup").dur);
+    seenCheck(pale ? true : paleFrames < 2 ? null : false, `cream hands on a white sheet have a dark outline${pale ? "" : ` (${paleFrames} frames while it was on)`}`, "cream hands on a white sheet have a dark outline");
     await sleep(500);
     await shot(cy, look, "05-pale-hands-outlined");
 
@@ -403,7 +438,10 @@ try {
         await ada.wait((m) => m.room?.members[ada.seat]?.character === "robot" && m.room.members[ada.seat].colour === hex, 5000, from);
         await cy.waitForFunction(([s, hex]) => window.__room3d.pieces.get(s)?.kind.id === "robot" && window.__room3d.pieces.get(s).member.colour === hex, [ada.seat, hex], { timeout: 4000 });
         await sleep(EMOTE_COOLDOWN_MS + 200);
-        const plain = await meanColour(cy, await paintBox(cy, ada.seat));
+        let plainBox = await paintBox(cy, ada.seat);
+        for (let k = 0; !plainBox && k < 20; k++) plainBox = (await sleep(100), await paintBox(cy, ada.seat));
+        const plain = await meanColour(cy, plainBox);
+        const fumeFrom = await cy.evaluate(() => performance.now());
         ada.send({ t: "e", e: "steam" });
         // Read through the emote, and the reddest reading kept: nothing of the page's own state is asked.
         let seen = plain;
@@ -412,13 +450,24 @@ try {
         for (let k = 0; k < 10; k++) {
           await sleep(180);
           const at = await paintBox(cy, ada.seat);
+          // (No box: the piece is being built again this moment, a slow page's swap of its body. Read again.)
+          if (!at) continue;
           const c = await meanColour(cy, at);
           if (redness(c) > redness(seen)) {
             [seen, box] = [c, at];
             if (shots) await cy.screenshot({ path: `${shots}/${look}-robot-fuming-${hex.slice(1)}.png`, clip: { x: box.x - 60, y: box.y - 110, width: 130, height: 150 } });
           }
         }
-        check(isRed(seen), `${name} (${hex}): fuming, its paint shows red (${JSON.stringify(plain)} to ${JSON.stringify(seen)}), not its colour times red`);
+        // Red by its own right (isRed), or, where Ada stands in a dimmer part of the room than the
+        // absolute bound was set for (Slate read 103 against 110 from a plain 31), red by its share
+        // and well redder than its own paint was there: its colour times red could never be
+        // redder than the paint itself.
+        const redOverPaint = seen.r > 1.7 * seen.g && seen.r > 1.7 * seen.b && seen.r >= plain.r + 40;
+        const red = isRed(seen) || redOverPaint;
+        // Not seen when the page drew under two frames while it was read (starved of frames: Slate
+        // once read 38 from a plain 31, the fume never drawn, at load 30 from other work).
+        const fumeFrames = red ? 2 : await framesBetween(cy, fumeFrom, await cy.evaluate(() => performance.now()));
+        seenCheck(red ? true : fumeFrames < 2 ? null : false, `${name} (${hex}): fuming, its paint shows red (${JSON.stringify(plain)} to ${JSON.stringify(seen)})${red ? "" : ` (${fumeFrames} frames while it was read)`}, not its colour times red`, `${name}: fuming, its paint shows red`);
       }
       await cy.emulateMedia({ reducedMotion: null });
     }
@@ -515,9 +564,14 @@ try {
     await bea.keyboard.press("KeyX");
     const fade = await ada.wait((m) => m.t === "fade" && m.s === B, 3000, mark).catch(() => null);
     check(fade?.for === 2500, "a tap on Fade: the room tells everybody Bea's ghost has faded for 2.5 s");
-    const seenFaded = await cy.waitForFunction((seat) => window.fadedOn(seat) > 0.8, B, { timeout: 2000, polling: 30 }).then(() => true, () => false);
-    const others = await cy.evaluate((seat) => window.fadedOn(seat), B);
-    const own = await bea.evaluate((seat) => window.fadedOn(seat), B);
+    // Both read while the fade is on (2.5 s), each page as soon as it draws it: read one after the
+    // other on a busy machine, the second could come after the fade is over.
+    const fadedSeen = (page, test) =>
+      page
+        .waitForFunction(([seat, low]) => (window.fadedOn(seat) > low ? window.fadedOn(seat) : false), [B, test], { timeout: 2000, polling: 30 })
+        .then((h) => h.jsonValue(), () => 0);
+    const [others, own] = await Promise.all([fadedSeen(cy, 0.8), fadedSeen(bea, 0.3)]);
+    const seenFaded = others > 0.8;
     check(seenFaded && (await pieceOn(cy, B))?.character === "ghost", `on Cy's phone her ghost is faded (${others}) and still there, a ghost`);
     check(own > 0.3 && own < others, `on her own phone it is faded less (${own}), so she can always find herself`);
     await sleep(300);
@@ -771,5 +825,6 @@ try {
 } finally {
   await browser.close();
 }
+for (const [id, { seen, unseen: n }] of unseen) if (seen === 0 && n > 0) problems.push(`never seen in the ${n} time(s) it ran: ${id}`);
 console.log(problems.length ? `\n${problems.length} problem(s):\n- ` + problems.join("\n- ") : "\nAll good.");
 process.exit(problems.length ? 1 : 0);

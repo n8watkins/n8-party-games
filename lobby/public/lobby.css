@@ -1707,3 +1707,58 @@ input {
     white-space: normal;
   }
 }
+
+/* "New version ready after this round" and the like (site/release-switch.js, Hud.release): one
+   more line of the bottom bar's words, a row of its own under them, never over the corner's
+   buttons or the join code. One line always: a narrow bar cuts it short rather than wrap. */
+.status.has-release {
+  flex-wrap: wrap;
+  align-content: center;
+  row-gap: 2px;
+}
+.status-release {
+  flex: 0 0 100%;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  text-align: center;
+  font-size: 12px;
+  line-height: 1.3;
+  font-weight: 600;
+  color: var(--soft);
+}
+.bar-screen .status-release {
+  font-size: 0.62em;
+}
+/* "New version, tap to load": the line is a button, in amber. Only its words take the tap (the
+   row's empty ends do not): the bar's words sit between the thumbs' pads, and a jump or a bump
+   that lands a little off must never reload the page. The words' tap area is 44 pixels tall, the
+   smallest tap target anywhere, as a real row of its own (nothing reaches over the words above
+   it), and the big screen's bar, otherwise of a fixed height, grows to hold it. */
+button.status-release {
+  display: flex;
+  justify-content: center;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  font-family: inherit;
+  color: var(--amber);
+  pointer-events: none;
+}
+button.status-release > span {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  padding: 0 10px;
+  pointer-events: auto;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+.bar-screen:has(button.status-release) {
+  height: auto;
+  min-height: var(--bar);
+}

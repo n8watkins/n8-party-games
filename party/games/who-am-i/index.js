@@ -16,7 +16,7 @@ export const manifest = {
   // The game's own version, in the release record (scripts/release.mjs). It lives in this
   // repository, so release-kit does not move it: bump it in the pull request that changes the
   // game (a feat a minor, a fix a patch; DEPLOY.md, "Releases").
-  version: "0.1.0",
+  version: "0.2.0",
   pitch: "Ask questions, guess who you are",
   path: "/party/",
   // The owner's decision: a party of exactly two starts it. The rules also take a larger table

@@ -59,6 +59,8 @@ if (config.simLatency || config.testGames !== false) {
   console.log("FAIL this server has its test switches on (PARTY_SIM_LATENCY or PARTY_TEST_GAMES): start one with the production settings, see the top of this file");
   process.exit(1);
 }
+// The production settings never shorten a hidden page's away clock (PARTY_TEST_AWAY_GRACE_MS).
+check(config.testAwayGraceMs === null, `the production settings keep the away clock's own grace (testAwayGraceMs: ${config.testAwayGraceMs})`);
 
 const errors = [];
 const browser = await launchBrowser({ args: ["--use-angle=swiftshader", "--enable-unsafe-swiftshader"] }); // with TEST_GPU=1 the browser draws on the card

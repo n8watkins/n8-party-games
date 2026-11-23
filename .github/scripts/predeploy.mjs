@@ -1,7 +1,8 @@
 // The full gate that runs once before a deploy, on the combined result: unit tests, then the
 // end-to-end scripts that need a local Worker (the room, the party room, Cork & Bell, Hot Potato,
 // Hot Potato's hearing test, the switch between the Floor and the Table, both rooms side by side,
-// and a game at the Table).
+// a game at the Table, and the rest in predeploy-steps.mjs). One step, test:release, runs and
+// restarts a Worker of its own (its deploys): the gate gives it a free port and nothing else.
 //
 //   npm run gate                      (locally, from the owner's PC, on any tree)
 //   .github/workflows/predeploy-gate.yml   (the same script, on a GitHub-hosted runner)
@@ -57,7 +58,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { STEPS, stepPort } from "./predeploy-steps.mjs";
+import { STEPS, releaseIdIn, releaseMismatch, stepPort } from "./predeploy-steps.mjs";
 
 // The deploy's own run of the gate (`npm run deploy` runs `predeploy`, which passes --deploy):
 // before anything else, the tree must be what a deploy may ship (scripts/release.mjs,
@@ -244,6 +245,19 @@ function startWorker(port, { persist = null, quiet = false, env = "local" } = {}
   };
 }
 
+/**
+ * Whether something still listens on `p` five seconds after a step that ran a Worker of its own
+ * there has ended: that Worker was left running (the step must stop it however it ends). Says so.
+ */
+async function leftListening(p) {
+  for (const until = Date.now() + 5000; Date.now() < until; ) {
+    if ((await freePort(p)) === p) return false;
+    await new Promise((r) => setTimeout(r, 250));
+  }
+  console.log(`\nA step left a Worker listening on port ${p}: it must stop its own Worker however it ends.`);
+  return true;
+}
+
 /** `wanted` if nothing listens there, else a free port the system picks. */
 async function freePort(wanted) {
   const tryPort = (p) =>
@@ -287,17 +301,50 @@ async function oneAfterAnother() {
     results.push({ name: "start local Worker", status: "FAIL", seconds: 0 });
     return;
   }
+  if (!(await sameBuild([worker.base]))) return;
   // Stop at the first failure: the later scripts only add noise once the room is broken.
   for (const [name, script, options] of STEPS) {
     console.log(`\n=== ${name} ===`);
     const t = Date.now();
+    // A step that runs a Worker of its own (`own`) gets a free port and nothing else.
+    if (options?.own) {
+      const p = await freePort(port + 1);
+      const c = await run(npm, ["run", script, "--", `--port=${p}`]);
+      const left = await leftListening(p);
+      results.push({ name, status: c === 0 && !left ? "ok" : "FAIL", seconds: seconds(t) });
+      if (c !== 0 || left) break;
+      continue;
+    }
     // A step that asks for an environment of its own gets a fresh Worker for it, with empty storage.
     const own = options?.env === undefined ? null : await ownWorker(await freePort(port + 1), options.env);
+    // That Worker rebuilt dist/public, which the gate's Worker serves too: both must still name one build.
+    if (own?.ok && !(await sameBuild([worker.base, own.base]))) {
+      await own.stop();
+      break;
+    }
     const c = own?.ok === false ? 1 : await run(npm, ["run", script, "--", `--base=${(own ?? worker).base}`]);
     await own?.stop();
     results.push({ name, status: c === 0 ? "ok" : "FAIL", seconds: seconds(t) });
     if (c !== 0) break;
   }
+}
+
+/**
+ * Whether every local Worker at `bases` names the build in the shared dist/public/release.js
+ * (releaseMismatch): if not, the gate fails at once, saying so, before any step runs.
+ */
+async function sameBuild(bases) {
+  const releases = await Promise.all(
+    bases.map(async (base) => ({ base, release: await fetch(`${base}/api/version`).then((r) => r.json()).then((v) => v.release ?? null, () => null) })),
+  );
+  let fileId = null;
+  try {
+    fileId = releaseIdIn(readFileSync(join(import.meta.dirname, "..", "..", "dist", "public", "release.js"), "utf8"));
+  } catch {}
+  const problem = releaseMismatch(releases, fileId);
+  results.push({ name: "the local Workers and their pages name one build", status: problem ? "FAIL" : "ok", seconds: 0 });
+  if (problem) console.log(`\n${problem}`);
+  return !problem;
 }
 
 /** A Worker of a step's own, in `env`, with an empty storage folder; stop() also removes the folder. */
@@ -330,6 +377,11 @@ async function sideBySideSteps() {
   const begun = Date.now();
   for (let i = 0; i < STEPS.length; i++) {
     const p = await freePort(stepPort(port, i));
+    // A step that runs a Worker of its own gets only its port (`--port`, below).
+    if (STEPS[i][2]?.own) {
+      workers.push({ own: true, port: p, base: `http://localhost:${p}`, log: () => "(the step's own Worker: its output is above)", stop: async () => {} });
+      continue;
+    }
     const persist = mkdtempSync(join(tmpdir(), `predeploy-${p}-`));
     const worker = startWorker(p, { persist, quiet: true, env: STEPS[i][2]?.env ?? "local" });
     cleanups.push(async () => {
@@ -344,6 +396,7 @@ async function sideBySideSteps() {
     }
   }
   results.push({ name: "start local Workers", status: "ok", seconds: seconds(begun) });
+  if (!(await sameBuild(workers.filter((w) => !w.own).map((w) => w.base)))) return;
 
   // The card tokens last, once everything else is ready, so they are never held idle.
   const waitedFrom = Date.now();
@@ -364,7 +417,8 @@ async function sideBySideSteps() {
   const stopping = [];
   const running = STEPS.map(([name, script], i) => {
     const t = Date.now();
-    const child = spawn(npm, ["run", script, "--", `--base=${workers[i].base}`], { stdio: ["ignore", "pipe", "pipe"], detached: true });
+    const target = workers[i].own ? `--port=${workers[i].port}` : `--base=${workers[i].base}`;
+    const child = spawn(npm, ["run", script, "--", target], { stdio: ["ignore", "pipe", "pipe"], detached: true });
     let out = "";
     const keep = (d) => {
       // Everything is printed when the step ends; a wait for a card token is said at once too.
@@ -411,6 +465,10 @@ async function sideBySideSteps() {
   });
   await Promise.all(running.map((s) => s.done));
   await Promise.all(stopping);
+  // A step that ran a Worker of its own must have stopped it, also when the gate stopped the step.
+  for (const [i, w] of workers.entries()) {
+    if (w.own && (await leftListening(w.port))) results.push({ name: `${STEPS[i][0]}: its Worker stopped`, status: "FAIL", seconds: 0 });
+  }
   // The summary lists the steps in the gate's order, whatever order they finished in.
   const order = new Map(STEPS.map(([name], i) => [name, i]));
   results.sort((a, b) => (order.get(a.name) ?? -1) - (order.get(b.name) ?? -1));

@@ -1,6 +1,6 @@
 // The party room's rules, driven directly with a fake clock: seats, movement, the vote, the
 // count, ties, bumps, coming and going, starting a game, the Tonight board, sleeping and closing.
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { IDLE_SHUTDOWN_MS, STALE_ROOM_MS } from "../../party-kit/src/core/room-core.js";
 import * as cork from "cork-and-bell";
 // The game's own round: how long it lasts and how many corks a stall has (the package exports
@@ -8,7 +8,7 @@ import * as cork from "cork-and-bell";
 import { COUNT_IN, END_HOLD } from "../../node_modules/cork-and-bell/game/shared/battle.js";
 import { CORKS_PER_ROUND, ROUND_SECONDS } from "../../node_modules/cork-and-bell/game/shared/sim.js";
 import { game as coinFlip, FLIP_MS, manifest as coinFlipManifest } from "../games/coin-flip.js";
-import { BUDGET_CLOSE_MS, DROP_FADE_MS as RECONNECT_GRACE_MS, LobbyCore, MAX_ROOM_LIFE_MS, SCREEN_GRACE_MS, SEAT_HOLD_MS } from "../server/lobby-core.js";
+import { BUDGET_CLOSE_MS, DROP_FADE_MS as RECONNECT_GRACE_MS, LobbyCore, MAX_ROOM_LIFE_MS, SCREEN_GRACE_MS, SEAT_HOLD_MS, TURN_GRACE_MS } from "../server/lobby-core.js";
 import { WALL } from "../wall.js";
 import { COUNT_MS, SETTLE_MS, TOSS_MS, boxFromManifest } from "../shared/vote.js";
 import { BUMP_COOLDOWN_MS, COOLDOWN_SLACK_MS, IMMUNE_MS, STUN_MS, knockLanding } from "../shared/bump.js";
@@ -150,8 +150,9 @@ describe("moving", () => {
     const moved = core.move(0, { x: 200, d: 1, r: 0, j: 1 }, 1000);
     expect(moved.relay).toEqual({ t: "m", s: 0, x: 200, d: 1, j: 1 });
     expect(moved.fix).toBeNull();
-    // A second later the room knows where the piece has got to without being told.
-    expect(core.view(2000).members[0].x).toBe(630);
+    // A second later the room knows where the piece has got to without being told: a pawn walks at
+    // 110% of WALK_SPEED (shared/world.js, walkSpeed).
+    expect(core.view(2000).members[0].x).toBe(200 + 473);
   });
 
   it("corrects a piece that claims to be somewhere it could not have reached", () => {
@@ -320,9 +321,10 @@ describe("bumps", () => {
 
   it("never lets a player be kept on the floor: a knocked piece cannot be knocked again until it has been up a while", () => {
     const core = pair();
+    const first = core.bump(0, 2100);
+    // (Seated after the kick: by the door they would be in Bo's way, and a piece he flies into is knocked over too: dominoes.)
     seated(core, "Cy");
     seated(core, "Di");
-    const first = core.bump(0, 2100);
     // Two more players stand either side of where Bo landed, facing him, and bump as soon as they can.
     for (const [seat, side] of [
       [2, -1],
@@ -597,6 +599,321 @@ describe("a decided match and a player who leaves before the card", () => {
     ]);
     expect(view.last).not.toHaveProperty("early");
     expect(woken.remembered.get("ann")).toBe(3);
+  });
+});
+
+describe("a hidden page's grace in a turn-based game (the owner's rule: hide and you lose)", () => {
+  const whoAmI = { id: "turns", name: "Who Am I?", players: { min: 2, max: 2 }, devices: { phone: true } };
+  const GRACE = 60_000;
+  const config = (game) => ({ boxes: [boxFromManifest(whoAmI)], games: new Map([["turns", game]]) });
+
+  function matchOf() {
+    // A game that needs both seats all the time (`needs`): every hidden page runs its grace.
+    const game = turnGame({ firstTo: 3, presence: true, fields: { reconnectGraceMs: GRACE, needs: () => true } });
+    const core = new LobbyCore({ ...config(game), seed: 1, code: "BCDFGH", now: 1000 });
+    const tokens = ["Ann", "Bo"].map((n) => seated(core, n).token);
+    expect(core.startGame("turns", 2000)).toMatchObject({ ok: true });
+    core.drainNotes();
+    return { core, game, tokens };
+  }
+
+  it("away on his own turn: the grace end is the room's next wake-up, and at it the match ends with the one who stayed first", () => {
+    const { core, tokens } = matchOf();
+    expect(core.playTurn(0, { say: "?", point: true }, 3000)).toMatchObject({ ok: true });
+    expect(core.setAway(tokens[1], true, 4000)).toBe(true);
+    core.turnUpkeep(4000);
+    expect(core.nextWake(4000)).toBe(4000 + GRACE);
+    expect(core.view(4000).members[1]).toMatchObject({ away: true, awayIn: GRACE });
+    expect(core.view(34_000).members[1].awayIn).toBe(30_000);
+    expect(core.turnUpkeep(4000 + GRACE - 1)).toBeNull();
+    const out = core.turnUpkeep(4000 + GRACE);
+    expect(out.ended.last.rows).toEqual([expect.objectContaining({ seat: 0, name: "Ann", place: 1, points: 3 })]);
+    expect(out.ended.last.early).toMatchObject({ seat: 1, why: "gone", text: "Bo did not come back, so Who Am I? ended." });
+  });
+
+  it("keeps the clock through a sleep: woken, the seat runs out when it would have, not a grace after the wake", () => {
+    const { core, game, tokens } = matchOf();
+    core.setAway(tokens[1], true, 4000);
+    core.turnUpkeep(4000);
+    const woken = LobbyCore.restore(config(game), structuredClone(core.serialize()), 30_000);
+    // The sockets come through the sleep, and Bo's says it is still hidden.
+    for (const token of tokens) woken.resume(token, null);
+    woken.setAway(tokens[1], true, 30_000);
+    expect(woken.turnUpkeep(30_000)).toBeNull();
+    expect(woken.nextWake(30_000)).toBe(4000 + GRACE);
+    expect(woken.view(30_000).members[1].awayIn).toBe(4000 + GRACE - 30_000);
+    expect(woken.turnUpkeep(4000 + GRACE).ended.last.early).toMatchObject({ seat: 1, why: "gone" });
+  });
+
+  it("a socket that did not come through the sleep starts its clock at the wake, as a drop did before", () => {
+    const { core, game, tokens } = matchOf();
+    const woken = LobbyCore.restore(config(game), structuredClone(core.serialize()), 30_000);
+    woken.resume(tokens[0], null);
+    woken.turnUpkeep(30_000);
+    expect(woken.nextWake(30_000)).toBe(30_000 + GRACE);
+  });
+
+  it("a match saved before there were clocks starts them at the first look", () => {
+    const { core, game, tokens } = matchOf();
+    const saved = structuredClone(core.serialize());
+    delete saved.game.clocks;
+    const woken = LobbyCore.restore(config(game), saved, 30_000);
+    for (const token of tokens) woken.resume(token, null);
+    woken.setAway(tokens[1], true, 31_000);
+    expect(woken.view(31_000).members[1].awayIn).toBe(GRACE);
+    expect(woken.turnUpkeep(31_000 + GRACE).ended.last.early).toMatchObject({ seat: 1, why: "gone" });
+  });
+
+  it("a move gives no grace back: hidden most of the grace, shown for one move and hidden again, the player has only what they won back", () => {
+    const { core, tokens } = matchOf();
+    expect(core.playTurn(0, { say: "?" }, 3000)).toMatchObject({ ok: true });
+    core.setAway(tokens[1], true, 4000);
+    core.setAway(tokens[1], false, 54_000);
+    expect(core.playTurn(1, { say: "Am I a bird?" }, 54_000)).toMatchObject({ ok: true, answer: { ok: true } });
+    core.setAway(tokens[1], true, 55_000);
+    // 50 s used, 1 s won back while shown: 11 s left, not a fresh minute.
+    expect(core.view(55_000).members[1].awayIn).toBe(11_000);
+  });
+
+  it("an ok answer that changes nothing (an old command sent again under a fresh id) gives no grace back, so a hidden player cannot stall with it", () => {
+    const { core, game, tokens } = matchOf();
+    // As Who Am I?'s engine does with a commandId it has seen: `ok`, and nothing changes.
+    const input = game.input;
+    game.input = (state, seat, data, now) => (data?.again ? { ok: true, events: [] } : input(state, seat, data, now));
+    core.setAway(tokens[1], true, 4000);
+    core.setAway(tokens[1], false, 54_000);
+    expect(core.playTurn(1, { again: true }, 54_000, "fresh-1")).toMatchObject({ ok: true, answer: { ok: true } });
+    core.setAway(tokens[1], true, 54_000);
+    // 50 s used: 10 s left, not a fresh minute.
+    expect(core.view(54_000).members[1].awayIn).toBe(10_000);
+    expect(core.turnUpkeep(64_000).ended.last.early).toMatchObject({ seat: 1, why: "gone" });
+  });
+
+  it("changes nothing in a real-time game: a hidden page starts no clock and is shown with no time", () => {
+    const core = room();
+    const tokens = ["Ann", "Bo"].map((n) => seated(core, n).token);
+    expect(core.startGame("coin-flip", 2000)).toMatchObject({ ok: true });
+    expect(core.turnGame()).toBeNull();
+    const before = core.nextWake(2500);
+    expect(core.setAway(tokens[1], true, 2500)).toBe(true);
+    expect(core.activity.clocks).toBeUndefined();
+    expect(core.view(2500).members[1]).not.toHaveProperty("awayIn");
+    expect(core.nextWake(2500)).toBe(before);
+  });
+
+  it("nothing in the lobby either", () => {
+    const core = room();
+    const { token } = seated(core, "Ann");
+    core.setAway(token, true, 2000);
+    expect(core.view(2000).members[0]).not.toHaveProperty("awayIn");
+  });
+});
+
+describe("a hidden page's grace only while the game needs the seat (`game.needs`)", () => {
+  const box = { id: "turns", name: "Who Am I?", players: { min: 2, max: 2 }, devices: { phone: true } };
+  const GRACE = 60_000;
+  const config = (game) => ({ boxes: [boxFromManifest(box)], games: new Map([["turns", game]]) });
+  /** Needs only the seat whose turn it is, as Who Am I? needs its guesser. */
+  const onTurn = (state, seat) => state.seats[state.turn] === seat;
+  /** What a look at who is here ended, or null: telling the game who is away is not ending it. */
+  const ended = (out) => out?.ended ?? null;
+
+  /** A match of Ann (seat 0, her turn first) and Bo, the turn timer running whoever is missing (no presence). */
+  function matchOf(fields = { needs: onTurn }) {
+    const game = turnGame({ fields: { reconnectGraceMs: GRACE, nextDeadline: () => null, ...fields } });
+    const core = new LobbyCore({ ...config(game), seed: 1, code: "BCDFGH", now: 1000 });
+    const tokens = ["Ann", "Bo"].map((n) => seated(core, n).token);
+    expect(core.startGame("turns", 2000)).toMatchObject({ ok: true });
+    core.drainNotes();
+    return { core, game, tokens };
+  }
+
+  it("hidden while it is the OTHER player's turn: nothing runs, no time is shown, no wake-up, and the match goes on long past the grace", () => {
+    const { core, tokens } = matchOf();
+    const before = core.nextWake(3000);
+    expect(core.setAway(tokens[1], true, 3000)).toBe(true);
+    expect(core.view(3000).members[1]).toMatchObject({ away: true });
+    expect(core.view(3000).members[1]).not.toHaveProperty("awayIn");
+    expect(core.nextWake(3000)).toBe(before);
+    expect(ended(core.turnUpkeep(3000 + 5 * GRACE))).toBeNull();
+    expect(core.activity.kind).toBe("game");
+  });
+
+  it("the turn comes round to a hidden player: the clock starts then, the room view is sent again, and they forfeit a grace later", () => {
+    const { core, tokens } = matchOf();
+    core.setAway(tokens[1], true, 3000);
+    // Ann takes her turn at 10 s: now it is Bo's, and Bo is hidden.
+    const out = core.playTurn(0, { say: "Am I a cat?" }, 10_000);
+    expect(out).toMatchObject({ ok: true, clocks: true });
+    expect(core.view(10_000).members[1]).toMatchObject({ away: true, awayIn: GRACE });
+    expect(core.nextWake(10_000)).toBe(10_000 + GRACE);
+    expect(ended(core.turnUpkeep(10_000 + GRACE - 1))).toBeNull();
+    expect(core.turnUpkeep(10_000 + GRACE).ended.last.early).toMatchObject({ seat: 1, why: "gone" });
+  });
+
+  it("the time used on one's own turn waits through the other's turn, hidden, and runs on from there on the next", () => {
+    // With the turn timer as the room's wake-up, so the tick can pass the turn.
+    const { core, tokens } = matchOf({ needs: onTurn, nextDeadline: (state) => state.deadline });
+    // Ann hides on her own turn for 50 s; her turn times out (the tick passes it to Bo).
+    core.setAway(tokens[0], true, 3000);
+    core.activity.state.deadline = 53_000;
+    const ticked = core.gameDeadline(53_000);
+    expect(ticked).toMatchObject({ ok: true, clocks: true });
+    expect(core.view(53_000).members[0]).not.toHaveProperty("awayIn");
+    // Bo's turn: Ann stays hidden a long time, and nothing runs out.
+    expect(ended(core.turnUpkeep(53_000 + 3 * GRACE))).toBeNull();
+    // Bo plays: it is Ann's turn again, and she has the 10 s she had left.
+    const at = 53_000 + 3 * GRACE;
+    expect(core.playTurn(1, { say: "Am I a dog?" }, at)).toMatchObject({ ok: true, clocks: true });
+    expect(core.view(at).members[0].awayIn).toBe(10_000);
+    expect(core.turnUpkeep(at + 10_000).ended.last.early).toMatchObject({ seat: 0, why: "gone" });
+  });
+
+  it("the clock stops the moment the page is shown, and the player who came back is told how much they have left", () => {
+    const { core, tokens } = matchOf();
+    core.setAway(tokens[0], true, 3000);
+    expect(core.view(50_000).members[0].awayIn).toBe(GRACE - 47_000);
+    core.setAway(tokens[0], false, 50_000);
+    const back = core.view(50_000).members[0];
+    expect(back).not.toHaveProperty("awayIn");
+    expect(back.awaySpare).toBe(GRACE - 47_000);
+    expect(core.nextWake(50_000) ?? Infinity).toBeGreaterThan(3000 + GRACE);
+    // Back for as long as she was away: the whole grace again, and nothing more to say.
+    expect(core.view(97_000).members[0]).not.toHaveProperty("awaySpare");
+    expect(ended(core.turnUpkeep(200_000))).toBeNull();
+    expect(core.activity.kind).toBe("game");
+  });
+
+  it("a phone that drops while it is not needed keeps the plain grace of a dropped phone, from when it dropped", () => {
+    const { core, tokens } = matchOf();
+    core.disconnect(tokens[1], 3000);
+    expect(core.nextWake(3000)).toBe(3000 + GRACE);
+    expect(core.turnUpkeep(3000 + GRACE).ended.last.early).toMatchObject({ seat: 1, why: "gone" });
+  });
+
+  it("a game ending while a countdown runs: no clock, no time and no wake-up are left behind", () => {
+    const { core, tokens } = matchOf({ needs: () => true });
+    core.setAway(tokens[1], true, 3000);
+    expect(core.view(3000).members[1].awayIn).toBe(GRACE);
+    // Ann wins on her turn, with Bo's clock running.
+    const out = core.playTurn(0, { say: "Am I Ann?", win: true }, 20_000);
+    expect(out.ended).toBeTruthy();
+    expect(core.activity.kind).toBe("lobby");
+    expect(core.view(20_000).members[1]).not.toHaveProperty("awayIn");
+    expect(core.nextWake(20_000) ?? Infinity).not.toBe(3000 + GRACE);
+  });
+
+  it("a game without `needs` keeps today's rule: a hidden page never runs the grace, and no time is shown", () => {
+    const { core, tokens } = matchOf({});
+    core.setAway(tokens[0], true, 3000);
+    expect(core.activity.clocks ?? {}).toEqual({});
+    expect(core.view(3000).members[0]).not.toHaveProperty("awayIn");
+    expect(ended(core.turnUpkeep(3000 + 10 * GRACE))).toBeNull();
+    expect(core.activity.kind).toBe("game");
+  });
+
+  it("the reviewer's probe: time used hidden on one's own turn does not shorten a drop on the other's turn (main's grace from the drop)", () => {
+    // Turns of 90 s that pass on their own, Bo's first.
+    const TURN = 90_000;
+    const fields = {
+      needs: onTurn,
+      nextDeadline: (state) => state.deadline,
+      create: ({ seats, now }) => ({ seats: seats.map((s) => s.seat), secrets: {}, turn: 1, turnMs: TURN, deadline: now + TURN, paused: null, missing: {}, moves: [], timeouts: 0, winner: null, scores: {}, decided: false, avoid: [] }),
+      reconnectGraceMs: undefined,
+    };
+    for (const hidFirst of [true, false]) {
+      const { core, tokens } = matchOf(fields);
+      const t0 = 2000;
+      if (hidFirst) core.setAway(tokens[1], true, t0);
+      // Bo's turn runs out while he is hidden: Ann's turn.
+      core.gameDeadline(t0 + TURN);
+      if (hidFirst) core.setAway(tokens[1], false, t0 + TURN + 1000);
+      // Bo loses signal 4 s later, on Ann's turn.
+      const dropAt = t0 + TURN + 5000;
+      core.disconnect(tokens[1], dropAt);
+      expect(ended(core.turnUpkeep(dropAt))).toBeNull();
+      // On Ann's turn his clock is held still: only main's grace from the drop can end him.
+      expect(core.nextWake(dropAt)).toBe(Math.min(t0 + 2 * TURN, dropAt + TURN_GRACE_MS));
+      expect(ended(core.turnUpkeep(t0 + 2 * TURN - 1))).toBeNull();
+      expect(core.activity.kind, hidFirst ? "hid first" : "never hid").toBe("game");
+    }
+  });
+
+  it("a drop while not needed is never given up on before main's grace from the drop, even with time used before", () => {
+    const { core, tokens } = matchOf();
+    // Ann (her turn) hides 50 s of her minute, comes back for 1 s; Ann plays, the turn is Bo's; Ann drops.
+    core.setAway(tokens[0], true, 3000);
+    core.setAway(tokens[0], false, 53_000);
+    expect(core.playTurn(0, { say: "Am I a cat?" }, 54_000)).toMatchObject({ ok: true });
+    core.disconnect(tokens[0], 54_000);
+    // (On Bo's turn: nobody plays on, so the turn stays his.) Not 11 s after the drop: a whole minute.
+    expect(ended(core.turnUpkeep(54_000 + GRACE - 1))).toBeNull();
+    expect(core.turnUpkeep(54_000 + GRACE).ended.last.early).toMatchObject({ seat: 0, why: "gone" });
+  });
+
+  it("a page that cannot keep its screen awake is not charged for being hidden, even on its own turn: only a drop counts, as on main", () => {
+    const { core, tokens } = matchOf();
+    expect(core.setWake(tokens[0], true, 2500)).toBe(true);
+    expect(core.setWake(tokens[0], true, 2500)).toBe(false);
+    core.setAway(tokens[0], true, 3000);
+    expect(core.view(3000).members[0]).not.toHaveProperty("awayIn");
+    expect(ended(core.turnUpkeep(3000 + 5 * GRACE))).toBeNull();
+    // Its phone drops on its own turn: the clock runs, with the grace of a drop.
+    core.disconnect(tokens[0], 400_000);
+    expect(core.view(400_000).members[0].awayIn).toBe(GRACE);
+    expect(core.turnUpkeep(400_000 + GRACE).ended.last.early).toMatchObject({ seat: 0, why: "gone" });
+  });
+
+  it("saying it can keep its screen awake again makes a hidden page count from then", () => {
+    const { core, tokens } = matchOf();
+    core.setWake(tokens[0], true, 2500);
+    core.setAway(tokens[0], true, 3000);
+    core.setWake(tokens[0], false, 50_000);
+    expect(core.view(50_000).members[0].awayIn).toBe(GRACE);
+  });
+
+  it("the returning player is told how close it came only when this absence ran the clock", () => {
+    const { core, tokens } = matchOf({ needs: onTurn, nextDeadline: (state) => state.deadline });
+    // Ann hides 45 s on her own turn, comes back: told.
+    core.setAway(tokens[0], true, 3000);
+    core.setAway(tokens[0], false, 48_000);
+    expect(core.view(48_000).members[0].awaySpare).toBe(GRACE - 45_000);
+    // She plays: Bo's turn. She hides 5 s while waiting: that cost nothing, so nothing is said,
+    // though some grace is still used from before.
+    expect(core.playTurn(0, { say: "Am I a cat?" }, 49_000)).toMatchObject({ ok: true });
+    core.setAway(tokens[0], true, 50_000);
+    core.setAway(tokens[0], false, 55_000);
+    expect(core.view(55_000).members[0]).not.toHaveProperty("awaySpare");
+  });
+
+  it("a test server's shorter away grace shortens the clock only, never a dropped phone's grace", () => {
+    const { core, tokens } = matchOf();
+    core.awayGraceMs = 20_000;
+    core.setAway(tokens[0], true, 3000);
+    expect(core.view(3000).members[0].awayIn).toBe(20_000);
+    expect(core.turnUpkeep(23_000).ended.last.early).toMatchObject({ seat: 0, why: "gone" });
+    // A phone that drops, needed (seat 0, its turn) or not (seat 1): the full grace either way.
+    for (const seat of [0, 1]) {
+      const other = matchOf();
+      other.core.awayGraceMs = 20_000;
+      other.core.disconnect(other.tokens[seat], 3000);
+      expect(ended(other.core.turnUpkeep(3000 + GRACE - 1))).toBeNull();
+      expect(other.core.turnUpkeep(3000 + GRACE).ended.last.early).toMatchObject({ seat, why: "gone" });
+    }
+  });
+
+  it("a `needs` that throws is taken as not needed: nothing runs", () => {
+    const { core, tokens } = matchOf({
+      needs: () => {
+        throw new Error("boom");
+      },
+    });
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    core.setAway(tokens[0], true, 3000);
+    expect(core.view(3000).members[0]).not.toHaveProperty("awayIn");
+    expect(ended(core.turnUpkeep(3000 + 2 * GRACE))).toBeNull();
+    expect(error).toHaveBeenCalled();
+    error.mockRestore();
   });
 });
 

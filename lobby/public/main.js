@@ -23,14 +23,14 @@ import { chosenLook, hardware3D, openRoomView, preferFlat } from "./room-view.js
 import { standIn } from "./view-api.js";
 import { ScreenFit, allowUpright, fitVisible } from "./screen-fit.js";
 import { SlowWatch } from "./slow-room.js";
-import { BUMP_COOLDOWN_MS, IMMUNE_MS, IMPACT_MS, STUN_MS } from "./shared/bump.js";
-import { BOO_EARLY_MS, FADE_MS, SCARE_MS, SPOOK_AGAIN_MS, SPOOK_MS, SPOOK_REACH } from "./shared/ghost.js";
+import { BUMP_COOLDOWN_MS, CHARGE_HOLD_MS, CHARGE_MIN_MS, IMMUNE_MS, IMPACT_MS, STUN_MS, chargeDash, chargePower } from "./shared/bump.js";
+import { BIG_SCARE_MS, BOO_EARLY_MS, FADE_MS, SCARE_MS, SPOOK_AGAIN_MS, SPOOK_MS, SPOOK_REACH } from "./shared/ghost.js";
 import { moveOf } from "./shared/characters.js";
 import { defineGhostSounds } from "./ghost-sounds.js";
 import { defineMoveSounds } from "./move-sounds.js";
-import { HOOK_COOLDOWN_MS, HOOK_LIFE_MS, STILT_MS } from "./shared/robot.js";
+import { COUNTER_LATE_MS, HOOK_COOLDOWN_MS, HOOK_LIFE_MS, PULL_MS, STILT_MS } from "./shared/robot.js";
 import { HOLD_MS, SHOVE_AGAIN_MS, SHOVE_MS, SHOVE_REACH } from "./shared/slime.js";
-import { MOVED } from "./shared/moves.js";
+import { MOVED, slideLanding } from "./shared/moves.js";
 import { MOVE_COOLDOWN } from "./shared/pilot.js";
 import { FRAME, PHONE_FRAME, camera } from "./shared/camera.js";
 import { clearOfCard, tagsTop } from "./card-clear.js";
@@ -41,6 +41,7 @@ import { stageKey, stageStale, tellRoom } from "./shared/stage.js";
 import { playerLine, statusLine } from "./shared/status.js";
 import { JUMP_HEIGHT, acrossWalls, posAt, sameWall } from "./shared/world.js";
 import { withinReach } from "./reach.js";
+import { PAGE_RELEASE, testProtocol, watchRoomRelease } from "/release-switch.js";
 
 const params = new URLSearchParams(location.search);
 const app = document.getElementById("app");
@@ -50,7 +51,25 @@ let look = chosen.look === "3d" && !hardware3D(params) ? "flat" : chosen.look;
 /** A start link may name the room the party starts in (?start&room=ship). */
 const startRoom = params.has("start") && isRoom(params.get("room")) ? params.get("room") : null;
 // The keep-alive is a fixed text the room answers without waking up (lobby/server/lobby-room.js).
-const link = new PartyClient({ api: "/api/lobby", quietPing: { text: "ping", everyMs: KEEP_ALIVE_MS }, lag: Number(params.get("lag") ?? 0) });
+// ?protocol= is for the end-to-end tests on a local server only (release-switch.js testProtocol).
+const link = new PartyClient({ api: "/api/lobby", quietPing: { text: "ping", everyMs: KEEP_ALIVE_MS }, lag: Number(params.get("lag") ?? 0), release: PAGE_RELEASE, protocol: testProtocol() ?? undefined });
+// An older page loads the new build at the room's next safe point, back in its seat (site/release-switch.js).
+// Not while one of this page's own sheets is open (the room picker, a piece being chosen), nor
+// while the last game's result card is up: a reloaded Floor does not show it again (only the
+// `end` message does), so the reload waits until it has had its moment. A big screen never
+// reloads by itself (nobody may be near it): it offers "New version, tap to load". A player's
+// phone in full screen does reload (the owner's choice, 2026-11-23); it goes back into full
+// screen at the player's next tap (ScreenFit.backAfterReload).
+// The notice is a line of the bottom bar (Hud.release), kept here for a bar built later.
+let releaseNote = [null, null];
+watchRoomRelease(link, {
+  canReload: () => !document.querySelector(".sheet-back, .card-back"),
+  auto: () => link.you?.role !== "screen",
+  notice: (text, tap) => {
+    releaseNote = [text, tap];
+    hud?.release(text, tap);
+  },
+});
 // A locked phone, an offline browser and a connection that quietly died are seen at once (connection.js).
 watchConnection(link, { player: () => isPlayer() });
 // One party, two waiting rooms: when the party is in the plain one, this page moves itself there (hop.js).
@@ -226,6 +245,7 @@ async function enter() {
       },
     },
   });
+  if (releaseNote[0]) hud.release(...releaseNote);
   menu = new RoomMenu(hud.el, { role: link.you.role, seat: link.you.seat, onPick: (id) => link.send({ t: "pick", v: id }), onMode: (v) => link.send({ t: "mode", v }), quiet: modeHop.came });
   hud.muteButton(menu.corner);
   if (menu.mine(room)) menu.hint();
@@ -442,7 +462,7 @@ function apply(next, at = performance.now()) {
   for (const m of room.members) if (m) noBoo(m.seat, voteAt + Math.max(m.safe ?? 0, m.spooked ?? 0));
   if (me) {
     if (!pilot) {
-      pilot = new Pilot({ lights: wall(), send: sendMove, x: me.x, rev: me.rev });
+      pilot = new Pilot({ lights: wall(), send: sendMove, x: me.x, rev: me.rev, character: me.character });
       focus = me.x;
       // A page that arrives in the middle (a reload) takes the room's word on its bump.
       if (me.down > 0) pilot.knock(me.x, me.rev, voteAt, me.down);
@@ -456,7 +476,7 @@ function apply(next, at = performance.now()) {
       pilot.slimeCool(me.slimeCool ?? 0, voteAt);
       // In the middle of its own fade: it still drifts through pieces and boos until it ends.
       if (me.faded > 0) ownFade(me.faded, voteAt);
-    } else if (pilot.rev !== me.rev) pilot.place(me.x, me.rev, voteAt);
+    } else if (pilot.rev !== me.rev) placeOwn(me.x, me.rev, voteAt);
     tellLit(voteAt);
   }
   // The game is over, or this page missed its end and the next match is on (a drop across a
@@ -547,33 +567,61 @@ link.on("message", (msg) => {
   const now = performance.now();
   switch (msg.t) {
     case "m":
-      lastMoves.set(msg.s, { x: msg.x, d: msg.d, t: now });
+      // A floaty piece still easing says how fast it goes (`v`: shared/world.js).
+      lastMoves.set(msg.s, { x: msg.x, d: msg.d, t: now, ...(msg.v !== undefined ? { v: msg.v, vt: now } : {}), character: room.members[msg.s]?.character });
       scene.onMove(msg, now);
       if (msg.j) roomSounds?.jumped(msg.s, now);
       stirAt = now;
       break;
-    case "b":
+    case "b": {
+      // A charged kick (`c`, shared/bump.js) dashed the kicker forward to `kx`: it is there now.
+      if (msg.kx !== undefined) {
+        lastMoves.set(msg.s, { x: msg.kx, d: 0, t: now });
+        if (pilot && msg.s === link.you.seat && msg.sc === undefined && msg.bo === undefined) pilot.place(msg.kx, msg.kr, now);
+      }
       if (msg.to >= 0) {
         lastMoves.set(msg.to, { x: msg.x, d: 0, t: now });
         noBoo(msg.to, now + STUN_MS + IMMUNE_MS);
       }
-      // A kick into a faded ghost (`sc`): the kicker is scared off to where the room put it (shared/ghost.js).
+      // A kick into a faded ghost (`sc`): the kicker is scared off to where the room put it (shared/ghost.js), longer for a charged one.
+      const scare = msg.c !== undefined ? BIG_SCARE_MS : SCARE_MS;
       if (msg.sc !== undefined) {
         lastMoves.set(msg.s, { x: msg.x, d: 0, t: now });
-        noBoo(msg.s, now + SCARE_MS + IMMUNE_MS);
+        noBoo(msg.s, now + scare + IMMUNE_MS);
       }
       scene.onBump(msg, now);
       stirAt = now;
       // Knocked: the piece lies where the room threw it, and has nothing to say until it is up.
       if (pilot && msg.to === link.you.seat) pilot.knock(msg.x, msg.rev, now);
       // Scared: the same, for as long as the start, the freeze and the scurry take.
-      if (pilot && msg.sc !== undefined && msg.s === link.you.seat) pilot.knock(msg.x, msg.rev, now, SCARE_MS);
-      // Bounced off a hardened slime (`bo`, shared/slime.js): the kicker is knocked back itself.
+      if (pilot && msg.sc !== undefined && msg.s === link.you.seat) pilot.knock(msg.x, msg.rev, now, scare);
+      // Bounced off a hardened slime (`bo`, shared/slime.js): the kicker is knocked back itself (a charged kick down for `ke` longer).
       if (msg.bo !== undefined) {
         lastMoves.set(msg.s, { x: msg.x, d: 0, t: now });
-        noBoo(msg.s, now + STUN_MS + IMMUNE_MS);
-        if (pilot && msg.s === link.you.seat) pilot.knock(msg.x, msg.rev, now);
+        noBoo(msg.s, now + STUN_MS + (msg.ke ?? 0) + IMMUNE_MS);
+        if (pilot && msg.s === link.you.seat) pilot.knock(msg.x, msg.rev, now, STUN_MS + (msg.ke ?? 0));
         setTimeout(() => moveSound("hook-clang", msg.bo), IMPACT_MS);
+      }
+      // Cut the chain someone was pulled along (`cut`, shared/robot.js): they are set down where they were.
+      if (msg.cut !== undefined) {
+        lastMoves.set(msg.cut, { x: msg.x, d: 0, t: now });
+        noBoo(msg.cut, now + MOVED.freed.ms + MOVED.freed.safe);
+        if (pilot && msg.cut === link.you.seat) pilot.knock(msg.x, msg.rev, now, MOVED.freed.ms);
+        moveSound("hook-clang", msg.cut);
+      }
+      // Dominoes and the curling stone's target (shared/counters.js): knocked over as it reaches them, `at` ms on.
+      for (const hit of [msg.dm, msg.cv]) {
+        if (!hit) continue;
+        lastMoves.set(hit.to, { x: hit.x, d: 0, t: now });
+        noBoo(hit.to, now + hit.at - IMPACT_MS + STUN_MS + IMMUNE_MS);
+        if (pilot && hit.to === link.you.seat) pilot.knock(hit.x, hit.rev, now, hit.at - IMPACT_MS + STUN_MS);
+        setTimeout(() => roomSounds?.struck(msg.s, hit.to), hit.at);
+      }
+      // The curling stone itself, sliding off as the kick lands.
+      if (msg.cu) {
+        lastMoves.set(msg.cu.s, { x: msg.cu.x, d: 0, t: now });
+        noBoo(msg.cu.s, now + IMPACT_MS + MOVED.curl.ms + MOVED.curl.safe);
+        if (pilot && msg.cu.s === link.you.seat) pilot.knock(msg.cu.x, msg.cu.rev, now, IMPACT_MS + MOVED.curl.ms);
       }
       feelBump(msg);
       // The swing (the viewer's own was heard when the button went down), and the blow when it lands.
@@ -582,6 +630,19 @@ link.on("message", (msg) => {
       // The kick passes through the ghost, and the ghost says boo: feedback for both of them.
       if (msg.sc !== undefined) setTimeout(() => ghostSound("ghost-boo", msg.sc === link.you.seat ? msg.sc : msg.s), IMPACT_MS);
       break;
+    }
+    case "kc":
+      // A pawn holds its kick to charge it (shared/bump.js): it stands where the room stopped it, wound up.
+      stirAt = now;
+      lastMoves.set(msg.s, { x: msg.x, d: 0, t: now });
+      scene.onCharge(msg, now);
+      break;
+    case "kc-no":
+      // The room did not take this pawn's charge: it may walk, the wind-up is taken back, and its release is a tap.
+      pilot?.chargeRefused();
+      if (isPlayer()) scene.ownRefused("charge", now);
+      if (!(msg.wait > 0 && msg.wait < 400)) hud?.note(msg.why);
+      break;
     case "fade":
       // A ghost faded (shared/ghost.js): see-through, untouchable and without a vote for msg.for.
       // `for: 0`: it is solid again before its time (it became another character).
@@ -589,6 +650,17 @@ link.on("message", (msg) => {
       scene.onFade(msg, now);
       if (msg.s === link.you.seat && isPlayer()) ownFade(msg.for, now);
       else if (msg.for > 0) ghostSound("ghost-fade", msg.s);
+      // The empty hook (`ct`, shared/robot.js): the ghost slipped its hook where it was, and the robot is spooked.
+      if (msg.ct === "empty") {
+        lastMoves.set(msg.s, { x: msg.gx, d: 0, t: now });
+        if (pilot && msg.s === link.you.seat) pilot.knock(msg.gx, msg.grev, now, MOVED.freed.ms);
+        if (Number.isInteger(msg.to)) {
+          lastMoves.set(msg.to, { x: msg.x, d: 0, t: now });
+          noBoo(msg.to, now + MOVED.spook.ms + MOVED.spook.safe);
+          if (pilot && msg.to === link.you.seat) pilot.knock(msg.x, msg.rev, now, MOVED.spook.ms);
+          ghostSound("ghost-boo", msg.to);
+        }
+      }
       break;
     case "fade-no":
       // The room turned down this device's fade: its word on the cooldown replaces this page's
@@ -606,10 +678,16 @@ link.on("message", (msg) => {
       scene.onSpook(msg, now);
       stirAt = now;
       if (pilot && msg.to === link.you.seat) {
-        pilot.knock(msg.x, msg.rev, now, SPOOK_MS);
+        // A robot up on its legs topples instead (`tp`, shared/counters.js): down as long as a knock.
+        pilot.knock(msg.x, msg.rev, now, msg.tp ? STUN_MS : SPOOK_MS);
         buzz(40);
       }
       ghostSound("ghost-boo", msg.to === link.you.seat ? msg.to : msg.s);
+      break;
+    case "goo":
+    case "pop":
+      // The slimes met (swallowed or stuck), or two faded ghosts met and popped solid (shared/counters.js).
+      touched(msg, now);
       break;
     case "boo-no":
       // The room did not find this ghost close enough to that piece (or it was spooked a moment
@@ -631,22 +709,34 @@ link.on("message", (msg) => {
       // The throw is over: the robot may walk again.
       if (msg.s === mine && msg.o !== "jumped" && pilot) pilot.rootedUntil = -Infinity;
       // Whoever the room moved: their piece is where it put it, and still while it slides.
-      const moved = (seat, x, rev, kind) => {
+      // `flying`: pulled on a chain it may still answer with its move (shared/robot.js), until the
+      // pull is over and the network's allowance after it; not a pull that is itself a counter (a steal).
+      const moved = (seat, x, rev, kind, flying = false) => {
         if (!Number.isFinite(x)) return;
         lastMoves.set(seat, { x, d: 0, t: now });
         noBoo(seat, now + MOVED[kind].ms + MOVED[kind].safe);
         if (pilot && seat === mine) {
-          pilot.knock(x, rev, now, MOVED[kind].ms);
+          if (flying) pilot.pulled(x, rev, now, MOVED[kind].ms, now + PULL_MS + COUNTER_LATE_MS);
+          else pilot.knock(x, rev, now, MOVED[kind].ms);
           buzz(kind === "pull" ? [40, 30, 40] : 50);
         }
       };
       if (msg.o === "pull") {
-        moved(msg.to, msg.x, msg.rev, "pull");
-        if (msg.tr) moved(msg.tr.s, msg.tr.x, msg.tr.rev, "pull");
+        moved(msg.to, msg.x, msg.rev, "pull", msg.st === undefined);
+        if (msg.tr) moved(msg.tr.s, msg.tr.x, msg.tr.rev, "pull", true);
         moveSound("hook-catch", msg.s);
-      } else if (msg.o === "stuck") {
+      } else if (msg.o === "stuck" || msg.o === "plant") {
         moved(msg.s, msg.x, msg.rev, "pull");
-        moveSound("slime-absorb", msg.to);
+        moveSound(msg.o === "stuck" ? "slime-absorb" : "hook-catch", msg.to);
+      } else if (msg.o === "tug") {
+        // Two hooks at once: held where it is. Each robot's word says it and once is enough (one
+        // buzz, one stand-still for the player's own piece): the second is known by the room's count
+        // of the piece's moves (`rev`, the same in both), since each word has its own time here.
+        if (lastMoves.get(msg.to)?.tug !== msg.rev) {
+          moved(msg.to, msg.x, msg.rev, "tug");
+          if (Number.isFinite(msg.x)) lastMoves.set(msg.to, { ...lastMoves.get(msg.to), tug: msg.rev });
+        }
+        moveSound("hook-catch", msg.s);
       } else if (msg.o === "scare") {
         moved(msg.s, msg.x, msg.rev, "hookscare");
         ghostSound("ghost-boo", msg.to);
@@ -679,6 +769,15 @@ link.on("message", (msg) => {
       stirAt = now;
       scene.onSlime(msg, now);
       if (msg.s !== link.you?.seat || !isPlayer()) moveSound(msg.k === "absorb" ? "slime-absorb" : "slime-harden", msg.s);
+      // The cannonball (`ct`, shared/robot.js): a slime in the air on a chain hardened and bowled the robot over.
+      if (msg.ct === "cannon") {
+        lastMoves.set(msg.to, { x: msg.x, d: 0, t: now });
+        noBoo(msg.to, now + STUN_MS + IMMUNE_MS);
+        if (pilot && msg.to === link.you.seat) pilot.knock(msg.x, msg.rev, now);
+        moveSound("hook-clang", msg.to);
+      }
+      // Hard or soft beside another slime already: they met at once (shared/counters.js).
+      if (msg.goo) touched(msg.goo, now);
       break;
     case "slime-no":
       if (msg.k === "harden") {
@@ -700,11 +799,14 @@ link.on("message", (msg) => {
       moveSound("slime-shove", msg.to);
       break;
     case "cd":
-      // The room refused a bump: its word on how long is left replaces this page's guess.
+      // The room refused a bump: its word on how long is left replaces this page's guess, and the
+      // kick this page drew at the press is taken back (a ride the room heard too late, a press
+      // while it still cooled).
       pilot?.cool(msg.in, now);
+      if (isPlayer()) scene.ownRefused("kick", now);
       break;
     case "fix":
-      pilot?.place(msg.x, msg.rev, now);
+      if (pilot) placeOwn(msg.x, msg.rev, now);
       break;
     case "e":
       stirAt = now;
@@ -821,6 +923,28 @@ function tossSounds(before, after, now) {
   setTimeout(() => roomSounds?.play("toss-land", -1), Math.max(0, at - performance.now()));
 }
 
+/**
+ * Two slimes met ({t: "goo", k: "swallow" | "stick"}) or two faded ghosts did ({t: "pop"})
+ * (shared/counters.js): every piece it moved is where the room put it, and still while it plays.
+ */
+function touched(msg, now) {
+  stirAt = now;
+  scene.onTouch(msg, now);
+  const kind = msg.t === "pop" ? "pop" : msg.k === "swallow" ? "swallowed" : "stick";
+  // The swallow moves only the one it spat out (`to`); the stick and the pop move both.
+  const moved = msg.k === "swallow" ? [[msg.to, msg.x, msg.rev]] : [[msg.s, msg.x, msg.rev], [msg.to, msg.ox, msg.orev]];
+  for (const [seat, x, rev] of moved) {
+    if (!Number.isFinite(x)) continue;
+    lastMoves.set(seat, { x, d: 0, t: now });
+    noBoo(seat, now + MOVED[kind].ms + MOVED[kind].safe);
+    if (pilot && seat === link.you?.seat && isPlayer()) pilot.knock(x, rev, now, MOVED[kind].ms);
+  }
+  // The ghosts are solid again: their own fade is over.
+  if (msg.t === "pop" && isPlayer() && (msg.s === link.you.seat || msg.to === link.you.seat)) ownFade(0, now);
+  if (msg.t === "pop") ghostSound("ghost-boo", msg.s);
+  else moveSound(msg.k === "swallow" ? "slime-absorb" : "slime-harden", msg.s);
+}
+
 /** The blow lands a moment after the bump: both phones buzz then, the one that was hit longer. */
 function feelBump(msg) {
   if (!isPlayer() || msg.to < 0) return;
@@ -857,6 +981,10 @@ function startStage(snapshot) {
   if (!box) return;
   steerNow(0);
   held.length = 0;
+  // A kick held to charge goes with the room: the game has begun.
+  kickPress = null;
+  clearTimeout(chargeTimer);
+  pilot?.chargeRefused();
   const mine = { view: null, waiting: [], gone: false };
   const pass = (method, args) => (mine.view ? mine.view[method](...args) : mine.waiting.push([method, args]));
   stage = {
@@ -938,6 +1066,8 @@ link.on("end", (msg) => {
 
 link.on("status", (status) => {
   hud?.link(status === "reconnecting" ? "Reconnecting..." : "");
+  // A drop loses a charge being held: the room forgets it with the socket (LobbyCore.disconnect).
+  if (status === "reconnecting") dropOwnCharge(performance.now());
   // Back after a drop: the room stood the piece still, so say again where it is going.
   if (status === "open" && pilot) pilot.dirty = true;
   // An answer to a choice of piece lost with the drop never comes: a tap on it again is sent again.
@@ -945,6 +1075,8 @@ link.on("status", (status) => {
 });
 
 link.on("closed", (why, reason) => {
+  // The room needs a newer page: it reloads into its seat (watchRoomRelease), and does not leave.
+  if (why === "update_required") return;
   // A seat let go because its person left from another device of theirs says so ("left").
   const said = bye ?? (why === "seat_lost" ? (reason === "left" ? "left" : "seat_lost") : reason || "room_closed");
   bye = null;
@@ -1033,16 +1165,74 @@ function bump() {
     }
     return;
   }
-  if (pilot.bump(now)) {
-    scene.ownBump(now);
-    roomSounds?.swung(link.you.seat);
-  }
+  // The pawn's kick (shared/bump.js): it winds up at once, and goes off when the button comes up.
+  // Held past CHARGE_MIN_MS it is a charge: the pawn stands still, wound up, and the room times it.
+  // (A press whose release this page never heard, a key let go while the page was busy elsewhere,
+  // is over by now: a new one starts afresh.)
+  if (kickPress !== null && now - kickPress > CHARGE_HOLD_MS + 500) kickPress = null;
+  if (kickPress !== null || !pilot.mayKick(now)) return;
+  kickPress = now;
+  scene.ownBump(now);
+  clearTimeout(chargeTimer);
+  chargeTimer = setTimeout(chargeKick, CHARGE_MIN_MS);
 }
 
-/** The move button came up: a slime's press was a tap. */
+/** The move button came up: a slime's press was a tap; a pawn's kick goes off (charged, if it was held). */
 function unbump() {
   clearTimeout(holdTimer);
   holdTimer = null;
+  releaseKick();
+}
+
+/** When this pawn's move button went down (this page's clock), until its kick goes off; and the timer that turns a held press into a charge. */
+let kickPress = null;
+let chargeTimer = null;
+
+/** The pawn's move button is still down CHARGE_MIN_MS after the press: a charge. Let go of after CHARGE_HOLD_MS by itself. */
+function chargeKick() {
+  chargeTimer = null;
+  const now = performance.now();
+  if (kickPress === null || !pilot || ownMove() !== "kick" || !canMove() || room.phase !== "lobby") return;
+  if (!pilot.charge(now)) return;
+  scene.ownCharge(now);
+  chargeTimer = setTimeout(releaseKick, CHARGE_HOLD_MS - CHARGE_MIN_MS);
+}
+
+/** The pawn's kick goes off: a tap, or the release of a charge. */
+function releaseKick() {
+  if (kickPress === null) return;
+  const now = performance.now();
+  const held = now - kickPress;
+  kickPress = null;
+  clearTimeout(chargeTimer);
+  chargeTimer = null;
+  // No longer a pawn (another character chosen while the button was held): no kick, and a charge
+  // still held is let go of, as the room let go of its own.
+  if (!pilot || ownMove() !== "kick") return void dropOwnCharge(now);
+  const charged = pilot.chargeAt !== null;
+  if (!pilot.bump(now)) return;
+  if (!charged) return void roomSounds?.swung(link.you.seat);
+  // It dashes at once, as far as this page reckons the room will let it (never into a light it
+  // does not stand in: shared/moves.js, slideLanding); the room's word says where it stops.
+  const power = chargePower(held);
+  const lit = room.boxes.map((box, i) => (room.vote.lights[box.id] === null ? i : -1)).filter((i) => i >= 0);
+  scene.ownRelease(power, slideLanding(pilot.x, pilot.x + pilot.face * chargeDash(power), wall(), lit), now);
+  roomSounds?.swung(link.you.seat);
+}
+
+/**
+ * This pawn's charge is lost without a kick (the room lost its own: a drop, a move of the piece,
+ * another character): the pilot lets it go and the wind-up drawn on this phone is taken back.
+ */
+function dropOwnCharge(now) {
+  if (pilot?.chargeRefused() && isPlayer()) scene.ownRefused("charge", now);
+}
+
+/** The room put this page's own piece somewhere: a charge held there is lost with it (Pilot.place), and drawn so. */
+function placeOwn(x, rev, now) {
+  const charging = pilot.chargeAt !== null;
+  pilot.place(x, rev, now);
+  if (charging && isPlayer()) scene.ownRefused("charge", now);
 }
 
 /** A slime's move button still held HOLD_MS after the press: the harden just begun turns soft (absorb). */
@@ -1133,7 +1323,7 @@ function fadeNow(now) {
  * boo would not move (another ghost, one down or just up, one spooked a moment ago) is not asked.
  */
 function drift(now) {
-  if (now >= booUntil || !pilot || pilot.d === 0 || pilot.down(now)) return;
+  if (now >= booUntil || !pilot || !pilot.moving(now) || pilot.down(now)) return;
   const x = pilot.x;
   for (const other of piecesNow(now)) {
     if (other.seat === link.you.seat || booSent.has(other.seat) || Math.abs(other.x - x) > SPOOK_REACH) continue;
@@ -1222,6 +1412,11 @@ function frame(t) {
     scene.setCompact(compact, room, now);
   }
   if (pilot) {
+    // Its character's own speed, from the moment the player chooses another (shared/world.js, walkSpeed).
+    const character = room.members[link.you.seat]?.character ?? "pawn";
+    // A charge held as the pawn becomes something else is let go of (Pilot.setCharacter), and drawn so.
+    if (character !== pilot.character) dropOwnCharge(now);
+    pilot.setCharacter(character, now);
     // Asked every frame, so a piece that was knocked down walks on by itself once it is up,
     // if the key is still held, and one that may not move stands still.
     pilot.steer(wanted(), now);
@@ -1297,7 +1492,7 @@ function piecesNow(now) {
     if (!m?.connected) continue;
     const own = isPlayer() && m.seat === link.you.seat && pilot;
     const move = lastMoves.get(m.seat);
-    out.push({ seat: m.seat, x: own ? scene.ownX() : move && move.t > roomSeenAt ? posAt(move, now) : posAt({ x: m.x, d: m.d, t: roomSeenAt }, now) });
+    out.push({ seat: m.seat, x: own ? scene.ownX() : move && move.t > roomSeenAt ? posAt(move, now, m.character) : posAt({ x: m.x, d: m.d, t: roomSeenAt, ...(m.v !== undefined ? { v: m.v, vt: roomSeenAt } : {}) }, now, m.character) });
   }
   return out;
 }

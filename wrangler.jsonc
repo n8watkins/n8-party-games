@@ -101,7 +101,11 @@
         "PARTY_DEBUG": "on",
         // Hangs Coin Flip, the placeholder game, on the party room's wall. Local play and the
         // test runs only: production has no such variable, so its wall has no test game.
-        "PARTY_TEST_GAMES": "on"
+        "PARTY_TEST_GAMES": "on",
+        // A seat's away clock (a page hidden on its own turn at the Table) runs out after 20 s
+        // instead of two minutes, so the browser tests need not wait it out. Read only with
+        // PARTY_DEBUG on; production has neither. A dropped phone's grace is not shortened.
+        "PARTY_TEST_AWAY_GRACE_MS": "20000"
       }
     }
   }

@@ -87,6 +87,29 @@ export function closeQuietly(ws, code, reason) {
  * all (not text, too long, not JSON, another message).
  */
 export function readHello(data, maxBytes) {
+  return readHelloFields(data, maxBytes)?.token ?? null;
+}
+
+/**
+ * The hello a page loaded before the release record says nothing about its build or its protocol.
+ * It speaks protocol 2 (the token as the first message, http.js PROTOCOL), the only one there was.
+ */
+export const LEGACY_HELLO_PROTOCOL = "2";
+/** A release id (scripts/release.mjs): 12 hex digits. Anything else is no release. */
+const RELEASE_ID = /^[0-9a-f]{12}$/;
+/**
+ * The reason a room gives when it closes a socket whose page speaks an older protocol than it does:
+ * with code 4000, so a page from before this reason existed takes it as the room closing (and
+ * leaves, rather than reconnecting for ever), and a newer one reloads into its seat (party-client.js).
+ */
+export const UPDATE_REQUIRED = "update_required";
+
+/**
+ * Everything a socket's first message says, when it is a hello: `{token, release, protocol}`, with
+ * `release` the page's release id or null, and `protocol` the page's protocol (LEGACY_HELLO_PROTOCOL
+ * when it does not say). Null when it is not a hello at all (as readHello).
+ */
+export function readHelloFields(data, maxBytes) {
   if (typeof data !== "string" || data.length > maxBytes) return null;
   let msg;
   try {
@@ -95,7 +118,11 @@ export function readHello(data, maxBytes) {
     return null;
   }
   if (!msg || typeof msg !== "object" || Array.isArray(msg) || msg.t !== "hello") return null;
-  return seatToken(msg.token);
+  return {
+    token: seatToken(msg.token),
+    release: typeof msg.release === "string" && RELEASE_ID.test(msg.release) ? msg.release : null,
+    protocol: typeof msg.protocol === "string" && /^[0-9]{1,4}$/.test(msg.protocol) ? msg.protocol : LEGACY_HELLO_PROTOCOL,
+  };
 }
 
 /** A token as a seat's may be, or an empty one (which no seat matches). */
