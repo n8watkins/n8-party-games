@@ -13,10 +13,12 @@
 //      390x844, 844x390, 1280x720 and 1920x1080 (the big screen at the last two).
 //   4. (run before 3) The away timer, with the big screen: the player waiting hides their page
 //      (no time shown, nothing lost), then the guesser hides theirs on their own turn: the other
-//      phone and the big screen count down from two minutes (checked at 320x568, 844x390, 390x844,
-//      1280x720 and 1920x1080), the guesser comes back after about 30 s and is told how close it
-//      was, then hides for good and forfeits at the grace: "Bo did not come back, so Ann wins."
-//      About three and a half minutes, most of it the grace.
+//      phone and the big screen count down from the grace (checked at 320x568, 844x390, 390x844,
+//      1280x720 and 1920x1080), the guesser comes back halfway through and is told how close it
+//      was, then hides for good and forfeits when the rest runs out, on time: "Bo did not come
+//      back, so Ann wins." The grace is the server's (`testAwayGraceMs` in its config: 20 s on
+//      the local test server, so about a minute in all; two minutes elsewhere). The pages' screen
+//      wake lock is a stand-in that is always granted.
 //   3. Cy and Di leave; Ann and Bo play Clues, and Bo leaves the party mid-round: he forfeits and
 //      Ann is first.
 // Every tap is a real click. Every message any page receives, and after every step each page's
@@ -131,6 +133,26 @@ async function open(name, { width = 390, height = 844, screen = false } = {}) {
   await context.route("https://upload.wikimedia.org/**", (route) => {
     pictureRequests.push({ who: name, url: route.request().url(), referer: route.request().headers().referer ?? null });
     route.fulfill({ status: 200, contentType: "image/svg+xml", body: PICTURE });
+  });
+  // A screen wake lock the page can always have, let go when the page is hidden as a browser does:
+  // a headless browser may refuse the real one, and a page that cannot hold one is (rightly) never
+  // charged for being hidden, which match 4 must not fall into.
+  await context.addInitScript(() => {
+    const lock = () => {
+      const handlers = [];
+      const l = {
+        released: false,
+        addEventListener: (_, fn) => handlers.push(fn),
+        release: async () => {
+          if (l.released) return;
+          l.released = true;
+          handlers.forEach((fn) => fn());
+        },
+      };
+      document.addEventListener("visibilitychange", () => document.hidden && void l.release());
+      return l;
+    };
+    Object.defineProperty(navigator, "wakeLock", { configurable: true, value: { request: async () => lock() } });
   });
   const page = await context.newPage();
   const p = { name, page, context, seat: null, views: [], view: null, screen, gone: false };
@@ -667,7 +689,11 @@ try {
   // ---------------------------------------------------------------- match 4: a page hidden, the away timer
   if (only.has(4)) {
     if (!tv) tv = await openScreen(pin);
-    // No timer and keep-going turns: the guesser's own turn lasts as long as the grace (two minutes).
+    // The away clock's grace: two minutes, or a test server's shorter one (PARTY_TEST_AWAY_GRACE_MS,
+    // 20 s in wrangler.jsonc's local environment), as the server says in its config.
+    const AWAY_MS = (await (await fetch(`${base}/api/party/config`)).json()).testAwayGraceMs ?? 120_000;
+    check(AWAY_MS >= 15_000, `the away clock's grace is long enough to look at (${AWAY_MS} ms)`);
+    // No timer and keep-going turns: the guesser's own turn lasts longer than the grace.
     await pickWhoAmI(ann, [["Turns", "Keep going"], ["Timer", "No timer"]]);
     await tap(ann, "Start the game");
     await allAt("playing");
@@ -703,16 +729,18 @@ try {
     check((await note(w)) === null, `${w.name}, shown again after waiting: nothing to tell (no time was used)`);
     check((await note(g)) === null, `${w.name} is back: ${g.name}'s note is gone`);
 
-    // The guesser hides their page on their own turn: everyone else counts down from two minutes.
+    // The guesser hides their page on their own turn: everyone else counts down from the grace.
+    const hidAt = Date.now();
     await hide(g);
     await waitNote(w, () => /back within \d:\d\d or the match ends/.test(document.querySelector(".stage .away-note:not([hidden]) .away-left")?.textContent ?? ""), `${g.name} hidden on their turn: ${w.name}'s stage counts down`);
     const first = await note(w);
-    check(first?.who === `${g.name} is away` && secondsIn(first.left) >= 115 && secondsIn(first.left) <= 120, `${w.name} reads "${first?.who}" / "${first?.left}"`);
+    const graceS = Math.ceil(AWAY_MS / 1000);
+    check(first?.who === `${g.name} is away` && secondsIn(first.left) >= graceS - 4 && secondsIn(first.left) <= graceS, `${w.name} reads "${first?.who}" / "${first?.left}" (from ${graceS} s)`);
     const firstTv = await note(tv);
     check(firstTv?.who === `${g.name} is away` && /back within/.test(firstTv.left), `the big screen reads "${firstTv?.who}" / "${firstTv?.left}"`);
-    await wait(3000);
+    await wait(2000);
     const later = await note(w);
-    check(secondsIn(later?.left) <= secondsIn(first.left) - 2, `the countdown runs on ${w.name}'s phone (${first.left} -> ${later?.left})`);
+    check(secondsIn(later?.left) <= secondsIn(first.left) - 1, `the countdown runs on ${w.name}'s phone (${first.left} -> ${later?.left})`);
     await still(w, "away-countdown-390x844", `${g.name} hid the page on their own turn: ${w.name}'s phone counts down to the forfeit.`);
     await still(tv, "away-countdown-screen-1280x720", `${g.name} hid the page on their own turn: the big screen counts down too.`);
     for (const [width, height] of [[320, 568], [844, 390]]) {
@@ -729,21 +757,33 @@ try {
     await still(tv, "away-countdown-screen-1920x1080", "The away note on a 1920x1080 big screen.");
     await tv.page.setViewportSize({ width: 1280, height: 720 });
 
-    // Back at about 30 s: the clock stops, and the guesser is told how close it was.
-    await wait(Math.max(0, 30000 - 3000 - 2500));
+    // Back at 60% of the grace, by the clock (the stills above take what they take): the clock
+    // stops, and the guesser is told how close it was.
+    const backAt = hidAt + AWAY_MS * 0.6;
+    check(Date.now() < backAt, `the sizes and stills were done before 60% of the grace (${Date.now() - hidAt} ms of ${AWAY_MS})`);
+    await wait(Math.max(0, backAt - Date.now()));
+    const shownAt = Date.now();
     await show(g);
     await waitNote(g, () => document.querySelector(".stage .away-note.back:not([hidden])") !== null, `${g.name}, back: the stage says how close it was`);
     const back = await note(g);
-    check(back?.kind === "back" && /^You're back, with 1:[23]\d to spare$/.test(back.who) && /you forfeit/.test(back.left), `${g.name} reads "${back?.who}" / "${back?.left}"`);
-    await still(g, "away-back-390x844", `${g.name} came back after about 30 seconds: how close it was.`);
+    const spare = secondsIn(/with (\d+:\d\d) to spare/.exec(back?.who ?? "")?.[1]);
+    const expected = (AWAY_MS - (shownAt - hidAt)) / 1000;
+    check(back?.kind === "back" && spare !== null && Math.abs(spare - expected) <= 2 && /you forfeit/.test(back.left), `${g.name} reads "${back?.who}" / "${back?.left}" (about ${Math.round(expected)} s to spare)`);
+    await still(g, "away-back-390x844", `${g.name} came back with 40% of the grace left: how close it was.`);
     await wait(1000);
     check((await note(w)) === null, `${g.name} is back: ${w.name}'s countdown is gone`);
     await wait(6000);
     check((await note(g)) === null, `${g.name}'s own note goes after a few seconds`);
 
-    // Hidden again for good: the guesser forfeits at the grace, and the other player wins.
+    // Hidden again for good: the guesser forfeits when what is left of the grace runs out (it wound
+    // back up while the page was shown), and the other player wins.
+    const hidAgainAt = Date.now();
+    const used = Math.max(0, shownAt - hidAt - (hidAgainAt - shownAt));
+    const endsAt = hidAgainAt + AWAY_MS - used;
     await hide(g);
-    await waitNote(w, () => document.querySelector(".card:not([hidden]) .card-early") !== null, `${g.name} hidden for the whole grace: ${w.name} gets the card`, 160000);
+    await waitNote(w, () => document.querySelector(".card:not([hidden]) .card-early") !== null, `${g.name} hidden for the whole grace: ${w.name} gets the card`, AWAY_MS + 30000);
+    const cardAt = Date.now();
+    check(cardAt >= endsAt - 2000 && cardAt <= endsAt + 5000, `the forfeit came when the grace ran out (${((cardAt - hidAgainAt) / 1000).toFixed(1)} s after hiding again; expected about ${((endsAt - hidAgainAt) / 1000).toFixed(1)} s)`);
     const early = await w.page.locator(".card-early").textContent().catch(() => "");
     check(early === `${g.name} did not come back, so ${w.name} wins.`, `the card says "${early}"`);
     const title = await w.page.locator(".card-head h3").textContent().catch(() => "");
