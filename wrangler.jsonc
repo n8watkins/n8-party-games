@@ -25,10 +25,13 @@
     "command": "node scripts/build-public.mjs --production",
     "watch_dir": ["party-kit/client", "party-kit/src", "lobby/public", "lobby/shared", "lobby/server", "lobby/games", "lobby/wall.js", "party/public", "site", "lab", "one-device", "floor", "scripts", "games.js", "worker.js"]
   },
+  // /release.js is the Worker's own: it answers with the record it was built with
+  // (party-kit/src/worker/version.js), so a page and the rooms of the Worker that served it always
+  // name the same build, whatever is in dist/public (which several local Workers share).
   "assets": {
     "directory": "./dist/public",
     "binding": "ASSETS",
-    "run_worker_first": ["/api/*"]
+    "run_worker_first": ["/api/*", "/release.js"]
   },
   "observability": {
     "enabled": true,

@@ -17,11 +17,11 @@ vi.mock("cloudflare:workers", () => ({
     }
   },
 }));
-import { ALLOW_DIRTY, RELEASE_FILE, RELEASE_ID, SEMVER, buildKind, builtFiles, gameVersions, gitState, releaseId, releaseModule, releaseProblem, releaseRecord, testBuildProblem } from "../../scripts/release.mjs";
+import { ALLOW_DIRTY, PREVIEW_DIR, RELEASE_FILE, RELEASE_ID, SEMVER, buildKind, builtFiles, gameVersions, gitState, releaseId, releaseModule, releaseProblem, releaseRecord, testBuildProblem } from "../../scripts/release.mjs";
 import { SERVED, build } from "../../scripts/build-public.mjs";
 import { headersFile } from "../../party-kit/build/public.mjs";
 import { GAMES, TURN_GAMES } from "../../games.js";
-import { VERSION_PATH, handleVersion, versionInfo } from "../../party-kit/src/worker/version.js";
+import { RELEASE_SCRIPT_PATH, VERSION_PATH, handleReleaseScript, handleVersion, versionInfo } from "../../party-kit/src/worker/version.js";
 import { releaseLine } from "../release-line.js";
 
 const ROOT = join(import.meta.dirname, "..", "..");
@@ -328,6 +328,68 @@ describe("GET /api/version", () => {
     expect(res.headers.get("Cache-Control")).toBe("no-store");
     expect((await res.json()).release).toBe(RELEASE.id);
   });
+});
+
+describe("GET /release.js: the Worker's own record, never the static folder's copy", () => {
+  const release = { id: "797991e34665", site: "0.1.0", commit: "e9bcc7bab80f", dirty: false, pushed: true, builtAt: "2026-11-22T17:20:21.289Z", games: {} };
+  const get = (path, method = "GET") => new Request(`https://party.example${path}`, { method });
+
+  it("is a module of the record the Worker holds, the same record as the build's file, asked again each load", async () => {
+    const res = handleReleaseScript(get(RELEASE_SCRIPT_PATH), release);
+    expect(res.headers.get("Content-Type")).toMatch(/^text\/javascript/);
+    expect(res.headers.get("Cache-Control")).toBe("no-cache");
+    const text = await res.text();
+    const mod = await import(`data:text/javascript,${encodeURIComponent(text)}`);
+    expect(mod.RELEASE).toEqual(release);
+    expect(Object.isFrozen(mod.RELEASE)).toBe(true);
+    // What a page imports from the Worker is what it would have imported from the build's file.
+    const fromFile = await import(`data:text/javascript,${encodeURIComponent(releaseModule(release))}`);
+    expect(mod.RELEASE).toEqual(fromFile.RELEASE);
+    expect(RELEASE_SCRIPT_PATH).toBe(`/${RELEASE_FILE}`);
+  });
+
+  it("takes only GET and HEAD, and no other path", () => {
+    expect(handleReleaseScript(get(RELEASE_SCRIPT_PATH, "POST"), release).status).toBe(405);
+    expect(handleReleaseScript(get(RELEASE_SCRIPT_PATH, "HEAD"), release).status).toBe(200);
+    expect(handleReleaseScript(get("/release-line.js"), release)).toBeNull();
+    expect(handleReleaseScript(get("/lobby/release.js"), release)).toBeNull();
+  });
+
+  it("is what the site's Worker answers, whatever its static folder holds", async () => {
+    const { default: site } = await import("../../worker.js");
+    const { RELEASE } = await import("n8-party-games/release");
+    // A static folder that another build has just written (the gate's Workers share dist/public).
+    const env = { ASSETS: { fetch: async () => new Response('export const RELEASE = Object.freeze({"id":"000000000000"});') } };
+    const res = await site.fetch(get(RELEASE_SCRIPT_PATH), env);
+    const mod = await import(`data:text/javascript,${encodeURIComponent(await res.text())}`);
+    expect(mod.RELEASE.id).toBe(RELEASE.id);
+  });
+});
+
+describe("two builds of one tree", () => {
+  const site = { "index.html": "<p>hi</p>", "main.js": "export {}" };
+
+  it("are one release whether or not the local preview pages were built with them", () => {
+    // A local build (--preview) and a production-settings build of the same tree, as the gate runs side by side.
+    expect(idOf({ ...site, [`${PREVIEW_DIR}/landing/index.html`]: "<p>preview</p>" })).toBe(idOf(site));
+    // Anything else added is another release.
+    expect(idOf({ ...site, "previewer/index.html": "x" })).not.toBe(idOf(site));
+  });
+
+  it("agree when built twice for real, with and without the preview pages", () => {
+    const run = (dir, ...flags) => {
+      execFileSync(process.execPath, [join(ROOT, "scripts", "build-public.mjs"), ...flags, `--out=${dir}`], { cwd: ROOT, stdio: "ignore" });
+      return recordIn(readFileSync(join(dir, RELEASE_FILE), "utf8")).id;
+    };
+    const a = mkdtempSync(join(tmpdir(), "party-release-a-"));
+    const b = mkdtempSync(join(tmpdir(), "party-release-b-"));
+    try {
+      expect(run(b)).toBe(run(a, "--preview"));
+    } finally {
+      rmSync(a, { recursive: true, force: true });
+      rmSync(b, { recursive: true, force: true });
+    }
+  }, 60_000);
 });
 
 describe("the release line on the pages", () => {

@@ -24,7 +24,7 @@ import { createRequire } from "node:module";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { KIT_CLIENT_PATH, buildPublic, kitClientEntry, report } from "../party-kit/build/public.mjs";
-import { RELEASE_FILE, buildKind, gitState, releaseModule, releaseProblem, releaseRecord, testBuildProblem } from "./release.mjs";
+import { PREVIEW_DIR, RELEASE_FILE, buildKind, gitState, releaseModule, releaseProblem, releaseRecord, testBuildProblem } from "./release.mjs";
 
 /** Where Who Am I?'s pictures load from: the one outside host any page of this site may show images from. */
 export const PICTURE_HOST = "https://upload.wikimedia.org";
@@ -113,7 +113,7 @@ const siteEntries = [
  * local environment's build command passes (wrangler.jsonc, env.local) and the production one
  * does not, so they can be opened locally at /preview/... and never reach the live site.
  */
-const previewEntries = [{ from: join(ROOT, "landing", "public"), to: "preview/landing" }];
+const previewEntries = [{ from: join(ROOT, "landing", "public"), to: `${PREVIEW_DIR}/landing` }];
 const PREVIEW = process.argv.includes("--preview");
 
 // A Table game's public files (its view) come from its package as any hosted game's do.

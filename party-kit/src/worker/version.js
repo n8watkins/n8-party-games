@@ -41,3 +41,28 @@ export function handleVersion(request, release, env, name) {
   if (request.method !== "GET" && request.method !== "HEAD") return json({ ok: false, error: "bad_request", message: "Use GET." }, 405, { Allow: "GET, HEAD" });
   return json(versionInfo(release, env, name));
 }
+
+/** Where the pages import the release record from (scripts/release.mjs, RELEASE_FILE). */
+export const RELEASE_SCRIPT_PATH = "/release.js";
+
+/** The module a page imports as /release.js: the Worker's own record, as the build writes it. */
+export function releaseScript(release) {
+  return `export const RELEASE = Object.freeze(${JSON.stringify(release)});\n`;
+}
+
+/**
+ * The response for a request to /release.js, or null for any other path. The Worker answers it
+ * with the record it was built with (wrangler.jsonc runs the Worker first for this path), not
+ * the copy in the static folder: so a page always names the build of the Worker that served it,
+ * the one its rooms and /api/version name too. Before, several local Workers sharing one
+ * dist/public (the pre-deploy gate) could serve a copy another build had just written there, and
+ * every page believed a new version was out. Never kept by the browser without asking again
+ * (`no-cache`), as the static file was not.
+ */
+export function handleReleaseScript(request, release) {
+  if (new URL(request.url).pathname !== RELEASE_SCRIPT_PATH) return null;
+  if (request.method !== "GET" && request.method !== "HEAD") return new Response(null, { status: 405, headers: { Allow: "GET, HEAD" } });
+  return new Response(request.method === "HEAD" ? null : releaseScript(release), {
+    headers: { "Content-Type": "text/javascript; charset=utf-8", "Cache-Control": "no-cache", "X-Content-Type-Options": "nosniff" },
+  });
+}
