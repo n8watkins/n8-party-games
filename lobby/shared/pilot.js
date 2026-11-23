@@ -149,6 +149,9 @@ export class Pilot {
     // A charge being held is lost with the knock (the room forgets it too: LobbyCore.interrupt).
     this.chargeAt = null;
     this.rootedUntil = -Infinity;
+    // A slime's harden ends with it too (LobbyCore.interrupt, swallow, curl): a hold still down
+    // when it is up again turns nothing, so none is sent (the room would refuse it: maySlime).
+    this.turned = true;
     // Whatever moved it now, it is no longer in the air on a chain (pulled says so after, when it is).
     this.pulledUntil = -Infinity;
   }

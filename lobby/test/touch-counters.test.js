@@ -17,6 +17,7 @@ import {
   curlDistance, curlEase, curlPose, curlReaches, flightReaches, popPose, stickPose, swallowedPose,
 } from "../shared/counters.js";
 import { MOVED, TOUCH_GRACE_MS } from "../shared/moves.js";
+import { Pilot } from "../shared/pilot.js";
 import { STILT_MS } from "../shared/robot.js";
 import { HARDEN_MS, HOLD_MS } from "../shared/slime.js";
 import { boxFromManifest } from "../shared/vote.js";
@@ -458,6 +459,39 @@ describe("the slimes: soft swallows hard, soft sticks to soft", () => {
     expect(core.members[0].fright ?? null).toBeNull();
   });
 
+  it("do not let a harden the room ended turn soft afterwards: a swallowed slime, a stone that has slid", () => {
+    // Swallowed 10 ms into its harden: up again SWALLOW_MS later, still inside the time a hold may
+    // turn a harden (a hold timer that fires late, or a script), but that harden is over.
+    const core = setup(60);
+    core.slime(0, "harden", 2000);
+    core.slime(0, "absorb", 2000 + HOLD_MS);
+    const hard = core.slime(1, "harden", 2000 + HOLD_MS + 10);
+    expect(hard.relay.goo).toMatchObject({ k: "swallow", s: 0, to: 1 });
+    const sue = core.members[1];
+    const up = 2000 + HOLD_MS + 10 + SWALLOW_MS + 1;
+    expect(up - sue.slimeAt).toBeLessThan(HARDEN_MS);
+    expect(core.slime(1, "absorb", up)).toMatchObject({ ok: false, why: "Hold the button to go soft." });
+    expect(sue.softUntil ?? 0).toBeLessThanOrEqual(up);
+    expect(sue.slimeTurned).toBe(false);
+    // The stone: hardened just before a charged kick lands, it slides, and is up inside that time too.
+    const curl = party(["Pat", "Sam"]);
+    be(curl, 1, "slime");
+    place(curl, 0, 300, 1500, 1);
+    place(curl, 1, 390, 1500, -1);
+    curl.charge(0, 2000);
+    const now = 2000 + CHARGE_FULL_MS;
+    curl.slime(1, "harden", now - 20);
+    expect(curl.bump(0, now, 1, true).cu).toBeDefined();
+    const after = now + IMPACT_MS + CURL_MS + 1;
+    expect(after - curl.members[1].slimeAt).toBeLessThan(HARDEN_MS);
+    expect(curl.slime(1, "absorb", after)).toMatchObject({ ok: false });
+    expect(curl.members[1].softUntil ?? 0).toBeLessThanOrEqual(after);
+    // A harden still running turns as it always did, late in it too.
+    const late = setup(400);
+    late.slime(0, "harden", 2000);
+    expect(late.slime(0, "absorb", 2000 + HARDEN_MS - 50)).toMatchObject({ ok: true });
+  });
+
   it("never start on a slime already in a move: a stone mid-slide (no longer hard), or one just up", () => {
     // The stone: Pat's charged kick sends Sam sliding; Sue, hard beside where he will rest, goes soft mid-slide.
     const core = party(["Pat", "Sam", "Sue"]);
@@ -624,6 +658,22 @@ describe("a held touch settled by the toucher's own word (found in review of #97
     expect(out.relay).toBeNull();
     expect(gus).toMatchObject({ x: pop.x, d: 0, vt: null, rev: pop.rev, stunUntil: at + POP_MS });
     expect(posAt(gus, at + 1000)).toBe(pop.x);
+  });
+});
+
+describe("what a page's own piece does when the room moves it (found in review of #97)", () => {
+  it("sends no hold for a harden the room ended: a slime swallowed mid-press does not ask to go soft when it is up", () => {
+    const sent = [];
+    const p = new Pilot({ lights: 1, send: (m) => sent.push(m), x: 500, character: "slime" });
+    expect(p.slime("harden", 1000)).toBe(true);
+    // Swallowed 100 ms into the press; the hold timer fires late, once it is up again.
+    p.knock(600, 2, 1100, SWALLOW_MS);
+    expect(p.slime("absorb", 1100 + SWALLOW_MS + 10)).toBe(false);
+    expect(sent.map((m) => m.k)).toEqual(["harden"]);
+    // A press that nothing interrupts still turns.
+    const q = new Pilot({ lights: 1, send: (m) => sent.push(m), x: 500, character: "slime" });
+    q.slime("harden", 1000);
+    expect(q.slime("absorb", 1000 + HOLD_MS)).toBe(true);
   });
 });
 
