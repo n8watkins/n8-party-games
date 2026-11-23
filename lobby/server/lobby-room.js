@@ -338,8 +338,10 @@ export function createLobbyRoom(wallFor) {
             return;
           }
           this.broadcast(out.relay);
-          // The room stopped the pawn where it charges: its socket carries the piece.
+          // The room stopped the pawn where it charges: its socket carries the piece, and the vote
+          // and the room's wake-up are looked at again, as for any word that moves a piece.
           this.keep(entry);
+          this.settle(now);
           return;
         }
         case "b": {

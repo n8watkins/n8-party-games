@@ -24,6 +24,10 @@ import { posAt } from "./shared/world.js";
  * over (`state` "safe" or "up"): where the room put it, on the first such frame only (after that it
  * is wherever it walks); null otherwise. A page that draws few frames would otherwise leave it
  * where its last frame of the move had it and ease it over from there.
+ *
+ * (#86 also asked `now >= rec.at` before drawing an "up" piece at its landing. It is not needed:
+ * every knock's and fright's `at` is at or before the moment its message arrived, so no frame
+ * judges one before it began, though movedPose would call a negative time "up".)
  */
 export function landing(rec, state) {
   if ((state !== "safe" && state !== "up") || rec.landed) return null;
@@ -90,15 +94,19 @@ export function heardCharge(pieces, own, msg, now) {
 export function heardChargedKick(p, msg, now, own) {
   p.face = msg.f || p.face;
   const to = Number.isFinite(msg.kx) ? msg.kx : p.rx;
-  if (own && p.attack?.lunge && now - p.attack.at < 600) {
+  // The viewer's own dash began at its release (startRelease), however late the room's answer comes:
+  // it is told where it ends, and never drawn a second time.
+  if (own && p.attack?.lunge) {
     p.attack.lunge.to = to;
     p.attack.lunge.power = msg.c;
     p.attack.landed = msg.to >= 0;
     return p.attack.at;
   }
   // From where the room had it as it charged (it stood still), not where a page starved of frames
-  // last drew it: such a page would otherwise draw the dash from somewhere it never was.
-  const from = p.net ? Math.round(posAt(p.net, now, p.kind?.id)) : p.rx;
+  // last drew it: such a page would otherwise draw the dash from somewhere it never was. The
+  // viewer's own piece (its drawn dash already over) goes on from where it is drawn: its `net` is
+  // only the room's last snapshot, which can be from before it walked anywhere.
+  const from = own ? p.rx : p.net ? Math.round(posAt(p.net, now, p.kind?.id)) : p.rx;
   p.attack = { at: now, dir: msg.f || p.face || 1, landed: msg.to >= 0, lunge: { from, to, power: msg.c } };
   p.net = { x: to, d: 0, t: now };
   if (Number.isFinite(msg.kr)) p.rev = msg.kr;
@@ -394,6 +402,8 @@ export function refusedOwn(p, what, now) {
   if (what === "stilts") dropStilts(p, now);
   if (what === "slime") endGoo(p, now);
   if (what === "charge" && p.attack?.charging) p.attack = null;
+  // A refused kick (a ride the room heard too late, a press while it still cooled): not drawn on.
+  if (what === "kick" && p.attack && !p.attack.charging) p.attack = null;
   // A refused absorb: the turn this page drew is taken back, and the harden runs on.
   if (what === "absorb" && p.goo && p.goo.turnAt !== null) {
     p.goo.turnAt = null;

@@ -477,12 +477,15 @@ Only the pawn kicks: the robot's move button is Hook and its jump button its sti
 From character preview round three, "Pawn charged kick" and "Speeds" (the rules are `shared/bump.js` and `shared/world.js`).
 
 - **The charged kick**: the pawn's kick goes off when its button comes up.
-  Held past 180 ms it is a charge: the page says `{t: "kc"}`, the pawn stands still, drawn up and back and glowing warmer the longer it holds (the glow shows with less motion too), and everybody hears `{t: "kc", s, f, x}`.
-  Let go, it is `{t: "b", c: 1}`: the room times the hold by its own clock from the `kc` it heard, so a page cannot make its kick harder than it held it, and a release with no charge the room took is a tap.
-  Full power after about a second (`chargePower`); a charge is held at most 2.5 s, then the page lets it go by itself and the room forgets one it hears no release of (no wake-up of its own).
+  Held past 180 ms it is a charge: the page says `{t: "kc", f}`, the pawn stands still, drawn up and back and glowing warmer the longer it holds (the glow shows with less motion too), and everybody hears `{t: "kc", s, f, x}`.
+  Let go, it is `{t: "b", f, c: 1}`: the room times the hold by its own clock from the `kc` it heard (counting the 180 ms an honest page waits before it sends one), so a page cannot make its kick harder than it held it, and a release with no charge the room took is a tap.
+  The one thing a page decides is when it sends `kc`: a hand-written one that sends it at the press instead of 180 ms later gains those 180 ms (full power after about 0.82 s of holding instead of 1 s, and the shortest dash with no hold at all).
+  That bound is accepted: it is never more than 180 ms, never more than full power, and never more often (the kick's cooldown holds), and closing it would make every honest charge 180 ms weaker.
+  Full power after about a second (`chargePower`); a page lets a charge go by itself after 2.5 s, and the room forgets one it hears no release of after 2.65 s (`CHARGE_HOLD_MS` and `COOLDOWN_SLACK_MS`; no wake-up of its own).
   The pawn dashes 40 to 150 units on the release (never into a light it does not stand in), stopping at the piece it reaches, and kicks it up to 70% further than a kick throws: `{t: "b", s, f, to, c, kx, kr, x, rev}` (`kx`, `kr`: where the dash put the pawn).
   Punished harder: off a hardened slime it is thrown back up to twice as far and lies down up to 0.5 s longer (`ke`); through a faded ghost it is frozen 0.6 s longer (`fright` "bigscare").
-  The charge is lost when the pawn walks, is knocked, pulled, shoved or spooked, drops, or the party leaves the room; its release is then a plain kick, if it is up.
+  The charge is lost when the pawn walks, is knocked, pulled, shoved or spooked, drops, becomes another character, or the party leaves the room, and when its page says it stands more than 4 units from where the charge stopped it; its release is then a plain kick, if it is up.
+  The page lets its own charge go in the same cases (a room switch, a respawn or a correction moving its piece, a drop, another character), so it never draws a dash the room did not make.
 - **Speeds**: the pawn walks at 110% of the old speed, the robot at 100%, the ghost at 95% and the slime at 80% (`SPEED_SHARE`); the pawn jumps highest (136 units, the others 110).
 - **The floaty ghost**: slow to stop and to turn. Its speed changes evenly over 260 ms (twice that to turn), so it drifts about 50 units on when it stops.
   A ghost's page says how fast it still goes (`v`) when it stops or turns, and the room, its relay and the room view carry it so every page and the room work out the same place (`posAt`, `velAt`).
@@ -493,13 +496,18 @@ From character preview round three, "Pawn charged kick" and "Speeds" (the rules 
 
 From character preview round three, "Counters" (the rules are `shared/robot.js`, judged in `LobbyCore`).
 Two limits hold for all of them: a counter can be countered once, and then it resolves; and the windows are about a third of a second.
-A pulled piece is "in the air" from the room's pull until it arrives and 120 ms after (`counterable`, `COUNTER_LATE_MS`), and the room keeps the pull on it (`pull`: who, from, to, when) to judge a counter by.
+A pulled piece is "in the air" for its player from when their phone hears the pull until it arrives and 120 ms after (`COUNTER_LATE_MS`, 380 ms in all), and the room keeps the pull on it (`pull`: who, from, to, when, and where it last stood) to judge a counter by.
+The room hears a press a round trip after its pull, so on its own clock it allows one honest round trip of up to 300 ms more (`COUNTER_LAG_MS`; `counterable` and the cut): it has no measure of a phone's lag it can trust, so the allowance is the same for everybody.
+A phone slower than that has its last moment's counter refused, and its page takes the drawing back (a refused kick's `cd`, `slime-no`, `fade-no`).
+Nothing a counter moves comes to rest in a light it never stood in: a piece taken in the air (a steal) may only stay in the light it was pulled from.
 
-- **Plant**: a robot up on its legs as the hook lands holds its ground, and the thrower is dragged to it along its own chain: `hk` `o: "plant"`. Legs that went up later than the hook landed do not count.
+- **Plant**: a robot up on its legs as the hook lands holds its ground, and the thrower is dragged to it along its own chain: `hk` `o: "plant"`. Legs the room hears go up later than the hook landed count only within the hook's own network allowance (`HOOK_LATE_MS`, 100 ms); later ones do not.
 - **Ride the hook**: a pawn in the air kicks (`b`, its cooldown allowing): a flying kick knocks the robot over, away from it: `{t: "b", s, to: robot, ride: 1, x, rev}`. The pawn lands where it was pulled to.
 - **Cannonball**: a slime in the air hardens: it bowls the robot over: `{t: "slime", k: "harden", ct: "cannon", to, x, rev}`. Not an absorb.
 - **The empty hook**: a ghost in the air fades: it slips the hook where it is in the air (never in a light it was not in), and the robot is spooked away from it: `{t: "fade", ct: "empty", gx, grev, to, x, rev}`. Not during the count (no fade is).
 - **Cut the line**: a pawn's kick that sweeps across a chain someone else is being pulled along frees them where they are: `{t: "b", to: -1, cut, by, x, rev}`; the chain snaps back.
+  The chain is judged as the pawn's page drew it, up to a round trip before the room heard the kick, and the friend is freed where the chain had them then.
+  A kick in reach of both the chain and the robot pulling cuts the chain: helping the friend is the point of the counter (the preview's own words: "the only counter here that is about helping someone else").
 - **Steal**: a robot whose hook reaches a piece in the air on another robot's chain takes it (the owner's pick: the later hook wins), and the first robot's hook snaps back empty: `hk` `o: "pull"` with `st` (the robot it was taken from). A stolen pull is itself a counter: nothing counters it.
 - **Tug of war**: two hooks whose tips reach the same piece within 120 ms of each other (`TUG_MS`), and would both pull it: it stays where it is, stretched between the chains for half a second, and both cooldowns are spent (the owner's pick: nobody wins): `hk` `o: "tug"` from each robot. The room waits for the later hook's own allowance before judging either (one more wake-up).
 - A page in the air may still use its move (`Pilot.pulled`); every look draws each (`public/move-state.js`, the `freed` and `tug` frights in `shared/moves.js`).

@@ -17,7 +17,8 @@
 //   into a faded ghost Pat's charged kick goes through Ada's fade: frozen longer than a scare
 //   speeds             a pawn, a slime and a ghost walk side by side, each at its own speed, and
 //                      the ghost floats on when it stops; the pawn jumps highest
-//   the hook's counters (Ada a robot): ride the hook (Bo kicks as he is pulled), cut the line
+//   the hook's counters (Ada a robot): ride the hook (Bo kicks as he is pulled, and Pat from his
+//                      own page, by its key), cut the line
 //                      (Pat kicks the chain Bo is on), the cannonball (Cy, a slime, hardens in the
 //                      air), steal and tug of war (Cy, now a robot, hooks Bo too: later, then at
 //                      once), plant (Cy up on his legs as the hook lands), the empty hook (Bo, now a
@@ -556,6 +557,22 @@ try {
       const down = await drewDuring(page, A, (m) => m.t === "b" && m.ride, IMPACT_MS + 150, STUN_MS - GETUP_MS, tipped, (f) => `${f.knock ? "knocked" : "up"}:${Math.round(f.tilt)}`);
       seen(rode ? down.ok : false, `${look}: ${name} draws Ada knocked over by the flying kick (${calm(name) ? "less motion; " : ""}${down.story})`);
     }
+
+    section(`${look}: ride the hook from a real page: Pat, pulled, kicks with his own key and knocks Ada over`);
+    await rested(P, A, B);
+    // Pat's page itself (Pilot.pulled, flying): it presses its move key 60 ms after it hears the
+    // room pull him, through the page's own key handling, and the room hears the kick. (Bo
+    // beyond him: Ada's hook meets Pat first.)
+    const pxRide = await walkPat(hx + 220, -1);
+    await placeAll([bo, hx + 520, 0], [cy, 150, 0], [ada, hx, 1]);
+    await sleep(400);
+    mark = ada.seen.length;
+    await pat.evaluate((p) => (window.__react = { on: { t: "hk", o: "pull", to: p }, after: 60 }), P);
+    ada.send({ t: "hook" });
+    const pulledPat = await after((m) => m.t === "hk" && m.s === A, 3000, mark);
+    const patRode = await after((m) => m.t === "b" && m.s === P, 3000, mark);
+    check(pulledPat?.o === "pull" && pulledPat.to === P && patRode?.ride === 1 && patRode.to === A, `Pat's own page rode the hook: the room heard his kick in the air and Ada went over (Pat at ${pxRide}; ${saidSince(mark)})`);
+    await sleep(1500);
 
     section(`${look}: cut the line: Pat kicks Ada's chain while she pulls Bo, and Bo is freed where he is`);
     await rested(P, A, B);

@@ -353,34 +353,38 @@ try {
       // loading its view on a busy machine takes no keys yet): it is tried again, for 45 s at most, and a
       // piece that never got there fails here, by name, instead of in whatever the section checks next.
       const giveUp = Date.now() + 45_000;
-      let gap = x - (await where())[s].x;
-      // Turned toward `face` at the end, and walked again if the turn itself carried it off: on a busy
-      // page the tap's key-up can come late, and a pawn (the fastest piece) once walked on 100 units,
-      // past the slime it was set to kick ("Pat's kick bounces off ... Pat 1019, Sam 989").
+      // Turned toward `face` at the end: walked first to short of x by the step the turning tap takes
+      // (about 30 units; on a retry, the step the last tap really took), so the tap ends it at x. Walked
+      // again when the tap carried it off: on a busy page the tap's key-up can come late, and a pawn
+      // (the fastest piece) once walked on 100 units, past the slime it was set to kick ("Pat's kick
+      // bounces off ... Pat 1019, Sam 989"). It ends within `near` of x either way.
+      let tapStep = face ? 30 : 0;
+      let gap = 0;
       for (let turns = 0; turns < 3; turns++) {
+        const aim = x - face * tapStep;
+        gap = aim - (await where())[s].x;
         for (let walks = 0; walks < 16 && Math.abs(gap) >= near && Date.now() < giveUp; ) {
           const key = gap > 0 ? "ArrowRight" : "ArrowLeft";
           await page.keyboard.down(key);
           await sleep(Math.max(25, Math.min(900, ((Math.abs(gap) - near / 3) / 430) * 1000)));
           await page.keyboard.up(key);
           await sleep(260);
-          const left = x - (await where())[s].x;
+          const left = aim - (await where())[s].x;
           if (left !== gap) walks++;
           gap = left;
         }
         if (!face || Math.abs(gap) >= near) break;
         // A tap the other way first would walk it off: a tap toward `face` turns it there, a step at most.
         // Held past the page's send gap (60 ms), so the turn reaches the room.
+        const before = (await where())[s].x;
         await page.keyboard.down(face > 0 ? "ArrowRight" : "ArrowLeft");
         await sleep(75);
         await page.keyboard.up(face > 0 ? "ArrowRight" : "ArrowLeft");
         await sleep(250);
-        gap = x - (await where())[s].x;
-        // (The tap's own step, up to about 40 units at the pawn's speed, is allowed.)
-        if (Math.abs(gap) < near + 45) {
-          gap = 0;
-          break;
-        }
+        const turned = (await where())[s].x;
+        gap = x - turned;
+        if (Math.abs(gap) < near) break;
+        tapStep = Math.max(0, Math.min(60, Math.abs(turned - before)));
       }
       if (Math.abs(gap) >= near) check(false, `setup: seat ${s}'s piece was walked to ${x} by its keys${face ? " and turned" : ""} (it is ${Math.round(gap)} short)`);
     };
