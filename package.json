@@ -75,6 +75,7 @@
     "lobby:measure:3d": "node lobby/test/measure-3d.mjs",
     "test:production": "node party-kit/test/e2e-production.mjs",
     "test:turnstile": "node party-kit/test/e2e-turnstile.mjs",
+    "test:release": "node lobby/test/e2e-release.mjs",
     "test:tin-derby": "node floor/games/tin-derby/test/e2e-room.mjs --only=short",
     "test:tin-derby:full": "node floor/games/tin-derby/test/e2e-room.mjs --only=solo,two,four,panes,trouble,stalls,noscreen,screens,look,lag,tvlag",
     "release": "release-kit release",
