@@ -114,10 +114,38 @@ const siteEntries = [
  * does not, so they can be opened locally at /preview/... and never reach the live site.
  */
 const previewEntries = [{ from: join(ROOT, "landing", "public"), to: `${PREVIEW_DIR}/landing` }];
-const PREVIEW = process.argv.includes("--preview");
 
-// A Table game's public files (its view) come from its package as any hosted game's do.
-const entries = [kitClientEntry(), ...siteEntries, ...[...GAMES, ...TURN_GAMES].flatMap(gameEntries), ...(PREVIEW ? previewEntries : [])];
+/**
+ * Every flag the command line takes, and what it does. A flag not listed here is refused
+ * (readArgs), so a new one has to be added here, where site/test/release.test.js builds with each
+ * and fails if any of them changes the release id: only the files a deploy ships may.
+ * --out=DIR and --salt=TEXT (with a value) are the local test build's (testBuildProblem).
+ */
+export const BUILD_FLAGS = {
+  "--preview": "also builds the pages still waiting for approval, under preview/ (not part of the release id)",
+  "--production": "refuses a tree a deploy may not ship (releaseProblem)",
+  "--list": "lists every file built",
+};
+
+/** The command line read: {preview, production, list, out, salt, problem}. `problem` names a flag it does not take. */
+export function readArgs(argv = process.argv) {
+  const args = argv.slice(2);
+  const value = (name) => args.find((a) => a.startsWith(`--${name}=`))?.slice(name.length + 3) ?? null;
+  // "--out DIR" (a space, not "=") would otherwise be ignored and build into dist/public.
+  const spaced = args.find((a) => /^--(out|salt)=?$/.test(a))?.replace("=", "");
+  const unknown = args.find((a) => !(a in BUILD_FLAGS) && !/^--(out|salt)=./.test(a) && !/^--(out|salt)=?$/.test(a));
+  const problem = spaced ? `write ${spaced}=VALUE, with "=": ${spaced} VALUE is not read.` : unknown ? `${unknown} is not a flag this build takes (${Object.keys(BUILD_FLAGS).join(", ")}, --out=DIR, --salt=TEXT).` : null;
+  return { preview: args.includes("--preview"), production: args.includes("--production"), list: args.includes("--list"), out: value("out"), salt: value("salt"), problem };
+}
+
+const PREVIEW = readArgs().preview;
+
+/** What a build copies: with `preview`, the pages still waiting for approval too. */
+function entriesFor(preview) {
+  // A Table game's public files (its view) come from its package as any hosted game's do.
+  return [kitClientEntry(), ...siteEntries, ...[...GAMES, ...TURN_GAMES].flatMap(gameEntries), ...(preview ? previewEntries : [])];
+}
+const entries = entriesFor(PREVIEW);
 
 /**
  * Folders that hold server code and server-only data, never sent to a page: the room's own code,
@@ -173,8 +201,10 @@ export const SOURCES = entries.map((entry) => entry.from);
  * into a temporary folder of their own, so they never empty the folder a local Worker serves.
  * The release record goes into `out` as release.js, and to `workerRelease` too when given (the
  * command line gives WORKER_RELEASE). `git` is the commit and tree state to record (gitState).
+ * `preview` adds the pages still waiting for approval (--preview).
  */
-export function build(out = OUT, { workerRelease = null, git = repoState(), salt = "" } = {}) {
+export function build(out = OUT, { workerRelease = null, git = repoState(), salt = "", preview = PREVIEW } = {}) {
+  const entries = entriesFor(preview);
   // The party room shows a hosted game by putting the game's own page in a frame, so this site's
   // pages may be framed by this site's pages, and by nobody else.
   // Hot Potato (one-device/hot-potato) and its hearing test (lab/hot-potato) listen through the
@@ -207,13 +237,11 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
   const git = repoState();
   // An upload (wrangler deploy) is held to the deploy's rules whatever flags the command has.
   const upload = buildKind() === "upload";
-  const production = process.argv.includes("--production");
-  const arg = (name) => process.argv.find((a) => a.startsWith(`--${name}=`))?.slice(name.length + 3) ?? null;
+  const args = readArgs();
+  const production = args.production;
   // A local test build into a folder of its own, its release made another by a salt (testBuildProblem).
-  const test = { out: arg("out"), salt: arg("salt") };
-  // "--out DIR" (a space, not "=") would otherwise be ignored and build into dist/public.
-  const spaced = process.argv.find((a) => /^--(out|salt)=?$/.test(a))?.replace("=", "");
-  const problem = (spaced ? `write ${spaced}=VALUE, with "=": ${spaced} VALUE is not read.` : null) ?? testBuildProblem(test, { upload, production }) ?? (upload || production ? releaseProblem(git, { upload }) : null);
+  const test = { out: args.out, salt: args.salt };
+  const problem = args.problem ?? testBuildProblem(test, { upload, production }) ?? (upload || production ? releaseProblem(git, { upload }) : null);
   if (problem) {
     console.error(`build-public: ${problem}`);
     process.exit(1);

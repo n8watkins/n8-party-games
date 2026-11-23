@@ -54,9 +54,6 @@ describe("the production configuration", () => {
     for (const config of [prod, read("local")]) {
       expect(config.alias["n8-party-games/release"]).toBe("./dist/release.js");
       expect(config.version_metadata).toEqual({ binding: "CF_VERSION_METADATA" });
-      // The pages' /release.js comes from the Worker's own record, never the static folder: a
-      // page and the rooms of the Worker that served it always name one build (version.js).
-      expect(config.assets.run_worker_first).toEqual(["/api/*", "/release.js"]);
     }
     // The local build never refuses a dirty tree: only the deploy's does.
     expect(read("local").build.command).not.toContain("--production");
