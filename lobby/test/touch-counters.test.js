@@ -493,25 +493,40 @@ describe("the slimes: soft swallows hard, soft sticks to soft", () => {
   });
 
   it("never start on a slime already in a move: a stone mid-slide (no longer hard), or one just up", () => {
-    // The stone: Pat's charged kick sends Sam sliding; Sue, hard beside where he will rest, goes soft mid-slide.
+    // The stone: Pat's charged kick sends Sam sliding; Sue (out of its way, behind Pat) is then beside
+    // where he will rest, hardens and goes soft mid-slide.
     const core = party(["Pat", "Sam", "Sue"]);
     be(core, 1, "slime");
     be(core, 2, "slime");
     place(core, 0, 300, 1500, 1);
     place(core, 1, 390, 1500, -1);
-    place(core, 2, 1000, 1500, -1);
+    place(core, 2, 180, 1500, 1);
     core.charge(0, 2000);
     core.slime(1, "harden", 2400);
     const now = 2000 + CHARGE_FULL_MS;
     const b = core.bump(0, now, 1, true);
-    const stone = core.members[1];
+    const [stone, sue] = [core.members[1], core.members[2]];
+    // The stone knocked nobody: Sue is on her feet, so her harden and her hold below are really taken.
     expect(b.cu).toBeDefined();
+    expect(b.cv).toBeUndefined();
+    // Two guards keep a swallow off the stone, and each is pinned alone. The first: its harden is over.
     expect(stone.hardUntil).toBe(now);
-    Object.assign(core.members[2], { x: b.cu.x + 50, d: 0, t: now });
-    core.slime(2, "harden", now + 50);
+    // The second, being in a move (isSafe), with the first taken away: were the stone's harden still
+    // running, a slime going soft beside it mid-slide would still not swallow it.
+    stone.hardUntil = now + HARDEN_MS;
+    Object.assign(sue, { x: b.cu.x + 50, d: 0, t: now });
+    expect(core.slime(2, "harden", now + 50)).toMatchObject({ ok: true });
     const soft = core.slime(2, "absorb", now + 50 + HOLD_MS);
-    expect(soft.relay?.goo).toBeUndefined();
-    expect(stone).toMatchObject({ x: b.cu.x, fright: "curl" });
+    expect(soft).toMatchObject({ ok: true, relay: { k: "absorb" } });
+    expect(soft.relay.goo).toBeUndefined();
+    const mid = now + 50 + HOLD_MS + 10;
+    expect(mid).toBeLessThan(stone.stunUntil);
+    expect(sue.softUntil).toBeGreaterThan(mid);
+    expect(stone.hardUntil).toBeGreaterThan(mid);
+    // It is the reason given, either way round, and the stone stays where the kick sent it.
+    for (const [a, z] of [[2, 1], [1, 2]]) expect(core.goo(a, z, mid)).toEqual({ ok: false, why: "Not just now." });
+    expect(stone).toMatchObject({ x: b.cu.x, rev: b.cu.rev, fright: "curl", stunUntil: now + IMPACT_MS + CURL_MS });
+    expect(sue.fright ?? null).toBeNull();
     // Just up from a knock (safe): a soft slime going soft beside it does not swallow it, as the room's own look would not.
     const up = party(["Sam", "Sue"]);
     be(up, 0, "slime");
