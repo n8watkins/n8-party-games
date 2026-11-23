@@ -7,7 +7,7 @@
 // A page of another origin (a little server this script starts on a spare local port) tries to
 // frame the room and the game and must be refused; a page of the site itself must succeed.
 import http from "node:http";
-import { chromium } from "playwright";
+import { launchBrowser } from "./browser.mjs";
 
 const args = process.argv.slice(2);
 const opt = (k, d) => (args.find((a) => a.startsWith("--" + k + "=")) ?? "--" + k + "=" + d).split("=").slice(1).join("=");
@@ -34,7 +34,7 @@ const other = http.createServer((req, res) => {
 await new Promise((r) => other.listen(0, "127.0.0.1", r));
 const elsewhere = `http://127.0.0.1:${other.address().port}/`;
 
-const browser = await chromium.launch({ headless: true, args: ["--mute-audio"] });
+const browser = await launchBrowser();
 try {
   /** What ended up in each frame of a page: the site's page, or the browser's refusal. */
   const framed = async (page) => {

@@ -230,7 +230,8 @@ describe("silent sockets from many addresses, against a phone waiting one round 
   for (const clients of [1, 5, 20, 40, 100]) {
     it(`a phone is seated at every round trip up to 2 s against ${clients} hostile addresses opening as fast as the door allows`, () => {
       for (const rtt of [50, 100, 250, 500, 1000, 2000]) for (let i = 0; i < 10; i++) expect(phoneSeated({ clients, rtt, phase: (i * 500) / 10 }), `rtt ${rtt}, trial ${i}`).toBe(true);
-    });
+      // A simulation: with 100 addresses it took 2.6 s on a loaded PC, too near vitest's 5 s default.
+    }, 30000);
   }
 
   it("a phone is seated against 64 addresses sending 20 opens a second between them, at every round trip down to 100 ms (the attack that beat the list of known networks)", () => {
@@ -253,5 +254,5 @@ describe("silent sockets from many addresses, against a phone waiting one round 
 
   it("and against 40 hostile addresses that each spend a whole minute's opens inside its round trip", () => {
     for (const rtt of [100, 500, 2000]) for (let i = 0; i < 3; i++) expect(phoneSeated({ clients: 40, rtt, phase: i * 100, burst: RATE_LIMITS.socket.limit }), `rtt ${rtt}`).toBe(true);
-  });
+  }, 30000);
 });

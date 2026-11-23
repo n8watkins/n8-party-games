@@ -3,14 +3,21 @@
 // First a party of three and a big screen: they vote for it, the game is mounted over the room
 // on every device, a player fires with real clicks, reloads in the middle and comes back to
 // their stall, the round ends, the game is taken away again and the places are on the Tonight
-// board. Then a party of one plays a round alone, and a big screen joins in the middle of it.
-// The browser is headless and muted, and is closed at the end whatever happens.
+// board. Meanwhile, in a room of its own, a party of one plays a round alone, and a big screen
+// joins in the middle of it. The browser is headless and muted, and is closed at the end
+// whatever happens.
 //
-//   node lobby/test/e2e-cork.mjs [--base=http://localhost:8791] [--out=lobby/test/shots] [--win=1]
+//   node lobby/test/e2e-cork.mjs [--base=http://localhost:8791] [--out=lobby/test/shots] [--win=1] [--apart=1]
 //
-// It takes about four minutes: a round is ninety seconds, there are two, and nothing shortens
-// them. It reads the room budget's books before and after (the local server's debug door), so
-// the run also says what the two rounds cost.
+// There are two rounds of up to ninety seconds (the game's ROUND_SECONDS). The battle runs its
+// full time, as a battle ends early only once every stall is out of corks and two of its stalls
+// never spend theirs; the round played alone ends sooner, once its one stall (the game's bot) has
+// spent them. The two rounds are played at the same time (about two and a half minutes in all),
+// except in a browser that draws in software, or with --apart=1 (test:cork:full), where the round
+// alone comes after the battle (about four minutes). It reads the room budget's books before and
+// after (the local server's debug door), so the run also says what the rounds cost, and checks
+// that it is what they lasted: each round's on its own when they are played apart, both together
+// when they overlap.
 //
 // Playwright's browser in WSL draws WebGL in software, a few frames a second, so the pages are
 // kept few and small (a 960 x 540 screen, phones at one pixel per pixel) and one of the three
@@ -20,7 +27,10 @@
 // graphics card would otherwise get the 3D look, which lobby/test/e2e-cork-3d.mjs covers.
 import { mkdirSync } from "node:fs";
 import { resolve } from "node:path";
-import { openBrowser } from "../../node_modules/cork-and-bell/tools/browser.mjs";
+import { launchBrowser, openWindowsChrome } from "./browser.mjs";
+import { still as takeStill } from "../../party-kit/test/stills.mjs";
+import { COUNT_IN, END_HOLD } from "../../node_modules/cork-and-bell/game/shared/battle.js";
+import { ROUND_SECONDS } from "../../node_modules/cork-and-bell/game/shared/sim.js";
 import { REPORT_EVERY_MS, ROOM_MEMORY_GB } from "../../party-kit/src/worker/budget-logic.js";
 import { boxCentre } from "../shared/world.js";
 import { partyApi, sleep } from "./client.mjs";
@@ -92,7 +102,8 @@ async function quietBooks() {
     await sleep(REPORT_EVERY_MS + 5_000);
     const now = await books();
     if (now.dayUsed === seen.dayUsed) return;
-    console.log(`     the books moved by ${(now.dayUsed - seen.dayUsed).toFixed(2)} GB-seconds meanwhile: another room is awake on this server`);
+    // Two significant figures: a room barely awake moves them by thousandths, which toFixed(2) showed as 0.00.
+    console.log(`     the books moved by ${(now.dayUsed - seen.dayUsed).toPrecision(2)} GB-seconds meanwhile: another room is awake on this server`);
     seen = now;
   }
   throw new Error("other rooms keep this server's room budget moving, so what this run's rooms cost cannot be told apart: use a server of its own with an empty persist folder (wrangler dev --persist-to <empty folder>)");
@@ -107,7 +118,8 @@ const errors = [];
 const pageSockets = [];
 const pageAddresses = [];
 const loadProblems = [];
-const browser = await openBrowser({ win: opt("win", "0") === "1", width: 960, height: 540 });
+const timeCalls = [];
+const browser = opt("win", "0") === "1" ? await openWindowsChrome({ width: 960, height: 540 }) : await launchBrowser({ args: ["--use-angle=swiftshader", "--enable-unsafe-swiftshader"] }); // with TEST_GPU=1 the WSL browser draws on the card (lobby/test/browser.mjs)
 try {
   async function open(name, viewport, extra = {}) {
     const context = await browser.newContext({ viewport, deviceScaleFactor: 1, ...extra });
@@ -117,6 +129,11 @@ try {
       const socket = { name, url: ws.url(), first: null };
       pageSockets.push(socket);
       ws.on("framesent", (frame) => (socket.first ??= String(frame.payload)));
+      // When the game called time, as the room told this page ({name, t: round seconds}).
+      ws.on("framereceived", (frame) => {
+        if (typeof frame.payload !== "string" || !frame.payload.includes('"k":"time"')) return;
+        for (const e of JSON.parse(frame.payload).ev ?? []) if (e.k === "time") timeCalls.push({ name, t: e.t });
+      });
     });
     page.on("pageerror", (e) => errors.push(`${name}: ${e.message}`));
     page.on("console", (m) => m.type() === "error" && !/WebSocket|ERR_/.test(m.text()) && errors.push(`${name}: ${m.text()}`));
@@ -133,8 +150,7 @@ try {
     }
   };
   const shot = async (page, name) => {
-    await page.screenshot({ path: `${out}/${name}.png`, timeout: 120000 });
-    console.log("     still: " + name);
+    if (await takeStill(page, { path: `${out}/${name}.png` })) console.log("     still: " + name);
   };
   /** The game's frame on a room page, once the game's page inside it is running its round. */
   async function gameFrame(page, timeout = 120000) {
@@ -229,6 +245,21 @@ try {
   await shot(screen, "50-screen-count-cork-and-bell");
   const start = await watcher.wait((m) => m.t === "start", 16000, 0);
   const startedAt = Date.now();
+  // The room's result card is up for under six seconds once the battle ends, which may be while
+  // the run is still busy with its checks: watched for from now, on the big screen, with its
+  // stills taken the moment it is there (where the pages keep up). Resolves with the card's text.
+  let stillsWanted = false;
+  const cardSeen = screen
+    .waitForFunction(() => (document.querySelector(".card .places") ? document.querySelector(".card").innerText : null), null, { polling: 100, timeout: 0 })
+    .then(async (handle) => {
+      const text = await handle.jsonValue();
+      if (stillsWanted) {
+        await shot(screen, "56-screen-cork-and-bell-result").catch(() => {});
+        await shot(ada, "57-phone-cork-and-bell-result").catch(() => {});
+      }
+      return text;
+    })
+    .catch(() => null);
   check(start.room.phase === "playing" && start.room.game.id === "cork-and-bell" && start.s.seats.map((s) => s.seat).join() === "0,1,2", "the count ends and a battle starts for the party's three seats, with no waiting room");
 
   // The game is mounted over the room on every device.
@@ -236,10 +267,17 @@ try {
   for (const [name, page] of [["Ada", ada], ["Cy", cy], ["screen", screen]]) frames[name] = await gameFrame(page);
   const loadedIn = Date.now() - startedAt;
   // A browser that draws WebGL in software (Playwright's own, in WSL) has pages that run many
-  // seconds behind the room. What needs a page to keep up with a ninety-second round is left
+  // seconds behind the room. What needs a page to keep up with the round is left
   // out there, and said so; everything the room decides is checked either way.
   const slow = loadedIn > 15_000;
+  stillsWanted = !slow;
   if (slow) console.log(`     (the game took ${(loadedIn / 1000).toFixed(0)} seconds to come up: this browser draws in software. The reload in the middle, the door sheet and the stills are left out; run with --win=1 for all of it.)`);
+  // Where the pages keep up, the party of one plays its round now, in a room of its own, while
+  // this battle runs its ninety seconds: the two share nothing but the server's books (counted
+  // together below). A browser that draws in software plays it after the battle, as one more set
+  // of pages beside these would slow them all.
+  const alone = slow || opt("apart", "0") === "1" ? null : playAlone();
+  alone?.catch(() => {}); // (awaited below; a failure is reported there)
   // A context to check afterwards: the game's WebGL context, held from the room's page.
   for (const page of [screen, ada, cy]) await holdContext(page);
   const seats = {};
@@ -274,7 +312,43 @@ try {
     await frames.Ada.waitForFunction((n) => window.__cab.session.sims[0].shots > n, had, { timeout: 30000 }).catch(() => {});
   }
   const shots = await fired();
-  check(shots === clicks, `a click on the picture fires a cork: ${shots} corks from ${clicks} clicks`);
+  // Each click sends one cork, which the room relays ({k: "f", seat: 0}, at about the page's
+  // stamp: the room holds a stamp to within half a second of its clock). Ada's stall can show more
+  // only when her socket dropped for a moment (a loaded machine): the room's stand-in plays a
+  // seat whose player is gone (lobby-core.js, gameTick), its corks are the stall's too, and every
+  // one of them falls in a time her seat was seen gone and carries no number (`q`). (The game's
+  // pages do not number their corks either, so `q` alone does not tell the two apart: the stamps do.)
+  const relayedAda = () => watcher.seen.filter((m) => m.t === "ev").flatMap((m) => m.ev.filter((e) => e.k === "f" && e.seat === 0));
+  const matchClicks = () => {
+    const left = relayedAda();
+    const mine = [];
+    for (const c of sentCorks.Ada) {
+      const i = left.findIndex((e) => Math.abs(e.at - c.d) <= 0.6);
+      if (i >= 0) mine.push(...left.splice(i, 1));
+    }
+    return { mine, extra: left };
+  };
+  for (let i = 0; i < 50 && matchClicks().mine.length < clicks; i++) await sleep(100);
+  const { mine, extra } = matchClicks();
+  // The times Ada's seat was gone, in round seconds, from the room's word to the watcher
+  // ({t: "room"} on every join and drop: [from, to], `to` null while still gone).
+  const awayAda = [];
+  for (const m of watcher.seen.slice(watcher.seen.indexOf(start))) {
+    const on = m.room?.members?.[0]?.connected;
+    if (on === undefined) continue;
+    const t = (m.at - start.s.startAt) / 1000 - COUNT_IN;
+    const open = awayAda.at(-1)?.[1] === null;
+    if (!on && !open) awayAda.push([t, null]);
+    else if (on && open) awayAda.at(-1)[1] = t;
+  }
+  const awayAt = (t) => awayAda.some(([from, to]) => t >= from - 1 && t <= (to ?? Infinity) + 1);
+  const extraOk = extra.every((e) => e.q === undefined && awayAt(e.at));
+  check(
+    sentCorks.Ada.length === clicks && mine.length === clicks && extraOk && (extra.length === 0 ? shots === clicks : shots > clicks && shots <= clicks + extra.length),
+    `a click on the picture fires a cork: ${shots} corks on Ada's stall from ${clicks} clicks; her page sent ${sentCorks.Ada.length}, the room relayed ${mine.length} of them` +
+      (extra.length ? `, and ${extra.length} by the room's stand-in at ${extra.map((e) => e.at.toFixed(1)).join(", ")} while her seat was seen gone (${awayAda.map(([a, b]) => `${a.toFixed(1)}-${b === null ? "on" : b.toFixed(1)}`).join(", ")}): ${extraOk}` : ""),
+  );
+  if (shots !== clicks || extra.length) console.log(`     Ada's page sent corks stamped ${sentCorks.Ada.map((c) => c.d.toFixed(3)).join(", ")}; the room relayed corks for her seat at ${relayedAda().map((e) => e.at.toFixed(3)).join(", ")}`);
   await frames.screen.waitForFunction((n) => window.__cab.session.sims[0].shots >= n, shots, { timeout: 30000 }).catch(() => {});
   // The room is the judge of what was fired. The room relays every cork Ada's page sends, but
   // the game's own simulation in the room (cork-and-bell) sometimes counts fewer than the page
@@ -338,21 +412,23 @@ try {
   }
 
   // ---------------------------------------------------------------- the end
-  console.log("     waiting for the round to end (ninety seconds in all)...");
+  console.log(`     waiting for the round to end (${ROUND_SECONDS} seconds in all: Ada and Bea never spend their corks)...`);
   const end = await watcher.wait((m) => m.t === "end", 150000, 0);
-  const took = (end.at - start.at) / 1000;
+  // How long the round was, on the room's clock: from the game's start to the room's end.
+  const took = (end.now - start.s.startAt) / 1000;
   const rows = end.last.rows;
-  check(took > 93 && took < 98, `the round lasted ${took.toFixed(1)} seconds: the count-in, ninety seconds and the hold at the end`);
+  // When the game called time, in round seconds, and what a round that ends then lasts: the
+  // count-in, the room's lag behind its clock, the round and the hold at the end. The room ticks
+  // on a timer, which a loaded machine fires late, so its end may come a little after.
+  const timeAt = watcher.seen.find((m) => m.t === "ev" && m.ev.some((e) => e.k === "time"))?.ev.find((e) => e.k === "time").t ?? null;
+  const due = COUNT_IN + start.s.delay + timeAt + END_HOLD;
+  check(timeAt !== null && timeAt >= ROUND_SECONDS && timeAt < ROUND_SECONDS + 0.5 && took >= due - 0.05 && took < due + 0.5, `the round lasted ${took.toFixed(1)} seconds: the count-in, the full ${ROUND_SECONDS} seconds (time was called at ${timeAt?.toFixed(2)}) and the hold at the end, ${due.toFixed(1)} s`);
   check(rows.length === 3 && rows.every((r, i) => i === 0 || r.score <= rows[i - 1].score) && rows[0].points === 3 && rows.find((r) => r.name === "Bea").score === 0, "it ends with places: " + rows.map((r) => `${r.name} ${r.score} (+${r.points})`).join(", "));
   check(end.room.phase === "lobby" && end.room.tonight.games === 1 && end.room.members.filter(Boolean).reduce((n, m) => n + m.points, 0) === rows.reduce((n, r) => n + r.points, 0), "everyone is back in the lobby and the points are on the Tonight board");
-  if (!slow) {
-    // The card is up for under six seconds: a page that keeps up shows it at once.
-    await screen.waitForSelector(".card .places", { timeout: 20000 });
-    const card = await screen.locator(".card").innerText();
-    await shot(screen, "56-screen-cork-and-bell-result");
-    await shot(ada, "57-phone-cork-and-bell-result");
-    check(card.includes("Cork & Bell") && rows.every((r) => card.includes(r.name) && card.includes(r.score.toLocaleString("en-US"))), "the room's card shows who came where, with the scores");
-  }
+  // The card is up for under six seconds, so it has been watched for since the battle began (cardSeen).
+  const card = await Promise.race([cardSeen, sleep(20000).then(() => null)]);
+  if (!slow) check(typeof card === "string" && card.includes("Cork & Bell") && rows.every((r) => card.includes(r.name) && card.includes(r.score.toLocaleString("en-US"))), "the room's card shows who came where, with the scores" + (card === null ? ": it never came up on the big screen" : ""));
+  else console.log(`     (the big screen ${card === null ? "did not show" : "showed"} the room's card: a page that draws in software is not held to it)`);
   for (const [name, page] of [["big screen", screen], ["Ada's phone", ada], ["Cy's phone", cy]]) {
     // (A page that is behind hears of the end late: wait for it to act on it.)
     await page.waitForSelector(FRAME, { state: "detached", timeout: 90000 });
@@ -379,6 +455,30 @@ try {
   bea.ws.close();
 
   // ================================================================ a party of one
+  // Played at the same time as the battle where the pages keep up (playAlone above), else now.
+  const { loneTook } = await (alone ?? playAlone());
+  await sleep(3000);
+  const after = await books();
+  if (before && afterOne && after) {
+    const first = (afterOne.dayUsed - before.dayUsed) / ROOM_MEMORY_GB;
+    const both = (after.dayUsed - before.dayUsed) / ROOM_MEMORY_GB;
+    // A room is held awake, and counted second for second, from a round's start to its end, and
+    // asleep otherwise, where an event (a join, a step, a vote) counts only the few milliseconds
+    // it took. So each round's awake time is its own length, never less (the room must not
+    // under-count), and more only by those events: never by a timer left running after the round
+    // ended, early or not, which would add every second until the books were read.
+    const AROUND = 1;
+    const fair = (awake, took, around = AROUND) => awake >= took - 0.05 && awake <= took + around;
+    if (alone) {
+      // The two rounds overlapped, so the one count of the server's books holds both: together
+      // they are what the two rounds lasted, each second for second.
+      check(fair(both, took + loneTook, 2 * AROUND), `each round was counted against the room budget second for second: ${both.toFixed(1)} awake seconds for the battle and the round played alone, which lasted ${took.toFixed(1)} and ${loneTook.toFixed(1)} (at most ${AROUND} s more a round is allowed, for what happened around them)`);
+    } else {
+      check(fair(first, took) && fair(both - first, loneTook), `each round was counted against the room budget second for second: ${first.toFixed(1)} awake seconds for the battle, which lasted ${took.toFixed(1)}, and ${(both - first).toFixed(1)} for the round played alone, which lasted ${loneTook.toFixed(1)} (at most ${AROUND} s more is allowed, for what happened around the rounds)`);
+    }
+    console.log(`     one round costs ${(took * ROOM_MEMORY_GB).toFixed(1)} GB-seconds of room time, however many play.`);
+  }
+  async function playAlone() {
   const lone = await open("alone", { width: 844, height: 390 }, { hasTouch: true });
   await lone.goto(base + "/lobby/?start&look=flat&cork-auto=1&cork-quality=low");
   await lone.fill("input[name=nickname]", "Sol");
@@ -408,7 +508,10 @@ try {
   await walk(lone, loneWatch, 0, light());
   const loneStart = await loneUntil((v) => v.phase === "playing", 16000);
   const loneFrame = await gameFrame(lone);
-  const loneSees = await loneFrame.evaluate(() => ({ mine: window.__cab.session.mySeat, stalls: window.__cab.views.length, seats: window.__cab.session.seats.length, rivals: document.getElementById("rivals").hidden }));
+  // Held now, while the frame is surely there: on a slow runner the late screen below can take
+  // the rest of the round to join, and the frame is gone once the round ends.
+  await holdContext(lone);
+  const loneSees = await loneFrame.evaluate(() => ({ mine: window.__cab.session.mySeat, stalls: window.__cab.views.length, seats: window.__cab.session.seats.length, rivals: document.getElementById("rivals").hidden, startAt: window.__cab.session.startAt }));
   check(loneStart.game.id === "cork-and-bell" && loneSees.seats === 1, "alone in its light, the count runs and a round starts for the one seat");
   check(loneSees.mine === 0 && loneSees.stalls === 1 && loneSees.rivals, "the party of one has a stall to itself, with no rivals to pick");
   if (!slow) await shot(lone, "54-phone-cork-and-bell-alone");
@@ -421,24 +524,21 @@ try {
   const lateSees = await lateFrame.evaluate(() => ({ mine: window.__cab.session.mySeat, stalls: window.__cab.views.length, t: window.__cab.session.time(), tally: !document.getElementById("tally").hidden }));
   check(lateSees.mine === -1 && lateSees.stalls === 1 && lateSees.t > -3.5 && lateSees.tally, `a big screen that joins once the round has begun is shown that stall and its score (${lateSees.t < 0 ? "in the count-in" : Math.round(lateSees.t) + " seconds in"})`);
   if (!slow) await shot(late, "59-screen-cork-and-bell-alone");
-  await holdContext(lone);
   console.log("     waiting for the round played alone to end...");
   const loneEnd = await loneUntil((v) => v.phase === "lobby" && v.last?.game === "cork-and-bell", 150000);
   clearInterval(loneWatch.timer);
   const sol = loneEnd.last.rows[0];
   check(loneEnd.last.rows.length === 1 && sol.place === 1 && sol.points === 3 && sol.score > 0, `the round played alone ends too: ${sol.name} ${sol.score} (+${sol.points})`);
+  // On the room's clock, from the game's start to the room's end. Alone, the round is over once
+  // the stall has spent its corks, or when its time is up; the room ends it then, after the hold.
+  const loneTook = (loneEnd.last.at - loneSees.startAt) / 1000;
+  const loneTimeAt = timeCalls.find((c) => c.name === "alone" || c.name === "late screen")?.t ?? null;
+  const loneDue = COUNT_IN + start.s.delay + loneTimeAt + END_HOLD;
+  check(loneTimeAt !== null && loneTook >= loneDue - 0.05 && loneTook < loneDue + 0.5, `and the room ended it when the game did: time was called at ${loneTimeAt?.toFixed(1)} of ${ROUND_SECONDS} seconds (${loneTimeAt < ROUND_SECONDS ? "its corks were spent" : "the time was up"}), and the round lasted ${loneTook.toFixed(1)} seconds, ${loneDue.toFixed(1)} due`);
   await lone.waitForSelector(FRAME, { state: "detached", timeout: 90000 });
   const loneLeft = await leftBehind(lone);
   check(loneLeft.frames === 0 && loneLeft.canvases === 0 && loneLeft.lost === true, "and its game was taken away");
-
-  // ================================================================ what it cost
-  await sleep(3000);
-  const after = await books();
-  if (before && afterOne && after) {
-    const first = (afterOne.dayUsed - before.dayUsed) / ROOM_MEMORY_GB;
-    const both = (after.dayUsed - before.dayUsed) / ROOM_MEMORY_GB;
-    check(first > 93 && first < 101 && both - first > 93 && both - first < 101, `each round was counted against the room budget second for second: ${first.toFixed(1)} awake seconds for the battle and ${(both - first).toFixed(1)} for the round played alone`);
-    console.log(`     one round costs ${(first * ROOM_MEMORY_GB).toFixed(1)} GB-seconds of room time, however many play.`);
+  return { loneTook };
   }
 
   // The handshake as real pages did it, reloads and late joiners included: every socket's first
@@ -503,4 +603,6 @@ try {
   await browser.close();
 }
 console.log(problems.length ? `\n${problems.length} problem(s):\n- ` + problems.join("\n- ") : "\nAll good. Stills are in " + out);
-process.exit(problems.length ? 1 : 0);
+// Exit once everything printed has left: process.exit drops what is still queued for a pipe (the
+// pre-deploy gate reads this output through one), and the list of problems is printed last.
+process.stdout.write("", () => process.stderr.write("", () => process.exit(problems.length ? 1 : 0)));

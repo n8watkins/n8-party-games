@@ -5,7 +5,10 @@
 import { createPartyRoom, PinDirectory, RateLimiter, RoomBudget, ScoreBoard, handlePartyApi } from "./party-kit/src/worker/index.js";
 import { json } from "./party-kit/src/worker/http.js";
 import { partyFullMessage, roomBudgetReport } from "./party-kit/src/worker/room-budget.js";
-import { GAMES } from "./games.js";
+import { handleVersion } from "./party-kit/src/worker/version.js";
+// The release record the build wrote (scripts/release.mjs): the same one the pages import as /release.js.
+import { RELEASE } from "n8-party-games/release";
+import { GAMES, SCORE_BOARDS } from "./games.js";
 import { createLobbyRoom } from "./lobby/server/lobby-room.js";
 import { wallFor } from "./lobby/wall.js";
 
@@ -21,9 +24,12 @@ export { PinDirectory, RateLimiter, RoomBudget, ScoreBoard };
 /** Where the party room's API lives. The same guards as the kit's own API apply to it. */
 const LOBBY_API = "/api/lobby";
 
-/** The games with a high score board (their manifest says so), and the most a round of each can score. */
-const SCORES = Object.fromEntries(GAMES.filter(({ manifest }) => manifest.scores).map(({ manifest }) => [manifest.id, { max: manifest.scores.max }]));
-/** Local test runs (the "local" environment) get a board of their own, so they never chalk up on a game's. */
+/** The games with a high score board, and how each board takes a score (games.js). */
+const SCORES = SCORE_BOARDS;
+/**
+ * Local test runs get a board of their own, so they never chalk up on a game's: only where
+ * PARTY_TEST_GAMES is "on" (the local environment), the one switch every test-only thing follows.
+ */
 const TEST_SCORES = { ...SCORES, "e2e-test": { max: 1000 } };
 
 /**
@@ -39,10 +45,12 @@ async function debug(url, env) {
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
+    const version = handleVersion(request, RELEASE, env);
+    if (version) return version;
     if (env.PARTY_DEBUG === "on" && request.method === "GET" && (url.pathname === `${LOBBY_API}/debug` || url.pathname.startsWith(`${LOBBY_API}/debug/`))) return debug(url, env);
     const lobby = await handlePartyApi(request, env, { prefix: LOBBY_API, rooms: env.PARTY_LOBBIES, fullMessage: partyFullMessage });
     if (lobby) return lobby;
-    const scores = env.PARTY_SIM_LATENCY === "on" ? TEST_SCORES : SCORES;
+    const scores = env.PARTY_TEST_GAMES === "on" ? TEST_SCORES : SCORES;
     return (await handlePartyApi(request, env, { scores })) ?? env.ASSETS.fetch(request);
   },
 };

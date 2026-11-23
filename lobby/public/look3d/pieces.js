@@ -4,20 +4,30 @@
 // drawing: its x comes from the player's Pilot or from the room (lobby/shared), and so do the
 // moments "jumped", "bumped" and "was hit". This file only turns those into a pose: it leans
 // into a walk, rocks from foot to foot, stretches in the air and squashes on landing.
+//
+// The pawn is one of the characters (./characters.js lists them; lobby/README.md, "Characters",
+// is the interface). What every character shares is here too: the size of a piece, the bump as a
+// pose (bumpPose) and the moments the room view writes on a piece's record (startAttack,
+// startKnock, resumeKnock).
 import * as THREE from "./three.js";
 import { PX, SPACE, walkX } from "./space.js";
 import { IMMUNE_MS, IMPACT_MS, PIECE_HEAD, PIECE_PIVOT, STUN_MS, attackPose, impactPoint, knockPose } from "../shared/bump.js";
+import { isMoved, moved, movedPose, movedResumed } from "../shared/moves.js";
 import { JUMP_MS, WALK_SPEED, jumpHeight } from "../shared/world.js";
 
 /** How big a piece is beside the room. */
-const SIZE = 0.78;
-/** A pawn's height in world units, for placing its name tag. */
+export const SIZE = 0.78;
+/** A pawn's height in world units: the height name tags and stickers are placed by, whatever the character. */
 export const PAWN_HEIGHT = (1.115 * SIZE) / PX;
 const GREY = new THREE.Color("#8a8d94");
 const SOOT = new THREE.Color("#1c1512");
+const FUMING = new THREE.Color("#ff2a14");
+/** The pale a fright gives a piece, and where a pawn's eyes are (model units), to widen them about. */
+export const PALE = new THREE.Color("#eef3fb");
+const EYES_AT = new THREE.Vector3(0, 0.925, 0.2);
 /** How long the startled hop of a piece that a room effect made jump lasts, and how high it goes (world units). */
-const HOP_MS = 420;
-const HOP_HEIGHT = 46;
+export const HOP_MS = 420;
+export const HOP_HEIGHT = 46;
 
 function merged(parts) {
   const pos = [];
@@ -58,18 +68,25 @@ function shapes() {
     at.updateMatrix();
     glints.push([ball, at.matrix.clone()]);
   }
-  // Two little crosses, for the eyes of a piece that has just been knocked over.
-  const crosses = [];
-  const bar = new THREE.BoxGeometry(0.085, 0.017, 0.012);
-  for (const side of [-1, 1])
-    for (const turn of [-1, 1]) {
-      at.position.set(side * 0.075, 0.925, 0.207);
-      at.rotation.set(0, side * 0.33, (turn * Math.PI) / 4);
+  // The eyes of a piece that has just been knocked over: squeezed shut, a wince (> <), so it reads
+  // as "oof" and never as hurt (the owner's pick, character preview round three; crosses read as dead).
+  const shut = [];
+  const L = 0.05;
+  const ANG = 0.5;
+  const bar = new THREE.BoxGeometry(L, 0.016, 0.012);
+  for (const side of [-1, 1]) {
+    // The left eye points in (>), the right eye points in (<): the tips face each other.
+    const s = -side;
+    const tip = side * 0.055;
+    for (const up of [1, -1]) {
+      at.position.set(tip - s * Math.cos(ANG) * (L / 2), 0.925 + up * Math.sin(ANG) * (L / 2), 0.207);
+      at.rotation.set(0, side * 0.33, -up * s * ANG);
       at.scale.set(1, 1, 1);
       at.updateMatrix();
-      crosses.push([bar, at.matrix.clone()]);
+      shut.push([bar, at.matrix.clone()]);
     }
-  return { body, eyes: merged(eyes), glints: merged(glints), crosses: merged(crosses), blob: new THREE.CircleGeometry(0.5 * SIZE, 24), ring: new THREE.RingGeometry(0.4, 0.47, 48) };
+  }
+  return { body, eyes: merged(eyes), glints: merged(glints), shut: merged(shut), blob: new THREE.CircleGeometry(0.5 * SIZE, 24), ring: new THREE.RingGeometry(0.4, 0.47, 48) };
 }
 
 let SHAPES = null;
@@ -86,9 +103,10 @@ export function makePawn(radial) {
   const turn = new THREE.Group();
   const eyes = new THREE.Mesh(SHAPES.eyes, eyeMat);
   const glints = new THREE.Mesh(SHAPES.glints, glintMat);
-  const crosses = new THREE.Mesh(SHAPES.crosses, eyeMat);
-  crosses.visible = false;
-  turn.add(new THREE.Mesh(SHAPES.body, mat), eyes, glints, crosses);
+  const shut = new THREE.Mesh(SHAPES.shut, eyeMat);
+  shut.visible = false;
+  const skin = new THREE.Mesh(SHAPES.body, mat);
+  turn.add(skin, eyes, glints, shut);
   const tilt = new THREE.Group();
   tilt.add(turn);
   const group = new THREE.Group();
@@ -105,7 +123,7 @@ export function makePawn(radial) {
   ring.rotation.x = -Math.PI / 2;
   ring.renderOrder = 2;
   ring.visible = false;
-  return { group, tilt, turn, mat, blob, ring, eyes, glints, crosses, colour: new THREE.Color(), sq: 1, sqV: 0, lean: 0, leanV: 0, yaw: 0, stride: 0, lit: 0, prevX: null, air: false, fade: 1 };
+  return { group, tilt, turn, mat, blob, ring, skin: [skin], eyes, glints, shut, colour: new THREE.Color(), sq: 1, sqV: 0, lean: 0, leanV: 0, yaw: 0, stride: 0, lit: 0, prevX: null, air: false, fade: 1 };
 }
 
 /** Colours a pawn for its seat, or grey for a player who has dropped and is expected back. */
@@ -141,7 +159,7 @@ export function disposePawn(pawn) {
 //   piece.attack = {at, dir, landed}
 //   piece.knock  = {at, from, to, safeFor, burst, dust}
 
-const UPRIGHT = { x: null, dx: 0, lift: 0, lean: 0, pivot: 0, sx: 1, sy: 1, state: "idle", dizzy: false, safe: false, shock: false, burst: null, dust: null };
+const UPRIGHT = { x: null, dx: 0, lift: 0, lean: 0, pivot: 0, sx: 1, sy: 1, state: "idle", dizzy: false, safe: false, shock: false, burst: null, dust: null, scared: 0, pale: 0 };
 const RAD = Math.PI / 180;
 /** The shared poses give the height of a piece's head for the flat pawn; this pawn's head (the middle of its ball) is here. */
 const HEAD_SCALE = (0.9 * SIZE) / PX / PIECE_HEAD;
@@ -153,10 +171,32 @@ const HEAD_SCALE = (0.9 * SIZE) / PX / PIECE_HEAD;
  *   lean   radians, positive tips its head to the left of the screen, about a point `pivot`
  *          world units above its foot
  *   sx, sy stretch
- *   dizzy  crosses for eyes; safe: it cannot be knocked again yet; shock: it was just hit
+ *   dizzy  eyes squeezed shut (a pawn's wince, > <; a robot's crosses); safe: it cannot be knocked again yet; shock: it was just hit
  *   burst  {x, y} once, at the moment the blow lands; dust: an x once, when it hits the floor
+ *   scared, pale  0 to 1: a ghost frightened it (lobby/shared/ghost.js, frightPose): its eyes go
+ *          wide and its paint pales, as its own character does them. It starts, freezes and
+ *          scurries off upright, about its foot; it is never knocked over by it.
+ * `calm`: the viewer asked for less motion (a fright does not shiver then).
  */
-export function bumpPose(piece, now) {
+export function bumpPose(piece, now, calm = false) {
+  const f = piece.fright;
+  if (f) {
+    const pose = movedPose(f, now - f.at, calm);
+    if (pose.state === "up") {
+      piece.fright = null;
+      // Over before this page drew its landing (a shove has no safe time after it): drawn there this frame too.
+      if (!f.landed && now >= f.at) return { ...UPRIGHT, x: f.to };
+    }
+    // Until the kick reaches the ghost the kicker's own kick is drawn (below).
+    else if (pose.state !== "standing") {
+      if (pose.face) piece.face = pose.face;
+      // Over, and safe for a while: the first frame after it is drawn where the move put it, not
+      // eased there from wherever this page last drew it (as the flat look's BumpDraw.pose).
+      const landing = pose.x === null && pose.state === "safe" && !f.landed;
+      if (landing) f.landed = true;
+      return { ...UPRIGHT, x: landing ? f.to : pose.x, dx: pose.dx, lift: pose.lift, lean: -pose.tilt * RAD, sx: pose.sx, sy: pose.sy, state: pose.state, safe: pose.state === "safe", scared: pose.scared, pale: pose.pale, dizzy: !!pose.dizzy };
+    }
+  }
   const k = piece.knock;
   if (k) {
     const pose = knockPose(now - k.at, k.from, k.to, k.safeFor);
@@ -197,9 +237,23 @@ export function startKnock(piece, to, at) {
   piece.knock = { at, from: piece.rx, to, safeFor: IMMUNE_MS, burst: false, dust: false };
 }
 
-/** The room says a piece is on the floor or just up from it (for a page that arrived in the middle). */
-export function resumeKnock(piece, x, down, safe, now) {
-  if (piece.knock || !(safe > 0)) return;
+/**
+ * The room moved a piece some other way than a kick, from where it is drawn to `to`
+ * (lobby/shared/moves.js): `kind` "scare" (it kicked a faded ghost; `at` is when its kick began),
+ * "spook", "hookscare", "pull", "bonk" or "shove" (`at` is now).
+ */
+export function startFright(piece, to, at, kind) {
+  piece.fright = moved(kind, piece.rx, to, at);
+  piece.knock = null;
+}
+
+/**
+ * The room says a piece is on the floor or just up from it (for a page that arrived in the
+ * middle): knocked, or moved another way (`fright`, lobby/shared/moves.js), drawn as what it is.
+ */
+export function resumeKnock(piece, x, down, safe, now, fright) {
+  if (piece.knock || piece.fright || !(safe > 0)) return;
+  if (isMoved(fright)) return void (piece.fright = movedResumed(x, down, safe, fright, now));
   piece.knock = { at: now - (STUN_MS - down), from: x, to: x, safeFor: safe - down, burst: true, dust: true };
 }
 
@@ -226,7 +280,7 @@ function spring(value, velocity, target, stiffness, damping, dt) {
 export function posePawn(pawn, piece, now, dt, how) {
   const step = Math.min(dt, 1 / 30);
   // Winding up, striking, thrown, lying or getting up: the bump's pose, on top of the walk.
-  const bump = bumpPose(piece, now);
+  const bump = bumpPose(piece, now, how.calm);
   const thrown = bump.x !== null;
   if (thrown) piece.rx = bump.x;
   pawn.prevX ??= piece.rx;
@@ -272,8 +326,17 @@ export function posePawn(pawn, piece, now, dt, how) {
   pawn.turn.rotation.y = thrown ? pawn.yaw * 0.3 : pawn.yaw;
   if (bump.dizzy !== pawn.dizzy) {
     pawn.dizzy = bump.dizzy;
-    pawn.crosses.visible = bump.dizzy;
+    pawn.shut.visible = bump.dizzy;
     pawn.eyes.visible = pawn.glints.visible = !bump.dizzy;
+  }
+  // Frightened by a ghost: the eyes go wide, grown about their own middle.
+  if (bump.scared !== (pawn.scaredK ?? 0)) {
+    pawn.scaredK = bump.scared;
+    const k = 1 + 0.45 * bump.scared;
+    for (const mesh of [pawn.eyes, pawn.glints]) {
+      mesh.scale.setScalar(k);
+      mesh.position.copy(EYES_AT).multiplyScalar(1 - k);
+    }
   }
 
   // The shadow stays on the floor and tightens as the piece leaves it.
@@ -293,6 +356,12 @@ export function posePawn(pawn, piece, now, dt, how) {
   pawn.mat.clearcoat = 0.7 * (1 - char * 0.8);
   // Up again and not to be knocked for a while: it flickers (it only glows steadily for people who asked for less motion).
   if (bump.safe) pawn.mat.emissiveIntensity += how.calm ? 0.25 : 0.55 * Math.abs(Math.sin(now / 70));
+  // Frightened by a ghost: a lighter, paler tint while it lasts (the owner's pick for the scare).
+  pawn.pale = bump.pale;
+  if (bump.pale > 0) {
+    pawn.mat.color.lerp(PALE, 0.5 * bump.pale);
+    pawn.mat.emissive.lerp(PALE, 0.4 * bump.pale);
+  }
 
   const moving = walking || air || bump.state !== "idle" || yelp > 0 || Math.abs(pawn.sqV) > 0.02 || Math.abs(pawn.leanV) > 0.01 || Math.abs(pawn.lean) > 0.004 || Math.abs(facing - pawn.yaw) > 0.01 || Math.abs(how.lit - pawn.lit) > 0.01 || hop > 0.2;
   return { up: rise + (tall - 1) * PAWN_HEIGHT, moving, shock: bump.shock, burst: bump.burst, dust: bump.dust, state: bump.state };
@@ -310,4 +379,39 @@ export function fadePawn(pawn, left) {
     mesh.material.transparent = true;
     mesh.material.opacity = left * 0.8;
   }
+}
+
+/**
+ * An emote's pose on the pawn for this frame, after posePawn: the body lifted, nudged and leaned
+ * about its foot, on top of whatever the walk and the bump did, and the red of fuming.
+ * `metres` is model metres per rig unit.
+ */
+export function emotePawn(pawn, pose, metres) {
+  const b = pose.body;
+  pawn.group.position.x += b.dx * metres;
+  pawn.group.position.y += b.lift * metres;
+  pawn.tilt.rotation.z -= (b.rot * Math.PI) / 180;
+  if (b.tint > 0) {
+    pawn.mat.color.lerp(FUMING, b.tint * 0.8);
+    pawn.mat.emissive.lerp(FUMING, b.tint * 0.6);
+  }
+}
+
+/**
+ * The baked look has real light, so the paint is not dimmed outside a pool or made to glow
+ * inside one: the pawn in its true colour, shinier, keeping only the flicker of a piece that
+ * cannot be knocked again yet.
+ */
+export function bakePawn(pawn) {
+  if (!pawn.baked) {
+    pawn.baked = true;
+    pawn.mat.roughness = 0.3;
+    pawn.mat.clearcoat = 1;
+    pawn.mat.clearcoatRoughness = 0.12;
+    pawn.mat.envMapIntensity = 1;
+  }
+  const flicker = Math.max(0, pawn.mat.emissiveIntensity - (0.09 + 0.27 * pawn.lit) - 0.01);
+  pawn.mat.color.copy(pawn.colour);
+  if (pawn.pale > 0) pawn.mat.color.lerp(PALE, 0.5 * pawn.pale);
+  pawn.mat.emissiveIntensity = 0.035 + flicker * 0.6;
 }

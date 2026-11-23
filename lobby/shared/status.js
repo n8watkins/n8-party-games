@@ -6,11 +6,6 @@ function names(list) {
   return `${list.slice(0, -1).join(", ")} and ${list[list.length - 1]}`;
 }
 
-/** What the count says a box will do: a game in the room starts, an outside game opens on its own site. */
-function verb(room, id) {
-  return room.boxes.find((b) => b.id === id)?.url ? "opens" : "starts";
-}
-
 /** Who chooses a game's settings (the room view's `choosing.by`), as people would say it. */
 function chooser(room) {
   const by = room.choosing?.by;
@@ -56,7 +51,7 @@ export function statusLine(room, vote, closingLeft = null) {
   }
   if (vote.count) {
     const n = Math.max(1, Math.ceil((vote.countLeft ?? vote.count.endsIn) / 1000));
-    const main = vote.leaders.length === 1 ? `${box(vote.leaders[0])} ${verb(room, vote.leaders[0])} in ${n}.` : `A tie. The coin toss is in ${n}.`;
+    const main = vote.leaders.length === 1 ? `${box(vote.leaders[0])} starts in ${n}.` : `A tie. The coin toss is in ${n}.`;
     return { chip: here.length > 1 ? "EVERYONE IS IN A LIGHT" : "IN A LIGHT", main, sub: "Step out of your light to stop the count.", waiting: [] };
   }
   if (!here.length) return { chip: "JOIN", main: "Scan the code or type it to join.", sub: "The first player in picks the game.", waiting: [] };
@@ -87,7 +82,7 @@ export function playerLine(room, vote, seat, closingLeft = null) {
   else if (vote.toss) rest = "Tie: a coin toss picks";
   else if (vote.count) {
     const n = Math.max(1, Math.ceil((vote.countLeft ?? vote.count.endsIn) / 1000));
-    rest = vote.leaders.length === 1 ? `${box(vote.leaders[0])} ${verb(room, vote.leaders[0])} in ${n}` : `Tie: coin toss in ${n}`;
+    rest = vote.leaders.length === 1 ? `${box(vote.leaders[0])} starts in ${n}` : `Tie: coin toss in ${n}`;
   } else if (!mine && vote.waiting.includes(seat) && !waiting.length && here > 1) rest = "Everyone is waiting for you";
   // While players are chosen on spots, a piece in a light is not a vote: it is the spot it holds,
   // named as the card names it ("Player 2"), and a light somebody else holds is nothing yet.

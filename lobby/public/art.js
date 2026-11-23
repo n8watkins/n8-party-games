@@ -42,12 +42,18 @@ const ART = {
     g.append(title("COIN FLIP", w / 2, 264, 38, "#fdf3d6", w - 22));
   },
 
-  "who-am-i"(g, w, h) {
-    g.append(s("rect", { width: w, height: h, fill: "#efe4d6" }));
-    g.append(s("rect", { x: w / 2 - 52, y: 52, width: 104, height: 104, rx: 24, fill: "#5b3fd6" }), s("circle", { cx: w / 2, cy: 104, r: 33, fill: "#ffffff" }));
-    g.append(label("?", { x: w / 2, y: 121, "font-size": 50, fill: "#5b3fd6", "text-anchor": "middle", class: "t-poster" }));
-    g.append(title("Who Am I?", w / 2, 218, 40, "#2a1b3d", w - 22));
-    g.append(s("rect", { x: w / 2 - 26, y: 234, width: 52, height: 4, rx: 2, fill: "#5b3fd6" }));
+  // The house poster that hangs last (lobby/wall.js, IDEAS): not a game. A light bulb on paper,
+  // the question and the answer; its address is the band along its foot (scene.js).
+  ideas(g, w, h) {
+    const cx = w / 2;
+    g.append(s("rect", { width: w, height: h, fill: "#f1e3c4" }), s("rect", { x: 8, y: 8, width: w - 16, height: h - 16, fill: "none", stroke: "#c8963e", "stroke-width": 2 }));
+    for (let i = 0; i < 8; i++) {
+      const a = (i * Math.PI) / 4 + Math.PI / 8;
+      g.append(s("line", { x1: cx + Math.cos(a) * 42, y1: 72 + Math.sin(a) * 42, x2: cx + Math.cos(a) * 56, y2: 72 + Math.sin(a) * 56, stroke: "#e0a93a", "stroke-width": 5, "stroke-linecap": "round" }));
+    }
+    g.append(s("circle", { cx, cy: 70, r: 30, fill: "#f4c64e", stroke: "#a8780f", "stroke-width": 3 }), s("rect", { x: cx - 14, y: 96, width: 28, height: 20, rx: 4, fill: "#6f6253" }));
+    g.append(title("GOT A GAME", cx, 158, 30, "#2a1b14", w - 26), title("IDEA?", cx, 196, 38, "#b3352a", w - 26));
+    g.append(title("Tell me. I might build it.", cx, 230, 17, "#4a3a2c", w - 26, "t-ui t-semi"));
   },
 
   "tin-derby"(g, w, h) {

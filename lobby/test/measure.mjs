@@ -11,8 +11,9 @@
 // After a game they walk back to the light they chose and linger, so a second game often
 // follows the first: a keen party, which is the dearer case.
 // With --game, every vote is for that game (when its light is on): an evening of one game.
-// In a round of Cork & Bell each player fires a cork about every 1.3 seconds, as someone who
-// uses all seventy corks in the ninety seconds does.
+// In a round of Cork & Bell each player spreads the game's corks (CORKS_PER_ROUND) over its
+// whole time (ROUND_SECONDS), as a steady player does: a round that runs its full length, the
+// dearer case. (A party that spends its corks sooner ends the round sooner, and costs less.)
 //
 // It needs a local server with the debug door open (the "local" environment: npm run dev) and
 // nobody else using it, since the budget's books are shared by every room on the server.
@@ -21,7 +22,12 @@
 // 30 frames a second, so they send exactly what a phone would for the same wandering.
 import { ROOM_MEMORY_GB, INCLUDED_GB_S, INCLUDED_REQUESTS, MESSAGES_PER_REQUEST, EVENT_FLOOR_MS } from "../../party-kit/src/worker/budget-logic.js";
 
+import { COUNT_IN } from "../../node_modules/cork-and-bell/game/shared/battle.js";
+import { CORKS_PER_ROUND, ROUND_SECONDS } from "../../node_modules/cork-and-bell/game/shared/sim.js";
 import { Pilot } from "../shared/pilot.js";
+
+/** A steady player's pace: the round's corks over its time. */
+const CORK_EVERY_MS = (ROUND_SECONDS * 1000) / CORKS_PER_ROUND;
 import { ROOM, boxCentre, lightHalf } from "../shared/world.js";
 import { partyApi, sleep } from "./client.mjs";
 
@@ -65,8 +71,8 @@ let shots = 0;
 let voting = false;
 const callVote = voteEvery > 0 ? setInterval(() => (voting = true), voteEvery * 1000) : null;
 clients[0].ws.addEventListener("message", (e) => {
-  // A game played here ends; an outside game sends everyone off (these players stay, as a page may).
-  if (typeof e.data === "string" && (e.data.startsWith('{"t":"end"') || e.data.startsWith('{"t":"away"'))) voting = false;
+  // A game played here ends.
+  if (typeof e.data === "string" && e.data.startsWith('{"t":"end"')) voting = false;
 });
 
 /** One scripted player: picks somewhere to go, walks there, stands a while, now and then jumps or bumps. */
@@ -106,11 +112,11 @@ function bot(c) {
     if (c.room?.phase !== "lobby") {
       pilot.steer(0, now);
       pilot.step(now);
-      // In a round of Cork & Bell: a cork about every 1.3 seconds, stamped with the round's time.
+      // In a round of Cork & Bell: the round's corks spread over its time, stamped with the round's time.
       const round = c.room?.game?.id === "cork-and-bell" ? c.seen.findLast((m) => m.t === "start") : null;
-      const t = round ? (now - round.s.startAt) / 1000 - 3 : -1;
-      if (t > 0.5 && t < 90 && now >= nextShot) {
-        nextShot = now + rand(1000, 1600);
+      const t = round ? (now - round.s.startAt) / 1000 - COUNT_IN : -1;
+      if (t > 0.5 && t < ROUND_SECONDS && now >= nextShot) {
+        nextShot = now + rand(0.8, 1.2) * CORK_EVERY_MS;
         sentAt.push(now);
         shots += 1;
         c.send({ t: "in", d: { f: [Math.round(t * 1000) / 1000, Math.round(rand(-1.2, 1.2) * 100) / 100, Math.round(rand(0.9, 2.2) * 100) / 100] } });
@@ -156,7 +162,7 @@ const keepAlive = setInterval(() => {
 let games = 0;
 let seenTo = 0;
 const progress = setInterval(() => {
-  games += clients[0].seen.slice(seenTo).filter((m) => m.t === "end" || m.t === "away").length;
+  games += clients[0].seen.slice(seenTo).filter((m) => m.t === "end").length;
   seenTo = clients[0].seen.length;
   console.log(`     ${Math.round((Date.now() - started) / 60_000)} min: ${sentAt.length} messages, ${games} games`);
 }, 60_000);
@@ -166,7 +172,7 @@ if (callVote) clearInterval(callVote);
 voting = false;
 if (clients[0].room?.phase === "playing") await clients[0].wait((m) => m.t === "end", 120_000).catch(() => null);
 [...timers, keepAlive, progress].forEach((t) => t && clearInterval(t));
-games += clients[0].seen.slice(seenTo).filter((m) => m.t === "end" || m.t === "away").length;
+games += clients[0].seen.slice(seenTo).filter((m) => m.t === "end").length;
 const seconds = (Date.now() - started) / 1000;
 const ends = clients[0].seen.filter((m) => m.t === "end");
 const tossed = clients[0].seen.filter((m) => m.t === "vote" && m.vote.toss).length;
@@ -203,7 +209,7 @@ const f = (n, d = 1) => n.toLocaleString("en-US", { maximumFractionDigits: d, mi
 
 console.log(`
 What ${players} players wandering and voting for ${f(seconds / 60, 1)} minutes cost
-(${games} votes won. Games played in the room: ${playedLine}. Sent off to an outside game: ${games - ends.length}. Coin tosses: ${tossed}. Corks fired: ${shots}.)
+(${games} votes won. Games played in the room: ${playedLine}. Coin tosses: ${tossed}. Corks fired: ${shots}.)
 
   Messages to the room      ${f(messages, 0)} in all, ${f(messages / seconds, 2)} a second (${f(messages / seconds / players, 2)} per player)
   Keep-alives               ${f(pings, 0)} (one per player every 20 seconds, answered without waking the room)

@@ -13,13 +13,17 @@
   "preview_urls": false,
   // A game's server code may name the kit as a package ("n8-party-games/kit"). Here the kit is
   // this repository's own folder, so the name resolves to it and the bundle holds one copy.
-  "alias": { "n8-party-games/kit": "./party-kit/src/worker/index.js" },
+  // The release record (scripts/release.mjs) is written by the build to dist/release.js, beside
+  // the public folder's copy the pages import, so the Worker and the pages hold the same record.
+  "alias": { "n8-party-games/kit": "./party-kit/src/worker/index.js", "n8-party-games/release": "./dist/release.js" },
   "compatibility_date": "2026-10-01",
   // Only dist/public is served, and it is rebuilt from an allowlist (scripts/build-public.mjs)
   // before every `wrangler dev` and `wrangler deploy`, and on changes while `wrangler dev` runs.
+  // `--production` refuses a working tree with uncommitted changes, so what is deployed is one
+  // commit; a local server with these settings sets RELEASE_ALLOW_DIRTY=1 (DEPLOY.md, step 3).
   "build": {
-    "command": "node scripts/build-public.mjs",
-    "watch_dir": ["party-kit/client", "party-kit/src", "lobby/public", "lobby/shared", "lobby/server", "lobby/games", "lobby/wall.js", "site", "scripts", "games.js", "worker.js"]
+    "command": "node scripts/build-public.mjs --production",
+    "watch_dir": ["party-kit/client", "party-kit/src", "lobby/public", "lobby/shared", "lobby/server", "lobby/games", "lobby/wall.js", "party/public", "site", "lab", "one-device", "floor", "scripts", "games.js", "worker.js"]
   },
   "assets": {
     "directory": "./dist/public",
@@ -30,6 +34,8 @@
     "enabled": true,
     "head_sampling_rate": 1
   },
+  // The Worker version's id, tag and upload time, for /api/version beside the release record.
+  "version_metadata": { "binding": "CF_VERSION_METADATA" },
   "durable_objects": {
     "bindings": [
       { "name": "PARTY_ROOMS", "class_name": "PartyRoom" },
@@ -53,9 +59,13 @@
     // are refused and solo play carries on. All games on this Worker share the one allowance.
     "PARTY_ROOM_BUDGET_SHARE": "0.1",
     "PARTY_RATE_LIMIT": "on",
-    "PARTY_SIM_LATENCY": "off"
-    // The bot check on new rooms (Cloudflare Turnstile) is off until both keys exist:
-    // TURNSTILE_SITE_KEY here (it is public), TURNSTILE_SECRET_KEY as a secret. See DEPLOY.md.
+    "PARTY_SIM_LATENCY": "off",
+    // The bot check on new rooms (Cloudflare Turnstile) is off until both keys exist: the site
+    // key here (it is public: the widget "Party games new party", Managed, for
+    // partygames.n8builds.dev only) and TURNSTILE_SECRET_KEY as a secret. With the site key alone
+    // the site behaves as if there were none: /api/party/config hands it out only once the secret
+    // is set too. See DEPLOY.md, "The bot check". The local environment has neither.
+    "TURNSTILE_SITE_KEY": "0x4AAAAAAGM24cDseqMFt3A0"
   },
   "env": {
     // Local play and the test runs: npm run dev, npm run dev:lan. Never deployed.
@@ -68,8 +78,10 @@
       // scripts/build-public.mjs. The production build above never passes --preview.
       "build": {
         "command": "node scripts/build-public.mjs --preview",
-        "watch_dir": ["party-kit/client", "party-kit/src", "lobby/public", "lobby/shared", "lobby/server", "lobby/games", "lobby/wall.js", "site", "landing/public", "scripts", "games.js", "worker.js"]
+        "watch_dir": ["party-kit/client", "party-kit/src", "lobby/public", "lobby/shared", "lobby/server", "lobby/games", "lobby/wall.js", "party/public", "site", "landing/public", "lab", "one-device", "floor", "scripts", "games.js", "worker.js"]
       },
+      // Bindings are not inherited, so the version metadata is named again (locally its id is a stand-in).
+      "version_metadata": { "binding": "CF_VERSION_METADATA" },
       "durable_objects": {
         "bindings": [
           { "name": "PARTY_ROOMS", "class_name": "PartyRoom" },

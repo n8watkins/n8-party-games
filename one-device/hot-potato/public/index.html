@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
+  <meta name="theme-color" content="#1e1a4a">
+  <meta name="color-scheme" content="dark">
+  <meta name="description" content="Hot Potato: a word chain by voice around one phone. Say a word in the category that starts with the last letter of the one before, and keep the potato alive.">
+  <title>Hot Potato</title>
+  <link rel="icon" href="/icons/icon-192.png">
+  <link rel="preload" href="fonts/anton-latin-400-normal.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="style.css">
+  <script type="module" src="app.js"></script>
+</head>
+<body>
+<div class="game" id="game" data-screen="start" data-phase="idle" data-heat="calm">
+  <!-- The ground: navy with a lighter band, heating up with the potato -->
+  <div class="ground" aria-hidden="true"><i class="l-warm"></i><i class="l-hot"></i><i class="l-crit"></i><i class="l-pulse"></i><i class="tint"></i><i class="flash"></i></div>
+
+  <div class="gi">
+    <!-- Top: the title, who is up, or who it burst on -->
+    <div class="top">
+      <div class="v v-start">
+        <p class="kicker"><a href="/" class="home">n8games</a> · one device</p>
+        <h1 class="logo">Hot <em>Potato</em></h1>
+        <p class="lede">Keep the potato alive. Say a word in the category that starts with the last letter of the word before, then pass it on.</p>
+      </div>
+      <!-- One slim line along the top: the category, the lives, the fuse, sound and pause. -->
+      <div class="v v-turn turnhead">
+        <div class="bar">
+          <span class="cat" id="g-cat">Cities</span>
+          <span class="life" id="g-life" role="img" aria-label="5 lives left"><i></i><i></i><i></i><i></i><i></i></span>
+          <span class="lifelbl" id="g-left">5 lives</span>
+          <div class="fuse" id="g-fuse" aria-hidden="true"><div class="track"><i class="cable"></i><i class="spark"></i></div></div>
+          <button type="button" class="ibtn" id="g-sound" aria-pressed="false" aria-label="Sound">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z"/><path class="on" d="M15.5 9a4.2 4.2 0 0 1 0 6M18 6.5a7.6 7.6 0 0 1 0 11"/><path class="off" d="M16 9.5l5 5M21 9.5l-5 5"/></svg>
+          </button>
+          <button type="button" class="ibtn" id="g-pause" aria-label="Pause" aria-keyshortcuts="Escape">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 5.5v13M15 5.5v13"/></svg>
+          </button>
+        </div>
+      </div>
+      <div class="v v-end">
+        <p class="kicker">It burst on</p>
+        <h1 class="logo burst-on" id="e-who">Player 1</h1>
+        <p class="lede" id="e-stats"></p>
+      </div>
+    </div>
+
+    <!-- The potato (drawn by art.js) -->
+    <div class="pot" id="pot"></div>
+
+    <!-- Bottom: the setup, the turn, or the chain -->
+    <div class="bot">
+      <form class="v v-start setup" id="setup">
+        <fieldset class="field">
+          <legend class="flabel">Category</legend>
+          <div class="chips" id="s-cats"></div>
+        </fieldset>
+        <div class="setrow">
+          <div class="field">
+            <span class="flabel" id="s-players">Players</span>
+            <div class="stepper" role="group" aria-labelledby="s-players">
+              <button type="button" class="cap" id="s-minus" aria-label="One player fewer">−</button>
+              <output id="s-n" aria-live="polite">4</output>
+              <button type="button" class="cap" id="s-plus" aria-label="One more player">+</button>
+            </div>
+          </div>
+          <div class="field toggles">
+            <span class="flabel">Feel</span>
+            <div class="tg">
+              <button type="button" class="cap tog" id="s-sound" aria-pressed="false">Sound</button>
+              <button type="button" class="cap tog" id="s-buzz" aria-pressed="true">Buzz</button>
+            </div>
+          </div>
+        </div>
+        <p class="note" id="s-note" hidden></p>
+        <button type="submit" class="go" id="s-start"><span class="plate">Start</span></button>
+      </form>
+
+      <!-- The strip under the potato, centred: whose turn; the microphone beside the word to follow
+           (its letter boxed); then one reserved line for what is heard, or the verdict and its
+           appeal, so nothing moves when they come and go. -->
+      <div class="v v-turn bot-turn">
+        <p class="up" id="g-up"><b id="g-up-name">Player 1</b> <span id="g-up-sub">is up</span></p>
+        <div class="ask" id="g-ask">
+          <div class="spot">
+            <button type="button" class="mic-btn" id="g-go" aria-keyshortcuts="Space Enter">
+              <span class="disc" aria-hidden="true"><svg viewBox="0 0 48 48"><path class="cup" d="M17 12 L20 6 L28 6 L31 12 L31 24 L28 30 L20 30 L17 24Z"/><path class="ln" d="M10 22 L10 26 L17 37 L31 37 L38 26 L38 22 M24 37 L24 44 M15 44 L33 44"/></svg></span>
+              <span class="cap-t" id="g-go-text">Start</span>
+            </button>
+            <div class="listening" id="g-listening" aria-hidden="true">
+              <span class="disc"><span class="ring"></span><span class="ring r2"></span><svg viewBox="0 0 48 48"><path class="cup" d="M17 12 L20 6 L28 6 L31 12 L31 24 L28 30 L20 30 L17 24Z"/><path class="ln" d="M10 22 L10 26 L17 37 L31 37 L38 26 L38 22 M24 37 L24 44 M15 44 L33 44"/></svg></span>
+              <span class="cap-t" id="g-listen-text">Say it now</span>
+            </div>
+          </div>
+          <div class="lastword">
+            <span class="lbl sr" id="g-after-lbl">Last word</span>
+            <p class="after" id="g-after"></p>
+            <p class="dead" id="g-dead" hidden></p>
+          </div>
+          <!-- The letter the next word needs, for screen readers: on screen it is the boxed letter
+               of the last word. -->
+          <div class="need sr">
+            <span class="lbl" id="g-need">Any city to start</span>
+            <div class="tag" id="g-tag" role="img" aria-label="Any letter"><span id="g-letter">Any</span></div>
+          </div>
+        </div>
+        <div class="say">
+          <p class="status" id="g-status" aria-live="polite"></p>
+          <p class="heard" id="g-heard" aria-live="polite"></p>
+          <button type="button" class="cap appeal" id="g-appeal" hidden>That was right</button>
+        </div>
+        <div class="acts">
+          <form class="typed" id="g-typed" hidden autocomplete="off">
+            <label class="sr" for="g-word">Your word</label>
+            <input id="g-word" name="word" type="text" inputmode="text" autocapitalize="words" autocomplete="off" spellcheck="false" enterkeyhint="send" placeholder="Type your word">
+            <button type="submit" class="cap" id="g-send">Say it</button>
+          </form>
+        </div>
+        <p class="keys" id="g-keys"><kbd>Space</kbd> or <kbd>Enter</kbd> starts a turn · <kbd>Esc</kbd> pauses</p>
+      </div>
+
+      <div class="v v-end bot-end">
+        <ol class="chain" id="e-chain" aria-label="The chain of words"></ol>
+        <div class="endbtns">
+          <button type="button" class="go" id="e-again"><span class="plate">Play again</span></button>
+          <button type="button" class="cap" id="e-setup">Change setup</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- A verdict, big for a moment (the status line keeps it in words) -->
+  <div class="react" aria-hidden="true">
+    <div class="rv rv-right"><svg class="mk" viewBox="0 0 100 100"><path d="M22 54 L42 73 L80 28"/></svg><b id="r-right-head">Yes!</b><span id="r-right"></span></div>
+    <div class="rv rv-wrong"><svg class="mk" viewBox="0 0 100 100"><path d="M27 27 L73 73 M73 27 L27 73"/></svg><b id="r-wrong-head">Nope!</b><span id="r-wrong"></span></div>
+    <div class="rv rv-boom"><b id="r-boom">Player 1</b><span>was holding it</span></div>
+  </div>
+
+  <p class="turn-hint" aria-hidden="true">Better upright</p>
+
+  <div class="paused" id="g-paused" hidden>
+    <div class="pbox" role="dialog" aria-modal="true" aria-labelledby="p-title">
+      <h2 id="p-title">Paused</h2>
+      <p class="pnote">The fuse waits until you go on.</p>
+      <button type="button" class="go" id="p-resume"><span class="plate">Go on</span></button>
+      <div class="tg">
+        <button type="button" class="cap tog" id="p-sound" aria-pressed="false">Sound</button>
+        <button type="button" class="cap tog" id="p-buzz" aria-pressed="true">Buzz</button>
+      </div>
+      <button type="button" class="cap ghost" id="p-quit">End this round</button>
+    </div>
+  </div>
+</div>
+</body>
+</html>

@@ -7,13 +7,21 @@
 // movement looks smooth whatever the network does.
 import { drawArt } from "./art.js";
 import { BumpDraw, poseTransform } from "./bump-draw.js";
+import { drawingOf } from "./characters/index.js";
 import { fit, label, s, set, shade } from "./dom.js";
-import { Expressions, poseTop } from "./emotes/play.js";
+import { Expressions } from "./emotes/play.js";
 import { EmoteFigure, Sticker, bodyTransform } from "./emotes/svg.js";
 import { IMPACT_MS } from "./shared/bump.js";
+import { OWN_FADED } from "./shared/ghost.js";
+import { MoveDraw } from "./move-draw.js";
+import { gooNow, heardHook, heardShove, heardSlime, heardStilts, heardVerdict, hookNow, hookStop, refusedOwn, resumeMoves, startGoo, startHook, startStilts, stiltsNow } from "./move-state.js";
+import { STILT_RISE } from "./shared/robot.js";
+import { tagLevels } from "./tag-levels.js";
 import { standings } from "./shared/tonight.js";
 import { BADGES, COUNT_MS, playersLabel } from "./shared/vote.js";
-import { ROOM, boxCentre, boxWidth, jumpHeight, lightHalf, posAt } from "./shared/world.js";
+import { wallFor } from "./shared/rooms.js";
+import { ROOM, drawnLight, jumpHeight, poolOf, posAt } from "./shared/world.js";
+import { REACH } from "./reach.js";
 
 const GREY = "#9b948b";
 const BADGE_COLOURS = { any: ["#3db8ff", "#06263a"], phones: ["#b79cf7", "#24124d"], screen: ["#ffc93c", "#3a2a00"] };
@@ -52,7 +60,8 @@ export class Scene {
     this.pieces.clear();
     const n = room.boxes.length;
     this.n = n;
-    this.half = lightHalf(n);
+    // The room's wall (shared/rooms.js): where its boxes hang and its pools lie, as the room decides the vote by it.
+    this.wall = wallFor(room.room, room.boxes);
     svg.append(this.defs());
     svg.append(this.backdrop());
     this.layers = { lamps: s("g"), wall: s("g"), cones: s("g"), pools: s("g"), shadows: s("g"), pieces: s("g"), emotes: s("g"), tags: s("g"), stickers: s("g"), over: s("g") };
@@ -61,7 +70,8 @@ export class Scene {
     this.joinSign(room);
     this.door();
     this.board();
-    this.signs = this.planSigns(room.boxes, boxWidth(n));
+    // Posters have no sign, so only the games' signs are planned.
+    this.signs = this.planSigns(room.boxes.filter((box) => !box.poster), this.wall.box);
     this.boxes = room.boxes.map((box, i) => this.box(box, i, n));
     this.overlay();
     this.bumpLayer();
@@ -104,14 +114,18 @@ export class Scene {
     const sag = (x) => 50 + 21 * Math.sin((x / 73) * 0.86 + 0.6);
     let cable = "";
     const bulbs = s("g");
-    for (let x = -640; x <= 2560; x += 12) cable += `${cable ? "L" : "M"}${x},${(sag(x) - 7).toFixed(1)}`;
-    for (let x = -640; x <= 2560; x += 73) {
+    for (let x = REACH.flat.left; x <= REACH.flat.right; x += 12) cable += `${cable ? "L" : "M"}${x},${(sag(x) - 7).toFixed(1)}`;
+    for (let x = REACH.flat.left; x <= REACH.flat.right; x += 73) {
       bulbs.append(s("circle", { cx: x, cy: sag(x), r: 17, fill: "url(#g-bulb)" }), s("circle", { cx: x, cy: sag(x), r: 6, fill: "#ffeccb" }));
     }
     g.append(s("path", { d: cable, stroke: "#0a0504", "stroke-width": 2, fill: "none" }), bulbs);
-    // The room fades out at its ends.
-    g.append(s("rect", { x: x0, y: -900, width: -x0 + 4, height: 2900, fill: "#080403", opacity: 0.82 }), s("rect", { x: 0, y: -900, width: 120, height: 2900, fill: "url(#g-edge-l)" }));
-    g.append(s("rect", { x: 1916, y: -900, width: x1 - 1916, height: 2900, fill: "#080403", opacity: 0.82 }), s("rect", { x: 1800, y: -900, width: 120, height: 2900, fill: "url(#g-edge-r)" }));
+    // The room carries on past its ends as wall and floor (a sideways phone's whole room shows
+    // past the right end: reach.js), and fades out only past its reach, where no view goes. The
+    // dark past an end starts where the fade has reached it, not under it: where the two
+    // overlapped, a darker line ran down the screen.
+    const { left, right } = REACH.flat;
+    g.append(s("rect", { x: x0, y: -900, width: left - x0, height: 2900, fill: "#080403", opacity: 0.82 }), s("rect", { x: left, y: -900, width: 300, height: 2900, fill: "url(#g-edge-l)" }));
+    g.append(s("rect", { x: right, y: -900, width: x1 - right, height: 2900, fill: "#080403", opacity: 0.82 }), s("rect", { x: right - 300, y: -900, width: 300, height: 2900, fill: "url(#g-edge-r)" }));
     return g;
   }
 
@@ -174,22 +188,30 @@ export class Scene {
     const fx = s("g");
     this.layers.tags.before(fx);
     this.bumps = new BumpDraw({ fx, floor: this.layers.shadows });
+    // The robot's hook and its chain, over the pieces; its tell along the floor (move-draw.js).
+    this.moves = new MoveDraw({ fx, floor: this.layers.shadows });
   }
 
   /** One game box: lamp, cone of light, poster, sign and the pool on the floor. */
   box(box, i, n) {
-    const cx = boxCentre(i, n);
-    const w = boxWidth(n);
+    const cx = this.wall.xs[i];
+    const w = this.wall.box;
     const x = cx - w / 2;
-    const half = this.half;
     const compact = this.opts.compact;
     const b = { box, cx, w, on: null, gold: null };
+    // A poster that is not a game (the ideas poster) hangs in its frame with no lamp over it, no
+    // light on the floor and no sign: it is drawn, and never lit, dimmed or counted.
+    const poster = !!box.poster;
+    // Only a game that can be played has a lamp and a pool (shared/world.js, hasPool): a game that
+    // is coming soon keeps its poster and its sign, and has no light at all.
+    const pooled = !!poolOf(this.wall, i);
 
     b.shade = s("path", { d: `M${cx - 17},62 L${cx + 17},62 L${cx + 54},102 L${cx - 54},102 Z` });
     b.bulb = s("ellipse", { cx, cy: 103, rx: 30, ry: 6 });
-    this.layers.lamps.append(s("rect", { x: cx - 2, y: -900, width: 4, height: 962, fill: "#0a0504" }), s("rect", { x: cx - 9, y: 52, width: 18, height: 12, rx: 3, fill: "#0a0504" }), b.shade, b.bulb);
+    if (pooled) this.layers.lamps.append(s("rect", { x: cx - 2, y: -900, width: 4, height: 962, fill: "#0a0504" }), s("rect", { x: cx - 9, y: 52, width: 18, height: 12, rx: 3, fill: "#0a0504" }), b.shade, b.bulb);
 
-    const frame = s("g");
+    // Marked for the tests that check a sign's words fit it (lobby/test/e2e-bar-wall.mjs), and the poster that is not a game.
+    const frame = s("g", poster ? { "data-box": i, "data-poster": box.id } : { "data-box": i });
     frame.append(s("rect", { x: x - 8, y: POSTER.top - 8, width: w + 16, height: POSTER.height + 16, rx: 3, fill: "#120a07", stroke: "#2e1c13", "stroke-width": 2 }));
     const clip = `clip-${i}`;
     frame.append(s("clipPath", { id: clip }, s("rect", { width: w, height: POSTER.height })));
@@ -202,13 +224,14 @@ export class Scene {
       art.append(ribbon);
     }
     // A band across the foot of the poster says what kind of box it is, when it is not a game
-    // that simply starts here: not built yet, or played on a site of its own.
+    // that simply starts here: not built yet, or a poster with an address to go to.
     const band = (text, spacing) => [
       s("rect", { y: POSTER.height - 46, width: w, height: 46, fill: "#120b08", opacity: 0.94 }),
       label(text, { x: w / 2, y: POSTER.height - 17, "font-size": 16, fill: "#f6ead2", "text-anchor": "middle", "letter-spacing": spacing, class: "t-mono t-bold", "data-fit": w - 20 }),
     ];
-    if (box.url) art.append(...band(box.url.startsWith("https://") ? "ON ITS OWN SITE" : "ON ITS OWN PAGE", 3));
-    b.dim = s("rect", { width: w, height: POSTER.height, fill: "#0d0705", opacity: 0 });
+    if (poster) art.append(...band(box.where, 1));
+    // A poster is printed paper in the room's own light: a little dim, so it never reads as a lit game.
+    b.dim = s("rect", { width: w, height: POSTER.height, fill: "#0d0705", opacity: poster ? 0.3 : 0 });
     art.append(b.dim);
     if (box.soon) art.append(...band("COMING SOON", 4));
     b.goldFrame = s("rect", { x: x - 8, y: POSTER.top - 8, width: w + 16, height: POSTER.height + 16, rx: 3, fill: "none", stroke: "#f4b453", "stroke-width": 6, display: "none" });
@@ -224,21 +247,30 @@ export class Scene {
     b.blurbs = lines.map((line, k) => label(line, { x: cx, y: firstY + k * plan.step, "font-size": plan.size, "text-anchor": "middle", class: "t-ui t-semi", "data-fit": w - 18 }));
     b.rowY = SIGN_TOP + (plan.lines ? (compact ? 33 : 30) + (plan.lines - 1) * plan.step + (compact ? 34 : 30) : compact ? 30 : 24);
     b.rowY2 = plan.stacked ? b.rowY + (compact ? 40 : 27) : b.rowY;
-    b.sign = s("rect", { x, y: SIGN_TOP, width: w, height: b.rowY2 - SIGN_TOP + (compact ? 30 : 24), rx: 7, "stroke-width": 2 });
+    b.sign = s("rect", { x, y: SIGN_TOP, width: w, height: b.rowY2 - SIGN_TOP + (compact ? 30 : 24), rx: 7, "stroke-width": 2, "data-sign": "" });
+    for (const el of b.blurbs) el.setAttribute("data-sign-part", "");
     const [badgeFill, badgeInk] = BADGE_COLOURS[box.badge];
     // The longest badge is cut short where a sign is too narrow to hold it at a size worth reading.
     b.badge = pill(plan.tight && box.badge === "screen" ? "Big screen" : BADGES[box.badge], compact ? 21 : 13.5, badgeFill, badgeInk);
-    b.players = label(playersLabel(box.min, box.max), { "font-size": compact ? 22 : 13.5, fill: "#cdbfa6", class: "t-ui t-semi" });
+    // How many play: smaller where a narrow sign (a phone's, under the bar's frames) has no room for it at its size.
+    b.players = label(playersLabel(box.min, box.max), { "font-size": compact ? 22 : 13.5, fill: "#cdbfa6", class: "t-ui t-semi", "data-sign-part": "", "data-fit": w - 14 });
+    b.badge.g.setAttribute("data-sign-part", "");
     b.reason = pill("Coming soon", compact ? 21 : 14, "#fbe3da", "#7a1d12");
     b.chip = pill("HEADS", compact ? 22 : 16, "#f4b453", "#1e1410");
     set(b.chip.g, { display: "none" });
-    frame.append(b.sign, ...b.blurbs, b.badge.g, b.players, b.reason.g, b.chip.g);
+    if (!poster) frame.append(b.sign, ...b.blurbs, b.badge.g, b.players, b.reason.g, b.chip.g);
     this.layers.wall.append(frame);
 
-    b.cone = s("polygon", { points: `${cx - 54},102 ${cx + 54},102 ${cx + half + 26},${ROOM.floorY + 8} ${cx - half - 26},${ROOM.floorY + 8}`, fill: "url(#g-cone)" });
+    // The cone and the pool reach as far as the wall says (shared/world.js, drawnLight): on a placed
+    // wall, to where the room counts and no further. The cone's top is never wider than its foot.
+    const { cone, pool } = drawnLight(this.wall, i);
+    const top = Math.min(54, cone);
+    b.cone = s("polygon", { points: `${cx - top},102 ${cx + top},102 ${cx + cone},${ROOM.floorY + 8} ${cx - cone},${ROOM.floorY + 8}`, fill: "url(#g-cone)" });
+    b.pool = s("ellipse", { cx, cy: ROOM.floorY + 6, rx: pool, ry: 31 });
+    b.ring = s("ellipse", { cx, cy: ROOM.floorY + 6, rx: pool, ry: 31, fill: "none", "stroke-width": 3 });
+    // (A box with no pool keeps these out of the page: the vote's colours still set them, unseen.)
+    if (!pooled) return b;
     this.layers.cones.append(b.cone);
-    b.pool = s("ellipse", { cx, cy: ROOM.floorY + 6, rx: half + 12, ry: 31 });
-    b.ring = s("ellipse", { cx, cy: ROOM.floorY + 6, rx: half + 12, ry: 31, fill: "none", "stroke-width": 3 });
     this.layers.pools.append(b.pool, b.ring);
     return b;
   }
@@ -273,14 +305,23 @@ export class Scene {
    */
   planSigns(boxes, w) {
     const compact = this.opts.compact;
-    const size = compact ? 24 : 17;
-    const chars = Math.floor((w - 18) / (size * 0.56));
-    const needed = Math.max(1, ...boxes.map((box) => wrap(box.blurb, chars).length));
-    const lines = compact ? (needed > 2 ? 0 : 2) : Math.min(3, needed);
+    // A narrow sign (a wall of many boxes, or the bar's, under its painted frames) takes its words
+    // a size or two smaller rather than more lines than it has room for; when even the smallest
+    // needs more, it keeps the count and the badge only, as a phone's does.
+    const most = compact ? 2 : 3;
+    const sizes = compact ? [24] : [17, 15, 13.5];
+    const fits = (size) => {
+      const chars = Math.floor((w - 18) / (size * 0.56));
+      return { size, chars, needed: Math.max(1, ...boxes.map((box) => wrap(box.blurb, chars).length)) };
+    };
+    const tried = sizes.map(fits);
+    const pick = tried.find((t) => t.needed <= most) ?? tried.at(-1);
+    const { size, chars, needed } = pick;
+    const lines = needed > most ? 0 : compact ? 2 : needed;
     // The widest row any sign needs: the longest badge and "2-4 players", at about 0.6 of the size a letter.
     const badge = Math.max(...boxes.map((box) => BADGES[box.badge].length)) * (compact ? 21 : 13.5) * 0.6 + (compact ? 30 : 20);
     const count = 11 * (compact ? 22 : 13.5) * 0.58;
-    return { size, step: compact ? 29 : 22, chars, lines, stacked: badge + 10 + count > w - 14, tight: BADGES.screen.length * (compact ? 21 : 13.5) * 0.6 + (compact ? 30 : 20) > w - 12 };
+    return { size, step: compact ? 29 : Math.round(size * 1.3), chars, lines, stacked: badge + 10 + count > w - 14, tight: BADGES.screen.length * (compact ? 21 : 13.5) * 0.6 + (compact ? 30 : 20) > w - 12 };
   }
 
   /** What floats over the room: the count ring and the coin toss. */
@@ -333,7 +374,16 @@ export class Scene {
       if (m.d) p.face = m.d;
       if (p.rev !== m.rev) p.rx = m.x; // the room put it somewhere: no sliding across the floor
       p.rev = m.rev;
-      this.bumps.resume(p, m.x, m.down ?? 0, m.safe ?? 0, now);
+      // The player chose another character: the same piece, where it stands, with a new body.
+      if (p.kind !== drawingOf(m.character)) this.recast(p, m);
+      this.bumps.resume(p, m.x, m.down ?? 0, m.safe ?? 0, now, m.fright);
+      // A ghost that is faded (shared/ghost.js), for a page that arrives in the middle; the room's
+      // word that it is solid too (a fade this page missed the end of). The viewer's own fade is
+      // drawn the moment its button goes down, before the room has said so: left as it is.
+      if (m.faded > 0) p.fadeUntil = now + m.faded;
+      else if (m.seat !== this.opts.own) p.fadeUntil = 0;
+      // A robot's hook out or legs up, a slime hard or soft (move-state.js), likewise.
+      resumeMoves(p, m, now, m.seat === this.opts.own);
       this.dress(p, m);
     }
     for (const [seat, p] of this.pieces) {
@@ -347,6 +397,8 @@ export class Scene {
     this.vote = vote;
     this.voteAt = now;
     for (const b of this.boxes) {
+      // A poster is never lit and never dimmed.
+      if (b.box.poster) continue;
       const why = vote.lights[b.box.id];
       // Lit in the lobby, and as a spot while a game's players are chosen on spots.
       const on = why === null && (this.room.phase === "lobby" || !!this.room.choosing?.spots);
@@ -429,18 +481,12 @@ export class Scene {
 
   // ---------------------------------------------------------------- pieces
 
-  /** A pawn in a seat's colour, with a shadow and a name tag. */
+  /** A player's piece: its character in its colour, with a shadow and a name tag. */
   piece(m) {
-    const p = { seat: m.seat, rx: m.x, net: { x: m.x, d: m.d, t: 0 }, face: 1, rev: m.rev, jumpAt: -Infinity, attack: null, knock: null, leaving: 0, level: 0, look: "" };
+    const p = { seat: m.seat, rx: m.x, net: { x: m.x, d: m.d, t: 0 }, face: 1, rev: m.rev, jumpAt: -Infinity, attack: null, knock: null, leaving: 0, level: 0, look: "", rise: 0, up: 0 };
     p.shadow = s("ellipse", { cy: ROOM.floorY + 5, rx: 40, ry: 9, fill: "#000", opacity: 0.42 });
-    p.base = s("ellipse", { cx: 0, cy: -8, rx: 39, ry: 11.5 });
-    p.body = s("path", { d: "M-32,-10 C-31,-36 -15,-54 -13.5,-84 L13.5,-84 C15,-54 31,-36 32,-10 Z" });
-    p.collar = s("ellipse", { cx: 0, cy: -84, rx: 22, ry: 8 });
-    p.head = s("circle", { cx: 0, cy: -113, r: 28 });
-    p.eyes = s("g", {}, s("ellipse", { cx: -9, cy: -113, rx: 3.8, ry: 5.6, fill: "#1a1210" }), s("ellipse", { cx: 9, cy: -113, rx: 3.8, ry: 5.6, fill: "#1a1210" }), s("circle", { cx: -8, cy: -115.5, r: 1.3, fill: "#fff" }), s("circle", { cx: 10, cy: -115.5, r: 1.3, fill: "#fff" }));
-    // The pawn itself, in a group of its own that an emote can lean and lift (emotes/svg.js draws over it).
-    p.inner = s("g", {}, p.base, p.body, p.collar, p.head, s("ellipse", { cx: -10, cy: -125, rx: 9, ry: 6, fill: "#fff", opacity: 0.26 }), p.eyes);
-    p.g = s("g", { "data-seat": m.seat }, p.inner);
+    p.g = s("g", { "data-seat": m.seat });
+    this.cast(p, m);
     p.colour = m.colour;
     p.emote = null;
     p.tagBack = s("rect", { rx: (this.tagSize + 14) / 2, "stroke-width": 1.5 });
@@ -454,17 +500,46 @@ export class Scene {
     return p;
   }
 
+  /**
+   * Gives a piece the body of its player's character (characters/index.js): the one place the
+   * flat room makes a body. `p.kind` is the character's definition, `p.actor` what it made, and
+   * `p.inner` the group an emote leans and lifts (emotes/svg.js draws over it).
+   */
+  cast(p, m) {
+    p.kind = drawingOf(m.character);
+    p.actor = p.kind.flat.make();
+    p.inner = p.actor.inner;
+    p.g.replaceChildren(p.inner);
+    set(p.g, { "data-character": p.kind.id });
+    p.look = "";
+    p.dizzy = p.blinking = false;
+  }
+
+  /** A piece changes character where it stands: whatever it was doing with its hands ends. */
+  recast(p, m) {
+    p.emote?.remove();
+    p.emote = null;
+    p.sticker?.show(null);
+    this.expressions.stop(p.seat);
+    // Its old move ends with its old body.
+    p.hook = p.stilt = p.goo = null;
+    this.moves?.hook(p.seat, null);
+    this.cast(p, m);
+  }
+
   /** Colours and names a piece for how its player is doing: here, or dropped and expected back. */
   dress(p, m) {
     const own = m.seat === this.opts.own;
-    const look = `${m.name}/${m.connected}/${own}`;
+    const look = `${m.name}/${m.connected}/${own}/${m.colour}`;
     if (p.look === look) return;
     p.look = look;
-    const colour = m.connected ? shade(m.colour, 0.16) : GREY;
-    set(p.base, { fill: m.connected ? shade(m.colour, -0.28) : "#6f6a63" });
-    set(p.body, { fill: colour });
-    set(p.collar, { fill: m.connected ? shade(m.colour, 0.3) : "#b5afa6" });
-    set(p.head, { fill: colour });
+    p.kind.flat.dress(p.actor, m.colour, m.connected);
+    if (p.colour !== m.colour) {
+      // An emote in the middle of a change of colour is drawn again in the new one.
+      p.emote?.remove();
+      p.emote = null;
+      p.colour = m.colour;
+    }
     set(p.g, { opacity: m.connected ? 1 : 0.85 });
     p.tagText.textContent = own ? "You" : m.connected ? m.name : `${m.name} - reconnecting...`;
     set(p.tagText, { fill: own ? "#1e1410" : "#fbf3e2", "font-style": m.connected ? null : "italic" });
@@ -485,6 +560,7 @@ export class Scene {
   }
 
   removePiece(p) {
+    this.moves?.hook(p.seat, null);
     p.shadow.remove();
     p.g.remove();
     p.tag.remove();
@@ -497,37 +573,38 @@ export class Scene {
 
   /** Someone sent an emote: it starts over their piece now, in place of any they were doing. */
   onExpress(msg, now) {
-    const where = [...this.pieces.values()].filter((p) => !p.leaving).map((p) => ({ seat: p.seat, x: p.rx, face: p.face }));
+    const where = [...this.pieces.values()].filter((p) => !p.leaving).map((p) => ({ seat: p.seat, x: p.rx, face: p.face, character: p.kind.id }));
     this.expressions.start(msg.s, msg.e, now, where);
   }
 
   /** Draws a piece's emote for this frame, or puts its last one away. */
-  express(p, now) {
+  express(p, now, bounds = null) {
     const e = this.expressions.pose(p.seat, now, (seat) => this.pieces.get(seat)?.rx, !!this.calmQuery?.matches);
     if (!e) {
-      if (p.emote) {
-        p.emote.remove();
+      if (p.emoting) {
+        p.emoting = false;
+        p.emote?.remove();
         p.emote = null;
-        p.sticker.show(null);
-        set(p.inner, { transform: null });
-        set(p.eyes, { display: null });
+        p.sticker?.show(null);
+        p.kind.flat.emote(p.actor, null, bodyTransform);
       }
       return;
     }
     if (!p.emote) {
-      p.emote = new EmoteFigure(p.colour);
+      p.emote = new EmoteFigure(p.colour, { character: p.kind.id });
       p.inner.append(p.emote.body);
       this.layers.emotes.append(p.emote.stage);
       p.sticker ??= new Sticker(this.layers.stickers);
     }
-    set(p.inner, { transform: bodyTransform(e.pose.body) });
-    set(p.eyes, { display: "none" });
+    p.emoting = true;
+    // The character lays the pose over its own body (its lean, its swell) and hides what the emote draws in its place.
+    p.kind.flat.emote(p.actor, e.pose, bodyTransform);
     set(p.emote.stage, { transform: `translate(${p.rx.toFixed(1)}, ${ROOM.floorY})` });
-    p.emote.draw(e.pose, e.toward);
+    p.emote.draw(e.pose, e.toward, !!p.dizzy);
     // The word over the head, clear of the name tag and of whatever the emote holds up; as easy to read as the tag, and larger on a screen read from across the room.
     const tagTop = ROOM.floorY - 156 - p.up - p.level * (this.tagSize + 20) - (this.tagSize + 14);
-    const y = Math.min(tagTop - 4, ROOM.floorY - p.up + poseTop(e.pose));
-    p.sticker.show(e.word, p.rx + e.pose.body.dx, y, (this.tagSize / 21) * (this.opts.compact ? 1 : 1.25), e.pop);
+    const y = Math.min(tagTop - 4, ROOM.floorY - p.rise + e.top);
+    p.sticker.show(e.word, p.rx + e.pose.body.dx, y, (this.tagSize / 21) * (this.opts.compact ? 1 : 1.25), e.pop, bounds);
   }
 
   /** Someone moved: where they are and which way they walk, as of now. */
@@ -535,7 +612,9 @@ export class Scene {
     const p = this.pieces.get(msg.s);
     if (!p) return;
     p.net = { x: msg.x, d: msg.d, t: now };
+    // Standing, it faces the way the room says (`f`: a quick turn); walking, the way it walks.
     if (msg.d) p.face = msg.d;
+    else if (msg.f === 1 || msg.f === -1) p.face = msg.f;
     if (msg.j) p.jumpAt = now;
   }
 
@@ -560,7 +639,97 @@ export class Scene {
       hit.net = { x: msg.x, d: 0, t: now };
       hit.rev = msg.rev;
       this.bumps.knock(hit, msg.x, began);
+      hit.goo = null;
     }
+    // The kick went through a faded ghost (`sc`, shared/ghost.js): the kicker is scared off to
+    // where the room put it, and the ghost says boo as the kick passes through.
+    if (msg.sc !== undefined && by) {
+      by.net = { x: msg.x, d: 0, t: now };
+      by.rev = msg.rev;
+      this.bumps.fright(by, msg.x, began, "scare");
+      const ghost = this.pieces.get(msg.sc);
+      if (ghost) ghost.booAt = began + IMPACT_MS;
+    }
+    // The kick bounced off a hardened slime (`bo`, shared/slime.js): the kicker is knocked back itself.
+    if (msg.bo !== undefined && by) {
+      by.net = { x: msg.x, d: 0, t: now };
+      by.rev = msg.rev;
+      this.bumps.knock(by, msg.x, began);
+      const slime = this.pieces.get(msg.bo);
+      if (slime) setTimeout(() => this.moves.spark(slime.rx - (msg.f || 1) * 40, 820, performance.now()), IMPACT_MS);
+    }
+  }
+
+  // The robot's and the slime's moves (move-state.js keeps what both drawings know of them).
+
+  /** How this look starts a slide or a fright, and a spark (`h`: how high above the floor). */
+  get moveDrawing() {
+    return { fright: (p, x, at, kind) => this.bumps.fright(p, x, at, kind), spark: (x, h, now) => this.moves.spark(x, ROOM.floorY - h, now) };
+  }
+
+  /** A robot threw its hook ({t: "hook", s, f, x}). */
+  onHook(msg, now) {
+    heardHook(this.pieces, this.opts.own, msg, now);
+  }
+
+  /** What came of a hook ({t: "hk", ...}): shared/robot.js. */
+  onHookVerdict(msg, now) {
+    heardVerdict(this.pieces, msg, now, this.moveDrawing);
+  }
+
+  /** A robot's legs went up ({t: "stilts", s}). */
+  onStilts(msg, now) {
+    heardStilts(this.pieces, msg, now);
+  }
+
+  /** A slime hardened or went soft ({t: "slime", s, k}). */
+  onSlime(msg, now) {
+    heardSlime(this.pieces, msg, now);
+  }
+
+  /** A walking slime shoved a piece a step on ({t: "shove", s, to, x, rev}). */
+  onShove(msg, now) {
+    heardShove(this.pieces, msg, now, this.moveDrawing);
+  }
+
+  /** The viewer's own robot threw its hook: the wind-up starts at once, before the room has answered. */
+  ownHook(now) {
+    const p = this.pieces.get(this.opts.own);
+    if (p) startHook(p, p.face, now);
+  }
+
+  /** The viewer's own robot went up on its legs. */
+  ownStilts(now) {
+    const p = this.pieces.get(this.opts.own);
+    if (p) startStilts(p, now);
+  }
+
+  /** The viewer's own slime pressed ("harden") or held ("absorb") its button. */
+  ownSlime(kind, now) {
+    const p = this.pieces.get(this.opts.own);
+    if (p) startGoo(p, kind, now);
+  }
+
+  /** The room turned down the viewer's own move ("hook", "stilts", "slime"): what it began at once is taken back. */
+  ownRefused(what, now) {
+    refusedOwn(this.pieces.get(this.opts.own), what, now);
+  }
+
+  /** A ghost faded for `msg.for` milliseconds (0: it is solid again). */
+  onFade(msg, now) {
+    const p = this.pieces.get(msg.s);
+    if (p) p.fadeUntil = msg.for > 0 ? now + msg.for : 0;
+  }
+
+  /** A faded ghost drifted through a piece (boo): the piece is spooked to where the room put it. */
+  onSpook(msg, now) {
+    const ghost = this.pieces.get(msg.s);
+    if (ghost) ghost.booAt = now;
+    const p = this.pieces.get(msg.to);
+    if (!p) return;
+    p.net = { x: msg.x, d: 0, t: now };
+    p.rev = msg.rev;
+    this.bumps.fright(p, msg.x, now, "spook");
   }
 
   /** The viewer's own piece jumped (its Pilot says so; nothing comes back from the room). */
@@ -614,33 +783,69 @@ export class Scene {
         if (Math.abs(target - p.rx) < 0.3) p.rx = target;
         walking = p.net.d !== 0 && target > ROOM.minX && target < ROOM.maxX;
       }
+      const flat = p.kind.flat;
       const up = jumpHeight(now - p.jumpAt);
-      const bob = walking && !up ? Math.abs(Math.sin(now / 95)) * 5 : 0;
+      // A piece with feet hops from one to the other as it walks; one that glides does not.
+      const bob = walking && !up && !flat.glides ? Math.abs(Math.sin(now / 95)) * 5 : 0;
       // Winding up, striking, thrown, lying or getting up: the bump's pose, on top of the walk.
       const pose = this.bumps.pose(p, now);
       if (pose.x !== null) p.rx = pose.x;
-      set(p.g, { transform: poseTransform(p.rx, ROOM.floorY - up - bob, pose) });
-      set(p.eyes, { transform: `translate(${p.face * 5}, 0)` });
+      // A faded ghost (shared/ghost.js): its own player sees it more clearly than everyone else does.
+      const faded = now < (p.fadeUntil ?? 0) ? (seat === this.opts.own ? OWN_FADED : 1) : 0;
+      if (faded !== (p.fadedShown ?? 0)) {
+        p.fadedShown = faded;
+        set(p.g, { "data-faded": faded || null });
+      }
+      // The character's own way of holding itself: where it looks, and how far off the floor it hangs (a pawn stands).
+      // It is told whether it walks, where it is and whether it stands in a game's light (its vote), for characters that show them;
+      // a robot how far out its legs are and what its hook is doing, a slime how hard or soft it is (move-state.js).
+      const voting = !!this.vote?.standing?.[seat];
+      const calm = !!this.calmQuery?.matches;
+      const stilt = stiltsNow(p, now, calm);
+      const goo = gooNow(p, now);
+      const legs = stilt ? Math.max(0, stilt.out) * STILT_RISE : 0;
+      const hover = flat.frame(p.actor, {
+        now, dt, face: p.face, seat, calm, grounded: pose.dizzy,
+        faded, booAt: p.booAt ?? -Infinity, walking: walking && pose.x === null, x: p.rx, voting,
+        stilt: stilt && { ...stilt, lift: legs * (1 + stilt.shake) }, goo, throwing: p.hook ? (p.hook.verdict ? "back" : now - p.hook.at < 150 ? "aim" : "throw") : null,
+      });
+      p.legs = legs;
+      set(p.g, { transform: poseTransform(p.rx, ROOM.floorY - up - bob - hover, pose) });
       this.bumps.dress(p, pose, now);
       const air = up + Math.max(0, pose.lift);
-      const squeeze = 1 - Math.min(0.45, air / 260);
-      set(p.shadow, { cx: (p.rx + pose.dx).toFixed(1), rx: (40 * squeeze).toFixed(1), ry: (9 * squeeze).toFixed(1) });
-      p.up = air + bob;
+      // A robot on its legs still stands on the floor: its shadow stays whole.
+      const squeeze = 1 - Math.min(0.45, (air + hover - legs) / 260);
+      set(p.shadow, { cx: (p.rx + pose.dx).toFixed(1), rx: (flat.shadow.rx * squeeze).toFixed(1), ry: (flat.shadow.ry * squeeze).toFixed(1) });
+      // `rise`: how far its foot is off the floor; `up`: how far the top of its head is above a standing pawn's, for the name tag.
+      p.rise = air + bob + hover;
+      p.up = p.rise + flat.tall;
       ordered.push(p);
     }
+    // The robots' hooks: each flies until the room's word, stopping at the first piece it meets.
+    for (const p of ordered) {
+      if (!p.hook) {
+        this.moves.hook(p.seat, null);
+        continue;
+      }
+      const others = ordered.filter((o) => o !== p && !o.leaving).map((o) => o.rx);
+      const drawn = hookNow(p, now, p.rx, p.hook.verdict ? null : hookStop(p.rx, p.hook.dir, others));
+      this.moves.hook(p.seat, drawn, p.rx, p.hook?.dir ?? p.face, p.legs ?? 0, p.colour);
+    }
+    this.moves.frame(now);
     const mine = own ? this.pieces.get(this.opts.own) : null;
-    if (mine) this.bumps.cooldown(mine.rx, own.cooling(now), now);
+    if (mine) this.bumps.cooldown(mine.rx, own.cooling(now), now, own.coolShare?.(now));
     this.bumps.frame(now);
     // Name tags that would sit on top of each other step up instead.
-    ordered.sort((a, b) => a.rx - b.rx);
-    let prev = null;
+    tagLevels(ordered, (p) => p.tagW, (p) => p.up, () => this.tagSize + 20);
+    const bounds = view ? { left: view.x, right: view.x + view.width } : null;
+    // A robot up on its stilt legs lifts its tag with it, but never into the row of signs over the
+    // boxes: the tag stops just under it (over the robot's head) while the legs are out.
+    const signsEnd = Math.max(SIGN_TOP, ...this.boxes.map((b) => b.rowY2 + (this.opts.compact ? 30 : 24))) + 8 + this.tagSize + 14;
     for (const p of ordered) {
-      const want = prev && p.rx - prev.rx < (p.tagW + prev.tagW) / 2 + 8 ? (prev.want + 1) % 4 : 0;
-      p.want = want;
-      p.level += (want - p.level) * Math.min(1, dt * 12);
-      set(p.tag, { transform: `translate(${p.rx.toFixed(1)}, ${(ROOM.floorY - 156 - p.up - p.level * (this.tagSize + 20)).toFixed(1)})` });
-      this.express(p, now);
-      prev = p;
+      p.level += (p.want - p.level) * Math.min(1, dt * 12);
+      const tagY = ROOM.floorY - 156 - p.up - p.level * (this.tagSize + 20);
+      set(p.tag, { transform: `translate(${p.rx.toFixed(1)}, ${(p.legs > 0 ? Math.max(tagY, signsEnd) : tagY).toFixed(1)})` });
+      this.express(p, now, bounds);
     }
     this.paint(now);
     this.drawCount(now, view);
@@ -661,9 +866,7 @@ export class Scene {
     const round = 2 * Math.PI * 60;
     set(o.arc, { "stroke-dasharray": `${((left / COUNT_MS) * round).toFixed(1)} ${round.toFixed(1)}` });
     o.digit.textContent = String(Math.max(1, Math.ceil(left / 1000)));
-    // An outside game does not start here: it opens on a site of its own.
-    const lead = vote.leaders.length === 1 && this.room.boxes.find((b) => b.id === vote.leaders[0]);
-    const verb = lead?.url ? "OPENS IN" : vote.leaders.length > 1 ? "TOSS IN" : "STARTS IN";
+    const verb = vote.leaders.length > 1 ? "TOSS IN" : "STARTS IN";
     if (o.verb.textContent !== verb) o.verb.textContent = verb;
   }
 

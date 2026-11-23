@@ -1,11 +1,11 @@
 // An end-to-end check of the party room over real sockets, against a running local server
 // (npm run dev, or any port). No browser: plain fetch and WebSocket from Node.
 //
-//   node lobby/test/e2e-lobby.mjs [--base=http://localhost:8791] [--quiet=25]
+//   node lobby/test/e2e-lobby.mjs [--base=http://localhost:8791] [--quiet=25] [--full=1]
 //
 // Four players join one room and go through an evening: a vote, a count that pauses, a game
-// that starts and comes back with points, a tie and its coin toss, an outside game that sends
-// everyone to its own site, someone leaving, a dropped
+// that starts and comes back with points, a tie and its coin toss, the ideas poster that is not
+// a game, someone leaving, a dropped
 // phone coming back, a bump, a big screen, and a client that misbehaves. Then nobody touches
 // anything for --quiet seconds and the room must go silent (0 skips that part).
 import { KNOCK_MIN, STUN_MS, knockLanding } from "../shared/bump.js";
@@ -16,6 +16,7 @@ const args = process.argv.slice(2);
 const opt = (k, d) => (args.find((a) => a.startsWith("--" + k + "=")) ?? "--" + k + "=" + d).split("=").slice(1).join("=");
 const base = opt("base", "http://localhost:8791");
 const quietSeconds = Number(opt("quiet", "25"));
+const full = opt("full", "0") === "1";
 const { api, call, connect } = partyApi(base);
 const problems = [];
 const check = (ok, what) => {
@@ -26,7 +27,7 @@ const check = (ok, what) => {
 const N = 6;
 const COIN = 1; // Coin Flip's place on the wall
 const CORK = 0;
-const WHO = 2; // Who Am I?, an outside game
+const IDEAS = 5; // the ideas poster, last: not a game
 const light = (i, off = 0) => Math.round(boxCentre(i, N) + off);
 const dark = (i) => Math.round(boxCentre(i, N) + lightHalf(N) + 20);
 const voteOf = (m) => (m.t === "vote" ? m.vote : m.room?.vote);
@@ -83,7 +84,11 @@ check(
   "everyone starts by the door, in the dark, and the room is waiting for all four",
 );
 const lights = A.room.vote.lights;
-check(lights["cork-and-bell"] === null && lights["coin-flip"] === null && lights["who-am-i"] === "For 2 players" && lights["tin-derby"] === "Coming soon" && lights.flood === "Coming soon" && lights["fox-trouble"] === "Coming soon", "two lights are on (Cork & Bell, Coin Flip); Who Am I? is for two, and the rest say Coming soon");
+check(
+  A.room.boxes.map((x) => x.id).join() === "cork-and-bell,coin-flip,flood,tin-derby,fox-trouble,ideas" && !("who-am-i" in lights),
+  `the Floor's wall: Cork & Bell, Coin Flip, Flood, Tin Derby, Fox Trouble and the ideas poster, and no Who Am I? (${A.room.boxes.map((x) => x.id).join(", ")})`,
+);
+check(lights["cork-and-bell"] === null && lights["coin-flip"] === null && lights["tin-derby"] === null && lights.flood === "Coming soon" && lights["fox-trouble"] === "Coming soon" && lights.ideas === "", "three lights are on (Cork & Bell, Coin Flip, Tin Derby); the coming-soon ones say so, and the ideas poster has no light at all");
 A.send("ping");
 await sleep(300);
 check(A.raw.includes("pong"), "the keep-alive is answered");
@@ -132,26 +137,46 @@ C.goto(light(COIN));
 D.goto(light(COIN, 40));
 const tied = await A.wait((m) => voteOf(m)?.count, 9000, mark);
 check(tied.vote.leaders.join() === "cork-and-bell,coin-flip", "two against two is a tie (the count waited for the result to be read first)");
-const toss = await A.wait((m) => voteOf(m)?.toss, 14000, mark);
+// (The count is ten seconds; the rest is room for a busy machine, where the local server's timers
+// fire late: 14 s was missed once with the machine's load at 40.)
+const toss = await A.wait((m) => voteOf(m)?.toss, 25000, mark);
 const tossed = voteOf(toss).toss;
 check(tossed.between.length === 2 && tossed.between.includes(tossed.winner), "the tie is settled by a coin toss everybody is shown: " + tossed.winner);
-// Either game is played inside the room. Coin Flip is over in three seconds; a round of Cork &
-// Bell is ninety, so when the toss picks it this run is a minute and a half longer.
+// Either game is played inside the room. Coin Flip is over in three seconds. A round of Cork &
+// Bell ends early once every stall has spent its corks: Ann fires twelve, one a second, as her
+// page would, and the others (then Ann too) fire what they have as fast as the lever cocks, so
+// the round is over in well under a minute instead of its full ninety seconds. (A round that runs
+// its full time is test:cork's, and this one's with --full=1.)
 let end2;
 if (tossed.winner === "cork-and-bell") {
   const begun = await A.wait((m) => m.t === "start", 13000, mark);
   check(begun.room.game.id === "cork-and-bell" && begun.s.seats.length === 4 && begun.s.seed > 0, "Cork & Bell won: a battle starts for the party's four seats");
-  console.log("     a round of Cork & Bell: ninety seconds...");
+  console.log("     a round of Cork & Bell, played until every cork is spent...");
   // Ann fires a cork every second for a while, stamped with the round's own time, as her page would.
   const roundTime = () => (Date.now() - begun.s.startAt) / 1000 - 3;
   await sleep(4000);
+  // The others spend all their corks meanwhile, and Ann the rest of hers after her twelve: a cork
+  // every 0.6 s (the lever takes 0.5 s to cock), aimed low and wide. A dead-centre hit earns a cork
+  // back, so they keep firing until the room says the round is over.
+  // With --full=1 (test:lobby:full) nobody spends the rest, and the round runs its full ninety seconds.
+  let n = 0;
+  let annDone = false;
+  const spend = full
+    ? null
+    : setInterval(() => {
+        for (const c of annDone ? all : [B, C, D]) c.send({ t: "in", d: { f: [Math.round(roundTime() * 1000) / 1000, -0.9 + (n % 7) * 0.3, 0.4] } });
+        n++;
+      }, 600);
   for (let i = 0; i < 12; i++) {
     A.send({ t: "in", d: { f: [Math.round(roundTime() * 1000) / 1000, -0.6 + (i % 5) * 0.3, 1.2] } });
     await sleep(1000);
   }
+  annDone = true;
   const fired = A.seen.slice(mark).filter((m) => m.t === "ev").flatMap((m) => m.ev).filter((e) => e.k === "f" && e.seat === 0).length;
   check(fired >= 10 && A.seen.slice(mark).some((m) => m.t === "snap" && m.s.stalls?.length === 4), `the room takes a player's inputs and relays them (${fired} of 12 corks), and sends its snapshots`);
-  end2 = await A.wait((m) => m.t === "end", 110000, mark);
+  end2 = await A.wait((m) => m.t === "end", 110000, mark).finally(() => clearInterval(spend));
+  const lasted = (end2.now - begun.s.startAt) / 1000;
+  if (!full) check(end2.result.every((r) => r.shots >= 35) && lasted < 85, `once every stall has spent its corks the round ends early, ${lasted.toFixed(0)} seconds after its start (${end2.result.map((r) => r.shots).join(", ")} corks)`);
   const ann = end2.result.find((r) => r.seat === 0);
   check(end2.last.rows.length === 4 && ann.shots >= 10 && end2.last.rows.every((r) => typeof r.score === "number") && end2.room.tonight.games === 2, `it ends with places and scores: ${end2.last.rows.map((r) => `${r.name} ${r.score} (+${r.points})`).join(", ")}`);
 } else {
@@ -282,7 +307,8 @@ check(!S.seen.slice(mark).some((m) => m.t === "m" || m.t === "b"), "a screen can
   await sleep(250);
   const full = (await inner()).unknown;
   phone.ws.send(JSON.stringify({ t: "hello", token: b.token }));
-  const seated = await phone.wait((m) => m.t === "hello", 4000, 0).catch(() => null);
+  // (Up to 15 s: with 300 sockets open, a busy machine's local server took over 4 s to answer.)
+  const seated = await phone.wait((m) => m.t === "hello", 15000, 0).catch(() => null);
   check(full === 128 && seated?.you?.seat === b.seat && flood.every((c) => c.seen.length === 0), `a phone whose hello lands after 300 silent sockets from 40 other addresses (${full} waiting, the most there may be) is still seated, and none of them heard anything`);
   phone.ws.close();
   for (const c of flood) c.ws.close();
@@ -309,7 +335,8 @@ await E.opened;
 await E.wait((m) => m.t === "hello", 4000, 0);
 mark = A.seen.length;
 for (let i = 0; i < 400; i++) E.send({ t: "m", x: 200, d: 0, r: 0 });
-const kicked = await Promise.race([E.closed, sleep(5000).then(() => null)]);
+// (Up to 15 s: on a busy machine the close took over 5 s to arrive, though the seat was freed.)
+const kicked = await Promise.race([E.closed, sleep(15000).then(() => null)]);
 check(kicked?.code === 4008, "a client that floods is cut off (close code " + kicked?.code + ")");
 const freed = await A.wait((m) => m.t === "room" && m.room.members[3] === null, 4000, mark).catch(() => null);
 check(!!freed, "and its seat is freed");
@@ -318,41 +345,28 @@ check(relays <= 45, "only the first burst of its messages was passed on (" + rel
 
 const debug = async (code = "") => (await fetch(api + "/debug" + (code ? "/" + code : ""))).json();
 
-// ---------------------------------------------------------------- an outside game (Who Am I?)
-// A room of its own: two players, since Who Am I? is for exactly two.
+// ---------------------------------------------------------------- the ideas poster
+// A room of its own: two players stand under the poster that hangs last. It is not a game: no
+// light, no vote, no count, nothing started and nobody sent anywhere.
 {
   const p = await call("POST", "/rooms", { nickname: "Pat" });
   const q = await call("POST", "/join/" + p.pin, { nickname: "Quin" });
   const [P, Q] = [p, q].map(connect);
   await Promise.all([P.opened, Q.opened]);
   await P.wait((m) => m.room?.members.filter((x) => x?.connected).length === 2, 8000, 0);
-  const box = P.room.boxes[WHO];
-  check(box.id === "who-am-i" && box.url === "https://whoami.n8builds.dev/" && box.min === 2 && box.max === 2 && P.room.vote.lights["who-am-i"] === null, "Who Am I? hangs as an outside game for exactly two, and its light is on for a party of two");
-  let from = P.seen.length;
-  P.goto(light(WHO, -30));
-  Q.goto(light(WHO, 30));
-  const t1 = Date.now();
-  const away = await P.wait((m) => m.t === "away", 15000, from);
-  const awayQ = await Q.wait((m) => m.t === "away", 2000, 0);
-  check(away.id === "who-am-i" && away.url === box.url && away.in >= 5000 && awayQ.url === box.url, `it wins the count: both pages are told to go to ${away.url} in ${away.in / 1000} seconds (${Date.now() - t1} ms)`);
-  const then = await P.wait((m) => m.t === "room", 4000, P.seen.indexOf(away));
-  check(then.room.phase === "lobby" && then.room.game === null && then.room.tonight.games === 0 && then.room.members.filter(Boolean).every((m) => m.points === 0 && m.x === spawnX(m.seat, N)), "nothing starts in the room, nobody scores, and the pieces are back by the door");
-  check(!P.seen.some((m) => m.t === "start" || m.t === "end"), "no game was started for it");
-  // The pages go: the room is left empty and closes by the usual rule, a minute later.
-  P.ws.close();
-  Q.ws.close();
-  await sleep(600);
-  const left = (await debug(p.code)).room;
-  if (left) check(left.sockets === 0 && left.timer === false && left.alarmIn > 5_000 && left.alarmIn <= 12_000, `once both pages have gone the room holds no socket and no timer; it next wakes in ${Math.round(left.alarmIn / 1000)} seconds to fade the two pieces (their seats are then held two minutes before it closes)`);
-
-  // A party of three does not fit.
-  const r = await call("POST", "/rooms", { nickname: "Ria" });
-  const more = [await call("POST", "/join/" + r.pin, { nickname: "Sol" }), await call("POST", "/join/" + r.pin, { nickname: "Tam" })];
-  const three = [r, ...more].map(connect);
-  await Promise.all(three.map((c) => c.opened));
-  const full = await three[0].wait((m) => m.room?.members.filter((x) => x?.connected).length === 3, 8000, 0);
-  check(full.room.vote.lights["who-am-i"] === "For 2 players", 'with three in the party its light is off and says "For 2 players"');
-  for (const c of three) c.send({ t: "leave" });
+  const box = P.room.boxes[IDEAS];
+  check(box.id === "ideas" && box.poster === true && box.link === "https://n8builds.dev/#contact" && box.where === "n8builds.dev" && P.room.vote.lights.ideas === "", "the ideas poster hangs last: not a game, with the contact form's address, and no light");
+  const from = P.seen.length;
+  P.goto(light(IDEAS, -30));
+  Q.goto(light(IDEAS, 30));
+  await Q.wait((m) => m.t === "m" && m.s === 0 && m.x === light(IDEAS, -30), 4000, 0);
+  await P.wait((m) => m.t === "m" && m.s === 1 && m.x === light(IDEAS, 30), 4000, from);
+  await sleep(2500);
+  // (On the way there they walk through Coin Flip's and Cork & Bell's lights, so only where they end up counts.)
+  const last = P.seen.slice(from).map(voteOf).filter(Boolean).pop();
+  check(!!last && !last.count && Object.values(last.standing).every((v) => v === null) && last.waiting.length === 2, `standing under it is standing in the dark: no vote and no count (${JSON.stringify(last?.standing)})`);
+  check(!P.seen.slice(from).some((m) => m.t === "start" || m.t === "end" || m.t === "away"), "nothing is started for it and nobody is sent anywhere");
+  for (const c of [P, Q]) c.send({ t: "leave" });
   await sleep(300);
 }
 
@@ -411,4 +425,6 @@ if (!books.ok) {
 for (const c of [A, B, C2, S]) c.ws.close();
 await sleep(200);
 console.log(problems.length ? `\n${problems.length} problem(s):\n- ` + problems.join("\n- ") : "\nAll good.");
-process.exit(problems.length ? 1 : 0);
+// Exit once everything printed has left: process.exit drops what is still queued for a pipe (the
+// pre-deploy gate reads this output through one), and the list of problems is printed last.
+process.stdout.write("", () => process.stderr.write("", () => process.exit(problems.length ? 1 : 0)));

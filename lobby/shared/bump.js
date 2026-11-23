@@ -14,7 +14,7 @@
 //
 // The poses are offsets and angles in world units and degrees, so any drawing (the SVG room of
 // today, a 3D room later) can show them: lobby/public/bump-draw.js is the thin part that does.
-import { ROOM, boxCentre, clampX, lightHalf } from "./world.js";
+import { ROOM, clampX, wallOf } from "./world.js";
 
 /** How far in front of a piece a bump reaches (a piece just behind its back counts too). */
 export const BUMP_REACH = 130;
@@ -108,19 +108,19 @@ export function bumpTarget(x, face, others) {
  * place on the wall (null: all of them); a light that is off is just more dark. Returns
  * [[from, to]], left to right.
  */
-export function landingGround(n, lit = null) {
-  const half = lightHalf(n);
+export function landingGround(n, lit = null, clear = KNOCK_CLEAR) {
+  // `n` is the wall (shared/world.js) or how many boxes hang evenly on it.
+  const w = wallOf(n);
   // Between two lights there may be less dark than twice the margin: then it is the middle of it.
-  const gap = n > 1 ? boxCentre(1, n) - boxCentre(0, n) - 2 * half : Infinity;
-  const margin = Math.min(KNOCK_CLEAR, gap / 2);
+  const margin = Math.min(clear, w.gap / 2);
   const on = lit ? new Set(lit) : null;
   const ground = [];
   let from = ROOM.minX;
-  for (let i = 0; i < n; i++) {
-    if (on && !on.has(i)) continue;
-    const centre = boxCentre(i, n);
-    ground.push([from, centre - half - margin]);
-    from = centre + half + margin;
+  // Only a box with a pool has a light at all (world.js, hasPool); of those, the ones that are on.
+  for (const p of w.pools) {
+    if (on && !on.has(p.i)) continue;
+    ground.push([from, p.x - p.half - margin]);
+    from = p.x + p.half + margin;
   }
   ground.push([from, ROOM.maxX]);
   // A stretch that is a single spot (the middle of a narrow gap) may come out a hair inside out.
@@ -128,29 +128,40 @@ export function landingGround(n, lit = null) {
 }
 
 /**
- * Where a piece knocked from `x` in direction `dir` (-1 or 1) lands, in a room of `n` boxes
- * of which the `lit` ones are on (null: all of them).
+ * Where a piece knocked from `x` in direction `dir` (-1 or 1) lands, on wall `n` (shared/world.js:
+ * a wall, or how many boxes hang evenly on it) of whose lights the `lit` ones are on (null: all of them).
  * It is thrown about KNOCK_DISTANCE and always comes down in the dark: the nearest spot to
  * that distance which is clear of every pool of light and at least KNOCK_MIN away. So a knock
  * always puts a piece out of the light it stood in and never into another one. It stops at the
  * walls: a piece with its back to one is knocked against it.
+ * `reach` changes how far: {distance, least, most} in place of KNOCK_DISTANCE and KNOCK_MIN,
+ * and `most`, the furthest it may go at all (the ghost's spook is weaker than a kick:
+ * lobby/shared/ghost.js). With `most`, a piece with no clear dark within it lands on the edge of
+ * the dark it is in (it is never moved into a light), and a piece standing in a light with no
+ * dark within `most` is moved `distance` (or `most`) inside it: never further.
  */
-export function knockLanding(x, dir, n, lit = null) {
+export function knockLanding(x, dir, n, lit = null, { distance = KNOCK_DISTANCE, least: leastFar = KNOCK_MIN, most = Infinity } = {}) {
   const side = dir < 0 ? -1 : 1;
-  const aim = clampX(x + side * KNOCK_DISTANCE);
+  const aim = clampX(x + side * Math.min(distance, most));
   let best = null;
-  for (const least of [KNOCK_MIN, 0]) {
-    for (const [a, b] of landingGround(n, lit)) {
-      // The part of this stretch that is far enough along in the direction of the blow.
-      const lo = side > 0 ? Math.max(a, x + least) : a;
-      const hi = side > 0 ? b : Math.min(b, x - least);
+  // Clear of the lights by KNOCK_CLEAR and far enough; then clear and any distance; then just out of the light.
+  for (const [least, clear] of [[leastFar, KNOCK_CLEAR], [0, KNOCK_CLEAR], [0, 1]]) {
+    for (const [a, b] of landingGround(n, lit, clear)) {
+      // The part of this stretch that is far enough along in the direction of the blow, and not too far.
+      const lo = side > 0 ? Math.max(a, x + least) : Math.max(a, x - most);
+      const hi = side > 0 ? Math.min(b, x + most) : Math.min(b, x - least);
       if (lo > hi) continue;
       const spot = Math.min(hi, Math.max(lo, aim));
       if (best === null || Math.abs(spot - aim) < Math.abs(best - aim)) best = spot;
     }
     if (best !== null) break;
   }
-  return Math.round(best ?? aim);
+  if (best !== null) return Math.round(best);
+  // On the very edge of a light, with no more dark that way: it stays on its edge, in the dark.
+  const w = wallOf(n);
+  const on = lit ? new Set(lit) : null;
+  const inLight = w.pools.some((p) => (!on || on.has(p.i)) && Math.abs(x - p.x) <= p.half);
+  return inLight ? Math.round(aim) : x;
 }
 
 /** What the room writes on a piece that was just knocked at `now`. */

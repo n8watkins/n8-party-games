@@ -22,15 +22,46 @@ Everything else is already in the repository.
 
 1. Run `npm ci`, then `npm test`, and stop if anything fails.
 2. Start `npm run dev` and run `npm run test:room`, `npm run test:lobby` and `npm run playtest:battle`, and stop if anything fails. The playtest needs the Windows Chrome (its default `--win=1`); with `--win=0` the software renderer is too slow and it reports missed moments.
-3. Start `npx wrangler dev --local --env="" --port 8804 --local-upstream localhost:8804 --persist-to <an empty folder>` and run `npm run test:production -- http://localhost:8804` to check the production settings locally. `--local-upstream` keeps the local address; without it the custom domain becomes the Worker's own address and the QR check fails.
+3. Start `npx wrangler dev --local --env="" --port 8804 --local-upstream localhost:8804 --persist-to <an empty folder>` and run `npm run test:production -- http://localhost:8804` to check the production settings locally. `--local-upstream` keeps the local address; without it the custom domain becomes the Worker's own address and the QR check fails. The gate (`npm run gate`) also starts such a server of its own for `npm run test:cork:switches` (about a minute): with the production settings Cork & Bell's test switches play nobody's seat, in the party room or on the game's own page, and its high score board takes only a run it played again, once.
+   That server builds with `--production`, which refuses a working tree with uncommitted or untracked changes; on a tree you are still changing, start it with `RELEASE_ALLOW_DIRTY=1` in front (the gate does this for its own servers).
+   Its release record then says `dirty: true`.
+   The variable only works for `wrangler dev`: a deploy refuses it outright.
 4. On that same server, confirm `/package.json`, `/wrangler.jsonc` and `/party-kit/README.md` answer 404.
 5. Run `npm run assets:list` and read the list once: it must hold only the front page (with `front.js`, the web app manifest `manifest.webmanifest` and its `icons/`), the party room's page (`lobby/`, with `lobby/shared/` and nothing from `lobby/server/` or `lobby/test/`), the kit's browser files, and the games' pages, scripts, styles, models, textures and fonts.
 
 ## Deploying
 
 6. Wrangler must be logged in to the owner's account: `npx wrangler whoami` should name account `b2c564cf83cb9184dd6d7cc4ff8b38bf`. **Owner:** if it is not, run `npx wrangler login`.
-7. Run `npm run deploy`. npm runs the script `predeploy` before it, so the full gate (unit tests, `test:room`, `test:lobby`, `test:cork`) runs first by itself and the deploy stops if it fails; do not run `npm run predeploy` first, which would run the gate twice. `npm run predeploy` alone runs the gate without deploying. In an emergency, and only on the owner's word, `npx wrangler deploy --env=''` deploys without the gate. The deploy itself is `wrangler deploy --env=''`, which deploys the top level (`wrangler deploy --env=''`) and never the local environment. It runs any new Durable Object migrations by itself (the first deploy ran `v1` to `v3`; the first deploy with the party room runs `v4`, the `LobbyRoom` class); nothing is created by hand.
+7. Run `npm run deploy`; on the owner's PC, `TEST_GPU=1 npm run deploy` is faster (the gate's end-to-end steps run side by side on the graphics card, each with a local Worker of its own; see "Run and test" in `AGENTS.md`, and `PREDEPLOY_SEQUENTIAL=1` keeps them one after another). npm runs the script `predeploy` before it, so the full gate (unit tests, then every step in `.github/scripts/predeploy-steps.mjs`: `test:room`, `test:lobby`, `test:cork`, `test:hot-potato`, `test:hearing`, `test:mode`, `test:two-rooms`, `test:table` and `test:home`) runs first by itself and the deploy stops if it fails; do not run the gate first, which would run it twice. `npm run gate` runs the gate alone, on any tree, without deploying. In an emergency, and only on the owner's word, `npx wrangler deploy --env=''` deploys without the gate. The deploy itself is `wrangler deploy --env=''`, which deploys the top level (`wrangler deploy --env=''`) and never the local environment. It runs any new Durable Object migrations by itself (the first deploy ran `v1` to `v3`; the first deploy with the party room runs `v4`, the `LobbyRoom` class); nothing is created by hand.
 8. A deploy while a round is on lets that room finish on the old code for up to five minutes, so deploy when nobody is mid-round if you can.
+   What goes live is always one commit already on `origin/main`, and the release record says which.
+   Before the gate starts, `predeploy` fetches `origin/main` and refuses at once: uncommitted or untracked changes anywhere (it lists them), a gitignored file inside a folder the site serves, a commit not on `origin/main`, or `RELEASE_ALLOW_DIRTY` set.
+   The deploy's own build (`WRANGLER_COMMAND` is `deploy`) refuses the same again, so the emergency `npx wrangler deploy --env=''` is held to it too.
+   To roll back by deploying an older commit, check that commit out: it is on `origin/main`, so it passes.
+   `npx wrangler deploy --dry-run --env=''` is an upload to Wrangler too, so it is refused the same way on a branch that is not on `origin/main` (or on a dirty tree); try a dry run from main, or build with `npm run build` instead.
+
+## Releases
+
+Every build writes a release record (`scripts/release.mjs`): `release.js` in the public folder, which the pages import, and `dist/release.js`, which the Worker imports as `n8-party-games/release` (an alias in `wrangler.jsonc`), so a page and the room agree on what a release is.
+
+- `id` is a 12-digit hash of every file in the built public folder (the `_headers` file with the CSP included), so rebuilding the same code keeps it and any change a browser could see makes a new one; `site` is the site's version from `package.json`; `commit`, `dirty` and `pushed` (the commit is on `origin/main`) say what it was built from; `builtAt` is when; `games` holds each game's own version.
+- `GET /api/version` answers with the record, never cached, in the shape of Who Am I?'s (`ok`, `name`, `version`, `commit`), plus `release`, `dirty`, `pushed`, `builtAt`, `games` and `worker` (the Worker version's id, tag and upload time, from the version metadata binding `CF_VERSION_METADATA`).
+- The front page shows "Version 0.1.0, build 797991e34665" under "Made in the open"; the Floor shows it at the foot of the room picker, and the Table under "Who is here".
+
+The site's version is set by release-kit (`RELEASING.md`): Conventional Commits, `npm run release`, a `vX.Y.Z` tag and a GitHub Release.
+Making the first tag is the owner's call.
+The Floor, the Table and Hot Potato share the site's version.
+
+The games' versions:
+
+- Cork & Bell is its own repository with release-kit, pinned in `package.json`. Its record carries the version and the git ref it is pinned at.
+  It is still pinned by commit because it has no release yet.
+  Once its first `vX.Y.Z` tag exists, pin it as `github:n8watkins/cork-and-bell#vX.Y.Z`.
+- Tin Derby is a folder of this repository installed by `file:`, with its version in `floor/games/tin-derby/package.json`.
+- Paper Masks and Who Am I? at the Table live in `party/games/<id>/index.js`, with `version` in their manifests.
+- release-kit moves only the site's version.
+  A game kept in this repository has its version bumped in the pull request that changes it: a minor for a feature, a patch for a fix.
+  A unit test refuses a manifest without one.
 
 ## The seat's token and the logs
 
@@ -78,6 +109,7 @@ Make at most a handful of rooms when checking.
 10. Confirm `https://partygames.n8builds.dev/cork-and-bell/` loads over HTTPS with `Content-Security-Policy`, `X-Content-Type-Options`, `X-Frame-Options` (`SAMEORIGIN`: the party room shows the game in a frame, and no other site may) and `Referrer-Policy` headers, and that `/package.json`, `/wrangler.jsonc` and `/party-kit/README.md` answer 404.
 11. Open `https://partygames.n8builds.dev/` and confirm the front page shows "Start a party" and "Join with a code"; then open the game on a laptop, make a room, and join it by PIN from a phone.
 12. Open `https://partygames.n8builds.dev/api/party/scores/cork-and-bell` and confirm it answers `{"ok":true,"top":[...]}`.
+    Open `https://partygames.n8builds.dev/api/version` and confirm `commit` is the commit you deployed, `dirty` is `false` and `worker.id` is the version `npx wrangler deployments status --env=''` names; the line at the foot of the front page shows the same `release`.
 
 ## Confirming that waiting rooms sleep
 
@@ -91,8 +123,8 @@ Make at most a handful of rooms when checking.
 ## The party room
 
 19. Open `https://partygames.n8builds.dev/` on a laptop, start a party as the room's screen, and join it from two phones with the code or the QR code on the wall.
-20. Check the wall: Cork & Bell, Who Am I?, Tin Derby, Flood and Fox Trouble, and no Coin Flip (the test game hangs only where `PARTY_TEST_GAMES` is `"on"`, which production is not). Stand both phones in Cork & Bell's light: the battle opens on both phones and the laptop shows both stalls, and ninety seconds later everyone is back in the room with the scores on a card and points on the Tonight board. Then walk about, and put the phones down with the room open for at least 8 minutes. Last of all, stand both phones in Who Am I?'s light: after the count a card says "Off to Who Am I?" and the laptop and both phones go to `https://whoami.n8builds.dev/`.
-21. In the dashboard open the `LobbyRoom` namespace's Metrics tab: expect requests while people moved, one block of duration of about a minute and a half for the round of Cork & Bell (the room is awake for all of a round, as a game's own room is), and nothing at all while the phones lay still. An outside game adds no duration: nothing is played in the room.
+20. Check the wall: Cork & Bell, Flood, Tin Derby, Fox Trouble and the "Got a game idea?" poster, with no Who Am I? and no Coin Flip (the test game hangs only where `PARTY_TEST_GAMES` is `"on"`, which production is not). Stand both phones in Cork & Bell's light: the battle opens on both phones and the laptop shows both stalls, and when the round is over (at ninety seconds, or sooner once both phones have spent all their corks) everyone is back in the room with the scores on a card and points on the Tonight board. Then walk about, and put the phones down with the room open for at least 8 minutes. Last of all, stand both phones under the ideas poster: no light comes on and no count starts; tap the poster on a phone and the contact form on `https://n8builds.dev/#contact` opens in a new tab.
+21. In the dashboard open the `LobbyRoom` namespace's Metrics tab: expect requests while people moved, one block of duration of about a minute and a half for the round of Cork & Bell (the room is awake for all of a round, as a game's own room is), and nothing at all while the phones lay still.
 22. If duration grows while nobody touches anything, something is keeping the room awake, so set `PARTY_ROOM_BUDGET_SHARE` to a tiny value (open party rooms close within three minutes and no new ones open) and investigate.
 23. Confirm that `https://partygames.n8builds.dev/api/lobby/debug` answers 404: the door into the budget's books is for local tests only.
 24. After a busy evening, compare Durable Objects requests under Billable Usage with the numbers in `lobby/README.md`: requests, not duration, are what a busy party room uses most of. The `usage` key in step 17 also holds the requests the party rooms counted (`dayRequests`, `monthRequests`).
@@ -100,13 +132,25 @@ Make at most a handful of rooms when checking.
 
 ## The bot check (Turnstile)
 
-Optional: until both keys exist, rooms are made without it and the rate limits and the room budget still apply.
+Making a party (a new room, which is what costs room time) is checked; joining a party by its code, the big screen joining, and a reload of a page already in a party never are.
+The widget is Managed with appearance "interaction-only", so a normal phone sees nothing; only a visitor Turnstile is unsure of gets a box to tick.
+The Worker checks the token with siteverify before the room is made, once (a spent token is refused), for the action `create-room` and this site's hostname (`party-kit/src/worker/turnstile.js`).
+It fails closed: if siteverify cannot be reached in 5 seconds, no room is made and the page says "Could not check you are a person just now. Try again in a moment."; a refused check says "Could not check you are a person. Try again.", and the button works again.
+If Turnstile's script is blocked (often a content blocker) or does not load in 15 seconds, the page says so and the button works again; joining by code still works.
+Only the pages that make rooms may load anything from `https://challenges.cloudflare.com`: the build finds them as the pages that load the kit's bot check (today `/lobby/*`, `/table/*` and `/cork-and-bell/*`; `roomMakingPages` in `party-kit/build/public.mjs`).
+A deploy whose secret is one of Cloudflare's public test secrets makes no room at all (they pass any token) and logs why; so does a secret set without `TURNSTILE_SITE_KEY`, once.
 
-26. **Owner:** in the Cloudflare dashboard, open Turnstile, add a widget in Managed mode for the hostname `partygames.n8builds.dev` only, and keep the page with its two keys open.
-27. **Owner:** store the secret key with `! pass-env set n8-party-games/TURNSTILE_SECRET_KEY` and add the line `TURNSTILE_SECRET_KEY=n8-party-games/TURNSTILE_SECRET_KEY` to the project's `.env.pass`.
-28. Put the site key in the top-level `vars` of `wrangler.jsonc` as `TURNSTILE_SITE_KEY` (it is public), through a pull request, and deploy.
-29. **Owner:** set the secret with `pass-env pipe n8-party-games/TURNSTILE_SECRET_KEY -- npx wrangler secret put TURNSTILE_SECRET_KEY --env=''`.
-30. Check step 9 again (the site key shows), then make one room in a browser: the bot check runs and usually shows nothing.
+It is off until the secret exists: with no secret, rooms are made without it, `/api/party/config` hands out no site key, and the rate limits and the room budget still apply.
+The widget "Party games new party" (Managed, hostname `partygames.n8builds.dev` only, site key `0x4AAAAAAGM24cDseqMFt3A0`) was made on 2026-11-21 and its site key is already in the top-level `vars` of `wrangler.jsonc`.
+To switch it on:
+
+26. **Owner:** in the Cloudflare dashboard open Turnstile, the widget "Party games new party", copy its secret key, and store it with `! pass-env set n8-party-games/TURNSTILE_SECRET_KEY` (`.env.pass` already names it).
+27. Deploy the code that holds the site key, if it is not live yet (steps 1 to 8); until step 28 the live site behaves exactly as before.
+28. **On the owner's word:** set the secret, which switches the check on at once: `pass-env pipe n8-party-games/TURNSTILE_SECRET_KEY -- npx wrangler secret put TURNSTILE_SECRET_KEY --env=''`.
+29. Check step 9 again (the site key shows), then start a party on a phone: nothing should show, and the party should open as before. Join it by code from a second phone: no check.
+30. To switch it off again: `npx wrangler secret delete TURNSTILE_SECRET_KEY --env=''` (on the owner's word; it is a delete), and the site behaves as before.
+
+`npm run test:turnstile` checks all of it locally with Cloudflare's test keys (its header lists the servers to start; `--lobby=1` adds the party room's way in on phones and a big screen).
 
 ## The high score board
 

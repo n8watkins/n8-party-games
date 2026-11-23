@@ -20,9 +20,10 @@
 //
 // A plate is made for one wall (bar/<boxes>/plate.json). A room whose wall has no plate, or a
 // device where the plate does not load, gets the 3D look drawn as it is.
-import { boxCentre } from "../shared/world.js";
 import { boxArt, boxSide } from "../look3d/paint.js";
+import { Reflection } from "../look3d/characters.js";
 import { Room3D } from "../look3d/room3d.js";
+import { pictureReach } from "../reach.js";
 import { SKINS } from "../look3d/skins.js";
 import { CAM, D_WALL, FRAME, PX, SPACE, U, walkX, wallX, wallY } from "../look3d/space.js";
 import * as THREE from "../look3d/three.js";
@@ -224,7 +225,9 @@ export class RoomBaked extends Room3D {
   /** One game box: its poster in the plate's empty frame, its gold edge, and the light its lamp gives the pieces. */
   box(box, i, L) {
     if (this.plain) return super.box(box, i, L);
-    const b = { box, i, cx: boxCentre(i, L.n), level: 0, aim: 0, gold: 0, goldAim: 0, shown: -1 };
+    // Where the room's wall hangs the box (the plate is of an even wall, and room-view.js gives the
+    // baked look only a wall the room hangs evenly; this reads the wall all the same).
+    const b = { box, i, cx: L.wall.xs[i], level: 0, aim: 0, gold: 0, goldAim: 0, shown: -1 };
     const x = walkX(b.cx);
     const z = SPACE.walkZ;
     const radius = (this.half + 12) * PX;
@@ -278,12 +281,19 @@ export class RoomBaked extends Room3D {
     b.glow.visible = false;
     g.add(b.glow);
     this.stuff.add(g);
+    // A game that is coming soon, or a poster that is not a game (shared/world.js, hasPool): its lamp
+    // in the plate stays dark, and gives no light.
+    b.pooled = L.wall.pools.some((p) => p.i === i);
+    if (!b.pooled) b.beam.visible = b.halo.visible = false;
     return b;
   }
 
   /** Sets a box's lamp for its level of light (0 is off): in the plate, on the poster, and on the pieces under it. */
   light(b) {
     if (this.plain) return super.light(b);
+    // A poster is never lit: printed paper in the room's own light.
+    if (b.box.poster) return void b.art.color.setScalar(0.6);
+    if (!b.pooled) return void b.art.color.setScalar(0.17);
     const level = b.level;
     const glowing = Math.min(1, level * 8);
     const gain = (this.plate.info.lampGain ?? 2.83) * (0.3 * glowing + 0.7 * level);
@@ -355,64 +365,40 @@ export class RoomBaked extends Room3D {
   }
 
   /**
-   * Called just before each picture is drawn, after look3d has posed every piece: gives each
-   * its true colour (the light does the dimming here, not the paint), leans its shadow away
-   * from the nearest lit lamp, and stands its reflection under it.
+   * look3d dims the paint outside a pool and makes it glow inside one, because it has no real
+   * light. Here there is light: each character gives its body its true colour and a shinier
+   * finish (look3d/characters.js, `bake`), after it is posed and before an emote lays its red on.
+   */
+  finish(p) {
+    if (!this.plain) p.kind.bake(p.body);
+  }
+
+  /**
+   * Called just before each picture is drawn, after look3d has posed every piece: leans each
+   * shadow away from the nearest lit lamp, and stands each piece's reflection under it.
    */
   dressPieces() {
     if (this.plain) return;
     const seen = new Set();
     for (const p of this.pieces.values()) {
-      const pawn = p.pawn;
-      seen.add(pawn);
-      if (!pawn.baked) {
-        pawn.baked = true;
-        pawn.mat.roughness = 0.3;
-        pawn.mat.clearcoat = 1;
-        pawn.mat.clearcoatRoughness = 0.12;
-        pawn.mat.envMapIntensity = 1;
-      }
-      // look3d dims the paint outside a pool and makes it glow inside one, because it has no real light. Here there is light.
-      const flicker = Math.max(0, pawn.mat.emissiveIntensity - (0.09 + 0.27 * pawn.lit) - 0.01);
-      pawn.mat.color.copy(pawn.colour);
-      pawn.mat.emissiveIntensity = 0.035 + flicker * 0.6;
+      const body = p.body;
+      seen.add(body);
 
       // The shadow: short and dark right under a lamp, longer and leaning away from it further out, faint in the dark.
       const lamp = this.lampOver(p.rx);
       const away = lamp.lit > 0 ? Math.max(-1, Math.min(1, (p.rx - lamp.x) / (this.half + 60))) : 0;
-      pawn.blob.position.x += away * 0.2;
-      pawn.blob.scale.multiplyScalar(1.3);
-      pawn.blob.scale.x *= 1 + Math.abs(away) * 0.6;
-      pawn.blob.material.opacity = Math.min(1, pawn.blob.material.opacity * (1.0 + 0.8 * lamp.lit));
+      body.blob.position.x += away * 0.2;
+      body.blob.scale.multiplyScalar(1.3);
+      body.blob.scale.x *= 1 + Math.abs(away) * 0.6;
+      body.blob.material.opacity = Math.min(1, body.blob.material.opacity * (1.0 + 0.8 * lamp.lit));
 
-      // The reflection: the same piece, standing on its head under the floor.
-      let r = pawn.reflection;
-      if (!r) {
-        // Only the body is mirrored: a floor this soft does not hold a pair of eyes.
-        r = pawn.reflection = pawn.group.clone();
-        r.traverse((o) => {
-          if (!o.isMesh) return;
-          o.visible = o.material === pawn.mat;
-          if (!o.visible) return;
-          o.material = new THREE.MeshBasicMaterial({ transparent: true, depthWrite: false, side: THREE.DoubleSide });
-          o.renderOrder = -2;
-        });
-        this.mirror.add(r);
-      }
-      const [tilt, mt] = [pawn.group.children[0], r.children[0]];
-      const [turn, mturn] = [tilt.children[0], mt.children[0]];
-      r.position.set(pawn.group.position.x, -pawn.group.position.y, pawn.group.position.z);
-      r.scale.set(1, -1, 1);
-      mt.rotation.copy(tilt.rotation);
-      mt.scale.copy(tilt.scale);
-      mturn.rotation.copy(turn.rotation);
-      const body = mturn.children[0];
-      body.material.color.copy(pawn.mat.color).multiplyScalar(0.35 + 0.65 * lamp.lit);
-      body.material.opacity = (0.1 + 0.16 * lamp.lit) * pawn.fade * Math.max(0, 1 - pawn.group.position.y * 0.9);
+      // The reflection: the same piece, standing on its head under the floor, as its character makes it.
+      if (!body.reflection) this.mirror.add((body.reflection = new Reflection(body)));
+      body.reflection.update(0.35 + 0.65 * lamp.lit, 0.1 + 0.16 * lamp.lit);
     }
     for (const r of [...this.mirror.children]) {
-      if ([...seen].some((pawn) => pawn.reflection === r)) continue;
-      r.traverse((o) => o.isMesh && o.visible && o.material.dispose());
+      if ([...seen].some((body) => body.reflection === r)) continue;
+      r.dispose();
       this.mirror.remove(r);
     }
   }
@@ -421,9 +407,14 @@ export class RoomBaked extends Room3D {
     return { ...super.stats(), look: this.plain ? "3d" : "baked", plate: this.plate.base.image?.width ?? 0 };
   }
 
+  /** As far as the plate's picture reads as room (../reach.js, pictureReach), or the 3D look's reach when that draws the room. */
+  get reach() {
+    return this.plain || !this.plate ? super.reach : pictureReach(this.plate.info.rect);
+  }
+
   destroy() {
     this.scene.onBeforeRender = () => {};
-    this.mirror.traverse((o) => o.isMesh && o.visible && o.material.dispose());
+    for (const r of this.mirror.children) r.dispose();
     this.envMap?.dispose();
     for (const t of [this.plate?.base, this.plate?.env, this.plate?.juke, ...(this.plate?.lamps ?? [])]) t?.dispose();
     super.destroy();

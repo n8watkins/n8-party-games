@@ -25,13 +25,14 @@ Make each window short and wide to see what a sideways phone sees, or use the br
 5. Stand both pieces in Coin Flip's light: "Starts in 10" counts down, the game plays, and both are back by the door with points on the Tonight board.
 6. Click the Tonight board on the wall to open it large; click anywhere, press Escape or go back to close it.
 7. Stand one piece in each lit light for a tie and its coin toss.
-8. Stand both pieces in Cork & Bell's light: the battle starts for the two of you inside the room, each window shows its own stall (a third window as the room's screen shows both), and ninety seconds later both are back by the door with the scores on a card and points on the Tonight board. One piece alone in that light gets a round to itself.
-9. Stand both pieces in Who Am I?'s light: "Opens in 10" counts down, a card says where everyone is going, and both windows go to its own site.
+8. Stand both pieces in Cork & Bell's light: the battle starts for the two of you inside the room, each window shows its own stall (a third window as the room's screen shows both), and when the round is over (at ninety seconds, or sooner once both of you have spent all your corks) both are back by the door with the scores on a card and points on the Tonight board. One piece alone in that light gets a round to itself.
+9. Stand both pieces under the last poster, "Got a game idea?": it has no light, so nothing counts down. On a touch screen a tap on it opens the contact form on n8builds.dev in a new tab.
 10. Close one window to see the piece turn grey at once, and fade twelve seconds later.
 
 Coin Flip is a test game.
 It hangs on the wall only where `PARTY_TEST_GAMES` is `"on"`, which is the `local` environment in `wrangler.jsonc` (`npm run dev` and the test runs).
-Production has no such variable, so its wall is Cork & Bell, Who Am I? and the three coming-soon boxes (Tin Derby, Flood, Fox Trouble).
+Production has no such variable, so its wall is Cork & Bell, Flood (coming soon), Tin Derby, Fox Trouble (coming soon) and the ideas poster, in that order: the two games a party can play hang a frame apart.
+Who Am I? is not on the Floor's wall: it is a Table game (the Table lists it as coming soon, and the front page's Table door links to its own site until then).
 To see the wall as production hangs it: `npx wrangler dev --local --env local --port 8792 --var PARTY_TEST_GAMES:off`.
 
 For a big screen, open a third window, choose "Use this as the room's screen" and type the code.
@@ -84,6 +85,60 @@ To make a plate again: `landing/tools/blender/plate.sh 5` (about 45 minutes of r
 The raw renders are not committed.
 When a game is added to the wall, its plate must be rendered before the baked bar shows that wall.
 
+### The Star Lounge made real (rooms made of rendered layers)
+
+To see it, open the room with `?look=real`, for example `http://localhost:8791/lobby/?start&look=real&room=ship` (the party's room must be the Star Lounge).
+The switch is remembered on that device, as the others are; any other `?look=` switches it off.
+A device with it on gets the rendered Star Lounge whenever the party's room is the Star Lounge, and the 3D look's own drawing for every other room.
+A device that has not switched it on downloads none of it (only `look3d/rendered/switch.js`, a few lines of logic, is part of every page).
+Its picture is of the production wall of five boxes: on another wall (the local test wall of six) the 3D look draws the room and nothing of it is fetched.
+If its layers have not all arrived within 5.5 seconds, the 3D look draws the room instead, so a slow connection does not hold the room dark; what arrives later is given back unused.
+
+It is the method the second rendered room (the bar, below) copies, so it is split in two:
+
+- **`public/look3d/rendered/`, any rendered room.** `plate.js` loads a plate and builds its picture as one shader (the base, plus each light's tile with one number), cut to the glass, and draws what is outside first and the room over it, so nothing outside can ever show over a wall, a post, the door or a sign. `room-rendered.js` is the 3D look with its walls swapped for that picture (`RoomRendered extends Room3D`): the posters in the picture's frames, the pools and lit screens of the vote, the pieces lit by the room and reflected in its floor, and everything that is data (pieces, tags, signs, the join code and QR, the Tonight board, emotes, bumps, the count, the toss) called and not copied. `ladder.js` is how it comes down on a slow device. `switch.js` says which rooms have one and whether this device asked.
+- **`public/look3d/rendered/star-lounge/`, only the Star Lounge.** `room.js` (its lamps that swing, its chart table, its sky on the room's clock, its steps down), `outside.js` (the planet, its storms, the moon, stars, and what passes), `parts.js` (lamps, chart, blinking lights, rods and shines), `sky.js` (the timetable: one thing at a time, 20 to 45 seconds of empty sky) and `layers/` (the rendered pictures and `plate.json`, about 840 KB). Its numbers are the Blender scene's own file, `tools/blender/star-lounge.json`, served beside the layers by `scripts/build-public.mjs`.
+
+The preview page (`preview/star-lounge`) imports the same modules, so the room and the preview cannot drift apart.
+The sky runs on the room's own clock, seeded by the room's code, and each thing passes when it was due, not when a screen noticed: so every screen in a room sees the same rocket at the same moment, whether it came late, was hidden or was away in a game.
+The passing things make the room's existing sounds: `rocket.pass` and `star.fall`; the chart table makes `holo.spin` when it is knocked.
+
+On a device that cannot keep up it comes down a ladder, and the frame meter (`?meter=1`) names the rung: `real star-lounge`, `real star-lounge lite 1` to `lite 3`, or `3d star-lounge`.
+First it draws fewer pixels, by the 3D look's own rule (a fifth at a time down to 0.75, undone if it did not help).
+Then its own steps, cheapest last: the planet's weather off (storms, torn cloud edges, belt streaks), the planet's surface at half size, and everything outside drawn at half resolution.
+A device whose largest picture is under 4096 pixels starts with the smaller planet.
+Still slow after the last step, it draws today's 3D Star Lounge in place, says so in one short note that can be closed, and remembers that on the device (until `?look=real` is asked again), so it does not climb back and slow down again; the "Simpler room" check then carries on from there.
+If none of its steps made frames faster and frames sit at 30 a second (a phone in a battery saver), it undoes them, keeps the rendered room and remembers the device as capped, so later visits do not try again; a phone slow at any other pace falls back.
+For a test, `?rung=0` to `?rung=3` or `?rung=3d` forces a rung and is never remembered; `?ladder=off` holds it there.
+`lobby/test/shoot-real.mjs` takes the stills (and `--look=3d` the same moments in today's look), `lobby/test/measure-real.mjs` times each rung.
+
+### The bar made real
+
+The second rendered room, made the same way from the owner's paintings of the bar instead of a Blender render.
+To see it, open the room with `?look=real` in a party whose room is the bar (the default room), for example `http://localhost:8791/lobby/?start&look=real&room=bar`.
+It shares every part of `public/look3d/rendered/` with the Star Lounge, and its own are in `public/look3d/rendered/bar/`:
+
+- **`layers/`**, made by `node lobby/tools/bar/layers.mjs` from the paintings (about 360 KB): the room with its five gold frames lifted out and the wall patched behind them, the join sign by the door and each frame's shadow painted in, and the ceiling, floor and ends carried on into the dark for screens taller or wider than the painting; the glass, traced pane by pane; the frames, with the pale specks at their inner edges cleaned away; what stands in front of the pieces; the street behind each window; and `plate.json`.
+  The paintings themselves are not in the repository: the tool reads them from the owner's Downloads (`--art=` names another folder).
+- **`room.js`**: the painting laid on the 3D look's room, so that its wall is the back wall and its floor line is where the pieces' feet are; the posters in the painted frames at 1.06 of their painted size, each in place; the join code and QR on the wooden sign by the door, the scores chalked on the painted board, each poster's sign a small brass plate under it (`bar.css`); five glass lamps of its own over the pools; the painted lights breathing slowly.
+- **`outside.js`**, **`street.js`**, **`umbrella.js`**, **`sprites.js`**: the rainy street outside, from far to near: the street, its lamps breathing and a lit window now and then going dark, rain in the puddles, the thing passing, the steady rain at three depths, and the drops landing on the glass, sitting, gathering and running down.
+  One thing passes at a time, with 10 to 15 seconds of nothing between, on the room's clock seeded by the room's code (the timetable is the Star Lounge's, now `rendered/timetable.js`): an umbrella on the wind, a cat on the sill, a paper boat in the gutter, or the shop light going off and on.
+  Lightning comes now and then, about once a minute: one soft cold glow over the street and by the windows, never a flicker.
+  The umbrella is a real one, built and lit: its canopy leads and its handle trails, it rides the gust (faster and higher, then slower), bobs, sways and turns over lazily once or twice about its shaft.
+
+The bar hangs its boxes in its painting's five frames, closer together than the even wall, and the room counts the vote there: a room may say where its boxes hang (`shared/rooms.js`, `boxes`, read through `wallFor`), and the room's rules (who stands in which light, where a piece arrives, where a knock lands) and every look of that room (flat, 3D, made real) go by it.
+Every other room, and the bar's local wall of six, keep the even wall.
+The baked bar's plate is of the even wall, so on the bar's wall of five the 3D bar draws the room instead.
+Each of the bar's lamps hangs over its pool near the eye, and a poster warms round its frame when someone stands in its light.
+
+Its depth: the eye moves sideways as the view slides (a phone's "Closer", an upright phone following its piece) and sees through the same window on the walking line, so the pieces, their tags and the pools stay exactly where the room's numbers put them, while the wall slides a little behind them, the street and the rain slide further behind the glass, and the stools, plant, candles and chair in front slide the other way; the pieces walk behind those at either end.
+A big screen's whole room does not move, so there it is the painting with the pieces standing in it, lit warm by the lamps, with their shadows and their reflections in the boards.
+Nothing in the bar shakes: a bump does not jolt the picture.
+A device that asked for less motion has the rain slower and thinner, the drops slower, no passing things, no lightning and the lights still.
+
+Its steps down the ladder are the drops on the glass off, half the rain, and everything outside at half resolution; the frame meter names them `real bar` to `real bar lite 3`, and `3d bar` once it has fallen back.
+`node lobby/test/shoot-real.mjs --room=bar` takes its stills and checks it (nothing passing touches a pixel that is not glass, the eye moves while the pieces keep their places, a bump does not shake it, the ladder and the fall back), and `node lobby/test/measure-real.mjs --room=bar` times each rung.
+
 ### The party's room
 
 The 3D look has seven rooms: the bar (where a party starts), the star lounge (`ship`), the arcade, the campfire (`camp`), the rooftop (`roof`), the studio (`navy`) and the pier fair (`fair`).
@@ -135,7 +190,7 @@ The 3D look also loads two small fonts of its own (`public/look3d/fonts/`, with 
 
 Pieces move with weight in the 3D look: they lean into a walk, rock from foot to foot, stretch in the air and squash on landing (`public/look3d/pieces.js`).
 The bump is the shared one (`shared/bump.js`): the 3D look draws the same states at the same moments as the flat drawing, from the same poses, in `bumpPose` in that file under the heading "THE BUMP, DRAWN".
-The bumper is picked up by its head and kicks with its base; whoever it hits is squashed, thrown feet first, lies on the floor with crosses for eyes, gets up and flickers while it cannot be knocked again.
+The bumper is picked up by its head and kicks with its base; whoever it hits is squashed, thrown feet first, lies on the floor with its eyes squeezed shut in a wince (> <; a robot's are crosses), gets up and flickers while it cannot be knocked again.
 There is a burst of sparks where the blow lands, dust where the piece comes down, a small jolt of the picture, and a ring under your own piece that fills as your bump recharges.
 The 3D wall follows the flat one: a game's name is on its box and nowhere else, the sign under it says one thing about the game, how many play and on what, and the Tonight board opens when it is tapped.
 
@@ -155,7 +210,7 @@ The 3D wall follows the flat one: a game's name is on its box and nowhere else, 
   | The allowance is spent | "Party rooms are closed for today. Each game still plays on its own page." |
   | Everyone left, or a saved seat whose room is gone | "Party 1234 has ended." |
 
-  A wrong code is said in the way in as soon as all four digits are typed, a full party says so with "Start a party instead" beside it, a second screen is offered a seat, and "Stay in the room" on an outside game's card leaves you in the live room.
+  A wrong code is said in the way in as soon as all four digits are typed, a full party says so with "Start a party instead" beside it and a second screen is offered a seat.
 - The door button and Rooms say what they do ("Leave", "Stop showing" on the room's screen, "Rooms") for the first nine seconds a device is in the room, then fold to their pictures.
 - What can be touched on the wall looks it (`public/touch.js`): the Tonight board, each poster, the join sign and, in 3D, the room's own feature answer a tap with a press of light and give a hand cursor on a laptop. The first time a device is in a room a small round mark pulses on each of them and the board's says "tap"; after that the marks are gone (a laptop shows one under the pointer), and the boards keep their own small arrow. A poster opens a small card beside it: its line, players, devices, "Stand under its lamp to vote" and a high score where the game keeps one; it closes by itself after seven seconds or as soon as the piece moves. The join sign opens the code and QR code large, for showing a friend. The room's feature (the jukebox, the globe, the claw...) plays the reaction a bump by it would, on that device only and at most every second and a half. None of it sends anything to the room.
 - Game boxes from each game's manifest. The name is on the poster, once. The sign under it has one line about the game, how many can play ("1-4 players") and the device badge (cyan any device, violet a phone each, amber phones and a big screen). Every sign says how many can play, the coming-soon ones too. On a phone, with five boxes or more, a sign is too narrow for the line of words at a size worth reading, so it keeps the count and the badge and the words are left to bigger screens.
@@ -169,11 +224,13 @@ The 3D wall follows the flat one: a game's name is on its box and nowhere else, 
 - The count is large on the wall (a ring over the leading box) and just above the bottom bar (`public/count-tick.js`). Every second ticks; the last three tick harder: the number turns gold and pops, a phone gives a short buzz, and the page announces `count.tick` and `count.last` as `party-room:sound` events, and the room's sounds tick with it.
 - A tie is settled by a coin toss everybody watches. A phone in the closer view pulls back to the whole room for the count and the toss.
 - A player alone can start: one piece in a light runs the same ten-second count.
-- A game the party cannot play has its light off and says why in a few words ("Needs 2 players", "For 2 players", "Needs a big screen", "Coming soon").
-- Outside games: a game that plays on a site of its own hangs on the wall with an address instead of a hosted game (below).
+- A game the party cannot play has its light off and says why in a few words ("Needs 2 players", "For 2 players", "Needs a big screen"). A game that is coming soon has no light and no pool at all, and says "Coming soon".
+- The last frame holds the ideas poster, which is not a game: no light, no vote (below).
 - A big screen that joins with the code and holds no seat, and a player's view with buttons, a "Whole room / Closer" switch and a "turn your phone" hint when upright.
 - A phone held sideways starts in the closer view, following its own piece (`shared/camera.js`).
   - Whole room shows everything from the tops of the lamps to the pools of light and the pieces' feet, with no empty strip of floor; when the room is narrower than the screen it is set to the left of the buttons in the corner, so they cover nothing on the wall.
+  - That shows more than the room's width, mostly past its right end, so every look carries the room on past its ends as wall and floor, as far as its reach (`public/reach.js`): the flat wall and floor run on, the 3D look's end walls run forward to the front of its floor, and the bar's painting is carried on by bays of its own wall, panelling and floor (`tools/bar/layers.mjs`).
+    The page keeps the view inside the drawing's reach, so a screen wider still is brought in rather than shown past the art; `npm test` checks the sizes (`test/reach.test.js`) and `test/shoot-fill.mjs` the pictures.
   - Closer zooms until a piece is 90 CSS pixels tall (about 14 mm), but not so close that the signs go under the corner buttons (the 3D look's signs sit higher with more boxes), and never smaller than 70 pixels.
 
   | Phone (sideways, CSS pixels) | Closer: piece | Whole room: piece |
@@ -224,22 +281,36 @@ The cooldown is shown twice: a ring sweeping round the bump button, which is dim
 The rules, timings, states (winding, striking, recovering; standing, hit, flying, down, rising, safe) and poses are `shared/bump.js`: plain numbers with tests, no drawing.
 `public/bump-draw.js` is the thin part that turns them into SVG, and is the only part a room drawn another way would replace.
 
-## Outside games
+## The Floor and the Table
 
-An outside game is not on the kit: it has a site and rooms of its own.
-In `wall.js` it is an entry with a `url` where a hosted game has a server definition (`OUTSIDE`), and its poster says "ON ITS OWN SITE".
-Who Am I? (`https://whoami.n8builds.dev/`) is the first.
+One party has two waiting rooms, and the host moves everyone between them.
+The Floor is this room, with the pieces, where everyone plays at once, at `/lobby/`.
+The Table is a plain waiting room with no characters, where the party sits, talks and takes turns, at `/party/` (`../party/public/`).
+Both are the same party: the same room object, the same code, the same seats and the same Tonight board.
 
-- Its light follows the same rule as any game's: on when the party is a size the game takes. Who Am I? is for exactly two players (its engine's `MAX_PLAYERS`, and it needs both to start), so with one player its sign says "Needs 2 players" and with three or four "For 2 players".
-- The count reads "Who Am I? opens in 10", not "starts".
-- When it wins the count or the coin toss, the room sends every page `away { id, name, url, in }`. Every player's page and the big screen show a card, "Off to Who Am I?", for six seconds (`AWAY_MS`) and then go to the address. The card says the party's code does not work there (one of them makes a room on that site and the others join it) and that nobody scores. "Go now" goes at once; "Stay in the room" keeps that one device here.
-- Nothing starts in the room, so nothing ticks and no room time is spent: it costs the one wake-up that ended the count.
-- The Tonight board gets no points from an outside game, and it does not count as a game played.
-- Afterwards the party room is left alone. The pieces are put back by the door, and a new count cannot start for twelve seconds, so anyone who stayed is not sent off again at once. Once the pages have gone the room is empty: the pieces fade after twelve seconds, their seats are held two minutes more, and the room closes when they are let go, by the usual rules. Coming back to the room's address inside that time finds the same seat and points; after it, the party has ended and a new one is started.
-- The page only ever follows an `https` address or a page of this site, and only one that came from the room's own wall.
+- The room keeps one stored value, `mode`: `"party-games"` (the Floor, the default) or `"turn-based"` (the Table). These values are on the wire and in storage; the names people read live only in `shared/mode.js` (`MODE_NAME`).
+- The host (the device that made the party, or whoever holds the controls while it is away, by the same rule as the room picker) sends `{t: "mode", v}`. The room refuses it during a count or a coin toss, between the end of the vote and the start of its game (`LobbyCore.starting`, while the budget is asked), during the settings step and a game, and within four seconds of the last switch, with `{t: "mode-no", why, v}` to that page only. A room pick is refused in that same gap.
+- A host whose phone dropped less than eight seconds ago (`HOST_GRACE_MS`) still holds the controls: that is a page moving between the two rooms, and nobody else may switch or pick in that moment. After it the first connected player holds them until the host is back, and the host's piece fades and hands the party over for good after twelve seconds, as before.
+- A switch is saved before anyone hears of it; one that cannot be saved is taken back, and the host is told to try again. Then everyone gets a note ("Ann moved the party to the Table") and the room view with the new `mode`. The vote starts over: every piece is back by the door, with the usual rest before a count.
+- At the Table nothing walks, bumps or counts (`LobbyCore.plainRoom`), so no vote can start there; a room pick is refused (nobody sees the room's look there) and emotes are ignored. Seats, drops, the seat hold and the host's handover work as on the Floor.
+- The Table may sit idle for two hours (`TABLE_STALE_MS`) while anyone is connected, where the Floor is put away after twenty minutes. On the Floor every step a piece takes tells the room someone is there; at the Table people sit and talk and nothing they do reaches the room, so the shorter limit would close a party in the middle of a conversation. It adds no wake-up: the room still sleeps, and only its own limit moves.
+- Each page moves itself when the room's mode is not its own (`public/hop.js`). It is a rule about state, not an event: a hello after a reconnect, a page loaded mid-switch and a phone that was asleep all land in the right room the next time they hear the room. The page shows "Moving to the Table" for a moment and replaces itself with the other page, which resumes the same seat from the session in the tab. A tab hops at most once in three seconds (`HOP_GAP_MS`), so two pages can never bounce a tab between them; a hop it may not make yet leaves a link to tap and is tried again by itself once the guard lets it, to wherever the party is then.
+- The Floor's way to the Table is "Move the party to the Table" under the rooms in Rooms, for the host only. At the Table the one who holds the controls has a switch for both rooms at the top; everyone else has a plain line under the heading saying who chooses the room.
+- The Table loads no three.js and nothing of the Floor's drawing. It shows the code and QR code as its hero, who is here (every seat, the host marked, a dropped phone grey, free seats as empty places), and that Table games are coming. Notes ("Cy joined") take the place of the line under the heading for a few seconds, so they never cover anything. The big screen gets a wide layout, with the switch in the bar when it holds the controls, sized to need no scrolling.
+- A room saved before this restores on the Floor. The join link and the QR code still lead to `/lobby/?join=`, whose door seats a newcomer and sends them on to the Table when the party is there.
+- `npm test` covers the rules (`test/mode.test.js`) and the switch on the real room class (`test/party-room-mode.test.js`). `npm run test:mode` switches two players and a screen both ways over real sockets, with a reconnect in the middle and a newcomer at the Table. `npm run test:two-rooms` does it in real pages (headless and muted) and takes stills at 390x844, 844x390, 320x568 and 1280x720.
 
-A hosted game whose manifest names no view for the room would hang the same way, with its own page on this site as the address.
-Cork & Bell did until it got one.
+## Only games played in the room, and one poster
+
+Every game on the Floor's wall is played inside the room.
+There are no outside games any more: Who Am I? used to hang here and send a party of two to its own site, and it now belongs to the Table.
+A hosted game whose manifest names no view for the room is refused when the Worker loads (`wall.js`, `buildWall`), not hung with an address.
+
+The last frame holds a poster that is not a game (`shared/vote.js`, `posterBox` and `IDEAS`): "Got a game idea? Tell me. I might build it.", with `n8builds.dev` along its foot.
+
+- It has no lamp, no light and no sign in any look (flat, 3D, baked, rendered), and its light in the room view is `""` (off, with nothing to say), so standing under it is standing in the dark: no vote, no count, never a spot.
+- On a touch screen a tap on it opens the contact form, `https://n8builds.dev/#contact`, in a new tab; the room stays open. No email address is printed in the room.
+- The front page leaves it out: it is not under "On the wall tonight" or in the room door's peek.
 
 ## Cork & Bell in the room
 
@@ -249,10 +320,10 @@ Cork & Bell is its own repository and package (`games.js`), and it is the first 
 - **The start.** When it wins the count or the toss, the room calls its `game.create` with the party's seats, names and colours, and ticks it at its own thirty times a second. There is no waiting room and no ready step.
 - **On a player's device.** The room's page fetches the view the game's manifest names (`/cork-and-bell/game/party-view.js`) and mounts it over the room: the player's own stall, full screen, with the rivals' tokens to pick a target. The game's files are fetched ahead while the count is still running.
 - **On the big screen.** A spectator view: every stall in the round side by side, with names and scores, as the game's own shared screen shows a battle. Someone who joins the party in the middle of a round sees the same until it ends.
-- **A party of one** gets a round to itself, the same ninety seconds with nobody to send attacks to. It is first of one, so it puts three points on the Tonight board.
+- **A party of one** gets a round to itself, the same round of up to ninety seconds with nobody to send attacks to, over as soon as its one stall has spent its corks. It is first of one, so it puts three points on the Tonight board.
 - **The room's own things** on top of the game are the door button (already drawn for a phone held sideways: "Leave the party" works mid-round), the notes ("Tom left") and the word about the connection. The room's bars are put away and the room is not drawn under the game.
 - **A phone that drops** has its stall played by the game's stand-in until it is back; a reload in the middle comes back to the same stall with its score.
-- **The end.** After ninety seconds (or when only one stall still has corks) the game is taken away, everyone is back by the door, and the room's card shows who came where with the scores: 3, 2 and 1 points for the Tonight board, equal scores sharing a place.
+- **The end.** After ninety seconds (or sooner, once every stall is out of corks and the last cork has landed) the game is taken away, everyone is back by the door, and the room's card shows who came where with the scores: 3, 2 and 1 points for the Tonight board, equal scores sharing a place.
 - **Nothing is left behind.** The game runs in a frame of its own page, so its listeners, timers, sound and WebGL context go when the frame goes; the view also lets the WebGL context and the sound go at once. `npm run test:cork` checks it on every device.
 
 The game's own page at `/cork-and-bell/` is unchanged: solo with the high score board, and battles in rooms of its own.
@@ -279,6 +350,185 @@ There is no soundboard: the owner dropped it on 2026-11-13 ("just emotes").
   A player may send one every 1.5 seconds; the room refuses one that comes sooner and tells that page how long is left.
   An emote the room refuses with more than half a second left counts against the socket's rate limit: a real page never sends during its own cooldown, so a script that hammers the button is closed within about two seconds, having had one or two through.
 - While a game is played the game decides (`manifest.lobby.emotes` and `.emoteSounds` in `party-kit/GAME-CONTRACT.md`): by default emotes yes, their sounds no.
+
+## Characters
+
+A player's piece is a character in a colour, and each player chooses both.
+There are four characters: the pawn, which everyone starts as, the ghost, the slime and the robot.
+A phone's bar holds a round chip with the player's own piece on it, after the walking buttons (on an upright phone, at the left of the line of words); it opens "Your piece", with the characters, ten preset colours and the device's own colour picker for any other.
+The corner at the top keeps only the room's own three buttons, so it covers no more of the posters than before.
+
+### The choice
+
+- The choice is the room's to keep (`shared/characters.js`, `LobbyCore.setLook`): each member carries `character` and `colour`, and the room view shows them to every page.
+- A page asks with `{t: "look", c: "ghost", v: "#8a5bc4"}`, either part or both.
+  The room answers with the room view, with `{t: "look-ok", c, v}` to that page when the piece already is that, or with `{t: "look-no", why, c, v}` to that page only (and `wait`, the cooldown left, when it came too soon).
+- An unknown character or anything but a six-digit colour is refused and changes nothing.
+  A colour too dark to see in a dark room is lifted toward white (`cleanColour`).
+- Two players may choose the same character in the same colour.
+- It cannot be changed while a game is on, nor twice within a second: each change is one room view to everybody and one write of the room to storage.
+  A phone holds back a tap made inside that second and sends it when the second is over.
+  The room measures the second at arrival and allows `LOOK_SLACK_MS` (250 ms) for the network; a choice it still finds too soon is sent once more by the phone when the time left is over, so normal tapping never shows a cooldown message.
+  One that comes far too soon counts against the socket's rate limit, as an emote does.
+- It is kept through a dropped phone and through a sleep of the room, because it is on the member.
+  The last choice made on a device is kept on it, and asked for again in the next party; a phone that comes in during a game asks for it when the lobby is back.
+- It is lobby state, not game state: a game is handed each seat's colour when it starts and may ignore the character.
+- The lobby and the Tonight board use the chosen colour; inside Cork & Bell a stall keeps its seat's colour for now, because the game paints its own seats.
+
+### The interface
+
+No draw site names a character, or reaches into a character's paint.
+Each asks a definition, and a test (`test/characters.test.js`) fails if one names a character again, or if any file of the page outside the definitions reads a body's `mat` or `colour`.
+A character is one entry in each of three lists, which a test keeps the same:
+
+| List | File | What it holds |
+| --- | --- | --- |
+| The room's | `shared/characters.js`, `CHARACTERS` | `id`, `name`, and `move`: what its action button does |
+| The page's | `public/characters/index.js`, `CHARACTER_DRAWINGS` | its emotes and its flat drawing |
+| The 3D look's | `public/look3d/characters.js`, `CHARACTER_MODELS` | its model, for the 3D and the baked look |
+
+The page's definition (`public/characters/pawn.js` is the one to copy):
+
+- `emotes`: `byId(id)` gives an emote as `pose(t, calm, reach)`, in the terms of `public/emotes/rig.js`; `mirror(pose)`; `top(pose)`, how high a pose reaches, for the word over the head.
+  Every character does the kit's fourteen emotes, with the pawn's lengths and words, so each recording fits them all.
+- `flat`: `make()` returns its body, with `inner` as the group an emote leans; `dress(body, colour, connected)`; `frame(body, {now, dt, face, seat, calm, grounded, walking, x, voting})`, which returns how far off the floor it holds itself (`walking`, `x` and `voting`, whether it stands in a game's light, are for characters that show them: the slime's creep, the robot's wheels and lamp); `dizzy(body, on)`; `scared(body, k)`, how wide its eyes go when a ghost frightens it (0 to 1); `blink(body, opacity)`; `emote(body, pose, bodyTransform)`; `still(colour)` and `portrait(colour)` for small pictures.
+  Its numbers are `tall` (the top of its head against a standing pawn's), `rest`, `shadow` and `glides`.
+  `figure` tells the emote drawing (`public/emotes/svg.js`) what turns red when it fumes, where its face sits (`face`: `dy`, `turn`, `scale`) and in what ink (`ink`, `skin`), and how its hands are joined on (`limbs`: `"stick"`, `"ghost"`, `"goo"` or `"rod"`).
+  With `ownKnockedFace` (the slime, the robot) a piece knocked over in the middle of an emote keeps its own knocked eyes and the emote draws no face, as in the 3D look.
+  The robot's paint is coloured point by point, so its fuming red and a fright's pale are laid on the paint itself (`tintPaint` in `public/look3d/body-kit.js`), not on its material's colour, which would multiply them by the paint.
+
+The 3D look's definition (`public/look3d/pieces.js` is the pawn's, `public/look3d/ghost.js` the ghost's, `slime.js` and `robot.js` the others', with the small parts those two share in `body-kit.js`):
+
+- `make(radial)` returns a body with the handles every character has: `group`, `tilt`, `turn`, `mat`, `blob`, `ring`, `colour`, `lit`, `fade`, `air`, `dizzy` and `skin`.
+  The body is kept on the piece's record as `p.body`, and its definition as `p.kind`.
+  A room reads `group`, `tilt`, `blob`, `ring`, `fade`, `air` and `dizzy`; `mat` and `colour` are the character's own (a ghost's are its white sheet: the player's colour is its hem).
+  `skin` is the meshes of its own surface, for `Reflection` (`public/look3d/characters.js`), which stands any character on its head in a shiny floor in its own colours.
+- `dress(body, hex, connected)`, `fade(body, left)` and `dispose(body)`.
+- `pose(body, piece, now, dt, how)` stands it where its piece is and returns `{up, moving, shock, burst, dust, state}`.
+  `up` is how far the top of its head is above a standing pawn's, so name tags and words are placed the same way for every character.
+  `moving` is whether the room must draw every frame for it.
+- `emote(body, pose, now, seat)` lays an emote's pose over it, and `hands(body, colour)` returns its hands as `{set(pose, now), dispose()}`.
+- `bake(body)` is the baked look's finish: its true colour under real light.
+  A room gives it each frame after `pose` and before `emote` (`finish` in `room3d.js`), so an emote's red stays on top.
+
+What a piece is doing is the same for every character and is decided elsewhere: where it is, a jump, and a bump as a pose (`shared/bump.js`, read through `bumpPose` in `public/look3d/pieces.js` and `BumpDraw.pose` in `public/bump-draw.js`).
+A character decides only how that looks.
+A ghost can frighten any piece (below): the start, freeze and scurry are a pose like a knock, and the character only decides how wide its eyes go (`scared(body, k)` in the flat definition, `scared` in the 3D pose) and how its paint pales (`pale`).
+
+### The ghost's move: the fade, the scare and boo
+
+The rules are `shared/ghost.js`, the numbers the owner approved in the character previews.
+
+- A character's `move` (`moveOf`) is what its action button does: `kick` for the pawn, `fade` for the ghost, which does not kick.
+  The phone's button shows the move's own picture and word ("Fade") and its own cooldown.
+- The fade: `{t: "fade"}`.
+  The ghost is see-through for 2.5 s, and may fade again 8 s after it began.
+  Everybody hears `{t: "fade", s, for}`; a refusal goes to that page only, as `{t: "fade-no", why, wait}` (`wait` when waiting will do: the cooldown, or being knocked over), and the page says the reason as a note.
+  Refused during a count, a coin toss or a game starting, outside the Floor's own time, and to anything but a ghost.
+- A faded ghost has no vote: the light it stands in does not count it, and the count waits for it (the room wakes when the fade ends).
+  Its own player sees it less faded than everyone else does, so they can always find it; everyone else still sees its outline, face and name tag.
+- The scare: a kick that reaches a faded ghost passes through it, and the kicker is scared off: `{t: "b", s, to: -1, sc: ghost, x, rev}`.
+  It starts, freezes wide-eyed for about 0.75 s, then scurries as far as a kick would have thrown it, into the dark, with a pale tint; it cannot move until it has stopped, and cannot be knocked for a while after.
+- Boo: a faded ghost that drifts through a piece says so, `{t: "boo", to}`, and the room checks it was close enough by its own reckoning.
+  The piece is spooked out of place the way the ghost was going, weaker than a kick: `{t: "spook", s, to, x, rev}`, or `{t: "boo-no", why, to}` to the ghost's page only.
+  Its cap: a fade spooks each piece once at most, a piece cannot be spooked again for 6 s, and a ghost never spooks a ghost.
+- Any refusal of either counts against the socket's rate limit, so a script cannot keep a room busy with them.
+- The ghost swells, eyes and mouth wide, for its boo (both the scare and the spook), and says it with a sound made in code (`public/ghost-sounds.js`: no recording, so nothing to credit), as does the fade.
+  The party with no ghost never builds these sounds, and draws nothing new.
+- Nothing jolts the picture, and for someone who asked for less motion a frightened piece does not shiver.
+
+### The robot's and the slime's moves
+
+The rules are `shared/robot.js` and `shared/slime.js` (every number of each in its own file), what they do to a piece `shared/moves.js`; the numbers are the ones the owner approved in the character previews (rounds two and three), with the hook a little faster as he asked.
+Only the pawn kicks: the robot's move button is Hook and its jump button its stilt legs ("Legs"); the slime's move button is Harden, held to go soft.
+
+- **The hook**: `{t: "hook"}`.
+  The robot stops where it stands, rocks back for a 150 ms wind-up with a line of light along the floor as far as the hook reaches (the tell), then the hook flies at 1,650 units a second to 300 units out (about four piece widths) and grabs the first piece it meets.
+  Everybody hears `{t: "hook", s, f, x}` at once; the room judges the hook by its own clock 100 ms after its tip reaches a piece (or the end of its reach), so a jump or a kick that left the target's phone as it arrived counts, and tells everybody `{t: "hk", s, o, to, hx, x, rev}`.
+  That is one wake-up of the room a hook (`LobbyCore.dueHooks`, `nextWake`).
+  What can come of it (`o`): `pull` (the piece is dragged across the floor to the robot, upright and unharmed, in 260 ms, and cannot be knocked for 1.5 s after), `jumped` (it was in the air: the hook flies on and may take the piece behind), `parry` (a pawn kicked toward the robot as it arrived: batted away), `clang` (a hardened slime), `stuck` (an absorbing slime: the robot is dragged to the slime), `scare` (a faded ghost: the robot is scared off the other way), `bonk` (two robots hooking each other, or one hooking the robot that just pulled it: both yanked to the middle, heads bonked, stunned 0.6 s; the owner's pick, a bonk and no swap), `miss`, and `off` (dropped: its robot was knocked, became something else, or the party left the room).
+  A robot pulled while it drags a catch brings the catch along behind it, and a robot pulled while its own hook flies keeps its throw from where it now stands: both end in a line (the hook train).
+  A 6 s cooldown from the throw, hit or miss.
+- **The legs**: `{t: "stilts"}` (the robot's jump key or button).
+  A squat as the tell, a quick rise of 120 units with one small overshoot, a steady hold, a shake in the last 0.3 s, a fast drop and a flash on landing that says it can be hit again: 1.15 s in all, again 2.5 s after the last.
+  While up a kick swings through the gap under it (`bump` leaves it out), a slime cannot shove it, and it cannot hook; it still votes.
+  `{t: "stilts", s, for}` to everybody.
+- **Harden**: `{t: "slime", k: "harden"}`, a tap.
+  Glossy and solid like a gem for 1 s: a pawn that kicks it bounces off and is knocked back itself (`{t: "b", s, to: -1, bo: slime, x, rev}`), and a hook clangs off.
+  Then it is soft again and open to anything until it may harden again, 5 s after it began.
+- **Absorb**: the same button held past 280 ms turns the harden just begun soft and sticky for 1 s (`{t: "slime", k: "absorb"}`, taken only within 0.7 s of that harden, once a press, on the same cooldown).
+  A hook that reaches it sticks and the robot is dragged across the floor to the slime: the hook turned around. A kick still lands.
+- **Heavy**: a walking slime that touches a piece says so, `{t: "shove", to}`, and the room checks it by its own reckoning (close, in front, walking, not hard or soft).
+  The piece is pushed a step on and in front of the slime (`{t: "shove", s, to, x, rev}`), upright, so a slime that keeps walking keeps pushing it along.
+  Nobody shoves a slime, a robot up on its legs or a faded ghost.
+- **The vote**: everything the room drags across the floor may leave the light it stood in (as a kick does), but never comes to rest in another light that is on (`slideLanding`): no move puts a vote where its player did not choose it.
+  None of these moves holds a count back, and all are allowed during it (the hook and the shove as the kick is); a hook judged as the count ends that took a voter out stops the count rather than starting the game.
+  Every move ends when the party leaves the room (a game, the Table, a switch of waiting room) or the piece becomes another character.
+- **Refusals** go to that page only, as `{t: "hook-no" | "stilts-no" | "slime-no", why, wait}`; a shove the room does not take says nothing (the slime was only walking by).
+  Only what no real page sends counts against the socket's rate limit: a move the piece's character does not have (after a moment's grace for a change of character), a cooldown far from over, a shove from across the room.
+- **A page that arrives in the middle** (a reload) is told what is going on in the room view (`hook`, `stilts`, `hard`, `soft`, each cooldown, and the `fright` of a pulled, shoved or bonked piece) and draws it from there (`public/move-state.js`, `resumeMoves`).
+- **Drawn** in every look: the hook, its chain and the tell by `public/move-draw.js` (flat) and `public/look3d/moves3d.js` (3D, and the baked and made-real looks through it); the legs by the robot's own drawings, the gem and the soft melt by the slime's.
+  What both looks keep about the moves is `public/move-state.js`.
+  Nine sounds made in code (`public/move-sounds.js`: no recordings), built only once a robot or a slime does anything; not judged by ear yet.
+- Tests: `test/robot-slime-moves.test.js` (the rules, the room's judgement, the real Durable Object) and `npm run test:moves` (`test/e2e-moves.mjs`: every move by the keys, as every phone draws it, flat and 3D).
+
+To add another character: write its emote rig, its flat drawing and its model, and add it to the three lists.
+A body without a pawn's shoulders can take the ghost's emotes fitted to it (`bodyRig` in `public/characters/body-rig.js`) instead of a rig of its own, as the slime and the robot do.
+The picker, the room's check, the wheel's pictures and every draw site pick it up from there.
+
+### The ghost
+
+A white sheet with a hem dipped in the player's colour, scalloped along its edge, and two nub arms.
+It hangs above the floor and bobs, its hem trails behind it, and it squeezes its eyes shut when it is knocked over.
+In the 3D and baked looks the sheet keeps its own white under any room's light: it takes only how bright the light is, never its hue, part of it glows by itself, and a cool rim outlines it (`SHEET_LIGHT` in `public/look3d/ghost.js`).
+It hangs a little higher there than in the flat drawing, over one soft shadow, so the air under it shows from the whole room.
+Its idle hover, bob and breath are laid on outside its springs, so an idle ghost is never "moving" (`STILL`; `test/ghost-model.test.js`).
+Its emotes are in `public/characters/ghost-rig.js`, with the fits the owner chose from a preview on 2026-11-15:
+
+- Floating hands in the player's colour ("Hands", the default) for popcorn, slow clap, point and laugh, red card, hurry up, thumbs up, confetti, boo, shh and the tomato.
+- Wisps of the sheet reaching out to the hands ("Wisps") for GG, lighter up and Huh?.
+- Fuming has no hands: the sheet turns red, swells and bounces.
+- Point and laugh's pointing hand drags a short cuff of the sheet, so it reads as the ghost's own.
+- Its hands are two fifths larger than a pawn's (`GHOST.hand`) and held close to the sheet, so they read at phone size.
+- On a very pale colour the hands get a dark outline, because they would be lost against the white sheet.
+
+Its own move is above ("The ghost's move: the fade, the scare and boo").
+A knocked pawn's eyes squeeze shut too, as a wince (> <), in both looks, and so do a knocked slime's; only the robot keeps its crosses (`test/knocked-eyes.test.js`).
+
+### The slime and the robot
+
+Both are the landing scene's, which the owner approved in the character previews (`landing/tools/scene/scene.js`, `makeSkin`, on the branch `chore/blender-on-gpu`), drawn in the room's own style: the same shapes and proportions, the player's colour on what the landing scene paints.
+
+The slime is a soft dome that sags outward at its foot, two drips at the foot, a wet highlight, and two big eyes low on its front.
+It is a shade lighter than the player's colour with a darker rim and a gloss streak, front and back (the Tin Derby reviewer's fix for a dome that read as nothing from behind), so it reads on a light wall and a dark floor alike.
+It has no feet: it creeps, squashing and stretching as it goes, its top drags behind when it sets off, runs on and wobbles back when it stops, it flattens when it is knocked over and its eyes squeeze shut (a wince, > <, in both looks).
+Its hands are joined on with arms of its own goo, in the body's own material in the 3D looks, so they are lit and reddened as it is.
+Fuming turns it red and swells it.
+
+The robot is a dark base on wheels, a body and a head in the player's colour, a dark visor with two light eyes, a steel neck, a round plate on its chest, dark arms with steel hands at its sides, and a mast with a lamp on top.
+Its head is at a pawn's height; the mast stands above it, so its name tag sits higher.
+It rolls: the base stays level and its wheels turn (flat look), the rest hums along with a small bob and leans into where it goes, its head lags its body and its mast lags its head, so both run on and wobble back when it stops, jumps or is hit.
+The lamp is dim until it stands in a game's light (its vote), when it lights with a quick double flash and its eyes squint with pleasure; knocked over, the lamp flashes red and its eyes are crosses.
+Its emote face lights up in its visor; its hands are steel, on jointed arms of dark metal that reach out of its shoulders (they telescope), and its own arms are put away meanwhile.
+
+Their emotes are the ghost's (`public/characters/ghost-rig.js`), fitted to each body by its landmarks (`public/characters/body-rig.js`): heights are carried between the floor, the mouth and the top of the head, one for one in a band about the mouth so a finger on the lips stays on the lips; widths are scaled inside the body and shifted outside it; each arm is worked out again from the body's own shoulder; and what is on the floor (a splat, confetti landing) stays where it was.
+The ids, words, lengths and moments are the ghost's, so the pawn's, and every recording fits.
+A joined arm takes the ghost's "wisp" variant of a pose (a hand on the hip in Red card and the tomato), because a hand that has an arm reads where a floating one would not.
+
+What one piece costs in the 3D look, with its shadow, measured with `npm run test:characters -- --looks= --measure` on 2026-11-16 (draws and triangles are the same on any device; the pose is this PC's time):
+
+| Character | Draws | Triangles | Pose, standing | Pose, walking |
+| --- | --- | --- | --- | --- |
+| Pawn | 5 | 2,800 | 0.3 µs | 0.2 µs |
+| Ghost | 6 | 2,160 | 3.6 µs | 13.4 µs |
+| Slime | 6 | 3,144 | 0.4 µs | 1.0 µs |
+| Robot | 8 (9 while its lamp glows) | 3,452 | 0.5 µs | 1.8 µs |
+
+The robot's two more draws are its head and its mast, which move apart from its body; its paint, steel and dark parts are one material coloured point by point (`pointLitMat` in `public/look3d/body-kit.js`).
+The slime is turned finer than the pawn (44 sides) so a lit room's lines of light run smoothly over its gloss.
+Four of any one character in the 3D bar held 60 frames a second, on the graphics card and in software, drawing in 0.6 to 1.0 ms a picture (a quiet PC, phone held sideways).
+Their own moves are above ("The robot's and the slime's moves").
+Not built yet, from character preview round three (approved, and the next lane's): plant, ride the hook, cannonball, empty hook, boo the stilts, cut the line, curling stone, dominoes, steal, tug of war, the slimes' swallow and stick, ghosts that meet; the pawn's charged kick; the speeds (pawn 110%, robot 100%, ghost 95%, slime 80%); the rule that pieces pass through each other except during a move.
 
 ## Sound
 
@@ -307,10 +557,9 @@ None of it sends a message or sets a timer in the room: every sound comes from s
 - In 3D an emote has no face of its own (the pawn's eyes stay as they are); the flat room draws its face.
 - Ambience for the rooms other than the bar and the star lounge is only what they share with those two; the always-on beds (a fire, an engine hum) are not built.
 - Coin Flip is a placeholder for local play and the tests, marked "TEST GAME" on its box. Tin Derby, Flood and Fox Trouble are names and pictures only.
-- A party's code, seats and points do not carry over to an outside game's site.
 - No piece skins, no abilities, no chat bubbles, no walking through the door, no "host starts" setting. The flat drawing has one room, whichever the party picks.
 - No buzz on phones whose browser has none (Safari on an iPhone).
-- "Back to the room" in the middle of a game: a round runs its ninety seconds, and a player can still leave the party.
+- "Back to the room" in the middle of a game: a round runs until the game calls time (at ninety seconds, or once every stall has spent its corks), and a player can still leave the party.
 - In the room Cork & Bell has no high score entry, no rematch button and no end card of its own: the room's card shows the scores, and the vote is the rematch. The high score board stays on the game's own page.
 
 ## How it stays cheap
@@ -362,11 +611,11 @@ The room's own sounds add nothing: they are played from what each page already h
 
 For scale: a room that is awake all the time, as a game's own room is during a round, uses 461 GB-seconds per room-hour, and the 10% buys 87 hours of that.
 The second column is a keen party that starts a vote every half minute, measured before Cork & Bell opened in the room (a vote for it then sent everyone to its own page).
-An outside game winning the vote costs one wake-up and no duration: nothing is played in the room.
 
 **A round of Cork & Bell is what a party room costs.**
-The room is awake for all of a round, as the game's own room is: 94.6 seconds (the count-in, ninety seconds and the hold at the end), which is 12.1 GB-seconds, whether one plays or four.
-`npm run test:cork` reads the same figure from the books for a battle of three and for a round played alone.
+The room is awake for all of a round, as the game's own room is: at most 94.6 seconds (the count-in, up to ninety seconds and the hold at the end), which is at most 12.1 GB-seconds, whether one plays or four.
+A round is shorter only when every stall has spent its corks before the time call.
+`npm run test:cork` reads each round's figure from the books, for a battle of three that runs its full time and for a round played alone, and checks it against how long the round lasted.
 The 10% of a month (40,000 GB-seconds) is about 3,300 rounds, and a day's tenth of that (4,000) about 330 rounds across every party room there is.
 Everything between rounds costs next to nothing by comparison, so an evening costs its rounds: a party that plays six rounds in an hour uses about 73 GB-seconds, and the 10% buys about 550 such hours a month.
 The third column is the ceiling: a party that votes again the moment each round ends.
@@ -417,6 +666,7 @@ A lobby nobody touches costs nothing: no timer, no messages, nothing counted, an
 | `public/room-sounds.js`, `public/sounds/` | The room's own sounds, where each plays, and the recordings with their credits. |
 | `../preview/` | The tools that fetch, check and prepare the CC0 recordings (`preview/recordings/`), and stills of the emote rounds the owner picked from. |
 | `public/room-view.js` | The seam between the page and a drawing of the room: the interface both drawings keep, and which one a device gets. |
+| `public/reach.js` | How far to either side each drawing is room, and the view kept inside it. |
 | `shared/rooms.js` | The rooms a party can be in, and when the room may be changed. |
 | `public/room-menu.js` | The corner (Rooms and the door button) and the room picker. |
 | `public/farewell.js`, `../site/front.js` | Every way out of the room to the front page, and the line it says there. |
@@ -427,6 +677,8 @@ A lobby nobody touches costs nothing: no timer, no messages, nothing counted, an
 | `public/baked/` | The baked bar: `room-baked.js`, and the bar's packed plates in `bar/<boxes>/` (each `plate.json` says what it covers). |
 | `tools/pack-baked.mjs` | Packs the rendered plate for the baked bar. |
 | `public/look3d/` | The 3D drawing: the scene (`room3d.js`), the words over it (`words.js`), the pieces (`pieces.js`), the rooms as skins (`skins.js`), a posed room (`still.html`) and the rooms page (`rooms/`). |
+| `public/look3d/rendered/` | Rooms made of rendered layers, behind `?look=real`: what any such room shares (`plate.js`, `room-rendered.js`, `ladder.js`, `switch.js`, `timetable.js`), the Star Lounge's own (`star-lounge/`, with its rendered `layers/`) and the bar's (`bar/`, with the `layers/` made from its paintings). |
+| `tools/bar/layers.mjs` | Makes the bar's layers for its rendered drawing from the owner's paintings. |
 | `test/` | Unit tests, the socket test, the browser run and the cost measurement. |
 
 `shared/` is plain logic used by both the room and the page, and it is served to the browser; `server/` and `test/` never are.
@@ -435,10 +687,14 @@ A lobby nobody touches costs nothing: no timer, no messages, nothing counted, an
 
 - `npm test` runs the unit tests with the kit's: the room's rules (`test/lobby-core.test.js`), the shared logic, the awake meter and the socket rate limit (`test/shared.test.js`), the bump (`test/bump.test.js`), the Tonight board (`test/tonight.test.js`) and the way in (`test/entry.test.js`).
 - `npm run test:emotes` (with `npm run dev` running) puts emotes and sound through real pages and sockets in one room (headless and muted): the room relaying each once and enforcing the cooldown, a hammering script closed, emotes during a game, the wheel (tap, pick, number keys, the ring, the six kept on the device), the piece performing it with its word, an emote's sound on the phones with no big screen and on the screen only with one, nothing fetched before sound is allowed, nothing played before a tap and nothing late after it, a muted player, the one-tap mute, a phone hearing its own steps and jump, and a shared sound (someone joining) coming from the screen and not the phones. `npm test` covers the rules with a fake clock (`test/emotes.test.js`, `party-kit/test/sounds.test.js`), and every pose, the mirror, the aim, the tomato and the sound files with their credits (`test/emote-rig.test.js`).
+- `npm run test:characters` (with `npm run dev` running) goes through choosing a character and a colour in real pages, once in each look (flat, 3D, baked; headless and muted): a phone picks the ghost and a colour from "Your piece", a second phone sees it, the second phone picks the slime and then the robot in colours of its own and the others see each, a ghost, a slime and a robot each do the fourteen emotes with their own hands, a bumped ghost, slime and robot each show it in their eyes, the choice survives a reconnect and comes back in a new party, two players pick the same, and a bad choice is refused.
+  `--looks=flat,3d,baked` picks the looks, `--shots=DIR` saves pictures for a person to look at, and `--measure` prints what four of each character cost in the 3D look (with `TEST_GPU=1`, on the graphics card).
+  `npm test` covers the choice with a fake clock and on the real room class (`test/party-room-characters.test.js`), and the interface and every character's poses (`test/characters.test.js`).
+- `node lobby/test/shoot-characters.mjs [--looks=flat,3d,baked,real] [--only=line,emotes,colours,motion]` (with a server running; for `real`, one with `--var PARTY_TEST_GAMES:off`) takes stills of the four characters side by side on an upright phone and a laptop, lit and in the dark, the slime and the robot doing each emote, in each of the ten preset colours, and walking, stopping and bumped.
 - `node lobby/test/shoot-emotes.mjs [--look=3d|flat] [--room=bar]` takes a still of every emote at its best moment on a big screen and on a phone held sideways at the closer view, and checks that each one's word is over the right piece, in view, and large enough to read on the phone.
 - `npm run test:feel` (with `npm run dev` running) goes through how the room feels in real pages and over sockets: the way in on a phone and on a wide screen, one screen per room and its grace, the four buttons, the cooldown ring and the room enforcing it, the bump frame by frame, that nobody can be kept on the floor, the board opening and closing with the vote carrying on, and that a bump sets no timer. It takes stills of each, the bump's with the page's clock held still.
-- `npm run test:lobby` (with `npm run dev` running) puts four socket players through an evening (when the coin toss picks Cork & Bell, a whole round of it over sockets, which makes the run a minute and a half longer), sends a party of two off to an outside game, then checks that a lobby nobody touches goes silent: no messages, no timer, nothing added to the budget.
-- `npm run lobby:shots` drives real pages in a headless, muted browser and takes a still of every state on a big screen, a sideways phone and an upright one, checking that no text spills out of its place and that no card runs off a screen. It follows an outside game all the way to its address (the browser is handed a stand-in page, so no test touches the real site), and with `--plain=<a server with the test games off>` it also takes the wall as production hangs it. Stills land in `lobby/test/shots/`, which is not committed; a chosen few are in `lobby/shots/`.
+- `npm run test:lobby` (with `npm run dev` running) puts four socket players through an evening (when the coin toss picks Cork & Bell, a whole round of it over sockets, which makes the run a minute and a half longer), stands a party of two under the ideas poster (no light, no count), then checks that a lobby nobody touches goes silent: no messages, no timer, nothing added to the budget.
+- `npm run lobby:shots` drives real pages in a headless, muted browser and takes a still of every state on a big screen, a sideways phone and an upright one, checking that no text spills out of its place and that no card runs off a screen. It taps the ideas poster on a phone and checks the contact page opens in a new tab (the browser is handed a stand-in page, so no test touches the real site), and with `--plain=<a server with the test games off>` it also takes the wall as production hangs it. Stills land in `lobby/test/shots/`, which is not committed; a chosen few are in `lobby/shots/`.
 - `npm run test:cork` plays Cork & Bell inside the room in real pages (headless and muted): a party of three and a big screen, clicks that fire, a reload in the middle, the end, that nothing of the game is left on the page, a party of one, and what the two rounds cost. It takes about four minutes. With `-- --win=1` it uses the game's own tool to drive Chrome on the Windows side, on the real graphics card. Without it, Playwright's browser in WSL draws WebGL in software and its pages run seconds behind the room, so the run says so and leaves out the reload, the door sheet and the stills; everything the room decides is checked either way.
 - `npm run test:frames` checks in a real browser who may frame the site: a page on another origin is refused for the room, the game and the front page, and a page of the site itself is not (the party room frames a game's page).
 - `npm run test:leave-rooms` (with `npm run dev` running) goes through every way out of the room in real pages and the room picker on two 3D devices: leaving from a sideways phone, an upright one and the room's screen, Rejoin and Show it again, a seat given up after a drop, a screen whose place was taken, the lines for a room that closed, a rejoin that cannot work, a wrong code, a full party, a second screen, "Stay in the room"; and that the host's pick reaches every device with the lights going down and up, a guest's does not, nothing changes during the count or a game, a latecomer gets the party's room, a start link's `?room=` is the starting room, it survives the room sleeping, and a device without hardware 3D loads none of it. It takes about four minutes.

@@ -1,7 +1,7 @@
 // What the way in offers a device (lobby/shared/entry.js): a phone leads with playing, a wide
 // screen is offered both, and a party that has its screen offers only playing.
 import { describe, expect, it } from "vitest";
-import { ROLE_CARDS, doorPlan, isSmall } from "../shared/entry.js";
+import { doorPlan, isSmall, roleCards } from "../shared/entry.js";
 
 describe("which devices are phones", () => {
   it("goes by the short side of the window, upright or sideways", () => {
@@ -39,8 +39,16 @@ describe("a wide screen", () => {
         expect(plan).toMatchObject({ as, choice: "cards", link: null, askName: as === "player" });
       }
     }
-    expect(ROLE_CARDS.map((card) => card[0])).toEqual(["player", "screen"]);
-    expect(ROLE_CARDS.map((card) => card[1])).toEqual(["Play on this device", "Use this as the room's screen"]);
+    expect(roleCards().map((card) => card[0])).toEqual(["player", "screen"]);
+    expect(roleCards().map((card) => card[1])).toEqual(["Play on this device", "Use this as the room's screen"]);
+  });
+
+  it("speaks of a piece only for a party on the Floor, never at the Table", () => {
+    expect(roleCards()[0][2]).toBe("Join as a player, with your own piece.");
+    expect(roleCards("party-games")[0][2]).toBe("Join as a player, with your own piece.");
+    const table = roleCards("turn-based");
+    expect(table.map((card) => card[1])).toEqual(["Play on this device", "Use this as the room's screen"]);
+    for (const [, , text] of table) expect(text).not.toMatch(/piece/);
   });
 });
 
@@ -59,5 +67,24 @@ describe("a party that already has its screen", () => {
 
   it("has nothing to do with starting a new party", () => {
     expect(doorPlan({ small: false, starting: true, as: "screen", screenTaken: true })).toMatchObject({ as: "screen", choice: "cards", note: "" });
+  });
+});
+
+describe("a way in for the Table (the front page's /table/)", () => {
+  it("names the Table and says nothing of a QR code on a wall", () => {
+    for (const small of [true, false]) {
+      const plan = doorPlan({ small, starting: true, as: "player", room: "turn-based" });
+      expect(plan.title).toBe("Start a party at the Table");
+      expect(plan.sub).not.toMatch(/QR|wall/);
+      expect(plan.sub).toBe("You get a room and a code. Friends join with the code on their phones.");
+    }
+  });
+
+  it("leaves the party room's own way in as it was", () => {
+    for (const room of [undefined, null, "party-games"]) {
+      const plan = doorPlan({ small: false, starting: true, as: "player", room });
+      expect([plan.title, plan.sub]).toEqual(["Start a party", "You get a room and a code. Friends join with the code or the QR code on the wall."]);
+      expect(doorPlan({ small: false, starting: false, as: "player", room }).sub).toBe("It is on the sign by the door in the room.");
+    }
   });
 });

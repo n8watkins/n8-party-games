@@ -16,16 +16,13 @@
 //
 // WSL has no graphics card, so by default this browser draws WebGL in software: right for a
 // still, slow for many. With --gpu=1 it drives a headless Chrome on the Windows side instead
-// (Cork & Bell's tools/browser.mjs: no window, a throwaway profile, closed at the end).
+// (openWindowsChrome in lobby/test/browser.mjs: no window, a fresh profile and port, closed at the end).
 import { mkdirSync } from "node:fs";
-import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { chromium } from "playwright";
-import { openBrowser } from "../../node_modules/cork-and-bell/tools/browser.mjs";
 import { SKINS } from "../public/look3d/skins.js";
+import { openWindowsChrome } from "./browser.mjs";
 
-// Its own Chrome profile on the Windows side, so it never meets another tool's browser.
-process.env.CAB_PROFILE ??= resolve(tmpdir(), "party-room-3d-chrome-profile");
 const args = process.argv.slice(2);
 const opt = (k, d) => (args.find((a) => a.startsWith("--" + k + "=")) ?? "--" + k + "=" + d).split("=").slice(1).join("=");
 const base = opt("base", "http://localhost:8791");
@@ -77,7 +74,8 @@ if (!only || only === "views") {
 }
 if (only === "loops") for (const id of rooms.filter((r) => SKINS[r]?.live)) pictures.push({ file: `loop-${id}`, query: `room=${id}&show=1&clock=step&bare=1`, device: LOOP, loop: id });
 
-const b = gpu ? await openBrowser({ win: true }) : { browser: await chromium.launch({ headless: true, args: ["--mute-audio", "--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--ignore-gpu-blocklist"] }) };
+// Software unless --gpu=1, not lobby/test/browser.mjs's TEST_GPU: these stills are compared with earlier ones, and GPU pixels differ.
+const b = gpu ? await openWindowsChrome() : { browser: await chromium.launch({ headless: true, args: ["--mute-audio", "--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--ignore-gpu-blocklist"] }) };
 const newContext = (device) => (gpu ? b.newContext(device) : b.browser.newContext(device));
 try {
   for (const picture of pictures) {

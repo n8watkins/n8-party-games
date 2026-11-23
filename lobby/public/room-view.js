@@ -9,13 +9,19 @@
 //          picture with the pieces live over it. A preview, switched on for a device with
 //          ?look=baked (and off again with ?look=3d); see openRoomView for how it would
 //          become the bar's own drawing.
-//   flat   scene.js, one SVG of plain shapes. The fallback, and what ?look=flat asks for
+//          And a room made of rendered layers, look3d/rendered/: today the Star Lounge, with its
+//          universe drawn outside the window. Switched on for a device with ?look=real (any other
+//          ?look= switches it off); see look3d/rendered/switch.js.
+//   flat  scene.js, one SVG of plain shapes. The fallback, and what ?look=flat asks for
 //          (remembered on that device until ?look=3d).
 //
 // To retire the flat drawing: delete scene.js, art.js and FlatRoomView below, and make "3d" the
 // default in chosenLook. To retire the preview instead: delete look3d/ and this file's 3D half.
 import { set, s } from "./dom.js";
+import { REACH } from "./reach.js";
 import { Scene } from "./scene.js";
+import { rememberReal, renderedFor } from "./look3d/rendered/switch.js";
+import { hangsOwnBoxes } from "./shared/rooms.js";
 
 /**
  * What main.js asks of a drawing.
@@ -26,7 +32,9 @@ import { Scene } from "./scene.js";
  * @property {(room: object, now: number) => void} setRoom   the room changed: who is here, the code, the board
  * @property {(vote: object, now: number) => void} setVote   the vote changed: lights, who stands where, count, toss
  * @property {(msg: object, now: number) => void} onMove     someone moved
- * @property {(msg: object, now: number) => void} onBump     someone bumped (and perhaps hit someone)
+ * @property {(msg: object, now: number) => void} onBump     someone bumped (and perhaps hit someone, or was scared off by a faded ghost: `sc`)
+ * @property {(msg: object, now: number) => void} onFade     a ghost faded ({t: "fade", s, for}; for 0: solid again) (shared/ghost.js)
+ * @property {(msg: object, now: number) => void} onSpook    a faded ghost spooked a piece ({t: "spook", s, to, x, rev})
  * @property {(msg: object, now: number) => void} onExpress  someone sent an emote ({t: "e", s, e}): performed by
  *   their piece, with its word over their head (the kit's rules: party-kit/client/emotes.js; how
  *   each one moves: emotes/rig.js, the same numbers for both drawings). A player's new emote
@@ -38,7 +46,9 @@ import { Scene } from "./scene.js";
  * @property {(compact: boolean, room: object, now: number) => void} setCompact  the phone's bigger signs and tags, on or off
  * @property {(now: number, dt: number, pilot: object | null, view: object) => void} frame
  *   draw one frame; `view` is the part of the room to show (lobby/shared/camera.js)
- * @property {() => void} destroy                            take it out of the page
+ * @property {{left: number, right: number}} reach            how far to either side the drawing is room, in world
+ *   units: the page keeps `view` inside it (reach.js, withinReach)
+ * @property {() => void} destroy                           take it out of the page
  */
 
 /**
@@ -80,6 +90,8 @@ export function chosenLook(params) {
     // ?look=baked switches the bar's baked drawing on for this device; any other ?look= switches it off.
     remember(BAKED_KEY, params.get("look") === "baked" ? "on" : null);
   }
+  // ?look=real switches the rendered rooms (look3d/rendered/switch.js) on for this device, the same way.
+  rememberReal(params);
   if (params.has("room")) remember(SKIN_KEY, params.get("room"));
   // To make the baked drawing the bar's own for everyone: `baked: recall(BAKED_KEY) !== "off"`
   // here, and let ?look=3d remember "off".
@@ -114,7 +126,7 @@ export function hardware3D(params) {
 }
 
 /** The flat drawing as a room view: the Scene, plus the SVG it draws into. */
-class FlatRoomView extends Scene {
+export class FlatRoomView extends Scene {
   constructor(root, opts) {
     const svg = s("svg", { class: "scene", preserveAspectRatio: "xMidYMid slice", role: "img", "aria-label": "The party room" });
     root.append(svg);
@@ -127,6 +139,10 @@ class FlatRoomView extends Scene {
     this.tagSize = compact ? 26 : 21;
     this.build(room);
     this.setRoom(room, now);
+  }
+
+  get reach() {
+    return REACH.flat;
   }
 
   frame(now, dt, pilot, view) {
@@ -156,7 +172,19 @@ const BAKED_ROOMS = ["bar"];
  * @returns {Promise<RoomView>}
  */
 export async function openRoomView(root, opts) {
-  if (opts.look === "3d" && opts.baked && BAKED_ROOMS.includes(opts.skin || "bar")) {
+  const rendered = renderedFor({ look: opts.look, skin: opts.skin || "bar", boxes: opts.boxes });
+  if (rendered) {
+    try {
+      return await (await rendered.load()).open(root, opts);
+    } catch (err) {
+      console.warn("The rendered room could not start, so the room is drawn in 3D.", err);
+    }
+  }
+  // A baked plate is rendered for an evenly spaced wall: a wall the room hangs elsewhere (the bar's
+  // five boxes, in its painting's frames: shared/rooms.js) is drawn by the 3D look, so every look
+  // has its pools where the room counts the vote.
+  const even = Number.isInteger(opts.boxes) && !hangsOwnBoxes(opts.skin || "bar", opts.boxes);
+  if (opts.look === "3d" && opts.baked && even && BAKED_ROOMS.includes(opts.skin || "bar")) {
     try {
       const { RoomBaked } = await import("./baked/room-baked.js");
       return await RoomBaked.open(root, opts);

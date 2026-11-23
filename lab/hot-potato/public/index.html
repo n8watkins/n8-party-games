@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="robots" content="noindex, nofollow">
+  <meta name="color-scheme" content="light dark">
+  <title>Hot Potato hearing test</title>
+  <link rel="stylesheet" href="style.css">
+  <script type="module" src="app.js"></script>
+</head>
+<body>
+  <main class="app">
+    <section class="play" aria-label="Play">
+      <header class="top">
+        <h1>Hot Potato hearing test</h1>
+        <p class="sub">Can this device hear you well enough to play? Each answer starts with the last letter of the one before.</p>
+      </header>
+
+      <div class="category">
+        <label class="pick"><span>Category</span><select id="category"></select></label>
+        <p id="deadNote" class="hint dead" hidden></p>
+      </div>
+
+      <div id="noRecognition" class="notice bad" hidden>
+        <strong>This browser has no speech recognition.</strong>
+        Firefox and some in-app browsers (inside chat or social apps) do not have it.
+        Open this page in Chrome or Edge (on a computer or Android), or in Safari (on a Mac, iPhone or iPad).
+      </div>
+      <div id="micBlocked" class="notice bad" hidden>
+        <strong>The microphone is blocked for this page.</strong>
+        <span id="micHelp">In Chrome or Edge: click or tap the icon left of the address, then Permissions (or Site settings), then Microphone, and choose Allow. Then reload the page.</span>
+      </div>
+      <div id="iosNote" class="notice" hidden>
+        <strong>iPhone or iPad:</strong> speech recognition there is Apple's and may behave differently. Try it anyway; the report says which device it came from.
+      </div>
+
+      <div class="chain">
+        <p id="need" class="need">&nbsp;</p>
+        <p id="suggestions" class="suggestions" hidden><span class="try">Try:</span> <span id="suggestList" class="suggest-list"></span> <button id="suggestMore" class="more" type="button">more</button></p>
+        <p id="chainLine" class="chainline"></p>
+      </div>
+
+      <div class="stage">
+        <div id="potato" class="potato" aria-hidden="true"></div>
+        <p id="heard" class="heard" aria-live="polite">&nbsp;</p>
+        <p id="verdict" class="verdict" aria-live="polite">&nbsp;</p>
+        <div id="appealSlot" class="appeal-slot"></div>
+      </div>
+
+      <button id="turn" class="turn" type="button" disabled>Loading...</button>
+      <button id="stop" class="ghost" type="button" hidden>Stop listening</button>
+      <p id="keys" class="hint keys" hidden>Keyboard: <kbd>Space</kbd> or <kbd>Enter</kbd> starts a turn, <kbd>Esc</kbd> stops listening.</p>
+
+      <div class="settings">
+        <label class="switch"><input id="handsFree" type="checkbox"><span>Hands-free: listen again after each answer</span></label>
+        <label class="switch"><input id="sounds" type="checkbox" checked><span>Sounds (ding and buzz)</span></label>
+        <label class="switch"><input id="suggest" type="checkbox" checked><span>Suggestions: show a few answers to read out <small>(this is a hearing test, so reading one is fine; remembered on this device)</small></span></label>
+        <label class="switch"><input id="wide" type="checkbox"><span><span id="wideText">Also allow lesser-known ones</span> <small id="wideNote"></small></span></label>
+        <label class="switch"><input id="early" type="checkbox"><span>Answer early: take a well-known answer before the final result <small>(off: wait for the final result, which is more reliable)</small></span></label>
+        <label class="pick"><span>Language</span>
+          <select id="lang">
+            <option value="en-US">English (US)</option>
+            <option value="en-GB">English (UK)</option>
+            <option value="en-AU">English (Australia)</option>
+          </select>
+        </label>
+        <div id="micPick" class="mic" hidden>
+          <label class="pick"><span>Microphone</span><select id="mic"></select></label>
+          <p id="micNote" class="hint" hidden></p>
+        </div>
+        <button id="newGame" class="ghost" type="button">New game (keeps the log)</button>
+      </div>
+    </section>
+
+    <section class="side" aria-label="Results">
+      <div class="card">
+        <h2>Five minutes: four things to try</h2>
+        <p class="hint">Pick the one you are doing now, so each turn is tagged with it. Tick it when done.</p>
+        <ol id="checklist" class="checklist">
+          <li><input type="checkbox" aria-label="Done"><button type="button" data-scenario="1">Quiet room, close to the microphone, ten answers <span class="count"></span></button></li>
+          <li><input type="checkbox" aria-label="Done"><button type="button" data-scenario="2">Further away: across the desk or the table, or passing the device around <span class="count"></span></button></li>
+          <li><input type="checkbox" aria-label="Done"><button type="button" data-scenario="3">Same, with music or chatter <span class="count"></span></button></li>
+          <li><input type="checkbox" aria-label="Done"><button type="button" data-scenario="4">Sounds on, then sounds off (the Sounds switch) <span class="count"></span></button></li>
+        </ol>
+      </div>
+
+      <div class="card">
+        <h2>Results</h2>
+        <dl id="summary" class="summary"></dl>
+        <button id="copy" class="turn small" type="button">Copy results</button>
+        <p id="copyNote" class="hint" hidden></p>
+        <textarea id="copyText" class="copytext" readonly hidden aria-label="Results to copy"></textarea>
+      </div>
+
+      <div class="card">
+        <h2>Turns</h2>
+        <p class="hint">Newest first. "It misheard me" when the words shown are not what you said; "That was a real ..." or "That was wrong" when the words were right but the verdict was not.</p>
+        <ol id="log" class="log"></ol>
+      </div>
+
+      <div class="card small-print">
+        <h2>How words are checked (rules m3)</h2>
+        <ul class="rules">
+          <li><strong>Categories.</strong> Cities, countries, animals, food and drink, or anything (any ordinary English word). Each has its own list; the rules below are the same for all of them. Changing the category starts a new game.</li>
+          <li><strong>The whole phrase decides.</strong> After accents, capitals, punctuation and a few fillers ("um", "how about", "please") are dropped, what was heard must be a name on the list, all of it: "Leopold" is not L&eacute;o, "Edmonton" is not Edmond, "sea lion" is not lion.</li>
+          <li><strong>Plurals count</strong> for animals, food and drink, and words: "tomatoes" is tomato and "wolves" is wolf. The page says which entry it took, and the chain goes on from that entry (tomato needs an O).</li>
+          <li><strong>Only believable guesses count.</strong> The recogniser offers several guesses with how sure it is of each. A guess counts if it is at least half as sure as the best one, or is another spelling of a counted guess that sounds the same.</li>
+          <li><strong>Well-known entries by default.</strong> Cities: capitals, US, Canadian and Australian state capitals, cities of 100,000 people or more, and a hand list of famous small towns (Venice, Aspen, Cannes); a city whose name is also an ordinary word (Orange, Surprise) needs 250,000 people, a capital or the hand list. Animals, food and drink: the common ones (lion, polar bear, tomato, iced tea). Countries: every country and territory, and England, Scotland, Wales and Northern Ireland. "Also allow lesser-known ones" (off by default) accepts more: every town over 15,000 people, or every animal, food and drink in WordNet. It makes the game easier, not harder.</li>
+          <li><strong>Suggestions</strong> (on by default, a switch hides them) show three or four well-known answers for the letter needed, not yet said, biggest or most common first; "more" shows others. Tapping one does nothing: say it. The report marks each turn whose answer was one of the suggestions shown.</li>
+          <li><strong>Sound-alike only mends spelling.</strong> It fixes the recogniser's spelling of a well-known name ("Sidnee" is Sydney), never a different word: not when the best guess is an ordinary word or a common name ("salmon" is a fish, not Salmas), not for a name that is itself a word, and only with the same first letter, the same consonants and one letter off (two vowels for longer names). Animals and foods are ordinary words, so it rarely applies there.</li>
+          <li><strong>Two entries, one name:</strong> the bigger or better-known one is named, and the others are mentioned.</li>
+          <li><strong>The final result decides,</strong> about as soon as you stop speaking. With "Answer early" on, an interim result is taken only when it is exactly a well-known name, no longer name starts with it ("Edmond" could still become Edmonton, "cat" catfish), and it stays the same for 0.3 seconds; for cities, never a name that is also an ordinary word.</li>
+          <li><strong>The chain:</strong> only the letters A to Z count, so S&atilde;o Paulo runs from S to O and New York ends with K. The chain goes on from the name you said ("NYC" plays as New York City). A name, or the thing it names, said once this game cannot be said again.</li>
+          <li><strong>Dead ends:</strong> when fewer than three entries not yet said start with the last letter, the chain goes on from the letter before it. Few animals start with Y, so after monkey the next animal starts with E; few countries start with O, so after Mexico the next starts with C. The page names the dead ends of the chosen category.</li>
+        </ul>
+        <h2>Privacy</h2>
+        <p>The microphone is used only while a turn is listening. This page sends nothing, and stores only your category and the suggestions switch, on this device. The browser's speech recognition may send the audio to its maker's servers (Google in Chrome, Microsoft in Edge, Apple in Safari) to turn it into text. The report names the kind of device and microphone, never the device's own name.</p>
+        <p id="caps" class="caps"></p>
+      </div>
+
+      <footer class="credit">City and country names from <a href="https://www.geonames.org/" rel="noopener">GeoNames</a> (CC BY 4.0); animals, food and drink from <a href="https://en-word.net/" rel="noopener">Open English WordNet</a> (CC BY 4.0); word lists from FrequencyWords (CC BY-SA 4.0), SCOWL and the US Census (<a href="/one-device/hot-potato/shared/CREDITS.txt">details</a>). A throwaway test page.</footer>
+    </section>
+  </main>
+</body>
+</html>

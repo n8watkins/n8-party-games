@@ -8,7 +8,8 @@
 import { botCheck } from "/party-kit/client/bot-check.js";
 import { h } from "./dom.js";
 import { goFullscreen } from "./screen-fit.js";
-import { ROLE_CARDS, doorPlan } from "./shared/entry.js";
+import { takeLookup } from "./door-handoff.js";
+import { doorPlan, roleCards } from "./shared/entry.js";
 import { nameList } from "./shared/tonight.js";
 
 const NAME_KEY = "party-kit:name";
@@ -19,6 +20,15 @@ function savedName() {
     return localStorage.getItem(NAME_KEY) ?? "";
   } catch {
     return "";
+  }
+}
+
+/** This tab's sessionStorage, or null where the browser refuses it. */
+function session() {
+  try {
+    return sessionStorage;
+  } catch {
+    return null;
   }
 }
 
@@ -33,18 +43,23 @@ function keepName(name) {
 /**
  * @param {HTMLElement} root
  * @param {import("/party-kit/client/party-client.js").PartyClient} link
- * @param {{mode: "start" | "join", code?: string, message?: string, as?: "player" | "screen", small?: boolean, rejoin?: boolean}} opts
+ * @param {{mode: "start" | "join", code?: string, message?: string, as?: "player" | "screen", small?: boolean, rejoin?: boolean, room?: "turn-based"}} opts
  *   as: what the device leans to (a link may ask for the screen). small: a phone. rejoin: the
  *   front page's "Rejoin": join at once with the code and the name this device remembers. Tried
- *   once; if it fails the form stays, with the reason, and nothing is tried again.
+ *   once; if it fails the form stays, with the reason, and nothing is tried again. room: the
+ *   room this way in starts a party for (the front page's /table/: "turn-based", the Table),
+ *   which it names and whose words it uses; without it, the party room's own way in, unchanged.
  * @returns {{close: () => void}}
  */
 export function openDoor(root, link, opts) {
   const el = h("div", "door", "", root);
+  // A way in that belongs to one room (the front page's /table/ starts at the Table) says so,
+  // and takes the site's look there (lobby.css, .door[data-room]).
+  if (opts.room) el.dataset.room = opts.room;
   const card = h("main", "door-card", "", el);
   const brand = h("div", "brand", "", card);
   h("span", "brand-mark", "", brand);
-  h("span", "", "n8 Party", brand);
+  h("span", "", opts.room ? "n8games" : "n8 Party", brand);
   let mode = opts.mode;
   let as = opts.as === "screen" ? "screen" : "player";
   /** What is known about the party whose code is typed: {code, players, screen} or null. */
@@ -54,11 +69,13 @@ export function openDoor(root, link, opts) {
   /** What has been typed, kept when the form is drawn again. */
   const typed = { code: opts.code ?? "", name: savedName() };
   let closed = false;
+  /** The room the typed party is in (the Floor or the Table), once its code has been looked up; null for a new party. */
+  const partyMode = () => (mode !== "start" && party?.code === typed.code ? party.mode : null);
 
   function draw(focus = true) {
     for (const child of [...card.children]) if (child !== brand) child.remove();
     const starting = mode === "start";
-    const plan = doorPlan({ small: !!opts.small, starting, as, screenTaken: !!party?.screen });
+    const plan = doorPlan({ small: !!opts.small, starting, as, screenTaken: !!party?.screen, room: opts.room });
     as = plan.as;
     h("h1", "door-title", plan.title, card);
     h("p", "door-sub", plan.sub, card);
@@ -87,10 +104,12 @@ export function openDoor(root, link, opts) {
 
     // Two ways to be here: a player with a piece, or the screen everyone looks at.
     let group = null;
+    /** Each card's line of text, so it can follow the room the typed party is in (roleCards). */
+    const cardText = new Map();
     if (plan.choice === "cards") {
       group = h("div", "roles", "", form);
       group.setAttribute("role", "radiogroup");
-      for (const [value, title, text] of ROLE_CARDS) {
+      for (const [value, title, text] of roleCards(partyMode() ?? opts.room)) {
         const label = h("label", value === as ? "role picked" : "role", "", group);
         const input = h("input", "", "", label);
         input.type = "radio";
@@ -99,7 +118,7 @@ export function openDoor(root, link, opts) {
         input.checked = value === as;
         const words = h("span", "role-words", "", label);
         h("strong", "", title, words);
-        h("span", "", text, words);
+        cardText.set(value, h("span", "", text, words));
         input.addEventListener("change", () => {
           as = value;
           draw(false);
@@ -157,7 +176,9 @@ export function openDoor(root, link, opts) {
       // A whole code that matches no open party is said at once, before a name is typed for nothing.
       const unknown = missing === typed.code;
       who.hidden = !known && !unknown;
-      if (known) who.textContent = party.players.length ? `In the room: ${nameList(party.players)}.` : "Nobody has joined this party yet.";
+      // A full party is said at the code, before a name is typed for a seat there is not.
+      if (known && party.full && as === "player") who.textContent = "This party is full: every seat is taken.";
+      else if (known) who.textContent = party.players.length ? `In the room: ${nameList(party.players)}.` : "Nobody has joined this party yet.";
       else if (unknown) who.textContent = "No party has that code right now. Check the four digits on the sign.";
     }
     showParty();
@@ -167,15 +188,18 @@ export function openDoor(root, link, opts) {
       const asked = typed.code;
       if (starting || !CODE.test(asked) || party?.code === asked) return;
       let gone = false;
-      const preview = await link.preview(asked).catch((err) => ((gone = err?.code === "not_found"), null));
+      // The front page may have just looked this code up: its answer is used, not asked for again.
+      const kept = takeLookup(session(), asked);
+      const preview = kept ?? (await link.preview(asked).catch((err) => ((gone = err?.code === "not_found"), null)));
       if (closed || typed.code !== asked || mode !== "join") return;
-      party = preview ? { code: asked, players: preview.players ?? [], screen: !!preview.screen } : null;
+      party = preview ? { code: asked, players: preview.players ?? [], screen: !!preview.screen, full: !!preview.full, mode: preview.mode ?? null } : null;
       missing = gone ? asked : null;
-      const next = doorPlan({ small: !!opts.small, starting, as, screenTaken: !!party?.screen });
+      const next = doorPlan({ small: !!opts.small, starting, as, screenTaken: !!party?.screen, room: opts.room });
       // The device had chosen to be the screen and cannot be: the form changes, so draw it again.
       if (next.as !== as) return draw();
       // Otherwise only what is offered changes, in place, so a name being typed keeps its cursor.
       if (group) group.hidden = next.choice !== "cards";
+      for (const [value, , text] of roleCards(partyMode() ?? opts.room)) if (cardText.has(value)) cardText.get(value).textContent = text;
       if (swap) swap.hidden = !next.link;
       note.textContent = next.note;
       note.hidden = !next.note;

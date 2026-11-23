@@ -9,7 +9,7 @@
 // or stops a piece: a card opened from a poster closes by itself, and walking closes it.
 import { h, icon } from "./dom.js";
 import { BADGES, playersLabel } from "./shared/vote.js";
-import { boxCentre, boxWidth } from "./shared/world.js";
+import { wallFor } from "./shared/rooms.js";
 
 /** Where things are on the wall, in world units (lobby/public/scene.js draws them there). */
 const JOIN_SIGN = { x: 62, y: 133, w: 212, h: 314 };
@@ -51,7 +51,9 @@ export class TouchSpots {
   /** Builds a spot for everything that can be touched in this room. */
   build(room) {
     for (const s of this.spots) s.el.remove();
-    const n = room.boxes.length;
+    // Where the room hangs its boxes (shared/rooms.js): the same in every drawing of it.
+    const wall = wallFor(room.room, room.boxes);
+    this.wallKey = wall.xs.join();
     // The board opens itself in both drawings; its spot is only the mark (and the press), so the
     // board keeps its own button, its keyboard handling and its place in the tab order.
     const board = this.spot("", BOARD, null, "board");
@@ -59,9 +61,17 @@ export class TouchSpots {
       board,
       this.spot("Show the code large", JOIN_SIGN, () => this.codeSheet(), "sign"),
       ...room.boxes.map((box, i) => {
-        const w = boxWidth(n);
-        const spot = this.spot(`About ${box.name}`, { x: boxCentre(i, n) - w / 2, y: POSTER.top, w, h: POSTER.bottom - POSTER.top }, () => this.poster(box), "poster");
+        const w = wall.box;
+        const at = { x: wall.xs[i] - w / 2, y: POSTER.top, w, h: POSTER.bottom - POSTER.top };
+        // A poster that is not a game (the ideas poster) opens its address in a new tab, and the room stays open here.
+        // The spot lets go of the focus at once, so an Enter meant for the room (on a laptop) never opens a second tab.
+        const openPoster = () => {
+          open(box.link, "_blank", "noopener");
+          spot.el.blur();
+        };
+        const spot = box.poster ? this.spot(`${box.name} ${box.blurb} Opens ${box.where} in a new tab`, at, openPoster, "poster") : this.spot(`About ${box.name}`, at, () => this.poster(box), "poster");
         spot.box = box;
+        spot.i = i;
         return spot;
       }),
     ];
@@ -125,11 +135,16 @@ export class TouchSpots {
     setTimeout(() => this.el.classList.remove("hinting"), 6000);
   }
 
-  /** Every frame: puts each spot over its thing for the part of the room on the screen. Only touches the page when that changes. */
+  /**
+   * Every frame: puts each spot over its thing for the part of the room on the screen. Only touches the page when that changes.
+   * A drawing whose picture has the sign, the board and the posters somewhere else (the bar made real, a painting) says
+   * where, in world units, as `touchPlaces`: {key, sign, board, posters: [{x, y, w, h}]}.
+   */
   place(view, scene) {
     const life = scene?.life;
     const spotX = scene?.look === "3d" && life?.feature ? life.spotX : null;
-    const key = [view.x, view.y, view.width, innerWidth, spotX].map((n) => Math.round(n ?? -1)).join();
+    const own = scene?.touchPlaces ?? null;
+    const key = [view.x, view.y, view.width, innerWidth, spotX].map((n) => Math.round(n ?? -1)).join() + (own ? `/${own.key}` : "");
     if (key === this.key) return;
     this.key = key;
     const k = innerWidth / view.width;
@@ -138,7 +153,7 @@ export class TouchSpots {
       if (spotX !== null) this.feature.at.x = spotX - FEATURE.w / 2;
     }
     for (const s of this.spots) {
-      const { x, y, w, h: hh } = s.at;
+      const { x, y, w, h: hh } = (own && (s.kind === "poster" ? own.posters?.[s.i] : own[s.kind])) || s.at;
       s.el.style.transform = `translate(${((x - view.x) * k).toFixed(1)}px, ${((y - view.y) * k).toFixed(1)}px)`;
       s.el.style.width = `${(w * k).toFixed(1)}px`;
       s.el.style.height = `${(hh * k).toFixed(1)}px`;
@@ -166,8 +181,8 @@ export class TouchSpots {
     const facts = h("p", "poster-facts", "", card);
     h("span", "", playersLabel(box.min, box.max), facts);
     h("span", `poster-badge badge-${box.badge}`, BADGES[box.badge], facts);
-    h("p", "poster-how", box.soon ? "Coming soon: it cannot be played yet." : box.url ? "Stand under its lamp to vote. It opens on its own site." : "Stand under its lamp to vote.", card);
-    if (!box.soon && !box.url && !box.test) {
+    h("p", "poster-how", box.soon ? "Coming soon: it cannot be played yet." : "Stand under its lamp to vote.", card);
+    if (!box.soon && !box.test) {
       const best = h("p", "poster-best", "", card);
       best.hidden = true;
       fetch(`/api/party/scores/${encodeURIComponent(box.id)}`)

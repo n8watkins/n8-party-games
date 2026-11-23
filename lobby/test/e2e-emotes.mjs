@@ -19,7 +19,7 @@
 //                      no sound file is fetched before the room is drawn
 //
 // The sounds are the room's own recordings (lobby/public/sounds).
-import { chromium } from "playwright";
+import { launchBrowser } from "./browser.mjs";
 import { EMOTE_COOLDOWN_MS } from "../../party-kit/client/emotes.js";
 import { COUNT_MS } from "../shared/vote.js";
 import { boxCentre } from "../shared/world.js";
@@ -38,7 +38,9 @@ const section = (name) => console.log("\n     -- " + name);
 const debug = async (code) => (await (await fetch(api + "/debug/" + code)).json()).room;
 const quiet = (c, ms = 600) => sleep(ms).then(() => c.seen.filter((m) => m.t === "e" || m.t === "wait"));
 
-const browser = await chromium.launch({ headless: true, args: ["--mute-audio", "--autoplay-policy=user-gesture-required"] });
+// Software even with TEST_GPU=1: the checks read the flat drawing (svg.scene), which a browser
+// with hardware 3D would not get.
+const browser = await launchBrowser({ software: true, args: ["--autoplay-policy=user-gesture-required"] });
 try {
   const errors = [];
   async function open(name, viewport = { width: 844, height: 390 }) {
@@ -206,6 +208,49 @@ try {
   check((await asked(phone)).at(-1) === "jump:muted", "and a jump is silent");
   await phone.locator(".sound-btn").click();
 
+  // ================================================================ the ghost: its boo, its fade, its spook
+  section("the ghost: its boo emote, its fade and its spook all sound on a phone with no screen");
+  // Ada (a bare socket) becomes a ghost, and stands just beside Bea's piece.
+  ada.send({ t: "look", c: "ghost" });
+  await ada.wait((m) => m.room?.members[ada.seat]?.character === "ghost", 5000);
+  const B = ada.room.members.find((m) => m?.name === "Bea").seat;
+  const bx = (await debug(party.code)).view.members[B].x;
+  ada.goto(bx - 30);
+  await sleep(EMOTE_COOLDOWN_MS);
+  let ghostMark = (await asked(phone)).length;
+  ada.send({ t: "e", e: "boo" });
+  check((await sticker(phone, "BOO")) === "BOO", "the ghost's boo emote shows its word over its head on Bea's phone");
+  await phone.waitForFunction((n) => globalThis.__partyRoom.sounds.log.slice(n).some((l) => l.name === "emote-boo"), ghostMark, { timeout: 4000 }).catch(() => {});
+  check((await asked(phone)).slice(ghostMark).includes("emote-boo:played"), `and its sound plays there: ${(await asked(phone)).slice(ghostMark).join(", ")}`);
+  ghostMark = (await asked(phone)).length;
+  const fadeFrom = ada.seen.length;
+  ada.send({ t: "fade" });
+  const faded = await ada.wait((m) => m.t === "fade" && m.s === ada.seat, 3000, fadeFrom).catch(() => null);
+  check(faded?.for === 2500, "Ada's ghost fades for 2.5 s, and the room tells everybody");
+  await phone.waitForFunction((n) => globalThis.__partyRoom.sounds.log.slice(n).some((l) => l.name === "ghost-fade"), ghostMark, { timeout: 4000 }).catch(() => {});
+  check((await asked(phone)).slice(ghostMark).includes("ghost-fade:played"), `Bea's phone plays the fade (made in code, no recording): ${(await asked(phone)).slice(ghostMark).join(", ")}`);
+  // Ada drifts through Bea while faded: boo.
+  ada.send({ t: "m", x: bx - 30, d: 1, r: ada.rev });
+  ada.send({ t: "boo", to: B });
+  const spook = await ada.wait((m) => m.t === "spook", 3000, fadeFrom).catch(() => null);
+  check(spook?.to === B && spook.x > bx, `drifting through Bea's piece spooks it out of place, the way the ghost was going (to ${spook?.x}, from ${bx})`);
+  ada.send({ t: "m", x: bx - 30, d: 0, r: ada.rev });
+  await phone.waitForFunction((n) => globalThis.__partyRoom.sounds.log.slice(n).some((l) => l.name === "ghost-boo"), ghostMark, { timeout: 4000 }).catch(() => {});
+  check((await asked(phone)).slice(ghostMark).includes("ghost-boo:played"), "and Bea's phone plays the ghost's boo as it happens");
+  const wide = await phone
+    .waitForFunction((seat) => {
+      const w = document.querySelector(`svg.scene g[data-seat="${seat}"] .pawn-wide`);
+      return !!w && w.getAttribute("display") !== "none";
+    }, B, { timeout: 2000, polling: 30 })
+    .then(() => true, () => false);
+  check(wide, "Bea's own piece starts with wide eyes, its own pawn's eyes, on her phone");
+  // The same piece again in this fade: the room says no, to Ada only.
+  const noFrom = ada.seen.length;
+  ada.send({ t: "boo", to: B });
+  const no = await ada.wait((m) => m.t === "boo-no", 3000, noFrom).catch(() => null);
+  check(!!no, `a second spook of the same piece in one fade is refused: "${no?.why}"`);
+  await sleep(2600);
+
   section("with a big screen: shared sounds come from the screen only");
   const screen = await open("screen", { width: 1280, height: 720 });
   await screen.goto(base + "/lobby/?join=" + party.pin + "&as=screen");
@@ -227,7 +272,9 @@ try {
   await cy.opened;
   await screen.waitForFunction((n) => globalThis.__partyRoom.sounds.log.slice(n).some((l) => l.name === "join"), screenMark, { timeout: 4000 });
   await phone.keyboard.press("ArrowUp");
-  await sleep(500);
+  // Up to three seconds for her own jump's sound on a busy machine.
+  await phone.waitForFunction((n) => globalThis.__partyRoom.sounds.log.slice(n).some((l) => l.name === "jump"), phoneMark, { timeout: 3000, polling: 50 }).catch(() => null);
+  await sleep(200);
   const phoneHeard = (await asked(phone)).slice(phoneMark);
   check(!phoneHeard.some((x) => x.startsWith("join:")), "Cy coming in chimes on the screen, not on Bea's phone");
   check(phoneHeard.some((x) => x.startsWith("jump:")), "while Bea's own jump still sounds on her phone");

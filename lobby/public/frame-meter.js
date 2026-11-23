@@ -147,7 +147,8 @@ export class FrameMeter {
     this.drawn = now ?? null;
     if (t - this.shown < SHOW_MS) return;
     this.shown = t;
-    const look = this.scene.baked && !this.scene.plain ? "baked" : this.scene.look;
+    // A rendered room names its own look: "real", or "3d" once it has fallen back (its room then says which rung: "star-lounge lite 1").
+    const look = this.scene.rendered ? this.scene.lookName : this.scene.baked && !this.scene.plain ? "baked" : this.scene.look;
     this.el.textContent = meterLine({ look, room: now?.skin, frames: this.frames, drawing: now ? this.drawing : null, sharpness: now?.sharpness, now: t });
   }
 }

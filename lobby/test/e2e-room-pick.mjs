@@ -11,10 +11,10 @@
 // - After a reload, and after leaving and rejoining: still the host, and a tap still works.
 // - A party started on a big screen: the first phone to join picks (the screen can too).
 // - A guest's picker says who picks, and its cards look disabled.
-// The 3D pages draw in software (?gl=any): they are checked for the room they draw, not speed.
+// The 3D pages ask for ?gl=any, so they also draw in software: they are checked for the room they draw, not speed.
 import { mkdirSync } from "node:fs";
 import { resolve } from "node:path";
-import { chromium } from "playwright";
+import { launchBrowser } from "./browser.mjs";
 import { boxCentre } from "../shared/world.js";
 import { partyApi, sleep } from "./client.mjs";
 
@@ -30,7 +30,7 @@ const check = (ok, what) => {
   if (!ok) problems.push(what);
 };
 const PHONE = { viewport: { width: 844, height: 390 }, deviceScaleFactor: 2, hasTouch: true, isMobile: true };
-const browser = await chromium.launch({ headless: true, args: ["--mute-audio", "--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--ignore-gpu-blocklist"] });
+const browser = await launchBrowser({ args: ["--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--ignore-gpu-blocklist"] });
 const errors = [];
 try {
   async function phone(name) {
@@ -45,9 +45,22 @@ try {
     await page.tap(".rooms-btn");
     await page.waitForSelector(".picker");
     await page.tap(`.room-card[data-room=${id}]`, { force: true });
-    const going = await page.locator(`.room-card[data-room=${id}].going`).count();
-    const why = (await page.locator(".picker-why:not([hidden])").textContent({ timeout: 300 }).catch(() => "")) ?? "";
-    return { going, why };
+    // The page answers a tap one of two ways: the card says it is going there, or the picker says why not.
+    // Wait for whichever it is (a busy machine can take a while), rather than for a fixed time.
+    // (Read in the same moment it is seen: a card that is going closes the picker as soon as the room answers.)
+    const seen = await page
+      .waitForFunction(
+        (card) => {
+          if (document.querySelector(`.room-card[data-room=${card}].going`)) return { going: 1, why: "" };
+          const why = document.querySelector(".picker-why:not([hidden])")?.textContent.trim();
+          return why ? { going: 0, why } : null;
+        },
+        id,
+        { timeout: 8000 },
+      )
+      .then((handle) => handle.jsonValue())
+      .catch(() => ({ going: 0, why: "" }));
+    return seen;
   }
   const waitSkin = (page, id) => page.waitForFunction((want) => window.__room3d?.skin.id === want, id, { timeout: 30000 }).then(() => true, () => false);
 
@@ -105,7 +118,7 @@ try {
   await sleep(7000);
 
   // ---------------------------------------------------------------- after a reload
-  // (A reload to the room's own address, with ?gl=any again: this browser has no graphics card.)
+  // (A reload to the room's own address, with ?gl=any again: without TEST_GPU=1 this browser has no graphics card.)
   await nat.goto(`${base}/lobby/?gl=any`);
   await nat.waitForSelector(".look3d canvas", { timeout: 60000 });
   await sleep(1200);
@@ -119,7 +132,7 @@ try {
   await nat.tap(".note-act");
   await nat.waitForSelector(".bar", { timeout: 60000 });
   await sleep(5000);
-  // Back in the room (drawn flat here: the rejoin link has no ?gl=any), so the room's own word is checked.
+  // Back in the room (drawn flat in software: the rejoin link has no ?gl=any), so the room's own word is checked.
   let mark = watcher.seen.length;
   tap = await tapCard(nat, "fair");
   const moved = await watcher.wait((m) => m.t === "pick" && m.v === "fair", 6000, mark).catch(() => null);

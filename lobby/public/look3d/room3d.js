@@ -13,23 +13,28 @@
 //     fixed number of pixels; it steps down if frames are slow, draws a third as often when
 //     nothing moves, and not at all while the page is hidden (the page's frame loop stops).
 import { IMPACT_MS, cooldownFraction } from "../shared/bump.js";
+import { OWN_FADED } from "../shared/ghost.js";
 import { COUNT_MS } from "../shared/vote.js";
-import { ROOM, boxCentre, lightHalf, posAt } from "../shared/world.js";
-import { Expressions, poseTop } from "../emotes/play.js";
+import { wallFor } from "../shared/rooms.js";
+import { ROOM, drawnLight, poolOf, posAt, warmthAt } from "../shared/world.js";
+import { Expressions } from "../emotes/play.js";
 import { EmoteFigure, Sticker } from "../emotes/svg.js";
-import { EmoteArms, RIG_UNIT } from "./emote-arms.js";
+import { tagLevels } from "../tag-levels.js";
+import { modelOf } from "./characters.js";
+import { RIG_UNIT } from "./emote-arms.js";
 import { Life } from "./life.js";
+import { Hooks3D } from "./moves3d.js";
+import { heardHook, heardShove, heardSlime, heardStilts, heardVerdict, hookNow, hookStop, refusedOwn, resumeMoves, startGoo, startHook, startStilts } from "../move-state.js";
 import { ART_IMAGES, boxArt, boxSide, canvasOf } from "./paint.js";
-import { PAWN_HEIGHT, dressPawn, disposePawn, fadePawn, makePawn, posePawn, resumeKnock, startAttack, startKnock } from "./pieces.js";
+import { PAWN_HEIGHT, resumeKnock, startAttack, startFright, startKnock } from "./pieces.js";
 import { SKINS, liveSkin } from "./skins.js";
 import { CAM, D_WALL, FEET_Y, FRAME, PX, SPACE, U, layout, place, walkX, wallX, wallY } from "./space.js";
 import * as THREE from "./three.js";
 import { Words } from "./words.js";
+import { REACH } from "../reach.js";
 
 /** How quickly another player's piece closes on where it should be (per second). The flat drawing's number. */
 const EASE = 14;
-/** The red a fuming piece goes. */
-const FUMING = new THREE.Color("#ff2a14");
 /** How bright a lamp burns for 0, 1, 2, 3 and 4 players standing under it. */
 const LEVELS = [0.16, 0.6, 1.2, 1.4, 1.55];
 /** Painted walls and floors: pixels per metre. */
@@ -245,6 +250,8 @@ export class Room3D {
     this.stuff = new THREE.Group();
     this.cast = new THREE.Group();
     this.scene.add(this.stuff, this.cast);
+    // The robots' hooks and chains (./moves3d.js).
+    this.hooks = new Hooks3D(this.cast);
     this.words = new Words(el, opts, skin);
     this.at = new THREE.Vector3();
     // The page's bar under the room takes the room's colours while this look is up (look3d.css).
@@ -262,8 +269,11 @@ export class Room3D {
   /** Builds everything that does not move, for this room's boxes. */
   build(room) {
     this.clear(this.stuff);
-    const L = (this.L = layout(room.boxes.length));
-    this.half = lightHalf(L.n);
+    // The room's wall (shared/rooms.js): where its boxes hang and its pools lie, as the room decides the vote by it.
+    const L = (this.L = layout(wallFor(room.room ?? this.skin.id, room.boxes)));
+    this.half = L.wall.half;
+    // How far its light is drawn (shared/world.js, drawnLight): on a placed wall, to the counted edge and no further.
+    this.drawn = drawnLight(L.wall);
     this.shell(L);
     this.doorway(L);
     this.bulbs();
@@ -309,22 +319,29 @@ export class Room3D {
     back.position.set(0, SPACE.h / 2, SPACE.zBack);
     const sideTex = painted(depth, SPACE.h, skin.wall, true);
     const sideGeo = new THREE.PlaneGeometry(depth, SPACE.h);
-    const sideMat = new THREE.MeshBasicMaterial({ map: sideTex, color: 0x9aa4c4 });
-    for (const sgn of [-1, 1]) {
-      const m = add(new THREE.Mesh(sideGeo, sideMat));
-      m.position.set((sgn * SPACE.w) / 2, SPACE.h / 2, (SPACE.zFront + SPACE.zBack) / 2);
-      m.rotation.y = (-sgn * Math.PI) / 2;
-    }
+    // The end walls are a shade darker than the back wall, which the room's lights fall on; no
+    // darker than that, or the strip of end wall at a wide screen's edge reads as the room ending.
+    const endShade = 0xd0d4e2;
+    const sideMat = new THREE.MeshBasicMaterial({ map: sideTex, color: endShade });
+    // The two end walls run on toward the viewer as far as the floor does (the same wall, turned
+    // over at the join, as the floor is), so a screen wider than the room for its height (a
+    // sideways phone: reach.js) sees end wall at its edges and never past the front of the room.
+    const ends = (geo, mat, y) => {
+      for (const sgn of [-1, 1])
+        for (const on of [0, 1]) {
+          const m = add(new THREE.Mesh(geo, mat));
+          m.position.set((sgn * SPACE.w) / 2, y, (SPACE.zFront + SPACE.zBack) / 2 + on * depth);
+          m.rotation.y = (-sgn * Math.PI) / 2;
+          if (on) m.scale.x = -1;
+        }
+    };
+    ends(sideGeo, sideMat, SPACE.h / 2);
     // Above the painted wall: its top colour carried on up, for screens taller than the room.
     const above = new THREE.MeshBasicMaterial({ color: skin.above });
-    const aboveSide = new THREE.MeshBasicMaterial({ color: new THREE.Color(skin.above).multiply(new THREE.Color(0x9aa4c4)) });
+    const aboveSide = new THREE.MeshBasicMaterial({ color: new THREE.Color(skin.above).multiply(new THREE.Color(endShade)) });
     const top = add(new THREE.Mesh(new THREE.PlaneGeometry(SPACE.w, 14), above));
     top.position.set(0, SPACE.h + 7, SPACE.zBack);
-    for (const sgn of [-1, 1]) {
-      const m = add(new THREE.Mesh(new THREE.PlaneGeometry(depth, 14), aboveSide));
-      m.position.set((sgn * SPACE.w) / 2, SPACE.h + 7, (SPACE.zFront + SPACE.zBack) / 2);
-      m.rotation.y = (-sgn * Math.PI) / 2;
-    }
+    ends(new THREE.PlaneGeometry(depth, 14), aboveSide, SPACE.h + 7);
     this.floor = add(new THREE.Mesh(new THREE.PlaneGeometry(SPACE.w, depth), floorMat(painted(SPACE.w, depth, skin.floor, false), skin.light)));
     this.floor.rotation.x = -Math.PI / 2;
     this.floor.position.set(0, 0, (SPACE.zFront + SPACE.zBack) / 2);
@@ -492,10 +509,12 @@ export class Room3D {
   box(box, i, L) {
     const skin = this.skin;
     const add = (mesh) => (this.stuff.add(mesh), mesh);
-    const b = { box, i, cx: boxCentre(i, L.n), level: 0, aim: 0, gold: 0, goldAim: 0, shown: -1, lead: null };
+    const b = { box, i, cx: L.wall.xs[i], level: 0, aim: 0, gold: 0, goldAim: 0, shown: -1, lead: null };
+    // Only a game that can be played has a lamp and a pool (shared/world.js, hasPool), each as wide as its own.
+    b.pooled = !!poolOf(L.wall, i);
     const x = walkX(b.cx);
     const z = SPACE.walkZ;
-    const radius = (this.half + 12) * PX;
+    const radius = (b.pooled ? drawnLight(L.wall, i).pool : this.drawn.pool) * PX;
     b.pool = new THREE.Vector4(x, z, radius, 0);
 
     // The lamp, its cord, its beam and the edge of its pool.
@@ -511,7 +530,7 @@ export class Room3D {
     b.lamp.swing.add(cord);
     add(b.lamp.swing);
     if (!skin.rope) {
-      const flex = add(new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.018, 12, 6), cord.material));
+      const flex = (b.flex = add(new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.018, 12, 6), cord.material)));
       flex.position.set(x, SPACE.lampY + hang + 6, z);
     }
     b.cone = add(new THREE.Mesh(new THREE.CylinderGeometry(0.3, radius, SPACE.lampY, 48, 1, true), coneMat(skin.light)));
@@ -567,6 +586,10 @@ export class Room3D {
     b.glow.position.z = 0.025;
     g.add(b.glow);
     add(g);
+    if (!b.pooled) {
+      // A game that is coming soon, or a poster that is not a game: no lamp over it and no light under it.
+      for (const thing of [b.lamp.swing, b.flex, b.cone, b.ring, b.spill]) if (thing) thing.visible = false;
+    }
     return b;
   }
 
@@ -631,14 +654,25 @@ export class Room3D {
       if (m.d) p.face = m.d;
       if (p.rev !== m.rev) p.rx = m.x; // the room put it somewhere: no sliding across the floor
       p.rev = m.rev;
+      // The player chose another character: the same piece, where it stands, with a new body.
+      if (p.kind !== modelOf(m.character)) this.recast(p, m);
       const look = `${m.name}/${m.connected}/${m.colour}`;
       if (p.look !== look) {
         p.look = look;
-        dressPawn(p.pawn, m.colour, m.connected);
+        p.kind.dress(p.body, m.colour, m.connected);
+        // An emote in the middle of a change of colour is drawn again in the new one.
+        this.dropEmote(p);
       }
       p.member = m;
       // On the floor or just up from it already (this page arrived in the middle of a bump).
-      resumeKnock(p, m.x, m.down ?? 0, m.safe ?? 0, now);
+      resumeKnock(p, m.x, m.down ?? 0, m.safe ?? 0, now, m.fright);
+      // A ghost that is faded (shared/ghost.js), for a page that arrives in the middle; the room's
+      // word that it is solid too (a fade this page missed the end of). The viewer's own fade is
+      // drawn the moment its button goes down, before the room has said so: left as it is.
+      if (m.faded > 0) p.fadeUntil = now + m.faded;
+      else if (m.seat !== this.opts.own) p.fadeUntil = 0;
+      // A robot's hook out or legs up, a slime hard or soft (../move-state.js), likewise.
+      resumeMoves(p, m, now, m.seat === this.opts.own);
     }
     for (const [seat, p] of this.pieces) {
       if (!seen.has(seat) && !p.leaving) p.leaving = now;
@@ -656,19 +690,62 @@ export class Room3D {
 
   piece(m) {
     const p = { fx: { char: 0, hopAt: -Infinity }, seat: m.seat, rx: m.x, net: { x: m.x, d: m.d, t: 0 }, face: 1, rev: m.rev, jumpAt: -Infinity, attack: null, knock: null, leaving: 0, level: 0, look: "", tag: null, member: m };
-    p.pawn = makePawn(this.radial);
-    p.pawn.ring.visible = m.seat === this.opts.own;
-    this.cast.add(p.pawn.group, p.pawn.blob, p.pawn.ring);
+    this.embody(p, m);
     return p;
   }
 
+  /**
+   * Gives a piece the body of its player's character (./characters.js): the one place this look
+   * makes a body. `p.kind` is the character's definition and `p.body` the body it made. A room
+   * reads a body only through the handles every character has, and asks the definition for the
+   * rest: never its `mat` or `colour` (a ghost's is a white sheet; its player's colour is its hem).
+   */
+  embody(p, m) {
+    p.kind = modelOf(m.character);
+    p.body = p.kind.make(this.radial);
+    p.body.ring.visible = m.seat === this.opts.own;
+    this.cast.add(p.body.group, p.body.blob, p.body.ring);
+    p.look = "";
+  }
+
+  /**
+   * A body's finish for this look, each frame after it is posed and before its emote: nothing
+   * here (this look's paint is dimmed and lit by pose itself); the baked look gives each
+   * character's own `bake`.
+   */
+  finish() {}
+
+  /** Takes a piece's body out of the room, and whatever it was doing with its hands. */
+  disembody(p) {
+    this.dropEmote(p);
+    this.cast.remove(p.body.group, p.body.blob, p.body.ring);
+    p.kind.dispose(p.body);
+  }
+
+  /** A piece changes character where it stands. */
+  recast(p, m) {
+    this.disembody(p);
+    this.expressions.stop(p.seat);
+    // Its old move ends with its old body.
+    p.hook = p.stilt = p.goo = null;
+    this.hooks?.hook(p.seat, null);
+    this.embody(p, m);
+  }
+
+  /** Puts away the hands and props of a piece's emote (the emote itself may go on, and is drawn afresh). */
+  dropEmote(p) {
+    if (!p.emote) return;
+    p.emote.arms.dispose();
+    p.emote.figure.remove();
+    p.emote = null;
+    p.sticker?.show(null);
+  }
+
   removePiece(p) {
-    this.cast.remove(p.pawn.group, p.pawn.blob, p.pawn.ring);
-    p.emote?.arms.dispose();
-    p.emote?.figure.remove();
+    this.hooks?.hook(p.seat, null);
+    this.disembody(p);
     p.sticker?.remove();
     this.expressions.stop(p.seat);
-    disposePawn(p.pawn);
     p.tag?.el.remove();
   }
 
@@ -677,7 +754,9 @@ export class Room3D {
     const p = this.pieces.get(msg.s);
     if (!p) return;
     p.net = { x: msg.x, d: msg.d, t: now };
+    // Standing, it faces the way the room says (`f`: a quick turn); walking, the way it walks.
     if (msg.d) p.face = msg.d;
+    else if (msg.f === 1 || msg.f === -1) p.face = msg.f;
     if (msg.j) p.jumpAt = now;
   }
 
@@ -700,10 +779,109 @@ export class Room3D {
       hit.rev = msg.rev;
       startKnock(hit, msg.x, began);
     }
+    // The kick went through a faded ghost (`sc`, shared/ghost.js): the kicker is scared off to
+    // where the room put it, and the ghost says boo as the kick passes through. Nothing jolts.
+    if (msg.sc !== undefined && by) {
+      by.net = { x: msg.x, d: 0, t: now };
+      by.rev = msg.rev;
+      startFright(by, msg.x, began, "scare");
+      const ghost = this.pieces.get(msg.sc);
+      if (ghost) ghost.booAt = began + IMPACT_MS;
+    }
+    // The kick bounced off a hardened slime (`bo`, shared/slime.js): the kicker is knocked back itself.
+    if (msg.bo !== undefined && by) {
+      by.net = { x: msg.x, d: 0, t: now };
+      by.rev = msg.rev;
+      startKnock(by, msg.x, began);
+      const slime = this.pieces.get(msg.bo);
+      if (slime) setTimeout(() => this.spark(slime.rx - (msg.f || 1) * 40, 70, performance.now()), IMPACT_MS);
+    }
+    if (hit) hit.goo = null;
     // If it happened by the room's feature, the feature is knocked too (look3d/life.js).
     // Where they are is taken from what the room said, not from where this device has drawn them
     // so far, so that a slow screen and a fast one agree.
     this.life?.onBump(by ? (msg.s === this.opts.own ? by.rx : posAt(by.net, now)) : null, hit ? msg.x : null);
+  }
+
+  /** A ghost faded for `msg.for` milliseconds (0: it is solid again). */
+  onFade(msg, now) {
+    const p = this.pieces.get(msg.s);
+    if (p) p.fadeUntil = msg.for > 0 ? now + msg.for : 0;
+    this.idle = 0;
+  }
+
+  /** A faded ghost drifted through a piece (boo): the piece is spooked to where the room put it. */
+  onSpook(msg, now) {
+    const ghost = this.pieces.get(msg.s);
+    if (ghost) ghost.booAt = now;
+    const p = this.pieces.get(msg.to);
+    if (!p) return;
+    p.net = { x: msg.x, d: 0, t: now };
+    p.rev = msg.rev;
+    startFright(p, msg.x, now, "spook");
+    this.idle = 0;
+  }
+
+  // The robot's and the slime's moves (../move-state.js keeps what both drawings know of them).
+
+  /** How this look starts a slide or a fright, and a spark (`h`: how high above the floor). */
+  get moveDrawing() {
+    return { fright: (p, x, at, kind) => startFright(p, x, at, kind), spark: (x, h, now) => this.spark(x, h, now) };
+  }
+
+  onHook(msg, now) {
+    heardHook(this.pieces, this.opts.own, msg, now);
+    this.idle = 0;
+  }
+
+  onHookVerdict(msg, now) {
+    heardVerdict(this.pieces, msg, now, this.moveDrawing);
+    this.idle = 0;
+  }
+
+  onStilts(msg, now) {
+    heardStilts(this.pieces, msg, now);
+    this.idle = 0;
+  }
+
+  onSlime(msg, now) {
+    heardSlime(this.pieces, msg, now);
+    this.idle = 0;
+  }
+
+  onShove(msg, now) {
+    heardShove(this.pieces, msg, now, this.moveDrawing);
+    this.idle = 0;
+  }
+
+  ownHook(now) {
+    const p = this.pieces.get(this.opts.own);
+    if (p) startHook(p, p.face, now);
+  }
+
+  ownStilts(now) {
+    const p = this.pieces.get(this.opts.own);
+    if (p) startStilts(p, now);
+  }
+
+  ownSlime(kind, now) {
+    const p = this.pieces.get(this.opts.own);
+    if (p) startGoo(p, kind, now);
+  }
+
+  ownRefused(what, now) {
+    refusedOwn(this.pieces.get(this.opts.own), what, now);
+  }
+
+  /** A small spark where a hook clangs off or is batted away, or a kick bounces off a slime (no jolt). `h`: how high above the floor. */
+  spark(x, h, now) {
+    if (this.life?.calmQuery?.matches) return;
+    place(x, ROOM.floorY - h, SPACE.walkZ + 0.2, this.at);
+    for (let i = 0; i < 8; i++) {
+      const a = (i / 8) * Math.PI * 2;
+      this.life.sparks.add(this.at.x, this.at.y, this.at.z, Math.cos(a) * 1.6, Math.sin(a) * 1.6, 0.22, 0.16, i % 2 ? 0xfff6d8 : 0xffe2a8, 0);
+    }
+    this.idle = 0;
   }
 
   /** Where a blow lands: a burst of sparks, a flash, and a jolt of the picture. The place is {x, y} in world units. */
@@ -760,7 +938,7 @@ export class Room3D {
     }
     const ring = this.coolRing;
     ring.visible = true;
-    ring.geometry = this.coolArcs[cooling ? Math.round(cooldownFraction(left) * 24) : 24];
+    ring.geometry = this.coolArcs[cooling ? Math.round((own.coolShare?.(now) ?? cooldownFraction(left)) * 24) : 24];
     ring.position.set(walkX(mine.rx), 0.014, SPACE.walkZ);
     ring.scale.setScalar(cooling ? 1 : 1 + flash * 0.4);
     ring.material.opacity = cooling ? 0.9 : 1 - flash;
@@ -783,62 +961,49 @@ export class Room3D {
 
   /** Someone sent an emote (room-view.js): it starts on their piece now, in place of any they were doing. */
   onExpress(msg, now) {
-    const where = [...this.pieces.values()].filter((p) => !p.leaving).map((p) => ({ seat: p.seat, x: p.rx, face: p.face }));
+    const where = [...this.pieces.values()].filter((p) => !p.leaving).map((p) => ({ seat: p.seat, x: p.rx, face: p.face, character: p.kind.id }));
     this.expressions.start(msg.s, msg.e, now, where);
   }
 
   /**
-   * A piece's emote for this frame, after its pawn is posed: the body's lean and lift and the
-   * red of fuming on the pawn, the arms as meshes (emote-arms.js), and the props, effects and
+   * A piece's emote for this frame, after its body is posed: the body's lean and lift and the
+   * red of fuming, the arms as meshes (emote-arms.js), and the props, effects and
    * the word over its head in SVG over the picture (emotes/svg.js), placed the way the name
    * tags are. Returns whether one is on.
    */
   express(p, now, view, calm) {
     const e = this.expressions.pose(p.seat, now, (seat) => this.pieces.get(seat)?.rx, calm);
     if (!e) {
-      if (p.emote) {
-        p.emote.arms.dispose();
-        p.emote.figure.remove();
-        p.emote = null;
-        p.sticker.show(null);
-      }
+      this.dropEmote(p);
       return false;
     }
     const colour = p.member?.colour ?? "#8a8d94";
     if (!p.emote) {
-      const figure = new EmoteFigure(colour, { face: false, limbs: false });
+      const figure = new EmoteFigure(colour, { face: false, limbs: false, character: p.kind.id });
       this.words.emotes.append(figure.stage, figure.body);
-      p.emote = { arms: new EmoteArms(p.pawn, colour), figure };
+      p.emote = { arms: p.kind.hands(p.body, colour), figure };
       p.sticker ??= new Sticker(this.words.stickers);
     }
-    const pawn = p.pawn;
-    const b = e.pose.body;
-    // The body: lifted, nudged and leaned about its foot, on top of whatever the walk and the bump did.
-    const metres = RIG_UNIT * (PAWN_HEIGHT * PX / 1.115);
-    pawn.group.position.x += b.dx * metres;
-    pawn.group.position.y += b.lift * metres;
-    pawn.tilt.rotation.z -= (b.rot * Math.PI) / 180;
-    if (b.tint > 0) {
-      pawn.mat.color.lerp(FUMING, b.tint * 0.8);
-      pawn.mat.emissive.lerp(FUMING, b.tint * 0.6);
-    }
-    p.emote.arms.set(e.pose);
+    const body = p.body;
+    // The body, as its character does it: lifted, nudged and leaned on top of whatever the walk and the bump did, red when it fumes; then its hands.
+    p.kind.emote(body, e.pose, now, p.seat);
+    p.emote.arms.set(e.pose, now);
     // In SVG: room units become world units at the walking line (S), then screen pixels (k).
     const k = view.scale;
     const S = RIG_UNIT * (PAWN_HEIGHT / 1.115);
-    const gx = 960 + pawn.group.position.x / PX;
-    const gy = FEET_Y - pawn.group.position.y / PX;
-    const spin = (-pawn.tilt.rotation.z * 180) / Math.PI;
+    const gx = 960 + body.group.position.x / PX;
+    const gy = FEET_Y - body.group.position.y / PX;
+    const spin = (-body.tilt.rotation.z * 180) / Math.PI;
     const px = (x, y) => `${((x - view.x) * k).toFixed(1)},${((y - view.y) * k).toFixed(1)}`;
     p.emote.figure.body.setAttribute("transform", `translate(${px(gx, gy)}) rotate(${spin.toFixed(2)}) scale(${(k * S).toFixed(4)})`);
     p.emote.figure.stage.setAttribute("transform", `translate(${px(p.rx, FEET_Y)}) scale(${(k * S).toFixed(4)})`);
     p.emote.figure.draw(e.pose, e.toward);
     // The word: over the name tag and whatever the emote holds up, larger than the tag's words (much larger on a screen read from across the room), and never too small to read.
     const tagTop = FEET_Y - PAWN_HEIGHT - 16 - p.up - p.level * ((p.tag?.h ?? 30) + 6) - (p.tag?.h ?? 30);
-    const y = Math.min(tagTop - 6, gy + poseTop(e.pose) * S);
+    const y = Math.min(tagTop - 6, gy + e.top * S);
     const scale = Math.max(0.62, k * (this.opts.compact ? 1.08 : 1.25));
     const [sx, sy] = px(gx, y).split(",").map(Number);
-    p.sticker.show(e.word, sx, sy, scale, e.pop);
+    p.sticker.show(e.word, sx, sy, scale, e.pop, { left: 0, right: view.width * k });
     return true;
   }
 
@@ -860,7 +1025,8 @@ export class Room3D {
     let best = 0;
     for (const b of this.boxes) {
       const d = Math.abs(x - b.cx);
-      if (d < this.half + 40) best = Math.max(best, Math.min(1, b.level * 0.85) * Math.min(1, (this.half + 40 - d) / 40));
+      const warm = warmthAt(d, this.L.wall, b.i);
+      if (warm > 0) best = Math.max(best, Math.min(1, b.level * 0.85) * warm);
     }
     return Math.max(best, this.life.warmth(x));
   }
@@ -972,7 +1138,7 @@ export class Room3D {
           busy = true;
           continue;
         }
-        fadePawn(p.pawn, 1 - gone);
+        p.kind.fade(p.body, 1 - gone);
         alpha = 1 - gone;
         busy = true;
       }
@@ -987,10 +1153,14 @@ export class Room3D {
         if (Math.abs(target - p.rx) < 0.3) p.rx = target;
         walking = (p.net.d !== 0 && target > ROOM.minX && target < ROOM.maxX) || Math.abs(target - p.rx) > 6;
       }
-      const pose = posePawn(p.pawn, p, now, dt, { walking, lit: this.lightAt(p.rx), calm });
+      // A faded ghost (shared/ghost.js): its own player sees it more clearly than everyone else does.
+      p.faded = now < (p.fadeUntil ?? 0) ? (seat === this.opts.own ? OWN_FADED : 1) : 0;
+      const pose = p.kind.pose(p.body, p, now, dt, { walking, lit: this.lightAt(p.rx), calm });
+      // A look with its own finish (the baked look's real light) gives it here, before an emote lays its red on top.
+      this.finish(p);
       if (pose.burst) this.burst(pose.burst, now, calm);
       if (pose.dust !== null) this.dust(pose.dust, now, calm);
-      alive.push({ seat, x: p.rx, up: pose.up, air: p.pawn.air, fx: p.fx });
+      alive.push({ seat, x: p.rx, up: pose.up, air: p.body.air, fx: p.fx });
       if (pose.moving) busy = true;
       p.up = pose.up;
       p.shock = pose.shock;
@@ -1001,17 +1171,23 @@ export class Room3D {
       this.words.dressTag(p.tag, p.member);
       ordered.push(p);
     }
-    // Name tags that would sit on top of each other step up instead.
-    ordered.sort((a, b) => a.rx - b.rx);
-    let prev = null;
+    // The robots' hooks: each flies until the room's word, stopping at the first piece it meets.
     for (const p of ordered) {
-      const want = prev && p.rx - prev.rx < (p.tag.w + prev.tag.w) / 2 + 8 ? (prev.want + 1) % 4 : 0;
-      p.want = want;
-      if (Math.abs(want - p.level) > 0.004) busy = true;
-      p.level += (want - p.level) * Math.min(1, dt * 12);
+      if (!p.hook) {
+        this.hooks.hook(p.seat, null);
+        continue;
+      }
+      const others = ordered.filter((o) => o !== p && !o.leaving).map((o) => o.rx);
+      const drawn = hookNow(p, now, p.rx, p.hook.verdict ? null : hookStop(p.rx, p.hook.dir, others));
+      if (this.hooks.hook(p.seat, drawn, p.rx, p.hook?.dir ?? p.face, p.body.legs ?? 0, p.member?.colour)) busy = true;
+    }
+    // Name tags that would sit on top of each other step up instead.
+    tagLevels(ordered, (p) => p.tag.w, (p) => p.up, (p) => (p.tag.h || 30) + 6);
+    for (const p of ordered) {
+      if (Math.abs(p.want - p.level) > 0.004) busy = true;
+      p.level += (p.want - p.level) * Math.min(1, dt * 12);
       this.words.placeTag(p.tag, view, p.rx, p.up, p.level, p.shock, p.alpha);
       if (this.express(p, now, view, calm)) busy = true;
-      prev = p;
     }
 
     // Under the viewer's own piece: how far its bump has recharged.
@@ -1034,13 +1210,20 @@ export class Room3D {
     // Draw every frame while anything moves; every other frame for ambient life alone; a third as often when the room is still.
     if (this.idle > 2 && this.idle % (lively ? 2 : 3)) return;
     const t0 = performance.now();
-    this.renderer.render(this.scene, this.camera);
+    this.draw();
     this.drawn.cpu += performance.now() - t0;
     this.drawn.frames++;
   }
 
+  /** Draws the picture. A room made of rendered layers draws what is outside first (rendered/room-rendered.js). */
+  draw() {
+    this.renderer.render(this.scene, this.camera);
+  }
+
   /** Sets a box's lamp, beam, pool edge, picture and frame for its level of light (0 is off). */
   light(b) {
+    // A poster is never lit: it is printed, and shown as the room's light shows a wall.
+    if (b.box.poster) return void b.art.color.setScalar(0.66);
     const level = b.level;
     const glowing = Math.min(1, level * 8);
     const bright = Math.min(1, 0.02 + level * 0.9);
@@ -1095,6 +1278,11 @@ export class Room3D {
     return { skin: this.skin.id, frames: this.drawn.frames, cpu: this.drawn.cpu, sharpness: this.renderer.getPixelRatio() };
   }
 
+  /** How far to either side this drawing is room, in world units: the page keeps its view inside it (../reach.js). */
+  get reach() {
+    return REACH["3d"];
+  }
+
   /** For tests and for measuring: how much is being drawn, and at what size. */
   stats() {
     const info = this.renderer.info.render;
@@ -1115,6 +1303,7 @@ export class Room3D {
   destroy() {
     for (const p of this.pieces.values()) this.removePiece(p);
     this.pieces.clear();
+    this.hooks.dispose();
     this.clear(this.stuff);
     this.radial.dispose();
     this.words.destroy();

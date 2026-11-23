@@ -5,17 +5,17 @@
 //
 // Leaving: a player and the room's screen leave and land on the front page with a line and the
 // way back in, which works; a seat given up after a drop, a screen whose place was taken, a
-// wrong code, a full party, a second screen and "Stay in the room" each end with a clear next
+// wrong code, a full party and a second screen each end with a clear next
 // step; the lines for a room that closed (untouched, four hours, allowance) are what the front
 // page says; and a rejoin that cannot work shows nothing and never moves the page.
 // Rooms: the host's pick reaches every device, others' taps do not apply, nothing changes
 // during the count or a game, a latecomer gets the party's room, a start link's ?room= is the
 // starting choice, it survives the room sleeping, and a device without 3D loads none of it.
-// The 3D pages draw in software (?gl=any), so they are checked for what they draw, not how fast.
+// The 3D pages ask for ?gl=any, so they draw in software too, and are checked for what they draw, not how fast.
 // It takes about two minutes, most of it waiting out a dropped phone's thirty seconds.
 import { mkdirSync } from "node:fs";
 import { resolve } from "node:path";
-import { chromium } from "playwright";
+import { launchBrowser } from "./browser.mjs";
 import { boxCentre } from "../shared/world.js";
 import { partyApi, sleep } from "./client.mjs";
 
@@ -31,20 +31,19 @@ const check = (ok, what) => {
   if (!ok) problems.push(what);
 };
 const N = 6;
-const [COIN, WHO] = [1, 2];
+const COIN = 1;
 const light = (i, off = 0) => Math.round(boxCentre(i, N) + off);
-const WHO_SITE = "https://whoami.n8builds.dev/";
 
-// Two browsers: a plain one, which like WSL has no hardware 3D and so gets the flat room, and one
-// that draws WebGL in software for the pages that ask for the 3D look with ?gl=any.
-const browser = await chromium.launch({ headless: true, args: ["--mute-audio"] });
-const soft = await chromium.launch({ headless: true, args: ["--mute-audio", "--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--ignore-gpu-blocklist"] });
+// Two browsers: a plain one, which stands for a device without hardware 3D and so gets the flat
+// room (it stays on software even with TEST_GPU=1, or it would get the 3D look), and one that
+// draws WebGL for the pages that ask for the 3D look with ?gl=any (on the card with TEST_GPU=1).
+const browser = await launchBrowser({ software: true });
+const soft = await launchBrowser({ args: ["--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--ignore-gpu-blocklist"] });
 const errors = [];
 const timers = [];
 try {
   async function open(name, viewport, extra = {}, threeD = false) {
     const context = await (threeD ? soft : browser).newContext({ viewport, deviceScaleFactor: 1, ...extra });
-    await context.route(WHO_SITE + "**", (route) => route.fulfill({ contentType: "text/html", body: "<!doctype html><title>stand-in</title>" }));
     const page = await context.newPage();
     page.on("pageerror", (e) => errors.push(`${name}: ${e.message}`));
     page.on("console", (m) => m.type() === "error" && !/Failed to load resource/.test(m.text()) && errors.push(`${name}: ${m.text()}`));
@@ -95,7 +94,9 @@ try {
   await shot(host, "01-laptop-corner-with-words");
   await sleep(9500);
   check((await host.locator(".corner.folded").count()) === 1, "and folds to its pictures a few seconds later");
-  const flatLoads = await host.evaluate(() => performance.getEntriesByType("resource").filter((r) => /look3d|three\.module/.test(r.name)).length);
+  // The 3D look's drawing code only: room-view.js imports look3d/rendered/switch.js, plain logic
+  // that decides which look a device gets and draws nothing, so the flat room fetches it too.
+  const flatLoads = await host.evaluate(() => performance.getEntriesByType("resource").filter((r) => /three\.module|\/look3d\/(?!rendered\/switch\.js)/.test(r.name)).length);
   check(flatLoads === 0 && (await host.locator("svg.scene").count()) === 1, `(${flatLoads} 3D files, ${await host.locator("svg.scene").count()} flat scene) a device without hardware 3D draws the flat room and fetches none of the 3D look`);
 
   const watcher = connect(await call("POST", "/join/" + pin, { nickname: "Wes" }));
@@ -138,8 +139,10 @@ try {
   await sleep(400);
   await shot(host, "04-laptop-picker-host");
   check(/Everyone in the party sees the room you choose/.test(await host.locator(".picker-line").textContent()), "the host is told their pick moves everyone");
+  // Counted from before the tap: the relay can reach the watcher before the click returns.
+  const beforePick = watcher.seen.length;
   await host.click(".room-card[data-room=camp]");
-  const moved = await watcher.wait((m) => m.t === "pick", 5000).catch(() => null);
+  const moved = await watcher.wait((m) => m.t === "pick", 5000, beforePick).catch(() => null);
   check(moved?.v === "camp" && moved.by === 0, "the host's pick is one relayed message: " + JSON.stringify(moved && { v: moved.v, by: moved.by }));
   await tv.waitForFunction(() => window.__room3d?.skin.id === "camp", null, { timeout: 30000 }).catch(() => {});
   await phone.waitForFunction(() => window.__room3d?.skin.id === "camp", null, { timeout: 30000 }).catch(() => {});
@@ -218,7 +221,7 @@ try {
   await leaver.waitForURL(base + "/", { timeout: 8000 });
   const left = await chip(leaver);
   check(left?.startsWith(`You left party ${pin}.`) && /Rejoin/.test(left), `leaving lands on the front page with a line and Rejoin: "${left}"`);
-  check((await leaver.locator("text=Start a party").count()) > 0, "the front page offers Start a party and Join with a code beside it");
+  check((await leaver.locator(".door").count()) === 3 && (await leaver.locator("#joinOpen").count()) === 1, "the front page offers its three doors and Join with a code beside them");
   await shot(leaver, "12-phone-front-you-left");
   await leaver.click(".note-act");
   await leaver.waitForSelector(".bar", { timeout: 15000 });
@@ -312,9 +315,9 @@ try {
   check(front.url() === base + "/" && (await front.locator(".note-chip").count()) === 0 && !(await front.evaluate(() => window.__seen)), "a party that has gone: no chip, no flash, the page stays");
 
   // ---------------------------------------------------------------- the way in: a wrong code, a full party, a second screen
-  await front.goto(base + "/");
-  await front.fill("#join", "0001");
-  await front.click(".join button");
+  // The party room's own way in, with a code typed (the front page checks a code before it comes
+  // here, and says a wrong one itself: site/test/e2e-home.mjs).
+  await front.goto(base + "/lobby/?join=0001");
   await front.fill("input[name=nickname]", "Gus");
   await sleep(600);
   const unknown = await front.locator(".door-who").textContent();
@@ -348,20 +351,7 @@ try {
   const offered = await second.locator(".door-card").innerText();
   check(!/Show the room here/.test(offered) && /Join/.test(offered), "a second screen is not offered the screen, only a seat");
   await shot(second, "20-laptop-second-screen");
-
-  // ---------------------------------------------------------------- the outside game's send-off: "Stay in the room"
   for (const c of filler) c.ws.close();
-  await sleep(800);
-  // Ada and Wes stand in Who Am I?'s light; Ada stays.
-  watcher.goto(light(WHO, 40));
-  await walkAda(light(WHO, -40));
-  // The walk, then the ten-second count, then the card.
-  await host.waitForSelector(".card.away", { timeout: 30000 }).catch(() => {});
-  check((await host.locator(".card.away").count()) === 1, "an outside game's send-off card comes up");
-  await host.click("text=Stay in the room");
-  await sleep(7000);
-  check(host.url().startsWith(base + "/lobby/") && (await host.locator(".bar").count()) === 1 && (await host.locator(".card").count()) === 0, "Stay in the room keeps you in the live room, with nothing over it");
-  await shot(host, "21-laptop-stayed");
 } finally {
   for (const t of timers) clearInterval(t);
   await browser.close();

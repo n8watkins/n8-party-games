@@ -31,6 +31,7 @@ const check = (ok, what) => {
   if (!ok) problems.push(what);
 };
 
+// Stays on software whatever TEST_GPU says (not lobby/test/browser.mjs): these stills are compared with earlier ones, and GPU pixels differ.
 const browser = await chromium.launch({ headless: true, args: ["--mute-audio", "--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--ignore-gpu-blocklist"] });
 try {
   const errors = [];

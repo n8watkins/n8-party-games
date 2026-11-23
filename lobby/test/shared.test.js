@@ -8,9 +8,9 @@ import { game as coinFlip, FLIP_MS } from "../games/coin-flip.js";
 import { camera, CLOSER, CORNER_CLEAR, CORNER_WIDTH, PHONE_FRAME, PIECE_CSS, PIECE_HEIGHT, SIGN_TOP, signTop } from "../shared/camera.js";
 import { Pilot, SEND_GAP_MS } from "../shared/pilot.js";
 import { playerLine, statusLine } from "../shared/status.js";
-import { badgeFor, boxFromManifest, leaders, playersLabel, pointsForPlace, spotLights, standingsFromRows, tally, whereabouts, whyNot } from "../shared/vote.js";
+import { IDEAS, badgeFor, boxFromManifest, leaders, playersLabel, pointsForPlace, spotLights, standingsFromRows, tally, whyNot } from "../shared/vote.js";
 import { JUMP_HEIGHT, JUMP_MS, ROOM, WALK_SPEED, boxCentre, boxWidth, jumpHeight, lightAt, lightHalf, posAt, spawnX } from "../shared/world.js";
-import { TEST_WALL, WALL, wallFor } from "../wall.js";
+import { TEST_WALL, WALL, buildWall, wallFor } from "../wall.js";
 
 describe("the room as numbers", () => {
   it("gives every box a pool of light with dark between them, for any number of boxes", () => {
@@ -107,34 +107,55 @@ describe("which games the party can play", () => {
     expect(standingsFromRows(null)).toEqual([]);
   });
 
-  it("hangs Cork & Bell, Who Am I? and three coming-soon boxes on the production wall, and no test game", () => {
-    expect(WALL.boxes.map((b) => b.id)).toEqual(["cork-and-bell", "who-am-i", "tin-derby", "flood", "fox-trouble"]);
+  it("hangs Cork & Bell, Flood, Tin Derby, Fox Trouble and the ideas poster on the production wall: no Who Am I? and no test game", () => {
+    expect(WALL.boxes.map((b) => b.id)).toEqual(["cork-and-bell", "flood", "tin-derby", "fox-trouble", "ideas"]);
     // Cork & Bell opens inside the room, from the view its own manifest names, and also plays alone.
-    expect(WALL.boxes[0]).toMatchObject({ name: "Cork & Bell", blurb: "Pop the targets, ring the bell", badge: "any", min: 1, max: 4, soon: false, url: null, view: "/cork-and-bell/game/party-view.js" });
-    expect(WALL.boxes[1]).toMatchObject({ name: "Who Am I?", badge: "phones", min: 2, max: 2, soon: false, url: "https://whoami.n8builds.dev/" });
+    expect(WALL.boxes[0]).toMatchObject({ name: "Cork & Bell", blurb: "Pop the targets, ring the bell", badge: "any", min: 1, max: 4, soon: false, view: "/cork-and-bell/game/party-view.js" });
+    // Tin Derby hangs where its coming-soon box hung (third, a frame apart from Cork & Bell), and opens inside the room too.
+    expect(WALL.boxes[2]).toMatchObject({ name: "Tin Derby", badge: "any", min: 1, max: 4, soon: false, view: "/tin-derby/page/party-view.js" });
     expect(WALL.boxes.filter((b) => b.soon).map((b) => [b.name, b.badge, playersLabel(b.min, b.max)])).toEqual([
-      ["Tin Derby", "screen", "2-4 players"],
       ["Flood", "phones", "1-4 players"],
       ["Fox Trouble", "phones", "2-4 players"],
     ]);
+    // Who Am I? is a Table game: it is not on the Floor's wall at all, and no box sends anyone to another site.
+    expect(WALL.boxes.some((b) => b.id === "who-am-i")).toBe(false);
+    for (const b of WALL.boxes) expect(b, b.id).not.toHaveProperty("url");
+    // The last frame is a poster, not a game: no light, and it points at the contact form on n8builds.dev.
+    expect(WALL.boxes[4]).toMatchObject({ poster: true, soon: false, link: "https://n8builds.dev/#contact", where: "n8builds.dev" });
+    expect(WALL.boxes.filter((b) => b.poster)).toHaveLength(1);
     expect(WALL.boxes.some((b) => b.test)).toBe(false);
     for (const b of WALL.boxes) expect(b.blurb.length, b.id).toBeGreaterThan(5);
-    expect([...WALL.games.keys()]).toEqual(["cork-and-bell"]);
+    // The games that can start: the Floor's and the Table's. No test game in production, on the Floor or at the Table.
+    expect([...WALL.games.keys()]).toEqual(["cork-and-bell", "tin-derby", "paper-masks", "who-am-i"]);
+    expect(WALL.table.map((e) => [e.id, e.soon])).toEqual([
+      ["paper-masks", false],
+      ["who-am-i", false],
+    ]);
+    expect(WALL.table.some((e) => e.test)).toBe(false);
     expect(WALL.games.get("cork-and-bell").tickHz).toBe(30);
+    expect(WALL.games.get("tin-derby").tickHz).toBe(30);
   });
 
-  it("adds Coin Flip only where the environment switches test games on", () => {
-    expect(TEST_WALL.boxes.map((b) => b.id)).toEqual(["cork-and-bell", "coin-flip", "who-am-i", "tin-derby", "flood", "fox-trouble"]);
-    expect(TEST_WALL.boxes[1]).toMatchObject({ test: true, min: 1, url: null, view: null });
-    expect([...TEST_WALL.games.keys()]).toEqual(["cork-and-bell", "coin-flip"]);
+  it("adds Coin Flip and Count to ten only where the environment switches test games on", () => {
+    expect(TEST_WALL.table.filter((e) => e.test).map((e) => e.id)).toEqual(["count-to-ten"]);
+    expect(TEST_WALL.boxes.map((b) => b.id)).toEqual(["cork-and-bell", "coin-flip", "flood", "tin-derby", "fox-trouble", "ideas"]);
+    expect(TEST_WALL.boxes[1]).toMatchObject({ test: true, min: 1, view: null });
+    expect([...TEST_WALL.games.keys()]).toEqual(["cork-and-bell", "tin-derby", "coin-flip", "paper-masks", "who-am-i", "count-to-ten"]);
     expect(wallFor({ PARTY_TEST_GAMES: "on" })).toBe(TEST_WALL);
     expect(wallFor({ PARTY_TEST_GAMES: "off" })).toBe(WALL);
     expect(wallFor({})).toBe(WALL);
   });
 
-  it("says where an outside game is in words", () => {
-    expect(whereabouts("https://whoami.n8builds.dev/")).toBe("whoami.n8builds.dev");
-    expect(whereabouts("/cork-and-bell/")).toBe("its own page");
+  it("refuses a hosted game the room cannot show, when the Worker loads", () => {
+    const manifest = { id: "no-view", name: "No view", path: "/no-view/", players: { min: 1, max: 4 } };
+    expect(() => buildWall([{ manifest, game: coinFlip }])).toThrow(/no-view cannot hang on the Floor/);
+  });
+
+  it("never lights the ideas poster, never counts it and never offers it as a spot", () => {
+    for (const party of [{ players: 1, screens: 0 }, { players: 4, screens: 1 }]) expect(whyNot(IDEAS, party)).toBe("");
+    const wall = [{ id: "a" }, IDEAS, { id: "b" }];
+    expect(spotLights(wall, "a", 2)).toEqual(["a", "b"]);
+    expect(spotLights(wall, "b", 3)).toBeNull();
   });
 });
 
@@ -165,7 +186,7 @@ describe("what a player's page sends", () => {
     for (let t = 0; t < 5000; t += 16) p.step(t);
     expect(sent).toEqual([]);
     p.steer(1, 5000);
-    expect(sent).toEqual([{ t: "m", x: 150, d: 1, r: 0 }]);
+    expect(sent).toEqual([{ t: "m", x: 150, d: 1, f: 1, r: 0 }]);
     for (let t = 5016; t < 5300; t += 16) p.step(t);
     expect(sent.length).toBe(1);
   });
@@ -211,7 +232,7 @@ describe("what a player's page sends", () => {
     const { sent, p } = pilot();
     p.place(600, 3, 1000);
     expect(p.x).toBe(600);
-    expect(sent.at(-1)).toEqual({ t: "m", x: 600, d: 0, r: 3 });
+    expect(sent.at(-1)).toEqual({ t: "m", x: 600, d: 0, f: 1, r: 3 });
   });
 });
 
@@ -309,9 +330,7 @@ describe("the words under the room", () => {
     const one = statusLine(base, vote({ leaders: ["coin-flip"], count: { endsIn: 3000 }, countLeft: 2100 }));
     expect(one).toMatchObject({ chip: "EVERYONE IS IN A LIGHT", main: "Coin Flip starts in 3.", sub: "Step out of your light to stop the count." });
     expect(statusLine(base, vote({ leaders: ["cork-and-bell", "coin-flip"], count: { endsIn: 900 } })).main).toBe("A tie. The coin toss is in 1.");
-    // An outside game does not start in the room: it opens on its own site.
-    expect(statusLine(base, vote({ leaders: ["who-am-i"], count: { endsIn: 3000 } })).main).toBe("Who Am I? opens in 3.");
-    expect(playerLine(base, vote({ leaders: ["who-am-i"], count: { endsIn: 1200 } }), 0).rest).toBe("Who Am I? opens in 2");
+    expect(playerLine(base, vote({ leaders: ["cork-and-bell"], count: { endsIn: 1200 } }), 0).rest).toBe("Cork & Bell starts in 2");
     expect(statusLine(base, vote({ toss: { between: ["cork-and-bell", "coin-flip"], winner: "coin-flip", endsIn: 100 } }))).toMatchObject({ chip: "TIE", sub: "Cork & Bell and Coin Flip." });
   });
 

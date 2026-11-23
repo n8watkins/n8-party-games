@@ -3,15 +3,20 @@
 // into SVG: a pose for a piece, dizzy eyes, a burst where the blow lands, dust where the piece
 // comes down, a ring under the viewer's own piece while its bump recharges, and a small jolt
 // of the picture. A room drawn another way (3D) would replace this file and keep the rules.
+//
+// It also draws the ghost's scare and spook (lobby/shared/ghost.js, frightPose): a frightened
+// piece starts, freezes and scurries off, with wide eyes and a pale tint, as its own character
+// does them (`scared` in its flat definition). Neither jolts the picture.
 import { s, set } from "./dom.js";
 import { IMMUNE_MS, IMPACT_MS, PIECE_PIVOT, STUN_MS, attackPose, cooldownFraction, impactPoint, knockPose } from "./shared/bump.js";
+import { isMoved, moved, movedPose, movedResumed } from "./shared/moves.js";
 import { ROOM } from "./shared/world.js";
 
 const BURST_MS = 240;
 const DUST_MS = 420;
 const JOLT_MS = 170;
 const READY_MS = 420;
-const STILL = { x: null, dx: 0, lift: 0, tilt: 0, pivot: 0, sx: 1, sy: 1, state: "idle", dizzy: false, safe: false };
+const STILL = { x: null, dx: 0, lift: 0, tilt: 0, pivot: 0, sx: 1, sy: 1, state: "idle", dizzy: false, safe: false, scared: 0, pale: 0 };
 
 const calm = () => typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
 
@@ -55,9 +60,24 @@ export class BumpDraw {
     p.knock = { at, from: p.rx, to, safeFor: IMMUNE_MS, burst: false, dust: false };
   }
 
-  /** The room says a piece is on the floor or just up from it (for a page that arrived in the middle). */
-  resume(p, x, down, safe, now) {
-    if (p.knock || !(safe > 0)) return;
+  /**
+   * The room moved a piece some other way than a kick, from where it is drawn to `to`
+   * (shared/moves.js): `kind` "scare" (it kicked a faded ghost; `at` is when its kick began),
+   * "spook" (a faded ghost drifted through it), "hookscare" (its hook went through one), "pull" (a
+   * robot's hook dragged it), "bonk" (the hook back) or "shove" (a slime walked into it).
+   */
+  fright(p, to, at, kind) {
+    p.fright = moved(kind, p.rx, to, at);
+    p.knock = null;
+  }
+
+  /**
+   * The room says a piece is on the floor or just up from it (for a page that arrived in the
+   * middle): knocked, or moved another way (`fright`, shared/moves.js), drawn as what it is.
+   */
+  resume(p, x, down, safe, now, fright) {
+    if (p.knock || p.fright || !(safe > 0)) return;
+    if (isMoved(fright)) return void (p.fright = movedResumed(x, down, safe, fright, now));
     p.knock = { at: now - (STUN_MS - down), from: x, to: x, safeFor: safe - down, burst: true, dust: true };
   }
 
@@ -68,6 +88,27 @@ export class BumpDraw {
    * where it is along the floor while it is being thrown (null: wherever it walks).
    */
   pose(p, now) {
+    const f = p.fright;
+    if (f) {
+      const pose = movedPose(f, now - f.at, calm());
+      if (pose.state === "up") {
+        p.fright = null;
+        // Over before this page drew its landing (a move with no safe time after it, a shove, or a
+        // page that drew nothing all the while): this one frame is drawn where the move put it too.
+        if (!f.landed && now >= f.at) return { ...STILL, x: f.to };
+      }
+      // Until the kick reaches the ghost the kicker's own kick is drawn (below).
+      else if (pose.state !== "standing") {
+        if (pose.face) p.face = pose.face;
+        // Over, and safe for a while: the first frame after it is drawn where the move put it, not
+        // eased there from wherever this page last drew it (a page that drew no frame of the
+        // slide would glide it in at the look's ease, behind where it is). It may walk on after.
+        const landing = pose.x === null && pose.state === "safe" && !f.landed;
+        if (landing) f.landed = true;
+        const x = landing ? f.to : pose.x;
+        return { x, dx: pose.dx, lift: pose.lift, tilt: pose.tilt, pivot: 0, sx: pose.sx, sy: pose.sy, state: pose.state, dizzy: !!pose.dizzy, safe: pose.state === "safe", scared: pose.scared, pale: pose.pale };
+      }
+    }
     const k = p.knock;
     if (k) {
       const pose = knockPose(now - k.at, k.from, k.to, k.safeFor);
@@ -97,30 +138,44 @@ export class BumpDraw {
     return STILL;
   }
 
-  /** Dizzy eyes while a piece is thrown and lying, and a blink while it cannot be knocked again. */
+  /**
+   * Dizzy eyes while a piece is thrown and lying, and a blink while it cannot be knocked again.
+   * How each looks is the character's own (p.kind.flat: characters/index.js).
+   */
   dress(p, pose, now) {
+    const flat = p.kind.flat;
     if (pose.dizzy !== !!p.dizzy) {
       p.dizzy = pose.dizzy;
-      p.crosses ??= crosses(p);
-      set(p.crosses, { display: pose.dizzy ? null : "none" });
-      set(p.eyes, { display: pose.dizzy ? "none" : null });
+      flat.dizzy(p.actor, pose.dizzy);
     }
     if (pose.safe) {
       p.blinking = true;
-      set(p.body, { opacity: calm() ? 0.7 : 0.55 + 0.45 * Math.abs(Math.sin(now / 70)) });
-      set(p.head, { opacity: calm() ? 0.7 : 0.55 + 0.45 * Math.abs(Math.sin(now / 70)) });
+      flat.blink(p.actor, calm() ? 0.7 : 0.55 + 0.45 * Math.abs(Math.sin(now / 70)));
     } else if (p.blinking) {
       p.blinking = false;
-      set(p.body, { opacity: null });
-      set(p.head, { opacity: null });
+      flat.blink(p.actor, null);
+    }
+    // Frightened by a ghost: the character's own wide eyes, and a pale tint over the whole piece
+    // (the owner's "lighter pale tint for the scare"). Written only while it changes.
+    const scared = Math.round((pose.scared || 0) * 20) / 20;
+    const pale = Math.round((pose.pale || 0) * 20) / 20;
+    if (scared !== (p.scaredK ?? 0)) {
+      p.scaredK = scared;
+      flat.scared(p.actor, scared);
+      set(p.g, { "data-scared": scared || null });
+    }
+    if (pale !== (p.paleK ?? 0)) {
+      p.paleK = pale;
+      p.g.style.filter = pale > 0 ? `saturate(${(1 - 0.55 * pale).toFixed(2)}) brightness(${(1 + 0.32 * pale).toFixed(2)})` : "";
     }
   }
 
   /**
    * The ring under the viewer's own piece: it fills as the bump recharges and flashes when it
-   * is ready. `left` is the milliseconds still to wait.
+   * is ready. `left` is the milliseconds still to wait, and `share` how far it has recharged (0 to
+   * 1; a bump's when not given: a ghost's fade has a longer cooldown).
    */
-  cooldown(x, left, now) {
+  cooldown(x, left, now, share) {
     const cooling = left > 0;
     if (cooling !== this.cooling) {
       this.cooling = cooling;
@@ -130,7 +185,7 @@ export class BumpDraw {
     if (!cooling && !(flash < READY_MS)) return void set(this.ring, { display: "none" });
     const u = cooling ? 0 : flash / READY_MS;
     set(this.ring, { display: null, transform: `translate(${x.toFixed(1)}, 0)`, opacity: cooling ? 1 : 1 - u });
-    set(this.ringSweep, { "stroke-dasharray": `${(cooldownFraction(left) * 100).toFixed(1)} 100`, rx: 52 + u * 22, ry: 14 + u * 6, "stroke-width": cooling ? 4 : 4 + (1 - u) * 3 });
+    set(this.ringSweep, { "stroke-dasharray": `${((share ?? cooldownFraction(left)) * 100).toFixed(1)} 100`, rx: 52 + u * 22, ry: 14 + u * 6, "stroke-width": cooling ? 4 : 4 + (1 - u) * 3 });
     set(this.ringTrack, { display: cooling ? null : "none" });
   }
 
@@ -201,12 +256,4 @@ export function poseTransform(x, y, pose) {
   if (pose.tilt) t += ` rotate(${pose.tilt.toFixed(1)}, 0, ${-pose.pivot})`;
   if (pose.sx !== 1 || pose.sy !== 1) t += ` scale(${pose.sx.toFixed(3)}, ${pose.sy.toFixed(3)})`;
   return t;
-}
-
-/** Two little crosses for eyes: a piece that has just been knocked over. */
-function crosses(p) {
-  const cross = (cx) => s("path", { d: `M${cx - 5},-118 l10,10 M${cx + 5},-118 l-10,10`, stroke: "#1a1210", "stroke-width": 3.4, "stroke-linecap": "round", fill: "none" });
-  const g = s("g", { display: "none" }, cross(-10), cross(10));
-  p.g.append(g);
-  return g;
 }

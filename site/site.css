@@ -1,198 +1,1546 @@
-/* The plain front page. The real one is being designed separately. */
-* {
-  box-sizing: border-box;
+/* The front page: "How do you want to play?" and three doors, on a deep blue ground (navy when
+   the device is set to dark, a pale blue by day) with the cast floating slowly behind. The warm
+   tomato, leaf and mustard stay on the doors, the cards and the buttons: one colour per door.
+   Motion is transform and opacity only, and none at all when the device asks for less motion. */
+
+/* Two faces, self-hosted (SIL Open Font License 1.1, the licences are in fonts/). */
+@font-face {
+  font-family: "Baloo 2";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 400 800;
+  src: url("/fonts/baloo-2.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
 }
+@font-face {
+  font-family: "Nunito";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 200 1000;
+  src: url("/fonts/nunito.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+:root {
+  /* By day: pale blue. */
+  --ground: #dfe8fb;
+  --ground-dot: #ccdaf6;
+  --plate: #edf2fd;
+  --card: #f9fbff;
+  --ink: #0d1733;
+  --ink-soft: #3b4a72;
+  --line: #b3c3e6;
+  --tomato: #c93d24;
+  --tomato-d: #a32a17;
+  --tomato-d-text: #a32a17;
+  --leaf: #24774b;
+  --leaf-d: #1b5e3b;
+  --mustard: #f4b630;
+  --mustard-d: #b07a0c;
+  --on-tomato: #fff6ea;
+  --on-leaf: #ffffff;
+  --on-mustard: #2a1606;
+  --shadow: rgba(20, 40, 110, 0.22);
+  --scrim: rgba(13, 23, 51, 0.42);
+  --focus: #1f5fd6;
+  /* A wooden door is the same object by day and by night, so one value serves both. */
+  --wood: #a2622f;
+  --wood-d: #6e3c18;
+  --display: "Baloo 2", "Arial Rounded MT Bold", "Trebuchet MS", system-ui, sans-serif;
+  --text: "Nunito", "Segoe UI", system-ui, -apple-system, Roboto, sans-serif;
+  --ease-soft: cubic-bezier(0.45, 0, 0.55, 1);
+  --ease-pop: cubic-bezier(0.2, 0.9, 0.3, 1.18);
+  --gut-l: max(16px, env(safe-area-inset-left, 0px));
+  --gut-r: max(16px, env(safe-area-inset-right, 0px));
+  --bar-h: 64px;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    /* By night: deep navy, close to n8builds.dev. */
+    --ground: #08102a;
+    --ground-dot: #0e1a3e;
+    --plate: #111d44;
+    --card: #172552;
+    --ink: #eef2ff;
+    --ink-soft: #b4c0e3;
+    --line: #2c3d78;
+    --tomato: #c93d24;
+    --tomato-d: #8f2615;
+    --tomato-d-text: #ffa08a;
+    --leaf: #37a56b;
+    --leaf-d: #1a5a37;
+    --mustard: #f7c24a;
+    --mustard-d: #9a6a08;
+    --on-tomato: #fff6ea;
+    --on-leaf: #06210f;
+    --on-mustard: #2a1606;
+    --shadow: rgba(0, 0, 0, 0.5);
+    --scrim: rgba(2, 5, 18, 0.58);
+    --focus: #8fb8ff;
+    color-scheme: dark;
+  }
+}
+
 html {
-  height: 100%;
+  box-sizing: border-box;
+  scroll-padding-top: calc(var(--bar-h) + 12px);
+  -webkit-text-size-adjust: 100%;
 }
-html,
+*,
+*::before,
+*::after {
+  box-sizing: inherit;
+}
 body {
-  min-height: 100%;
+  min-height: 100vh;
+  min-height: 100dvh;
   margin: 0;
+  overflow-x: hidden;
+  background-color: var(--ground);
+  background-image: radial-gradient(circle, var(--ground-dot) 0 9px, transparent 10px), radial-gradient(circle, var(--ground-dot) 0 5px, transparent 6px);
+  background-size: 76px 76px, 76px 76px;
+  background-position: 0 0, 38px 38px;
+  color: var(--ink);
+  font: 500 16px/1.45 var(--text);
+  -webkit-font-smoothing: antialiased;
+  -webkit-tap-highlight-color: transparent;
 }
-body {
-  display: grid;
-  place-items: center;
-  padding: 24px;
-  background: radial-gradient(120% 90% at 50% 0%, #24160f 0%, #0d0806 70%) #0d0806;
-  color: #fbf3e2;
-  font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+body[data-sheet="open"] {
+  overflow: hidden;
 }
-main {
-  width: min(100%, 480px);
-  display: grid;
-  gap: 16px;
+button,
+input {
+  font: inherit;
+  color: inherit;
 }
-.brand {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin: 0;
-  font-weight: 700;
-  color: #f6d9a0;
-}
-.brand-mark {
-  width: 17px;
-  height: 12px;
-  border-radius: 3px;
-  background: #f4b453;
-}
-h1 {
-  margin: 0;
-  font: 700 clamp(32px, 7vw, 46px) / 1.08 Georgia, "Times New Roman", serif;
-  color: #f6d9a0;
-}
-.lead,
-.aside {
-  margin: 0;
-  line-height: 1.5;
-  color: #cdbfa6;
-}
-.aside a {
-  color: #f4b453;
-}
-.button {
-  display: block;
-  min-height: 52px;
-  padding: 14px 20px;
-  border: 0;
-  border-radius: 26px;
-  background: #f4b453;
-  color: #1e1410;
-  font-weight: 800;
-  font-size: 17px;
-  line-height: 1.4;
-  font-family: inherit;
-  text-align: center;
-  text-decoration: none;
+button {
   cursor: pointer;
 }
-.button.quiet {
-  background: transparent;
-  color: #fbf3e2;
-  box-shadow: inset 0 0 0 2px #fbf3e2;
+:focus-visible {
+  outline: 3px solid var(--focus);
+  outline-offset: 3px;
 }
-.button:focus-visible,
-input:focus-visible,
-a:focus-visible {
-  outline: 3px solid #fff;
-  outline-offset: 2px;
+[tabindex="-1"]:focus:not(:focus-visible) {
+  outline: none;
 }
-.join {
-  display: grid;
-  gap: 8px;
-  margin-top: 6px;
+h1,
+h2,
+h3,
+p,
+ol,
+ul {
+  margin: 0;
 }
-.join label {
-  font-weight: 700;
+ul,
+ol {
+  padding: 0;
+  list-style: none;
 }
-.join-row {
-  display: grid;
-  grid-template-columns: 1fr auto;
-  gap: 10px;
+[hidden] {
+  display: none !important;
 }
-.join input {
-  min-width: 0;
-  min-height: 52px;
-  padding: 10px 14px;
-  border-radius: 10px;
-  border: 2px solid #5a4030;
-  background: #120b08;
-  color: #fbf3e2;
-  font: 800 28px/1 ui-monospace, "SF Mono", Menlo, Consolas, monospace;
-  letter-spacing: 0.3em;
-  text-align: center;
+.sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
 }
 
-/* A phone is a device to play on: joining comes first and is the bright button, starting a
-   party (and playing from this phone) is the second, and being the room's screen is a small
-   link. The same rule as the room uses for a phone: the short side under 520 pixels. */
-.on-phone {
-  display: none;
-}
-.minor {
-  justify-self: center;
-  padding: 8px 4px;
-  color: #cdbfa6;
-  font-size: 15px;
-  text-underline-offset: 3px;
-}
-@media (max-width: 519px), (max-height: 519px) {
-  .on-wide {
-    display: none;
-  }
-  .on-phone {
-    display: block;
-  }
-  .join {
-    order: 1;
-    margin-top: 0;
-  }
-  .start {
-    order: 2;
-  }
-  .minor {
-    order: 3;
-  }
-  .aside {
-    order: 4;
-  }
-  .join .button.quiet {
-    background: #f4b453;
-    color: #1e1410;
-    box-shadow: none;
-  }
-  .button.start {
-    background: transparent;
-    color: #fbf3e2;
-    box-shadow: inset 0 0 0 2px #fbf3e2;
-  }
-}
-/* A phone held sideways is short: the page starts at the top and scrolls. */
-@media (max-height: 519px) {
-  body {
-    place-items: start center;
-    padding: 16px 24px;
-  }
-  main {
-    gap: 12px;
-  }
-}
-
-/* A short line about the party this device has just come from (front.js). It floats over the
-   foot of the page, so it never pushes the page about when it arrives or goes. */
-.note-chip {
+/* ---------- The floaters: the cast, bobbing and drifting slowly behind everything ---------- */
+.floaters {
   position: fixed;
-  left: 50%;
-  bottom: max(16px, env(safe-area-inset-bottom));
-  transform: translate(-50%, 12px);
-  width: max-content;
-  max-width: calc(100% - 32px);
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  overflow: hidden;
+}
+.fl {
+  position: absolute;
+  width: calc(var(--w) * var(--fs, 1));
+  /* Rest fully inside the screen, so nothing is sliced by its edge; drifts point inwards. */
+  left: clamp(0px, calc(var(--x) - var(--w) * var(--fs, 1) / 2), calc(100% - var(--w) * var(--fs, 1)));
+  top: clamp(8px, calc(var(--y) - var(--w) * var(--fs, 1) / 2), calc(100% - var(--w) * var(--fs, 1) - 8px));
+  will-change: transform;
+  animation: drift var(--drift) var(--ease-soft) var(--delay) infinite alternate both;
+  --amp: 9px;
+  --spin: 4deg;
+}
+.fl-b,
+.fl-c {
+  will-change: transform;
+}
+.fl img {
+  display: block;
+  width: 100%;
+  height: auto;
+  filter: drop-shadow(0 6px 4px var(--shadow));
+}
+.fl-b {
+  animation: bob var(--bob) var(--ease-soft) var(--delay) infinite alternate both;
+}
+.fl-c.cheer {
+  animation: cheer 1.2s var(--ease-soft) both;
+}
+@keyframes drift {
+  from {
+    transform: translate(0, 0);
+  }
+  to {
+    transform: translate(var(--dx), var(--dy));
+  }
+}
+@keyframes bob {
+  from {
+    transform: translateY(0) rotate(var(--r));
+  }
+  to {
+    transform: translateY(calc(var(--amp) * -1)) rotate(calc(var(--r) + var(--spin)));
+  }
+}
+@keyframes cheer {
+  0% {
+    transform: none;
+  }
+  28% {
+    transform: translateY(-28px) rotate(-8deg);
+  }
+  52% {
+    transform: translateY(0) scale(1.1, 0.9);
+  }
+  70% {
+    transform: translateY(-10px) rotate(5deg) scale(0.97, 1.03);
+  }
+  86% {
+    transform: translateY(0) scale(1.03, 0.97);
+  }
+  100% {
+    transform: none;
+  }
+}
+
+/* ---------- The bar: the name on the left, joining small on the right. Always there. ---------- */
+.bar {
+  position: sticky;
+  top: 0;
+  z-index: 3;
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 12px;
-  padding: 8px 8px 8px 18px;
-  border-radius: 28px;
-  background: #fbf3e2;
-  color: #1e1410;
-  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
-  font-weight: 600;
+  min-height: var(--bar-h);
+  padding: max(10px, env(safe-area-inset-top, 0px)) var(--gut-r) 10px var(--gut-l);
+  background: var(--ground);
+  box-shadow: 0 2px 0 var(--line);
+}
+.logo {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 44px;
+  padding: 0;
+  color: var(--ink);
+  font: 800 26px/1 var(--display);
+  letter-spacing: -0.01em;
+  text-decoration: none;
+  border-radius: 12px;
+}
+.logo-n8 {
+  display: inline-grid;
+  place-items: center;
+  height: 38px;
+  padding: 4px 8px 0;
+  border-radius: 12px;
+  background: var(--tomato);
+  color: var(--on-tomato);
+  box-shadow: 0 4px 0 var(--tomato-d);
+  rotate: -4deg;
+}
+.join-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 4px 4px 4px 14px;
+  border-radius: 999px;
+  border: 2px solid var(--line);
+  background: var(--card);
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--ink-soft);
+}
+.join-go {
+  padding: 6px 14px 5px;
+  border-radius: 999px;
+  background: var(--ink);
+  color: var(--ground);
+  font: 800 15px/1.1 var(--display);
+}
+.join-pill:active {
+  translate: 0 2px;
+}
+@media (max-width: 360px) {
+  .join-q {
+    display: none;
+  }
+  .join-pill {
+    padding-left: 4px;
+  }
+}
+
+/* ---------- The page and its views ---------- */
+.home {
+  padding: 0 var(--gut-r) calc(40px + env(safe-area-inset-bottom, 0px)) var(--gut-l);
+}
+/* Children animate in, never the view itself: a transform on the view would trap the sheet inside it. */
+.view > :not(.layout),
+.layout > .kinds {
+  animation: view-in 0.4s var(--ease-soft) both;
+}
+@keyframes view-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.hello {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+  padding-block: 14px 18px;
+}
+.hello .top-line {
+  font-size: 15px;
+}
+.sticker {
+  display: inline-block;
+  padding: 0.12em 0.45em 0;
+  border-radius: 20px;
+  background: var(--card);
+  border: 3px solid var(--ink);
+  box-shadow: 0 6px 0 var(--ink);
+  font: 800 clamp(36px, 7vw, 58px) / 1.05 var(--display);
+  letter-spacing: -0.01em;
+  rotate: -2deg;
+  text-wrap: balance;
+}
+.hello .sticker {
+  font-size: clamp(28px, 6.2vw, 52px);
+}
+.top-line {
+  max-width: 34ch;
+  padding: 4px 10px;
+  border-radius: 10px;
+  background: var(--plate);
+  font-weight: 700;
+  color: var(--ink-soft);
+}
+[data-kind="room"] {
+  --k: var(--tomato);
+  --k-d: var(--tomato-d);
+  --on-k: var(--on-tomato);
+}
+[data-kind="table"] {
+  --k: var(--leaf);
+  --k-d: var(--leaf-d);
+  --on-k: var(--on-leaf);
+}
+[data-kind="device"] {
+  --k: var(--mustard);
+  --k-d: var(--mustard-d);
+  --on-k: var(--on-mustard);
+}
+
+/* ---------- The three doors ---------- */
+.doors {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 16px;
+}
+/* Before the page's script runs, or when it cannot: the three ways in as plain links. */
+.door-link {
+  display: grid;
+  gap: 2px;
+  min-height: 56px;
+  padding: 12px 16px;
+  border-radius: 20px;
+  border: 3px solid var(--k-d);
+  background: var(--card);
+  box-shadow: 0 5px 0 var(--k-d);
+  color: var(--ink);
+  text-decoration: none;
+}
+.door-link b {
+  font: 800 22px/1.1 var(--display);
+}
+.door-link span {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--ink-soft);
+}
+.door {
+  position: relative;
+  display: grid;
+  grid-template-columns: 96px minmax(0, 1fr);
+  gap: 12px;
+  align-items: stretch;
+  width: 100%;
+  padding: 10px 12px 12px 10px;
+  border-radius: 24px;
+  border: 3px solid var(--k-d);
+  background: var(--card);
+  box-shadow: 0 7px 0 var(--k-d);
+  color: var(--ink);
+  text-align: left;
+  /* Transform-like properties only: a shadow that slid would repaint the whole door each frame. */
+  transition: translate 0.15s var(--ease-soft), scale 0.15s var(--ease-soft);
+}
+@media (hover: hover) {
+  .door:hover {
+    translate: 0 -3px;
+    box-shadow: 0 10px 0 var(--k-d);
+    animation: wobble 2.6s var(--ease-soft) infinite;
+  }
+}
+.door:active {
+  translate: 0 4px;
+  scale: 0.99 0.97;
+  box-shadow: 0 3px 0 var(--k-d);
+  transition-duration: 0.08s;
+}
+/* The picture sits in an arched doorway behind a wooden door left ajar. */
+.door-frame {
+  position: relative;
+  overflow: hidden;
+  min-height: 118px;
+  border-radius: 48px 48px 10px 10px;
+  border: 4px solid var(--k-d);
+  background: var(--plate);
+}
+.door-art {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transition: scale 0.5s var(--ease-soft);
+}
+.door-panel {
+  position: absolute;
+  inset: 0;
+  border-radius: 44px 44px 6px 6px;
+  background: linear-gradient(90deg, rgba(0, 0, 0, 0.18), transparent 18%, transparent 82%, rgba(0, 0, 0, 0.22)), repeating-linear-gradient(90deg, var(--wood) 0 17px, var(--wood-d) 17px 19px);
+  box-shadow: inset 0 0 0 3px var(--wood-d);
+  /* Ajar, drawn flat: squeezed towards its hinge with a slight lean. 2D only, which stays cheap
+     on a TV-sized screen (a 3D rotateY here cost a quarter of the frames). */
+  transform-origin: 0 50%;
+  transform: scaleX(0.3) skewY(-5deg);
+  transition: transform 0.5s cubic-bezier(0.5, 0, 0.3, 1);
+}
+.door-knob {
+  position: absolute;
+  right: 14%;
+  top: 56%;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--mustard);
+  box-shadow: 0 0 0 2px var(--wood-d);
+}
+@media (hover: hover) {
+  .door:hover .door-panel {
+    transform: scaleX(0.2) skewY(-7deg);
+  }
+}
+.door.opening .door-panel {
+  transform: scaleX(0.02) skewY(-10deg);
+}
+.door.opening .door-art {
+  scale: 1.08;
+}
+.door-info {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  padding-top: 2px;
+}
+.door-name {
+  font: 800 24px/1.05 var(--display);
+  padding-right: 40px;
+}
+.door-line {
+  font-size: 14.5px;
   line-height: 1.35;
+  color: var(--ink-soft);
+}
+.door-go {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: var(--k);
+  color: var(--on-k);
+  box-shadow: 0 3px 0 var(--k-d);
+}
+.door-go svg {
+  width: 18px;
+  height: 18px;
+}
+/* On a phone the needs and the peek are compact lines; a wide door gets chips. */
+.door-needs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 12px;
+  font-size: 13px;
+  font-weight: 800;
+}
+.door-needs span {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.door-needs svg {
+  width: 15px;
+  height: 15px;
+  flex: none;
+}
+.door .door-needs-wide,
+.door .peek-chips {
+  display: none;
+}
+.peek {
+  display: block;
+  margin-top: 4px;
+}
+.peek-compact {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.peek-faces {
+  display: flex;
+  flex: none;
+}
+.peek-faces .peek-face {
+  width: 28px;
+  height: 28px;
+  border: 2px solid var(--card);
+}
+.peek-faces .peek-face + .peek-face {
+  margin-left: -9px;
+}
+.peek-names {
+  font-size: 13px;
+  font-weight: 800;
+  line-height: 1.3;
+  min-width: 0;
+}
+.peek-names i {
+  font-style: normal;
+  font-weight: 700;
+  color: var(--ink-soft);
+}
+.peek-face {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  flex: none;
+  border-radius: 50%;
+  object-fit: cover;
+  background: var(--plate);
+}
+.peek-game {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 4px 3px 3px;
+  border-radius: 999px;
+  background: var(--plate);
+  font-size: 13px;
+  font-weight: 800;
+  line-height: 1.2;
+}
+.peek-more {
+  padding-left: 10px;
+}
+.peek-state {
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--leaf);
+  color: var(--on-leaf);
+  font-size: 11px;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+/* Plays today, but not behind this door (Who Am I? on its own site). */
+.peek-game.is-elsewhere .peek-state {
+  background: var(--card);
+  color: var(--ink);
+  box-shadow: inset 0 0 0 2px var(--leaf);
+}
+.peek-game.is-soon .peek-face {
+  opacity: 0.7;
+}
+.peek-game.is-soon .peek-state {
+  background: transparent;
+  color: var(--ink-soft);
+  box-shadow: inset 0 0 0 2px var(--ink-soft);
+}
+/* A game with no picture yet: its first letter on a plate in its door's colour. */
+.plain-art {
+  display: grid;
+  place-items: center;
+  background: var(--k, var(--plate));
+  color: var(--on-k, var(--ink));
+  font-family: var(--display);
+  font-weight: 800;
+  line-height: 1;
+}
+.peek-face.plain-art {
+  font-size: 14px;
+}
+
+/* Side by side: any wide screen, and a sideways phone. */
+@media (min-width: 760px), (min-width: 560px) and (orientation: landscape) {
+  .doors {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: clamp(12px, 2vw, 22px);
+    align-items: stretch;
+  }
+  .door {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto 1fr;
+    padding: 12px 12px 16px;
+  }
+  .door-frame {
+    min-height: 0;
+    aspect-ratio: 4 / 4.2;
+    border-radius: 50% 50% 14px 14px / 34% 34% 14px 14px;
+  }
+  .door-panel {
+    border-radius: 50% 50% 10px 10px / 34% 34% 10px 10px;
+  }
+  .door-go {
+    top: auto;
+    bottom: 14px;
+    right: 14px;
+    width: 40px;
+    height: 40px;
+  }
+  .door-info {
+    padding: 4px 44px 0 4px;
+  }
+  .door-name {
+    padding-right: 0;
+    font-size: clamp(22px, 2.4vw, 34px);
+  }
+  .door .door-needs,
+  .door .peek-compact {
+    display: none;
+  }
+  .door .door-needs-wide,
+  .door .peek-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+}
+@media (min-width: 760px) and (max-height: 760px) {
+  .door-frame {
+    aspect-ratio: 16 / 11;
+  }
+}
+/* A sideways phone: short pictures so all three doors show at once. */
+@media (max-height: 520px) and (min-width: 560px) {
+  .door-frame {
+    aspect-ratio: 16 / 6;
+    border-radius: 40px 40px 10px 10px;
+  }
+  .door-panel {
+    border-radius: 36px 36px 6px 6px;
+  }
+  .door-line {
+    font-size: 13.5px;
+  }
+  .door-go {
+    top: 18px;
+    right: 18px;
+    bottom: auto;
+    width: 34px;
+    height: 34px;
+  }
+  .door-info {
+    padding-right: 4px;
+  }
+  .hello {
+    padding-block: 10px 14px;
+  }
+  .hello .sticker,
+  .sticker-sm {
+    font-size: 28px;
+  }
+  .hello .top-line {
+    display: none;
+  }
+}
+/* A small upright phone (320 by 568 and the like): tighter doors, so all three show at least in part. */
+@media (max-width: 400px) and (max-height: 600px) {
+  .hello {
+    padding-block: 8px 12px;
+  }
+  .hello .sticker {
+    font-size: 25px;
+  }
+  .hello .top-line {
+    display: none;
+  }
+  .doors {
+    gap: 14px;
+  }
+  .door {
+    grid-template-columns: 70px minmax(0, 1fr);
+    gap: 10px;
+    padding: 8px 10px 10px 8px;
+  }
+  .door-frame {
+    min-height: 96px;
+    border-radius: 36px 36px 8px 8px;
+  }
+  .door-panel {
+    border-radius: 32px 32px 4px 4px;
+  }
+  /* As tall as the arrow beside it, so the line under it never runs beneath the arrow. */
+  .door-name {
+    font-size: 20px;
+    padding-right: 36px;
+    min-height: 30px;
+  }
+  .door-go {
+    width: 30px;
+    height: 30px;
+    top: 8px;
+    right: 8px;
+  }
+  /* Wraps in full: no line is cut short on the smallest phones. */
+  .door-line {
+    font-size: 13.5px;
+    line-height: 1.3;
+  }
+  .door-needs {
+    font-size: 12.5px;
+  }
+  .peek {
+    margin-top: 2px;
+  }
+  .peek-names {
+    font-size: 12.5px;
+  }
+}
+
+/* ---------- Inside a door ---------- */
+.back {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  margin-top: 14px;
+  padding: 6px 16px 4px 12px;
+  border-radius: 999px;
+  border: 2px solid var(--line);
+  background: var(--card);
+  font: 800 16px/1.1 var(--display);
+}
+.back span {
+  font-size: 20px;
+  line-height: 1;
+  margin-top: -3px;
+}
+.back:active {
+  translate: 0 2px;
+}
+.in-head {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+  padding-block: 16px 18px;
+}
+.sticker-sm {
+  font-size: clamp(28px, 5vw, 44px);
+}
+.in-head .sticker {
+  box-shadow: 0 6px 0 var(--k-d);
+  border-color: var(--k-d);
+}
+.in-line {
+  max-width: 60ch;
+  padding: 6px 10px;
+  border-radius: 12px;
+  background: var(--plate);
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--ink-soft);
+}
+.in-head .meta {
+  margin-top: 0;
+}
+.table-start {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 100%;
+  max-width: 760px;
+  margin-top: 4px;
+  padding: 14px 16px 16px;
+  border-radius: 22px;
+  border: 3px solid var(--k-d);
+  background: var(--card);
+}
+.table-start .d-note {
+  color: var(--ink);
+}
+/* No game plays at the Table yet: the note says so first, and big; the start is a plain button. */
+.table-start[data-lead="note"] .d-note {
+  order: -1;
+  margin: 0;
+  font: 800 19px/1.3 var(--display);
+}
+
+.room-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 16px;
+}
+.room-pic {
+  margin: 0;
+}
+.room-pic img {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  height: auto;
+  aspect-ratio: 4 / 3;
+  object-fit: cover;
+  object-position: 62% 62%;
+  border-radius: 22px;
+  border: 4px solid var(--tomato-d);
+  box-shadow: 0 7px 0 var(--tomato-d);
+}
+.room-side,
+.room-block {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+  border-radius: 22px;
+  border: 3px solid var(--line);
+  background: var(--card);
+}
+.room-side .in-line {
+  padding: 0;
+  background: none;
+  color: var(--ink);
+}
+.room-more {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 16px;
+  margin-top: 18px;
+}
+.wall {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.wall-game {
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr);
+  gap: 12px;
+  align-items: start;
+}
+.wall-art {
+  width: 64px;
+  height: 64px;
+  border-radius: 14px;
+  object-fit: cover;
+  font-size: 28px;
+}
+.wall-game:not(.is-live) .wall-art {
+  opacity: 0.72;
+}
+.wall-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.wall-name {
+  font: 800 19px/1.15 var(--display);
+}
+.wall-line {
+  font-size: 14px;
+  line-height: 1.35;
+  color: var(--ink-soft);
+}
+/* The coming-soon games with no picture yet, as one line under the rest. */
+.wall-more {
+  padding-left: 76px;
+  font: 800 16px/1.2 var(--display);
+  color: var(--ink-soft);
+}
+.pieces {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+.piece {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  text-align: center;
+}
+.piece img {
+  height: 58px;
+  width: auto;
+  filter: drop-shadow(0 5px 3px var(--shadow));
+}
+.piece-name {
+  font: 800 15px/1.1 var(--display);
+  margin-top: 4px;
+}
+.piece-move {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--ink-soft);
+}
+@media (min-width: 760px) {
+  .room-grid {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    align-items: center;
+    gap: 26px;
+    max-width: 1400px;
+  }
+  .room-pic img {
+    max-height: 52vh;
+  }
+  .room-side {
+    padding: 22px;
+  }
+  .room-side .in-line {
+    font-size: clamp(16px, 1.4vw, 20px);
+  }
+}
+@media (min-width: 1000px) {
+  .room-more {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    align-items: start;
+  }
+}
+
+/* ---------- A door's games: chunky tiles ---------- */
+.kinds {
+  min-width: 0;
+}
+.tiles {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: minmax(0, 1fr);
+}
+.tile {
+  position: relative;
+  display: grid;
+  grid-template-columns: 104px minmax(0, 1fr);
+  gap: 12px;
+  align-items: center;
+  width: 100%;
+  padding: 10px 12px 10px 10px;
+  border-radius: 22px;
+  border: 3px solid var(--k-d);
+  background: var(--card);
+  box-shadow: 0 7px 0 var(--k-d);
+  color: var(--ink);
+  text-align: left;
+  transition: translate 0.15s var(--ease-soft), scale 0.15s var(--ease-soft);
+}
+.tile-art {
+  width: 100%;
+  height: auto;
+  aspect-ratio: 1;
+  object-fit: cover;
+  border-radius: 15px;
+  background: var(--plate);
+  font-size: 44px;
+}
+.tile-info {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.tile-name {
+  font: 800 22px/1.1 var(--display);
+}
+.tile-line {
+  font-size: 15px;
+  line-height: 1.35;
+  color: var(--ink-soft);
+}
+.meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 4px;
+}
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 9px 3px 7px;
+  border-radius: 999px;
+  background: var(--plate);
+  font-size: 13px;
+  font-weight: 800;
+  line-height: 1.3;
+  color: var(--ink);
+}
+.chip svg {
+  width: 16px;
+  height: 16px;
+  flex: none;
+}
+.chip.live {
+  background: var(--leaf);
+  color: var(--on-leaf);
+  padding-left: 9px;
+}
+.chip.soon {
+  background: transparent;
+  border: 2px dashed var(--ink-soft);
+  color: var(--ink-soft);
+  padding-block: 1px;
+  padding-left: 9px;
+}
+.tile[aria-current="true"] {
+  outline: 4px solid var(--k);
+  outline-offset: 3px;
+}
+.tile[aria-current="true"]:focus-visible {
+  outline-color: var(--focus);
+}
+@media (hover: hover) {
+  .tile:hover {
+    translate: 0 -3px;
+    box-shadow: 0 10px 0 var(--k-d);
+    animation: wobble 2.6s var(--ease-soft) infinite;
+  }
+}
+.tile:active {
+  translate: 0 4px;
+  scale: 0.985 0.96;
+  box-shadow: 0 3px 0 var(--k-d);
+  transition-duration: 0.08s;
+}
+@keyframes wobble {
+  0%,
+  100% {
+    transform: rotate(0);
+  }
+  25% {
+    transform: rotate(-0.8deg);
+  }
+  75% {
+    transform: rotate(0.8deg);
+  }
+}
+@media (min-width: 520px) {
+  .tiles {
+    grid-template-columns: repeat(auto-fill, minmax(min(220px, 100%), 1fr));
+  }
+  .tile {
+    grid-template-columns: minmax(0, 1fr);
+    align-items: start;
+    padding: 10px 10px 14px;
+  }
+  .tile-art {
+    aspect-ratio: 4 / 3;
+  }
+  .tile-info {
+    padding-inline: 4px;
+  }
+}
+
+/* ---------- A game's card: a sheet from the bottom on a phone, beside the tiles when wide ---------- */
+.detail {
+  position: fixed;
+  z-index: 6;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  max-height: 88%;
+  max-height: 88dvh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 18px var(--gut-r) calc(24px + env(safe-area-inset-bottom, 0px)) var(--gut-l);
+  border-radius: 28px 28px 0 0;
+  background: var(--card);
+  border-top: 4px solid var(--k);
+  box-shadow: 0 -10px 30px var(--shadow);
+  transform: translateY(105%);
+  visibility: hidden;
+  transition: transform 0.5s var(--ease-pop), visibility 0s linear 0.5s;
+}
+body[data-sheet="open"] .detail {
+  transform: none;
+  visibility: visible;
+  transition: transform 0.5s var(--ease-pop), visibility 0s;
+}
+.detail:focus {
+  outline: none;
+}
+.sheet-back {
+  position: fixed;
+  inset: 0;
+  z-index: 5;
+  background: var(--scrim);
+}
+.d-grab {
+  display: block;
+  width: 46px;
+  height: 5px;
+  margin: -6px auto 12px;
+  border-radius: 9px;
+  background: var(--line);
+}
+.d-close {
+  position: absolute;
+  top: 12px;
+  right: max(12px, env(safe-area-inset-right, 0px));
+  z-index: 2;
+}
+.x {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  border: 2px solid var(--line);
+  background: var(--card);
+  font: 800 24px/1 var(--display);
+  display: grid;
+  place-items: center;
+  padding: 0;
+}
+.d-art-wrap {
+  position: relative;
+  margin-top: 6px;
+}
+.d-art {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  height: auto;
+  aspect-ratio: 16 / 9;
+  object-fit: cover;
+  border-radius: 18px;
+  border: 3px solid var(--k-d);
+  font-size: 72px;
+}
+.d-piece {
+  position: absolute;
+  right: 10px;
+  bottom: -18px;
+  width: 64px;
+  height: auto;
+  filter: drop-shadow(0 6px 4px var(--shadow));
+  transform-origin: 50% 100%;
+}
+.d-piece.hop {
+  animation: cheer 1.2s var(--ease-soft) both;
+}
+.d-body {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin-top: 16px;
+}
+.d-kind {
+  align-self: flex-start;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: var(--k);
+  color: var(--on-k);
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.d-name {
+  font: 800 clamp(30px, 5vw, 42px) / 1.05 var(--display);
+  margin-top: -4px;
+}
+.d-about {
+  font-size: 16px;
+  line-height: 1.5;
+  max-width: 60ch;
+}
+.d-h {
+  font: 800 18px/1.2 var(--display);
+}
+.d-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  counter-reset: step;
+}
+.d-steps li {
+  counter-increment: step;
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr);
+  gap: 10px;
+  align-items: start;
+  font-size: 15px;
+  line-height: 1.4;
+}
+.d-steps li::before {
+  content: counter(step);
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 11px;
+  background: var(--k);
+  color: var(--on-k);
+  font: 800 18px/1 var(--display);
+  padding-top: 3px;
+  rotate: -4deg;
+}
+.d-suits {
+  font-size: 15px;
+  color: var(--ink-soft);
+}
+.d-suits b {
+  color: var(--ink);
+}
+.d-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+  margin-top: 4px;
+}
+.d-note {
+  font-size: 14px;
+  color: var(--ink-soft);
+  flex-basis: 100%;
+}
+/* In the phone sheet the one action stays in reach while the explanation scrolls under it. */
+@media (max-width: 859px) {
+  .detail .d-actions {
+    position: sticky;
+    bottom: calc(-24px - env(safe-area-inset-bottom, 0px));
+    z-index: 1;
+    margin: 4px calc(var(--gut-r) * -1) calc(-24px - env(safe-area-inset-bottom, 0px)) calc(var(--gut-l) * -1);
+    padding: 12px var(--gut-r) calc(16px + env(safe-area-inset-bottom, 0px)) var(--gut-l);
+    background: var(--card);
+    box-shadow: 0 -10px 14px -10px var(--shadow);
+    border-top: 2px solid var(--line);
+  }
+}
+@media (max-height: 520px) {
+  .d-art {
+    aspect-ratio: auto;
+    height: 120px;
+  }
+}
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 56px;
+  padding: 8px 24px 4px;
+  border-radius: 18px;
+  border: 3px solid var(--ink);
+  font: 800 21px/1.1 var(--display);
+  text-decoration: none;
+  transition: translate 0.1s;
+}
+.btn svg {
+  width: 18px;
+  height: 18px;
+  margin-top: -4px;
+}
+.btn-go {
+  background: var(--mustard);
+  color: var(--on-mustard);
+  box-shadow: 0 5px 0 var(--ink);
+}
+.btn-go:disabled {
+  opacity: 0.7;
+}
+.btn-alt {
+  background: var(--card);
+  color: var(--ink);
+  box-shadow: 0 5px 0 var(--ink);
+  font-size: 18px;
+  min-height: 52px;
+}
+.btn:active {
+  translate: 0 4px;
+  box-shadow: 0 1px 0 var(--ink);
+}
+.btn-soon {
+  background: transparent;
+  border: 3px dashed var(--ink-soft);
+  color: var(--ink-soft);
+  box-shadow: none;
+  cursor: default;
+}
+.btn-soon:active {
+  translate: none;
+}
+
+@media (min-width: 860px) {
+  .layout {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(320px, 36%);
+    gap: 28px;
+    align-items: start;
+  }
+  .detail {
+    position: sticky;
+    top: calc(var(--bar-h) + 12px);
+    /* Under the sticky bar: at the end of the page the card rides up and must not cover Join. */
+    z-index: 2;
+    transform: none;
+    visibility: visible;
+    transition: none;
+    max-height: calc(100vh - var(--bar-h) - 28px);
+    border-radius: 28px;
+    border: 3px solid var(--k-d);
+    box-shadow: 0 8px 0 var(--k-d);
+    padding: 16px 18px 22px;
+  }
+  .d-grab,
+  .d-close,
+  .sheet-back {
+    display: none;
+  }
+  /* On a TV the card's picture stays a picture, not the whole screen, so the steps and the button show. */
+  .d-art {
+    max-height: 34vh;
+  }
+}
+
+/* ---------- Made in the open: the one quiet explaining strip ---------- */
+.made {
+  margin-top: 44px;
+}
+.made-card {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 12px;
+  padding: 16px 16px 18px 84px;
+  border-radius: 22px;
+  border: 2px dashed var(--line);
+  background: var(--plate);
+}
+.made-robot {
+  position: absolute;
+  left: 14px;
+  top: 14px;
+  width: 54px;
+  height: auto;
+  transform-origin: 50% 100%;
+  rotate: 6deg;
+  animation: point 3.2s var(--ease-soft) infinite alternate both;
+}
+@keyframes point {
+  from {
+    transform: rotate(0);
+  }
+  to {
+    transform: rotate(6deg) translateX(3px);
+  }
+}
+.made-arrow {
+  position: absolute;
+  left: 52px;
+  top: 70px;
+  width: 40px;
+  height: 28px;
+  color: var(--ink-soft);
+  rotate: 18deg;
+}
+.made-text h2 {
+  font: 800 19px/1.2 var(--display);
+}
+.made-text p {
+  font-size: 15px;
+  color: var(--ink-soft);
+  max-width: 58ch;
+}
+.made-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.made-link {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  padding: 6px 16px 4px;
+  border-radius: 14px;
+  border: 2px solid var(--ink-soft);
+  color: var(--ink);
+  background: var(--card);
+  font: 800 16px/1.1 var(--display);
+  text-decoration: none;
+}
+.made-link:active {
+  translate: 0 2px;
+}
+/* Which build this is: small and quiet, under the card, on a plate of its own so a drifting floater
+   never shows through the words. */
+.made-ver {
+  display: table;
+  margin: 12px auto 0;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: var(--plate);
+  text-align: center;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--ink-soft);
+}
+.made-ver:empty {
+  display: none;
+}
+@media (min-width: 700px) {
+  .made-card {
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+  }
+  .made-arrow {
+    top: auto;
+    bottom: 10px;
+  }
+}
+
+/* ---------- Joining with a code ---------- */
+.join-pop {
+  position: fixed;
+  z-index: 12;
+  top: calc(var(--bar-h) + env(safe-area-inset-top, 0px));
+  right: var(--gut-r);
+  width: min(320px, calc(100% - 24px));
+  padding: 16px;
+  border-radius: 20px;
+  border: 3px solid var(--ink);
+  background: var(--card);
+  box-shadow: 0 6px 0 var(--ink), 0 16px 30px var(--shadow);
+}
+.join-pop label {
+  display: block;
+  font: 800 20px/1.1 var(--display);
+  padding-right: 44px;
+}
+.join-help {
+  font-size: 14px;
+  color: var(--ink-soft);
+  margin: 4px 0 10px;
+}
+.join-row {
+  display: flex;
+  gap: 8px;
+}
+.join-row input {
+  flex: 1;
+  min-width: 0;
+  height: 56px;
+  border-radius: 14px;
+  border: 3px solid var(--line);
+  background: var(--plate);
+  font: 800 28px/1 var(--display);
+  letter-spacing: 0.3em;
+  text-align: center;
+  padding: 4px 0 0 0.3em;
+}
+.join-row input::placeholder {
+  color: var(--ink-soft);
+  opacity: 0.45;
+}
+.join-row .btn {
+  padding-inline: 18px;
+}
+.join-err {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--tomato-d-text);
+  min-height: 1.3em;
+  margin-top: 6px;
+}
+.join-pop .x {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+}
+
+/* ---------- The line about the party this device just left (front.js) ---------- */
+/* It floats over the foot of the page, so it never pushes the page about when it comes or goes. */
+.note-chip {
+  position: fixed;
+  z-index: 20;
+  left: 50%;
+  bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: max-content;
+  max-width: calc(100% - 32px);
+  padding: 8px 8px 8px 16px;
+  border-radius: 18px;
+  background: var(--ink);
+  color: var(--ground);
+  font-weight: 700;
+  font-size: 15px;
+  line-height: 1.35;
+  box-shadow: 0 6px 18px var(--shadow);
   opacity: 0;
-  transition: opacity 0.25s, transform 0.25s;
+  transform: translate(-50%, 12px);
+  transition: opacity 0.25s var(--ease-soft), transform 0.35s var(--ease-pop);
 }
 .note-chip.shown {
   opacity: 1;
   transform: translate(-50%, 0);
 }
+.note-chip > span:first-child {
+  padding: 4px 0;
+}
 .note-act {
   flex: none;
+  display: inline-flex;
+  align-items: center;
   min-height: 44px;
-  padding: 11px 18px;
-  border-radius: 22px;
-  background: #f4b453;
-  color: #1e1410;
-  font-weight: 800;
+  padding: 4px 14px 2px;
+  border-radius: 14px;
+  background: var(--mustard);
+  color: var(--on-mustard);
+  font: 800 16px/1.1 var(--display);
   text-decoration: none;
   white-space: nowrap;
 }
@@ -203,24 +1551,21 @@ a:focus-visible {
   border: 0;
   border-radius: 50%;
   background: transparent;
-  color: #5a4636;
-  font: 400 26px/1 system-ui, sans-serif;
-  cursor: pointer;
+  color: var(--ground);
+  font: 800 24px/1 var(--display);
 }
-.note-chip > span:first-child {
-  padding: 4px 0;
+.note-close:focus-visible,
+.note-act:focus-visible {
+  outline-color: var(--ground);
 }
+
 @media (prefers-reduced-motion: reduce) {
-  .note-chip {
-    transition: none;
-  }
-}
-/* A phone held sideways scrolls and keeps its buttons low: the line sits at the top instead,
-   over the name of the site, and never over a button. */
-@media (max-height: 519px) {
-  .note-chip {
-    top: max(8px, env(safe-area-inset-top));
-    bottom: auto;
-    transform: translate(-50%, -12px);
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+    transition-duration: 0s !important;
+    transition-delay: 0s !important;
+    scroll-behavior: auto !important;
   }
 }

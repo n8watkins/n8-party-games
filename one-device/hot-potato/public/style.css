@@ -1,0 +1,355 @@
+/* Hot Potato. One fixed screen that never scrolls, and one composition on every screen: the potato
+   big and centred, filling the screen from the top; a slim line along the top (the category, the
+   lives, the fuse, sound and pause); and a small strip under him with the three things a turn needs
+   (whose turn it is, the word to follow with its letter boxed, and the microphone). Phones are
+   played upright; a phone on its side gets the same composition, smaller, and a hint to turn it.
+   The look is the Game Art Picker's "Specimen": a deep navy ground with a lighter diagonal band
+   that heats up with the potato (blue, teal, purple, magenta), bold condensed capitals (Anton)
+   slanted a little, yellow and green on ink, thick dark outlines, flat colours. */
+
+@font-face {
+  font-family: "Anton";
+  src: url("fonts/anton-latin-400-normal.woff2") format("woff2");
+  font-weight: 400;
+  font-display: swap;
+}
+
+/* The potato's scale, in pixels per unit of its drawing, worked out on the drawing from the size of
+   its box (registered as a length so it is computed once there). */
+@property --s { syntax: "<length>"; inherits: true; initial-value: 1px; }
+/* The strip's sizes, worked out once on .gi from the screen's size and inherited as pixels
+   (unregistered, a container unit would be read again inside .bot, a container of its own). */
+@property --u { syntax: "<length>"; inherits: true; initial-value: 16px; }
+@property --d { syntax: "<length>"; inherits: true; initial-value: 60px; }
+
+:root {
+  --ink: #1a1433;
+  --y: #ffd23f;
+  --g: #3ee6a8;
+  --lav: #b9c0ee;
+  --pink: #ff3d7f;
+  --white: #fff;
+  --soft: #dfe3ff;
+  --panel: rgba(26, 20, 51, 0.55);
+  --edge: rgba(185, 192, 238, 0.55);
+  /* Verdict words on the status line: light enough for 4.5:1 on every heat's ground. */
+  --good: #9af7cf;
+  --bad: #ffd0e0;
+  --f: 100%;
+  --slant: skewX(-6deg);
+  --display: "Anton", Impact, "Arial Narrow", "Helvetica Neue", sans-serif;
+  --text: system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+  color-scheme: dark;
+}
+
+html { height: 100%; overflow: hidden; background: #1e1a4a; }
+body { height: 100%; margin: 0; overflow: hidden; background: #1e1a4a; color: var(--white); font: 15px/1.4 var(--text); overscroll-behavior: none; -webkit-tap-highlight-color: transparent; -webkit-text-size-adjust: 100%; }
+*, *::before, *::after { box-sizing: border-box; }
+button, input { font: inherit; color: inherit; }
+button { background: none; border: 0; padding: 0; margin: 0; cursor: pointer; touch-action: manipulation; }
+button:disabled { cursor: default; }
+:focus-visible { outline: 3px solid var(--y); outline-offset: 3px; }
+h1, h2, p { margin: 0; }
+fieldset { border: 0; margin: 0; padding: 0; min-width: 0; }
+legend { padding: 0; }
+[hidden] { display: none !important; }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+
+/* ---------- The screen and its ground ---------- */
+.game { position: fixed; inset: 0; container: game / size; overflow: hidden; isolation: isolate; user-select: none; -webkit-user-select: none; --lbl: var(--lav); }
+.ground, .ground i { position: absolute; inset: 0; }
+.ground { z-index: -1; background: linear-gradient(112deg, #2c2768 0 44%, #1e1a4a 44.2%); }
+.ground i { opacity: 0; transition: opacity 0.7s; }
+.ground .l-warm { background: linear-gradient(112deg, #2a3f7a 0 44%, #1c2c5a 44.2%); }
+.ground .l-hot { background: linear-gradient(112deg, #1d6670 0 44%, #154a55 44.2%); }
+.ground .l-crit { background: linear-gradient(112deg, #9a1f5e 0 44%, #6a1244 44.2%); }
+.ground .l-pulse { background: var(--pink); transition: none; }
+.game[data-heat="warm"] .l-warm, .game[data-heat="hot"] .l-warm, .game[data-heat="hot"] .l-hot, .game[data-heat="strain"] .l-hot, .game[data-heat="critical"] .l-hot, .game[data-heat="critical"] .l-crit, .game[data-heat="boom"] .l-crit { opacity: 1; }
+.game[data-heat="strain"] .l-crit { opacity: 0.45; }
+/* The pulse stays soft enough that every word keeps 4.5:1 at its brightest (yellow on the critical
+   band is the closest, at 4.67:1). */
+.game[data-heat="strain"] .l-pulse { --to: 0.12; animation: pulse 0.8s ease-in-out infinite alternate; }
+.game[data-heat="critical"] .l-pulse { --to: 0.15; animation: pulse 0.5s ease-in-out infinite alternate; }
+.game[data-heat="hot"], .game[data-heat="strain"], .game[data-heat="critical"], .game[data-heat="boom"] { --lbl: var(--soft); }
+.game[data-paused="yes"] .l-pulse { animation-play-state: paused; }
+@keyframes pulse { from { opacity: 0; } to { opacity: var(--to, 0.3); } }
+/* A verdict tints the ground for a moment; the burst lights it up briefly (a light flash, never a
+   blank white screen). */
+.ground .tint { transition: none; }
+.game[data-react="right"] .tint { background: #12a35c; animation: tint 1.2s ease-out both; }
+.game[data-react="wrong"] .tint { background: #c81e3a; animation: tint 1.2s ease-out both; }
+@keyframes tint { 0% { opacity: 0; } 12%, 70% { opacity: 0.88; } 100% { opacity: 0; } }
+.ground .flash { background: #fff; transition: none; }
+.game[data-phase="burst"] .flash { animation: flash 0.35s ease-out both; }
+@keyframes flash { 0% { opacity: 0.4; } 100% { opacity: 0; } }
+
+/* ---------- The composition ----------
+   One column: the top line, the potato (1fr), the strip. The potato's box runs from the very top of
+   the screen, under the top line, and the full width, so his growth can push up toward the line;
+   the line and the strip sit over the stage. --u is the strip's type unit and --d the microphone's
+   size, from the screen: a phone, a tablet and a TV get the same layout at their own scale. */
+.gi {
+  --pad: clamp(8px, 1.6cqmin, 20px);
+  --u: clamp(15px, min(4.4cqw, 2.3cqh), 30px);
+  --d: clamp(58px, min(15cqw, 8.4cqh), 112px);
+  position: absolute; display: grid; min-height: 0;
+  inset: env(safe-area-inset-top, 0px) env(safe-area-inset-right, 0px) env(safe-area-inset-bottom, 0px) env(safe-area-inset-left, 0px);
+  grid-template-areas: "top" "pot" "bot"; grid-template-rows: auto minmax(0, 1fr) auto; grid-template-columns: minmax(0, 1fr);
+  row-gap: calc(var(--pad) * 0.6); padding: var(--pad) calc(var(--pad) * 1.4) calc(var(--pad) * 1.6);
+}
+/* The screen takes the keyboard for a moment after a pause while the go button settles (app.js):
+   no ring around the whole screen. */
+.gi:focus { outline: none; }
+.top { grid-area: top; min-width: 0; position: relative; z-index: 2; }
+.bot { grid-area: bot; min-width: 0; min-height: 0; display: flex; flex-direction: column; align-items: center; position: relative; z-index: 2; container: bot / inline-size; }
+.bot > .v { width: min(100%, calc(var(--u) * 30)); }
+/* The potato's box: from the top of the screen to the strip, edge to edge. */
+.pot { grid-row: 1 / 3; grid-column: 1; position: relative; min-height: 0; min-width: 0; margin: calc(var(--pad) * -1) calc(var(--pad) * -1.4) 0; container: pot / size; z-index: 1; }
+.v { display: grid; }
+.game:not([data-screen="start"]) .v-start, .game:not([data-screen="turn"]) .v-turn, .game:not([data-screen="end"]) .v-end { display: none !important; }
+
+/* The potato, sized from his drawing (its view is -16 -50 272 292 units, specimen-draw.js VIEW): as
+   big as the screen allows while he himself (his body, face and sprouts, x -12 to 241 and y -46 to
+   232: specimen-draw.js FRAME, which holds him in at the very peak of his shake) stays on screen at
+   every stage. The rig's outer parts (the tubes, the clamp
+   arms' ends, the tray's corners) may run off the sides once he strains; he, his face, his sprouts,
+   the bulbs and the tray lights never do. His tray sits just above the strip, and the height above
+   him is his room to grow into. The art's box is exactly its view, so a unit is --s pixels. */
+.potato-art { position: absolute; inset: 0; width: 100%; height: 100%; display: block; overflow: visible; pointer-events: none; }
+.game .potato-art.specimen {
+  --fx0: -12; --fx1: 241; --fy0: -46; --fy1: 232;
+  --s: min(calc((100cqw - 4px) / (var(--fx1) - var(--fx0))), calc((100cqh - 4px) / (var(--fy1) - var(--fy0))));
+  inset: auto; width: calc(var(--s) * 272); height: calc(var(--s) * 292);
+  left: calc(50% - var(--s) * ((var(--fx0) + var(--fx1)) / 2 + 16));
+  top: calc(100% - 2px - var(--s) * (var(--fy1) + 50));
+}
+
+/* ---------- Type ---------- */
+.logo, .kicker, .flabel, .lbl, .after, .dead, .cap-t, .status, .heard, .rv, .pbox h2, .up { transform: var(--slant); transform-origin: 50% 100%; }
+.logo { font: 400 clamp(36px, min(12cqw, 7cqh), 120px)/0.92 var(--display); text-transform: uppercase; letter-spacing: 0.01em; text-shadow: 0.06em 0.06em 0 var(--ink); text-align: center; }
+.logo em { font-style: normal; color: var(--y); }
+.logo.burst-on { color: var(--y); font-size: clamp(40px, min(14cqw, 9cqh), 150px); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding-right: 0.1em; }
+.lede { color: var(--soft); font-size: clamp(13px, var(--u) * 0.75, 22px); max-width: 38ch; margin: 4px auto 0; text-align: center; text-wrap: balance; text-shadow: 0 1px 2px var(--ink); }
+.kicker { font: 400 clamp(12px, var(--u) * 0.7, 20px)/1.1 var(--display); color: var(--lbl); text-transform: uppercase; letter-spacing: 0.14em; margin-bottom: 4px; text-align: center; }
+.kicker .home { color: inherit; text-decoration: none; }
+.kicker .home:hover { color: var(--white); }
+.v-start, .v-end { align-content: start; justify-items: center; }
+/* The end's stats run over the burst potato's bulbs and splat: on a dark panel of their own. */
+.v-end .lede { width: fit-content; max-width: min(38ch, 100%); padding: 0.2em 0.65em 0.25em; background: rgba(20, 16, 44, 0.9); border-left: 3px solid var(--y); color: var(--soft); text-shadow: none; }
+/* The pitch only where there is height to spare over the potato. */
+@container game (max-height: 760px) { .v-start .lede { display: none; } }
+
+/* ---------- Buttons ---------- */
+/* The main button: a yellow block, slanted, in ink. */
+.go { display: block; width: 100%; transform: var(--slant); filter: drop-shadow(4px 4px 0 var(--ink)); }
+.go .plate { display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; min-height: max(48px, var(--u) * 2.6); padding: 6px 16px; background: var(--y); color: var(--ink); border: 3px solid var(--ink); font: 400 calc(var(--u) * 1.3)/1 var(--display); text-transform: uppercase; letter-spacing: 0.04em; }
+.go:active { transform: var(--slant) translate(2px, 2px); filter: drop-shadow(2px 2px 0 var(--ink)); }
+.go:disabled { filter: none; opacity: 0.6; }
+/* The other buttons: ink panels with a lavender edge; pressed ones go yellow. */
+.cap {
+  min-height: max(44px, var(--u) * 2.3); padding: 0 0.8em; display: inline-flex; align-items: center; justify-content: center; gap: 7px; transform: var(--slant);
+  background: var(--panel); border: 2px solid var(--edge); color: var(--white);
+  font: 400 calc(var(--u) * 1.05)/1 var(--display); text-transform: uppercase; letter-spacing: 0.05em; white-space: nowrap;
+}
+.cap:active { background: rgba(26, 20, 51, 0.8); }
+.cap[aria-pressed="true"] { background: var(--y); color: var(--ink); border-color: var(--ink); box-shadow: 3px 3px 0 var(--ink); }
+.cap:disabled { opacity: 0.4; }
+.cap.ghost { background: none; border-color: rgba(223, 227, 255, 0.45); color: var(--soft); }
+.tog::before { content: ""; width: 9px; height: 9px; border-radius: 50%; flex: none; background: rgba(255, 255, 255, 0.25); }
+.tog[aria-pressed="true"]::before { background: var(--ink); }
+
+/* ---------- Start: the title over the potato, the setup a compact panel under him ---------- */
+.setup { gap: calc(var(--u) * 0.45); padding: calc(var(--u) * 0.6); background: rgba(20, 16, 44, 0.72); border: 2px solid var(--edge); }
+.field { display: grid; gap: 4px; min-width: 0; }
+.flabel { font: 400 calc(var(--u) * 0.75)/1.1 var(--display); text-transform: uppercase; letter-spacing: 0.14em; color: var(--lbl); }
+.setup > .field > .flabel { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chips .chip { flex: 1 1 auto; padding: 0 0.6em; letter-spacing: 0.02em; }
+.stepper { display: flex; align-items: center; gap: 6px; }
+.stepper .cap { flex: none; width: max(44px, var(--u) * 2.3); padding: 0; font: 400 calc(var(--u) * 1.5)/1 var(--text); }
+.stepper output { font: 400 calc(var(--u) * 1.7)/1 var(--display); min-width: 1.2em; text-align: center; font-variant-numeric: tabular-nums; color: var(--y); transform: var(--slant); }
+.setrow { display: flex; flex-wrap: wrap; gap: 6px 14px; align-items: center; justify-content: space-between; }
+.setrow .field { display: flex; align-items: center; gap: 8px; }
+.tg { display: flex; gap: 6px; }
+.note { font-size: clamp(12px, var(--u) * 0.72, 18px); color: var(--soft); line-height: 1.3; padding: 6px 8px; background: var(--panel); border-left: 3px solid var(--y); }
+.note b { color: var(--y); }
+
+/* ---------- Turn: the top line ---------- */
+.bar { display: flex; align-items: center; gap: clamp(6px, var(--u) * 0.5, 16px); min-width: 0; }
+.cat { flex: none; max-width: 34%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; background: var(--y); color: var(--ink); font: 400 calc(var(--u) * 0.95)/1 var(--display); text-transform: uppercase; letter-spacing: 0.03em; padding: 0.3em 0.75em 0.22em 0.65em; clip-path: polygon(6% 0, 100% 0, 94% 100%, 0 100%); }
+/* Lives: a solid block for each left, an empty outline (light, at least 3:1 on every ground) for
+   each lost, so they read by shape as well as colour. The one at risk warms from yellow to pink
+   with the potato's stress, as the fuse does. */
+.life { display: inline-flex; align-items: center; gap: 3px; flex: none; }
+.life i { width: calc(var(--u) * 0.7); height: calc(var(--u) * 0.8); transform: var(--slant); background: none; border: 2px solid var(--soft); transition: background 0.4s, border-color 0.4s; }
+.life i.on { background: var(--y); border-color: var(--ink); }
+.life i.on.risk { background: color-mix(in srgb, var(--pink) calc(var(--stress, 0) * 100%), var(--y)); transition: border-color 0.4s; }
+.lifelbl { display: none; }
+.fuse { flex: 1; min-width: 40px; }
+.fuse .track { position: relative; height: calc(var(--u) * 0.6); background: rgba(26, 20, 51, 0.6); border: 2px solid var(--ink); transform: var(--slant); }
+.fuse .cable { position: absolute; left: 0; top: 0; bottom: 0; width: var(--f); background: color-mix(in srgb, var(--pink) calc(var(--stress, 0) * 100%), var(--y)); }
+.fuse.low .cable { background: var(--pink); }
+.fuse .spark { position: absolute; left: var(--f); top: 50%; width: calc(var(--u) * 1.4); height: calc(var(--u) * 1.4); transform: translate(-50%, -50%); border-radius: 50%; background: radial-gradient(circle, #fff 0 18%, var(--y) 34%, rgba(255, 210, 63, 0) 68%); opacity: 0; }
+.game[data-lit="yes"] .fuse .spark { opacity: 1; animation: spark 0.5s ease-in-out infinite alternate; }
+@keyframes spark { from { transform: translate(-50%, -50%) scale(0.8); } to { transform: translate(-50%, -50%) scale(1.1); } }
+.ibtn { width: max(44px, var(--u) * 2.2); height: max(44px, var(--u) * 2.2); flex: none; display: inline-grid; place-items: center; background: var(--panel); border: 2px solid var(--edge); transform: var(--slant); }
+.ibtn svg { width: 48%; height: 48%; fill: none; stroke: currentColor; stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; }
+#g-sound[aria-pressed="false"] { color: var(--soft); }
+#g-sound[aria-pressed="true"] .off, #g-sound[aria-pressed="false"] .on { display: none; }
+
+/* ---------- Turn: the strip ----------
+   Centred, on one axis, with room between the lines: whose turn (one small line); the microphone
+   beside the word to follow, the one big thing; then one reserved line where what is heard, or the
+   verdict and its appeal, appear without moving anything; the keys at the foot where there is a
+   keyboard. No box: a hairline above it on the stage. */
+.v-turn.bot-turn {
+  justify-items: center; text-align: center; row-gap: calc(var(--u) * 0.55);
+  padding-top: calc(var(--u) * 0.8); border-top: 1px solid rgba(185, 192, 238, 0.28);
+}
+.up { display: flex; align-items: baseline; justify-content: center; gap: 0.35em; min-width: 0; max-width: 100%; font: 400 calc(var(--u) * 0.85)/1 var(--display); text-transform: uppercase; letter-spacing: 0.06em; white-space: nowrap; color: var(--soft); }
+.up b { font-weight: 400; font-size: 1.4em; letter-spacing: 0.03em; color: var(--y); text-shadow: 0.05em 0.05em 0 var(--ink); overflow: hidden; text-overflow: ellipsis; min-width: 0; padding-right: 0.06em; }
+/* The microphone and the word, side by side, centred as a pair. */
+.ask { display: flex; align-items: center; justify-content: center; gap: calc(var(--u) * 0.9); min-width: 0; max-width: 100%; }
+.lastword { display: grid; justify-items: start; min-width: 0; }
+.lbl { font: 400 calc(var(--u) * 0.7)/1.1 var(--display); text-transform: uppercase; letter-spacing: 0.14em; color: var(--lbl); }
+/* The word to follow, as big as the room beside the microphone allows: its letter boxed is the
+   next word's first (dead ends already skipped back past). */
+.after { --n: 8; font: 400 min(var(--u) * 2.7, calc((100cqi - var(--d) * 1.4 - var(--u) * 1.4) * 0.92 / (max(var(--n), 5) * 0.47)))/1.02 var(--display); text-transform: uppercase; white-space: nowrap; max-width: 100%; overflow: hidden; text-overflow: ellipsis; padding-right: 0.12em; text-shadow: 0.05em 0.05em 0 var(--ink); transform-origin: 0 100%; }
+.after b { font-weight: 400; background: var(--y); color: var(--ink); padding: 0 0.08em; margin-left: 0.03em; text-shadow: none; }
+.after.first { color: var(--soft); }
+.dead { font: 400 calc(var(--u) * 0.72)/1.1 var(--display); text-transform: uppercase; letter-spacing: 0.06em; color: var(--y); transform-origin: 0 100%; }
+/* The microphone: the listening shows in the button itself, its rings inside its own box and its
+   label under it. */
+.spot { display: grid; place-items: center; min-width: 0; flex: none; }
+.spot > * { grid-area: 1 / 1; }
+.mic-btn, .listening { display: grid; justify-items: center; gap: calc(var(--u) * 0.3); padding: calc(var(--d) * 0.16) calc(var(--d) * 0.16) 0; min-width: 0; }
+.disc { position: relative; width: var(--d); height: var(--d); border-radius: 50%; display: grid; place-items: center; background: var(--g); color: var(--ink); box-shadow: 0 0 0 3px var(--ink), 4px 4px 0 3px var(--ink); }
+.disc svg { position: relative; width: 54%; height: 54%; }
+.disc .cup { fill: currentColor; }
+.disc .ln { fill: none; stroke: currentColor; stroke-width: 3.6; stroke-linecap: round; stroke-linejoin: round; }
+.cap-t { font: 400 max(12px, var(--u) * 0.62)/1 var(--display); text-transform: uppercase; letter-spacing: 0.06em; text-align: center; white-space: nowrap; color: var(--soft); }
+.mic-btn:active .disc { transform: translate(2px, 2px); box-shadow: 0 0 0 3px var(--ink), 2px 2px 0 3px var(--ink); }
+.mic-btn:disabled { opacity: 0.6; }
+.listening .cap-t { color: var(--g); }
+.listening .ring { position: absolute; inset: 0; border-radius: 50%; border: 3px solid var(--g); opacity: 0; pointer-events: none; }
+.game[data-lit="yes"] .listening .ring { animation: micring 1.4s ease-out infinite; }
+.game[data-lit="yes"] .listening .r2 { animation-delay: 0.7s; }
+.game[data-paused="yes"] .listening .ring { animation-play-state: paused; }
+/* The rings stay inside the button's own padding (16% of the disc each side). */
+@keyframes micring { 0% { transform: scale(1); opacity: 0.85; } 100% { transform: scale(1.3); opacity: 0; } }
+.game[data-lit="no"] .listening .disc { background: #8a90b8; }
+/* What the spot shows: the go button when it is passed, the microphone while it listens. */
+.game:not([data-phase="ready"]) .mic-btn { display: none; }
+.game:not([data-phase="listen"]) .listening, .game[data-typing="yes"] .listening { display: none; }
+.game[data-typing="yes"][data-phase="listen"] .spot { display: none; }
+.game[data-phase="doom"] .spot, .game[data-phase="burst"] .spot, .game[data-phase="over"] .spot { visibility: hidden; }
+
+/* The reserved line: what was heard while listening, or the verdict with its appeal after it. It
+   has one fixed height, empty or full, so nothing above it ever moves: the appeal fits it, and the
+   status line two lines at most (app.js shortens what was heard in a verdict to fit). */
+.say { display: flex; align-items: center; justify-content: center; gap: calc(var(--u) * 0.7); height: max(44px, var(--u) * 2.3); max-width: 100%; min-width: 0; }
+.heard { font: 400 calc(var(--u) * 1.05)/1.05 var(--display); text-transform: uppercase; color: var(--white); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; max-width: 100%; }
+.heard:empty { display: none; }
+.heard.part { color: var(--soft); }
+.status { min-height: 1.2em; display: flex; align-items: center; gap: 8px; min-width: 0; font: 400 calc(var(--u) * 0.8)/1.15 var(--display); text-transform: uppercase; letter-spacing: 0.04em; color: var(--soft); text-align: left; text-wrap: balance; }
+.status:empty { display: none; }
+.status.quiet { position: absolute; width: 1px; height: 1px; min-height: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+/* Two lines at most, whatever is said: the line above never moves. */
+.status > span:not(.mark) { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden; min-width: 0; }
+.status b { font-weight: 400; color: var(--white); }
+.status.ok b { color: var(--good); }
+.status.bad b { color: var(--bad); }
+.mark { width: 1.3em; height: 1.3em; flex: none; display: grid; place-items: center; border: 2px solid var(--ink); }
+.mark.ok { background: var(--good); }
+.mark.ok::after { content: ""; width: 0.5em; height: 0.25em; border: solid var(--ink); border-width: 0 0 3px 3px; transform: translateY(-2px) rotate(-45deg); }
+.mark.bad { background: var(--pink); }
+.mark.bad::after { content: "!"; font: 400 0.85em/1 var(--display); color: var(--ink); }
+.appeal { flex: none; border-color: var(--y); color: var(--y); font-size: calc(var(--u) * 0.85); min-height: max(44px, var(--u) * 2.2); }
+/* Where listening cannot work: the word box, under the word. */
+.acts { display: flex; min-width: 0; width: min(100%, calc(var(--u) * 24)); }
+.acts:not(:has(> :not([hidden]))) { display: none; }
+.typed { flex: 1; display: flex; gap: 8px; min-width: 0; }
+/* width: 0 so the box's own default width never pushes the row (and "Say it") off a narrow screen. */
+.typed input { flex: 1; width: 0; min-width: 0; min-height: max(46px, var(--u) * 2.5); padding: 0 0.6em; border: 3px solid var(--ink); background: #fff; color: var(--ink); font: 400 calc(var(--u) * 1.2)/1 var(--display); letter-spacing: 0.03em; text-transform: uppercase; user-select: text; -webkit-user-select: text; transform: var(--slant); }
+.typed input::placeholder { color: #6b6890; text-transform: none; font: calc(var(--u) * 0.95) var(--text); }
+.typed .cap { min-height: max(46px, var(--u) * 2.5); flex: none; padding: 0 0.9em; background: var(--y); color: var(--ink); border-color: var(--ink); }
+
+.keys { font-size: clamp(11px, var(--u) * 0.6, 15px); color: var(--soft); text-align: center; }
+.keys kbd { font: 600 0.92em/1 var(--text); padding: 1px 5px 2px; border: 1px solid var(--edge); color: var(--white); background: var(--panel); }
+@media (pointer: coarse), (hover: none) { .keys { display: none; } }
+
+/* A verdict, big over the potato for a moment. */
+.react { position: absolute; inset: 0; z-index: 5; pointer-events: none; display: grid; align-content: center; justify-items: center; padding: 0 16px 24cqh; }
+.rv { grid-area: 1 / 1; display: grid; justify-items: center; align-content: center; gap: 4px; text-align: center; opacity: 0; }
+.rv .mk { width: clamp(48px, 12cqmin, 110px); height: auto; fill: none; stroke: #fff; stroke-width: 14; stroke-linecap: round; stroke-linejoin: round; filter: drop-shadow(4px 4px 0 var(--ink)); }
+.rv b { font: 400 clamp(56px, min(19cqw, 13cqh), 190px)/0.92 var(--display); text-transform: uppercase; text-shadow: 0.05em 0.05em 0 var(--ink); }
+.rv span { font: 400 clamp(20px, min(6cqw, 3.6cqh), 52px)/1.05 var(--display); text-transform: uppercase; letter-spacing: 0.03em; max-width: 22ch; text-wrap: balance; text-shadow: 0.05em 0.05em 0 var(--ink); }
+.game[data-react="right"] .rv-right, .game[data-react="wrong"] .rv-wrong { animation: pop 1.2s cubic-bezier(0.2, 1.5, 0.4, 1) both; }
+/* The burst: who was holding it, big, over him. */
+.rv-boom b { color: var(--y); font-size: clamp(56px, min(18cqw, 12cqh), 190px); max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding-right: 0.1em; }
+.game[data-phase="burst"] .rv-boom { animation: fadein 0.4s 0.45s both; }
+@keyframes fadein { from { opacity: 0; transform: var(--slant); } to { opacity: 1; transform: var(--slant); } }
+.game[data-phase="burst"] .bot-turn > :not(.say), .game[data-phase="burst"] .say > :not(.status), .game[data-phase="burst"] .turnhead .bar { visibility: hidden; }
+@keyframes pop { 0% { opacity: 0; transform: var(--slant) scale(0.3); } 16% { opacity: 1; transform: var(--slant) scale(1.06); } 28% { transform: var(--slant) scale(1); } 80% { opacity: 1; transform: var(--slant) scale(1); } 100% { opacity: 0; transform: var(--slant) scale(1); } }
+
+/* ---------- End: who it burst on over the potato, the chain and the buttons under him ---------- */
+.game[data-screen="end"] .v-end.bot-end { display: flex; flex-direction: column; gap: calc(var(--u) * 0.5); }
+.chain { list-style: none; margin: 0; padding: 2px 4px 8px; display: flex; flex-wrap: wrap; gap: 6px; align-content: flex-start; justify-content: center; overflow-y: auto; min-height: 0; max-height: calc(var(--u) * 6.4); scrollbar-width: thin; }
+.chain li { display: inline-flex; align-items: baseline; padding: 0.3em 0.55em 0.25em; background: var(--panel); border: 2px solid var(--edge); font: 400 calc(var(--u) * 0.95)/1.1 var(--display); text-transform: uppercase; letter-spacing: 0.03em; max-width: 100%; overflow-wrap: anywhere; transform: var(--slant); }
+.chain li b { font-weight: 400; color: var(--y); }
+.chain li small { margin-left: 6px; font: 400 0.7em/1 var(--display); letter-spacing: 0.08em; color: var(--lbl); white-space: nowrap; }
+.chain li.none { color: var(--soft); }
+.endbtns { display: flex; gap: 10px; }
+.endbtns .go { flex: 1.4 1 0; min-width: 0; }
+.endbtns .cap { flex: 1 1 0; min-width: 0; min-height: max(48px, var(--u) * 2.6); padding: 0 8px; white-space: normal; line-height: 1.05; text-align: center; }
+
+/* ---------- Pause ---------- */
+.paused { position: absolute; inset: 0; z-index: 10; display: grid; place-items: center; padding: 16px; background: rgba(20, 16, 44, 0.8); backdrop-filter: blur(3px); -webkit-backdrop-filter: blur(3px); }
+.pbox { --u: clamp(15px, min(4.4cqw, 2.3cqh), 30px); width: min(calc(var(--u) * 20), 100%); display: grid; gap: calc(var(--u) * 0.7); justify-items: stretch; text-align: center; }
+.pbox h2 { font: 400 calc(var(--u) * 3.4)/1 var(--display); text-transform: uppercase; color: var(--y); text-shadow: 0.05em 0.05em 0 var(--ink); }
+.pnote { color: var(--soft); font-size: calc(var(--u) * 0.95); }
+.pbox .tg { justify-content: center; }
+.pbox .tg .cap { flex: 1; }
+.game[data-paused="yes"] .spark, .game[data-paused="yes"] .rv, .game[data-paused="yes"] .tint { animation-play-state: paused !important; }
+
+/* ---------- Wide screens (laptops, desktops, TVs, tablets on their side) ----------
+   The same composition, with the strip one line shorter so he gets the height: whose turn sits over
+   the word beside the microphone, the reserved line under them, and the keys in the bottom corner. */
+@container game (min-aspect-ratio: 1/1) and (min-height: 500px) {
+  .v-turn.bot-turn { grid-template-columns: auto auto; justify-content: center; grid-template-areas: "spot up" "spot word" "say say"; column-gap: calc(var(--u) * 0.9); row-gap: calc(var(--u) * 0.3); }
+  .ask { display: contents; }
+  .spot { grid-area: spot; }
+  .lastword { grid-area: word; }
+  .up { grid-area: up; justify-content: flex-start; transform-origin: 0 100%; }
+  /* The reserved line never widens the pair (its own width does not count, and its negative
+     margins take nothing from the columns), but it reaches a little past the pair on each side, so
+     a verdict's reason and its appeal fit in its two lines. */
+  .say { grid-area: say; contain: inline-size; justify-self: stretch; max-width: none; margin-inline: calc(var(--u) * -3); }
+  .acts { grid-column: 1 / -1; justify-self: center; }
+  .keys { position: absolute; right: 0; bottom: 0; }
+  .after { font-size: min(var(--u) * 3, calc((100cqi - var(--d) * 1.4 - var(--u) * 1.4) * 0.92 / (max(var(--n), 5) * 0.47))); }
+}
+
+/* ---------- A phone on its side ----------
+   Played upright: on its side the same composition, smaller, with a quiet hint to turn it (it
+   neither blocks nor pauses the round). */
+.turn-hint { display: none; }
+@container game (min-aspect-ratio: 1/1) and (max-height: 499.98px) {
+  .gi { --u: clamp(13px, 3.4cqh, 18px); --d: clamp(48px, 13cqh, 58px); }
+  /* The hint on the start screen, in its empty top corner (during a round it would cover the line). */
+  .game[data-screen="start"] .turn-hint { display: block; position: absolute; right: 8px; top: 8px; z-index: 3; font: 400 12px/1 var(--display); letter-spacing: 0.08em; text-transform: uppercase; color: var(--soft); padding: 4px 8px; background: var(--panel); border: 1px solid var(--edge); pointer-events: none; }
+  .v-end .lede { font-size: 12px; margin-top: 2px; }
+  /* The setup across the width, its rows tight, the title small, so a note and Start still fit. */
+  .v-start .kicker { display: none; }
+  .v-start .logo { font-size: 28px; }
+  .game[data-screen="start"] .bot > .v { width: min(100%, 680px); }
+  .setup { gap: 5px; padding: 6px 8px; }
+  .chips { flex-wrap: nowrap; gap: 5px; }
+  .chips .chip { padding: 0 0.4em; }
+  .note { font-size: 11.5px; line-height: 1.25; padding: 4px 6px; }
+  .go .plate { min-height: 44px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .game *, .game *::before, .game *::after { animation-duration: 0.01s !important; animation-iteration-count: 1 !important; transition-duration: 0.01s !important; }
+}

@@ -12,6 +12,7 @@ const args = process.argv.slice(2);
 const opt = (k, d) => (args.find((a) => a.startsWith("--" + k + "=")) ?? "--" + k + "=" + d).split("=").slice(1).join("=");
 const base = opt("base", "http://localhost:8791");
 
+// Stays on software whatever TEST_GPU says (not lobby/test/browser.mjs): it weighs downloads, which the renderer does not change, beside the still tools it shares its pages with.
 const browser = await chromium.launch({ headless: true, args: ["--mute-audio", "--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--ignore-gpu-blocklist"] });
 const kb = (n) => `${(n / 1024).toFixed(0)} KB`;
 try {

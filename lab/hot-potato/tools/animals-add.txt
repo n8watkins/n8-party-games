@@ -1,0 +1,72 @@
+# Well-known animals the frequency rule misses: single words whose animal sense comes late in
+# WordNet ("seal" is first a fastener there) or that are rare in film subtitles, and well-known
+# names of two or three words. Every name here must be a WordNet animal name.
+# One per line; read by tools/make-categories.py.
+
+aardvark
+alpaca
+anteater
+beaver
+canary
+macaw
+meerkat
+mole
+mussel
+seal
+skunk
+slug
+toucan
+tuna
+wallaby
+wombat
+
+Arctic fox
+bald eagle
+barn owl
+black bear
+black widow
+blue jay
+blue whale
+brown bear
+dung beetle
+electric eel
+emperor penguin
+fruit fly
+garter snake
+German shepherd
+giant panda
+golden eagle
+golden retriever
+great white shark
+grizzly bear
+guinea pig
+hammerhead shark
+hermit crab
+horseshoe crab
+house fly
+humpback whale
+killer whale
+king cobra
+Komodo dragon
+Labrador retriever
+manta ray
+mountain goat
+mountain lion
+polar bear
+prairie dog
+praying mantis
+red fox
+red panda
+sea anemone
+sea lion
+sea otter
+sea turtle
+sea urchin
+Siamese cat
+snow leopard
+sperm whale
+stick insect
+Tasmanian devil
+tiger shark
+water buffalo
+wild boar

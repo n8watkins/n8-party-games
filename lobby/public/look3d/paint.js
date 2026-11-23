@@ -163,37 +163,43 @@ const ART = {
     },
   },
 
-  "who-am-i": {
-    side: "#cfc4b2",
-    paint(g, box) {
-      g.fillStyle = "#fff6ea";
+  // The house poster that hangs last (lobby/wall.js, IDEAS): not a game. A light bulb on paper,
+  // the question and the answer; its address is the band along its foot (boxArt).
+  ideas: {
+    side: "#cdb98f",
+    paint(g) {
+      g.fillStyle = "#f1e3c4";
       g.fillRect(0, 0, W, H);
-      g.fillStyle = "rgba(74,53,181,.09)";
-      for (let y = 40; y < H; y += 70)
-        for (let x = 40 + ((y / 70) % 2) * 35; x < W; x += 70) {
-          g.beginPath();
-          g.arc(x, y, 7, 0, 7);
-          g.fill();
-        }
-      g.fillStyle = "#33238a";
+      g.strokeStyle = "#c8963e";
+      g.lineWidth = 8;
+      g.strokeRect(30, 30, W - 60, H - 60);
+      const cx = W / 2;
+      g.strokeStyle = "#e0a93a";
+      g.lineWidth = 16;
+      for (let i = 0; i < 8; i++) {
+        const a = (i * Math.PI) / 4 + Math.PI / 8;
+        g.beginPath();
+        g.moveTo(cx + Math.cos(a) * 128, 230 + Math.sin(a) * 128);
+        g.lineTo(cx + Math.cos(a) * 170, 230 + Math.sin(a) * 170);
+        g.stroke();
+      }
+      g.fillStyle = "#f4c64e";
+      g.strokeStyle = "#a8780f";
+      g.lineWidth = 9;
       g.beginPath();
-      g.roundRect(160, 150, 380, 420, 88);
+      g.arc(cx, 222, 92, 0, 7);
       g.fill();
-      g.fillStyle = "#4a35b5";
+      g.stroke();
+      g.fillStyle = "#6f6253";
       g.beginPath();
-      g.roundRect(160, 126, 380, 404, 88);
+      g.roundRect(cx - 44, 300, 88, 60, 12);
       g.fill();
-      g.fillStyle = "#fff";
-      g.beginPath();
-      g.arc(350, 328, 124, 0, 7);
-      g.fill();
-      g.fillStyle = "#4a35b5";
-      g.font = POSTER.replace("%", 190);
-      g.fillText("?", 350, 342);
-      g.fillStyle = "#1d1830";
-      fitText(g, box.name, W / 2, 760, 600, 132, POSTER);
-      g.fillStyle = "#4a35b5";
-      g.fillRect(250, 850, 200, 12);
+      g.fillStyle = "#2a1b14";
+      fitText(g, "GOT A GAME", cx, 480, 600, 92, POSTER);
+      g.fillStyle = "#b3352a";
+      fitText(g, "IDEA?", cx, 600, 600, 130, POSTER);
+      g.fillStyle = "#4a3a2c";
+      fitText(g, "Tell me. I might build it.", cx, 712, 600, 52, '700 %px "Nunito", system-ui, sans-serif');
     },
   },
 
@@ -454,14 +460,14 @@ export function boxArt(box, images = {}) {
       g.restore();
     }
     // A band across the foot of the box says what kind of box it is, when it is not a game that
-    // simply starts here: not built yet, or played on a site of its own.
-    const band = box.soon ? "COMING SOON" : box.url ? (box.url.startsWith("https://") ? "ON ITS OWN SITE" : "ON ITS OWN PAGE") : "";
+    // simply starts here: not built yet, or a poster with an address to go to.
+    const band = box.soon ? "COMING SOON" : box.poster ? box.where : "";
     if (band) {
       g.fillStyle = "rgba(18,11,8,.92)";
       g.fillRect(0, H - 132, W, 132);
       g.fillStyle = "#f6ead2";
       g.font = '700 50px ui-monospace, "SF Mono", Menlo, Consolas, monospace';
-      g.letterSpacing = band.length > 12 ? "5px" : "10px";
+      g.letterSpacing = box.poster ? "2px" : band.length > 12 ? "5px" : "10px";
       g.fillText(band, W / 2 + 4, H - 62);
       g.letterSpacing = "0px";
     }

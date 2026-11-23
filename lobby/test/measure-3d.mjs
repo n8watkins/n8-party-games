@@ -2,10 +2,11 @@
 //
 //   node lobby/test/measure-3d.mjs [--base=http://localhost:8791] [--rooms=bar,roof] [--soft=1]
 //
-// WSL has no graphics card, so by default this drives a headless Chrome on the Windows side
-// (Cork & Bell's tools/browser.mjs: no window, a throwaway profile, closed at the end). With
-// --soft=1 it uses the software renderer inside WSL instead, which says nothing about speed
-// and is only there to show the script runs.
+// By default this drives a headless Chrome on the Windows side, on the graphics card's own
+// Windows driver (openWindowsChrome in lobby/test/browser.mjs: no window, a fresh profile and
+// port for each run, closed at the end). With --soft=1 it uses the software renderer inside WSL
+// instead (Cork & Bell's tools/browser.mjs), which says nothing about speed and is only there to
+// show the script runs.
 //
 // Each room is measured on a posed room whose four pieces pace and jump all the time
 // (still.html?walk=1), the busiest the room gets, at three sizes: a big screen, a laptop and a
@@ -13,12 +14,9 @@
 // are the time one frame takes, not the display's 60 a second.
 //
 // This is a desktop graphics card pretending to be a phone's screen size. It is not a phone.
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { openBrowser } from "../../node_modules/cork-and-bell/tools/browser.mjs";
+import { openWindowsChrome } from "./browser.mjs";
 
-// Its own Chrome profile on the Windows side, so it never meets another tool's browser.
-process.env.CAB_PROFILE ??= join(tmpdir(), "party-room-3d-chrome-profile");
 const args = process.argv.slice(2);
 const opt = (k, d) => (args.find((a) => a.startsWith("--" + k + "=")) ?? "--" + k + "=" + d).split("=").slice(1).join("=");
 const base = opt("base", "http://localhost:8791");
@@ -33,7 +31,7 @@ const SIZES = [
   { name: "phone 844x390 @2x", viewport: { width: 844, height: 390 }, deviceScaleFactor: 2, hasTouch: true, isMobile: true, query: "as=player&zoom=closer" },
 ];
 
-const b = await openBrowser({ win: !soft, uncapped: true });
+const b = soft ? await openBrowser({ win: false, uncapped: true }) : await openWindowsChrome({ uncapped: true });
 try {
   for (const size of SIZES) {
     const context = await b.newContext({ viewport: size.viewport, deviceScaleFactor: size.deviceScaleFactor, hasTouch: !!size.hasTouch, isMobile: !!size.isMobile });

@@ -1,0 +1,46 @@
+/* The cover a page shows while it moves to the party's other waiting room (hop.js). Both the
+   character room (/lobby/) and the plain one (/party/) load it, so it looks the same on both. */
+.hop-cover {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 18px;
+  padding: 24px;
+  background: radial-gradient(120% 70% at 50% 0%, #24160f 0%, #0d0806 70%) #0d0806;
+  color: #fbf3e2;
+  text-align: center;
+}
+.hop-words {
+  animation: hop-in 0.2s ease-out;
+  margin: 0;
+  font: 700 clamp(26px, 6vw, 44px) / 1.15 Georgia, "Times New Roman", "Noto Serif", "DejaVu Serif", serif;
+  color: #f6d9a0;
+}
+.hop-link {
+  display: inline-flex;
+  align-items: center;
+  min-height: 52px;
+  padding: 0 24px;
+  border-radius: 26px;
+  background: #f4b453;
+  color: #1e1410;
+  font: 800 17px/1 system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  text-decoration: none;
+}
+.hop-link:focus-visible {
+  outline: 3px solid #fff;
+  outline-offset: 2px;
+}
+@keyframes hop-in {
+  from {
+    opacity: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .hop-words {
+    animation: none;
+  }
+}

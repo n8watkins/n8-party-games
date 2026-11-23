@@ -1,0 +1,152 @@
+/* What the party room's page adds to round five's sheet (style.css, kept as it was). */
+body { margin: 0; }
+[hidden] { display: none !important; }
+/* The room's door button keeps the top right corner (the view is told how much: ctx.inset). */
+#btns { right: calc(var(--gr) + var(--inset-r, 0px)); }
+/* A big screen has no thumbs and no start card: the race, the places and the count. */
+#count { position: absolute; left: 50%; top: 42%; transform: translate(-50%, -50%); z-index: 9; pointer-events: none; font: 400 clamp(64px, 22vh, 220px)/1 var(--display); color: var(--red); -webkit-text-stroke: 3px var(--navy); paint-order: stroke fill; text-shadow: 5px 5px 0 var(--cream), 7px 7px 0 var(--navy); }
+#count:empty { display: none; }
+#count.go { color: var(--teal); }
+#app[data-mode="tvwide"] #hint { top: calc(var(--gt) + 52px); bottom: auto; }
+#app[data-mode="tvwide"] #tvbar { font-size: clamp(16px, 1.6vw, 26px); }
+#app[data-mode="tvwide"] #tvplaces b { font-size: 1em; }
+/* While the house drives a phone's car (its phone was away), the thumbs rest. */
+#app[data-house] :is(.tb, .steerzone) { opacity: 0.35; }
+
+/* A narrow phone (upright): the strip keeps to the space it has, and who is near wraps under it instead of running off the edge. */
+.topmid { grid-template-columns: minmax(0, 1fr); }
+.near { flex-wrap: wrap; justify-content: center; max-width: 100%; }
+/* A short phone held sideways: the power in hand sits top right above Use, so the strip and chips stop short of it. */
+@media (max-height: 420px) { #app[data-touch] .topmid { right: calc(var(--gr) + 92px); } }
+/* The spring's caption ("Off the table") is wider than the small spring: it starts at the spring's left edge instead of running off the screen. */
+#app[data-touch] .gauge .cap { left: 0; transform: none; }
+
+/* A page that came up after GO says so on the big screen: smaller than the count, and it clears itself. */
+#count.late { font-size: clamp(34px, 9vh, 104px); white-space: nowrap; }
+
+/* The big screen is read from across a room: its names, hint and strip grow with the screen (names at 2.3% of its height). */
+#app:is([data-mode="tvwide"], [data-mode="split"]) .tag { font-size: max(13px, 2.3vh); padding: 0.08em 0.55em 0.14em; border-width: max(2px, 0.2vh); border-radius: 0.7em; gap: 0.4em; }
+#app:is([data-mode="tvwide"], [data-mode="split"]) .tag i { width: 0.7em; height: 0.7em; box-sizing: border-box; border-width: max(1.5px, 0.15vh); }
+#app:is([data-mode="tvwide"], [data-mode="split"]) .tag.lead::after { font-size: 0.8em; }
+#app[data-mode="tvwide"] #hint { font-size: max(14px, 2.2vh); max-width: min(46vw, 30em); padding: 0.2em 0.6em 0.25em; border-radius: 0.6em; }
+#app[data-mode="tvwide"] #brand b { font-size: max(15px, 1.7vh); }
+#app[data-mode="tvwide"] #tvbar { padding: 0.25em 0.6em; border-radius: 0.6em; }
+#app[data-mode="tvwide"] #tvbar .line { height: 1.1em; }
+#app[data-mode="tvwide"] #tvbar .line::before { top: calc(50% - 1.5px); }
+#app[data-mode="tvwide"] #tvbar .line::after { top: 12%; height: 76%; }
+#app[data-mode="tvwide"] #tvbar .tok { top: 50%; width: 0.8em; height: 0.8em; box-sizing: border-box; margin: -0.4em 0 0 -0.4em; }
+#app[data-mode="tvwide"] #tvplaces i { width: 0.6em; height: 0.6em; box-sizing: border-box; }
+
+/* ---- The big screen's split view (split.js): a pane per player, read from a sofa (every word at least 2% of the screen's height). */
+#app:is([data-mode="split"], [data-mode="board"]) { padding: 0; }
+#app[data-mode="split"] :is(#hint, #tags) { display: none; }
+#app[data-mode="split"][data-close] :is(#panes, #mapbox) { display: none; }
+#app[data-mode="split"][data-close] #tags { display: block; }
+.pane { border: max(3px, 0.3vh) solid var(--navy); box-shadow: inset 0 0 0 max(4px, 0.55vh) var(--c); overflow: hidden; }
+.pbox { position: absolute; left: max(12px, 1.4vh); top: max(12px, 1.4vh); display: grid; justify-items: start; gap: max(6px, 0.7vh); max-width: calc(100% - 3vh); z-index: 1; }
+.pane.right .pbox { left: auto; right: max(12px, 1.4vh); justify-items: end; }
+.pane .plabel { position: static; gap: 0.45em; padding: 0.12em 0.5em 0.16em; border-width: max(2.5px, 0.28vh); border-radius: 0.55em; font-size: max(16px, 2.8vh); max-width: 100%; box-shadow: 0.12em 0.12em 0 var(--navy); }
+#app[data-panes="1"] .pane .plabel, #app[data-panes="2"] .pane .plabel { font-size: max(18px, 3.3vh); }
+.plabel .pn { overflow: hidden; text-overflow: ellipsis; max-width: 9em; }
+.plabel b { font-size: 1.2em; }
+.plabel .pl { font-weight: 600; }
+.plabel i { flex: none; box-sizing: border-box; border-width: max(2px, 0.22vh); }
+.pnear { display: flex; flex-wrap: wrap; gap: max(6px, 0.6vh); font: 700 max(14px, 2.2vh)/1.1 var(--ui); letter-spacing: 0.02em; white-space: nowrap; }
+.pane.right .pnear { justify-content: flex-end; }
+.pnear span { display: flex; align-items: center; gap: 0.35em; padding: 0.1em 0.5em 0.14em; background: var(--cream); border: max(2px, 0.2vh) solid var(--navy); border-radius: 0.6em; }
+.pnear span:empty { display: none; }
+.pnear i { width: 0.7em; height: 0.7em; box-sizing: border-box; border-radius: 50%; background: var(--c); border: max(1.5px, 0.15vh) solid var(--navy); }
+.pheld { display: none; align-items: center; gap: 0.4em; padding: 0.12em 0.5em 0.12em 0.14em; background: var(--cream); border: max(2px, 0.22vh) solid var(--navy); border-radius: 0.8em; font: 400 max(14px, 2.2vh)/1 var(--display); letter-spacing: 0.02em; white-space: nowrap; }
+.pheld.on { display: flex; }
+.pheld.ready { background: var(--mustard); }
+.pheld .ico { width: 2.1em; height: 2.1em; display: block; border-radius: 50%; background: var(--paper); }
+.pheld .ico svg { width: 100%; height: 100%; display: block; }
+.pheld .hname:empty { display: none; }
+.pane .pspring { left: max(14px, 1.6vh); bottom: max(14px, 1.6vh); width: min(26%, 30vh); height: max(12px, 1.6vh); border-width: max(2.5px, 0.25vh); }
+.pane.rcol .pspring { left: auto; right: max(14px, 1.6vh); }
+/* A word over the live picture: the house is driving (the player's phone is away), or the player is home. */
+.pnote { position: absolute; left: 50%; top: 30%; transform: translate(-50%, -50%); display: none; max-width: 86%; box-sizing: border-box; padding: 0.5vh 1.6vh 0.8vh; text-align: center; background: var(--cream); border: max(3px, 0.3vh) solid var(--navy); border-radius: 1.4vh; box-shadow: 0.5vh 0.5vh 0 var(--navy); }
+.pane[data-note="house"] .pnote, .pane[data-note="home"] .pnote { display: grid; gap: 0.4vh; }
+.pnote b { font: 400 max(20px, 4.2vh)/1.05 var(--display); color: var(--red); text-wrap: balance; }
+.pane[data-note="home"] .pnote { top: 22%; }
+.pane[data-note="home"] .pnote b { color: var(--teal); font-size: max(26px, 6vh); }
+.pnote small { font: 700 max(14px, 2.2vh)/1.15 var(--ui); letter-spacing: 0.02em; text-wrap: balance; }
+.pane[data-note="house"]::after { content: ""; position: absolute; inset: 0; background: rgba(36, 42, 62, 0.18); pointer-events: none; }
+/* The table and the places between the panes (or in the fourth cell of three, or alone on a screen with no 3D). */
+#app[data-mode="board"] #mapbox { display: flex; }
+#mapbox { box-sizing: border-box; padding: max(8px, 0.8vh); gap: max(6px, 0.6vh); border-width: max(3px, 0.3vh); border-radius: max(14px, 1.4vh); }
+#mapbox.nolist #standings { display: none; }
+#app[data-mode="split"] #count { top: 50%; }
+#app[data-counting] #mapbox.nolist { visibility: hidden; } /* the count is said in the middle, where four panes keep the table */
+#mapbox #map { aspect-ratio: auto; height: auto; }
+#standings { font-size: max(15px, 2.4vh); gap: 0.15em; }
+#standings li { grid-template-columns: 2.2em 0.9em minmax(0, 1fr) auto; gap: 0.4em; }
+#standings li span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#standings li span:last-child { font-weight: 600; }
+#standings i { box-sizing: border-box; border-width: max(2px, 0.2vh); }
+#app[data-mode="board"] #standings { font-size: max(20px, 4.4vh); }
+#app[data-mode="board"] #brand b { font-size: max(18px, 3vh); }
+#app[data-mode="board"] #hint { left: 50%; right: auto; top: calc(var(--gt) + max(40px, 5vh)); transform: translateX(-50%); max-width: 80vw; font-size: max(15px, 2.4vh); }
+#app:is([data-mode="split"], [data-mode="board"]) .btn { font-size: max(14px, 1.7vh); min-height: max(44px, 4.6vh); }
+/* On the big screen the buttons fade off the picture after a few quiet seconds; moving the mouse brings them back. */
+#app:is([data-mode="split"], [data-mode="board"], [data-mode="tvwide"]) #btns.idle { opacity: 0; }
+
+/* ---- A phone that is a controller only (its car is on the big screen): no picture, big thumbs, the place and the power. */
+#padinfo { display: none; }
+#app[data-pad] :is(#stage, #speed, #tags, #flash, #pepper, #hint, .chevs) { visibility: hidden; }
+#app[data-pad] { background: radial-gradient(ellipse at 50% 45%, var(--cream), var(--paper) 70%); }
+#app[data-pad] #padinfo { position: absolute; left: 50%; top: 52%; transform: translate(-50%, -50%); z-index: 3; display: grid; justify-items: center; gap: 4px; width: min(40vw, 340px); text-align: center; pointer-events: none; }
+#padinfo .pdot { width: 64px; height: 10px; border-radius: 5px; background: var(--c); border: 2px solid var(--navy); }
+#padinfo .pplace { font: 400 clamp(52px, 22vh, 150px)/1 var(--display); color: var(--c); -webkit-text-stroke: 3px var(--navy); paint-order: stroke fill; text-shadow: 4px 4px 0 var(--navy); }
+#padinfo .plap { font: 700 clamp(18px, 6vh, 30px)/1.1 var(--ui); letter-spacing: 0.04em; text-transform: uppercase; }
+#padinfo p { margin: 0; font: 600 clamp(14px, 4vh, 19px)/1.2 var(--ui); text-wrap: balance; }
+#padinfo .phouse { color: var(--red); font-weight: 700; }
+#padinfo .phouse:empty { display: none; }
+#padinfo.counting :is(.pdot, .pplace) { visibility: hidden; } /* the count-in's numbers have the middle to themselves */
+#app[data-pad] .ring { width: 140px; height: 140px; margin: -70px 0 0 -70px; left: calc(var(--gl) + 90px); top: calc(100% - var(--gb) - 84px); opacity: 0.85; }
+#app[data-pad] .knob { width: 56px; height: 56px; margin: -28px 0 0 -28px; }
+#app[data-pad] .tb.drift { width: 132px; height: 132px; }
+#app[data-pad] .tb.drift b { font-size: 21px; }
+#app[data-pad] .tb.brake { right: calc(var(--gr) + 152px); width: 80px; height: 80px; }
+#app[data-pad] .tb.use { width: 100px; height: 100px; bottom: calc(var(--gb) + 158px); right: calc(var(--gr) + 16px); }
+#app[data-pad] .tb.use .ico { width: 50px; height: 50px; }
+#app[data-pad] .held { bottom: calc(var(--gb) + 268px); }
+@media (max-height: 420px) {
+  #app[data-pad] .tb.drift { width: 112px; height: 112px; }
+  #app[data-pad] .tb.brake { right: calc(var(--gr) + 130px); width: 70px; height: 70px; }
+  #app[data-pad] .tb.use { width: 84px; height: 84px; bottom: calc(var(--gb) + 134px); }
+  #app[data-pad] .held { bottom: calc(var(--gb) + 226px); right: calc(var(--gr) + 4px); }
+  #app[data-pad] .ring { width: 120px; height: 120px; margin: -60px 0 0 -60px; top: calc(100% - var(--gb) - 72px); }
+}
+@media (orientation: portrait) and (max-width: 600px) {
+  #app[data-pad] #padinfo { top: 40%; width: 80vw; }
+  #app[data-pad] .tb.brake { right: calc(var(--gr) + 24px); bottom: calc(var(--gb) + 156px); }
+  #app[data-pad] .tb.use { right: calc(var(--gr) + 150px); bottom: calc(var(--gb) + 20px); }
+  #app[data-pad] .held { right: calc(var(--gr) + 140px); bottom: calc(var(--gb) + 128px); }
+}
+#bpad[aria-pressed="true"] { background: var(--mustard); }
+/* A short or narrow phone: the switch says just "Controller", so the row of buttons stays small. */
+#bpad .short { display: none; }
+@media (max-height: 420px), (max-width: 480px) { #bpad .long { display: none; } #bpad .short { display: inline; } }
+/* The smallest phones (568 x 320): Use sits clear of Drift's ring, and as a controller the power shows on Use alone. */
+@media (max-height: 340px) {
+  .tb.use { bottom: calc(var(--gb) + 114px); }
+  .held { bottom: calc(var(--gb) + 180px); }
+  #app[data-pad] .tb.drift { width: 96px; height: 96px; }
+  #app[data-pad] .tb.brake { right: calc(var(--gr) + 112px); width: 60px; height: 60px; }
+  #app[data-pad] .tb.use { width: 72px; height: 72px; bottom: calc(var(--gb) + 122px); }
+  #app[data-pad] .held { display: none !important; }
+  .words { top: 45%; } /* the strip and chips take the top third here: words come up under them */
+  #app[data-pad] .ring { width: 104px; height: 104px; margin: -52px 0 0 -52px; top: calc(100% - var(--gb) - 64px); }
+}
+/* A controller by force with no big screen any more: the plain card, and nothing to press (the house drives). */
+#app[data-blind] :is(#huds, #padinfo, #hint) { display: none; }
+/* With the Controller only switch beside Sound, the strip and chips stop short of the wider row of buttons (a narrow
+   screen already puts them under the buttons). */
+@media (min-width: 701px) { #app[data-padok] .topmid { right: calc(var(--gr) + 410px); } }
+
+/* A page that cannot show the race (no 3D here, or the picture was lost): one plain card, in the game's look. */
+#nopic { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); z-index: 9; box-sizing: border-box; width: min(440px, calc(100% - var(--gl) - var(--gr))); padding: 18px 20px 20px; text-align: center; background: var(--cream); border: 3px solid var(--navy); border-radius: 16px; box-shadow: 5px 5px 0 var(--navy); }
+#nopic b { display: block; font: 400 clamp(20px, 5.5vw, 26px)/1.1 var(--display); color: var(--red); text-wrap: balance; }
+#nopic p { margin: 10px 0 0; font: 700 clamp(16px, 4.4vw, 19px)/1.25 var(--ui); letter-spacing: 0.02em; text-wrap: pretty; }
+#app[data-mode="nopicture"] :is(#stage, #speed, #huds, #tvbar, #flash, #pepper, #hint, #count, #btns) { display: none; }

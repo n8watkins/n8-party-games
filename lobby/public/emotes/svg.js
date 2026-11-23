@@ -8,9 +8,19 @@
 //
 // A figure has two groups for its host to place: `body`, at the pawn's feet, moving with it (its
 // lean comes from bodyTransform), and `stage`, at the same spot on the floor, which does not.
+//
+// The piece may be any character (../characters/index.js). What differs between them comes from
+// the character's definition (`flat.figure`): the shape that turns red when it fumes, where its
+// face sits and in what ink, and how a hand is joined to the body (a pawn's stick arm; a ghost's
+// floating hand, wisp of sheet or short cuff, by the pose; a slime's arm of goo; a robot's jointed
+// arm of metal and its steel hand).
+import { drawingOf } from "../characters/index.js";
+import { WISP, joinOf, wispAt, wispHalf } from "../characters/ghost-rig.js";
 import { s, set } from "../dom.js";
+import { isPale } from "../shared/characters.js";
 
 const INK = "#1a1210";
+const SHEET = "#fbf8f1";
 const f1 = (n) => n.toFixed(1);
 
 /** The room's colour mixing: toward white (amount above 0) or black (below 0). */
@@ -60,19 +70,21 @@ const MOUTHS = {
 };
 
 /** The face the pose asks for, in place of the pawn's own two eyes (which the host hides meanwhile). */
-function makeFace(parent, skin) {
+function makeFace(parent, skin, ink = INK) {
   const f = { g: el("g", {}, parent) };
   f.eyes = el("g", {}, f.g);
-  f.eyeL = el("ellipse", { rx: 3.8, ry: 5.6, fill: INK }, f.eyes);
-  f.eyeR = el("ellipse", { rx: 3.8, ry: 5.6, fill: INK }, f.eyes);
-  f.glintL = el("circle", { r: 1.3, fill: "#fff" }, f.eyes);
-  f.glintR = el("circle", { r: 1.3, fill: "#fff" }, f.eyes);
-  const line = { fill: "none", stroke: INK, "stroke-width": 3.2, "stroke-linecap": "round", "stroke-linejoin": "round" };
+  f.eyeL = el("ellipse", { rx: 3.8, ry: 5.6, fill: ink }, f.eyes);
+  f.eyeR = el("ellipse", { rx: 3.8, ry: 5.6, fill: ink }, f.eyes);
+  // A face drawn in light (the robot's visor) has no glints: they would be lost in the eye.
+  const glint = ink === INK ? "#fff" : "none";
+  f.glintL = el("circle", { r: 1.3, fill: glint }, f.eyes);
+  f.glintR = el("circle", { r: 1.3, fill: glint }, f.eyes);
+  const line = { fill: "none", stroke: ink, "stroke-width": 3.2, "stroke-linecap": "round", "stroke-linejoin": "round" };
   f.happy = el("path", { d: "M-14,-111 Q-9,-119 -4,-111 M4,-111 Q9,-119 14,-111", ...line }, f.g);
   f.shut = el("path", { d: "M-14,-113 Q-9,-109 -4,-113 M4,-113 Q9,-109 14,-113", ...line }, f.g);
-  f.lids = el("path", { fill: skin, stroke: INK, "stroke-width": 2.2, "stroke-linejoin": "round" }, f.g);
+  f.lids = el("path", { fill: skin, stroke: ink, "stroke-width": 2.2, "stroke-linejoin": "round" }, f.g);
   f.brows = el("path", { ...line, "stroke-width": 3 }, f.g);
-  f.mouth = el("path", { "stroke-linecap": "round", "stroke-linejoin": "round", stroke: INK }, f.g);
+  f.mouth = el("path", { "stroke-linecap": "round", "stroke-linejoin": "round", stroke: ink }, f.g);
   return f;
 }
 
@@ -108,11 +120,30 @@ function shapeFace(f, face) {
  * or a small cartoon hand, all in the pawn's own colour. Both hands are deliberately simple and
  * round: a toy's hands, not a person's.
  */
-function makeLimb(parent, colour) {
-  const g = el("g", {}, parent);
-  const arm = el("path", { fill: "none", stroke: shade(colour, -0.05), "stroke-width": 8, "stroke-linecap": "round", "stroke-linejoin": "round" }, g);
+function makeLimb(parent, colour, style = "stick") {
+  const g = el("g", { class: "emote-limb" }, parent);
+  // A pawn's arm is a stick in its colour; a ghost's is a wisp of its sheet (a filled shape), when it
+  // has one at all; a slime's is the same shape in its own goo; a robot's is jointed dark metal.
+  const ghostly = style === "ghost" || style === "goo";
+  let arm;
+  let rod = null;
+  if (style === "ghost") arm = el("path", { class: "emote-wisp", fill: SHEET, stroke: shade(colour, 0.1), "stroke-width": 1.4, "stroke-linejoin": "round" }, g);
+  else if (style === "goo") arm = el("path", { class: "emote-wisp emote-goo", fill: shade(colour, 0.14), stroke: shade(colour, -0.45), "stroke-width": 1.8, "stroke-linejoin": "round" }, g);
+  else if (style === "rod") {
+    arm = el("g", { class: "emote-rod" }, g);
+    rod = {
+      edge: el("path", { fill: "none", stroke: ROD.edge, "stroke-width": 10, "stroke-linecap": "round", "stroke-linejoin": "round" }, arm),
+      core: el("path", { fill: "none", stroke: ROD.metal, "stroke-width": 7, "stroke-linecap": "round", "stroke-linejoin": "round" }, arm),
+      elbow: el("circle", { r: 5.2, fill: ROD.steel, stroke: ROD.edge, "stroke-width": 1.6 }, arm),
+    };
+  } else arm = el("path", { fill: "none", stroke: shade(colour, -0.05), "stroke-width": 8, "stroke-linecap": "round", "stroke-linejoin": "round" }, g);
   const handG = el("g", {}, g);
-  const look = { fill: shade(colour, 0.28), stroke: shade(colour, -0.42), "stroke-width": 1.8, "stroke-linejoin": "round" };
+  // Against a white sheet a very pale hand is lost: it gets a dark outline. A robot's hands are steel.
+  const outlined = style === "ghost" && isPale(colour);
+  const look =
+    style === "rod"
+      ? { fill: ROD.steel, stroke: ROD.edge, "stroke-width": 2, "stroke-linejoin": "round" }
+      : { fill: shade(colour, outlined ? 0.1 : 0.28), stroke: outlined ? INK : shade(colour, -0.42), "stroke-width": outlined ? 2.6 : 1.8, "stroke-linejoin": "round" };
   const back = el("g", {}, handG); // a thumb held out sits behind the palm's edge
   const mitten = el("rect", look, handG);
   const pointer = el("rect", look, handG);
@@ -120,7 +151,29 @@ function makeLimb(parent, colour) {
   const fingers = [0, 1, 2, 3].map(() => el("rect", look, handG));
   const front = el("g", {}, handG); // a thumb across the palm, in front
   const thumb = el("rect", look, front);
-  return { g, arm, handG, back, front, mitten, pointer, palm, fingers, thumb };
+  return { g, arm, rod, handG, back, front, mitten, pointer, palm, fingers, thumb, ghostly, thick: style === "goo" ? GOO_THICK : 1 };
+}
+
+/** A robot's arm: dark metal, an outline, a steel elbow. */
+const ROD = { metal: "#3a3f4b", edge: "#14161c", steel: "#c1c8d3" };
+/** How much thicker a slime's goo arm is than a ghost's wisp: it is a body, not a sheet. */
+const GOO_THICK = 1.35;
+
+const WISP_STEPS = 9;
+const AT = [0, 0, 0, 0];
+/** The outline of a wisp (or of a cuff's short trail) along an arm, as a closed path. */
+function wispPath(arm, cuff, thick = 1) {
+  const from = cuff ? WISP.cuffFrom : 0;
+  let there = "";
+  let back = "";
+  for (let i = 0; i <= WISP_STEPS; i++) {
+    const u = from + ((1 - from) * i) / WISP_STEPS;
+    wispAt(arm, u, AT);
+    const r = wispHalf(u, cuff) * thick;
+    there += `${i ? "L" : "M"}${f1(AT[0] - AT[3] * r)},${f1(AT[1] + AT[2] * r)} `;
+    back = `L${f1(AT[0] + AT[3] * r)},${f1(AT[1] - AT[2] * r)} ` + back;
+  }
+  return `${there}${back}Z`;
 }
 
 /** Index to little finger on the cartoon hand: where each sits and how long it is when straight. */
@@ -131,11 +184,20 @@ const STUBS = [
   { x: 5.3, len: 7.6 },
 ];
 
-function shapeLimb(l, pose) {
+function shapeLimb(l, pose, whole) {
   if (!pose || pose.s <= 0.05) return set(l.g, { display: "none" });
   set(l.g, { display: null });
   const a = pose.arm;
-  set(l.arm, { d: `M${f1(a.shoulder.x)},${f1(a.shoulder.y)} L${f1(a.elbow.x)},${f1(a.elbow.y)} L${f1(a.wrist.x)},${f1(a.wrist.y)}` });
+  if (l.ghostly) {
+    const join = joinOf(whole, pose);
+    set(l.arm, join ? { display: null, d: wispPath(a, join === "cuff", l.thick), opacity: Math.min(1, pose.s).toFixed(2) } : { display: "none" });
+  } else if (l.rod) {
+    const d = `M${f1(a.shoulder.x)},${f1(a.shoulder.y)} L${f1(a.elbow.x)},${f1(a.elbow.y)} L${f1(a.wrist.x)},${f1(a.wrist.y)}`;
+    set(l.rod.edge, { d });
+    set(l.rod.core, { d });
+    set(l.rod.elbow, { cx: f1(a.elbow.x), cy: f1(a.elbow.y) });
+    set(l.arm, { opacity: Math.min(1, pose.s).toFixed(2) });
+  } else set(l.arm, { d: `M${f1(a.shoulder.x)},${f1(a.shoulder.y)} L${f1(a.elbow.x)},${f1(a.elbow.y)} L${f1(a.wrist.x)},${f1(a.wrist.y)}` });
   const sh = pose.shape;
   set(l.handG, { transform: `translate(${f1(pose.x)},${f1(pose.y)}) rotate(${f1(pose.rot)}) scale(${(pose.side * pose.s * (pose.sx ?? 1)).toFixed(3)},${pose.s.toFixed(3)})` });
   const mitten = pose.style === "mitten";
@@ -324,30 +386,29 @@ function drawList(cache, parent, list, lib, prefix) {
 
 // ---------------------------------------------------------------- a figure
 
-/** The body and head of the room's pawn (scene.js piece()), for the red of a fuming piece. */
-const TORSO = "M-32,-10 C-31,-36 -15,-54 -13.5,-84 L13.5,-84 C15,-54 31,-36 32,-10 Z";
-
 export class EmoteFigure {
   /**
-   * @param {string} colour  the seat's colour
-   * @param {{face?: boolean, limbs?: boolean}} what  draw the face (the flat look) and the arms (the flat look; the 3D one has meshes)
+   * @param {string} colour  the player's colour
+   * @param {{face?: boolean, limbs?: boolean, character?: string}} what  draw the face (the flat look) and the arms (the flat look; the 3D one has meshes), for which character
    */
-  constructor(colour, { face = true, limbs = true } = {}) {
+  constructor(colour, { face = true, limbs = true, character } = {}) {
+    const kind = (this.kind = drawingOf(character).flat.figure);
     this.body = s("g", { class: "emote" });
     this.stage = s("g", { class: "emote-stage" });
     this.cache = new Map();
     this.face = face;
     if (face) {
       this.tint = el("g", { fill: "#ff2a14", opacity: 0 }, this.body);
-      el("path", { d: TORSO }, this.tint);
-      el("circle", { cx: 0, cy: -113, r: 28 }, this.tint);
+      kind.tint(this.tint);
     }
     this.head = el("g", {}, this.body);
-    this.faceEls = face ? makeFace(this.head, shade(colour, 0.05)) : null;
+    // The skin a heavy lid is cut from: the ghost's white sheet, the robot's dark visor (`skin`), or the body's colour.
+    const skin = kind.skin ?? (kind.limbs === "ghost" ? SHEET : shade(colour, 0.05));
+    this.faceEls = face ? makeFace(this.head, skin, kind.ink) : null;
     this.headFx = el("g", {}, this.head);
     this.props = el("g", {}, this.body);
     this.hands = el("g", {}, this.body);
-    this.limbs = limbs ? [makeLimb(this.hands, colour), makeLimb(this.hands, colour)] : null;
+    this.limbs = limbs ? [makeLimb(this.hands, colour, kind.limbs), makeLimb(this.hands, colour, kind.limbs)] : null;
     this.fx = el("g", {}, this.body);
     this.other = el("g", {}, this.stage);
   }
@@ -356,14 +417,26 @@ export class EmoteFigure {
    * Draws a pose (already mirrored when the target is on the left). `toward` is the target's
    * offset in room units (negative: on the left), for what happens at the target: a glance's
    * drop of sweat, a flinch. Nothing is drawn at a target that is not there (toward: null).
+   * `knocked`: the piece is knocked over; a character whose figure says `ownKnockedFace` keeps
+   * its own knocked face then (the robot's crosses, the slime's swirls), and the emote draws none.
    */
-  draw(pose, toward) {
+  draw(pose, toward, knocked = false) {
     if (this.face) {
+      const hide = !!knocked && !!this.kind.ownKnockedFace;
+      if (hide !== !!this.faceHidden) {
+        this.faceHidden = hide;
+        set(this.faceEls.g, { display: hide ? "none" : null });
+      }
       set(this.tint, { opacity: (pose.body.tint * 0.8).toFixed(2) });
       shapeFace(this.faceEls, pose.face);
+      // A face that sits elsewhere on this character, and slides toward the piece it is turned to.
+      const at = this.kind.face;
+      // A larger or smaller face (`scale`) is sized about the eyes.
+      const size = at?.scale ? ` translate(0,-113) scale(${at.scale}) translate(0,113)` : "";
+      if (at) set(this.faceEls.g, { transform: `translate(${f1(Math.sin(pose.ghost?.yaw ?? 0) * at.turn)},${at.dy})${size}` });
     }
     set(this.head, { transform: `translate(${f1(pose.body.hx)},${f1(pose.body.hy)}) rotate(${f1(pose.body.hr)},0,-113)` });
-    if (this.limbs) for (let i = 0; i < 2; i++) shapeLimb(this.limbs[i], pose.hands[i]);
+    if (this.limbs) for (let i = 0; i < 2; i++) shapeLimb(this.limbs[i], pose.hands[i], pose);
     drawList(this.cache, this.props, pose.props.filter((x) => x.space !== "stage"), KINDS, "b");
     drawList(this.cache, this.stage, pose.props.filter((x) => x.space === "stage"), KINDS, "s");
     drawList(this.cache, this.fx, pose.fx.filter((x) => !x.onHead), FX, "f");
@@ -397,27 +470,34 @@ export class EmoteFigure {
 // ---------------------------------------------------------------- a picture of one, for the wheel
 
 /**
- * A small still of an emote: the room's pawn in `colour` at the emote's best moment, as an
- * <svg> `size` pixels tall. Aimed emotes are drawn toward the right with nobody there.
+ * A small still of an emote: the player's own character in `colour` at the emote's best moment,
+ * as an <svg> `size` pixels tall. Aimed emotes are drawn toward the right with nobody there.
  */
-export function emoteThumb(rig, colour, size = 56) {
+export function emoteThumb(character, id, colour, size = 56) {
+  const def = drawingOf(character);
+  const rig = def.emotes.byId(id);
   const pose = rig.pose(rig.hold, true);
-  const fig = new EmoteFigure(colour);
-  const base = shade(colour, 0.16);
-  const pawn = s(
-    "g",
-    { transform: bodyTransform(pose.body) },
-    s("ellipse", { cx: 0, cy: -8, rx: 39, ry: 11.5, fill: shade(colour, -0.28) }),
-    s("path", { d: TORSO, fill: base }),
-    s("ellipse", { cx: 0, cy: -84, rx: 22, ry: 8, fill: shade(colour, 0.3) }),
-    s("circle", { cx: 0, cy: -113, r: 28, fill: base }),
-    s("ellipse", { cx: -10, cy: -125, rx: 9, ry: 6, fill: "#fff", opacity: 0.26 }),
-    fig.body,
-  );
+  const fig = new EmoteFigure(colour, { character: def.id });
+  const piece = def.flat.still(colour);
+  piece.append(fig.body);
+  set(piece, { transform: `translate(0,${-def.flat.rest}) ${bodyTransform(pose.body)}` });
   fig.draw(pose, null);
   // Wide enough for what it holds out, tall enough for what it holds up.
   const box = { x: -78, y: -190, w: 172, h: 200 };
-  return s("svg", { viewBox: `${box.x} ${box.y} ${box.w} ${box.h}`, width: Math.round((size * box.w) / box.h), height: size, "aria-hidden": "true", class: "emote-thumb" }, fig.stage, pawn);
+  return s("svg", { viewBox: `${box.x} ${box.y} ${box.w} ${box.h}`, width: Math.round((size * box.w) / box.h), height: size, "aria-hidden": "true", class: "emote-thumb" }, fig.stage, piece);
+}
+
+/**
+ * A small picture of a character standing still in `colour`, as an <svg> `size` pixels tall: for
+ * the picker. Every character is drawn in the same frame, wide enough for the slime and tall enough
+ * for the robot's mast, so they show at their sizes against each other.
+ */
+export function characterPortrait(character, colour, size = 72) {
+  const def = drawingOf(character);
+  const piece = def.flat.portrait(colour);
+  set(piece, { transform: `translate(0,${-def.flat.rest})` });
+  const box = { x: -68, y: -184, w: 136, h: 190 };
+  return s("svg", { viewBox: `${box.x} ${box.y} ${box.w} ${box.h}`, width: Math.round((size * box.w) / box.h), height: size, "aria-hidden": "true", class: "character-portrait" }, piece);
 }
 
 // ---------------------------------------------------------------- the sticker
@@ -426,6 +506,9 @@ export function emoteThumb(rig, colour, size = 56) {
  * The word over a piece's head ("this is good", "RED CARD"): a speech bubble that pops in. Its
  * size is given in screen terms by the host, so it can be read on a phone whatever the zoom.
  */
+/** How far a word's bubble keeps from the edge of the view, in its own units. */
+const STICKER_MARGIN = 16;
+
 export class Sticker {
   constructor(parent) {
     this.g = el("g", { class: "emote-sticker", display: "none" }, parent);
@@ -434,14 +517,32 @@ export class Sticker {
     this.word = "";
   }
 
-  /** Shows `word` with its tail's tip at (x, y), at `scale`, popped in by `pop` (0 to 1); word null hides it. */
-  show(word, x, y, scale, pop) {
+  /**
+   * Shows `word` with its tail's tip at (x, y), at `scale`, popped in by `pop` (0 to 1); word null
+   * hides it. `bounds` ({left, right}, in the same units as x) is what is in view: a bubble near
+   * an edge slides along inside it, its tail still pointing at the piece.
+   */
+  show(word, x, y, scale, pop, bounds = null) {
     if (word === null) return set(this.g, { display: "none" });
     if (word !== this.word) {
       this.word = word;
       this.t.textContent = word;
-      const w = Math.max(60, [...word].length * 12.5 + 28);
-      set(this.back, { d: `M${-w / 2},-22 h${w} a10,10 0 0 1 10,10 v24 a10,10 0 0 1 -10,10 h${-w / 2 + 10} l-10,12 l-4,-12 h${-w / 2 + 4} a10,10 0 0 1 -10,-10 v-24 a10,10 0 0 1 10,-10 Z` });
+      this.w = Math.max(60, [...word].length * 12.5 + 28);
+      this.dx = null;
+    }
+    const w = this.w;
+    // How far the bubble slides from over its tail (its own units): never so far that the tail leaves it.
+    let dx = 0;
+    if (bounds) {
+      const half = w / 2 + 10 + STICKER_MARGIN;
+      const slack = w / 2 - 14;
+      dx = Math.round(Math.max(-slack, Math.min(slack, Math.max(0, (bounds.left - x) / scale + half) + Math.min(0, (bounds.right - x) / scale - half))));
+    }
+    if (dx !== this.dx) {
+      this.dx = dx;
+      const [l, r] = [dx - w / 2, dx + w / 2];
+      set(this.back, { d: `M${l},-22 H${r} a10,10 0 0 1 10,10 v24 a10,10 0 0 1 -10,10 H10 L0,34 L-4,22 H${l} a10,10 0 0 1 -10,-10 v-24 a10,10 0 0 1 10,-10 Z` });
+      set(this.t, { x: dx });
     }
     // The bubble's tail ends 34 units below its middle.
     set(this.g, { display: null, transform: `translate(${f1(x)},${f1(y)}) scale(${(scale * Math.max(0.01, pop)).toFixed(3)}) translate(0,-34)` });
