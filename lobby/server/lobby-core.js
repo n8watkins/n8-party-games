@@ -744,7 +744,13 @@ export class LobbyCore {
     // The touches the room is holding for this piece: did the walk the phone now confirms, from
     // where the walk since its last word began (that word, or where the room put it), reach them?
     // Settled before the piece takes its new place, so each is judged where it happened.
+    const rev = m.rev;
     const touches = this.settleTouches(seat, m.x, x, now);
+    // A touch that moved the toucher itself (the stick, a swallow of the walker, two ghosts' pop:
+    // shared/counters.js) has put the piece where every page is now told, down and with a new rev:
+    // the phone's word was sent before it heard that, and is out of date as any other stale word
+    // is. Only the touches are passed on (a correction made above is overtaken by them too).
+    if (m.rev !== rev || isDown(m, now)) return { relay: null, fix: null, touches };
     m.x = x;
     m.d = d;
     m.t = now;

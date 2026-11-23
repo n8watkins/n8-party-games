@@ -493,6 +493,103 @@ describe("ghosts that meet: two faded ghosts pop solid", () => {
   });
 });
 
+describe("a held touch settled by the toucher's own word (found in review of #97)", () => {
+  // The room holds a touch it saw for TOUCH_GRACE_MS; the toucher's next ordinary `m` (it walks on,
+  // stops, turns) settles it. A stick, a swallow of the walker and a pop move the toucher itself:
+  // the phone's word, sent before it heard of that, must not be written over where the room put it.
+  const slimes = (gap = 140) => {
+    const core = party(["Sam", "Sue"]);
+    be(core, 0, "slime");
+    be(core, 1, "slime");
+    place(core, 0, 500, 1500);
+    place(core, 1, 500 + gap, 1500, -1);
+    return core;
+  };
+  /** Walks `seat` in direction `d` from `now` and returns the moment the room holds its first touch. */
+  const hold = (core, seat, d, now, kind) => {
+    walk(core, seat, core.members[seat].x, d, now);
+    core.dueMoves(now);
+    const touched = Math.ceil(core.nextTouch(now));
+    expect(core.dueMoves(touched + 1)).toEqual([]);
+    expect(core.pending.map((p) => p.kind)).toEqual([kind]);
+    return touched;
+  };
+
+  for (const d of [1, 0, -1]) {
+    it(`leaves a slime stuck by its own walk where the stick put it, whatever its phone then says (d: ${d})`, () => {
+      const core = slimes();
+      for (const s of [0, 1]) {
+        core.slime(s, "harden", 2000);
+        core.slime(s, "absorb", 2000 + HOLD_MS);
+      }
+      const touched = hold(core, 0, 1, 2000 + HOLD_MS + 10, "goo");
+      const at = touched + 50;
+      const sam = core.members[0];
+      const out = core.move(0, { x: posAt(sam, at), d, r: sam.rev }, at);
+      const goo = out.touches.find((m) => m.t === "goo");
+      expect(goo).toMatchObject({ k: "stick", s: 0, to: 1 });
+      // Only the touch is passed on: the phone's word was about a walk the room has just ended.
+      expect(out.relay).toBeNull();
+      expect(out.fix).toBeNull();
+      expect(sam).toMatchObject({ x: goo.x, d: 0, t: at, rev: goo.rev, stunUntil: at + STICK_MS });
+      // Nothing walks on: a second later the room still has it where every page was told.
+      expect(posAt(sam, at + 1000)).toBe(goo.x);
+    });
+  }
+
+  it("leaves a hard slime that walked into a soft one where it was spat out", () => {
+    const core = slimes();
+    core.slime(0, "harden", 2000);
+    core.slime(0, "absorb", 2000 + HOLD_MS);
+    core.slime(1, "harden", 2000 + HOLD_MS);
+    const touched = hold(core, 1, -1, 2000 + HOLD_MS + 10, "goo");
+    const at = touched + 50;
+    const sue = core.members[1];
+    const out = core.move(1, { x: posAt(sue, at), d: -1, r: sue.rev }, at);
+    const goo = out.touches.find((m) => m.t === "goo");
+    expect(goo).toMatchObject({ k: "swallow", s: 0, to: 1 });
+    expect(out.relay).toBeNull();
+    expect(sue).toMatchObject({ x: goo.x, d: 0, rev: goo.rev, stunUntil: at + SWALLOW_MS });
+    expect(posAt(sue, at + 1000)).toBe(goo.x);
+  });
+
+  it("still takes the word of a soft slime that swallowed what it walked into: the swallow does not move it", () => {
+    const core = slimes();
+    core.slime(0, "harden", 2000);
+    core.slime(0, "absorb", 2000 + HOLD_MS);
+    core.slime(1, "harden", 2000 + HOLD_MS);
+    const touched = hold(core, 0, 1, 2000 + HOLD_MS + 10, "goo");
+    const at = touched + 50;
+    const sam = core.members[0];
+    const x = posAt(sam, at);
+    const out = core.move(0, { x, d: 0, r: sam.rev }, at);
+    expect(out.touches.find((m) => m.t === "goo")).toMatchObject({ k: "swallow", s: 0, to: 1 });
+    expect(out.relay).toMatchObject({ t: "m", s: 0, d: 0, x: Math.round(x) });
+    expect(sam).toMatchObject({ x, d: 0 });
+  });
+
+  it("leaves a faded ghost that drifted into another where the pop put it", () => {
+    const core = party(["Gus", "Gil"]);
+    for (const s of [0, 1]) {
+      be(core, s, "ghost");
+      core.members[s].fadeAt = -Infinity;
+    }
+    place(core, 0, 500, 1500);
+    place(core, 1, 620, 1500, -1);
+    core.fade(0, 2000);
+    core.fade(1, 2000);
+    const touched = hold(core, 0, 1, 2100, "spook");
+    const at = touched + 50;
+    const gus = core.members[0];
+    const out = core.move(0, { x: posAt(gus, at), d: 1, v: 1, r: gus.rev }, at);
+    const pop = out.touches.find((m) => m.t === "pop");
+    expect(pop).toMatchObject({ s: 0, to: 1 });
+    expect(out.relay).toBeNull();
+    expect(gus).toMatchObject({ x: pop.x, d: 0, vt: null, rev: pop.rev, stunUntil: at + POP_MS });
+    expect(posAt(gus, at + 1000)).toBe(pop.x);
+  });
+});
+
 describe("the touch counters, drawn in both looks", () => {
   const piece = (seat, x) => ({ seat, rx: x, face: 1, net: { x, d: 0, t: 0 }, rev: 0, hook: null, goo: null });
   const flat = BumpDraw.prototype;
