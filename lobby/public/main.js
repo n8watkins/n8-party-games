@@ -41,7 +41,7 @@ import { stageKey, stageStale, tellRoom } from "./shared/stage.js";
 import { playerLine, statusLine } from "./shared/status.js";
 import { JUMP_HEIGHT, acrossWalls, posAt, sameWall } from "./shared/world.js";
 import { withinReach } from "./reach.js";
-import { PAGE_RELEASE, watchRoomRelease } from "/release-switch.js";
+import { PAGE_RELEASE, testProtocol, watchRoomRelease } from "/release-switch.js";
 
 const params = new URLSearchParams(location.search);
 const app = document.getElementById("app");
@@ -51,10 +51,21 @@ let look = chosen.look === "3d" && !hardware3D(params) ? "flat" : chosen.look;
 /** A start link may name the room the party starts in (?start&room=ship). */
 const startRoom = params.has("start") && isRoom(params.get("room")) ? params.get("room") : null;
 // The keep-alive is a fixed text the room answers without waking up (lobby/server/lobby-room.js).
-const link = new PartyClient({ api: "/api/lobby", quietPing: { text: "ping", everyMs: KEEP_ALIVE_MS }, lag: Number(params.get("lag") ?? 0), release: PAGE_RELEASE });
+// ?protocol= is for the end-to-end tests on a local server only (release-switch.js testProtocol).
+const link = new PartyClient({ api: "/api/lobby", quietPing: { text: "ping", everyMs: KEEP_ALIVE_MS }, lag: Number(params.get("lag") ?? 0), release: PAGE_RELEASE, protocol: testProtocol() ?? undefined });
 // An older page loads the new build at the room's next safe point, back in its seat (site/release-switch.js).
-// Not while one of this page's own sheets is open (the room picker, a piece being chosen).
-watchRoomRelease(link, { canReload: () => !document.querySelector(".sheet-back") });
+// Not while one of this page's own sheets is open (the room picker, a piece being chosen). A big
+// screen and a page in fullscreen never reload by themselves: they offer "New version, tap to load".
+// The notice is a line of the bottom bar (Hud.release), kept here for a bar built later.
+let releaseNote = [null, null];
+watchRoomRelease(link, {
+  canReload: () => !document.querySelector(".sheet-back"),
+  auto: () => link.you?.role !== "screen" && !document.fullscreenElement,
+  notice: (text, tap) => {
+    releaseNote = [text, tap];
+    hud?.release(text, tap);
+  },
+});
 // A locked phone, an offline browser and a connection that quietly died are seen at once (connection.js).
 watchConnection(link, { player: () => isPlayer() });
 // One party, two waiting rooms: when the party is in the plain one, this page moves itself there (hop.js).
@@ -230,6 +241,7 @@ async function enter() {
       },
     },
   });
+  if (releaseNote[0]) hud.release(...releaseNote);
   menu = new RoomMenu(hud.el, { role: link.you.role, seat: link.you.seat, onPick: (id) => link.send({ t: "pick", v: id }), onMode: (v) => link.send({ t: "mode", v }), quiet: modeHop.came });
   hud.muteButton(menu.corner);
   if (menu.mine(room)) menu.hint();

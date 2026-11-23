@@ -72,13 +72,33 @@ describe("the room's build", () => {
     c.on("release", (r) => heard.push(r));
     c.connect();
     FakeWebSocket.last.open();
-    FakeWebSocket.last.hear({ t: "hello", you: { role: "player", seat: 0 }, room: lobby, release: { id: "bbbbbbbbbbbb", safe: false } });
+    FakeWebSocket.last.hear({ t: "hello", you: { role: "player", seat: 0 }, room: lobby, release: { id: "bbbbbbbbbbbb", safe: false, protocol: "2" } });
+    FakeWebSocket.last.hear({ t: "release", id: "bbbbbbbbbbbb", safe: true, protocol: "3" });
+    // A room that says no protocol, or none that is a number: not known.
     FakeWebSocket.last.hear({ t: "release", id: "bbbbbbbbbbbb", safe: true });
+    FakeWebSocket.last.hear({ t: "release", id: "bbbbbbbbbbbb", safe: true, protocol: 3 });
     expect(heard).toEqual([
-      { id: "bbbbbbbbbbbb", safe: false },
-      { id: "bbbbbbbbbbbb", safe: true },
+      { id: "bbbbbbbbbbbb", safe: false, protocol: "2" },
+      { id: "bbbbbbbbbbbb", safe: true, protocol: "3" },
+      { id: "bbbbbbbbbbbb", safe: true, protocol: null },
+      { id: "bbbbbbbbbbbb", safe: true, protocol: null },
     ]);
     expect(c.roomRelease).toBe("bbbbbbbbbbbb");
+    expect(c.roomProtocol).toBeNull();
+  });
+
+  it("a test page may say another protocol in its hello, and only there", async () => {
+    const c = client({ release: MINE, protocol: "3" });
+    expect(c.helloProtocol).toBe("3");
+    c.connect();
+    FakeWebSocket.last.open();
+    expect(JSON.parse(FakeWebSocket.last.sent[0])).toMatchObject({ t: "hello", protocol: "3" });
+    expect(client({ release: MINE }).helloProtocol).toBe(PROTOCOL);
+    // Its seat requests still carry the protocol it really speaks.
+    const seen = [];
+    vi.stubGlobal("fetch", async (url, init) => (seen.push(init.headers), { json: async () => ({ ok: true, preview: {} }) }));
+    await c.preview("4821");
+    expect(seen[0]["X-Party-Protocol"]).toBe(PROTOCOL);
   });
 
   it("a room that says no build raises no event", () => {

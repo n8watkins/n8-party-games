@@ -222,7 +222,7 @@ export function createLobbyRoom(wallFor, { release = null } = {}) {
 
       const view = core.view(now);
       // The room's own build answers the page's, with whether now is a moment to load a new one.
-      this.send(entry, { t: "hello", you: { role: who.role, seat: who.seat }, room: view, ...(release && { release: { id: release.id, safe: releaseSafe(view) } }) });
+      this.send(entry, { t: "hello", you: { role: who.role, seat: who.seat }, room: view, ...(release && { release: this.releaseWord(releaseSafe(view)) }) });
       // A page that speaks an older protocol than the room can only reload: at once when nothing is going on.
       if (release && this.mustUpdate(entry) && releaseSafe(view)) return this.closeForUpdate(ws, entry, now);
       // Mid-game (a reload, a phone back from a drop, a late joiner): the game as this socket may see it.
@@ -809,6 +809,8 @@ export function createLobbyRoom(wallFor, { release = null } = {}) {
       if (change.view) this.broadcast({ t: "vote", vote: core.voteView(now) });
       // Who stands on a game's spots changed (choosing its players): it is in the room view.
       if (change.room) this.broadcastRoom(now);
+      // A count started or stopped (only a vote message): pages of another build hear whether now is safe.
+      else if (change.view && release) this.offerRelease(core.view(now), now);
       if (change.state) void this.save();
       this.arm(now);
     }
@@ -1223,15 +1225,25 @@ export function createLobbyRoom(wallFor, { release = null } = {}) {
     }
 
     /**
+     * What the room says of its build, in its hello and in each `release` message: `{id, safe,
+     * protocol}`, its release id, whether now is a moment a page may reload, and the protocol it
+     * speaks (a page of a newer one waits for the room to take the new code: release-switch.js).
+     */
+    releaseWord(safe) {
+      return { id: release.id, safe, protocol: this.protocol() };
+    }
+
+    /**
      * The room as it now is, said to the pages of another build. Each time whether it is at a safe
      * point (release-points.js) changes, both ways, and the first time it looks since it woke (a
      * deploy gives a room that sleeps the new code without closing its sockets), each socket whose
-     * page said another release hears `{t: "release", id, safe}`, and decides itself whether it is
-     * the older one: a page waiting to reload stops when the room becomes busy, and goes when it is
-     * safe again. Looked at whenever the room view or the vote changes (a count starting or stopping
-     * is only a vote message). A page of an older protocol is closed at a safe point with
-     * UPDATE_REQUIRED (its seat is kept: it comes back by reloading). Sends nothing in a room without
-     * a release, or to a page that said none (one from before the release record).
+     * page said another release hears `{t: "release", id, safe, protocol}`, and decides itself
+     * whether it is the older one: a page waiting to reload stops when the room becomes busy, and
+     * goes when it is safe again. Looked at whenever the room view changes (broadcastRoom) and
+     * whenever the vote does (settle: a count starting or stopping is only a vote message). A page
+     * of an older protocol is closed at a safe point with UPDATE_REQUIRED (its seat is kept: it
+     * comes back by reloading). Sends nothing in a room without a release, or to a page that said
+     * none (one from before the release record).
      */
     offerRelease(view, now) {
       if (!release || !this.core) return;
@@ -1240,14 +1252,14 @@ export function createLobbyRoom(wallFor, { release = null } = {}) {
       this.releaseSafeWas = safe;
       for (const [ws, entry] of [...this.sockets]) {
         if (safe && this.mustUpdate(entry)) this.closeForUpdate(ws, entry, now);
-        else if (was !== safe && entry.kept.release && entry.kept.release !== release.id) this.send(entry, { t: "release", id: release.id, safe });
+        else if (was !== safe && entry.kept.release && entry.kept.release !== release.id) this.send(entry, { t: "release", ...this.releaseWord(safe) });
       }
     }
 
     /** A page that asks (`{t: "release?"}`: it has heard a new build is out) is told the room's, and whether now is safe. */
     answerRelease(entry, now) {
       if (!release || !this.core) return;
-      this.send(entry, { t: "release", id: release.id, safe: releaseSafe(this.core.view(now)) });
+      this.send(entry, { t: "release", ...this.releaseWord(releaseSafe(this.core.view(now))) });
     }
 
     /**

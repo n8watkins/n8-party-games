@@ -57,15 +57,22 @@ export class PartyClient {
    *   quietPing: outside a round, send this fixed text instead of the clock ping. A room that
    *     answers it with an automatic reply is not woken by it at all.
    *   release: this page's build (a site's release record id), said in the hello so the room can
-   *     tell an older page a newer build is out: the `release` event, `{id, safe}`, carries the
-   *     room's build and whether now is a moment the page may reload (the party site's
-   *     site/release-switch.js decides what to do with it).
+   *     tell an older page a newer build is out: the `release` event, `{id, safe, protocol}`,
+   *     carries the room's build, whether now is a moment the page may reload and the protocol
+   *     the room speaks (the party site's site/release-switch.js decides what to do with it).
+   *   protocol: the protocol this page says in its hello, when it is not PROTOCOL: only for the
+   *     end-to-end tests, which stand a page of an older or a newer protocol before a room
+   *     (release-switch.js testProtocol). The seat requests always carry PROTOCOL.
    */
   constructor(opts = {}) {
     this.base = opts.base ?? "";
     this.release = opts.release ?? null;
+    /** The protocol this page's hello says (PROTOCOL but in the tests). */
+    this.helloProtocol = opts.protocol ?? PROTOCOL;
     /** The room's build, as its hello or its last `release` message said, or null. */
     this.roomRelease = null;
+    /** The protocol the room said it speaks, or null when it said none. */
+    this.roomProtocol = null;
     this.api = opts.api ?? API;
     // Each kind of room keeps its own session, so a tab that visits both never mixes them up.
     this.storeKey = this.api === API ? STORE_KEY : `${STORE_KEY}:${this.api}`;
@@ -213,7 +220,7 @@ export class PartyClient {
       // seat, is sent nothing, and is closed by any other first message.
       // With it, which build this page is and which protocol it speaks (a room that cannot speak
       // it closes the socket with "update_required" at a safe point, below).
-      ws.send(JSON.stringify({ t: "hello", token, protocol: PROTOCOL, ...(this.release && { release: this.release }) }));
+      ws.send(JSON.stringify({ t: "hello", token, protocol: this.helloProtocol, ...(this.release && { release: this.release }) }));
       // A new socket is a page that is showing, to the room: one that is hidden says so first.
       if (this.away) this.send({ t: "away" });
       this.setStatus("open");
@@ -290,11 +297,12 @@ export class PartyClient {
     return false;
   }
 
-  /** The room said its build: `{id, safe}`. Heard as the `release` event. */
+  /** The room said its build: `{id, safe, protocol}`. Heard as the `release` event. */
   heardRelease(said) {
     if (!said || typeof said.id !== "string") return;
     this.roomRelease = said.id;
-    this.emit("release", { id: said.id, safe: said.safe === true });
+    this.roomProtocol = typeof said.protocol === "string" && /^[0-9]{1,4}$/.test(said.protocol) ? said.protocol : null;
+    this.emit("release", { id: said.id, safe: said.safe === true, protocol: this.roomProtocol });
   }
 
   /** Asks the room for its build (it answers with a `release` event); false when there is no open socket. */

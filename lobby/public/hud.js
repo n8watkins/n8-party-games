@@ -161,6 +161,35 @@ export class Hud {
     setTimeout(() => n.remove(), 4300);
   }
 
+  /**
+   * "New version ready, it will load after this round" (site/release-switch.js), as one more line
+   * of the bottom bar's words, under the rest, so it never lies over the room's corner buttons or
+   * the join code. With `tap` ("New version, tap to load") the line is a button that loads it.
+   * `release(null)` takes it away. A game's view hides the player's bar, and the line with it.
+   */
+  release(text, tap = null) {
+    const status = this.bar.querySelector(".status");
+    if (!text) {
+      this.releaseEl?.remove();
+      this.releaseEl = null;
+      status.classList.remove("has-release");
+      return;
+    }
+    const kind = tap ? "button" : "span";
+    if (this.releaseEl?.localName !== kind) {
+      this.releaseEl?.remove();
+      this.releaseEl = h(kind, `status-release${tap ? " tap" : ""}`, "", status);
+      this.releaseEl.setAttribute("role", "status");
+      if (tap) {
+        this.releaseEl.type = "button";
+        this.releaseEl.addEventListener("click", () => this.releaseTap?.());
+      }
+    }
+    this.releaseTap = tap;
+    this.releaseEl.textContent = text;
+    status.classList.add("has-release");
+  }
+
   /** A quiet word about the connection ("Reconnecting..."), or nothing. */
   link(text) {
     this.linkEl ??= h("div", "link-state", "", this.el);

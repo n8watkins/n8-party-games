@@ -27,6 +27,12 @@ export { ScoreBoard } from "./score-board.js";
 
 export const API_PREFIX = "/api/party";
 const CODE_ATTEMPTS = 8;
+/**
+ * The config is kept by the browser for a minute: it changes only with a deploy or a setting, and
+ * a party that reloads into a new build together should not ask for it again, each request
+ * counting against the zone's limit on /api/ requests from one address (site/release-switch.js).
+ */
+export const CONFIG_CACHE = "private, max-age=60";
 
 function randomCode() {
   const limit = 256 - (256 % CODE_ALPHABET.length);
@@ -100,7 +106,7 @@ async function route(request, env, url, options) {
       testGames: env.PARTY_TEST_GAMES === "on",
       // The widget only appears when the server will also check its token.
       turnstileSiteKey: botCheckEnabled(env) && env.TURNSTILE_SITE_KEY ? env.TURNSTILE_SITE_KEY : null,
-    });
+    }, 200, { "Cache-Control": CONFIG_CACHE });
   }
 
   if (parts[0] === "qr.svg" && parts.length === 1 && method === "GET") {
