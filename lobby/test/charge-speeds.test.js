@@ -226,6 +226,48 @@ describe("the floaty ghost: slow to stop and to turn", () => {
     expect(out).toEqual([expect.objectContaining({ t: "spook", s: 0, to: 1 })]);
     expect(out[0].x).toBeGreaterThan(core.members[0].x);
   });
+
+  it("spooks nobody once its drift is over: a piece that walks into a standing faded ghost is left alone", () => {
+    const core = party(["Gus", "Bo"]);
+    be(core, 0, "ghost");
+    core.members[0].fadeAt = -Infinity;
+    place(core, 0, 500, 1000);
+    place(core, 1, 900, 1000);
+    // The ghost walks, says it stops at 600 at full speed, and drifts to a stand well short of Bo.
+    walk(core, 0, 500, 1, 2000);
+    const stopAt = 2000 + Math.round((100 / walkSpeed("ghost")) * 1000);
+    walk(core, 0, 600, 0, stopAt, 1);
+    const stood = stopAt + FLOAT_MS + 50;
+    expect(core.dueMoves(stood)).toEqual([]);
+    expect(velAt(core.members[0], stood)).toBe(0);
+    // Standing, it fades, and Bo walks right up to it within the fade.
+    core.fade(0, stood);
+    expect(core.members[0].fadedUntil).toBeGreaterThan(stood);
+    const rest = posAt(core.members[0], stood);
+    walk(core, 1, 900, -1, stood);
+    const reach = stood + Math.round(((900 - rest - SPOOK_REACH / 2) / walkSpeed("pawn")) * 1000);
+    expect(reach).toBeLessThan(core.members[0].fadedUntil);
+    expect(core.nextTouch(stood)).toBe(null);
+    expect(core.dueMoves(reach)).toEqual([]);
+    expect(core.dueMoves(reach + TOUCH_GRACE_MS + 50)).toEqual([]);
+    expect(core.members[1].d).toBe(-1);
+  });
+
+  it("spooks nobody by fading where it came to rest beside them", () => {
+    const core = party(["Gus", "Bo"]);
+    be(core, 0, "ghost");
+    core.members[0].fadeAt = -Infinity;
+    place(core, 0, 500, 1000);
+    walk(core, 0, 500, 1, 2000);
+    const stopAt = 2000 + Math.round((100 / walkSpeed("ghost")) * 1000);
+    walk(core, 0, 600, 0, stopAt, 1);
+    const stood = stopAt + FLOAT_MS + 50;
+    core.dueMoves(stood);
+    place(core, 1, Math.round(posAt(core.members[0], stood) + SPOOK_REACH - 6), stood);
+    core.fade(0, stood + 10);
+    expect(core.nextTouch(stood + 10)).toBe(null);
+    expect(core.dueMoves(stood + 10 + TOUCH_GRACE_MS + 50)).toEqual([]);
+  });
 });
 
 describe("the charged kick, as numbers (round three, 'Pawn charged kick')", () => {
