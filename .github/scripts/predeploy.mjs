@@ -1,7 +1,8 @@
 // The full gate that runs once before a deploy, on the combined result: unit tests, then the
 // end-to-end scripts that need a local Worker (the room, the party room, Cork & Bell, Hot Potato,
 // Hot Potato's hearing test, the switch between the Floor and the Table, both rooms side by side,
-// and a game at the Table).
+// a game at the Table, and the rest in predeploy-steps.mjs). One step, test:release, runs and
+// restarts a Worker of its own (its deploys): the gate gives it a free port and nothing else.
 //
 //   npm run gate                      (locally, from the owner's PC, on any tree)
 //   .github/workflows/predeploy-gate.yml   (the same script, on a GitHub-hosted runner)
@@ -291,6 +292,13 @@ async function oneAfterAnother() {
   for (const [name, script, options] of STEPS) {
     console.log(`\n=== ${name} ===`);
     const t = Date.now();
+    // A step that runs a Worker of its own (`own`) gets a free port and nothing else.
+    if (options?.own) {
+      const c = await run(npm, ["run", script, "--", `--port=${await freePort(port + 1)}`]);
+      results.push({ name, status: c === 0 ? "ok" : "FAIL", seconds: seconds(t) });
+      if (c !== 0) break;
+      continue;
+    }
     // A step that asks for an environment of its own gets a fresh Worker for it, with empty storage.
     const own = options?.env === undefined ? null : await ownWorker(await freePort(port + 1), options.env);
     const c = own?.ok === false ? 1 : await run(npm, ["run", script, "--", `--base=${(own ?? worker).base}`]);
@@ -330,6 +338,11 @@ async function sideBySideSteps() {
   const begun = Date.now();
   for (let i = 0; i < STEPS.length; i++) {
     const p = await freePort(stepPort(port, i));
+    // A step that runs a Worker of its own gets only its port (`--port`, below).
+    if (STEPS[i][2]?.own) {
+      workers.push({ own: true, port: p, base: `http://localhost:${p}`, log: () => "(the step's own Worker: its output is above)", stop: async () => {} });
+      continue;
+    }
     const persist = mkdtempSync(join(tmpdir(), `predeploy-${p}-`));
     const worker = startWorker(p, { persist, quiet: true, env: STEPS[i][2]?.env ?? "local" });
     cleanups.push(async () => {
@@ -364,7 +377,8 @@ async function sideBySideSteps() {
   const stopping = [];
   const running = STEPS.map(([name, script], i) => {
     const t = Date.now();
-    const child = spawn(npm, ["run", script, "--", `--base=${workers[i].base}`], { stdio: ["ignore", "pipe", "pipe"], detached: true });
+    const target = workers[i].own ? `--port=${workers[i].port}` : `--base=${workers[i].base}`;
+    const child = spawn(npm, ["run", script, "--", target], { stdio: ["ignore", "pipe", "pipe"], detached: true });
     let out = "";
     const keep = (d) => {
       // Everything is printed when the step ends; a wait for a card token is said at once too.

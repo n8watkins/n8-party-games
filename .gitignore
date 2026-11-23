@@ -8,8 +8,6 @@ preview/star-lounge/shots/
 dist/
 # Stills from `npm run lobby:shots`. A chosen few are kept in lobby/shots/.
 lobby/test/shots/
-# The file lobby/test/e2e-release.mjs writes to make a local "deploy" (and removes again).
-landing/public/release-test.txt
 # Recordings for the emotes preview, their downloads, and the preview that embeds them: no audio
 # is committed until the owner picks (preview/recordings/ makes them again).
 preview/sounds/

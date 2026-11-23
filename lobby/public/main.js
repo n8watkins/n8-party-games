@@ -54,12 +54,14 @@ const startRoom = params.has("start") && isRoom(params.get("room")) ? params.get
 // ?protocol= is for the end-to-end tests on a local server only (release-switch.js testProtocol).
 const link = new PartyClient({ api: "/api/lobby", quietPing: { text: "ping", everyMs: KEEP_ALIVE_MS }, lag: Number(params.get("lag") ?? 0), release: PAGE_RELEASE, protocol: testProtocol() ?? undefined });
 // An older page loads the new build at the room's next safe point, back in its seat (site/release-switch.js).
-// Not while one of this page's own sheets is open (the room picker, a piece being chosen). A big
-// screen and a page in fullscreen never reload by themselves: they offer "New version, tap to load".
+// Not while one of this page's own sheets is open (the room picker, a piece being chosen), nor
+// while the last game's result card is up: a reloaded Floor does not show it again (only the
+// `end` message does), so the reload waits until it has had its moment. A big screen and a page
+// in fullscreen never reload by themselves: they offer "New version, tap to load".
 // The notice is a line of the bottom bar (Hud.release), kept here for a bar built later.
 let releaseNote = [null, null];
 watchRoomRelease(link, {
-  canReload: () => !document.querySelector(".sheet-back"),
+  canReload: () => !document.querySelector(".sheet-back, .card-back"),
   auto: () => link.you?.role !== "screen" && !document.fullscreenElement,
   notice: (text, tap) => {
     releaseNote = [text, tap];
