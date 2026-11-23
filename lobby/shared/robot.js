@@ -88,10 +88,21 @@ export const HOOK_WAIT_MS = 900;
 //
 // Two limits on all of them: a counter can be countered once, and then it resolves (a pull that is
 // itself a counter, a steal, cannot be countered again); and the windows are about a third of a
-// second: the pull itself (PULL_MS), and COUNTER_LATE_MS after it for the network.
+// second as the player sees it: the pull itself (PULL_MS) and COUNTER_LATE_MS after it, from the
+// moment their phone hears it. The room, which hears the press a round trip after its pull, allows
+// COUNTER_LAG_MS more on its own clock, the same for every counter (the cut too).
 
-/** A counter to a pull the room hears this long after the piece arrived still counts (the network's allowance). */
+/** A counter pressed this long after the piece arrived still counts, from when the phone heard the pull (the player's own window, with PULL_MS: 380 ms). */
 export const COUNTER_LATE_MS = 120;
+/**
+ * The room's allowance for the round trip: it judges a pull at `at`, the phone hears it about half a
+ * round trip later and the press arrives about half a round trip after it is made, so an honest
+ * press at the end of the player's window arrives a whole round trip past it. The room has no
+ * measure of a phone's lag it can trust (the page could claim any), so it allows one honest round
+ * trip of up to 300 ms, a slow phone network, for everybody. A phone slower than that has its last
+ * moment's counter refused, and its page takes the drawing back (the refusal says so).
+ */
+export const COUNTER_LAG_MS = 300;
 /** Two hooks whose tips reach the same piece this close together reach it at once: a tug of war. */
 export const TUG_MS = 120;
 /** A piece in a tug of war is held stretched between the two chains this long, then let go where it stood. */
@@ -106,14 +117,18 @@ export function pullAt(pull, t) {
 }
 
 /**
- * Whether a piece's pull is still under way at `t`, so a counter to it counts: from the moment the
- * room pulled it until it arrived and COUNTER_LATE_MS after, if nothing has moved it since (its
- * `rev` is the pull's). A pull that is itself a counter (`countered`) cannot be countered.
+ * Whether a piece's pull is still under way at `t` on the room's clock, so a counter to it counts:
+ * from the moment the room pulled it until it arrived, COUNTER_LATE_MS after, and the round trip's
+ * allowance (COUNTER_LAG_MS), if nothing has moved it since (its `rev` is the pull's). A pull that
+ * is itself a counter (`countered`) cannot be countered.
  */
 export function counterable(piece, t) {
   const p = piece.pull;
-  return !!p && !p.countered && p.rev === piece.rev && t >= p.at && t <= p.at + PULL_MS + COUNTER_LATE_MS;
+  return !!p && !p.countered && p.rev === piece.rev && t >= p.at && t <= p.at + COUNTER_WINDOW_MS;
 }
+
+/** The room's window for a counter to a pull, from its own judgement of the pull. */
+export const COUNTER_WINDOW_MS = PULL_MS + COUNTER_LATE_MS + COUNTER_LAG_MS;
 
 /** Whether a chain from a robot's hand at `handX` to a piece at `tipX` passes within the reach of a pawn's kick at `x` facing `face`. */
 export function chainInReach(handX, tipX, x, face, reach, behind) {

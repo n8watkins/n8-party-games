@@ -345,6 +345,8 @@ export function refusedOwn(p, what, now) {
   if (what === "stilts") dropStilts(p, now);
   if (what === "slime") endGoo(p, now);
   if (what === "charge" && p.attack?.charging) p.attack = null;
+  // A refused kick (a ride the room heard too late, a press while it still cooled): not drawn on.
+  if (what === "kick" && p.attack && !p.attack.charging) p.attack = null;
   // A refused absorb: the turn this page drew is taken back, and the harden runs on.
   if (what === "absorb" && p.goo && p.goo.turnAt !== null) {
     p.goo.turnAt = null;

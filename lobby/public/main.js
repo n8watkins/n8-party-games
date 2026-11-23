@@ -752,8 +752,11 @@ link.on("message", (msg) => {
       moveSound("slime-shove", msg.to);
       break;
     case "cd":
-      // The room refused a bump: its word on how long is left replaces this page's guess.
+      // The room refused a bump: its word on how long is left replaces this page's guess, and the
+      // kick this page drew at the press is taken back (a ride the room heard too late, a press
+      // while it still cooled).
       pilot?.cool(msg.in, now);
+      if (isPlayer()) scene.ownRefused("kick", now);
       break;
     case "fix":
       if (pilot) placeOwn(msg.x, msg.rev, now);
