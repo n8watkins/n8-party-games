@@ -133,6 +133,21 @@ describe("the room faces a piece the way its page does", () => {
     expect(core.bump(0, 2300)).toMatchObject({ f: -1 });
   });
 
+  it("a kick's or a hook's own facing turns a standing piece when no move said it (a turn a knock swallowed on the page)", () => {
+    const core = party();
+    place(core, 0, 1000, 1000);
+    const m = core.members[0];
+    core.move(0, { x: 1000, d: -1, r: m.rev }, 2000);
+    core.move(0, { x: 1000, d: 0, r: m.rev }, 2000);
+    expect(m.face).toBe(-1);
+    expect(core.bump(0, 2300, 1)).toMatchObject({ t: "b", s: 0, f: 1 });
+    expect(m.face).toBe(1);
+    be(core, 0, "robot");
+    const thrown = core.hook(0, 9000, -1);
+    expect(thrown.relay).toMatchObject({ t: "hook", s: 0, f: -1 });
+    expect(m.hook.dir).toBe(-1);
+  });
+
   it("a walking piece faces the way the room has it walking: a facing that contradicts the walk is the room's call", () => {
     const core = party();
     place(core, 0, 1000, 1000);

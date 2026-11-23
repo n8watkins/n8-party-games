@@ -311,15 +311,22 @@ try {
 
     /** Walks a phone's piece (by its keys) to x, as the room has it, then faces `face`. */
     const walkTo = async (page, s, x, face = 0, near = 14) => {
-      for (let i = 0; i < 16; i++) {
-        const gap = x - (await where())[s].x;
-        if (Math.abs(gap) < near) break;
+      // Sixteen walks that moved it, as before. A walk that moved nothing is not counted (a page still
+      // loading its view on a busy machine takes no keys yet): it is tried again, for 45 s at most, and a
+      // piece that never got there fails here, by name, instead of in whatever the section checks next.
+      const giveUp = Date.now() + 45_000;
+      let gap = x - (await where())[s].x;
+      for (let walks = 0; walks < 16 && Math.abs(gap) >= near && Date.now() < giveUp; ) {
         const key = gap > 0 ? "ArrowRight" : "ArrowLeft";
         await page.keyboard.down(key);
         await sleep(Math.max(25, Math.min(900, ((Math.abs(gap) - near / 3) / 430) * 1000)));
         await page.keyboard.up(key);
         await sleep(260);
+        const left = x - (await where())[s].x;
+        if (left !== gap) walks++;
+        gap = left;
       }
+      if (Math.abs(gap) >= near) check(false, `setup: seat ${s}'s piece was walked to ${x} by its keys (it is ${Math.round(gap)} short)`);
       if (face) {
         // A tap the other way first would walk it off: a tap toward `face` turns it there, a step at most.
         // Held past the page's send gap (60 ms), so the turn reaches the room.
@@ -867,9 +874,11 @@ try {
     const turnKick = await after((m) => m.t === "b" && m.s === P, 3000, mark);
     // Sam must be within a kick's reach ahead (the walk left ran on the page's own timer: a starved page walks further).
     const inReach = ahead > 0 && ahead < 120;
+    // Wherever Sam ended up: the page turned right, and the room kicked right.
+    check(turned === 1 && turnKick?.f === 1, `Pat's page faces right after the tap (${turned}), and the room kicks that way (${JSON.stringify(turnKick && { f: turnKick.f })})`);
     (inReach ? check : (ok, what) => seen(null, what))(
-      turnKick?.f === 1 && turnKick.to === S,
-      `the room kicks the way Pat's page faces (${turned}): right, and Sam ${Math.round(ahead)} ahead is knocked (${JSON.stringify(turnKick && { f: turnKick.f, to: turnKick.to })})`,
+      turnKick?.to === S,
+      `... and Sam, ${Math.round(ahead)} ahead, is knocked (${JSON.stringify(turnKick && { f: turnKick.f, to: turnKick.to })})`,
     );
 
     if (look === "3d") {
