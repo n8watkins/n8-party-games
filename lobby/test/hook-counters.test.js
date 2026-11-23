@@ -17,7 +17,7 @@ import { FADE_MS, SPOOK_LANDING, SPOOK_MS } from "../shared/ghost.js";
 import { MOVED, slideLanding } from "../shared/moves.js";
 import { Pilot } from "../shared/pilot.js";
 import {
-  COUNTER_LAG_MS, COUNTER_LATE_MS, COUNTER_WINDOW_MS, FREED_MS, HOOK_AIM_MS, HOOK_HOLD, PULL_MS, TUG_HOLD_MS, TUG_MS,
+  COUNTER_LAG_MS, COUNTER_LATE_MS, COUNTER_WINDOW_MS, FREED_MS, HOOK_AIM_MS, HOOK_HOLD, HOOK_LATE_MS, PULL_MS, TUG_HOLD_MS, TUG_MS,
   chainInReach, counterable, freedPose, hookDrawn, pullAt, pullEase, tugPose,
 } from "../shared/robot.js";
 import { HARDEN_MS } from "../shared/slime.js";
@@ -646,13 +646,72 @@ describe("tug of war: two robots hook the same piece at once (nobody wins)", () 
     expect(out.find((m) => m.s === 2)).toMatchObject({ o: "pull", st: 0 });
   });
 
-  it("is no tug when the other hook would not pull it (Bo jumps Ada's)", () => {
+  it("is no tug when a jump clears both hooks: neither pulls", () => {
     const { core, throw: go } = setup();
     go(0);
     // A jump heard as both tips arrive clears both: neither pulls, nobody tugs.
     core.move(1, { x: 520, d: 0, r: core.members[1].rev, j: 1 }, 2000 + HOOK_AIM_MS + 50);
     const out = run(core, 2000, 3000);
     expect(out.some((m) => m.o === "tug")).toBe(false);
+    expect(out.some((m) => m.o === "pull")).toBe(false);
+    expect(out.filter((m) => m.o === "jumped").map((m) => m.s).sort()).toEqual([0, 2]);
+  });
+
+  describe("is no tug when only the other hook would not pull it: the first robot pulls it alone", () => {
+    /** Ada's tip reaches Bo this long after Rob's: at once, by the rule (TUG_MS), but late enough that Bo can answer hers and not his. */
+    const LAG = 110;
+
+    /** Rob's and Ada's hooks thrown so their tips reach Bo `LAG` apart. Returns the room and when Rob's tip reaches him. */
+    function apart(character = "pawn") {
+      // Left alone it is a tug, told when the later hook's own late allowance is over: from that, when Rob's tip got there.
+      const control = setup(LAG);
+      be(control.core, 1, character);
+      control.throw(0);
+      const tug = run(control.core, 2000, 3000).find((m) => m.o === "tug");
+      expect(tug).toMatchObject({ o: "tug", to: 1 });
+      const { core, throw: go } = setup(LAG);
+      be(core, 1, character);
+      go(0);
+      return { core, robs: tug.at - HOOK_LATE_MS - LAG };
+    }
+
+    /** Runs the room on from `from`: no tug, and Rob alone pulled Bo. Returns what the room said. */
+    function robPullsAlone(core, from) {
+      const out = run(core, from, 3000);
+      expect(out.some((m) => m.o === "tug")).toBe(false);
+      expect(out.filter((m) => m.o === "pull")).toHaveLength(1);
+      expect(out.find((m) => m.o === "pull")).toMatchObject({ s: 0, to: 1 });
+      expect(out.find((m) => m.o === "pull").st).toBeUndefined();
+      expect(core.members[1].pull).toMatchObject({ by: 0 });
+      return out;
+    }
+
+    it("Bo jumps Ada's hook, too late for Rob's", () => {
+      const { core, robs } = apart();
+      // Heard past Rob's late allowance (HOOK_LATE_MS after his tip) and inside Ada's.
+      const jumpAt = robs + HOOK_LATE_MS + 50;
+      run(core, 2000, jumpAt - 5);
+      expect(core.move(1, { x: 520, d: 0, r: core.members[1].rev, j: 1 }, jumpAt)).toMatchObject({ relay: { j: 1 } });
+      const out = robPullsAlone(core, jumpAt);
+      expect(out.find((m) => m.s === 2)).toMatchObject({ o: "jumped" });
+    });
+
+    it("Bo's kick bats Ada's hook away (he faces her), not Rob's behind him", () => {
+      const { core, robs } = apart();
+      run(core, 2000, robs - 5);
+      expect(core.bump(1, robs, 1)).toMatchObject({ t: "b", s: 1, f: 1, to: -1 });
+      const out = robPullsAlone(core, robs);
+      expect(out.some((m) => m.o === "parry" && m.s === 0)).toBe(false);
+    });
+
+    it("Bo, a slime, hardens in time for Ada's hook, too late for Rob's", () => {
+      const { core, robs } = apart("slime");
+      const hardAt = robs + HOOK_LATE_MS + 50;
+      run(core, 2000, hardAt - 5);
+      expect(core.slime(1, "harden", hardAt)).toMatchObject({ ok: true });
+      const out = robPullsAlone(core, hardAt);
+      expect(out.some((m) => m.o === "clang" && m.s === 0)).toBe(false);
+    });
   });
 });
 
