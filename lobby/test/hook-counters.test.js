@@ -2,8 +2,9 @@
 // hook, cannonball, empty hook, cut the line, steal and tug of war. Their rules as numbers, the
 // room's judgement of each (LobbyCore.judgeHook, bump, slime, fade), the two limits on all of them
 // (a counter can be countered once, then it resolves; the windows are about a third of a second),
-// what a page sends and draws, and on the real Durable Object class that each reaches every page
-// and that a hand-written client cannot cheat any of it.
+// what a page sends and draws, with every light on (nobody comes to rest in a light they never stood
+// in), across a drop, a silent phone and a room switch, and on the real Durable Object class that
+// each reaches every page and that a hand-written client cannot counter a pull that is not its own.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { game as coinFlip, manifest as coinFlipManifest } from "../games/coin-flip.js";
 import { LobbyCore } from "../server/lobby-core.js";
@@ -16,12 +17,13 @@ import { FADE_MS, SPOOK_LANDING, SPOOK_MS } from "../shared/ghost.js";
 import { MOVED, slideLanding } from "../shared/moves.js";
 import { Pilot } from "../shared/pilot.js";
 import {
-  COUNTER_LATE_MS, FREED_MS, HOOK_AIM_MS, HOOK_HOLD, PULL_MS, TUG_HOLD_MS, TUG_MS,
+  COUNTER_LAG_MS, COUNTER_LATE_MS, COUNTER_WINDOW_MS, FREED_MS, HOOK_AIM_MS, HOOK_HOLD, PULL_MS, TUG_HOLD_MS, TUG_MS,
   chainInReach, counterable, freedPose, hookDrawn, pullAt, pullEase, tugPose,
 } from "../shared/robot.js";
 import { HARDEN_MS } from "../shared/slime.js";
 import { boxFromManifest } from "../shared/vote.js";
-import { POSITION_SLACK, ROOM, posAt } from "../shared/world.js";
+import { POSITION_SLACK, ROOM, lightAt, posAt, wallOf } from "../shared/world.js";
+import { WALL } from "../wall.js";
 import { dropFakeRuntime, openRoom, settle, useFakeRuntime, walkTo } from "./fake-room.js";
 import { turnGame } from "./turn-game.js";
 
@@ -94,6 +96,10 @@ describe("the hook's counters, as numbers", () => {
     expect(PULL_MS + COUNTER_LATE_MS).toBeGreaterThan(300);
     expect(PULL_MS + COUNTER_LATE_MS).toBeLessThan(420);
     expect(TUG_MS).toBeLessThan(200);
+    // The player's window, on the clock of the phone that heard the pull; the room allows a round
+    // trip of up to 300 ms more on its own clock, the same for every counter.
+    expect(COUNTER_LAG_MS).toBeGreaterThanOrEqual(300);
+    expect(COUNTER_WINDOW_MS).toBe(PULL_MS + COUNTER_LATE_MS + COUNTER_LAG_MS);
   });
 
   it("follow a pulled piece along its pull, eased as every page draws it", () => {
@@ -106,8 +112,8 @@ describe("the hook's counters, as numbers", () => {
   it("let a pull be countered while it is in the air and a moment after, once, if nothing has moved the piece since", () => {
     const piece = { rev: 3, pull: { by: 0, from: 500, to: 300, at: 1000, rev: 3, countered: false } };
     expect(counterable(piece, 1000)).toBe(true);
-    expect(counterable(piece, 1000 + PULL_MS + COUNTER_LATE_MS)).toBe(true);
-    expect(counterable(piece, 1000 + PULL_MS + COUNTER_LATE_MS + 1)).toBe(false);
+    expect(counterable(piece, 1000 + COUNTER_WINDOW_MS)).toBe(true);
+    expect(counterable(piece, 1000 + COUNTER_WINDOW_MS + 1)).toBe(false);
     expect(counterable({ ...piece, rev: 4 }, 1100)).toBe(false);
     expect(counterable({ ...piece, pull: { ...piece.pull, countered: true } }, 1100)).toBe(false);
   });
@@ -185,14 +191,17 @@ describe("ride the hook: a pawn being pulled kicks before it arrives", () => {
     expect(core.members[1].bumpAt).toBe(at + 120);
   });
 
-  it("counts a kick the room hears a moment after it arrived (the network), and not later", () => {
+  it("counts a kick the room hears a round trip after the player's window ended (the network), and not later", () => {
+    // A phone on a 300 ms round trip that kicked at the last moment it could: the room hears it
+    // PULL_MS + COUNTER_LATE_MS after the phone heard the pull, which was half a round trip after
+    // the room judged it, and the kick takes another half to arrive.
     const late = party(["Rob", "Pat"]);
     const { at } = pulled(late);
-    expect(late.bump(1, at + PULL_MS + COUNTER_LATE_MS)).toMatchObject({ ride: 1, to: 0 });
+    expect(late.bump(1, at + 150 + PULL_MS + COUNTER_LATE_MS + 150)).toMatchObject({ ride: 1, to: 0 });
     const later = party(["Rob", "Pat"]);
     const { at: at2 } = pulled(later);
     // Past the window it is a pawn that has just been pulled: still safe and getting up, and its kick goes nowhere.
-    expect(later.bump(1, at2 + PULL_MS + COUNTER_LATE_MS + 20)?.ride).toBeUndefined();
+    expect(later.bump(1, at2 + COUNTER_WINDOW_MS + 20)?.ride).toBeUndefined();
   });
 
   it("is a counter once: the pull answered, nothing more counters it, and a kick still cooling does not ride", () => {
@@ -227,6 +236,37 @@ describe("ride the hook: a pawn being pulled kicks before it arrives", () => {
     const { at } = pulled(core);
     core.endMoves(core.members[1], at + 30);
     expect(core.bump(1, at + 60)?.ride).toBeUndefined();
+    // Through the real switch: the host takes the party from the bar to the Star Lounge, whose
+    // boxes hang elsewhere, so every piece is carried across (setRoom, carryAcross).
+    const bar = new LobbyCore({ ...WALL, seed: 7, code: "BCDFGH", now: 1000 });
+    for (const name of ["Rob", "Pat"]) bar.connect(bar.join(name, 1000).token, 1000);
+    bar.room = "bar";
+    const { at: t } = pulled(bar);
+    expect(bar.setRoom(bar.hostToken, "ship", t + 30)).toMatchObject({ ok: true, moved: true });
+    expect(counterable(bar.members[1], t + 60)).toBe(false);
+    expect(bar.bump(1, t + 60)?.ride).toBeUndefined();
+  });
+
+  it("is the room's, not the socket's: a phone that drops and comes back mid-pull may still ride", () => {
+    const core = party(["Rob", "Pat"]);
+    const { at } = pulled(core);
+    const token = core.members[1].token;
+    core.disconnect(token, at + 40);
+    core.connect(token, at + 80);
+    expect(core.bump(1, at + 120)).toMatchObject({ ride: 1, to: 0 });
+  });
+
+  it("leaves nothing hanging when the pulled phone goes silent: it lands, the window closes, the robot is free", () => {
+    const core = party(["Rob", "Pat"]);
+    const { at } = pulled(core);
+    const pull = core.members[1].pull;
+    run(core, at, at + COUNTER_WINDOW_MS + 200);
+    expect(core.members[1].x).toBe(pull.to);
+    expect(counterable(core.members[1], at + COUNTER_WINDOW_MS + 200)).toBe(false);
+    expect(core.members[0].hook).toBeNull();
+    expect(core.members[0].stunUntil ?? 0).toBeLessThan(at);
+    // Its next kick, when it comes, is a plain one.
+    expect(core.bump(1, at + COUNTER_WINDOW_MS + 2000)?.ride).toBeUndefined();
   });
 });
 
@@ -248,7 +288,7 @@ describe("cannonball: a slime being pulled hardens in the air", () => {
     // After the window it has landed and stands: its harden is a plain one, no cannonball.
     const late = party(["Rob", "Sam"]);
     const { at: t } = pulled(late, "slime");
-    const plain = late.slime(1, "harden", t + PULL_MS + COUNTER_LATE_MS + 30);
+    const plain = late.slime(1, "harden", t + COUNTER_WINDOW_MS + 30);
     expect(plain).toMatchObject({ ok: true });
     expect(plain.relay.ct).toBeUndefined();
     expect(late.members[0].stunUntil ?? 0).toBeLessThan(t);
@@ -287,7 +327,7 @@ describe("the empty hook: a ghost being pulled fades", () => {
     const late = party(["Rob", "Gus"]);
     late.members[1].fadeAt = -Infinity;
     const { hk, at: t } = pulled(late, "ghost");
-    const plain = late.fade(1, t + PULL_MS + COUNTER_LATE_MS + 30);
+    const plain = late.fade(1, t + COUNTER_WINDOW_MS + 30);
     expect(plain).toMatchObject({ ok: true });
     expect(plain.relay.ct).toBeUndefined();
     expect(late.members[1].x).toBe(hk.x);
@@ -324,7 +364,35 @@ describe("cut the line: a pawn kicks the chain while a friend is pulled", () => 
     const { at: t } = pulled(behind);
     expect(behind.bump(2, t + 60)?.cut).toBeUndefined();
     const arrived = setup();
-    expect(arrived.core.bump(2, arrived.at + PULL_MS + 20)?.cut).toBeUndefined();
+    expect(arrived.core.bump(2, arrived.at + PULL_MS + COUNTER_LAG_MS + 20)?.cut).toBeUndefined();
+    // A kick made while the chain was in reach (60 ms into the pull) and heard a round trip later
+    // still cuts it, freeing them where the chain had them then.
+    const late = setup();
+    const pull = late.core.members[1].pull;
+    const cut = late.core.bump(2, late.at + 60 + COUNTER_LAG_MS - 20);
+    expect(cut).toMatchObject({ cut: 1 });
+    expect(Math.abs(cut.x - pullAt(pull, late.at + 60))).toBeLessThan(25);
+  });
+
+  it("keeps a robot's own hook flying from where it is when it is freed while hooking", () => {
+    // Ada (300) hooks Cy (520), who has just thrown his own hook to the right; Pat behind Ada cuts
+    // Ada's chain: Cy stumbles to a stand where he is, and his hook flies on from there (the review's
+    // probe: its origin stayed 95 units behind where every page draws him).
+    const core = party(["Ada", "Cy", "Pat"]);
+    be(core, 0, "robot");
+    be(core, 1, "robot");
+    place(core, 0, 300, 1500, 1);
+    place(core, 1, 520, 1500, 1);
+    place(core, 2, 250, 1500, 1);
+    core.hook(0, 2000);
+    core.hook(1, 2120);
+    let pullAt = null;
+    for (let t = 2000; t <= 2600 && pullAt === null; t += 5) for (const m of [...core.dueHooks(t), ...core.drainMoves()]) if (m.s === 0 && m.o === "pull") pullAt = t;
+    expect(pullAt).not.toBeNull();
+    const cy = core.members[1];
+    expect(core.bump(2, pullAt + 40, 1)).toMatchObject({ cut: 1 });
+    expect(cy.hook).not.toBeNull();
+    expect(Math.abs(cy.hook.x0 - cy.x)).toBeLessThan(1);
   });
 });
 
@@ -368,6 +436,91 @@ describe("steal: a robot hooks a piece another robot is pulling (the later hook 
     const out = run(core, 2000, 3200);
     expect(out.find((m) => m.s === 0)).toMatchObject({ o: "pull", to: 1 });
     expect(out.find((m) => m.s === 2 && m.o === "pull")).toBeUndefined();
+  });
+});
+
+describe("the hook's counters with every light on: nobody comes to rest in a light they never stood in", () => {
+  /** Eight lit boxes (narrow pools, every one lit), and seated players at 1000 ms. */
+  function lit(names) {
+    const boxes = Array.from({ length: 8 }, (_, i) => ({ ...boxFromManifest(coinFlipManifest, { test: true }), id: `coin-${i}` }));
+    const core = new LobbyCore({ boxes, games: new Map([["coin-flip", coinFlip]]), seed: 7, code: "BCDFGH", now: 1000 });
+    for (const name of names) core.connect(core.join(name, 1000).token, 1000);
+    return core;
+  }
+  /** Whether x stands in a lit pool other than `home`'s. */
+  const strayLight = (core, x, home) => {
+    const i = lightAt(x, core.landingWall());
+    return i !== -1 && core.litPlaces().includes(i) && i !== lightAt(home, core.landingWall());
+  };
+  const pool3 = () => wallOf(lit(["a"]).landingWall()).pools[3];
+
+  it("lands a stolen piece in the dark or its own light, never over the pool it was being pulled across", () => {
+    // Ada pulls Bo out of his pool, across pool 3 toward the dark; Cy, just past where Bo stood,
+    // takes him in the air over pool 3 (the review's case: Bo came to rest at 898, inside it).
+    const pool = pool3();
+    let steals = 0;
+    for (const cyAt of [962, 982, 1002, 1022]) {
+      for (let lag = 150; lag <= 400; lag += 10) {
+        const core = lit(["Ada", "Bo", "Cy"]);
+        be(core, 0, "robot");
+        be(core, 2, "robot");
+        const bo = Math.round(pool.x + pool.half + 40);
+        place(core, 0, Math.round(pool.x - pool.half - 100), 1500, 1);
+        place(core, 1, bo, 1500, -1);
+        place(core, 2, cyAt, 1500, -1);
+        core.hook(0, 2000);
+        core.hook(2, 2000 + lag);
+        const out = run(core, 2000, 3500);
+        const cy = out.find((m) => m.s === 2 && m.o !== "off");
+        if (cy?.st !== undefined) steals++;
+        expect(strayLight(core, core.members[1].x, bo), `Cy at ${cyAt}, ${lag} ms after Ada: Bo rests at ${core.members[1].x} (${JSON.stringify(out.filter((m) => m.o !== "off").map(({ s, o, x, st }) => ({ s, o, x, st })))})`).toBe(false);
+      }
+    }
+    expect(steals).toBeGreaterThan(0);
+  });
+
+  it("lands a freed (cut), slipped (empty hook) or riding piece in the dark or its own light", () => {
+    const pool = pool3();
+    const bo = Math.round(pool.x + pool.half + 40);
+    const robAt = Math.round(pool.x - pool.half - 100);
+    for (const what of ["cut", "empty hook", "ride"]) {
+      let countered = 0;
+      for (let dt = 20; dt <= PULL_MS; dt += 20) {
+        const core = lit(["Rob", "Bo", "Pat"]);
+        be(core, 0, "robot");
+        if (what === "empty hook") {
+          be(core, 1, "ghost");
+          core.members[1].fadeAt = -Infinity;
+        }
+        place(core, 0, robAt, 1500, 1);
+        place(core, 1, bo, 1500, -1);
+        // Pat (a pawn) just behind Rob, facing the chain, for the cut.
+        place(core, 2, robAt - 30, 1500, 1);
+        core.hook(0, 2000);
+        const { hk, at } = judged(core, 0, 2000);
+        expect(hk, what).toMatchObject({ o: "pull", to: 1 });
+        const out = what === "cut" ? core.bump(2, at + dt, 1) : what === "ride" ? core.bump(1, at + dt, -1) : core.fade(1, at + dt);
+        if (out?.cut !== undefined || out?.ride || out?.relay?.ct === "empty" || out?.ct === "empty") countered++;
+        run(core, at + dt, at + 2000);
+        expect(strayLight(core, core.members[1].x, bo), `${what} ${dt} ms into the pull: Bo rests at ${core.members[1].x}`).toBe(false);
+      }
+      expect(countered, what).toBeGreaterThan(0);
+    }
+  });
+
+  it("holds a tugged piece where it stands, which is its own place", () => {
+    const pool = pool3();
+    const core = lit(["Rob", "Bo", "Ada"]);
+    be(core, 0, "robot");
+    be(core, 2, "robot");
+    place(core, 0, Math.round(pool.x - 220), 1500, 1);
+    place(core, 1, Math.round(pool.x), 1500, -1);
+    place(core, 2, Math.round(pool.x + 220), 1500, -1);
+    core.hook(0, 2000);
+    core.hook(2, 2000);
+    const out = run(core, 2000, 3000);
+    expect(out.filter((m) => m.o === "tug")).toHaveLength(2);
+    expect(core.members[1].x).toBe(Math.round(pool.x));
   });
 });
 
@@ -563,5 +716,116 @@ describe("the hook's counters on the real room", () => {
     for (const [i, page] of [ws[0], ws[2], ws.screen].entries()) expect(since(page, before[i]).find((m) => m.t === "slime")).toMatchObject({ s: 2, ct: "cannon", to: 0 });
     expect(ctx.room.sockets.get(ws[0]).kept.piece).toMatchObject({ x: core.members[0].x, rev: core.members[0].rev });
     expect(posAt(core.members[0], Date.now())).toBeLessThan(300);
+  });
+
+  /** Places Rob (a robot) at 300 facing right, and the others where asked, then throws Rob's hook and waits for its word. */
+  async function hookAt(r, places) {
+    const { ctx, say, ws, core } = r;
+    await walkTo(say, ctx, ws[0], 0, 300);
+    say(ws[0], { t: "m", x: 300, d: 1, r: core.members[0].rev });
+    say(ws[0], { t: "m", x: 300, d: 0, r: core.members[0].rev });
+    for (const [seat, x, face] of places) {
+      await walkTo(say, ctx, ws[seat], seat, x);
+      say(ws[seat], { t: "m", x, d: face, r: core.members[seat].rev });
+      say(ws[seat], { t: "m", x, d: 0, r: core.members[seat].rev });
+    }
+    await settle();
+    const before = mark(ws[0], ws[1], ws[2], ws.screen);
+    say(ws[0], { t: "hook" });
+    await settle();
+    for (let i = 0; i < 200 && !since(ws.screen, before[3]).some((m) => m.t === "hk" && m.s === 0); i++) await vi.advanceTimersByTimeAsync(5);
+    return before;
+  }
+
+  it("tells every page of a cut: Pat kicks Rob's chain while Sam is pulled, and Sam is set down", async () => {
+    const r = await room();
+    const { say, ws } = r;
+    const before = await hookAt(r, [[2, 520, -1], [1, 545, -1]]);
+    expect(since(ws.screen, before[3]).find((m) => m.t === "hk" && m.s === 0)).toMatchObject({ o: "pull", to: 2 });
+    await vi.advanceTimersByTimeAsync(40);
+    say(ws[1], { t: "b", f: -1 });
+    await settle();
+    for (const [i, page] of [ws[0], ws[1], ws[2], ws.screen].entries()) expect(since(page, before[i]).find((m) => m.t === "b")).toMatchObject({ s: 1, to: -1, cut: 2, by: 0 });
+    expect(r.ctx.room.sockets.get(ws[2]).kept.piece).toMatchObject({ x: r.core.members[2].x, rev: r.core.members[2].rev });
+  });
+
+  it("tells every page of a plant, a tug and a steal between two robots", async () => {
+    // Plant: Sam becomes a robot and puts his legs up; Rob's hook meets him there.
+    {
+      const r = await room();
+      const { say, ws } = r;
+      say(ws[2], { t: "look", c: "robot" });
+      await settle();
+      await vi.advanceTimersByTimeAsync(LOOK_COOLDOWN_MS);
+      await walkTo(say, r.ctx, ws[2], 2, 520);
+      say(ws[2], { t: "stilts" });
+      await settle();
+      const before = await hookAt(r, [[1, ROOM.maxX - 10, -1]]);
+      expect(since(ws.screen, before[3]).find((m) => m.t === "hk" && m.s === 0)).toMatchObject({ o: "plant", to: 2 });
+      expect(r.ctx.room.sockets.get(ws[0]).kept.piece).toMatchObject({ x: r.core.members[0].x, rev: r.core.members[0].rev });
+    }
+    // Tug: Sam (a robot at 740) throws at the same moment as Rob; Pat at 520 between them.
+    {
+      const r = await room();
+      const { say, ws } = r;
+      say(ws[2], { t: "look", c: "robot" });
+      await settle();
+      await vi.advanceTimersByTimeAsync(LOOK_COOLDOWN_MS);
+      await walkTo(say, r.ctx, ws[2], 2, 740);
+      say(ws[2], { t: "m", x: 740, d: -1, r: r.core.members[2].rev });
+      say(ws[2], { t: "m", x: 740, d: 0, r: r.core.members[2].rev });
+      await walkTo(say, r.ctx, ws[0], 0, 300);
+      say(ws[0], { t: "m", x: 300, d: 1, r: r.core.members[0].rev });
+      say(ws[0], { t: "m", x: 300, d: 0, r: r.core.members[0].rev });
+      await walkTo(say, r.ctx, ws[1], 1, 520);
+      await settle();
+      const before = mark(ws.screen);
+      say(ws[0], { t: "hook" });
+      say(ws[2], { t: "hook" });
+      await settle();
+      for (let i = 0; i < 300 && since(ws.screen, before[0]).filter((m) => m.t === "hk").length < 2; i++) await vi.advanceTimersByTimeAsync(5);
+      const tugs = since(ws.screen, before[0]).filter((m) => m.t === "hk");
+      expect(tugs.map((m) => m.o)).toEqual(["tug", "tug"]);
+      expect(tugs.map((m) => m.s).sort()).toEqual([0, 2]);
+    }
+    // Steal: Sam (a robot at 680) throws 250 ms after Rob, and takes Pat out of the air.
+    {
+      const r = await room();
+      const { say, ws } = r;
+      say(ws[2], { t: "look", c: "robot" });
+      await settle();
+      await vi.advanceTimersByTimeAsync(LOOK_COOLDOWN_MS);
+      await walkTo(say, r.ctx, ws[2], 2, 680);
+      say(ws[2], { t: "m", x: 680, d: -1, r: r.core.members[2].rev });
+      say(ws[2], { t: "m", x: 680, d: 0, r: r.core.members[2].rev });
+      await walkTo(say, r.ctx, ws[0], 0, 300);
+      say(ws[0], { t: "m", x: 300, d: 1, r: r.core.members[0].rev });
+      say(ws[0], { t: "m", x: 300, d: 0, r: r.core.members[0].rev });
+      await walkTo(say, r.ctx, ws[1], 1, 520);
+      await settle();
+      const before = mark(ws.screen);
+      say(ws[0], { t: "hook" });
+      await vi.advanceTimersByTimeAsync(250);
+      say(ws[2], { t: "hook" });
+      await settle();
+      for (let i = 0; i < 300 && !since(ws.screen, before[0]).some((m) => m.t === "hk" && m.s === 2); i++) await vi.advanceTimersByTimeAsync(5);
+      expect(since(ws.screen, before[0]).find((m) => m.t === "hk" && m.s === 2)).toMatchObject({ o: "pull", to: 1, st: 0 });
+      expect(r.ctx.room.sockets.get(ws[1]).kept.piece).toMatchObject({ x: r.core.members[1].x, rev: r.core.members[1].rev });
+    }
+  });
+
+  it("lets no hand-written client counter a pull that is not its own: a kick from a pawn nobody pulled is a plain kick", async () => {
+    const r = await room();
+    const { say, ws } = r;
+    // Sam (the slime) is pulled; Pat, far off and nobody's catch, kicks (and says `c` and `ride` it is not owed).
+    const before = await hookAt(r, [[2, 520, -1], [1, ROOM.maxX - 10, -1]]);
+    expect(since(ws.screen, before[3]).find((m) => m.t === "hk" && m.s === 0)).toMatchObject({ o: "pull", to: 2 });
+    say(ws[1], { t: "b", f: -1, c: 1, ride: 1 });
+    await settle();
+    const kick = since(ws.screen, before[3]).find((m) => m.t === "b" && m.s === 1);
+    expect(kick).toMatchObject({ to: -1 });
+    expect(kick.ride).toBeUndefined();
+    expect(kick.c).toBeUndefined();
+    expect(r.core.members[0].stunUntil ?? 0).toBeLessThan(Date.now());
   });
 });
