@@ -8,8 +8,8 @@
 //     from somewhere else that a new build is out (below) asks it (`release?`).
 //   - When the two builds differ, /api/version says which one is live. Only when the room's build
 //     is the live one is the page the older side: at a safe point it reloads, and its saved
-//     session puts it straight back in its seat; otherwise it shows "New version ready, it will
-//     load after this round" and waits for the room's next word. When the page's own build is the
+//     session puts it straight back in its seat; otherwise it shows "New version ready after
+//     this round" and waits for the room's next word. When the page's own build is the
 //     live one, the room is the older side (a busy room keeps its old code for up to five minutes
 //     after a deploy, DEPLOY.md): the page waits and shows nothing, unless the room also speaks an
 //     older protocol than the page, when it shows the notice (it may not understand everything the
@@ -36,20 +36,22 @@ import { RELEASE } from "/release.js";
 
 /** The build this page is. */
 export const PAGE_RELEASE = RELEASE.id;
+// Every line is short enough to fit, whole, on one line of the bottom bar of a 390-pixel phone
+// held upright (about 36 characters): the bar cuts a longer one short.
 /** The one notice an older page shows while its room is busy. */
-export const NOTICE = "New version ready, it will load after this round";
+export const NOTICE = "New version ready after this round";
 /** An older page at a safe point that waits for something of its own (a sheet, the result card). */
-export const SOON_NOTICE = "New version ready, it will load in a moment";
+export const SOON_NOTICE = "New version ready in a moment";
 /** A page of a newer protocol than its room: the room has to take the new code first. */
-export const BEHIND_NOTICE = "New version ready, waiting for the room to catch up";
+export const BEHIND_NOTICE = "New version ready, room catching up";
 /** What a page that may not reload by itself shows at a safe point: the line is a button. */
 export const TAP_NOTICE = "New version, tap to load";
 /** A page that cannot come back to its seat after a reload (no session storage): it says so, and offers nothing. */
-export const STAY_NOTICE = "New version out: it loads the next time you join";
+export const STAY_NOTICE = "New version next time you join";
 /** A page the room let go for its protocol, on its way to the new version. */
 export const LOADING_NOTICE = "Loading the new version";
 /** A page the room let go that cannot come back to its seat: one tap, and it is honest about the seat. */
-export const REJOIN_NOTICE = "This page is out of date: tap to reload, then join again";
+export const REJOIN_NOTICE = "Out of date: tap, then join again";
 const RELOADED_KEY = "party:reloaded-for";
 /** How long a page waits for /api/version before it gives up and decides nothing. */
 const VERSION_TIMEOUT_MS = 4000;

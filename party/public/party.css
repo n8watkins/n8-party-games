@@ -127,7 +127,7 @@ p {
   color: var(--gold);
   font-weight: 700;
 }
-/* "New version ready, it will load after this round" (main.js, site/release-switch.js): one small
+/* "New version ready after this round" and the like (main.js, site/release-switch.js): one small
    line under the heading's line, in its place on the page like everything else. */
 .title .release-note {
   /* .title lays its parts into the bar's grid (display: contents): this takes a row of its own. */

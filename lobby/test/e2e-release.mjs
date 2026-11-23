@@ -23,7 +23,7 @@
 //     played, and it is safe once it is over; a page of an older protocol plays on and is let go
 //     only then.
 //   - The Table, in a game (Count to ten, turn-based: it outlives the restart): the phones show
-//     "New version ready, it will load after this round" and do not reload; when the host ends
+//     "New version ready after this round" and do not reload; when the host ends
 //     the game, each reloads once, back in its seat.
 //   - The front page and Hot Potato, shown again after a deploy (Hot Potato only on its start screen).
 //   - A rollback: the build before comes back, and the pages go back to it, once each.
@@ -51,10 +51,11 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const port = Number(opt("port", "9540"));
 const OUT = resolve(opt("out", "/tmp/party-games-release-test"));
 const base = `http://localhost:${port}`;
-const NOTICE = "New version ready, it will load after this round";
+// The lines site/release-switch.js shows (it imports /release.js, so this script cannot import it).
+const NOTICE = "New version ready after this round";
 const TAP_NOTICE = "New version, tap to load";
-const BEHIND_NOTICE = "New version ready, waiting for the room to catch up";
-const STAY_NOTICE = "New version out: it loads the next time you join";
+const BEHIND_NOTICE = "New version ready, room catching up";
+const STAY_NOTICE = "New version next time you join";
 const SESSION = "party-kit:session:/api/lobby";
 /** A build id no deploy makes: what a page "of another build" says it is, where a test needs one. */
 const FAKE = "0123456789ab";
@@ -274,7 +275,10 @@ try {
   async function pretend(page, { live: says = false } = {}) {
     await page.context().route(`${base}/release.js`, async (route) => {
       const res = await route.fetch();
-      await route.fulfill({ response: res, body: (await res.text()).replace(/"id":"[0-9a-f]{12}"/, `"id":"${FAKE}"`) });
+      // Never kept by the browser: with the real file's ETag, a reload after the test stops
+      // pretending would revalidate it, get a 304, and run this copy again.
+      const body = (await res.text()).replace(/"id":"[0-9a-f]{12}"/, `"id":"${FAKE}"`);
+      await route.fulfill({ status: 200, contentType: "text/javascript", headers: { "cache-control": "no-store" }, body });
     });
     if (says) await page.context().route(`${base}/api/version`, (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ ok: true, release: FAKE }) }));
   }
@@ -387,9 +391,9 @@ try {
       const bar = document.querySelector(".bar").getBoundingClientRect();
       const corner = [...document.querySelectorAll(".corner, .door-btn")].map((c) => c.getBoundingClientRect());
       const overlaps = (a, b) => a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
-      return { height: note.height, line: parseFloat(getComputedStyle(el).lineHeight), inBar: note.top >= bar.top - 1 && note.bottom <= bar.bottom + 1, clear: corner.every((c) => !overlaps(note, c)) };
+      return { height: note.height, line: parseFloat(getComputedStyle(el).lineHeight), whole: el.scrollWidth <= el.clientWidth, inBar: note.top >= bar.top - 1 && note.bottom <= bar.bottom + 1, clear: corner.every((c) => !overlaps(note, c)) };
     });
-    check(fit.inBar && fit.clear && fit.height <= fit.line + 2, `${size}: one line (${Math.round(fit.height)} px), inside the bar, clear of the corner's buttons`);
+    check(fit.inBar && fit.clear && fit.height <= fit.line + 2 && fit.whole, `${size}: one whole line (${Math.round(fit.height)} px${fit.whole ? "" : ", cut short"}), inside the bar, clear of the corner's buttons`);
   }
   const nia = newer[0][1];
   await nia.waitForTimeout(6000);

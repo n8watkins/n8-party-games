@@ -1708,7 +1708,7 @@ input {
   }
 }
 
-/* "New version ready, it will load after this round" (site/release-switch.js, Hud.release): one
+/* "New version ready after this round" and the like (site/release-switch.js, Hud.release): one
    more line of the bottom bar's words, a row of its own under them, never over the corner's
    buttons or the join code. One line always: a narrow bar cuts it short rather than wrap. */
 .status.has-release {

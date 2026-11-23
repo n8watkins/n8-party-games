@@ -162,7 +162,7 @@ export class Hud {
   }
 
   /**
-   * "New version ready, it will load after this round" (site/release-switch.js), as one more line
+   * "New version ready after this round" and the like (site/release-switch.js), as one more line
    * of the bottom bar's words, under the rest, so it never lies over the room's corner buttons or
    * the join code. With `tap` ("New version, tap to load") the line is a button that loads it.
    * `release(null)` takes it away. A game's view hides the player's bar, and the line with it.
