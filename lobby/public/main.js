@@ -56,13 +56,15 @@ const link = new PartyClient({ api: "/api/lobby", quietPing: { text: "ping", eve
 // An older page loads the new build at the room's next safe point, back in its seat (site/release-switch.js).
 // Not while one of this page's own sheets is open (the room picker, a piece being chosen), nor
 // while the last game's result card is up: a reloaded Floor does not show it again (only the
-// `end` message does), so the reload waits until it has had its moment. A big screen and a page
-// in fullscreen never reload by themselves: they offer "New version, tap to load".
+// `end` message does), so the reload waits until it has had its moment. A big screen never
+// reloads by itself (nobody may be near it): it offers "New version, tap to load". A player's
+// phone in full screen does reload (the owner's choice, 2026-11-23); it goes back into full
+// screen at the player's next tap (ScreenFit.backAfterReload).
 // The notice is a line of the bottom bar (Hud.release), kept here for a bar built later.
 let releaseNote = [null, null];
 watchRoomRelease(link, {
   canReload: () => !document.querySelector(".sheet-back, .card-back"),
-  auto: () => link.you?.role !== "screen" && !document.fullscreenElement,
+  auto: () => link.you?.role !== "screen",
   notice: (text, tap) => {
     releaseNote = [text, tap];
     hud?.release(text, tap);

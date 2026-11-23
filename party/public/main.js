@@ -30,11 +30,12 @@ const app = document.getElementById("app");
 const link = new PartyClient({ api: "/api/lobby", quietPing: { text: "ping", everyMs: KEEP_ALIVE_MS }, release: PAGE_RELEASE, protocol: testProtocol() ?? undefined });
 // An older page loads the new build at the room's next safe point, back in its seat (site/release-switch.js).
 // Not while a sheet of this page's own is open (leaving, ending a game): its question would be lost.
-// A big screen and a page in fullscreen never reload by themselves: they offer "New version, tap to load".
+// A big screen never reloads by itself (nobody may be near it): it offers "New version, tap to load".
+// A player's phone does, in full screen too (the owner's choice, 2026-11-23).
 let releaseNote = [null, null];
 watchRoomRelease(link, {
   canReload: () => !app.querySelector(".confirm-back"),
-  auto: () => link.you?.role !== "screen" && !document.fullscreenElement,
+  auto: () => link.you?.role !== "screen",
   notice: (text, tap) => {
     releaseNote = [text, tap ?? null];
     drawRelease();

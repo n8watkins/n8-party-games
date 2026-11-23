@@ -2,9 +2,9 @@
 // older side (the room's build is the live one) and the room is at a safe point, at most once per
 // build, a random moment of its party's spread later; it shows the notice while the room is busy,
 // and takes it away when the room is safe again or the builds agree; it waits whenever the room is
-// the older one or nobody can tell yet, and asks again later. A big screen, a page in fullscreen
-// and a page without session storage never reload by themselves: they offer the tap. A page of a
-// newer protocol than its room shows the notice and waits for the room. Outside a room it reloads
+// the older one or nobody can tell yet, and asks again later. A big screen never reloads by itself:
+// it offers the tap; a page without session storage says the new version comes next time it joins;
+// a page in full screen reloads like any other. A page of a newer protocol than its room shows the notice and waits for the room. Outside a room it reloads
 // only where its caller says nothing is lost.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
@@ -336,7 +336,17 @@ describe("a page in a room", () => {
     expect(p.reload).toHaveBeenCalledTimes(1);
   });
 
-  it("a big screen or a page in fullscreen never reloads by itself: the tap, at a safe point, and the tap loads", async () => {
+  it("by default a page reloads by itself, a page in full screen too (the owner's choice)", async () => {
+    vi.stubGlobal("document", { fullscreenElement: {} });
+    const handlers = new Map();
+    const reload = vi.fn();
+    watchRoomRelease({ on: (t, h) => handlers.set(t, h), room: null, helloProtocol: "2", askRelease: () => {} }, { notice: () => {}, live: async () => NEW, random: () => 0, storage: memory(), reload, visibility: null });
+    handlers.get("release")({ id: NEW, safe: true, protocol: "2" });
+    await wait(10);
+    expect(reload).toHaveBeenCalledTimes(1);
+  });
+
+  it("a big screen never reloads by itself: the tap, at a safe point, and the tap loads", async () => {
     const p = page({ auto: () => false });
     p.link.fire("release", { id: NEW, safe: false, protocol: "2" });
     await wait(SPREAD);

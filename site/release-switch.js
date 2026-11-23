@@ -15,9 +15,10 @@
 //     older protocol than the page, when it shows the notice (it may not understand everything the
 //     room says until the room has the new code too). When neither is live (a deploy still on its
 //     way round the world), it waits too, and asks /api/version again a little later.
-//   - A page that must not reload by itself (a big screen, nobody near it; a page in fullscreen,
-//     which a reload would leave) shows "New version, tap to load" at the safe point instead, and
-//     loads on the tap. A browser that keeps no session storage could not come back to its seat
+//   - A page that must not reload by itself (a big screen: nobody may be near it) shows "New
+//     version, tap to load" at the safe point instead, and loads on the tap. A player's phone in
+//     full screen does reload by itself (the owner's choice, 2026-11-23), and goes back into full
+//     screen at the player's next tap (lobby/public/screen-fit.js). A browser that keeps no session storage could not come back to its seat
 //     after a reload: it only says a new version loads the next time it joins.
 //   - A room that speaks a newer protocol closes an older page's socket with "update_required"
 //     (party-client.js): the page, which has no socket left, reloads into its seat with the same
@@ -168,8 +169,8 @@ export function withoutTestProtocol(href) {
  *   tapping the line does (it is then a button).
  * - `canReload()` is the page's own say: false while something on this page alone would be lost
  *   (a sheet being filled in). The reload waits for it.
- * - `auto()`: whether this page may reload by itself at all (false for a big screen or a page in
- *   fullscreen); without session storage it never does, and offers no tap either (decide, "stay").
+ * - `auto()`: whether this page may reload by itself at all (the room pages pass false for a big
+ *   screen); without session storage it never does, and offers no tap either (decide, "stay").
  * - `people()`: how many are in the room, for the spread of the reloads.
  * - `live`, `random`, `storage`, `reload`, `reloadClean`, `timers` and `visibility` stand in for the browser's in
  *   the tests.
@@ -178,7 +179,7 @@ export function watchRoomRelease(link, opts = {}) {
   const {
     notice = pill,
     canReload = () => true,
-    auto = () => !globalThis.document?.fullscreenElement,
+    auto = () => true,
     people = () => (link.room?.members?.length ?? 1) + (link.room?.screens ?? 0),
     live = liveRelease,
     random = Math.random,
@@ -293,7 +294,7 @@ export function watchRoomRelease(link, opts = {}) {
   link.on("release", onRelease);
   // A room of a newer protocol let this page go (it lets every such page go in the same moment).
   // The page has no socket any more, so the only way back is a reload, and it takes it by itself,
-  // a big screen and a fullscreen page too, but with the same guards as any reload: a random
+  // a big screen too, but with the same guards as any reload: a random
   // moment of the party's spread, after its own sheet or result card, and once per room build,
   // under the same key as every other reload (so no two paths can take turns reloading). A page
   // that cannot come back to its seat (no session storage) says so and reloads only on a tap.

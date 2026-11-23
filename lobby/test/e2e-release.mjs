@@ -10,8 +10,9 @@
 //
 //   - The Floor, in the lobby: two phones are older; it is a safe point, so each reloads once,
 //     by itself, back in its own seat, asking /api/ no more than a reload may
-//     (site/test/release-budget.js). A big screen and a phone in fullscreen do not reload by
-//     themselves: each shows "New version, tap to load" in its bottom bar, and the tap loads it.
+//     (site/test/release-budget.js). A phone in full screen reloads by itself too, and its next
+//     tap takes it back into full screen. A big screen does not reload by itself: it shows "New
+//     version, tap to load" in its bottom bar, and the tap loads it.
 //   - Protocol, the newer side: a page of a newer protocol than its room, whose own build
 //     /api/version calls live, shows the notice in the bottom bar, is never let go and never
 //     reloads; stills of it in both looks and at every size. Once the room's build is the live
@@ -297,7 +298,7 @@ try {
   }
 
   // ================================================================ the Floor, in the lobby
-  section("the Floor in the lobby: phones reload by themselves; a big screen and a fullscreen phone offer the tap");
+  section("the Floor in the lobby: phones reload by themselves, one in full screen too; a big screen offers the tap");
   const ann = await open("Ann");
   await ann.goto(`${base}/lobby/?start&look=flat`);
   await ann.fill("input[name=nickname]", "Ann");
@@ -321,22 +322,24 @@ try {
 
   const second = await deploy("s2");
   console.log(`     deployed: ${first} -> ${second}`);
-  for (const [name, page] of [["Ann", ann], ["Bo", bo]]) {
-    check(await reloadedInto(page, second, loads[name]), `${name}'s phone reloaded itself into the new build`);
+  for (const [name, page] of [["Ann", ann], ["Bo", bo], ["Fay (full screen)", fay]]) {
+    const key = name.split(" ")[0];
+    check(await reloadedInto(page, second, loads[key]), `${name}'s phone reloaded itself into the new build`);
     await page.waitForSelector(".bar", { timeout: 60_000 });
     const now = await sessionOf(page);
-    check(now?.token === seats[name].token && now?.seat === seats[name].seat, `${name} is back in the same seat (${seats[name].seat}) with the same session`);
+    check(now?.token === seats[key].token && now?.seat === seats[key].seat, `${name} is back in the same seat (${seats[key].seat}) with the same session`);
     check(!(await page.evaluate(() => sessionStorage.getItem("e2e:saw-release-line"))), `${name} never saw the notice, before or after the reload: the lobby is a safe point`);
   }
-  for (const [name, page] of [["the big screen", tv], ["Fay (fullscreen)", fay]]) {
-    check(await waitBarNote(page, TAP_NOTICE), `${name} shows "${TAP_NOTICE}"`);
-    check((await barNote(page))?.tap === true, `${name}'s line is a button`);
-  }
+  // The reload took Fay's phone out of full screen; her next tap anywhere takes it back in.
+  check(!(await fay.evaluate(() => !!document.fullscreenElement)), "the reload took Fay's phone out of full screen");
+  await fay.tap(".bar .status");
+  check(await fay.waitForFunction(() => !!document.fullscreenElement, null, { timeout: 5000 }).then(() => true, () => false), "and her next tap took it back into full screen");
+  check(await waitBarNote(tv, TAP_NOTICE), `the big screen shows "${TAP_NOTICE}"`);
+  check((await barNote(tv))?.tap === true, "the big screen's line is a button");
   await tv.screenshot({ path: join(shots, "release-tap-screen-1280x720.png") });
-  await fay.screenshot({ path: join(shots, "release-tap-fullscreen-844x390.png") });
   await ann.waitForTimeout(4000);
-  check(tv.loads === loads.TV && fay.loads === loads.Fay, "neither the big screen nor the fullscreen phone reloaded by itself");
-  check(ann.loads === loads.Ann + 1 && bo.loads === loads.Bo + 1, `each phone reloaded exactly once (Ann ${ann.loads - loads.Ann}, Bo ${bo.loads - loads.Bo})`);
+  check(tv.loads === loads.TV, "the big screen did not reload by itself");
+  check(ann.loads === loads.Ann + 1 && bo.loads === loads.Bo + 1 && fay.loads === loads.Fay + 1, `each phone reloaded exactly once (Ann ${ann.loads - loads.Ann}, Bo ${bo.loads - loads.Bo}, Fay ${fay.loads - loads.Fay})`);
   for (const [name, page] of [["Ann", ann], ["Bo", bo]]) {
     const asked = apiSinceNav(page);
     check(asked.length <= API_REQUESTS_PER_RELOAD, `${name}'s reload asked /api/ ${asked.length} time(s), within the ${API_REQUESTS_PER_RELOAD} a reload may (${asked.map((r) => new URL(r.url).pathname).join(", ")})`);
@@ -346,9 +349,6 @@ try {
   check(await reloadedInto(tv, second, loads.TV), "the tap on the big screen loads the new build");
   await tv.waitForSelector(".bar", { timeout: 60_000 });
   check((await sessionOf(tv))?.token === seats.TV.token, "and the big screen is back as the party's screen");
-  await fay.tap(".status-release > span");
-  check(await reloadedInto(fay, second, loads.Fay), "the tap on the fullscreen phone loads the new build");
-  check((await sessionOf(fay))?.token === seats.Fay.token, "and Fay is back in her seat");
   await tv.context().close();
   await fay.context().close();
 
