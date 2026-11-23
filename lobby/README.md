@@ -477,12 +477,15 @@ Only the pawn kicks: the robot's move button is Hook and its jump button its sti
 From character preview round three, "Pawn charged kick" and "Speeds" (the rules are `shared/bump.js` and `shared/world.js`).
 
 - **The charged kick**: the pawn's kick goes off when its button comes up.
-  Held past 180 ms it is a charge: the page says `{t: "kc"}`, the pawn stands still, drawn up and back and glowing warmer the longer it holds (the glow shows with less motion too), and everybody hears `{t: "kc", s, f, x}`.
-  Let go, it is `{t: "b", c: 1}`: the room times the hold by its own clock from the `kc` it heard, so a page cannot make its kick harder than it held it, and a release with no charge the room took is a tap.
-  Full power after about a second (`chargePower`); a charge is held at most 2.5 s, then the page lets it go by itself and the room forgets one it hears no release of (no wake-up of its own).
+  Held past 180 ms it is a charge: the page says `{t: "kc", f}`, the pawn stands still, drawn up and back and glowing warmer the longer it holds (the glow shows with less motion too), and everybody hears `{t: "kc", s, f, x}`.
+  Let go, it is `{t: "b", f, c: 1}`: the room times the hold by its own clock from the `kc` it heard (counting the 180 ms an honest page waits before it sends one), so a page cannot make its kick harder than it held it, and a release with no charge the room took is a tap.
+  The one thing a page decides is when it sends `kc`: a hand-written one that sends it at the press instead of 180 ms later gains those 180 ms (full power after about 0.82 s of holding instead of 1 s, and the shortest dash with no hold at all).
+  That bound is accepted: it is never more than 180 ms, never more than full power, and never more often (the kick's cooldown holds), and closing it would make every honest charge 180 ms weaker.
+  Full power after about a second (`chargePower`); a page lets a charge go by itself after 2.5 s, and the room forgets one it hears no release of after 2.65 s (`CHARGE_HOLD_MS` and `COOLDOWN_SLACK_MS`; no wake-up of its own).
   The pawn dashes 40 to 150 units on the release (never into a light it does not stand in), stopping at the piece it reaches, and kicks it up to 70% further than a kick throws: `{t: "b", s, f, to, c, kx, kr, x, rev}` (`kx`, `kr`: where the dash put the pawn).
   Punished harder: off a hardened slime it is thrown back up to twice as far and lies down up to 0.5 s longer (`ke`); through a faded ghost it is frozen 0.6 s longer (`fright` "bigscare").
-  The charge is lost when the pawn walks, is knocked, pulled, shoved or spooked, drops, or the party leaves the room; its release is then a plain kick, if it is up.
+  The charge is lost when the pawn walks, is knocked, pulled, shoved or spooked, drops, becomes another character, or the party leaves the room, and when its page says it stands more than 4 units from where the charge stopped it; its release is then a plain kick, if it is up.
+  The page lets its own charge go in the same cases (a room switch, a respawn or a correction moving its piece, a drop, another character), so it never draws a dash the room did not make.
 - **Speeds**: the pawn walks at 110% of the old speed, the robot at 100%, the ghost at 95% and the slime at 80% (`SPEED_SHARE`); the pawn jumps highest (136 units, the others 110).
 - **The floaty ghost**: slow to stop and to turn. Its speed changes evenly over 260 ms (twice that to turn), so it drifts about 50 units on when it stops.
   A ghost's page says how fast it still goes (`v`) when it stops or turns, and the room, its relay and the room view carry it so every page and the room work out the same place (`posAt`, `velAt`).
