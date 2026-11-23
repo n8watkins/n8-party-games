@@ -354,6 +354,42 @@ describe("a test run's short race", () => {
     testGame.input(late, 0, { short: 1 }, START + (T.COUNT_IN + 1) * 1000);
     expect(rules.lapsOf(late)).toBe(T.LAPS);
   });
+
+  it("the test wall's game says, on a hand-over for silence, how long it had heard nothing and when it last looked; production's says neither", () => {
+    // Ann's page says it is there until the race is 2 s old, then stalls with its socket open. The room looks every
+    // 33 ms, then a busy machine makes one look 700 ms late: the car still goes at the first look past NET.SILENT.
+    const run = (g, lateBy) => {
+      const st = g.create({ seed: 5, seats: SEATS1, now: START });
+      const stall = START + (T.COUNT_IN + 2) * 1000, a = [];
+      let now = START;
+      while (!a.length && now < stall + 5000) {
+        now += now >= stall + 900 && now < stall + 933 ? lateBy : 33;
+        if (now <= stall) g.input(st, 0, ALIVE, now);
+        a.push(...g.tick(st, now).filter((e) => e.k === "a"));
+      }
+      return a;
+    };
+    for (const lateBy of [33, 700]) {
+      const [e] = run(testGame, lateBy);
+      expect(e).toMatchObject({ k: "a", c: 0, on: 1 });
+      expect(e.quiet).toBeGreaterThan(NET.SILENT * 1000);
+      expect(e.quiet - e.gap).toBeLessThanOrEqual(NET.SILENT * 1000);
+      expect(e.gap).toBe(lateBy);
+    }
+    const [e] = run(game, 33);
+    expect(e).toMatchObject({ k: "a", c: 0, on: 1 });
+    expect(e).not.toHaveProperty("quiet");
+    expect(e).not.toHaveProperty("gap");
+    // A closed socket is not silence: the hand-over for it says neither, even on the test wall.
+    const st = testGame.create({ seed: 5, seats: SEATS1, now: START });
+    const at = START + (T.COUNT_IN + 2) * 1000;
+    testGame.input(st, 0, ALIVE, at);
+    testGame.tick(st, at);
+    testGame.bot(st, 0);
+    const [d] = testGame.tick(st, at + 33).filter((x) => x.k === "a");
+    expect(d).toMatchObject({ k: "a", c: 0, on: 1 });
+    expect(d).not.toHaveProperty("quiet");
+  });
 });
 
 describe("what a phone shows", () => {

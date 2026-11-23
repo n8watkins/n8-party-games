@@ -339,7 +339,7 @@ export function createLobbyRoom(wallFor, { release = null } = {}) {
           return;
         }
         case "b": {
-          const hit = player ? core.bump(entry.seat, now) : null;
+          const hit = player ? core.bump(entry.seat, now, msg.f) : null;
           if (!hit) {
             // Too soon: only the room knows for sure, so it tells that page how long is left.
             const wait = player ? core.bumpWait(entry.seat, now) : null;
@@ -618,7 +618,7 @@ export function createLobbyRoom(wallFor, { release = null } = {}) {
       if (entry.role !== "player") return;
       const core = this.core;
       const seat = entry.seat;
-      const out = msg.t === "hook" ? core.hook(seat, now) : msg.t === "stilts" ? core.stilts(seat, now) : msg.t === "slime" ? core.slime(seat, msg.k, now) : core.shove(seat, msg.to, now);
+      const out = msg.t === "hook" ? core.hook(seat, now, msg.f) : msg.t === "stilts" ? core.stilts(seat, now) : msg.t === "slime" ? core.slime(seat, msg.k, now) : core.shove(seat, msg.to, now);
       if (!out.ok) {
         // A shove the room did not take is only a slime walking by: nothing is said.
         if (msg.t !== "shove") this.send(entry, { t: `${msg.t}-no`, why: out.why, ...(out.wait ? { wait: Math.ceil(out.wait) } : {}), ...(msg.t === "slime" ? { k: msg.k === "absorb" ? "absorb" : "harden" } : {}) });

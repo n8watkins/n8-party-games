@@ -18,6 +18,7 @@
 //   harden          Sam taps Harden and Pat's kick bounces off; every phone draws the gem
 //   absorb          Sam holds Harden (goes soft) and Rob's hook sticks: Rob is dragged to Sam
 //   shove           Sam walks into Pat and shoves him along
+//   a quick turn    Pat walks left and taps right in one burst of keys: his kick goes right
 //   a reload        a phone reloaded while Rob's legs are up, and Sam's own phone reloaded while
 //                   it is soft, draw them so
 import { LOOK_COOLDOWN_MS } from "../shared/characters.js";
@@ -310,15 +311,22 @@ try {
 
     /** Walks a phone's piece (by its keys) to x, as the room has it, then faces `face`. */
     const walkTo = async (page, s, x, face = 0, near = 14) => {
-      for (let i = 0; i < 16; i++) {
-        const gap = x - (await where())[s].x;
-        if (Math.abs(gap) < near) break;
+      // Sixteen walks that moved it, as before. A walk that moved nothing is not counted (a page still
+      // loading its view on a busy machine takes no keys yet): it is tried again, for 45 s at most, and a
+      // piece that never got there fails here, by name, instead of in whatever the section checks next.
+      const giveUp = Date.now() + 45_000;
+      let gap = x - (await where())[s].x;
+      for (let walks = 0; walks < 16 && Math.abs(gap) >= near && Date.now() < giveUp; ) {
         const key = gap > 0 ? "ArrowRight" : "ArrowLeft";
         await page.keyboard.down(key);
         await sleep(Math.max(25, Math.min(900, ((Math.abs(gap) - near / 3) / 430) * 1000)));
         await page.keyboard.up(key);
         await sleep(260);
+        const left = x - (await where())[s].x;
+        if (left !== gap) walks++;
+        gap = left;
       }
+      if (Math.abs(gap) >= near) check(false, `setup: seat ${s}'s piece was walked to ${x} by its keys (it is ${Math.round(gap)} short)`);
       if (face) {
         // A tap the other way first would walk it off: a tap toward `face` turns it there, a step at most.
         // Held past the page's send gap (60 ms), so the turn reaches the room.
@@ -836,6 +844,42 @@ try {
     await sleep(900);
     const shoved = await drewDuring(rob, P, (h) => h.t === "shove" && h.to === P, 20, MOVED.shove.ms - 20, (f) => f[6] === "shove");
     seen(shoved.ok, `Rob's phone draws Pat shoved, upright (${shoved.story})`);
+
+    section(`${look}: Pat walks left, lets go and taps right in one burst of keys (a busy page), then kicks Sam ahead of him`);
+    // The walk's key-up is sent at once; the tap right, down and up together, comes inside the
+    // page's send gap (60 ms), so its own walk is never sent: the room still had Pat facing left
+    // and kicked that way. Now the page's facing travels with its word and its kick.
+    await rested(S, P);
+    await walkTo(sam, S, 1080);
+    await walkTo(pat, P, 1040);
+    await settled(S, P);
+    await pat.evaluate(
+      () =>
+        new Promise((done) => {
+          const key = (type, k) => document.body.dispatchEvent(new KeyboardEvent(type, { key: k, code: k, bubbles: true }));
+          key("keydown", "ArrowLeft");
+          setTimeout(() => {
+            key("keyup", "ArrowLeft");
+            key("keydown", "ArrowRight");
+            key("keyup", "ArrowRight");
+            done();
+          }, 100);
+        }),
+    );
+    at = await settled(S, P);
+    const turned = await pat.evaluate((p) => globalThis.__partyRoom?.view?.pieces?.get(p)?.face ?? null, P);
+    const ahead = at[S].x - at[P].x;
+    mark = ada.seen.length;
+    await pat.keyboard.press("KeyX");
+    const turnKick = await after((m) => m.t === "b" && m.s === P, 3000, mark);
+    // Sam must be within a kick's reach ahead (the walk left ran on the page's own timer: a starved page walks further).
+    const inReach = ahead > 0 && ahead < 120;
+    // Wherever Sam ended up: the page turned right, and the room kicked right.
+    check(turned === 1 && turnKick?.f === 1, `Pat's page faces right after the tap (${turned}), and the room kicks that way (${JSON.stringify(turnKick && { f: turnKick.f })})`);
+    (inReach ? check : (ok, what) => seen(null, what))(
+      turnKick?.to === S,
+      `... and Sam, ${Math.round(ahead)} ahead, is knocked (${JSON.stringify(turnKick && { f: turnKick.f, to: turnKick.to })})`,
+    );
 
     if (look === "3d") {
       // The host changes room, and Pat's phone takes long to load the next view: while it does,
