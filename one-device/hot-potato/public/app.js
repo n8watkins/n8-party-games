@@ -32,6 +32,7 @@ import { CATEGORIES, CATEGORY_IDS, DEFAULT_CATEGORY, dataUrl } from "./shared/ca
 import { buildIndex } from "./shared/logic.js";
 import { STAGE_BUZZ, BUZZ, createSounds } from "./sounds.js";
 import { MIC_WAIT_MS, Recognition, createListener, listenLang } from "./voice.js";
+import { reloadIfNewer, watchOutsideRelease } from "/release-switch.js";
 
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
@@ -143,7 +144,13 @@ const setScreen = (s) => {
     game.dataset.phase = s === "end" ? "over" : "idle";
   }
   renderHeat();
+  // Back on the start screen, before the next game: a newer build of the site loads now (site/release-switch.js).
+  if (s === "start") void reloadIfNewer({ canReload: onStart });
 };
+/** A new build of the site may load only on the start screen: nothing of a round is lost there. */
+const onStart = () => screen === "start";
+// Shown again on the start screen (the phone was put down): the same check.
+watchOutsideRelease({ canReload: onStart });
 
 /** The ground heats with the potato: calm, warm, hot, strain, critical, then boom once it burst. */
 const HEATS = ["calm", "warm", "hot", "strain", "critical", "boom"];

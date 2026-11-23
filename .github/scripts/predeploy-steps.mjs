@@ -2,6 +2,8 @@
 // run one after another: [what it is, the npm script, options?]. Each script takes --base=<local Worker>.
 // Options: `env`, the wrangler environment of a fresh Worker of the step's own ("" is production's
 // settings; without it the step shares the gate's "local" Worker when the steps run one after another).
+// `own`: the step starts (and restarts) a Worker of its own from builds of its own, never in
+// dist/public: the gate starts none for it and gives it a free port instead (--port=<port>).
 // Kept in a module of its own so a unit test can check the gate covers what it must
 // (lobby/test/predeploy-steps.test.js).
 export const STEPS = [
@@ -20,6 +22,7 @@ export const STEPS = [
   ["the characters' counters (the charged kick, the speeds, the hooks and touches on each other), a phone and a big screen in both looks, headless browser (test:counters)", "test:counters"],
   ["Who Am I? at the Table, three whole matches with every secret checked, headless browser (test:who-am-i)", "test:who-am-i"],
   ["Cork & Bell's test switches and high score board with the production settings, headless browser (test:cork:switches)", "test:cork:switches", { env: "" }],
+  ["a new build reaching the pages already open: deploys, a rollback, both protocols, on a Worker of its own, headless browser (test:release)", "test:release", { own: true }],
 ];
 
 /**
