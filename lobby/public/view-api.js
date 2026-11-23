@@ -4,10 +4,10 @@
 // this list, and main.js to calling nothing else.
 
 /** What the room said, heard while a view is up: a view that loads meanwhile is told it after (heard in order). */
-export const HEARD = ["setVote", "onMove", "onBump", "onFade", "onSpook", "onExpress", "onHook", "onHookVerdict", "onStilts", "onSlime", "onShove"];
+export const HEARD = ["setVote", "onMove", "onBump", "onCharge", "onFade", "onSpook", "onExpress", "onHook", "onHookVerdict", "onStilts", "onSlime", "onShove", "onTouch"];
 
 /** What this page's own player did at once, before the room answers: told to a view that loads meanwhile too. */
-export const OWN = ["ownJump", "ownBump", "ownHook", "ownStilts", "ownSlime", "ownRefused"];
+export const OWN = ["ownJump", "ownBump", "ownCharge", "ownRelease", "ownHook", "ownStilts", "ownSlime", "ownRefused"];
 
 /** The rest: drawing the room, and the view's own life. */
 export const OTHER = ["build", "setRoom", "setCompact", "frame", "destroy", "ownX"];

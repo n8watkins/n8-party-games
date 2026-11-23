@@ -472,6 +472,67 @@ Only the pawn kicks: the robot's move button is Hook and its jump button its sti
   Nine sounds made in code (`public/move-sounds.js`: no recordings), built only once a robot or a slime does anything; not judged by ear yet.
 - Tests: `test/robot-slime-moves.test.js` (the rules, the room's judgement, the real Durable Object) and `npm run test:moves` (`test/e2e-moves.mjs`: every move by the keys, as every phone draws it, flat and 3D).
 
+### The pawn's charged kick, and each character's speed
+
+From character preview round three, "Pawn charged kick" and "Speeds" (the rules are `shared/bump.js` and `shared/world.js`).
+
+- **The charged kick**: the pawn's kick goes off when its button comes up.
+  Held past 180 ms it is a charge: the page says `{t: "kc", f}`, the pawn stands still, drawn up and back and glowing warmer the longer it holds (the glow shows with less motion too), and everybody hears `{t: "kc", s, f, x}`.
+  Let go, it is `{t: "b", f, c: 1}`: the room times the hold by its own clock from the `kc` it heard (counting the 180 ms an honest page waits before it sends one), so a page cannot make its kick harder than it held it, and a release with no charge the room took is a tap.
+  The one thing a page decides is when it sends `kc`: a hand-written one that sends it at the press instead of 180 ms later gains those 180 ms (full power after about 0.82 s of holding instead of 1 s, and the shortest dash with no hold at all).
+  That bound is accepted: it is never more than 180 ms, never more than full power, and never more often (the kick's cooldown holds), and closing it would make every honest charge 180 ms weaker.
+  Full power after about a second (`chargePower`); a page lets a charge go by itself after 2.5 s, and the room forgets one it hears no release of after 2.65 s (`CHARGE_HOLD_MS` and `COOLDOWN_SLACK_MS`; no wake-up of its own).
+  The pawn dashes 40 to 150 units on the release (never into a light it does not stand in), stopping at the piece it reaches, and kicks it up to 70% further than a kick throws: `{t: "b", s, f, to, c, kx, kr, x, rev}` (`kx`, `kr`: where the dash put the pawn).
+  Punished harder: off a hardened slime it is thrown back up to twice as far and lies down up to 0.5 s longer (`ke`); through a faded ghost it is frozen 0.6 s longer (`fright` "bigscare").
+  The charge is lost when the pawn walks, is knocked, pulled, shoved or spooked, drops, becomes another character, or the party leaves the room, and when its page says it stands more than 4 units from where the charge stopped it; its release is then a plain kick, if it is up.
+  The page lets its own charge go in the same cases (a room switch, a respawn or a correction moving its piece, a drop, another character), so it never draws a dash the room did not make.
+- **Speeds**: the pawn walks at 110% of the old speed, the robot at 100%, the ghost at 95% and the slime at 80% (`SPEED_SHARE`); the pawn jumps highest (136 units, the others 110).
+- **The floaty ghost**: slow to stop and to turn. Its speed changes evenly over 260 ms (twice that to turn), so it drifts about 50 units on when it stops.
+  A ghost's page says how fast it still goes (`v`) when it stops or turns, and the room, its relay and the room view carry it so every page and the room work out the same place (`posAt`, `velAt`).
+  A faded ghost drifting to a stand still spooks what it drifts into, judged along the drift.
+- Tests: `test/charge-speeds.test.js` and `npm run test:counters` (`test/e2e-counters.mjs`: a phone and a big screen in both looks, one of them asking for less motion).
+
+### The hook's counters
+
+From character preview round three, "Counters" (the rules are `shared/robot.js`, judged in `LobbyCore`).
+Two limits hold for all of them: a counter can be countered once, and then it resolves; and the windows are about a third of a second.
+A pulled piece is "in the air" for its player from when their phone hears the pull until it arrives and 120 ms after (`COUNTER_LATE_MS`, 380 ms in all), and the room keeps the pull on it (`pull`: who, from, to, when, and where it last stood) to judge a counter by.
+The room hears a press a round trip after its pull, so on its own clock it allows one honest round trip of up to 300 ms more (`COUNTER_LAG_MS`; `counterable` and the cut): it has no measure of a phone's lag it can trust, so the allowance is the same for everybody.
+A phone slower than that has its last moment's counter refused, and its page takes the drawing back (a refused kick's `cd`, `slime-no`, `fade-no`).
+Nothing a counter moves comes to rest in a light it never stood in: a piece taken in the air (a steal) may only stay in the light it was pulled from.
+
+- **Plant**: a robot up on its legs as the hook lands holds its ground, and the thrower is dragged to it along its own chain: `hk` `o: "plant"`. Legs the room hears go up later than the hook landed count only within the hook's own network allowance (`HOOK_LATE_MS`, 100 ms); later ones do not.
+- **Ride the hook**: a pawn in the air kicks (`b`, its cooldown allowing): a flying kick knocks the robot over, away from it: `{t: "b", s, to: robot, ride: 1, x, rev}`. The pawn lands where it was pulled to.
+- **Cannonball**: a slime in the air hardens: it bowls the robot over: `{t: "slime", k: "harden", ct: "cannon", to, x, rev}`. Not an absorb.
+- **The empty hook**: a ghost in the air fades: it slips the hook where it is in the air (never in a light it was not in), and the robot is spooked away from it: `{t: "fade", ct: "empty", gx, grev, to, x, rev}`. Not during the count (no fade is).
+- **Cut the line**: a pawn's kick that sweeps across a chain someone else is being pulled along frees them where they are: `{t: "b", to: -1, cut, by, x, rev}`; the chain snaps back.
+  The chain is judged as the pawn's page drew it, up to a round trip before the room heard the kick, and the friend is freed where the chain had them then.
+  A kick in reach of both the chain and the robot pulling cuts the chain: helping the friend is the point of the counter (the preview's own words: "the only counter here that is about helping someone else").
+- **Steal**: a robot whose hook reaches a piece in the air on another robot's chain takes it (the owner's pick: the later hook wins), and the first robot's hook snaps back empty: `hk` `o: "pull"` with `st` (the robot it was taken from). A stolen pull is itself a counter: nothing counters it.
+- **Tug of war**: two hooks whose tips reach the same piece within 120 ms of each other (`TUG_MS`), and would both pull it: it stays where it is, stretched between the chains for half a second, and both cooldowns are spent (the owner's pick: nobody wins): `hk` `o: "tug"` from each robot. The room waits for the later hook's own allowance before judging either (one more wake-up).
+- A page in the air may still use its move (`Pilot.pulled`); every look draws each (`public/move-state.js`, the `freed` and `tug` frights in `shared/moves.js`).
+- Tests: `test/hook-counters.test.js` and `npm run test:counters`.
+
+### The touch counters
+
+From character preview round three, "Counters" (the rules are `shared/counters.js`, judged in `LobbyCore`).
+Each is judged by the room at the moment of the touch, as every touch is (the room's own look along the floor, `sweep`, holding a touch it only worked out for `TOUCH_GRACE_MS`), resolves once (nothing it moves starts another), and never puts a piece in a light it was not in.
+
+- **The curling stone**: a pawn's charged kick into a hardened slime sends the slime sliding along the floor as the kick lands (320 to 600 units, by the charge, slowing as it goes), and the pawn is still punished (thrown back, down longer).
+  The stone knocks the first piece in its way over as it reaches it (a voter out of its light), and slides on past it into the dark: the decided rule, as nothing the room moves comes to rest in another box's light.
+  Where that rest is pushed on past its distance to clear a light, it slides on (no cap: the wall bounds it), and the piece it knocks is reached when the slide every page draws over that whole way gets there.
+  The stone's harden ends as it sets off: nothing else starts on it until it is up again.
+  `{t: "b", ..., bo, cu: {s, x, rev}, cv: {to, x, rev, at}}` (`at`: ms from the kick).
+- **Dominoes**: a kicked piece that flies into another knocks it over too, a kick's distance on, as the flight reaches it: `{t: "b", ..., dm: {to, x, rev, at}}`. Once: the one it knocks over knocks nobody. It passes a piece that cannot be knocked (down or just up, a robot up on its legs, a faded ghost).
+- A hardened slime in the way of a domino or a stone stands, as it does against a kick: the piece that flies into it stops there, short of it (never in a light it did not stand in), and knocks nobody.
+- **Boo the stilts**: a faded ghost that drifts through a robot up on its legs topples it: a knock, its legs dropped: `{t: "spook", ..., tp: 1}`.
+- **The swallow**: a soft (absorbing) slime that touches a hardened one, either walking into the other, swallows it and spits it out past its own middle, on the far side from where it came in: `{t: "goo", k: "swallow", s: soft, to: hard, x, rev}`. Its absorb and the other's harden end.
+- **The stick**: two soft slimes that touch stick together, wobble, and come apart a slime's width apart: `{t: "goo", k: "stick", s, to, x, rev, ox, orev}`. Both absorbs end. Hard against hard does nothing.
+  A slime that goes hard or soft beside another meets it at once (`{t: "slime", ..., goo}`).
+  Neither starts on a slime that is down, just up or being moved by the room (a stone mid-slide), and a held touch whose walking slime the room has moved since (a knock or a hook inside the grace) is not applied on top of that move.
+- **Ghosts that meet**: two faded ghosts that drift into each other both pop solid where they are, with a little shock; each has its vote back: `{t: "pop", s, to, x, rev, ox, orev}`.
+- Tests: `test/touch-counters.test.js` and `npm run test:counters`.
+
 To add another character: write its emote rig, its flat drawing and its model, and add it to the three lists.
 A body without a pawn's shoulders can take the ghost's emotes fitted to it (`bodyRig` in `public/characters/body-rig.js`) instead of a rig of its own, as the slime and the robot do.
 The picker, the room's check, the wheel's pictures and every draw site pick it up from there.
@@ -528,7 +589,9 @@ The robot's two more draws are its head and its mast, which move apart from its 
 The slime is turned finer than the pawn (44 sides) so a lit room's lines of light run smoothly over its gloss.
 Four of any one character in the 3D bar held 60 frames a second, on the graphics card and in software, drawing in 0.6 to 1.0 ms a picture (a quiet PC, phone held sideways).
 Their own moves are above ("The robot's and the slime's moves").
-Not built yet, from character preview round three (approved, and the next lane's): plant, ride the hook, cannonball, empty hook, boo the stilts, cut the line, curling stone, dominoes, steal, tug of war, the slimes' swallow and stick, ghosts that meet; the pawn's charged kick; the speeds (pawn 110%, robot 100%, ghost 95%, slime 80%); the rule that pieces pass through each other except during a move.
+The pawn's charged kick and the speeds are above ("The pawn's charged kick, and each character's speed").
+The hook's counters and the touch counters are above.
+Not built yet, from character preview round three: the hook back, late (a swap), the later kick and hooked while hooking as rules of their own (the owner did not ask for them), and the rule that pieces pass through each other except during a move.
 
 ## Sound
 
@@ -567,7 +630,7 @@ None of it sends a message or sets a timer in the room: every sound comes from s
 The owner pays for the time a room's Durable Object is awake, and for requests (an incoming WebSocket message is a twentieth of one).
 So the room is built to be asleep, and to hear as little as it can.
 
-- **Each player's page moves its own piece, and says so only when something changes.** A message goes out when a piece changes direction, jumps, or steps into or out of a light that is on. Walking in a straight line sends nothing: movement has one speed and no acceleration, so everyone, the room included, carries a piece forward from where it was last heard of (`shared/world.js`, `posAt`).
+- **Each player's page moves its own piece, and says so only when something changes.** A message goes out when a piece changes direction, jumps, or steps into or out of a light that is on. Walking in a straight line sends nothing: each character walks at its own steady speed (only the ghost eases, by a rule everyone works out the same way), so everyone, the room included, carries a piece forward from where it was last heard of (`shared/world.js`, `posAt`).
 - **The room relays and judges only what must be fair.** It passes a move on to the others, works out who stands in which light, starts and stops the count, decides the toss, and decides who a bump lands on. It never trusts a position that could not have been reached, and corrects the page that sent it.
 - **Nothing ticks in the lobby.** There is no loop. Everything that depends on time (the count's end, the toss, a dropped phone's twelve seconds, closing) is the object's alarm, which lets it sleep in between.
 - **A bump is one event and no wake-up.** The room judges it the moment the message arrives. The knock, the safe time and the cooldown are three times written on a piece and looked at when the next message comes; nothing is scheduled for them, and a knocked piece sends nothing back.

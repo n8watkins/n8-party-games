@@ -19,7 +19,7 @@
 //   --shots=DIR     stills of each fright, in each look
 import { mkdirSync } from "node:fs";
 import { COLOUR_PRESETS, LOOK_COOLDOWN_MS } from "../shared/characters.js";
-import { SCARE_FREEZE_MS, SCARE_START_MS } from "../shared/ghost.js";
+import { SCARE_FREEZE_MS, SCARE_MS, SCARE_START_MS } from "../shared/ghost.js";
 import { MOVED, moved, movedPose } from "../shared/moves.js";
 import { ROOM } from "../shared/world.js";
 import { apart, meanColour, paintBox } from "./pixels.mjs";
@@ -361,17 +361,25 @@ try {
   ada.send({ t: "m", x: at[B].x - 60, d: 1, r: ada.rev });
   ada.send({ t: "m", x: at[B].x - 60, d: 0, r: ada.rev });
   await sleep(300);
+  // Cy's phone reloads first and holds back its first word to the room (holdHello) until Ada's
+  // kick has been heard: however long the reload takes on a busy machine (1.6 s on the card, longer
+  // than the scare lasts), the page arrives in the room in the middle of the scare.
+  await cy.evaluate(() => sessionStorage.setItem("holdHello", "1"));
+  const reloadAt = Date.now();
+  await cy.reload();
+  const loaded = Date.now() - reloadAt;
   check(!!(await fade(bea, B)), "Bea fades again");
   from = ada.seen.length;
   ada.send({ t: "b" });
   const scare = await ada.wait((m) => m.t === "b" && m.s === A, 2000, from).catch(() => null);
   check(scare?.sc === B, `Ada kicks her faded ghost and is scared (${JSON.stringify(scare && { to: scare.to, sc: scare.sc })})`);
-  const reloadAt = Date.now();
-  await cy.reload();
+  await cy.evaluate(() => window.__goHello?.());
   await drawn(cy);
-  const loaded = Date.now() - reloadAt;
-  const wide = await cy.waitForFunction((s) => window.scaredOn(s) > 0.5, A, { timeout: 1500, polling: 20 }).then(() => true, () => false);
-  check(wide, `Cy's phone, reloaded ${loaded} ms into it, draws Ada scared (wide eyes), not knocked over`);
+  const back = scare ? Date.now() - scare.at : null;
+  // (A page that still took longer to come back than the scare lasts has nothing left to draw: unseen.)
+  const left = scare ? SCARE_MS - back : 0;
+  const wide = left < 300 ? null : await cy.waitForFunction((s) => window.scaredOn(s) > 0.5, A, { timeout: Math.min(1500, left), polling: 20 }).then(() => true, () => false);
+  seenCheck(wide, `Cy's phone, reloaded (${loaded} ms) and back in the room ${back} ms into the scare, draws Ada scared (wide eyes), not knocked over`);
 
   // ================================================================ a reload mid-fade
   section("a ghost's page reloaded mid-fade still spooks for the rest of its fade");
@@ -496,7 +504,6 @@ try {
         ada.send({ t: "m", x: at[B].x - 60, d: 1, r: ada.rev });
         ada.send({ t: "m", x: at[B].x - 60, d: 0, r: ada.rev });
         await sleep(300);
-        check(!!(await fade(bea, B)), `Bea fades (Ada is a ${character})`);
         // The room's own address, as a reload does, with the look asked for again.
         const reload = () => page.goto(`${base}/lobby/?${look === "flat" ? "look=flat" : "look=3d&gl=any"}`);
         // Watched from the first frame the reloaded page draws (frightOnLoad), on its own clock,
@@ -506,6 +513,9 @@ try {
           sessionStorage.setItem("holdHello", "1");
         }, A);
         await reload();
+        // Bea fades once the page is reloading, not before: a reload can take longer than a fade
+        // lasts on a busy machine, and the hook must reach her faded.
+        check(!!(await fade(bea, B)), `Bea fades (Ada is a ${character})`);
         from = ada.seen.length;
         const scared = await goAt();
         // The scare began when the room's word on the hook came: now the page may speak.
@@ -547,6 +557,40 @@ try {
   // left standing there (Cy ended beside Eve after the reloads above) is caught by the hook first.
   await step(cy, C, ROOM.maxX, Math.ceil(((ROOM.maxX - (await where())[C].x) / 430) * 1000) + 300);
   await sleep(400);
+  // Both ghosts in the dark, so Ada stands in the dark beside each: a robot under a light votes
+  // there, and scared it loses its vote, so the light dims on it just as it goes pale. Read where
+  // its light was on (lit 0.99 before, 0.35 in the freeze), Violet, Teal and Cream came out too
+  // little paler, or darker ("185 to 172 from it"), one run in two. Two dark spots far enough
+  // apart that the hook, thrown right from 60 left of one, never meets the other first.
+  const dark = await eve.evaluate(
+    ([lo, hi]) => {
+      const r = window.__room3d;
+      const spots = [];
+      for (let x = lo; x <= hi; x += 10) if ([-130, -60, 0, 60].every((d) => r.lightAt(x + d) < 0.02)) spots.push(x);
+      return spots;
+    },
+    [ROOM.minX + 150, ROOM.maxX - 300],
+  );
+  // (The bar has one stretch of dark wide enough, about 1300 to 1510: one ghost at each end.)
+  const darkB = dark[0] ?? null;
+  const darkE = dark.length && dark.at(-1) >= darkB + 170 ? dark.at(-1) : null;
+  check(darkB !== null && darkE !== null, `two dark spots for the ghosts (${darkB}, ${darkE}; of ${dark.length})`);
+  /** Walks a ghost's page (by its keys) to about x as the room has it: a ghost drifts on as it stops. */
+  const walkNear = async (page, s, x) => {
+    for (let i = 0; i < 12; i++) {
+      const gap = x - (await where())[s].x;
+      if (Math.abs(gap) < 25) return;
+      await step(page, s, x, Math.max(40, Math.min(3000, (Math.abs(gap) / 410) * 1000 - 120)));
+      await sleep(700);
+    }
+  };
+  if (darkB !== null && darkE !== null) {
+    await walkNear(bea, B, darkB);
+    await walkNear(eve, E, darkE);
+    const placed = await where();
+    const litAt = await eve.evaluate((xs) => xs.map((x) => Math.round(window.__room3d.lightAt(x) * 100) / 100), [placed[B].x - 60, placed[E].x - 60]);
+    check(litAt.every((l) => l < 0.05), `Ada will stand in the dark beside each ghost (Bea at ${placed[B].x}, Eve at ${placed[E].x}; the light 60 left of each ${litAt.join(", ")})`);
+  }
   // Eve's page asks for less motion while the pictures are taken: the room's lamps and candles
   // flicker and its lightning flashes otherwise (look3d/rendered/bar/room.js), so two pictures a
   // second apart are lit differently, enough to hide a near-white paint's turn to the pale.

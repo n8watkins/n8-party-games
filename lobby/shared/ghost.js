@@ -173,6 +173,17 @@ const mix = (a, b, u) => a + (b - a) * u;
 
 /** A scare: the kick reaches the ghost at IMPACT_MS. A spook: at once, with no freeze. */
 export const SCARE = { lead: IMPACT_MS, freeze: SCARE_FREEZE_MS, run: SCARE_RUN_MS, hop: SCARE_HOP };
+/**
+ * A charged kick into a faded ghost is punished harder (round three, "Pawn charged kick"): a bigger
+ * start, frozen BIG_SCARE_FREEZE_MS longer, and a scurry as far as the charge would have thrown.
+ */
+export const BIG_SCARE_FREEZE_MS = 600;
+export const BIG_SCARE = { lead: IMPACT_MS, freeze: SCARE_FREEZE_MS + BIG_SCARE_FREEZE_MS, run: SCARE_RUN_MS, hop: SCARE_HOP * 1.3 };
+export const BIG_SCARE_MS = SCARE_MS + BIG_SCARE_FREEZE_MS;
+/** What the room writes on a pawn whose charged kick went into a faded ghost. */
+export function bigScared(now, immune) {
+  return { stunUntil: now + BIG_SCARE_MS, immuneUntil: now + BIG_SCARE_MS + immune, fright: "bigscare" };
+}
 export const SPOOK = { lead: 0, freeze: 0, run: SPOOK_RUN_MS, hop: SPOOK_HOP };
 
 /**

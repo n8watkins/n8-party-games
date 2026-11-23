@@ -141,7 +141,7 @@ describe("what is fair", () => {
 
   it("puts a knocked piece on the floor briefly and then keeps it safe for longer", () => {
     const piece = knocked(5000);
-    expect(piece).toEqual({ stunUntil: 5000 + STUN_MS, immuneUntil: 5000 + STUN_MS + IMMUNE_MS });
+    expect(piece).toEqual({ stunUntil: 5000 + STUN_MS, immuneUntil: 5000 + STUN_MS + IMMUNE_MS, knockExtra: 0 });
     expect(isDown(piece, 5000 + STUN_MS - 1)).toBe(true);
     expect(isDown(piece, 5000 + STUN_MS)).toBe(false);
     expect(isSafe(piece, 5000)).toBe(true);
@@ -267,7 +267,9 @@ describe("the knocked piece's states", () => {
     expect(knockState(STUN_MS + IMMUNE_MS - 1)).toBe("safe");
     expect(knockState(STUN_MS + IMMUNE_MS)).toBe("up");
     expect(knockState(STUN_MS, 0)).toBe("up");
-    expect(knockState(-1)).toBe("up");
+    // A knock still to come (a domino, a curling stone's target) stands until it does.
+    expect(knockState(-1)).toBe("standing");
+    expect(knockState(Number.NaN)).toBe("up");
   });
 
   it("is kicked low: its base is swept out from under it, it goes feet first, lands on its back and rights itself", () => {

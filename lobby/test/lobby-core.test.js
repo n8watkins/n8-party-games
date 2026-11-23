@@ -150,8 +150,9 @@ describe("moving", () => {
     const moved = core.move(0, { x: 200, d: 1, r: 0, j: 1 }, 1000);
     expect(moved.relay).toEqual({ t: "m", s: 0, x: 200, d: 1, j: 1 });
     expect(moved.fix).toBeNull();
-    // A second later the room knows where the piece has got to without being told.
-    expect(core.view(2000).members[0].x).toBe(630);
+    // A second later the room knows where the piece has got to without being told: a pawn walks at
+    // 110% of WALK_SPEED (shared/world.js, walkSpeed).
+    expect(core.view(2000).members[0].x).toBe(200 + 473);
   });
 
   it("corrects a piece that claims to be somewhere it could not have reached", () => {
@@ -320,9 +321,10 @@ describe("bumps", () => {
 
   it("never lets a player be kept on the floor: a knocked piece cannot be knocked again until it has been up a while", () => {
     const core = pair();
+    const first = core.bump(0, 2100);
+    // (Seated after the kick: by the door they would be in Bo's way, and a piece he flies into is knocked over too: dominoes.)
     seated(core, "Cy");
     seated(core, "Di");
-    const first = core.bump(0, 2100);
     // Two more players stand either side of where Bo landed, facing him, and bump as soon as they can.
     for (const [seat, side] of [
       [2, -1],

@@ -343,16 +343,36 @@ export function createLobbyRoom(wallFor, { release = null } = {}) {
         case "m": {
           const moved = player ? core.move(entry.seat, msg, now) : null;
           if (!moved) return;
-          this.broadcast(moved.relay, entry);
-          if (moved.fix) this.send(entry, moved.fix);
-          this.keep(entry);
+          // (A word sent before the phone heard the room move its piece only settles touches.)
+          if (moved.relay) {
+            this.broadcast(moved.relay, entry);
+            if (moved.fix) this.send(entry, moved.fix);
+            this.keep(entry);
+          }
           // Touches the room held for this piece that its word confirms (LobbyCore.settleTouches).
           if (moved.touches?.length) this.tellMoves(moved.touches);
           this.settle(now);
           return;
         }
+        case "kc": {
+          // A pawn holds its kick to charge it (lobby/shared/bump.js): everybody draws it winding up;
+          // a refusal goes to that page only, and one no real page sends counts against its socket.
+          if (!player) return;
+          const out = core.charge(entry.seat, now, msg.f);
+          if (!out.ok) {
+            this.send(entry, { t: "kc-no", why: out.why, ...(out.wait ? { wait: Math.ceil(out.wait) } : {}) });
+            if (out.bad && strike(entry.bucket, SOCKET_RATE, EAGER_STRIKE) === "close") this.kick(ws, entry);
+            return;
+          }
+          this.broadcast(out.relay);
+          // The room stopped the pawn where it charges: its socket carries the piece, and the vote
+          // and the room's wake-up are looked at again, as for any word that moves a piece.
+          this.keep(entry);
+          this.settle(now);
+          return;
+        }
         case "b": {
-          const hit = player ? core.bump(entry.seat, now, msg.f) : null;
+          const hit = player ? core.bump(entry.seat, now, msg.f, msg.c === 1) : null;
           if (!hit) {
             // Too soon: only the room knows for sure, so it tells that page how long is left.
             const wait = player ? core.bumpWait(entry.seat, now) : null;
@@ -365,6 +385,12 @@ export function createLobbyRoom(wallFor, { release = null } = {}) {
           if (hit.sc !== undefined) this.keep(entry);
           // A kick into a hardened slime bounced the kicker back (lobby/shared/slime.js): the room moved it too.
           if (hit.bo !== undefined) this.keep(entry);
+          // A charged kick dashed the kicker forward (lobby/shared/bump.js): moved by the room as well.
+          if (hit.kx !== undefined) this.keep(entry);
+          // A kick that cut a chain (lobby/shared/robot.js) set the piece on it down where it was.
+          if (hit.cut !== undefined) this.keepSeat(hit.cut);
+          // Dominoes and the curling stone (lobby/shared/counters.js) moved more pieces.
+          for (const seat of [hit.dm?.to, hit.cv?.to, hit.cu?.s]) if (Number.isInteger(seat)) this.keepSeat(seat);
           this.settle(now);
           return;
         }
@@ -616,8 +642,18 @@ export function createLobbyRoom(wallFor, { release = null } = {}) {
         return;
       }
       this.broadcast(out.relay);
-      if (out.relay.t === "spook") for (const other of this.sockets.values()) if (other.seat === out.relay.to) this.keep(other);
+      if (out.relay.t === "spook") this.keepSeat(out.relay.to);
+      // The empty hook (lobby/shared/robot.js): the ghost slipped its hook where it was, and the robot was spooked.
+      if (out.relay.ct === "empty") {
+        this.keep(entry);
+        if (Number.isInteger(out.relay.to)) this.keepSeat(out.relay.to);
+      }
       this.settle(now);
+    }
+
+    /** The socket of the piece in `seat` carries it as the room has it now (through a sleep). */
+    keepSeat(seat) {
+      for (const other of this.sockets.values()) if (other.seat === seat) this.keep(other);
     }
 
     /**
@@ -643,7 +679,11 @@ export function createLobbyRoom(wallFor, { release = null } = {}) {
       this.broadcast(out.relay);
       // The room stopped a robot to throw its hook, and moved a shoved piece: each socket carries its piece.
       if (out.relay.t === "hook") this.keep(entry);
-      if (out.relay.t === "shove") for (const other of this.sockets.values()) if (other.seat === out.relay.to) this.keep(other);
+      if (out.relay.t === "shove") this.keepSeat(out.relay.to);
+      // A cannonball (lobby/shared/robot.js) bowled the robot over.
+      if (out.relay.ct === "cannon") this.keepSeat(out.relay.to);
+      // Two slimes met as one hardened or went soft beside the other (lobby/shared/counters.js).
+      if (out.relay.goo) for (const s of [out.relay.goo.s, out.relay.goo.to]) this.keepSeat(s);
       this.settle(now);
     }
 

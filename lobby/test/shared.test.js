@@ -194,7 +194,8 @@ describe("what a player's page sends", () => {
   it("says so when it changes direction, jumps, or steps into or out of a light", () => {
     const { sent, p } = pilot(boxCentre(0, 5) - lightHalf(5) - 20);
     p.steer(1, 0);
-    for (let t = 16; t <= 600; t += 16) p.step(t);
+    // (A pawn, at its own speed: shared/world.js, walkSpeed.)
+    for (let t = 16; t <= 560; t += 16) p.step(t);
     // In at one edge of the first light and out at the other.
     expect(sent.map((m) => lightAt(m.x, 5))).toEqual([-1, 0, -1]);
     for (let t = 616; t <= 1000; t += 16) p.step(t);

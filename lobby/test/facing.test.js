@@ -37,7 +37,8 @@ function page(core) {
     send: (m) => {
       sent.push({ at: clock.now, ...m });
       if (m.t === "m") out.push(core.move(0, m, clock.now)?.relay);
-      else if (m.t === "b") out.push(core.bump(0, clock.now, m.f));
+      else if (m.t === "b") out.push(core.bump(0, clock.now, m.f, m.c === 1));
+      else if (m.t === "kc") out.push(core.charge(0, clock.now, m.f).relay);
       else if (m.t === "hook") out.push(core.hook(0, clock.now, m.f).relay);
     },
   });
@@ -155,5 +156,71 @@ describe("the room faces a piece the way its page does", () => {
     core.move(0, { x: 1000, d: -1, f: 1, r: m.rev }, 2000);
     expect(m.face).toBe(-1);
     expect(core.bump(0, 2010, 1)).toMatchObject({ f: -1 });
+  });
+});
+
+describe("the charged kick faces the way its page does", () => {
+  it("a pawn that walked left, tapped right in one burst and held its kick charges and kicks right: off the hardened slime ahead", () => {
+    const core = party();
+    be(core, 1, "slime");
+    place(core, 0, 1000, 1000);
+    place(core, 1, 900, 1000);
+    const p = page(core);
+    walkLeftThenTapRight(p);
+    for (let t = 2420; t <= 2600; t += 100) p.pilot.step(p.at(t));
+    const stood = core.members[0].x;
+    expect(p.pilot.charge(p.at(2700))).toBe(true);
+    expect(p.sent.at(-1)).toMatchObject({ t: "kc", f: 1 });
+    expect(p.out.at(-1)).toMatchObject({ t: "kc", s: 0, f: 1 });
+    core.slime(1, "harden", p.at(3200));
+    p.pilot.bump(p.at(3300));
+    expect(p.sent.at(-1)).toMatchObject({ t: "b", f: 1, c: 1 });
+    const kick = p.out.at(-1);
+    expect(kick).toMatchObject({ t: "b", s: 0, f: 1, to: -1, bo: 1 });
+    expect(kick.c).toBeGreaterThan(0);
+    expect(core.members[0].x).toBeLessThan(stood - 60);
+  });
+
+  it("a charge begun inside the send gap, before the turn went, says the turn first and winds up the way the page faces", () => {
+    const core = party();
+    place(core, 0, 1000, 1000);
+    place(core, 1, 1400, 1000);
+    const p = page(core);
+    walkLeftThenTapRight(p);
+    expect(p.pilot.charge(p.at(2420))).toBe(true);
+    const chargeAt = p.sent.findIndex((m) => m.t === "kc");
+    expect(p.sent[chargeAt - 1]).toMatchObject({ t: "m", d: 0, f: 1 });
+    expect(p.out.at(-1)).toMatchObject({ t: "kc", f: 1 });
+    expect(core.members[0].face).toBe(1);
+  });
+
+  it("a charge's own facing turns a standing piece, and its release kicks that way; an older page's charge keeps the room's", () => {
+    const core = party();
+    place(core, 0, 1000, 1000);
+    place(core, 1, 1060, 1000);
+    const m = core.members[0];
+    core.move(0, { x: 1000, d: -1, r: m.rev }, 2000);
+    core.move(0, { x: 1000, d: 0, r: m.rev }, 2000);
+    expect(m.face).toBe(-1);
+    expect(core.charge(0, 2300, 1)).toMatchObject({ ok: true, relay: { t: "kc", s: 0, f: 1 } });
+    expect(m.face).toBe(1);
+    expect(core.bump(0, 2900, 1, true)).toMatchObject({ t: "b", s: 0, f: 1, to: 1 });
+    // An older page: a charge and a release with no facing (or one that is not -1 or 1) leave the room's.
+    const old = party();
+    place(old, 0, 1000, 1000);
+    const o = old.members[0];
+    old.move(0, { x: 1000, d: -1, r: o.rev }, 2000);
+    old.move(0, { x: 1000, d: 0, r: o.rev }, 2000);
+    expect(old.charge(0, 2300)).toMatchObject({ ok: true, relay: { f: -1 } });
+    expect(old.bump(0, 2900, "1", true)).toMatchObject({ f: -1 });
+  });
+
+  it("a walking pawn charges the way the room has it walking: a facing that contradicts the walk is the room's call", () => {
+    const core = party();
+    place(core, 0, 1000, 1000);
+    const m = core.members[0];
+    core.move(0, { x: 1000, d: -1, f: 1, r: m.rev }, 2000);
+    expect(core.charge(0, 2010, 1)).toMatchObject({ ok: true, relay: { f: -1 } });
+    expect(m.face).toBe(-1);
   });
 });
