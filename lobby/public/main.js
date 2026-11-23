@@ -709,8 +709,13 @@ link.on("message", (msg) => {
         moved(msg.s, msg.x, msg.rev, "pull");
         moveSound(msg.o === "stuck" ? "slime-absorb" : "hook-catch", msg.to);
       } else if (msg.o === "tug") {
-        // Two hooks at once: held where it is (said by each robot's word: once is enough).
-        if (!(lastMoves.get(msg.to)?.t === now)) moved(msg.to, msg.x, msg.rev, "tug");
+        // Two hooks at once: held where it is. Each robot's word says it and once is enough (one
+        // buzz, one stand-still for the player's own piece): the second is known by the room's count
+        // of the piece's moves (`rev`, the same in both), since each word has its own time here.
+        if (lastMoves.get(msg.to)?.tug !== msg.rev) {
+          moved(msg.to, msg.x, msg.rev, "tug");
+          if (Number.isFinite(msg.x)) lastMoves.set(msg.to, { ...lastMoves.get(msg.to), tug: msg.rev });
+        }
         moveSound("hook-catch", msg.s);
       } else if (msg.o === "scare") {
         moved(msg.s, msg.x, msg.rev, "hookscare");

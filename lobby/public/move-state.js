@@ -247,8 +247,11 @@ export function heardVerdict(pieces, msg, now, { fright, spark }) {
     if (robbed?.hook) judgeHook(robbed, { o: "off" }, now, hookDrawn(robbed.hook, now, robbed.rx, null)?.tip);
   } else if (msg.o === "stuck" || msg.o === "plant") slide(r, msg.x, msg.rev, "pull");
   else if (msg.o === "tug") {
-    // Two hooks at once (shared/robot.js, tug): held where it is, stretched between them (told once by each robot's word).
-    if (hit && hit.fright?.kind !== "tug") slide(hit, msg.x, msg.rev, "tug");
+    // Two hooks at once (shared/robot.js, tug): held where it is, stretched between them. Each
+    // robot's word says it, and the first is enough: the second is known by the room's own count of
+    // the piece's moves (`rev`, the same in both), not by what is drawn, which a page that draws no
+    // frames (a hidden tab) never clears, so that a later tug would be passed over.
+    if (hit && !(hit.fright?.kind === "tug" && hit.rev === msg.rev)) slide(hit, msg.x, msg.rev, "tug");
   } else if (msg.o === "scare") {
     slide(r, msg.x, msg.rev, "hookscare");
     if (hit) hit.booAt = now;

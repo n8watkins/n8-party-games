@@ -831,6 +831,32 @@ describe("what a page does for the hook's counters", () => {
     }
   });
 
+  it("takes each tug once, from the first of its two words, and a later tug afresh on a page that drew no frame in between", () => {
+    const flat = BumpDraw.prototype;
+    const fx = { burst() {}, dust() {} };
+    for (const [look, fright, pose] of [
+      ["flat", (p, x, at, kind) => flat.fright.call(fx, p, x, at, kind), (p, now) => flat.pose.call(fx, p, now)],
+      ["3D", startFright, (p, now) => bumpPose(p, now)],
+    ]) {
+      const piece = (seat, x) => ({ seat, rx: x, face: 1, net: { x, d: 0, t: 0 }, rev: 0, hook: null });
+      const t = new Map([[0, piece(0, 300)], [1, piece(1, 520)], [2, piece(2, 740)]]);
+      let started = 0;
+      const drawing = { fright: (...a) => (started++, fright(...a)), knock() {}, spark() {} };
+      heardVerdict(t, { t: "hk", s: 0, to: 1, o: "tug", hx: 520, x: 520, rev: 2, with: 2 }, 3000, drawing);
+      // The other robot's word, a moment later on this page's clock: the same tug, not begun again.
+      heardVerdict(t, { t: "hk", s: 2, to: 1, o: "tug", hx: 520, x: 520, rev: 2, with: 0 }, 3004, drawing);
+      expect(started, look).toBe(1);
+      expect(t.get(1), look).toMatchObject({ rev: 2, net: { x: 520, t: 3000 }, fright: { kind: "tug", at: 3000 } });
+      // The page is hidden: no frame is drawn, so nothing clears the first tug's drawing. Much later
+      // the piece, somewhere else by then, is tugged again: this page has it where the room put it.
+      heardVerdict(t, { t: "hk", s: 0, to: 1, o: "tug", hx: 610, x: 610, rev: 5, with: 2 }, 12000, drawing);
+      heardVerdict(t, { t: "hk", s: 2, to: 1, o: "tug", hx: 610, x: 610, rev: 5, with: 0 }, 12003, drawing);
+      expect(started, look).toBe(2);
+      expect(t.get(1), look).toMatchObject({ rev: 5, net: { x: 610, t: 12000 }, fright: { kind: "tug", at: 12000 } });
+      expect(pose(t.get(1), 12000 + TUG_HOLD_MS / 2).sx, look).toBeGreaterThan(1.2);
+    }
+  });
+
   it("draws a pawn riding the hook kicking as it slides, in both looks", () => {
     const flat = BumpDraw.prototype;
     const fx = { burst() {}, dust() {} };
