@@ -91,7 +91,7 @@
     "sharp": "^0.35.5",
     "three": "^0.186.1",
     "tin-derby": "file:floor/games/tin-derby",
-    "vitest": "4.1",
+    "vitest": "5.1",
     "wrangler": "^4.157.0"
   },
   "allowScripts": {
