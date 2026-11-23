@@ -200,8 +200,10 @@ describe("ride the hook: a pawn being pulled kicks before it arrives", () => {
     expect(late.bump(1, at + 150 + PULL_MS + COUNTER_LATE_MS + 150)).toMatchObject({ ride: 1, to: 0 });
     const later = party(["Rob", "Pat"]);
     const { at: at2 } = pulled(later);
-    // Past the window it is a pawn that has just been pulled: still safe and getting up, and its kick goes nowhere.
-    expect(later.bump(1, at2 + COUNTER_WINDOW_MS + 20)?.ride).toBeUndefined();
+    // Past the window it is a pawn standing where it was pulled to: its kick is a plain one (at the robot beside it).
+    const plain = later.bump(1, at2 + COUNTER_WINDOW_MS + 20);
+    expect(plain).toMatchObject({ t: "b", s: 1, to: 0 });
+    expect(plain.ride).toBeUndefined();
   });
 
   it("is a counter once: the pull answered, nothing more counters it, and a kick still cooling does not ride", () => {
@@ -222,9 +224,11 @@ describe("ride the hook: a pawn being pulled kicks before it arrives", () => {
     be(core, 0, "robot");
     place(core, 0, 300, 1500, 1);
     place(core, 1, 520, 1500, -1);
-    // A lying phone that kicks as if pulled: nothing pulled it, so the kick is a plain one (out of reach here).
-    expect(core.bump(1, 2000)).toMatchObject({ to: -1 });
-    expect(core.bump(1, 2000)?.ride).toBeUndefined();
+    // A lying phone that kicks as if pulled: nothing pulled it, so the kick is a plain one, at the
+    // air (the robot is out of reach here): the whole of what the room says, with no ride in it.
+    expect(core.bump(1, 2000)).toEqual({ t: "b", s: 1, f: -1, to: -1 });
+    expect(core.members[0].stunUntil ?? 0).toBeLessThan(2000);
+    expect(core.members[0].x).toBe(300);
     const game = party(["Rob", "Pat"]);
     const { at } = pulled(game);
     game.startGame("coin-flip", at + 20);
@@ -235,7 +239,10 @@ describe("ride the hook: a pawn being pulled kicks before it arrives", () => {
     const core = party(["Rob", "Pat"]);
     const { at } = pulled(core);
     core.endMoves(core.members[1], at + 30);
-    expect(core.bump(1, at + 60)?.ride).toBeUndefined();
+    // Still off its feet, and with no pull to ride: no kick at all.
+    expect(core.members[1].pull).toBeNull();
+    expect(core.bump(1, at + 60)).toBeNull();
+    expect(core.members[0].stunUntil ?? 0).toBeLessThan(at);
     // Through the real switch: the host takes the party from the bar to the Star Lounge, whose
     // boxes hang elsewhere, so every piece is carried across (setRoom, carryAcross).
     const bar = new LobbyCore({ ...WALL, seed: 7, code: "BCDFGH", now: 1000 });
@@ -244,7 +251,9 @@ describe("ride the hook: a pawn being pulled kicks before it arrives", () => {
     const { at: t } = pulled(bar);
     expect(bar.setRoom(bar.hostToken, "ship", t + 30)).toMatchObject({ ok: true, moved: true });
     expect(counterable(bar.members[1], t + 60)).toBe(false);
-    expect(bar.bump(1, t + 60)?.ride).toBeUndefined();
+    expect(bar.members[1].pull).toBeNull();
+    expect(bar.bump(1, t + 60)).toBeNull();
+    expect(bar.members[0].stunUntil ?? 0).toBeLessThan(t);
   });
 
   it("is the room's, not the socket's: a phone that drops and comes back mid-pull may still ride", () => {
@@ -266,7 +275,9 @@ describe("ride the hook: a pawn being pulled kicks before it arrives", () => {
     expect(core.members[0].hook).toBeNull();
     expect(core.members[0].stunUntil ?? 0).toBeLessThan(at);
     // Its next kick, when it comes, is a plain one.
-    expect(core.bump(1, at + COUNTER_WINDOW_MS + 2000)?.ride).toBeUndefined();
+    const next = core.bump(1, at + COUNTER_WINDOW_MS + 2000);
+    expect(next).toMatchObject({ t: "b", s: 1 });
+    expect(next.ride).toBeUndefined();
   });
 });
 
@@ -433,16 +444,24 @@ describe("cut the line: a pawn kicks the chain while a friend is pulled", () => 
   });
 
   it("does nothing to a chain out of reach, behind the pawn, or once the piece has arrived", () => {
+    /** The kick went off (the room said so to everybody), and it cut nothing. */
+    const noCut = (b) => {
+      expect(b).toMatchObject({ t: "b", s: 2 });
+      expect(b.cut).toBeUndefined();
+    };
     const far = party(["Rob", "Bo", "Pat"]);
     place(far, 2, 900, 1400, -1);
     const { at } = pulled(far);
-    expect(far.bump(2, at + 60)?.cut).toBeUndefined();
+    noCut(far.bump(2, at + 60));
+    expect(far.members[1].pull).toMatchObject({ by: 0 });
     const behind = party(["Rob", "Bo", "Pat"]);
     place(behind, 2, 545, 1400, 1);
     const { at: t } = pulled(behind);
-    expect(behind.bump(2, t + 60)?.cut).toBeUndefined();
+    noCut(behind.bump(2, t + 60));
+    expect(behind.members[1].pull).toMatchObject({ by: 0 });
     const arrived = setup();
-    expect(arrived.core.bump(2, arrived.at + PULL_MS + COUNTER_LAG_MS + 20)?.cut).toBeUndefined();
+    noCut(arrived.core.bump(2, arrived.at + PULL_MS + COUNTER_LAG_MS + 20));
+    expect(arrived.core.members[1].fright).not.toBe("freed");
     // A kick made while the chain was in reach (60 ms into the pull) and heard a round trip later
     // still cuts it, freeing them where the chain had them then.
     const late = setup();
@@ -502,11 +521,53 @@ describe("steal: a robot hooks a piece another robot is pulling (the later hook 
   });
 
   it("is a counter itself: the stolen pull cannot be ridden, cut or stolen again", () => {
-    const core = setup(250);
-    const out = run(core, 2000, 3000);
-    const at = out.find((m) => m.s === 2).at;
-    expect(counterable(core.members[1], at + 50)).toBe(false);
-    expect(core.bump(1, at + 50)?.ride).toBeUndefined();
+    /**
+     * Ada has just stolen Bo from Rob, and Pat stands behind her, facing her chain. `open`: the
+     * same moment with the one fact taken away (the stolen pull not marked as a counter), to show
+     * that it is what refuses each of the three.
+     */
+    function stolen(open = false) {
+      const core = party(["Rob", "Bo", "Ada", "Pat"]);
+      be(core, 0, "robot");
+      be(core, 2, "robot");
+      place(core, 0, 300, 1500, 1);
+      place(core, 1, 520, 1500, -1);
+      place(core, 2, 680, 1500, -1);
+      place(core, 3, 720, 1500, -1);
+      core.hook(0, 2000);
+      core.hook(2, 2250);
+      const { hk, at } = judged(core, 2, 2000);
+      expect(hk).toMatchObject({ o: "pull", to: 1, st: 0 });
+      expect(core.members[1].pull).toMatchObject({ by: 2, countered: true });
+      if (open) core.members[1].pull.countered = false;
+      return { core, now: at + 50 };
+    }
+    // Ridden: Bo, a pawn in the air, kicks. He is off his feet and it is no ride, so nothing comes of it.
+    const ride = stolen();
+    expect(counterable(ride.core.members[1], ride.now)).toBe(false);
+    expect(ride.core.bump(1, ride.now)).toBeNull();
+    expect(ride.core.members[2].stunUntil ?? 0).toBeLessThan(ride.now);
+    const rideOpen = stolen(true);
+    expect(rideOpen.core.bump(1, rideOpen.now)).toMatchObject({ ride: 1, to: 2 });
+    // Cut: Pat's kick sweeps Ada's chain. It is a plain kick, which lands on Ada, and Bo flies on.
+    const cut = stolen();
+    const landing = cut.core.members[1].pull.to;
+    const kick = cut.core.bump(3, cut.now);
+    expect(kick).toMatchObject({ t: "b", s: 3, to: 2 });
+    expect(kick.cut).toBeUndefined();
+    expect(cut.core.members[1]).toMatchObject({ x: landing, fright: "pull", pull: { by: 2 } });
+    expect(stolen(true).core.bump(3, cut.now)).toMatchObject({ cut: 1, by: 2 });
+    // Stolen again: no other robot's hook may take him off Ada's chain, so he is not among what Rob's hook can catch.
+    const again = stolen();
+    const [bo, rob] = [again.core.members[1], again.core.members[0]];
+    expect(again.core.stealable(bo, rob, again.now)).toBe(false);
+    rob.hook = { at: again.now, x0: rob.x, dir: 1, past: [] };
+    expect(again.core.hookTargets(rob, again.now).map((o) => o.seat)).not.toContain(1);
+    const againOpen = stolen(true);
+    const robOpen = againOpen.core.members[0];
+    expect(againOpen.core.stealable(againOpen.core.members[1], robOpen, againOpen.now)).toBe(true);
+    robOpen.hook = { at: againOpen.now, x0: robOpen.x, dir: 1, past: [] };
+    expect(againOpen.core.hookTargets(robOpen, againOpen.now).map((o) => o.seat)).toContain(1);
   });
 
   it("lets a piece that has arrived be: a hook that reaches it after its pull passes over it", () => {
