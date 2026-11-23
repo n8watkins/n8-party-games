@@ -492,6 +492,27 @@ From character preview round three, "Pawn charged kick" and "Speeds" (the rules 
   A faded ghost drifting to a stand still spooks what it drifts into, judged along the drift.
 - Tests: `test/charge-speeds.test.js` and `npm run test:counters` (`test/e2e-counters.mjs`: a phone and a big screen in both looks, one of them asking for less motion).
 
+### The hook's counters
+
+From character preview round three, "Counters" (the rules are `shared/robot.js`, judged in `LobbyCore`).
+Two limits hold for all of them: a counter can be countered once, and then it resolves; and the windows are about a third of a second.
+A pulled piece is "in the air" for its player from when their phone hears the pull until it arrives and 120 ms after (`COUNTER_LATE_MS`, 380 ms in all), and the room keeps the pull on it (`pull`: who, from, to, when, and where it last stood) to judge a counter by.
+The room hears a press a round trip after its pull, so on its own clock it allows one honest round trip of up to 300 ms more (`COUNTER_LAG_MS`; `counterable` and the cut): it has no measure of a phone's lag it can trust, so the allowance is the same for everybody.
+A phone slower than that has its last moment's counter refused, and its page takes the drawing back (a refused kick's `cd`, `slime-no`, `fade-no`).
+Nothing a counter moves comes to rest in a light it never stood in: a piece taken in the air (a steal) may only stay in the light it was pulled from.
+
+- **Plant**: a robot up on its legs as the hook lands holds its ground, and the thrower is dragged to it along its own chain: `hk` `o: "plant"`. Legs the room hears go up later than the hook landed count only within the hook's own network allowance (`HOOK_LATE_MS`, 100 ms); later ones do not.
+- **Ride the hook**: a pawn in the air kicks (`b`, its cooldown allowing): a flying kick knocks the robot over, away from it: `{t: "b", s, to: robot, ride: 1, x, rev}`. The pawn lands where it was pulled to.
+- **Cannonball**: a slime in the air hardens: it bowls the robot over: `{t: "slime", k: "harden", ct: "cannon", to, x, rev}`. Not an absorb.
+- **The empty hook**: a ghost in the air fades: it slips the hook where it is in the air (never in a light it was not in), and the robot is spooked away from it: `{t: "fade", ct: "empty", gx, grev, to, x, rev}`. Not during the count (no fade is).
+- **Cut the line**: a pawn's kick that sweeps across a chain someone else is being pulled along frees them where they are: `{t: "b", to: -1, cut, by, x, rev}`; the chain snaps back.
+  The chain is judged as the pawn's page drew it, up to a round trip before the room heard the kick, and the friend is freed where the chain had them then.
+  A kick in reach of both the chain and the robot pulling cuts the chain: helping the friend is the point of the counter (the preview's own words: "the only counter here that is about helping someone else").
+- **Steal**: a robot whose hook reaches a piece in the air on another robot's chain takes it (the owner's pick: the later hook wins), and the first robot's hook snaps back empty: `hk` `o: "pull"` with `st` (the robot it was taken from). A stolen pull is itself a counter: nothing counters it.
+- **Tug of war**: two hooks whose tips reach the same piece within 120 ms of each other (`TUG_MS`), and would both pull it: it stays where it is, stretched between the chains for half a second, and both cooldowns are spent (the owner's pick: nobody wins): `hk` `o: "tug"` from each robot. The room waits for the later hook's own allowance before judging either (one more wake-up).
+- A page in the air may still use its move (`Pilot.pulled`); every look draws each (`public/move-state.js`, the `freed` and `tug` frights in `shared/moves.js`).
+- Tests: `test/hook-counters.test.js` and `npm run test:counters`.
+
 To add another character: write its emote rig, its flat drawing and its model, and add it to the three lists.
 A body without a pawn's shoulders can take the ghost's emotes fitted to it (`bodyRig` in `public/characters/body-rig.js`) instead of a rig of its own, as the slime and the robot do.
 The picker, the room's check, the wheel's pictures and every draw site pick it up from there.
@@ -549,7 +570,8 @@ The slime is turned finer than the pawn (44 sides) so a lit room's lines of ligh
 Four of any one character in the 3D bar held 60 frames a second, on the graphics card and in software, drawing in 0.6 to 1.0 ms a picture (a quiet PC, phone held sideways).
 Their own moves are above ("The robot's and the slime's moves").
 The pawn's charged kick and the speeds are above ("The pawn's charged kick, and each character's speed").
-Not built yet, from character preview round three (approved, and the next lanes'): plant, ride the hook, cannonball, empty hook, boo the stilts, cut the line, curling stone, dominoes, steal, tug of war, the slimes' swallow and stick, ghosts that meet; the rule that pieces pass through each other except during a move.
+The hook's counters are above ("The hook's counters").
+Not built yet, from character preview round three (approved, and the next lanes'): boo the stilts, curling stone, dominoes, the slimes' swallow and stick, ghosts that meet; the rule that pieces pass through each other except during a move.
 
 ## Sound
 

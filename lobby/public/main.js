@@ -28,7 +28,7 @@ import { BIG_SCARE_MS, BOO_EARLY_MS, FADE_MS, SCARE_MS, SPOOK_AGAIN_MS, SPOOK_MS
 import { moveOf } from "./shared/characters.js";
 import { defineGhostSounds } from "./ghost-sounds.js";
 import { defineMoveSounds } from "./move-sounds.js";
-import { HOOK_COOLDOWN_MS, HOOK_LIFE_MS, STILT_MS } from "./shared/robot.js";
+import { COUNTER_LATE_MS, HOOK_COOLDOWN_MS, HOOK_LIFE_MS, PULL_MS, STILT_MS } from "./shared/robot.js";
 import { HOLD_MS, SHOVE_AGAIN_MS, SHOVE_MS, SHOVE_REACH } from "./shared/slime.js";
 import { MOVED, slideLanding } from "./shared/moves.js";
 import { MOVE_COOLDOWN } from "./shared/pilot.js";
@@ -602,6 +602,13 @@ link.on("message", (msg) => {
         if (pilot && msg.s === link.you.seat) pilot.knock(msg.x, msg.rev, now, STUN_MS + (msg.ke ?? 0));
         setTimeout(() => moveSound("hook-clang", msg.bo), IMPACT_MS);
       }
+      // Cut the chain someone was pulled along (`cut`, shared/robot.js): they are set down where they were.
+      if (msg.cut !== undefined) {
+        lastMoves.set(msg.cut, { x: msg.x, d: 0, t: now });
+        noBoo(msg.cut, now + MOVED.freed.ms + MOVED.freed.safe);
+        if (pilot && msg.cut === link.you.seat) pilot.knock(msg.x, msg.rev, now, MOVED.freed.ms);
+        moveSound("hook-clang", msg.cut);
+      }
       feelBump(msg);
       // The swing (the viewer's own was heard when the button went down), and the blow when it lands.
       if (msg.s !== link.you.seat || !isPlayer()) roomSounds?.swung(msg.s);
@@ -629,6 +636,17 @@ link.on("message", (msg) => {
       scene.onFade(msg, now);
       if (msg.s === link.you.seat && isPlayer()) ownFade(msg.for, now);
       else if (msg.for > 0) ghostSound("ghost-fade", msg.s);
+      // The empty hook (`ct`, shared/robot.js): the ghost slipped its hook where it was, and the robot is spooked.
+      if (msg.ct === "empty") {
+        lastMoves.set(msg.s, { x: msg.gx, d: 0, t: now });
+        if (pilot && msg.s === link.you.seat) pilot.knock(msg.gx, msg.grev, now, MOVED.freed.ms);
+        if (Number.isInteger(msg.to)) {
+          lastMoves.set(msg.to, { x: msg.x, d: 0, t: now });
+          noBoo(msg.to, now + MOVED.spook.ms + MOVED.spook.safe);
+          if (pilot && msg.to === link.you.seat) pilot.knock(msg.x, msg.rev, now, MOVED.spook.ms);
+          ghostSound("ghost-boo", msg.to);
+        }
+      }
       break;
     case "fade-no":
       // The room turned down this device's fade: its word on the cooldown replaces this page's
@@ -671,22 +689,34 @@ link.on("message", (msg) => {
       // The throw is over: the robot may walk again.
       if (msg.s === mine && msg.o !== "jumped" && pilot) pilot.rootedUntil = -Infinity;
       // Whoever the room moved: their piece is where it put it, and still while it slides.
-      const moved = (seat, x, rev, kind) => {
+      // `flying`: pulled on a chain it may still answer with its move (shared/robot.js), until the
+      // pull is over and the network's allowance after it; not a pull that is itself a counter (a steal).
+      const moved = (seat, x, rev, kind, flying = false) => {
         if (!Number.isFinite(x)) return;
         lastMoves.set(seat, { x, d: 0, t: now });
         noBoo(seat, now + MOVED[kind].ms + MOVED[kind].safe);
         if (pilot && seat === mine) {
-          pilot.knock(x, rev, now, MOVED[kind].ms);
+          if (flying) pilot.pulled(x, rev, now, MOVED[kind].ms, now + PULL_MS + COUNTER_LATE_MS);
+          else pilot.knock(x, rev, now, MOVED[kind].ms);
           buzz(kind === "pull" ? [40, 30, 40] : 50);
         }
       };
       if (msg.o === "pull") {
-        moved(msg.to, msg.x, msg.rev, "pull");
-        if (msg.tr) moved(msg.tr.s, msg.tr.x, msg.tr.rev, "pull");
+        moved(msg.to, msg.x, msg.rev, "pull", msg.st === undefined);
+        if (msg.tr) moved(msg.tr.s, msg.tr.x, msg.tr.rev, "pull", true);
         moveSound("hook-catch", msg.s);
-      } else if (msg.o === "stuck") {
+      } else if (msg.o === "stuck" || msg.o === "plant") {
         moved(msg.s, msg.x, msg.rev, "pull");
-        moveSound("slime-absorb", msg.to);
+        moveSound(msg.o === "stuck" ? "slime-absorb" : "hook-catch", msg.to);
+      } else if (msg.o === "tug") {
+        // Two hooks at once: held where it is. Each robot's word says it and once is enough (one
+        // buzz, one stand-still for the player's own piece): the second is known by the room's count
+        // of the piece's moves (`rev`, the same in both), since each word has its own time here.
+        if (lastMoves.get(msg.to)?.tug !== msg.rev) {
+          moved(msg.to, msg.x, msg.rev, "tug");
+          if (Number.isFinite(msg.x)) lastMoves.set(msg.to, { ...lastMoves.get(msg.to), tug: msg.rev });
+        }
+        moveSound("hook-catch", msg.s);
       } else if (msg.o === "scare") {
         moved(msg.s, msg.x, msg.rev, "hookscare");
         ghostSound("ghost-boo", msg.to);
@@ -719,6 +749,13 @@ link.on("message", (msg) => {
       stirAt = now;
       scene.onSlime(msg, now);
       if (msg.s !== link.you?.seat || !isPlayer()) moveSound(msg.k === "absorb" ? "slime-absorb" : "slime-harden", msg.s);
+      // The cannonball (`ct`, shared/robot.js): a slime in the air on a chain hardened and bowled the robot over.
+      if (msg.ct === "cannon") {
+        lastMoves.set(msg.to, { x: msg.x, d: 0, t: now });
+        noBoo(msg.to, now + STUN_MS + IMMUNE_MS);
+        if (pilot && msg.to === link.you.seat) pilot.knock(msg.x, msg.rev, now);
+        moveSound("hook-clang", msg.to);
+      }
       break;
     case "slime-no":
       if (msg.k === "harden") {
@@ -740,8 +777,11 @@ link.on("message", (msg) => {
       moveSound("slime-shove", msg.to);
       break;
     case "cd":
-      // The room refused a bump: its word on how long is left replaces this page's guess.
+      // The room refused a bump: its word on how long is left replaces this page's guess, and the
+      // kick this page drew at the press is taken back (a ride the room heard too late, a press
+      // while it still cooled).
       pilot?.cool(msg.in, now);
+      if (isPlayer()) scene.ownRefused("kick", now);
       break;
     case "fix":
       if (pilot) placeOwn(msg.x, msg.rev, now);

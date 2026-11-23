@@ -109,6 +109,9 @@ export class BumpDraw {
       // Until the kick reaches the ghost the kicker's own kick is drawn (below), where it kicked.
       else if (pose.state === "standing") pin = f.from;
       else {
+        // Riding the hook (shared/robot.js): a pawn that kicks as it is pulled is drawn kicking as it slides.
+        const ride = f.kind === "pull" && p.attack && !p.attack.charging ? attackDrawn(p, now, calm()) : null;
+        if (ride) return { x, dx: ride.dx, lift: ride.lift, tilt: ride.tilt, pivot: ride.pivot, sx: ride.sx, sy: ride.sy, state: ride.state, dizzy: false, safe: false };
         if (pose.face) p.face = pose.face;
         return { x, dx: pose.dx, lift: pose.lift, tilt: pose.tilt, pivot: 0, sx: pose.sx, sy: pose.sy, state: pose.state, dizzy: !!pose.dizzy, safe: pose.state === "safe", scared: pose.scared, pale: pose.pale };
       }
