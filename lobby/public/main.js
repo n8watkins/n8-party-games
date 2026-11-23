@@ -456,7 +456,7 @@ function apply(next, at = performance.now()) {
       pilot.slimeCool(me.slimeCool ?? 0, voteAt);
       // In the middle of its own fade: it still drifts through pieces and boos until it ends.
       if (me.faded > 0) ownFade(me.faded, voteAt);
-    } else if (pilot.rev !== me.rev) pilot.place(me.x, me.rev, voteAt);
+    } else if (pilot.rev !== me.rev) placeOwn(me.x, me.rev, voteAt);
     tellLit(voteAt);
   }
   // The game is over, or this page missed its end and the next match is on (a drop across a
@@ -724,7 +724,7 @@ link.on("message", (msg) => {
       pilot?.cool(msg.in, now);
       break;
     case "fix":
-      pilot?.place(msg.x, msg.rev, now);
+      if (pilot) placeOwn(msg.x, msg.rev, now);
       break;
     case "e":
       stirAt = now;
@@ -962,6 +962,8 @@ link.on("end", (msg) => {
 
 link.on("status", (status) => {
   hud?.link(status === "reconnecting" ? "Reconnecting..." : "");
+  // A drop loses a charge being held: the room forgets it with the socket (LobbyCore.disconnect).
+  if (status === "reconnecting") dropOwnCharge(performance.now());
   // Back after a drop: the room stood the piece still, so say again where it is going.
   if (status === "open" && pilot) pilot.dirty = true;
   // An answer to a choice of piece lost with the drop never comes: a tap on it again is sent again.
@@ -1098,7 +1100,9 @@ function releaseKick() {
   kickPress = null;
   clearTimeout(chargeTimer);
   chargeTimer = null;
-  if (!pilot || ownMove() !== "kick") return;
+  // No longer a pawn (another character chosen while the button was held): no kick, and a charge
+  // still held is let go of, as the room let go of its own.
+  if (!pilot || ownMove() !== "kick") return void dropOwnCharge(now);
   const charged = pilot.chargeAt !== null;
   if (!pilot.bump(now)) return;
   if (!charged) return void roomSounds?.swung(link.you.seat);
@@ -1108,6 +1112,21 @@ function releaseKick() {
   const lit = room.boxes.map((box, i) => (room.vote.lights[box.id] === null ? i : -1)).filter((i) => i >= 0);
   scene.ownRelease(power, slideLanding(pilot.x, pilot.x + pilot.face * chargeDash(power), wall(), lit), now);
   roomSounds?.swung(link.you.seat);
+}
+
+/**
+ * This pawn's charge is lost without a kick (the room lost its own: a drop, a move of the piece,
+ * another character): the pilot lets it go and the wind-up drawn on this phone is taken back.
+ */
+function dropOwnCharge(now) {
+  if (pilot?.chargeRefused() && isPlayer()) scene.ownRefused("charge", now);
+}
+
+/** The room put this page's own piece somewhere: a charge held there is lost with it (Pilot.place), and drawn so. */
+function placeOwn(x, rev, now) {
+  const charging = pilot.chargeAt !== null;
+  pilot.place(x, rev, now);
+  if (charging && isPlayer()) scene.ownRefused("charge", now);
 }
 
 /** A slime's move button still held HOLD_MS after the press: the harden just begun turns soft (absorb). */
@@ -1288,7 +1307,10 @@ function frame(t) {
   }
   if (pilot) {
     // Its character's own speed, from the moment the player chooses another (shared/world.js, walkSpeed).
-    pilot.setCharacter(room.members[link.you.seat]?.character ?? "pawn", now);
+    const character = room.members[link.you.seat]?.character ?? "pawn";
+    // A charge held as the pawn becomes something else is let go of (Pilot.setCharacter), and drawn so.
+    if (character !== pilot.character) dropOwnCharge(now);
+    pilot.setCharacter(character, now);
     // Asked every frame, so a piece that was knocked down walks on by itself once it is up,
     // if the key is still held, and one that may not move stands still.
     pilot.steer(wanted(), now);

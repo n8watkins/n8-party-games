@@ -88,8 +88,13 @@ export class Pilot {
     this.step(now);
   }
 
-  /** The room put the piece somewhere (the door, or where a bump sent it). The piece says so back. */
+  /**
+   * The room put the piece somewhere (the door, or where a bump sent it). The piece says so back.
+   * A charge being held is lost with it, as the room loses its own (a room switch, a respawn, a
+   * correction): its release is a tap, which is what the room will take it as.
+   */
   place(x, rev, now) {
+    this.chargeRefused();
     this.advance(now);
     this.x = clampX(x);
     this.restart(now, this.d);
@@ -113,6 +118,9 @@ export class Pilot {
   /** The player chose another character: from now it walks at that one's speed. */
   setCharacter(character, now) {
     if (character === this.character) return;
+    // A charge held as the pawn becomes something else is let go of, as the room lets go of its own
+    // (LobbyCore.look, endMoves): the new piece may walk, and a later kick starts afresh.
+    this.chargeRefused();
     this.advance(now);
     this.character = character;
     this.restart(now, this.d);
@@ -207,10 +215,16 @@ export class Pilot {
     return true;
   }
 
-  /** The room did not take the charge (`kc-no`): the pawn may walk, and its release is a plain kick. */
+  /**
+   * A charge being held is let go of without a kick: the room did not take it (`kc-no`), or lost it
+   * (the piece moved, a drop, another character, a game). The pawn may walk, and its release is a
+   * plain kick. Returns whether there was one (a robot's hook keeps its own rooting).
+   */
   chargeRefused() {
+    if (this.chargeAt === null) return false;
     this.chargeAt = null;
     this.rootedUntil = -Infinity;
+    return true;
   }
 
   /** Whether a press of the kick would go off now, as far as this page knows: not cooling, not down. */
