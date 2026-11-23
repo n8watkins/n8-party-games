@@ -731,6 +731,10 @@ export class LobbyCore {
     }
     // A piece that was knocked down lies where it landed until it is up again.
     if (isDown(m, now)) return null;
+    // A pulled piece whose page walks it again has landed and stands on its own: its pull is no
+    // longer one to counter (shared/robot.js, counterable), so a move it or anyone makes from now
+    // is a plain one. (The pull is kept: a hook that reached it in the air is still judged by it.)
+    if (m.pull) m.pull.walked = true;
     const d = data.d === 1 ? 1 : data.d === -1 ? -1 : 0;
     const expected = posAt(m, now);
     let x = clampX(data.x);

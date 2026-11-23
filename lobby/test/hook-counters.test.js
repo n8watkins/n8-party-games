@@ -334,6 +334,84 @@ describe("the empty hook: a ghost being pulled fades", () => {
   });
 });
 
+describe("a pulled piece that has landed and walked on is no longer in the air", () => {
+  /** Rob pulls seat 1 (and Pat, when there, stands just past it facing the chain); once it has landed, its page walks it away to the right. */
+  function walkedOn(character, names = ["Rob", "Bo"]) {
+    const core = party(names);
+    if (names.length > 2) place(core, 2, 545, 1400, -1);
+    core.members[1].fadeAt = -Infinity;
+    const { hk, at } = pulled(core, character);
+    const walkAt = at + PULL_MS + 20;
+    expect(core.move(1, { x: hk.x, d: 1, r: core.members[1].rev }, walkAt)).toMatchObject({ relay: { t: "m", s: 1, d: 1 }, fix: null });
+    return { core, hk, at, walkAt };
+  }
+
+  it("says so as a number: a pull the piece has walked on from is not counterable, whatever the clock says", () => {
+    const piece = { rev: 3, pull: { by: 0, from: 500, to: 300, at: 1000, rev: 3, countered: false } };
+    expect(counterable(piece, 1000 + PULL_MS + 50)).toBe(true);
+    expect(counterable({ ...piece, pull: { ...piece.pull, walked: true } }, 1000 + PULL_MS + 50)).toBe(false);
+  });
+
+  it("makes a pawn's kick a plain kick: no ride, and the robot behind it stands", () => {
+    const { core, at } = walkedOn("pawn");
+    expect(counterable(core.members[1], at + PULL_MS + 100)).toBe(false);
+    const b = core.bump(1, at + PULL_MS + 100, 1);
+    expect(b).toMatchObject({ t: "b", s: 1, f: 1, to: -1 });
+    expect(b.ride).toBeUndefined();
+    expect(core.members[0].stunUntil ?? 0).toBeLessThan(at);
+    expect(core.members[0].x).toBe(300);
+  });
+
+  it("makes a ghost's fade a plain fade: it stays where it walked to, and the robot is not spooked", () => {
+    const { core, hk, at } = walkedOn("ghost");
+    const now = at + PULL_MS + 200;
+    const walked = posAt(core.members[1], now);
+    expect(walked).toBeGreaterThan(hk.x + 10);
+    const out = core.fade(1, now);
+    expect(out).toMatchObject({ ok: true, relay: { t: "fade", s: 1 } });
+    expect(out.relay.ct).toBeUndefined();
+    expect(out.relay.gx).toBeUndefined();
+    expect(posAt(core.members[1], now)).toBe(walked);
+    expect(core.members[1].fright).not.toBe("freed");
+    expect(core.members[0].fright ?? null).not.toBe("spook");
+    expect(core.members[0].x).toBe(300);
+  });
+
+  it("makes a slime's harden a plain harden: the robot is not bowled over", () => {
+    const { core, at } = walkedOn("slime");
+    const out = core.slime(1, "harden", at + PULL_MS + 200);
+    expect(out).toMatchObject({ ok: true, relay: { t: "slime", s: 1, k: "harden" } });
+    expect(out.relay.ct).toBeUndefined();
+    expect(core.members[0].stunUntil ?? 0).toBeLessThan(at);
+    expect(core.members[0].x).toBe(300);
+  });
+
+  it("leaves no chain for another pawn to cut: its kick does not put the piece back in the air", () => {
+    const { core, at } = walkedOn("pawn", ["Rob", "Bo", "Pat"]);
+    const now = at + PULL_MS + 60;
+    const stood = posAt(core.members[1], now);
+    const b = core.bump(2, now);
+    expect(b).not.toBeNull();
+    expect(b.cut).toBeUndefined();
+    expect(posAt(core.members[1], now)).toBe(stood);
+    expect(core.members[1].fright).not.toBe("freed");
+  });
+
+  it("is ended only by a walk the room accepts: a word sent before the pull, or while it is still off its feet, changes nothing", () => {
+    const core = party(["Rob", "Pat"]);
+    const { hk, at } = pulled(core);
+    const rev = core.members[1].rev;
+    // Sent before its page heard the pull (the old `rev`), and one a lying page sends mid-pull.
+    core.move(1, { x: 520, d: 1, r: rev - 1 }, at + 30);
+    expect(core.move(1, { x: hk.x, d: 1, r: rev }, at + 60)).toBeNull();
+    expect(core.bump(1, at + 120)).toMatchObject({ ride: 1, to: 0 });
+    // And a piece that lands and stands still keeps the round trip's allowance.
+    const still = party(["Rob", "Pat"]);
+    const { at: t } = pulled(still);
+    expect(still.bump(1, t + PULL_MS + 200)).toMatchObject({ ride: 1, to: 0 });
+  });
+});
+
 describe("cut the line: a pawn kicks the chain while a friend is pulled", () => {
   /** Rob pulls Bo from 520; Pat stands just past Bo (the hook meets Bo first), facing the chain. */
   function setup() {

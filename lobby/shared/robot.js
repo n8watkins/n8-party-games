@@ -120,11 +120,14 @@ export function pullAt(pull, t) {
  * Whether a piece's pull is still under way at `t` on the room's clock, so a counter to it counts:
  * from the moment the room pulled it until it arrived, COUNTER_LATE_MS after, and the round trip's
  * allowance (COUNTER_LAG_MS), if nothing has moved it since (its `rev` is the pull's). A pull that
- * is itself a counter (`countered`) cannot be countered.
+ * is itself a counter (`countered`) cannot be countered. Nor can one the piece has walked on from
+ * (`walked`: the room took a word of its walk after it landed, LobbyCore.move): it is on its feet
+ * and no longer where the pull put it, so what it presses now is a plain move, however much of the
+ * round trip's allowance is left.
  */
 export function counterable(piece, t) {
   const p = piece.pull;
-  return !!p && !p.countered && p.rev === piece.rev && t >= p.at && t <= p.at + COUNTER_WINDOW_MS;
+  return !!p && !p.countered && !p.walked && p.rev === piece.rev && t >= p.at && t <= p.at + COUNTER_WINDOW_MS;
 }
 
 /** The room's window for a counter to a pull, from its own judgement of the pull. */
