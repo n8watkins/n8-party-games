@@ -882,7 +882,8 @@ try {
   // Every picture asked for came from the page, with no referrer.
   check(pictureRequests.length > 0, `pictures were loaded from upload.wikimedia.org (${pictureRequests.length})`);
   check(pictureRequests.every((r) => r.referer === null), `no picture request carried a referrer${pictureRequests.some((r) => r.referer) ? `: ${pictureRequests.find((r) => r.referer).referer}` : ""}`);
-  check(compared.same >= 4, `a player's screen in the same role was compared across rounds with different own names (${compared.same} times)`);
+  // (Matches 1 and 2 compare them; a run of other matches alone, such as --only=4, compares none.)
+  if (only.has(1) || only.has(2)) check(compared.same >= 4, `a player's screen in the same role was compared across rounds with different own names (${compared.same} times)`);
 } finally {
   await browser.close();
 }
