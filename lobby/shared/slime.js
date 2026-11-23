@@ -33,7 +33,8 @@ export const HOLD_MS = 280;
 /**
  * The room takes an absorb any time in the harden it turns (a page sends it HOLD_MS after the
  * press, from a timer, not a frame): so a slow network or a page that stalls a moment never loses a
- * hold the player made. A turn later than this is a script's, and is refused.
+ * hold the player made. A turn later than this is a script's, and is refused; so is one after the
+ * room ended that harden early (maySlime).
  */
 export const ABSORB_TURN_MS = HARDEN_MS;
 
@@ -76,8 +77,10 @@ export function maySlime(piece, kind, now, { slimes, lobby, slack }) {
   const down = Math.max(0, (piece.stunUntil ?? 0) - now);
   if (down > 0) return { ok: false, why: "Not while you are knocked over.", wait: down };
   if (kind === "absorb") {
-    // Only the harden just begun turns: the absorb has no cooldown of its own.
-    if (!(now - (piece.slimeAt ?? -Infinity) <= ABSORB_TURN_MS) || piece.slimeTurned) return { ok: false, why: "Hold the button to go soft." };
+    // Only the harden just begun turns: the absorb has no cooldown of its own. And only while that
+    // harden is still running: one the room ended (the slime was knocked, hooked, swallowed or sent
+    // sliding as a stone) is over, and a hold that comes after it turns nothing.
+    if (!(now - (piece.slimeAt ?? -Infinity) <= ABSORB_TURN_MS) || piece.slimeTurned || !isHard(piece, now)) return { ok: false, why: "Hold the button to go soft." };
     return { ok: true };
   }
   const cooling = slimeLeft(piece.slimeAt, now);

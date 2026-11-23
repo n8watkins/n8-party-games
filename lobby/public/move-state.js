@@ -319,6 +319,63 @@ export function heardEmpty(pieces, msg, now, { fright }) {
   }
 }
 
+// ---------------------------------------------------------------- the touch counters (shared/counters.js)
+
+/**
+ * What a kick set going besides itself ({t: "b", dm, cv, cu}), from `began` (when the kick began
+ * on this page): a piece the knocked one flew into (`dm`, dominoes) and one a curling stone reached
+ * (`cv`) are knocked over as it reaches them (`at` ms from the kick); the stone itself (`cu`)
+ * slides off as the kick lands.
+ */
+export function heardKickCounters(pieces, msg, began, { fright, knock }) {
+  for (const hit of [msg.dm, msg.cv]) {
+    const p = hit ? pieces.get(hit.to) : null;
+    if (!p || !Number.isFinite(hit.x)) continue;
+    p.net = { x: hit.x, d: 0, t: began };
+    p.rev = hit.rev;
+    dropStilts(p, began);
+    knock(p, hit.x, began + hit.at - IMPACT_MS);
+  }
+  const stone = msg.cu ? pieces.get(msg.cu.s) : null;
+  if (stone && Number.isFinite(msg.cu.x)) {
+    stone.net = { x: msg.cu.x, d: 0, t: began };
+    stone.rev = msg.cu.rev;
+    fright(stone, msg.cu.x, began + IMPACT_MS, "curl");
+  }
+}
+
+/**
+ * The slimes met ({t: "goo", k, s, to, x, rev, ox, orev}): the soft one (`s`) swallowed the
+ * hardened one (`to`) and spat it out at `x` ("swallow"), or the two stuck together and came apart
+ * at `x` and `ox` ("stick"); or two faded ghosts met ({t: "pop", s, to, x, rev, ox, orev}) and
+ * popped solid where they were.
+ */
+export function heardTouch(pieces, msg, now, { fright }) {
+  const a = pieces.get(msg.s);
+  const b = pieces.get(msg.to);
+  const move = (p, x, rev, kind) => {
+    if (!p || !Number.isFinite(x)) return;
+    p.net = { x, d: 0, t: now };
+    p.rev = rev;
+    fright(p, x, now, kind);
+  };
+  if (msg.t === "pop") {
+    for (const g of [a, b]) if (g) g.fadeUntil = 0;
+    move(a, msg.x, msg.rev, "pop");
+    move(b, msg.ox, msg.orev, "pop");
+    return;
+  }
+  if (msg.k === "swallow") {
+    if (a) endGoo(a, now);
+    if (b) endGoo(b, now);
+    move(b, msg.x, msg.rev, "swallowed");
+  } else if (msg.k === "stick") {
+    for (const p of [a, b]) if (p) endGoo(p, now);
+    move(a, msg.x, msg.rev, "stick");
+    move(b, msg.ox, msg.orev, "stick");
+  }
+}
+
 /** A robot's legs went up ({t: "stilts", s}): drawn from now, unless this page began them at the press. */
 export function heardStilts(pieces, msg, now) {
   const p = pieces.get(msg.s);

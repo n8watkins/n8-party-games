@@ -24,7 +24,7 @@ import { modelOf } from "./characters.js";
 import { RIG_UNIT } from "./emote-arms.js";
 import { Life } from "./life.js";
 import { Hooks3D } from "./moves3d.js";
-import { heardCannon, heardCharge, heardChargedKick, heardCut, heardEmpty, heardHook, heardShove, heardSlime, heardStilts, heardVerdict, hookNow, hookStop, netOf, refusedOwn, resumeMoves, startCharge, startGoo, startHook, startRelease, startStilts } from "../move-state.js";
+import { dropStilts, heardCannon, heardCharge, heardChargedKick, heardCut, heardEmpty, heardKickCounters, heardTouch, heardHook, heardShove, heardSlime, heardStilts, heardVerdict, hookNow, hookStop, netOf, refusedOwn, resumeMoves, startCharge, startGoo, startHook, startRelease, startStilts } from "../move-state.js";
 import { ART_IMAGES, boxArt, boxSide, canvasOf } from "./paint.js";
 import { PAWN_HEIGHT, resumeKnock, startAttack, startFright, startKnock } from "./pieces.js";
 import { SKINS, liveSkin } from "./skins.js";
@@ -804,6 +804,8 @@ export class Room3D {
     }
     // The kick cut the chain someone was being pulled along (`cut`, shared/robot.js): set down where they were.
     if (msg.cut !== undefined) heardCut(this.pieces, msg, now, this.moveDrawing);
+    // Dominoes, the curling stone and what it reached (shared/counters.js).
+    if (msg.dm || msg.cv || msg.cu) heardKickCounters(this.pieces, msg, began, this.moveDrawing);
     if (hit) hit.goo = null;
     // If it happened by the room's feature, the feature is knocked too (look3d/life.js).
     // Where they are is taken from what the room said, not from where this device has drawn them
@@ -837,7 +839,7 @@ export class Room3D {
     this.idle = 0;
   }
 
-  /** A faded ghost drifted through a piece (boo): the piece is spooked to where the room put it. */
+  /** A faded ghost drifted through a piece (boo): the piece is spooked to where the room put it; a robot up on its legs topples (`tp`, shared/counters.js). */
   onSpook(msg, now) {
     const ghost = this.pieces.get(msg.s);
     if (ghost) ghost.booAt = now;
@@ -845,7 +847,16 @@ export class Room3D {
     if (!p) return;
     p.net = { x: msg.x, d: 0, t: now };
     p.rev = msg.rev;
-    startFright(p, msg.x, now, "spook");
+    if (msg.tp) {
+      dropStilts(p, now);
+      startKnock(p, msg.x, now - IMPACT_MS);
+    } else startFright(p, msg.x, now, "spook");
+    this.idle = 0;
+  }
+
+  /** The slimes met (`goo`: swallowed or stuck), or two faded ghosts met and popped solid (`pop`): shared/counters.js. */
+  onTouch(msg, now) {
+    heardTouch(this.pieces, msg, now, this.moveDrawing);
     this.idle = 0;
   }
 

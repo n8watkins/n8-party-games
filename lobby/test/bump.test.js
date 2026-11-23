@@ -267,7 +267,9 @@ describe("the knocked piece's states", () => {
     expect(knockState(STUN_MS + IMMUNE_MS - 1)).toBe("safe");
     expect(knockState(STUN_MS + IMMUNE_MS)).toBe("up");
     expect(knockState(STUN_MS, 0)).toBe("up");
-    expect(knockState(-1)).toBe("up");
+    // A knock still to come (a domino, a curling stone's target) stands until it does.
+    expect(knockState(-1)).toBe("standing");
+    expect(knockState(Number.NaN)).toBe("up");
   });
 
   it("is kicked low: its base is swept out from under it, it goes feet first, lands on its back and rights itself", () => {

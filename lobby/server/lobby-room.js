@@ -376,6 +376,8 @@ export function createLobbyRoom(wallFor, { release = null } = {}) {
           if (hit.kx !== undefined) this.keep(entry);
           // A kick that cut a chain (lobby/shared/robot.js) set the piece on it down where it was.
           if (hit.cut !== undefined) this.keepSeat(hit.cut);
+          // Dominoes and the curling stone (lobby/shared/counters.js) moved more pieces.
+          for (const seat of [hit.dm?.to, hit.cv?.to, hit.cu?.s]) if (Number.isInteger(seat)) this.keepSeat(seat);
           this.settle(now);
           return;
         }
@@ -665,6 +667,8 @@ export function createLobbyRoom(wallFor, { release = null } = {}) {
       if (out.relay.t === "shove") this.keepSeat(out.relay.to);
       // A cannonball (lobby/shared/robot.js) bowled the robot over.
       if (out.relay.ct === "cannon") this.keepSeat(out.relay.to);
+      // Two slimes met as one hardened or went soft beside the other (lobby/shared/counters.js).
+      if (out.relay.goo) for (const s of [out.relay.goo.s, out.relay.goo.to]) this.keepSeat(s);
       this.settle(now);
     }
 
