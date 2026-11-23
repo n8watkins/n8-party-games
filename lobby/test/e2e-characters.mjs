@@ -424,7 +424,12 @@ try {
             if (shots) await cy.screenshot({ path: `${shots}/${look}-robot-fuming-${hex.slice(1)}.png`, clip: { x: box.x - 60, y: box.y - 110, width: 130, height: 150 } });
           }
         }
-        check(isRed(seen), `${name} (${hex}): fuming, its paint shows red (${JSON.stringify(plain)} to ${JSON.stringify(seen)}), not its colour times red`);
+        // Red by its own right (isRed), or, where Ada stands in a dimmer part of the room than the
+        // absolute bound was set for (Slate read 103 against 110 from a plain 31), red by its share
+        // and well redder than its own paint was there: its colour times red could never be
+        // redder than the paint itself.
+        const redOverPaint = seen.r > 1.7 * seen.g && seen.r > 1.7 * seen.b && seen.r >= plain.r + 40;
+        check(isRed(seen) || redOverPaint, `${name} (${hex}): fuming, its paint shows red (${JSON.stringify(plain)} to ${JSON.stringify(seen)}), not its colour times red`);
       }
       await cy.emulateMedia({ reducedMotion: null });
     }
