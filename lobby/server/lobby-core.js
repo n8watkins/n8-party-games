@@ -1568,10 +1568,11 @@ export class LobbyCore {
     // afresh instead, from where it is now (firstTouch).
     const o = this.members[p.to];
     // So with the toucher, for a touch that moves it too (the swallow and the stick move both
-    // slimes): one the room knocked or hooked since is not moved again on top of that. (A shove
-    // or a boo never moves the toucher: a slime knocked inside the grace still pushes once.)
+    // slimes, and a faded ghost that reached a faded ghost pops with it: boo, pop): one the room
+    // knocked or hooked since is not moved again on top of that. (A shove or a boo never moves
+    // the toucher: a slime knocked inside the grace still pushes once.)
     const s = this.members[p.s];
-    const movesToucher = p.kind === "goo";
+    const movesToucher = p.kind === "goo" || (p.kind === "spook" && !!o && moveOf(o.character) === "fade" && this.faded(o, p.t));
     const moved = !o || (p.orev !== undefined && o.rev !== p.orev) || (movesToucher && (!s || (p.srev !== undefined && s.rev !== p.srev)));
     const result = moved ? { ok: false, why: "Moved since." } : p.kind === "spook" ? this.boo(p.s, p.to, now, p.t, p.d) : p.kind === "goo" ? this.goo(p.s, p.to, now, p.t) : this.shove(p.s, p.to, now, p);
     // Judged: not judged again while the two stay in reach; forgotten as soon as they part. A touch
@@ -1700,8 +1701,12 @@ export class LobbyCore {
     const stealThen = this.stealable(o, m, strikeAt);
     // Down, just up or being pulled when the tip got there: it passes over it, as over a jump.
     const passed = isSafe(o, strikeAt) && !fadedThen && !stealThen;
-    // A piece still in the air is where its pull has it, not where it will land.
-    const ox = stealThen ? pullAt(o.pull, now) : posAt(o, now);
+    // A piece still in the air is where its pull has it, not where it will land. One that has
+    // landed and walked on since (`walked`: LobbyCore.move; the room judges up to HOOK_LATE_MS
+    // after the tip got there, or later) is taken all the same, as what it was doing then decides,
+    // but from where its walk put it: on its feet, where it stands, like any piece on the floor.
+    const onChain = stealThen && !o.pull.walked;
+    const ox = onChain ? pullAt(o.pull, now) : posAt(o, now);
     const robotX = posAt(m, now);
     const side = Math.sign(ox - robotX) || hook.dir;
     const base = { t: "hk", s: m.seat, to: o.seat, hx: Math.round(ox) };
@@ -1764,7 +1769,8 @@ export class LobbyCore {
     }
     // Where the piece last stood: for one in the air on another robot's chain, where that pull took
     // it from (or, stolen before, where the first pull did), so only that light counts as its own.
-    const home = stealThen ? (o.pull.home ?? o.pull.from) : undefined;
+    // One that has walked on since it landed last stood where it is.
+    const home = onChain ? (o.pull.home ?? o.pull.from) : undefined;
     if (tug) {
       tug.hook = null;
       // Where it is, unless that is in the air over a light it never stood in (slideLanding).
@@ -3336,7 +3342,11 @@ export class LobbyCore {
 
   // ---------------------------------------------------------------- views
 
-  /** What every client may know about the room. Tokens never leave the room. */
+  /**
+   * What every client may know about the room. Tokens never leave the room. A piece that faces
+   * left says so (`f: -1`; one facing right says nothing), so a page that arrives in the middle
+   * draws it standing the way every other page has it.
+   */
   view(now) {
     const a = this.activity;
     return {
@@ -3351,7 +3361,7 @@ export class LobbyCore {
       game: a.kind === "game" ? this.gameView() : null,
       boxes: this.boxes,
       members: this.members.map((m) =>
-        m ? { seat: m.seat, name: m.name, colour: m.colour, character: m.character, connected: m.connected, ...(m.connected && m.away ? { away: true } : {}), ...this.awayView(m, now), x: Math.round(posAt(m, now)), d: m.d, ...this.easingView(m, now), rev: m.rev, points: m.points, ...this.bumpView(m, now), emoteCool: Math.round(emoteLeft(m.emoteAt, now)) } : null,
+        m ? { seat: m.seat, name: m.name, colour: m.colour, character: m.character, connected: m.connected, ...(m.connected && m.away ? { away: true } : {}), ...this.awayView(m, now), x: Math.round(posAt(m, now)), d: m.d, ...(m.face === -1 ? { f: -1 } : {}), ...this.easingView(m, now), rev: m.rev, points: m.points, ...this.bumpView(m, now), emoteCool: Math.round(emoteLeft(m.emoteAt, now)) } : null,
       ),
       screens: this.screensConnected(),
       vote: this.voteView(now),

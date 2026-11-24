@@ -14,7 +14,7 @@ import { EmoteFigure, Sticker, bodyTransform } from "./emotes/svg.js";
 import { IMPACT_MS } from "./shared/bump.js";
 import { OWN_FADED } from "./shared/ghost.js";
 import { MoveDraw } from "./move-draw.js";
-import { dropStilts, gooNow, heardCannon, heardCharge, heardChargedKick, heardCut, heardEmpty, heardKickCounters, heardTouch, heardHook, heardShove, heardSlime, heardStilts, heardVerdict, hookNow, hookStop, netOf, refusedOwn, resumeMoves, startCharge, startGoo, startHook, startRelease, startStilts, stiltsNow } from "./move-state.js";
+import { dropStilts, facingOf, gooNow, heardCannon, heardCharge, heardChargedKick, heardCut, heardEmpty, heardKickCounters, heardTouch, heardHook, heardShove, heardSlime, heardStilts, heardVerdict, hookNow, hookStop, netOf, refusedOwn, resumeMoves, startCharge, startGoo, startHook, startRelease, startStilts, stiltsNow } from "./move-state.js";
 import { STILT_RISE } from "./shared/robot.js";
 import { tagLevels } from "./tag-levels.js";
 import { standings } from "./shared/tonight.js";
@@ -483,7 +483,8 @@ export class Scene {
 
   /** A player's piece: its character in its colour, with a shadow and a name tag. */
   piece(m) {
-    const p = { seat: m.seat, rx: m.x, net: { x: m.x, d: m.d, t: 0 }, face: 1, rev: m.rev, jumpAt: -Infinity, attack: null, knock: null, leaving: 0, level: 0, look: "", rise: 0, up: 0 };
+    // A piece made in the middle of a party faces the way the room has it (move-state.js, facingOf).
+    const p = { seat: m.seat, rx: m.x, net: { x: m.x, d: m.d, t: 0 }, face: facingOf(m), rev: m.rev, jumpAt: -Infinity, attack: null, knock: null, leaving: 0, level: 0, look: "", rise: 0, up: 0 };
     p.shadow = s("ellipse", { cy: ROOM.floorY + 5, rx: 40, ry: 9, fill: "#000", opacity: 0.42 });
     p.g = s("g", { "data-seat": m.seat });
     this.cast(p, m);

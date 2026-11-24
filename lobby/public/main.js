@@ -21,6 +21,7 @@ import { SettingsStep } from "./settings-step.js";
 import { RoomSounds, defineRoomSounds, emoteSound } from "./room-sounds.js";
 import { chosenLook, hardware3D, openRoomView, preferFlat } from "./room-view.js";
 import { standIn } from "./view-api.js";
+import { facingOf, keepFacing } from "./move-state.js";
 import { ScreenFit, allowUpright, fitVisible } from "./screen-fit.js";
 import { SlowWatch } from "./slow-room.js";
 import { BUMP_COOLDOWN_MS, CHARGE_HOLD_MS, CHARGE_MIN_MS, IMMUNE_MS, IMPACT_MS, STUN_MS, chargeDash, chargePower } from "./shared/bump.js";
@@ -462,7 +463,8 @@ function apply(next, at = performance.now()) {
   for (const m of room.members) if (m) noBoo(m.seat, voteAt + Math.max(m.safe ?? 0, m.spooked ?? 0));
   if (me) {
     if (!pilot) {
-      pilot = new Pilot({ lights: wall(), send: sendMove, x: me.x, rev: me.rev, character: me.character });
+      // A page that arrives in the middle (a reload) faces its own piece the way the room has it.
+      pilot = new Pilot({ lights: wall(), send: sendMove, x: me.x, rev: me.rev, character: me.character, face: facingOf(me) });
       focus = me.x;
       // A page that arrives in the middle (a reload) takes the room's word on its bump.
       if (me.down > 0) pilot.knock(me.x, me.rev, voteAt, me.down);
@@ -534,7 +536,8 @@ function redraw(now) {
   // The room's times (a knock, a fright, a hook) run from when its word was heard, not from now:
   // a view that took a while to load (a change of look) must not draw them later than they are.
   scene.setRoom(room, roomSeenAt);
-  for (const [s, move] of lastMoves) if (room.members[s] && move.t > roomSeenAt) scene.onMove({ s, x: posAt(move, now), d: move.d }, now);
+  // Each standing the way it was last heard to face (keepFacing): the room's own word on it is as old as that message.
+  for (const [s, move] of lastMoves) if (room.members[s] && move.t > roomSeenAt) scene.onMove({ s, x: posAt(move, now), d: move.d, f: facingOf(room.members[s]) }, now);
 }
 
 function tellLit(now) {
@@ -563,6 +566,9 @@ link.on("message", (msg) => {
     pendingRoom = null;
     if (room) room.room = msg.v;
   }
+  // Which way a piece faces now, kept on the room this page last heard whole: a walk faces the way
+  // it goes, and a standing piece the way its move, kick, charge or hook says (`f`).
+  if (room && (msg.t === "m" || msg.t === "b" || msg.t === "kc" || msg.t === "hook")) keepFacing(room.members[msg.s], msg.d || msg.f);
   if (!scene) return;
   const now = performance.now();
   switch (msg.t) {

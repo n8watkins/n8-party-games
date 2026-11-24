@@ -12,6 +12,26 @@ import { HOOK_HAND, STILT_MS, hookDrawn, stiltPose } from "./shared/robot.js";
 import { CHARGE_HOLD_MS, CHARGE_MIN_MS, IMPACT_MS, attackPose, chargeDash, chargePose } from "./shared/bump.js";
 import { posAt } from "./shared/world.js";
 
+// ---------------------------------------------------------------- which way a piece faces
+//
+// A piece is drawn facing the way it last walked, or the way its page said it turned (`f` on a
+// move, a kick, a charge or a hook). A drawing made in the middle of a party (a reload, a late
+// join, a change of look) has heard none of that: the whole room says it (LobbyCore.view).
+
+/** Which way the whole room has member `m` facing: left only when it says so (`f: -1`). */
+export const facingOf = (m) => (m?.f === -1 ? -1 : 1);
+
+/**
+ * The page heard which way a piece faces now (`f`: -1 or 1; anything else is no word on it). Kept
+ * on its member of the last whole room, as the room itself would say it, so a drawing built from
+ * that room later (a change of look, a wall that moved) faces the piece as it is now.
+ */
+export function keepFacing(m, f) {
+  if (!m || (f !== 1 && f !== -1)) return;
+  if (f === -1) m.f = -1;
+  else delete m.f;
+}
+
 // ---------------------------------------------------------------- the pawn's kick, and its charge
 //
 //   p.attack {at, dir, landed}             a kick from `at` (its press, or the room's word)
