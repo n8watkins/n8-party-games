@@ -84,6 +84,8 @@ The build does it (`scripts/build-public.mjs`, with `party-kit/build/folders.mjs
   Each page points only into its own release's folder.
 - **`/r/<release id>/...`** holds every file of the release that is not media: scripts, styles, small data, and a copy of each page (a game shown in the party room's frame loads its page from there).
   An address in it never serves other bytes, so it is sent with `public, max-age=31536000, immutable`: kept for a year and never asked for again.
+  It is also sent with `X-Robots-Tag: noindex`: the page copies there are not the site's pages.
+  (A local build's preview pages are the one exception to the year: they are no part of the release id, so their files under `/r/<id>/preview/` are asked for again each time.)
 - **`/m/<hash>.<ext>`** holds the media (pictures, sounds, models, textures, fonts, data files of 16 KiB and more), each named by a hash of its bytes and shared by every release that holds the same file.
   The same header: a new release makes a phone load new code, and no picture or sound it already has.
 - **`_redirects`** sends `/r/<id>/<path of a media file>` on to its `/m/` address for good (301, kept for a year like the folder).
@@ -98,7 +100,9 @@ The build does it (`scripts/build-public.mjs`, with `party-kit/build/folders.mjs
 A page script must never name a file by its site path (`"/art/x.webp"`): that address is outside the folder.
 It names its own files from the module (`import.meta.url`), and a path the room sends (a game's view, its picture) through `siteUrl` (`site/site-path.js`).
 Imports by site path (`import "/party-kit/client/sounds.js"`) are fine: the build makes them relative.
-`site/test/addresses.test.js` fails on a script that does it wrong, and `npm run test:release` loads the pages and fails on any file asked for outside the folder and the media.
+Nor from the page's own address (`img.src = "bar.jpg"`): the page stays where it is, and the picture is not beside it.
+`site/test/addresses.test.js` fails on a site path in a script.
+`npm run test:release` loads and scrolls every page the build makes, on a deploy that carries no old flat site, and fails on any file asked for outside the page's release folder, the media, the API and the files listed above, and on anything missing.
 
 ### The releases a deploy carries
 
@@ -108,9 +112,14 @@ So each deploy also holds the files of the two releases that were live before it
 
 - Where they come from: the build asks the live site (`GET /api/version` names its release, its commit and the releases it carries), takes the first two that are not the release being built, and builds each again from its commit, in a temporary folder with that commit's own packages.
   The id of what it built must be the id the live site gave, so the files carried are byte for byte the ones that were served; otherwise the deploy stops.
+  The one file the id does not cover, the pages' own copy of the record in the release's folder, must hold its id and the site's version and nothing else, or the deploy stops too.
+  The commit must be on `origin/main` (every deploy is made from one that is), and it is built outside git, whatever folder the temporary files are in.
   Nothing is stored anywhere and no secret is needed; a git tag is not needed either.
+- The files under `/r/<id>/` are that release's, but the headers they are sent with are the carrying deploy's.
+  A page's import map names its own release's folder, so the policy of a deploy allows the inline scripts of the page copies it carries beside its own (`withCarried` in `party-kit/build/folders.mjs`); everything else in the policy is the new deploy's.
+  Without that, a game opened in a frame from a page still on the release before would be refused its import map.
 - The record of the new release lists what it carries, so the next deploy finds the chain again the same way.
-- `predeploy` checks before the gate that the live site answers and that this clone has the commits; run `git fetch origin` if it says one is missing.
+- `predeploy` checks before the gate that the live site answers and that this clone has the commits, on `origin/main`; run `git fetch origin` if it says one is missing.
 - A local build, a dev server and the gate carry nothing and need no network.
   `node scripts/build-public.mjs --carry=live --out=<a folder>` is a dress rehearsal of a deploy's build, from any tree.
 - A commit can be built again only while its own build still runs: `node scripts/build-public.mjs --out=DIR` must keep working, with no network, and keep giving the same id (the script's header says so).
