@@ -60,9 +60,15 @@ async function servedAll(timeoutMs = 60_000) {
     why = "";
     try {
       const seen = new Set();
-      const queue = ["/lobby/main.js"];
+      const queue = [];
       const html = await fetch(base + "/lobby/");
       if (!html.ok) why = `/lobby/ answered ${html.status}`;
+      else {
+        // The page's own main module, wherever its release's files are (/r/<id>/lobby/main.js).
+        const main = /<script[^>]*type="module"[^>]*src="([^"]+)"/.exec(await html.text())?.[1];
+        if (main) queue.push(new URL(main, base + "/lobby/").pathname);
+        else why = "/lobby/ names no module script";
+      }
       while (!why && queue.length) {
         const path = queue.shift();
         if (seen.has(path)) continue;

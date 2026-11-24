@@ -3,6 +3,7 @@
 // version, the build writes the same record for the pages and the Worker, and /api/version
 // answers with it, never cached.
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -17,9 +18,9 @@ vi.mock("cloudflare:workers", () => ({
     }
   },
 }));
-import { ALLOW_DIRTY, PREVIEW_DIR, RELEASE_FILE, RELEASE_ID, SEMVER, buildKind, builtFiles, gameVersions, gitState, releaseId, releaseModule, releaseProblem, releaseRecord, testBuildProblem } from "../../scripts/release.mjs";
-import { BUILD_FLAGS, SERVED, build, readArgs } from "../../scripts/build-public.mjs";
-import { headersFile } from "../../party-kit/build/public.mjs";
+import { ALLOW_DIRTY, ID_PLACEHOLDER, PREVIEW_DIR, RELEASE_FILE, RELEASE_ID, SEMVER, buildKind, flatReleaseId, gameVersions, gitState, pageRecord, releaseId, releaseModule, releaseProblem, testBuildProblem } from "../../scripts/release.mjs";
+import { BUILD_FLAGS, SERVED, build, planId, readArgs } from "../../scripts/build-public.mjs";
+import { CARRIED_RELEASES } from "../../scripts/carried.mjs";
 import { GAMES, TURN_GAMES } from "../../games.js";
 import { VERSION_PATH, handleVersion, versionInfo } from "../../party-kit/src/worker/version.js";
 import { unstable_readConfig } from "wrangler";
@@ -77,6 +78,20 @@ describe("a local test build's options (testBuildProblem)", () => {
   it("never reach the live site: refused with --production and on an upload", () => {
     expect(testBuildProblem({ out: "/tmp/x" }, { upload: false, production: true })).toMatch(/local test build only/);
     expect(testBuildProblem({ salt: "a1" }, { upload: true, production: false })).toMatch(/local test build only/);
+    // The site as before release folders, and builds to carry named by hand: a test's too.
+    expect(testBuildProblem({ flat: true }, { upload: true, production: false })).toMatch(/local test build only/);
+    expect(testBuildProblem({ carry: "/tmp/a,/tmp/b" }, { upload: false, production: true })).toMatch(/local test build only/);
+    expect(testBuildProblem({ out: "/tmp/x", salt: "a1", carry: "/tmp/a" }, { upload: false, production: false })).toBeNull();
+    expect(testBuildProblem({ out: "/tmp/x", flat: true }, { upload: false, production: false })).toBeNull();
+  });
+
+  it("let a build carry what the live site names, which is what a deploy does anyway", () => {
+    expect(testBuildProblem({ carry: "live" }, { upload: true, production: true })).toBeNull();
+    expect(testBuildProblem({ carry: "live" }, { upload: false, production: false })).toBeNull();
+  });
+
+  it("refuse a flat build that carries: the site from before the folders held nothing but itself", () => {
+    expect(testBuildProblem({ flat: true, carry: "/tmp/a" }, { upload: false, production: false })).toMatch(/carries nothing/);
   });
 
   it("take a plain salt only", () => {
@@ -233,34 +248,97 @@ describe("the build's release record", () => {
   const record = recordIn(text);
   const pkg = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8"));
 
-  it("is served at /release.js and written the same for the Worker", () => {
+  it("is at /release.js and written the same for the Worker; the pages' own, in the release's folder, holds its id and the site's version", () => {
     expect(SERVED).toContain(RELEASE_FILE);
-    expect(built.map((f) => f.path)).toContain(RELEASE_FILE);
+    expect(built.map((f) => f.path)).toEqual(expect.arrayContaining([RELEASE_FILE, `r/${record.id}/${RELEASE_FILE}`]));
     expect(readFileSync(WORKER, "utf8")).toBe(text);
+    const own = readFileSync(join(OUT, "r", record.id, RELEASE_FILE), "utf8");
+    expect(recordIn(own)).toEqual({ id: record.id, site: pkg.version });
+    expect(own).toBe(releaseModule(pageRecord(record)));
+    // The list of what was built gives each copy its real size.
+    expect(built.find((f) => f.path === RELEASE_FILE).bytes).toBe(Buffer.byteLength(text));
+    expect(built.find((f) => f.path === `r/${record.id}/${RELEASE_FILE}`).bytes).toBe(Buffer.byteLength(own));
   });
 
-  it("holds the id of every other file in the folder, _headers included, and the site's version, the commit and the games", () => {
-    const onDisk = builtFiles(OUT);
-    expect(onDisk.map((f) => f.path)).toContain("_headers");
-    expect(record.id).toBe(releaseId(onDisk, (path) => readFileSync(join(OUT, path))));
-    expect(record).toMatchObject({ site: pkg.version, commit: CLEAN.commit, dirty: false, pushed: true });
+  it("gives the pages only what the id decides, so their copy is the same bytes whenever and from whatever commit it is built", () => {
+    expect(pageRecord({ ...record, commit: "ffffffffffff", pushed: false, builtAt: "2030-01-01T00:00:00.000Z", carries: [{ id: "aaaaaaaaaaaa", commit: "111111111111" }], games: {} })).toEqual(pageRecord(record));
+    expect(Object.keys(pageRecord(record))).toEqual(["id", "site"]);
+    // A local build of a tree with changes says so on the page; a deploy never is one, and a
+    // commit built again outside git (to be carried) has nothing to be dirty against.
+    expect(pageRecord({ ...record, dirty: true })).toEqual({ id: record.id, site: pkg.version, dirty: true });
+    expect(pageRecord({ ...record, dirty: true, commit: "unknown" })).toEqual({ id: record.id, site: pkg.version });
+    expect(releaseLine(pageRecord(record))).toBe(`Version ${pkg.version}, build ${record.id}`);
+    expect(releaseLine(pageRecord({ ...record, dirty: true }))).toBe(`Version ${pkg.version}, build ${record.id} (local changes)`);
+  });
+
+  it("holds an id, the site's version, the commit and the games, and carries nothing by itself", () => {
+    expect(record.id).toMatch(RELEASE_ID);
+    expect(record.id).not.toBe(ID_PLACEHOLDER);
+    expect(record).toMatchObject({ site: pkg.version, commit: CLEAN.commit, dirty: false, pushed: true, carries: [] });
     expect(new Date(record.builtAt).toISOString()).toBe(record.builtAt);
     expect(record.games).toEqual(gameVersions([...GAMES, ...TURN_GAMES], pkg));
   });
 
-  it("changes its id when a header rule changes (a CSP or cache rule is part of a release)", () => {
-    const games = [...GAMES, ...TURN_GAMES];
-    const before = releaseRecord({ root: ROOT, out: OUT, games, git: CLEAN }).id;
-    expect(before).toBe(record.id);
-    const headers = readFileSync(join(OUT, "_headers"), "utf8");
-    try {
-      writeFileSync(join(OUT, "_headers"), headersFile([], { frames: "none" }));
-      expect(releaseRecord({ root: ROOT, out: OUT, games, git: CLEAN }).id).not.toBe(before);
-      writeFileSync(join(OUT, "_headers"), headers.replace("X-Frame-Options: SAMEORIGIN", "X-Frame-Options: DENY"));
-      expect(releaseRecord({ root: ROOT, out: OUT, games, git: CLEAN }).id).not.toBe(before);
-    } finally {
-      writeFileSync(join(OUT, "_headers"), headers);
-    }
+  it("names its folder by its id, and the pages name that folder: the Worker and the pages agree by construction", () => {
+    expect(built.filter((f) => f.path.startsWith("r/")).every((f) => f.path.startsWith(`r/${record.id}/`))).toBe(true);
+    expect(readFileSync(join(OUT, "lobby", "index.html"), "utf8")).toContain(`src="/r/${record.id}/lobby/main.js"`);
+    // The placeholder the id was worked out with is nowhere in what is served.
+    for (const page of ["index.html", "lobby/index.html", "cork-and-bell/index.html", "_headers", "_redirects"]) expect(readFileSync(join(OUT, page), "utf8"), page).not.toContain(ID_PLACEHOLDER);
+  });
+
+  describe("its id (planId), from the site as built with the placeholder", () => {
+    const at = `r/${ID_PLACEHOLDER}`;
+    const plan = {
+      id: ID_PLACEHOLDER,
+      files: [
+        { path: "index.html", data: Buffer.from(`<script src="/${at}/main.js"></script>`) },
+        { path: `${at}/main.js`, data: Buffer.from("export {}") },
+        { path: "m/aaaa.webp", data: Buffer.from("pic") },
+        { path: "_headers", data: Buffer.from("/*\n  X-Frame-Options: SAMEORIGIN\n") },
+      ],
+      redirects: [{ from: `/${at}/art/a.webp`, to: "/m/aaaa.webp", status: 301 }],
+    };
+    const withFile = (path, text) => ({ ...plan, files: plan.files.map((f) => (f.path === path ? { path, data: Buffer.from(text) } : f)) });
+    const id = planId(plan);
+
+    it("is 12 hex digits, the same for the same site", () => {
+      expect(id).toMatch(RELEASE_ID);
+      expect(planId({ ...plan, files: [...plan.files].reverse() })).toBe(id);
+    });
+
+    it("changes with any file a browser could be sent: a page, a module, a media file", () => {
+      expect(planId(withFile("index.html", "<p>other</p>"))).not.toBe(id);
+      expect(planId(withFile(`${at}/main.js`, "export {};"))).not.toBe(id);
+      expect(planId(withFile("m/aaaa.webp", "pic2"))).not.toBe(id);
+    });
+
+    it("changes when a header rule changes (a CSP or cache rule is part of a release), and when a redirect does", () => {
+      expect(planId(withFile("_headers", "/*\n  X-Frame-Options: DENY\n"))).not.toBe(id);
+      expect(planId({ ...plan, redirects: [{ ...plan.redirects[0], to: "/m/bbbb.webp" }] })).not.toBe(id);
+      expect(planId({ ...plan, redirects: [{ ...plan.redirects[0], status: 302 }] })).not.toBe(id);
+      expect(planId({ ...plan, redirects: [] })).not.toBe(id);
+    });
+
+    it("does not hash the record itself, at its own address or in the folder", () => {
+      const record = [{ path: RELEASE_FILE, data: Buffer.from("anything") }, { path: `${at}/${RELEASE_FILE}`, data: Buffer.from("anything else") }];
+      expect(planId({ ...plan, files: [...plan.files, ...record] })).toBe(id);
+      // Only those two: a file of that name elsewhere is a file like any other.
+      expect(planId({ ...plan, files: [...plan.files, { path: `${at}/lobby/${RELEASE_FILE}`, data: Buffer.from("x") }] })).not.toBe(id);
+    });
+
+    it("is another release under a test build's salt", () => {
+      expect(planId(plan, { salt: "one" })).not.toBe(id);
+      expect(planId(plan, { salt: "one" })).toBe(planId(plan, { salt: "one" }));
+    });
+
+    it("changes with the site's version, which the pages show: a version bump alone is another release", () => {
+      const at010 = planId(plan, { site: "0.1.0" });
+      expect(at010).not.toBe(id);
+      expect(planId(plan, { site: "0.1.1" })).not.toBe(at010);
+      expect(planId(plan, { site: "0.1.0" })).toBe(at010);
+      // The version is not a file: no file of that name could stand in for it.
+      expect(planId({ ...plan, files: [...plan.files, { path: "site", data: Buffer.from("0.1.0") }] })).not.toBe(at010);
+    });
   });
 
   it("keeps its id when the same code is built again from another commit", () => {
@@ -298,8 +376,14 @@ describe("GET /api/version", () => {
       pushed: true,
       builtAt: release.builtAt,
       games: release.games,
+      carries: [],
       worker: { id: meta.id, tag: null, timestamp: meta.timestamp },
     });
+  });
+
+  it("says which releases it carries, for the next deploy to carry in its turn", () => {
+    const carries = [{ id: "aaaaaaaaaaaa", commit: "111111111111" }, { id: "bbbbbbbbbbbb", commit: "222222222222" }];
+    expect(versionInfo({ ...release, carries }, {}).carries).toEqual(carries);
   });
 
   it("leaves the Worker version out without the binding", () => {
@@ -375,7 +459,137 @@ describe("two builds of one tree", () => {
     expect(readArgs(["node", "x", "--prevew"]).problem).toMatch(/--prevew is not a flag/);
     expect(readArgs(["node", "x", "--out", "/tmp/x"]).problem).toMatch(/--out=VALUE/);
     expect(readArgs(["node", "x", "--preview", "--production", "--list", "--out=/tmp/x", "--salt=a1"]).problem).toBeNull();
+    expect(readArgs(["node", "x", "--carry", "live"]).problem).toMatch(/--carry=VALUE/);
+    expect(readArgs(["node", "x", "--carry=live"])).toMatchObject({ carry: "live", flat: false, problem: null });
+    expect(readArgs(["node", "x", "--flat", "--out=/tmp/x", "--carry=/tmp/a,/tmp/b"])).toMatchObject({ carry: "/tmp/a,/tmp/b", flat: true, out: "/tmp/x", problem: null });
   });
+});
+
+describe("a build that carries the releases before it", () => {
+  const dirs = [];
+  afterAll(() => {
+    for (const dir of dirs) rmSync(dir, { recursive: true, force: true });
+  });
+  /** A build of this tree under `salt` (another release each), as `{id, commit, dir, record}`. */
+  const made = (salt, options = {}) => {
+    const dir = mkdtempSync(join(tmpdir(), "party-carry-"));
+    dirs.push(dir);
+    build(dir, { git: { ...CLEAN, commit: `${salt}`.padEnd(12, "0").slice(0, 12) }, preview: false, salt, ...options });
+    const record = recordIn(readFileSync(join(dir, RELEASE_FILE), "utf8"));
+    return { id: record.id, commit: record.commit, dir, record };
+  };
+  const exists = (dir, path) => {
+    try {
+      readFileSync(join(dir, path));
+      return true;
+    } catch {
+      return false;
+    }
+  };
+  const one = made("a1");
+  const two = made("a2");
+  const three = made("a3");
+  // The release from before there were folders: every file at its own address.
+  const old = made("a0", { flat: true });
+  const alone = made("a4");
+
+  it("builds the site as it was before release folders when asked to (a test build), with that build's own id", () => {
+    expect(old.record.id).toBe(flatReleaseId(old.dir, "a0"));
+    expect(exists(old.dir, "lobby/main.js")).toBe(true);
+    expect(exists(old.dir, "r")).toBe(false);
+    expect(readFileSync(join(old.dir, "lobby", "index.html"), "utf8")).toContain(`src="main.js"`);
+    expect(old.record.carries).toEqual([]);
+  });
+
+  it("holds each one's folder beside its own, lists them newest first, and keeps its own id", () => {
+    const next = made("a4", { carry: [two, one] });
+    expect(next.id).toBe(alone.id);
+    expect(next.record.carries).toEqual([{ id: two.id, commit: two.commit }, { id: one.id, commit: one.commit }]);
+    for (const id of [next.id, two.id, one.id]) expect(exists(next.dir, `r/${id}/lobby/main.js`), id).toBe(true);
+    // Each carried folder is the very one that release served.
+    expect(readFileSync(join(next.dir, "r", two.id, "lobby", "index.html"), "utf8")).toBe(readFileSync(join(two.dir, "r", two.id, "lobby", "index.html"), "utf8"));
+    // The pages are its own, and name only its own folder.
+    const page = readFileSync(join(next.dir, "lobby", "index.html"), "utf8");
+    expect(page).toContain(`/r/${next.id}/lobby/main.js`);
+    expect(page).not.toContain(two.id);
+    // Its record in its folder, theirs in theirs, each the very bytes that release served.
+    expect(recordIn(readFileSync(join(next.dir, "r", two.id, RELEASE_FILE), "utf8")).id).toBe(two.id);
+    expect(readFileSync(join(next.dir, "r", two.id, RELEASE_FILE), "utf8")).toBe(readFileSync(join(two.dir, "r", two.id, RELEASE_FILE), "utf8"));
+    expect(recordIn(readFileSync(join(next.dir, "r", next.id, RELEASE_FILE), "utf8"))).toEqual({ id: next.id, site: next.record.site });
+    expect(recordIn(readFileSync(join(next.dir, RELEASE_FILE), "utf8"))).toEqual(next.record);
+    // What it carries is not part of what its own folder holds: the same release, built alone, has the same folder.
+    expect(readFileSync(join(next.dir, "r", next.id, RELEASE_FILE), "utf8")).toBe(readFileSync(join(alone.dir, "r", alone.id, RELEASE_FILE), "utf8"));
+  });
+
+  it("allows each carried release's framed game page its own import map, in every page policy, beside its own", () => {
+    // Cork & Bell's page holds an import map that names its release's folder: each release's has its own hash.
+    const hashOfMap = (dir, id) => {
+      const html = readFileSync(join(dir, "r", id, "cork-and-bell", "index.html"), "utf8");
+      const map = /<script type="importmap">([\s\S]*?)<\/script>/.exec(html)[1];
+      expect(map).toContain(`/r/${id}/cork-and-bell/game/vendor/three.module.js`);
+      return `'sha256-${createHash("sha256").update(map).digest("base64")}'`;
+    };
+    const next = made("a4", { carry: [two, one] });
+    const hashes = [hashOfMap(next.dir, next.id), hashOfMap(two.dir, two.id), hashOfMap(one.dir, one.id)];
+    expect(new Set(hashes).size).toBe(3);
+    const policies = readFileSync(join(next.dir, "_headers"), "utf8").split("\n").filter((line) => line.startsWith("  Content-Security-Policy:"));
+    expect(policies.length).toBeGreaterThan(4);
+    for (const policy of policies) for (const hash of hashes) expect(policy.match(/script-src ([^;]*)/)[1]).toContain(hash);
+    // Built alone, it allows only its own; and what it carries is no part of its id.
+    const own = readFileSync(join(alone.dir, "_headers"), "utf8");
+    expect(own).toContain(hashes[0]);
+    expect(own).not.toContain(hashes[1]);
+    expect(next.id).toBe(alone.id);
+    // Within what Workers reads: 2,000 characters a line.
+    for (const line of readFileSync(join(next.dir, "_headers"), "utf8").split("\n")) expect(line.length).toBeLessThan(2000);
+  });
+
+  it(`carries ${CARRIED_RELEASES} at most, never itself, and none twice`, () => {
+    expect(CARRIED_RELEASES).toBe(2);
+    const next = made("a4", { carry: [alone, three, three, two, one] });
+    expect(next.record.carries.map((c) => c.id)).toEqual([three.id, two.id]);
+    expect(exists(next.dir, `r/${one.id}/lobby/main.js`)).toBe(false);
+  });
+
+  it("asks what to carry once it knows its own id, when given a function", () => {
+    const asked = [];
+    const next = made("a4", {
+      carry: (id) => {
+        asked.push(id);
+        return [one];
+      },
+    });
+    expect(asked).toEqual([alone.id]);
+    expect(next.record.carries.map((c) => c.id)).toEqual([one.id]);
+  });
+
+  it("carries the release from before the folders at its old addresses, under this release's own pages", () => {
+    const first = made("a4", { carry: [old] });
+    expect(first.id).toBe(alone.id);
+    expect(first.record.carries).toEqual([{ id: old.id, commit: old.commit }]);
+    // What a page still open on the old release loads later: a module by its old address, with what it imports, and its media.
+    for (const path of ["lobby/main.js", "lobby/look3d/room3d.js", "party-kit/client/sounds.js", "cork-and-bell/game/party-view.js", "cork-and-bell/game/vendor/three.module.js", "lobby/sounds/CREDITS.txt"]) {
+      expect(readFileSync(join(first.dir, path)).equals(readFileSync(join(old.dir, path))), path).toBe(true);
+    }
+    // The pages are this release's: a reload of the old page loads the new one.
+    expect(readFileSync(join(first.dir, "lobby", "index.html"), "utf8")).toContain(`/r/${first.id}/lobby/main.js`);
+    expect(readFileSync(join(first.dir, "index.html"), "utf8")).toBe(readFileSync(join(alone.dir, "index.html"), "utf8"));
+    // So are the record at /release.js, the headers and the redirects.
+    expect(recordIn(readFileSync(join(first.dir, RELEASE_FILE), "utf8")).id).toBe(first.id);
+    for (const path of ["_headers", "_redirects"]) expect(readFileSync(join(first.dir, path), "utf8")).toBe(readFileSync(join(alone.dir, path), "utf8"));
+  });
+
+  it("goes on carrying it one release later, beside the first release with folders", () => {
+    const first = made("a5", { carry: [old] });
+    const second = made("a6", { carry: [first, old] });
+    expect(second.record.carries.map((c) => c.id)).toEqual([first.id, old.id]);
+    expect(exists(second.dir, `r/${first.id}/lobby/main.js`)).toBe(true);
+    expect(readFileSync(join(second.dir, "lobby", "main.js")).equals(readFileSync(join(old.dir, "lobby", "main.js")))).toBe(true);
+    // And lets it go after that: the third release with folders has only folders.
+    const third = made("a7", { carry: [second, first, old] });
+    expect(third.record.carries.map((c) => c.id)).toEqual([second.id, first.id]);
+    expect(exists(third.dir, "lobby/main.js")).toBe(false);
+  }, 60_000);
 });
 
 describe("the release line on the pages", () => {

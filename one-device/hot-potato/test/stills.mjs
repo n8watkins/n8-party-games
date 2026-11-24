@@ -194,8 +194,10 @@ async function sheet(file, rows, { size = 170 } = {}) {
   await page.evaluate(() => document.fonts.ready);
   await page.evaluate(
     async ({ rows, size }) => {
-      const { createSpecimen } = await import("./art-specimen.js");
-      const { FACES, HEATS } = await import("./specimen-draw.js");
+      // Beside the page's own module, wherever its release's files are served from (/r/<id>/...).
+      const here = new URL(".", document.querySelector("script[type=module][src]").src);
+      const { createSpecimen } = await import(new URL("art-specimen.js", here).href);
+      const { FACES, HEATS } = await import(new URL("specimen-draw.js", here).href);
       const BG = ["#2c2768", "#2a3f7a", "#1d6670", "#5b4a7a", "#9a1f5e"];
       document.body.innerHTML = "";
       document.body.style.cssText = "margin:0;background:#14112e;color:#fff;font:13px Anton, sans-serif;overflow:auto;height:auto";
@@ -257,8 +259,10 @@ await sheet(
   await page.goto(`${BASE}/one-device/hot-potato/`);
   await page.evaluate(() => document.fonts.ready);
   await page.evaluate(async () => {
-    const { createSpecimen } = await import("./art-specimen.js");
-    const { FACES, LISTENING, REACTIONS } = await import("./specimen-draw.js");
+    // Beside the page's own module, wherever its release's files are served from (/r/<id>/...).
+    const here = new URL(".", document.querySelector("script[type=module][src]").src);
+    const { createSpecimen } = await import(new URL("art-specimen.js", here).href);
+    const { FACES, LISTENING, REACTIONS } = await import(new URL("specimen-draw.js", here).href);
     const HEAT = { calm: 0, warm: 1, hot: 2, strain: 3, critical: 4 };
     const rows = [...Object.entries(FACES).map(([k, list]) => [k, list.map((f) => [f.id, HEAT[k]])]), ["listening", [[LISTENING.id, 0]]], ["reactions", Object.entries(REACTIONS).filter(([k]) => k !== "doom").flatMap(([k, list]) => list.map((f) => [`${f.id}`, k === "right" || k === "appeal" ? 1 : 2, k]))]];
     const BG = ["#2c2768", "#2a3f7a", "#1d6670", "#5b4a7a", "#9a1f5e"];

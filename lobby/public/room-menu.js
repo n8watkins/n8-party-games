@@ -106,7 +106,7 @@ export class RoomMenu {
       card.dataset.room = r.id;
       const img = h("img", "", "", card);
       // The small pictures are only fetched when the picker is opened.
-      img.src = `/lobby/rooms/${r.id}.webp`;
+      img.src = new URL(`./rooms/${r.id}.webp`, import.meta.url).href;
       img.alt = "";
       img.width = 320;
       img.height = 165;

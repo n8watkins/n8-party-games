@@ -23,7 +23,8 @@ The site is live at https://partygames.n8builds.dev; `DEPLOY.md` at the reposito
 
 The top level of `wrangler.jsonc` is the production Worker (rate limits on, no simulated latency, the 10% room budget, logs on).
 The `local` environment is for local play and the tests (simulated latency allowed, rate limits off).
-Only `dist/public` is served: `scripts/build-public.mjs` copies the files a browser loads into it from an allowlist and writes its `_headers` (CSP and the other security headers), and wrangler runs it before every `dev` and `deploy`.
+Only `dist/public` is served: `scripts/build-public.mjs` copies the files a browser loads from an allowlist, lays them out in release folders (the pages at their own addresses, everything else under `/r/<release id>/` and `/m/<hash>`, kept by a browser for a year; `build/folders.mjs`) and writes its `_headers` (CSP, the other security headers and the cache rules) and `_redirects`, and wrangler runs it before every `dev` and `deploy`.
+`DEPLOY.md`, "Release folders and the browser's cache", says what that means for a deploy.
 A hosted game is listed in `games.js` at the repository root, and its manifest names its public files; `npm run assets:list` prints exactly what will be public.
 
 ## Taking the kit into a game
@@ -42,6 +43,7 @@ Only the kit is installed that way (the `files` list in this repository's `packa
 | `n8-party-games/kit` | The Worker side: `createPartyRoom`, `PinDirectory`, `RateLimiter`, `RoomBudget`, `handlePartyApi`. |
 | `n8-party-games/kit/core`, `/kit/rng`, `/kit/http` | The room as plain logic, the seeded generator, and the HTTP helpers (no Workers runtime needed, so tests can use them). |
 | `n8-party-games/kit/build` | `buildPublic` and `kitClientEntry`: builds a site's public folder from an allowlist. Its `botCheck` option lists the site paths whose pages may load Turnstile (every page by default; `"room-making"` finds the pages that load the kit's bot check in what was built, as the party site does). |
+| `n8-party-games/kit/build/folders` | `foldTree`, `writePlan`, `carriedFrom` and `withCarried`: lays a built public folder out in release folders, so that a returning browser asks for almost nothing (the file's header says how, and what a page script must keep to). `headersFile` in `/kit/build` takes the cache rules (`immutable`, `mirrors`), and `assetOr404` in `/kit/http` keeps a missing file from being kept. The party site's `scripts/build-public.mjs` shows the whole of it, with the release id and the releases a deploy carries. |
 | `n8-party-games/kit/client/*` | The browser files. A site serves them at `/party-kit/client/`; a game imports them by that site path. |
 
 What a game must export so the party site can host it is in [GAME-CONTRACT.md](GAME-CONTRACT.md).

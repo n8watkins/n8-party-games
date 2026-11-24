@@ -19,7 +19,8 @@
 //   - Nothing is stored on the device: no names, no hints, no questions, no draft. A half-typed
 //     question lives in its box only, which survives redraws but not a reload.
 
-const CSS = "/party/games/who-am-i.css";
+// Beside this module (in its release's folder), never at a site path: site/site-path.js says why.
+const CSS = new URL("./who-am-i.css", import.meta.url).href;
 const PICTURE_HOST = "https://upload.wikimedia.org/";
 
 // The rules' timers (TIMERS on the server), used only to draw how much of a step is left; the

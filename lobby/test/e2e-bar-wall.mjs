@@ -29,7 +29,7 @@ import { mkdirSync } from "node:fs";
 import { wallFor } from "../shared/rooms.js";
 import { acrossWalls, drawnLight, lightAt, poolOf } from "../shared/world.js";
 import { WALL } from "../wall.js";
-import { launchBrowser } from "./browser.mjs";
+import { launchBrowser, siteFile } from "./browser.mjs";
 import { partyApi, sleep } from "./client.mjs";
 
 const args = process.argv.slice(2);
@@ -231,7 +231,7 @@ try {
       flatQr.w = qr;
     } else {
       // (Metres per world unit on the walking line: the page's own, from look3d/space.js.)
-      const PX = await p.evaluate(async () => (await import("/lobby/look3d/space.js")).PX);
+      const PX = await p.evaluate(async (url) => (await import(url)).PX, await p.evaluate(siteFile, "/lobby/look3d/space.js"));
       const got = await p.evaluate(() => ({ boxes: window.__room3d.boxes.map((b) => ({ i: b.i, pooled: !!b.pooled, r: b.pool.z })), rung: window.__room3d.stats?.().rung ?? "" }));
       const pooled = got.boxes.filter((b) => b.pooled).map((b) => b.i);
       const same = pooled.join() === BAR.pools.map((q) => q.i).join() && got.boxes.filter((b) => b.pooled).every((b, k) => Math.abs(b.r - want[k].pool * PX) < 1e-6);

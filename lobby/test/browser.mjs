@@ -58,6 +58,21 @@ export const gpu = process.env.TEST_GPU === "1" && !cardOff;
 export const QUIET = ["--mute-audio", "--disable-audio-output"];
 
 /**
+ * For page.evaluate, in the page: the address, in the page's own release, of the file at site
+ * path `path` ("/lobby/look3d/space.js"). A release's files are served from its own folder
+ * (/r/<release id>/, party-kit/build/folders.mjs), so a test that wants a module of the page it
+ * drives must not import it by site path: that address is outside the folder. The folder is read
+ * from the page's own scripts and stylesheets; a site without folders serves from "/".
+ *
+ *   const url = await page.evaluate(siteFile, "/lobby/look3d/space.js");
+ *   const PX = await page.evaluate(async (url) => (await import(url)).PX, url);
+ */
+export function siteFile(path) {
+  const own = [...document.querySelectorAll("script[src], link[rel=stylesheet][href]")].map((el) => /^(.*\/r\/[0-9a-f]{12}\/)/.exec(el.src || el.href)?.[1]).find(Boolean);
+  return new URL(String(path).replace(/^\/+/, ""), own ?? `${location.origin}/`).href;
+}
+
+/**
  * chromium.launch with the scripts' usual settings (headless, muted), plus the caller's
  * Playwright launch options. Returns the Browser; its close() also stops the private display.
  */

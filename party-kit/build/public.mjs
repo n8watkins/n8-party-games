@@ -48,11 +48,10 @@ function walk(dir) {
   });
 }
 
-/** sha256 hashes of every inline <script> in the served pages (the import maps), for the CSP. */
-function inlineScriptHashes(files) {
+/** sha256 hashes of every inline <script> in the pages' texts (the import maps), for the CSP. */
+export function inlineScriptHashesOf(pages) {
   const hashes = new Set();
-  for (const file of files.filter((f) => f.endsWith(".html"))) {
-    const html = readFileSync(file, "utf8");
+  for (const html of pages) {
     for (const m of html.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script>/gi)) {
       if (/\bsrc\s*=/.test(m[1])) continue;
       hashes.add(`'sha256-${createHash("sha256").update(m[2], "utf8").digest("base64")}'`);
@@ -60,6 +59,16 @@ function inlineScriptHashes(files) {
   }
   return [...hashes].sort();
 }
+
+/** The same for the served pages among `files` (absolute paths). */
+function inlineScriptHashes(files) {
+  return inlineScriptHashesOf(files.filter((f) => f.endsWith(".html")).map((file) => readFileSync(file, "utf8")));
+}
+
+/** What a file whose address never serves other bytes is sent with: kept a year, never asked for again. */
+export const IMMUTABLE = "public, max-age=31536000, immutable";
+/** What Workers sends a file with by itself: kept, but asked about again before each use. */
+export const REVALIDATE = "public, max-age=0, must-revalidate";
 
 /** The kit's bot check module: a page can make a room with the check on only if it loads this. */
 export const BOT_CHECK_MODULE = `${KIT_CLIENT_PATH}/bot-check.js`;
@@ -175,11 +184,37 @@ export function roomMakingPages(out, { computedImports = [] } = {}) {
  * A page path may be listed in `images` and `botCheck` both (its policy has both), but two
  * different listed paths may not overlap: a page matched by two would be sent two policies, and a
  * browser keeps to both.
+ *
+ * `immutable` lists the folders ("/r/*") whose files are kept by a browser for a year and never
+ * asked for again (IMMUTABLE): only for folders where an address never serves other bytes (a
+ * release's folder, files named by their hash; build/folders.mjs). Nothing else gets a cache rule,
+ * so every page keeps Workers' own "ask again each time". Workers sends these headers with
+ * whatever it answers at such an address, a missing file's 404 included, so the Worker must send
+ * its own 404 there (src/worker/http.js, assetOr404).
+ *
+ * `mirrors` lists address prefixes ("/r/:release") under which every page lives a second time (a
+ * release folder holds a copy of each page, which a game shown in a frame loads): each page rule
+ * above is repeated under each prefix, so a page's copy is sent the very headers of the page.
+ *
+ * `noindex` lists folders ("/r/*") a search engine must not list (`X-Robots-Tag: noindex`): the
+ * page copies in a release's folder can be reached by their address, and are not the site's pages.
+ *
+ * `fresh` lists paths inside an immutable folder ("/r/:release/preview/*") that are asked for
+ * again each time after all: files that can change while the folder's name does not (the pages
+ * a local build adds, which are no part of the release id). Written last, so it wins.
  */
-export function headersFile(scriptHashes, { frames = "none", microphone = [], images = {}, botCheck = ["/*"] } = {}) {
+export function headersFile(scriptHashes, { frames = "none", microphone = [], images = {}, botCheck = ["/*"], immutable = [], mirrors = [], noindex = [], fresh = [] } = {}) {
   const own = frames === "self";
   for (const origins of Object.values(images)) for (const origin of origins) if (!/^https:\/\/[a-z0-9.-]+$/.test(origin)) throw new Error(`Not an https origin for img-src: ${origin}`);
   for (const path of botCheck) if (!/^\/[A-Za-z0-9._~/-]*\*?$/.test(path)) throw new Error(`Not a site path for the bot check: ${path}`);
+  // One whole top-level folder, never a page's address and never the site: "/r/*".
+  for (const path of immutable) if (!/^\/[A-Za-z0-9_-]+\/\*$/.test(path)) throw new Error(`Not a folder to keep as immutable: ${JSON.stringify(path)} (one top-level folder, as "/r/*")`);
+  for (const prefix of mirrors) if (!/^(\/:?[A-Za-z0-9_]+)+$/.test(prefix)) throw new Error(`Not a prefix to mirror the page rules under: ${JSON.stringify(prefix)}`);
+  for (const path of noindex) if (!/^\/[A-Za-z0-9_-]+\/\*$/.test(path)) throw new Error(`Not a folder to keep out of search engines: ${JSON.stringify(path)} (one top-level folder, as "/r/*")`);
+  // Inside one of the immutable folders, and never the whole of it.
+  for (const path of fresh) {
+    if (!/^(\/:?[A-Za-z0-9_-]+){2,}\/\*$/.test(path) || !immutable.some((folder) => path.startsWith(folder.slice(0, -1)))) throw new Error(`Not a path inside an immutable folder to keep fresh: ${JSON.stringify(path)}`);
+  }
   const everywhere = botCheck.includes("/*");
   // The pages whose policy differs from the site-wide one, each with what it adds.
   const widened = new Map();
@@ -203,6 +238,14 @@ export function headersFile(scriptHashes, { frames = "none", microphone = [], im
     `frame-ancestors ${own ? "'self'" : "'none'"}`,
   ].join("; ");
   const policy = (mic) => `camera=(), microphone=${mic}, geolocation=(), payment=(), usb=()`;
+  // The rules for some pages only, each [path, ...lines].
+  const pages = [
+    // A path in `microphone` may use the microphone on this site's own pages: the site-wide
+    // policy is detached ("!") and the same one sent with only microphone=(self) changed.
+    ...microphone.map((path) => [path, "  ! Permissions-Policy", `  Permissions-Policy: ${policy("(self)")}`]),
+    // A path in `images` or `botCheck` gets what it adds: the same policy, detached and resent.
+    ...[...widened].map(([path, adds]) => [path, "  ! Content-Security-Policy", `  Content-Security-Policy: ${csp(adds)}`]),
+  ];
   return [
     "/*",
     `  Content-Security-Policy: ${csp()}`,
@@ -210,11 +253,13 @@ export function headersFile(scriptHashes, { frames = "none", microphone = [], im
     `  X-Frame-Options: ${own ? "SAMEORIGIN" : "DENY"}`,
     "  Referrer-Policy: strict-origin-when-cross-origin",
     `  Permissions-Policy: ${policy("()")}`,
-    // A path in `microphone` may use the microphone on this site's own pages: the site-wide
-    // policy is detached ("!") and the same one sent with only microphone=(self) changed.
-    ...microphone.flatMap((path) => [path, "  ! Permissions-Policy", `  Permissions-Policy: ${policy("(self)")}`]),
-    // A path in `images` or `botCheck` gets what it adds: the same policy, detached and resent.
-    ...[...widened].flatMap(([path, adds]) => [path, "  ! Content-Security-Policy", `  Content-Security-Policy: ${csp(adds)}`]),
+    ...pages.flat(),
+    // The same again for each page's copy under a mirror; the site-wide rule already covers it.
+    ...mirrors.flatMap((prefix) => pages.filter(([path]) => path !== "/*").flatMap(([path, ...lines]) => [`${prefix}${path}`, ...lines])),
+    ...immutable.flatMap((path) => [path, `  Cache-Control: ${IMMUTABLE}`, ...(noindex.includes(path) ? ["  X-Robots-Tag: noindex"] : [])]),
+    ...noindex.filter((path) => !immutable.includes(path)).flatMap((path) => [path, "  X-Robots-Tag: noindex"]),
+    // After the folder's rule, so the detach takes the year away again.
+    ...fresh.flatMap((path) => [path, "  ! Cache-Control", `  Cache-Control: ${REVALIDATE}`]),
     "",
   ].join("\n");
 }

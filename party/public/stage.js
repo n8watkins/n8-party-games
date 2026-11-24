@@ -8,14 +8,15 @@
 // view at once and hands on whatever the room says in the meantime.
 import { stageKey } from "/lobby/shared/stage.js";
 import { hideUntilStyled } from "/party/styled.js";
+import { siteUrl } from "/site-path.js";
 
 const modules = new Map();
 
-/** The view module for a Table entry, loaded once. Only ever a module of this site. */
+/** The view module for a Table entry, loaded once. Only ever a module of this site, from this page's own release. */
 function viewModule(entry) {
   if (!entry?.view) return Promise.resolve(null);
   if (!modules.has(entry.id)) {
-    const address = new URL(entry.view, location.href);
+    const address = siteUrl(entry.view);
     modules.set(entry.id, address.origin === location.origin ? import(address.href) : Promise.resolve(null));
   }
   return modules.get(entry.id);

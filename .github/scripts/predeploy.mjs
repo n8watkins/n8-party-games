@@ -81,6 +81,16 @@ if (process.argv.includes("--deploy")) {
     console.error(`\nNot deploying: ${problem}\n\n(\`npm run gate\` runs the gate alone on any tree.)`);
     process.exit(1);
   }
+  // The deploy's build carries the two releases before it, built again from their commits
+  // (scripts/carried.mjs). Whether it can is asked now, the cheap way: the live site answers and
+  // names commits this clone has. The build does the work, and checks each release's id.
+  const { carryCheck } = await import("../../scripts/carried.mjs");
+  try {
+    console.log(await carryCheck({ root: join(import.meta.dirname, "..", "..") }));
+  } catch (err) {
+    console.error(`\nNot deploying: ${err.message}\n\n(\`npm run gate\` runs the gate alone on any tree.)`);
+    process.exit(1);
+  }
 }
 
 const port = Number(process.env.PREDEPLOY_PORT ?? "8853");
