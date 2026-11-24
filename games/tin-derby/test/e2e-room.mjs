@@ -236,9 +236,12 @@ try {
     const watched = pages.find((p) => p.name === "screen") ?? pages[0];
     const seenAt = new Map();
     let endAt = 0;
+    const polls = [], lookMs = new Map();
     while (!end && Date.now() - t0 < 200_000) {
+      const p0 = Date.now();
       // Every page at once: on a busy machine one after another took long enough to miss the last seconds of a short race.
-      await Promise.all([...frames].map(async ([p, f]) => { try { last.set(p, await look(f)); seenAt.set(p, Date.now()); } catch { /* the frame was taken away, or is reloading */ } }));
+      await Promise.all([...frames].map(async ([p, f]) => { const l0 = Date.now(); try { last.set(p, await look(f)); seenAt.set(p, Date.now()); } catch { /* the frame was taken away, or is reloading */ } lookMs.set(p.name, Math.max(lookMs.get(p.name) ?? 0, Date.now() - l0)); }));
+      polls.push(Date.now() - p0);
       const t = last.get(watched)?.t ?? -9;
       if (still && !countShot && t < 0) { countShot = true; await still("countdown", t); }
       if (still && !mid && t > 25) { mid = true; await still("mid-race", t); }
@@ -250,7 +253,9 @@ try {
       if (still && home && !last.finShot) { last.finShot = true; await still("finish", t); }
       for (const p of pages) if (!end) { end = endOf(p); if (end) endAt = Date.now(); }
       await sleep(home ? 100 : 250);
+      polls[polls.length - 1] = [polls.at(-1), Date.now() - p0];
     }
+    { const s = polls.map((x) => x[1]).sort((a, b) => a - b); console.log(`     DIAG ${label}: ${polls.length} polls, median ${s[s.length >> 1]} ms, longest ${s.at(-1)} ms (looks ${Math.max(...polls.map((x) => x[0]))} ms); slowest look ${JSON.stringify(Object.fromEntries(lookMs))}`); }
     check(!!end, `${label}: the race ended in the room within ${Math.round((Date.now() - t0) / 1000)} s`);
     if (!end) return { end, last };
     // Each page's own last word, once its copy has reached the end too: a poll can be a second old on a busy machine,
@@ -453,22 +458,29 @@ try {
       // take seconds on a busy machine, and the race is only some 30 s long. Each waits for its phone to be driving its
       // own car first (a page that loads after GO is the house's until it speaks, so there would be nothing to take).
       let reloading = null;
+      const tl = [];
       const troubles = (async () => {
         const sf = await derby(scr);
+        let longest = 0, iters = 0;
         while (at.reload === null) {
+          const i0 = Date.now();
           // t: the race as the big screen draws it (predicted, ahead of the room); room: how far the room's own word has got.
           const r = await sf.evaluate(() => { const d = window.__derby, x = d.race; return { t: x.t, room: d.app.replica.auth.t, over: x.over, own: Object.fromEntries(x.cars.map((c) => [c.name, !c.house && !c.auto])) }; }).catch(() => null);
+          const evMs = Date.now() - i0;
+          tl.push(`${r?.t?.toFixed(1)}:${evMs}`);
           if (!r || r.over) return;
           // Bo makes his phone a controller only, before his drop and reload: it must be so again after the reload.
           if (at.pad === null && r.t > 1 && maps?.frames.has(bo)) {
             const bf = maps.frames.get(bo);
             at.pad = {};
+            const c0 = Date.now();
             await bf.click("#bpad");
+            tl.push(`click ${Date.now() - c0}`);
             at.pad = await bf.evaluate(() => ({ pad: window.__derby.app.pad, stage: getComputedStyle(document.getElementById("stage")).visibility, info: document.getElementById("padinfo").innerText.replace(/\s+/g, " ").trim(), kept: localStorage.getItem("tin-derby-controller-only") })).catch((e) => ({ error: e.message }));
           }
           if (at.drop === null && r.t > 3 && r.own.Bo) { at.drop = r.t; await bo.context().setOffline(true); }
           // Bo's pane on the big screen while the house has his car.
-          if (at.drop !== null && at.back === null && at.houseNote === null && r.t > at.drop + 2.5) at.houseNote = (await panesOf(sf).catch(() => null))?.panes.find((p) => p.name === "Bo")?.note ?? "";
+          if (at.drop !== null && at.back === null && at.houseNote === null && r.t > at.drop + 2.5) { const n0 = Date.now(); at.houseNote = (await panesOf(sf).catch(() => null))?.panes.find((p) => p.name === "Bo")?.note ?? ""; tl.push(`note ${Date.now() - n0}`); }
           if (at.drop !== null && at.back === null && r.t > at.drop + 5) { at.back = r.t; await bo.context().setOffline(false); }
           if (at.freeze === null && r.t > 5 && r.own.Stall) { at.freeze = r.t; relay.freeze(4000); }
           if (at.back !== null && r.t > at.back + 3 && r.own.Bo && maps) {
@@ -487,6 +499,7 @@ try {
       })();
       const { end, last } = await race("short", code, [ada, bo, stall, nogl, scr], { during });
       await troubles;
+      console.log(`     DIAG troubles: ${tl.join(" ")}`);
       // Bo's page may still be on its way back with the race already over: its frame is gone, so this ends with the race.
       await Promise.race([reloading, sleep(2000)]);
       if (end) {

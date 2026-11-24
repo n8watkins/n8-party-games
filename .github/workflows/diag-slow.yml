@@ -1,0 +1,38 @@
+# TEMPORARY: diagnosis of the gate's browser steps on a hosted runner. Removed before review.
+name: diag-slow
+
+on:
+  push:
+    branches: [fix/gate-reliable-on-slow-machines]
+
+permissions:
+  contents: read
+
+jobs:
+  diag:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        step: [test:tin-derby, test:cork]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: nproc; lscpu | head -20; free -h
+      - name: three runs, each on a fresh Worker
+        run: |
+          for i in 1 2 3; do
+            dir=$(mktemp -d)
+            npx wrangler dev --local --env=local --port 8853 --persist-to "$dir" > "$dir/w.log" 2>&1 &
+            w=$!
+            for k in $(seq 1 120); do curl -sf http://localhost:8853/api/party/config >/dev/null && break; sleep 1; done
+            echo "=== run $i, load $(cat /proc/loadavg)"
+            npm run -s ${{ matrix.step }} -- --base=http://localhost:8853 && echo "=== run $i PASSED" || echo "=== run $i FAILED"
+            kill $w; sleep 3; pkill -f workerd || true
+          done
