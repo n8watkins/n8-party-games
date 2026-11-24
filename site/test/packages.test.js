@@ -1,5 +1,6 @@
-// The repository's packages: the hub at the root and the in-house games in games/<id>, npm
-// workspaces that share the root's one node_modules.
+// The repository's packages: the hub at the root, whose exports are its public surface (the kit),
+// and its npm workspaces, which share the root's one node_modules: the in-house games in
+// games/<id> and the private @n8games/lobby (lobby/), the party room and test helpers they reach.
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
@@ -15,14 +16,20 @@ const GAME_IDS = readdirSync(join(ROOT, "games"), { withFileTypes: true })
   .map((entry) => entry.name)
   .sort();
 
+/** The workspaces: the lobby's folder and each game's. */
+const WORKSPACE_DIRS = ["lobby", ...GAME_IDS.map((id) => `games/${id}`)];
+
+/** npm calls here can take seconds on a loaded machine: these tests get a minute. */
+const SLOW = { timeout: 60_000 };
+
 /**
- * The files an install of the package in `dir` holds: npm's own list for a pack (an install from
- * git, as an outside game installs the hub, packs the clone the same way).
+ * The files an install of each package holds, by package name: npm's own list for a pack (an
+ * install from git, as an outside game installs the hub, packs the clone the same way). One call
+ * for the root (no `args`) or for every workspace (`--workspaces`).
  */
-function packedFiles(dir) {
-  const out = JSON.parse(execFileSync(npm, ["pack", "--dry-run", "--json", "--ignore-scripts"], { cwd: join(ROOT, dir), encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }));
-  const [entry] = Object.values(out);
-  return new Set(entry.files.map((file) => file.path));
+function packedFiles(args = []) {
+  const out = JSON.parse(execFileSync(npm, ["pack", "--dry-run", "--json", "--ignore-scripts", ...args], { cwd: ROOT, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }));
+  return new Map(Object.values(out).map((entry) => [entry.name, new Set(entry.files.map((file) => file.path))]));
 }
 
 /** Every [subpath, target file pattern] a package.json's exports name, through any conditions. */
@@ -37,8 +44,8 @@ function exportTargets(exports) {
 }
 
 /** The export targets in `dir`'s package.json that an install of it would not contain. */
-function unpackedExports(dir) {
-  const packed = packedFiles(dir);
+function unpackedExports(dir, packedByName) {
+  const packed = packedByName.get(read(join(dir, "package.json")).name) ?? new Set();
   const tracked = execFileSync("git", ["ls-files", "--", dir === "." ? "." : dir], { cwd: ROOT, encoding: "utf8" })
     .split("\n")
     .filter(Boolean)
@@ -95,9 +102,9 @@ describe("the hub's public surface", () => {
     ]);
   });
 
-  it("names only files an outside install contains (the root's files list)", () => {
+  it("names only files an outside install contains (the root's files list)", SLOW, () => {
     expect(
-      unpackedExports("."),
+      unpackedExports(".", packedFiles()),
       "the root package.json exports a file its `files` list leaves out, so a game that installs the hub from git cannot import it",
     ).toEqual([]);
   });
@@ -109,7 +116,7 @@ describe("the games' workspaces", () => {
   });
 
   it("have no node_modules of their own (nor has the lobby's)", () => {
-    const own = [...GAME_IDS.map((id) => `games/${id}`), "lobby"].filter((dir) => existsSync(join(ROOT, dir, "node_modules")));
+    const own = WORKSPACE_DIRS.filter((dir) => existsSync(join(ROOT, dir, "node_modules")));
     expect(
       own,
       `${own[0]}/node_modules should not exist: every workspace shares the root node_modules. ` +
@@ -120,9 +127,9 @@ describe("the games' workspaces", () => {
     ).toEqual([]);
   });
 
-  it("declare every package they import, each tool with the root's own range", async () => {
+  it("declare every package they import, each tool with the root's own range", SLOW, async () => {
     await initLexer;
-    const workspaces = new Set([ROOT_PACKAGE.name, read("lobby/package.json").name, ...GAME_IDS.map((id) => read(`games/${id}/package.json`).name)]);
+    const workspaces = new Set([ROOT_PACKAGE.name, ...WORKSPACE_DIRS.map((dir) => read(`${dir}/package.json`).name)]);
     const atRoot = declared(ROOT_PACKAGE);
     const problems = [];
     for (const id of GAME_IDS) {
@@ -141,15 +148,27 @@ describe("the games' workspaces", () => {
     expect(problems).toEqual([]);
   });
 
-  it("are declared by the hub wherever it imports them", async () => {
+  it("are declared by the hub wherever it imports them", SLOW, async () => {
     await initLexer;
-    const games = new Set([read("lobby/package.json").name, ...GAME_IDS.map((id) => read(`games/${id}/package.json`).name)]);
+    const games = new Set(WORKSPACE_DIRS.map((dir) => read(`${dir}/package.json`).name));
     const atRoot = declared(ROOT_PACKAGE);
     const problems = [];
     for (const file of scriptsIn(".").filter((path) => !path.startsWith("games/"))) {
       for (const name of bareImports(file)) if (games.has(name) && !(name in atRoot)) problems.push(`${file} imports ${name}, which the root package.json does not declare`);
     }
     expect(problems).toEqual([]);
+  });
+
+  it("each have a plain SemVer version, as the lobby's package has", () => {
+    for (const dir of WORKSPACE_DIRS) {
+      expect(read(`${dir}/package.json`).version ?? "(none)", `${dir}/package.json's version`).toMatch(/^\d+\.\d+\.\d+$/);
+    }
+  });
+
+  it("export only files their own files list keeps", SLOW, () => {
+    const packed = packedFiles(["--workspaces"]);
+    const missing = WORKSPACE_DIRS.flatMap((dir) => unpackedExports(dir, packed).map((line) => `${dir}: ${line}`));
+    expect(missing).toEqual([]);
   });
 
   it("each run their unit tests through the root's config, from the root", () => {

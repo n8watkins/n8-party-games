@@ -17,6 +17,7 @@
     "rules.js",
     "deck.js",
     "deck-data.js",
+    "test/table.js",
     "public",
     "README.md"
   ],

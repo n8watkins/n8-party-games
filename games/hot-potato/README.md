@@ -61,7 +61,8 @@ A quiet moment inside a turn, or silent turns that are not in a row, never bring
 - `lab/`: the hearing test, an unlisted page served at `/lab/hot-potato/` that imports `shared/` by its address, with its own tests and the tools that build the lists (`lab/README.md`).
 - `test/game.test.js`, `test/specimen.test.js`, `test/potato.test.js`: unit tests (part of `npm test`).
 - `test/e2e-game.mjs`: the browser test; `test/stills.mjs`: stills of every screen and a contact sheet of every face, for looking at.
-- `package.json`: this folder as a package of the hub's (`games/*`, an npm workspace). The game has no server code and no manifest: the site's build serves `public/`, `shared/` and `lab/public/` at the addresses above (`scripts/build-public.mjs`), and it shares the site's version.
+- `package.json`: this folder as a package of the hub's (`games/*`, an npm workspace), with a version of its own like every workspace.
+  The game has no server code and no manifest: the site's build serves `public/`, `shared/` and `lab/public/` at the addresses above (`scripts/build-public.mjs`), and the release record has no entry of its own for it, so what is served goes out under the site's version.
   The browser tests reach the hub only by package name, for the in-house test helpers (`@n8games/lobby/testing/browser`, `@n8games/lobby/testing/stills`; `lobby/package.json`, a workspace that is never published).
   `npm test -w hot-potato` runs this folder's unit tests alone; `npm run test:e2e -w hot-potato` and `npm run test:e2e:hearing -w hot-potato` run its browser tests (as `test:hot-potato` and `test:hearing` do).
 
