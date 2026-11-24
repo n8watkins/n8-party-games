@@ -490,14 +490,21 @@ try {
     const scr = await screenPage();
     const pin = await startParty(scr);
     const flat = await launchBrowser({ software: true, args: ["--disable-webgl", "--disable-3d-apis"] });
+    // Each phone that draws is a browser of its own, as each phone is a device with its own graphics: pages of one
+    // browser share its one graphics process, and drawn in software on a small machine every WebGL call of one page
+    // (each a round trip to that process) waited behind the others' frames. A profile of Bo's reloaded page there
+    // spent 6.4 s of its 8.5 s way back making the 3D world, nearly all of it in getContext, getParameter,
+    // getExtension and a canvas's toDataURL; on GitHub's runner the reload took some 22 s to come back.
+    const phoneBrowsers = await Promise.all(["Ada", "Bo", "Stall"].map(() => launchBrowser({ args: ["--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--autoplay-policy=no-user-gesture-required"] })));
+    const [adaB, boB, stallB] = phoneBrowsers;
     const relay = stallingRelay(new URL(base));
     try {
-      const ada = await phone("Ada", pin, "&derby-short=1");
-      const bo = await phone("Bo", pin, "&derby-short=1");
+      const ada = await phone("Ada", pin, "&derby-short=1", { context: { hasTouch: true, isMobile: true, via: adaB } });
+      const bo = await phone("Bo", pin, "&derby-short=1", { context: { hasTouch: true, isMobile: true, via: boB } });
       // A phone with no 3D in a party with a big screen: a controller, driving its car by the big screen.
       const nogl = await phone("NoGL", pin, "", { context: { hasTouch: true, isMobile: true, via: flat } });
       nogl.quiet = /WebGL|webgl/;
-      const stall = await phone("Stall", pin, "&derby-short=1", { at: `http://localhost:${relay.port}` });
+      const stall = await phone("Stall", pin, "&derby-short=1", { at: `http://localhost:${relay.port}`, context: { hasTouch: true, isMobile: true, via: stallB } });
       const code = await codeOf(pin);
       await vote(code, [ada, bo, nogl, stall]);
       const at = { drop: null, back: null, reload: null, freeze: null, pad: null, padBack: null, houseNote: null };
@@ -678,6 +685,7 @@ try {
       relay.close();
       await closeAll();
       await flat.close().catch(() => {});
+      for (const b of phoneBrowsers) await b.close().catch(() => {});
     }
   }
 
