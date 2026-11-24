@@ -2,12 +2,12 @@
 // lesser-known entries too), how many well-known entries end in each letter, and the dead ends: the letters fewer
 // than DEAD_END_BELOW entries start with, which the chain skips back from.
 //
-//   node lab/hot-potato/tools/letter-report.mjs
+//   node games/hot-potato/lab/tools/letter-report.mjs
 import { readFileSync } from "node:fs";
-import { CATEGORIES } from "../../../one-device/hot-potato/shared/categories.js";
-import { DEAD_END_BELOW, buildIndex, deadLetters, entriesLeft, lastLetter } from "../../../one-device/hot-potato/shared/logic.js";
+import { CATEGORIES } from "../../shared/categories.js";
+import { DEAD_END_BELOW, buildIndex, deadLetters, entriesLeft, lastLetter } from "../../shared/logic.js";
 
-const load = (name) => JSON.parse(readFileSync(new URL(`../../../one-device/hot-potato/shared/${name}`, import.meta.url), "utf8"));
+const load = (name) => JSON.parse(readFileSync(new URL(`../../shared/${name}`, import.meta.url), "utf8"));
 const words = load("words.json");
 const ABC = [..."abcdefghijklmnopqrstuvwxyz"];
 

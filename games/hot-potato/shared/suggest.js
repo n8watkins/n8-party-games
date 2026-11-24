@@ -1,4 +1,4 @@
-// Suggestions: a few answers a player could say next, for the hearing test (lab/hot-potato), where
+// Suggestions: a few answers a player could say next, for the hearing test (games/hot-potato/lab), where
 // a player who does not know many cities reads one out. Pure, no DOM. The game does not use it:
 // there a suggestion would be the answer. It lives beside the matcher so a deliberate "hint"
 // in the game could use it later.

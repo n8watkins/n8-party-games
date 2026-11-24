@@ -3,7 +3,7 @@
 // and verdict are logged on the page and in the "Copy results" report. Nothing is stored or sent
 // anywhere by this page.
 //
-// The matcher and the lists are the game's (one-device/hot-potato/shared), served at
+// The matcher and the lists are the game's (games/hot-potato/shared), served at
 // /one-device/hot-potato/shared/: this page and the game use the one copy.
 import { CATEGORIES, CATEGORY_IDS, DEFAULT_CATEGORY, dataUrl } from "/one-device/hot-potato/shared/categories.js";
 import { deviceInfo, micKind } from "./device.js";

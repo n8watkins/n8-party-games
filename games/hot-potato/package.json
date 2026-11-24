@@ -1,0 +1,21 @@
+{
+  "name": "hot-potato",
+  "private": true,
+  "type": "module",
+  "description": "Hot Potato: a spoken word chain on one phone or browser passed around the group, before the potato bursts. With its hearing test (lab/).",
+  "license": "MIT",
+  "exports": {
+    "./game": "./public/game.js",
+    "./shared/*": "./shared/*",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "public",
+    "shared",
+    "lab",
+    "README.md"
+  ],
+  "devDependencies": {
+    "n8-party-games": "file:../.."
+  }
+}

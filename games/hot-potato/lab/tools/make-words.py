@@ -1,4 +1,4 @@
-"""Builds one-device/hot-potato/shared/words.json: the ordinary English words and common names that the
+"""Builds games/hot-potato/shared/words.json: the ordinary English words and common names that the
 matcher must never stretch into a city by sound ("salmon" is a fish, not Salmas).
 
 Download, in an empty folder of their own:
@@ -12,7 +12,7 @@ Download, in an empty folder of their own:
   https://www2.census.gov/topics/genealogy/1990surnames/dist.all.last
       (US Census 1990 first names and family names, public domain)
 
-Then: python3 -I lab/hot-potato/tools/make-words.py <en_50k.txt> <scowl final/ folder> <census folder> <out.json> <date fetched>
+Then: python3 -I games/hot-potato/lab/tools/make-words.py <en_50k.txt> <scowl final/ folder> <census folder> <out.json> <date fetched>
 
 Keeps the WORD_COUNT most frequent subtitle words that SCOWL lists as common lower-case English words
 (levels up to 50, American, British and Canadian spellings), every first name in the census

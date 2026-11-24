@@ -3,11 +3,11 @@
 // already said, and "more" pages through others.
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { CATEGORIES, CATEGORY_IDS } from "../../../one-device/hot-potato/shared/categories.js";
-import { buildIndex, firstLetter, matchHeard, nextLetter, normalize } from "../../../one-device/hot-potato/shared/logic.js";
-import { FAMOUS_CITIES, SKIP_NAMES, SKIP_WORDS, SUGGESTION_COUNT, suggestible, suggestions } from "../../../one-device/hot-potato/shared/suggest.js";
+import { CATEGORIES, CATEGORY_IDS } from "../../shared/categories.js";
+import { buildIndex, firstLetter, matchHeard, nextLetter, normalize } from "../../shared/logic.js";
+import { FAMOUS_CITIES, SKIP_NAMES, SKIP_WORDS, SUGGESTION_COUNT, suggestible, suggestions } from "../../shared/suggest.js";
 
-const load = (name) => JSON.parse(readFileSync(new URL(`../../../one-device/hot-potato/shared/${name}`, import.meta.url), "utf8"));
+const load = (name) => JSON.parse(readFileSync(new URL(`../../shared/${name}`, import.meta.url), "utf8"));
 const words = load("words.json");
 const index = Object.fromEntries(CATEGORY_IDS.map((id) => [id, buildIndex(load(CATEGORIES[id].file), words, CATEGORIES[id])]));
 const ABC = [..."abcdefghijklmnopqrstuvwxyz"];

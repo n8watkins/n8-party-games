@@ -1,4 +1,4 @@
-"""Builds the Hot Potato category lists other than cities, in one-device/hot-potato/shared:
+"""Builds the Hot Potato category lists other than cities, in games/hot-potato/shared:
 countries.json, animals.json and food.json. (Cities come from tools/make-cities.py; the "Anything"
 category uses words.json as it is.)
 
@@ -11,7 +11,7 @@ Download, in an empty folder of their own:
   https://download.geonames.org/export/dump/alternateNamesV2.zip -> alternateNamesV2.txt
       (GeoNames, CC BY 4.0: the countries and their English names)
 
-Then: python3 -I lab/hot-potato/tools/make-categories.py <download folder> lab/hot-potato/tools one-device/hot-potato/shared <date fetched>
+Then: python3 -I games/hot-potato/lab/tools/make-categories.py <download folder> games/hot-potato/lab/tools games/hot-potato/shared <date fetched>
 
 Each output is {category, source, fetched, fields, groups, rows}; a row is
 [name, other names|0, abbreviations|0, well known (1) or lesser known (0), group number|0],

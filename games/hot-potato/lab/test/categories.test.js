@@ -3,11 +3,11 @@
 // dead-end letters, and copied reports of every version read back.
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { CATEGORIES, CATEGORY_IDS } from "../../../one-device/hot-potato/shared/categories.js";
-import { DEAD_END_BELOW, buildIndex, deadLetters, earlyMatch, entriesLeft, matchHeard, nextLetter, singulars } from "../../../one-device/hot-potato/shared/logic.js";
+import { CATEGORIES, CATEGORY_IDS } from "../../shared/categories.js";
+import { DEAD_END_BELOW, buildIndex, deadLetters, earlyMatch, entriesLeft, matchHeard, nextLetter, singulars } from "../../shared/logic.js";
 import { parseReport } from "./report.js";
 
-const load = (name) => JSON.parse(readFileSync(new URL(`../../../one-device/hot-potato/shared/${name}`, import.meta.url), "utf8"));
+const load = (name) => JSON.parse(readFileSync(new URL(`../../shared/${name}`, import.meta.url), "utf8"));
 const words = load("words.json");
 const index = Object.fromEntries(CATEGORY_IDS.map((id) => [id, buildIndex(load(CATEGORIES[id].file), words, CATEGORIES[id])]));
 const heard = (...transcripts) => transcripts.map((transcript, i) => ({ transcript, confidence: 0.9 - i * 0.1 }));

@@ -4,10 +4,10 @@
 // copied report work, on desktop and phone sizes; it says nothing about how well a real device
 // hears.
 //
-//   node lab/hot-potato/test/e2e-hearing.mjs --base=http://localhost:8875 [--shots=/tmp/claude-hot-potato/shots]
+//   node games/hot-potato/lab/test/e2e-hearing.mjs --base=http://localhost:8875 [--shots=/tmp/claude-hot-potato/shots]
 import { mkdirSync } from "node:fs";
+import { still as takeStill } from "n8-party-games/testing/stills";
 import { chromium } from "playwright";
-import { still as takeStill } from "../../../party-kit/test/stills.mjs";
 
 const arg = (name, fallback) => process.argv.find((a) => a.startsWith(`--${name}=`))?.slice(name.length + 3) ?? fallback;
 const BASE = arg("base", "http://localhost:8875");

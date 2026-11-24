@@ -3,7 +3,7 @@
 // phone, a sideways phone and a desktop window, plus a contact sheet of every face the Specimen
 // has. Headless and muted, with the browser test's kind of fake recogniser.
 //
-//   node one-device/hot-potato/test/stills.mjs --base=http://localhost:8930 [--out=/tmp/claude-hp-game/specimen-stills] [--hash=#plain]
+//   node games/hot-potato/test/stills.mjs --base=http://localhost:8930 [--out=/tmp/claude-hp-game/specimen-stills] [--hash=#plain]
 import { mkdirSync } from "node:fs";
 import { chromium } from "playwright";
 

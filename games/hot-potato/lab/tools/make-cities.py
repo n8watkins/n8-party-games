@@ -1,4 +1,4 @@
-"""Builds one-device/hot-potato/shared/cities.json from GeoNames: every town over 15,000 people (the
+"""Builds games/hot-potato/shared/cities.json from GeoNames: every town over 15,000 people (the
 wider list, "Also allow lesser-known cities"), each marked with why it is, or is not, in the default list of well-known places.
 
 Download and unzip, in an empty folder of their own:
@@ -9,7 +9,7 @@ Download and unzip, in an empty folder of their own:
   https://download.geonames.org/export/dump/countryInfo.txt
 and build shared/words.json first (tools/make-words.py).
 
-Then: python3 -I lab/hot-potato/tools/make-cities.py <geonames folder> <words.json> <famous-places.txt> <out.json> <date fetched>
+Then: python3 -I games/hot-potato/lab/tools/make-cities.py <geonames folder> <words.json> <famous-places.txt> <out.json> <date fetched>
 
 Each place keeps its name, ASCII name, up to five English alternate names (not nicknames; old
 names such as Bombay are kept), up to two abbreviations (NYC), country code, population, why it is

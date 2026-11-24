@@ -1,6 +1,6 @@
 // The Hot Potato categories: what each list is, where its data lives, and the few ways the one
-// matcher (logic.js) treats it differently. Pure data, shared by the game (one-device/hot-potato),
-// the hearing test (lab/hot-potato) and their unit tests. The lists sit beside this file, and
+// matcher (logic.js) treats it differently. Pure data, shared by the game (games/hot-potato),
+// the hearing test (games/hot-potato/lab) and their unit tests. The lists sit beside this file, and
 // the site serves this folder at /one-device/hot-potato/shared/.
 //
 //  - file, format: the list's JSON (built by tools/) and how its rows read ("cities" for

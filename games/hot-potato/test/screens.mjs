@@ -6,7 +6,7 @@
 // whole rig's box (potato, clamps, antennas, tubes, tray) against the screen. Headless and muted,
 // in software (these pictures are for a person), with the browser test's kind of fake recogniser.
 //
-//   node one-device/hot-potato/test/screens.mjs --base=http://localhost:8930 [--out=/tmp/claude-hp-game/responsive-stills]
+//   node games/hot-potato/test/screens.mjs --base=http://localhost:8930 [--out=/tmp/claude-hp-game/responsive-stills]
 //     [--sizes=390x844,1280x720] [--hash=#plain] [--tag=label]
 import { mkdirSync } from "node:fs";
 import { chromium } from "playwright";

@@ -119,8 +119,9 @@ The interface, part by part, is in `lobby/README.md`, "Characters".
 
 - `party-kit/`: the room kit (server core, client, tests, `GAME-CONTRACT.md`).
 - `lobby/`: the party room.
-- `one-device/`: games on one passed-around device, no server (Hot Potato; its matcher and lists in `one-device/hot-potato/shared/`, shared with `lab/hot-potato/`).
-- `games.js`: the hosted games, each its own repository pinned in `package.json` (Cork & Bell is a git commit; bump it deliberately).
+- `games/`: every in-house game, one self-contained folder and npm workspace package each (`games/<id>`, with its own `package.json`, README and tests): Tin Derby (the Floor), Paper Masks and Who Am I? (the Table), Hot Potato (one passed-around device, no server; its hearing test in `games/hot-potato/lab/`).
+  A game reaches the hub only by the hub's package name (`n8-party-games/...`, the exports in the root `package.json`), never by a `../` path; the served addresses (`/tin-derby/`, `/party/games/<id>.js`, `/one-device/hot-potato/`, `/lab/hot-potato/`) do not follow the folders and are pinned by `site/test/served-addresses.test.js`.
+- `games.js`: the hosted games: those in `games/`, and those from their own repositories pinned in `package.json` (Cork & Bell is a git commit; bump it deliberately).
 - `worker.js` and `wrangler.jsonc`: the Worker and its Durable Object migrations (`v1` to `v4`).
   A new migration changes what a rollback can do, so read "Rolling back" in `DEPLOY.md` first.
 - `.github/`: the workflows and the predeploy script.

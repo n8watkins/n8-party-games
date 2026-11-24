@@ -9,8 +9,9 @@ The page sends nothing; it keeps only the chosen category and the suggestions sw
 - `public/index.html`, `public/style.css`, `public/app.js`: the page.
 - `public/device.js`: which device and kind of microphone the page is on, for the report.
 
-The matcher and the lists belong to the game and live in `one-device/hot-potato/shared/`, served at `/one-device/hot-potato/shared/`.
-This page imports them from there; nothing is copied.
+This folder is part of the game's own folder (`games/hot-potato/lab/`), and the site serves its `public/` at `/lab/hot-potato/`.
+The matcher and the lists belong to the game and live in `../shared/` (`games/hot-potato/shared/`), served at `/one-device/hot-potato/shared/`.
+This page imports them from there by that address, and the unit tests and tools here by `../../shared/`; nothing is copied.
 
 - `shared/logic.js`: the pure rules and the matcher (no DOM), shared with the game and the unit tests.
 - `shared/categories.js`: the categories, as data: each list's file and format, its words for the page, and the few ways the matcher treats it differently.
@@ -42,7 +43,7 @@ A category's list is loaded only when it is first chosen.
 "Also allow lesser-known ones" is a switch, off by default, that accepts more answers, so it makes the game easier, not harder.
 Until 2026-11-16 it was called "hard mode", which said the opposite of what it does; reports from before then (v1 to v3) mark its turns `hard`, and `test/report.js` still reads them.
 In the code it is the `wide` option of `matchHeard`, `nextLetter`, `deadLetters` and `entriesLeft`, the `wide` field of a category, and the refusal reason `lesser-known`.
-The game (`one-device/hot-potato`) has no such switch and always plays the well-known list.
+The game (`games/hot-potato`) has no such switch and always plays the well-known list.
 
 ### Suggestions
 
@@ -77,7 +78,7 @@ m3 keeps every rule of m2 below, for every category, and adds three:
 
 ### Dead ends per category
 
-From `node lab/hot-potato/tools/letter-report.mjs` (entries per starting letter count every name of an entry, so "Holland" counts for H).
+From `node games/hot-potato/lab/tools/letter-report.mjs` (entries per starting letter count every name of an entry, so "Holland" counts for H).
 
 - **Cities:** none; even X (56 well known) and Q (67) have plenty.
 - **Countries:** O (only Oman), Q (Qatar), X, Y (Yemen) and Z (Zambia, Zimbabwe).
@@ -128,7 +129,7 @@ Every verdict has one appeal button ("That was a real city" on a refusal, "That 
 
 ## The first report, replayed
 
-`node lab/hot-potato/tools/replay-report.mjs lab/hot-potato/test/fixtures/hearing-report-1.txt` prints every turn.
+`node games/hot-potato/lab/tools/replay-report.mjs games/hot-potato/lab/test/fixtures/hearing-report-1.txt` prints every turn.
 In short: v1 accepted 10 of the 20 turns, 8 of them wrongly (five loose sound-alikes, Léo from "Leopold", Orange, Rogers from "Rodger") and 2 as the wrong city (Edmond for Edmonton, Dar for Darby).
 m2 accepts 2: Edmonton, and Derby from the recogniser's own guess for "Darby".
 v1 answered 7 turns early from an interim result and 5 of those differed from the final; m2's early rule would have answered none of those 7 interims.
@@ -146,16 +147,16 @@ The report names only the kind of microphone (built-in, headset, webcam, USB, ot
 Download the files listed at the top of `tools/make-words.py`, `tools/make-cities.py` and `tools/make-categories.py` into an empty folder of their own, then:
 
 ```sh
-python3 -I lab/hot-potato/tools/make-words.py <en_50k.txt> <scowl final/> <census folder> one-device/hot-potato/shared/words.json <date>
-python3 -I lab/hot-potato/tools/make-cities.py <geonames folder> one-device/hot-potato/shared/words.json lab/hot-potato/tools/famous-places.txt one-device/hot-potato/shared/cities.json <date>
-python3 -I lab/hot-potato/tools/make-categories.py <download folder> lab/hot-potato/tools one-device/hot-potato/shared <date>
-node lab/hot-potato/tools/letter-report.mjs
+python3 -I games/hot-potato/lab/tools/make-words.py <en_50k.txt> <scowl final/> <census folder> games/hot-potato/shared/words.json <date>
+python3 -I games/hot-potato/lab/tools/make-cities.py <geonames folder> games/hot-potato/shared/words.json games/hot-potato/lab/tools/famous-places.txt games/hot-potato/shared/cities.json <date>
+python3 -I games/hot-potato/lab/tools/make-categories.py <download folder> games/hot-potato/lab/tools games/hot-potato/shared <date>
+node games/hot-potato/lab/tools/letter-report.mjs
 ```
 
 `make-categories.py` prints each list's size and letter counts; `letter-report.mjs` prints the counts the page uses, every name included, and the dead ends.
-Sources and licences are in `one-device/hot-potato/shared/CREDITS.txt`.
+Sources and licences are in `games/hot-potato/shared/CREDITS.txt`.
 
 ## Tests
 
 - `npm test` runs the unit tests, including the 20 turns of the first report, about 60 well-known cities and 100 ordinary words and names, and (`test/categories.test.js`) the common entries of every category, plurals, the ordinary-word rule per category, the dead ends and reports of every version read back, and (`test/suggest.test.js`) that every suggestion is a right answer for its letter and category, from the well-known list, never one already said.
-- `node lab/hot-potato/test/e2e-hearing.mjs --base=http://localhost:8875` checks the page in a headless, muted Chromium against a built site served on that port (run it through `devguard slot --`), including a game in each category, the plural and dead-end lines, that only the chosen list is fetched, the remembered choice, and a browser that refuses storage; suggestions shown with the turn button still above the fold at 390x844 and 844x390, "more", a tap on one starting nothing, the switch remembered, and the `sugg:` token on every turn line.
+- `node games/hot-potato/lab/test/e2e-hearing.mjs --base=http://localhost:8875` checks the page in a headless, muted Chromium against a built site served on that port (run it through `devguard slot --`), including a game in each category, the plural and dead-end lines, that only the chosen list is fetched, the remembered choice, and a browser that refuses storage; suggestions shown with the turn button still above the fold at 390x844 and 844x390, "more", a tap on one starting nothing, the switch remembered, and the `sugg:` token on every turn line.

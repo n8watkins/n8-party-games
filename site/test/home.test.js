@@ -9,7 +9,7 @@ import { TURN_GAMES } from "../../games.js";
 import { TEST_WALL, WALL, buildTurnWall } from "../../lobby/wall.js";
 import * as paperMasksRules from "paper-masks/rules";
 import { tableGame } from "../../party-kit/src/table/table-game.js";
-import { MAX_PLAYERS, MIN_PLAYERS } from "../../one-device/hot-potato/public/game.js";
+import { MAX_PLAYERS, MIN_PLAYERS } from "hot-potato/game";
 import { KINDS, LINKS, ONE_DEVICE } from "../home-data.js";
 import { homeModel, isLive, peekOf, tableStart } from "../home-model.js";
 

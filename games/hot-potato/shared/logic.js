@@ -1,7 +1,7 @@
 // The pure parts of Hot Potato's hearing: normalising what was heard, the last-letter rule, and
 // matching what the recogniser returned against a category's list (cities, countries, animals,
 // food and drink, any word; categories.js says how each list differs). No DOM, no browser APIs,
-// so it runs the same in the game (one-device/hot-potato), the hearing test (lab/hot-potato)
+// so it runs the same in the game (games/hot-potato), the hearing test (games/hot-potato/lab)
 // and their unit tests. Both pages import this one file; neither keeps a copy.
 //
 // Matching rules, version m3: the rules of m2 below, said for cities, hold for every category,

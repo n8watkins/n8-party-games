@@ -5,7 +5,7 @@
 // phone and desktop sizes; it takes stills of every stage of the potato. It says nothing about
 // how well a real device hears, or how a real phone feels in the hand.
 //
-//   node one-device/hot-potato/test/e2e-game.mjs --base=http://localhost:8930 [--shots=/tmp/claude-hot-potato-game/shots] [--lanes=4] [--only=fallback|layout]
+//   node games/hot-potato/test/e2e-game.mjs --base=http://localhost:8930 [--shots=/tmp/claude-hot-potato-game/shots] [--lanes=4] [--only=fallback|layout]
 //
 // Its cases share nothing, so they run four at a time in one browser (most of their time is the
 // game's own fuses and bursts, waited out in real time); --lanes=1 (test:hot-potato:full) runs
@@ -16,8 +16,8 @@
 // `devguard slot --`.
 import { AsyncLocalStorage } from "node:async_hooks";
 import { mkdirSync } from "node:fs";
-import { launchBrowser } from "../../../lobby/test/browser.mjs";
-import { still as takeStill } from "../../../party-kit/test/stills.mjs";
+import { launchBrowser } from "n8-party-games/testing/browser";
+import { still as takeStill } from "n8-party-games/testing/stills";
 import { FACES, FRAME, HEATS, REACTIONS } from "../public/specimen-draw.js";
 
 const arg = (name, fallback) => process.argv.find((a) => a.startsWith(`--${name}=`))?.slice(name.length + 3) ?? fallback;

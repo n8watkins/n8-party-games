@@ -17,10 +17,10 @@ import {
   soundKey,
   trimFillers,
   usableAlternatives,
-} from "../../../one-device/hot-potato/shared/logic.js";
+} from "../../shared/logic.js";
 import { parseReport } from "./report.js";
 
-const load = (name) => JSON.parse(readFileSync(new URL(`../../../one-device/hot-potato/shared/${name}`, import.meta.url), "utf8"));
+const load = (name) => JSON.parse(readFileSync(new URL(`../../shared/${name}`, import.meta.url), "utf8"));
 const index = buildIndex(load("cities.json"), load("words.json"));
 const heard = (...transcripts) => transcripts.map((transcript, i) => ({ transcript, confidence: 0.9 - i * 0.1 }));
 const fixture = parseReport(readFileSync(new URL("./fixtures/hearing-report-1.txt", import.meta.url), "utf8"));
