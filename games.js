@@ -1,11 +1,12 @@
-// The games this site hosts. Each is its own repository and package that keeps the game
-// contract (party-kit/GAME-CONTRACT.md): it exports `game` (the server definition) and
-// `manifest` (id, name, path, players, devices, public files).
+// The games this site hosts. Each is a package that keeps the game contract
+// (party-kit/GAME-CONTRACT.md): it exports `game` (the server definition) and `manifest` (id,
+// name, path, players, devices, public files). Cork & Bell is its own repository, a git
+// dependency; the rest are folders of this repository (games/<id>, npm workspaces).
 //
-// To host another game: add it to devDependencies (a git dependency pinned to a tag or a
-// commit), or give it a folder of its own under games/ (each one is an npm workspace of this
-// repository, a package by its own name), import it here by its package name, and add it to the
-// list. The build and the Worker read this list.
+// To host another game: give it a folder of its own under games/ (a package by its own name,
+// declared in the root package.json's devDependencies as "file:games/<id>"), or add it to
+// devDependencies as a git dependency pinned to a tag or a commit; import it here by its package
+// name, and add it to the list. The build and the Worker read this list.
 import * as corkAndBell from "cork-and-bell";
 // Tin Derby, Paper Masks and Who Am I? are folders of this repository (games/<id>), workspace packages.
 import * as paperMasks from "paper-masks";

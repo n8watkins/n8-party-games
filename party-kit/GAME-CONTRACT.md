@@ -4,8 +4,8 @@ What a game package gives the party site so the site can host it.
 It is as small as what exists today needs.
 Cork & Bell (`n8watkins/cork-and-bell`) is the first game that keeps it.
 
-A game is its own repository and its own npm package.
-It plays on its own (`npm install`, `npm run dev`) with the kit as a development dependency.
+A game is its own npm package.
+It lives in its own repository, where it plays on its own (`npm install`, `npm run dev`) with the kit as a development dependency, or in this one as a folder under `games/<id>` (an npm workspace; "Where it lives" under "Games at the Table").
 The party site installs the game as a development dependency and serves it beside the others.
 
 ## What the package exports

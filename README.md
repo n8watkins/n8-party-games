@@ -87,7 +87,8 @@ To try the party room on one laptop, open `http://localhost:8791/` in two browse
 Everything runs locally; no Cloudflare account is needed to play or develop.
 See the kit's README for the other commands.
 
-The games in `games/` are npm workspaces, linked into `node_modules/` by `npm install`; so is this repository itself (`node_modules/n8-party-games`), which is how a game imports the kit and the hub's test helpers by name.
+The games in `games/` are npm workspaces, linked into `node_modules/` by `npm install`, and share its one copy of every tool.
+So is this repository itself (`node_modules/n8-party-games`), which is how a game imports the kit by name, and so is the party room's `lobby/` (`node_modules/@n8games/lobby`, private), which is how a game's tests reach the room and the in-house test helpers.
 Cork & Bell is a git dependency, pinned in `package.json`.
 npm 12 refuses those unless told otherwise, so [`.npmrc`](.npmrc) sets `allow-git=root`: the git dependencies this package names itself are allowed, and no others.
 While a game's repository is private, `npm install` also needs a GitHub login that can read it.
@@ -122,7 +123,7 @@ Each of his prompts is a single-player build; each game here takes one and remak
 | --- | --- | --- | --- |
 | [Cork & Bell](https://github.com/n8watkins/cork-and-bell) | The cork gallery | [I Threw $1000 at Fable 5.2 to Build The Coolest Demos Possible](https://www.youtube.com/watch?v=wpFw66kKixU) | Built |
 | Flood | The tile river | [I Threw $1000 at Fable 5.2 to Build The Coolest Demos Possible](https://www.youtube.com/watch?v=wpFw66kKixU) | Planned |
-| Bathtub Regatta (Tin Derby on the party room's wall) | Wind-up derby | [13 INSANE Things You Can Build w/ Claude Fable 5.2](https://www.youtube.com/watch?v=5mA9Hab09Do) | Planned |
+| Bathtub Regatta ([Tin Derby](games/tin-derby) on the party room's wall) | Wind-up derby | [13 INSANE Things You Can Build w/ Claude Fable 5.2](https://www.youtube.com/watch?v=5mA9Hab09Do) | Built |
 | Fox Trouble | The fox knight, loosely | [13 INSANE Things You Can Build w/ Claude Fable 5.2](https://www.youtube.com/watch?v=5mA9Hab09Do) | Planned |
 
 Where to find Nick:

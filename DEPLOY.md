@@ -13,7 +13,10 @@ Everything else is already in the repository.
 - The `local` environment keeps the test switches for `npm run dev` and the playtests, has no custom domain (`"routes": []`), and is never deployed.
 - Only `dist/public` is served, rebuilt from an allowlist by `scripts/build-public.mjs` before every deploy, together with its `_headers` file (CSP, the other security headers and the cache rules) and its `_redirects` file.
   The build lays the site out in release folders, so a returning phone asks for almost nothing: see "Release folders and the browser's cache".
-- The games are separate repositories, installed as dependencies pinned in `package.json` and listed in `games.js`; `npm ci` must have run before a deploy. A game can also be deployed alone from its own repository, with its own checklist.
+- The hosted games are listed in `games.js`.
+  Tin Derby, Paper Masks, Who Am I? at the Table and Hot Potato are folders of this repository (`games/<id>`, npm workspaces), installed by the same `npm ci`.
+  Cork & Bell is a separate repository, installed as a git dependency pinned in `package.json`; it can also be deployed alone from its own repository, with its own checklist.
+  `npm ci` must have run before a deploy.
 - `npm run assets:list` prints every file that will be public.
 - The party room (`lobby/`) is a second room class, `LobbyRoom`, with its own API under `/api/lobby` and the same guards as the kit's. It counts all of its awake time against the same room budget.
 - The site's root is a plain front page that leads into the party room; before the party room it redirected to Cork & Bell, which stays at `/cork-and-bell/`.
