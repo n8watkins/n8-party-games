@@ -1568,10 +1568,11 @@ export class LobbyCore {
     // afresh instead, from where it is now (firstTouch).
     const o = this.members[p.to];
     // So with the toucher, for a touch that moves it too (the swallow and the stick move both
-    // slimes): one the room knocked or hooked since is not moved again on top of that. (A shove
-    // or a boo never moves the toucher: a slime knocked inside the grace still pushes once.)
+    // slimes, and a faded ghost that reached a faded ghost pops with it: boo, pop): one the room
+    // knocked or hooked since is not moved again on top of that. (A shove or a boo never moves
+    // the toucher: a slime knocked inside the grace still pushes once.)
     const s = this.members[p.s];
-    const movesToucher = p.kind === "goo";
+    const movesToucher = p.kind === "goo" || (p.kind === "spook" && !!o && moveOf(o.character) === "fade" && this.faded(o, p.t));
     const moved = !o || (p.orev !== undefined && o.rev !== p.orev) || (movesToucher && (!s || (p.srev !== undefined && s.rev !== p.srev)));
     const result = moved ? { ok: false, why: "Moved since." } : p.kind === "spook" ? this.boo(p.s, p.to, now, p.t, p.d) : p.kind === "goo" ? this.goo(p.s, p.to, now, p.t) : this.shove(p.s, p.to, now, p);
     // Judged: not judged again while the two stay in reach; forgotten as soon as they part. A touch

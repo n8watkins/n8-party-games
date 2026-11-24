@@ -577,6 +577,72 @@ describe("ghosts that meet: two faded ghosts pop solid", () => {
     // And no page can make one: a boo at a ghost is refused.
     expect(core.boo(0, 1, 4100)).toMatchObject({ ok: false });
   });
+
+  /** Gus drifts into Gil, both faded, and the room holds the touch; Pat (a pawn) stands by. Returns the room and when they touched. */
+  function held() {
+    const core = party(["Gus", "Gil", "Pat"]);
+    for (const s of [0, 1]) {
+      be(core, s, "ghost");
+      core.members[s].fadeAt = -Infinity;
+    }
+    place(core, 0, 500, 1500);
+    place(core, 1, 620, 1500, -1);
+    place(core, 2, 300, 1500, 1);
+    core.fade(0, 2000);
+    core.fade(1, 2000);
+    walk(core, 0, 500, 1, 2100);
+    core.dueMoves(2100);
+    const touched = Math.ceil(core.nextTouch(2100));
+    expect(core.dueMoves(touched + 1)).toEqual([]);
+    expect(core.pending.map((p) => p.kind)).toEqual(["spook"]);
+    return { core, touched };
+  }
+
+  it("does not pop a ghost the room knocked inside the touch's grace: the knock stands, and the other stays faded", () => {
+    // Gus's fade runs out a moment after the touch, and Pat kicks him 50 ms after it: the room has
+    // thrown him. The pop, held from before, would stand him up where he is with its own short shock.
+    const { core, touched } = held();
+    const [gus, gil, pat] = core.members;
+    gus.fadedUntil = touched + 10;
+    const kickAt = touched + 50;
+    Object.assign(pat, { x: Math.round(posAt(gus, kickAt) - 60), d: 0, t: kickAt, face: 1 });
+    const kick = core.bump(2, kickAt, 1);
+    expect(kick).toMatchObject({ to: 0 });
+    const gilRev = gil.rev;
+    const out = core.dueMoves(touched + TOUCH_GRACE_MS + 1);
+    expect(out.find((m) => m.t === "pop")).toBeUndefined();
+    expect(gus).toMatchObject({ x: kick.x, rev: kick.rev, stunUntil: kickAt + STUN_MS });
+    expect(gus.fright ?? null).toBeNull();
+    expect(gil.rev).toBe(gilRev);
+    expect(core.faded(gil, touched + TOUCH_GRACE_MS + 1)).toBe(true);
+  });
+
+  it("does not pop on a word the ghost's phone sent before it heard the room had moved it", () => {
+    const { core, touched } = held();
+    const [gus, gil, pat] = core.members;
+    gus.fadedUntil = touched + 10;
+    const kickAt = touched + 50;
+    const before = gus.rev;
+    Object.assign(pat, { x: Math.round(posAt(gus, kickAt) - 60), d: 0, t: kickAt, face: 1 });
+    const kick = core.bump(2, kickAt, 1);
+    // Its walk as it was before the knock (the old `rev`), far enough along to have reached Gil.
+    const out = core.move(0, { x: 600, d: 1, v: 1, r: before }, kickAt + 30);
+    expect(out?.touches ?? []).toEqual([]);
+    expect(core.pending).toEqual([]);
+    expect(gus).toMatchObject({ x: kick.x, rev: kick.rev, stunUntil: kickAt + STUN_MS });
+    expect(core.faded(gil, kickAt + 30)).toBe(true);
+  });
+
+  it("still spooks a solid piece when the room moved the ghost inside the grace: a boo never moves the ghost", () => {
+    // The guard is for the pop alone: Gil solid, the held touch is a plain spook, and it counts.
+    const { core, touched } = held();
+    const [gus, gil] = core.members;
+    be(core, 1, "pawn");
+    gil.fadedUntil = 0;
+    gus.rev += 1;
+    const out = core.dueMoves(touched + TOUCH_GRACE_MS + 1);
+    expect(out.find((m) => m.t === "spook")).toMatchObject({ s: 0, to: 1 });
+  });
 });
 
 describe("a held touch settled by the toucher's own word (found in review of #97)", () => {
