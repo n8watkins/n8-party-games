@@ -406,11 +406,20 @@ try {
      * A page that arrived in the middle (a reload) has heard no move, kick or hook: it has only that word.
      */
     const facesOn = async (page) => {
-      const standing = (await where()).filter((m) => m?.connected && m.d === 0);
+      // The whole party seated first: a reloaded phone takes its seat again when its socket has
+      // said hello, which on a slow machine can come after it first draws. Judged without it, the
+      // reloaded player's own piece would be left out of "every standing piece".
+      let members = await where();
+      for (let i = 0; i < 100 && members.filter((m) => m?.connected).length < 4; i++) {
+        await sleep(200);
+        members = await where();
+      }
+      const away = members.filter((m) => m && !m.connected).map((m) => m.name);
+      const standing = members.filter((m) => m?.connected && m.d === 0);
       const drawnFaces = await page.evaluate((seats) => seats.map((s) => globalThis.__partyRoom?.view?.pieces?.get(s)?.face ?? null), standing.map((m) => m.seat));
       const room = Object.fromEntries(standing.map((m) => [m.seat, m.f === -1 ? -1 : 1]));
-      const story = standing.map((m, i) => `${m.name}: drawn ${drawnFaces[i]}, the room ${room[m.seat]}`).join("; ");
-      return { ok: standing.length > 0 && standing.every((m, i) => drawnFaces[i] === room[m.seat]), room, story };
+      const story = standing.map((m, i) => `${m.name}: drawn ${drawnFaces[i]}, the room ${room[m.seat]}`).join("; ") + (away.length ? `; not seated after 20 s: ${away.join(", ")}` : "");
+      return { ok: !away.length && standing.length > 0 && standing.every((m, i) => drawnFaces[i] === room[m.seat]), room, story };
     };
     /**
      * Waits until a seat's move is ready again and it is up and safe no more, by the room's word,
@@ -972,7 +981,27 @@ try {
         }),
     );
     at = await settled(S, P);
-    const turned = await pat.evaluate((p) => globalThis.__partyRoom?.view?.pieces?.get(p)?.face ?? null, P);
+    // Which way the page draws Pat: read right after its next frame, inside it (__afterDraw). The
+    // view takes the page's own facing for its own piece only when it draws a frame, and the room's
+    // echo of the walk (facing left) can land after the last one: a 3D page on a slow machine can
+    // go a few hundred milliseconds without a frame, and nothing is shown in between. The bound is
+    // the one for a starved page drawing again (SWAP_DRAWS_MS below: 2 frames in 15.7 s under load).
+    const turned = await pat.evaluate(
+      ([p, ms]) =>
+        new Promise((done) => {
+          const read = () => {
+            window.__afterDraw.delete(read);
+            clearTimeout(late);
+            done(globalThis.__partyRoom?.view?.pieces?.get(p)?.face ?? null);
+          };
+          const late = setTimeout(() => {
+            window.__afterDraw.delete(read);
+            done("no frame drawn in 30 s");
+          }, ms);
+          window.__afterDraw.add(read);
+        }),
+      [P, 30_000],
+    );
     const ahead = at[S].x - at[P].x;
     mark = ada.seen.length;
     await pat.keyboard.press("KeyX");
