@@ -135,8 +135,15 @@ describe("a page's addresses (rewriteHtml)", () => {
     expect(json).toEqual({ imports: { three: "/r/ID/game/vendor/three.module.js", "three/addons/": "/r/ID/game/vendor/addons/", x: "https://cdn.example/x.js" } });
   });
 
+  it("rewrites each address of a srcset, and keeps its sizes", () => {
+    expect(html(`<img src="/art/a.webp" srcset="/art/a.webp 1x, /icons/i.png 2x">`)).toBe(`<img src="/m/aaaa.webp" srcset="/m/aaaa.webp 1x, /m/iiii.png 2x">`);
+    expect(html(`<source srcset="/art/a.webp 480w,/nope.webp 960w" sizes="100vw">`)).toBe(`<source srcset="/m/aaaa.webp 480w,/nope.webp 960w" sizes="100vw">`);
+    expect(html(`<link rel="preload" as="image" imagesrcset="/art/a.webp" href="/art/a.webp">`)).toBe(`<link rel="preload" as="image" imagesrcset="/m/aaaa.webp" href="/m/aaaa.webp">`);
+    const data = `<img srcset="data:image/svg+xml,%3Csvg viewBox='0 0 1,1'/%3E 1x">`;
+    expect(html(data)).toBe(data);
+  });
+
   it("refuses what it cannot rewrite, so nothing is left pointing at an address that is gone", () => {
-    expect(() => html(`<img srcset="/art/a.webp 2x">`)).toThrow(/srcset/);
     expect(() => html(`<script type="module">import "/lobby/main.js";</script>`)).toThrow(/inline module/);
     expect(() => html(`<style>body { background: url(/art/a.webp) }</style>`)).toThrow(/<style>/);
   });

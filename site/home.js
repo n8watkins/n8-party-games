@@ -17,7 +17,8 @@ import { gamesOf, homeModel, isLive, peekOf, playersText, tableStart } from "./h
 
 const model = homeModel({ FLOOR, TABLE });
 const $ = (id) => document.getElementById(id);
-const ART = (name) => `/art/${name}${/\.\w+$/.test(name) ? "" : ".webp"}`;
+// The pictures are beside this module (in its release's folder), never at a site path: site-path.js says why.
+const ART = (name) => new URL(`./art/${name}${/\.\w+$/.test(name) ? "" : ".webp"}`, import.meta.url).href;
 const reduced = () => matchMedia("(prefers-reduced-motion: reduce)").matches;
 /** This tab's sessionStorage, or null where the browser refuses it. */
 const session = () => {

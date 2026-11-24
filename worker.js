@@ -3,7 +3,7 @@
 // Live at https://partygames.n8builds.dev (DEPLOY.md); locally: `npm run dev`.
 // The games are their own repositories (games.js lists them); the kit and the lobby are this repository's.
 import { createPartyRoom, PinDirectory, RateLimiter, RoomBudget, ScoreBoard, handlePartyApi } from "./party-kit/src/worker/index.js";
-import { json } from "./party-kit/src/worker/http.js";
+import { assetOr404, json } from "./party-kit/src/worker/http.js";
 import { partyFullMessage, roomBudgetReport } from "./party-kit/src/worker/room-budget.js";
 import { handleVersion } from "./party-kit/src/worker/version.js";
 // The release record the build wrote (scripts/release.mjs): the same one the pages import as /release.js.
@@ -51,6 +51,8 @@ export default {
     const lobby = await handlePartyApi(request, env, { prefix: LOBBY_API, rooms: env.PARTY_LOBBIES, fullMessage: partyFullMessage });
     if (lobby) return lobby;
     const scores = env.PARTY_TEST_GAMES === "on" ? TEST_SCORES : SCORES;
-    return (await handlePartyApi(request, env, { scores })) ?? env.ASSETS.fetch(request);
+    // No file is at this address (Workers serves a file without asking the Worker): the files'
+    // own 404, never kept by a browser, even under a release's folder (assetOr404).
+    return (await handlePartyApi(request, env, { scores })) ?? assetOr404(env.ASSETS.fetch(request));
   },
 };

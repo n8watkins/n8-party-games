@@ -100,15 +100,19 @@ export function sitePathOf(from, ref) {
   return joined.startsWith("..") ? null : joined;
 }
 
-/** The tags of a page that load a file, and the attributes that name it. Links to pages (a, form) are not among them. */
-const LOADING_TAGS = { script: ["src"], link: ["href"], img: ["src"], source: ["src"], audio: ["src"], video: ["src", "poster"], track: ["src"], embed: ["src"], input: ["src"] };
+/**
+ * The tags of a page that load a file, and the attributes that name it. Links to pages (a, form)
+ * are not among them. `srcset` and `imagesrcset` hold a list of addresses, each with its size.
+ */
+const LOADING_TAGS = { script: ["src"], link: ["href", "imagesrcset"], img: ["src", "srcset"], source: ["src", "srcset"], audio: ["src"], video: ["src", "poster"], track: ["src"], embed: ["src"], input: ["src"] };
+const LISTS = new Set(["srcset", "imagesrcset"]);
 
 /**
  * A page with every file it loads named where the file now is. `to(ref)` gives the new address
  * of what `ref` names, or null to leave it as written (a page, an outside address, a file that
  * keeps its place). An import map's addresses are rewritten the same way. What cannot be
- * rewritten is refused: a `srcset`, an inline module script and an inline <style> could each
- * name a file by an address that is gone.
+ * rewritten is refused: an inline module script and an inline <style> could each name a file by
+ * an address that is gone.
  */
 export function rewriteHtml(html, to) {
   const move = (ref) => {
@@ -116,7 +120,6 @@ export function rewriteHtml(html, to) {
     const moved = path ? to(path) : null;
     return moved === null ? ref : moved + rest;
   };
-  if (/<[a-z][^>]*\ssrcset\s*=/i.test(html)) throw new Error("a page uses srcset, which the build does not rewrite: use src");
   if (/<style\b/i.test(html)) throw new Error("a page has an inline <style>, which the build does not rewrite (and the CSP refuses): use a stylesheet");
   // The scripts first, as wholes: an import map's JSON is rewritten, and no other script's text is touched.
   const kept = [];
@@ -133,11 +136,18 @@ export function rewriteHtml(html, to) {
     .replace(/\u0000(\d+)\u0000/g, (whole, i) => kept[Number(i)]);
 }
 
-/** A tag's attributes with those in `names` moved by `move`. */
+/** A tag's attributes with those in `names` moved by `move`: one address, or (srcset) each address of a list. */
 function rewriteAttributes(attrs, names, move) {
-  return attrs.replace(new RegExp(`(\\s(?:${names.join("|")})\\s*=\\s*)("([^"]*)"|'([^']*)')`, "gi"), (whole, lead, quoted, double, single) => {
+  return attrs.replace(new RegExp(`(\\s(${names.join("|")})\\s*=\\s*)("([^"]*)"|'([^']*)')`, "gi"), (whole, lead, name, quoted, double, single) => {
     const quote = quoted[0];
-    return `${lead}${quote}${move(double ?? single)}${quote}`;
+    const value = double ?? single;
+    // "a.webp 1x, b.webp 2x": each address is followed by its size. A data: address may hold commas, and names no file.
+    const moved = !LISTS.has(name.toLowerCase())
+      ? move(value)
+      : /data:/i.test(value)
+        ? value
+        : value.replace(/([^\s,]+)(\s+[^,]*)?(,|$)/g, (part, ref, size = "", end) => `${move(ref)}${size}${end}`);
+    return `${lead}${quote}${moved}${quote}`;
   });
 }
 
@@ -256,11 +266,20 @@ export function foldTree({ tree, files, id, stable = [], stableMedia = [], heade
       redirects.push({ from: `/${inFolder(path)}`, to: `/${media}`, status: 301 });
       if (stableMedia.some((entry) => under(path, entry))) redirects.push({ from: `/${path}`, to: `/${media}`, status: 302 });
     } else if (path.endsWith(".html")) {
-      const data = Buffer.from(rewriteHtml(readFileSync(from, "utf8"), moved(path)));
+      let data;
+      try {
+        data = Buffer.from(rewriteHtml(readFileSync(from, "utf8"), moved(path)));
+      } catch (err) {
+        throw new Error(`${path}: ${err.message}`);
+      }
       pages.push(data.toString());
       out.push({ path, data }, { path: inFolder(path), data });
     } else if (path.endsWith(".css")) {
-      out.push({ path: inFolder(path), data: Buffer.from(rewriteCss(readFileSync(from, "utf8"), moved(path))) });
+      try {
+        out.push({ path: inFolder(path), data: Buffer.from(rewriteCss(readFileSync(from, "utf8"), moved(path))) });
+      } catch (err) {
+        throw new Error(`${path}: ${err.message}`);
+      }
     } else if (path.endsWith(".js") || path.endsWith(".mjs")) {
       const code = readFileSync(from, "utf8");
       const next = rewriteSpecifiers(code, path, (target) => info.has(target));

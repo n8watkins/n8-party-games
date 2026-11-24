@@ -25,6 +25,7 @@ import { mountStage, viewerAtTable } from "/party/stage.js";
 import { mountAway } from "/party/away.js";
 import { releaseLine } from "/release-line.js";
 import { PAGE_RELEASE, testProtocol, watchRoomRelease } from "/release-switch.js";
+import { siteUrl } from "/site-path.js";
 
 const app = document.getElementById("app");
 // ?protocol= is for the end-to-end tests on a local server only (release-switch.js testProtocol).
@@ -387,7 +388,9 @@ function updateGames(host) {
     const tile = h("span", "game-tile", "", row);
     if (entry.art) {
       const img = h("img", "", "", tile);
-      img.src = entry.art;
+      // The room names the picture by site path; it is loaded from this page's own release, and only from this site.
+      const art = siteUrl(entry.art);
+      if (art.origin === location.origin) img.src = art.href;
       img.alt = "";
     } else h("span", "game-mono", entry.name.replace(/[^A-Za-z]/g, "").slice(0, 1), tile);
     const words = h("span", "game-words", "", row);

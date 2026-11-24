@@ -24,8 +24,9 @@
 //     prompt, while writing is open. Every other Paper Masks draft (another round, another party)
 //     is dropped when the page mounts and on every snapshot, and every draft once writing closes.
 
-const CSS = "/party/games/paper-masks.css";
-const ART = "/party/games/paper-masks/art/";
+// Beside this module (in its release's folder), never at a site path: site/site-path.js says why.
+const CSS = new URL("./paper-masks.css", import.meta.url).href;
+const ART = new URL("./paper-masks/art/", import.meta.url).href;
 
 // The rules' timers (TIMERS, SETUP_MS and CURTAIN_MS on the server), used only to draw how much
 // of a step's time is left; the deadlines themselves always come from the view.

@@ -60,6 +60,25 @@ export function error(code, message) {
   return json({ ok: false, error: code, message }, STATUS[code] ?? 400);
 }
 
+/**
+ * The static files' answer for a request no API took: `await assetOr404(env.ASSETS.fetch(request))`.
+ *
+ * Workers asks the Worker only when no file (and no redirect) is at the address, so this is
+ * almost always a 404, and Workers sends it with the `_headers` rules of the address. Under a
+ * folder kept for a year (/r/ and /m/, build/folders.mjs) that is a 404 a browser would keep for
+ * a year: a page loaded in the seconds a deploy takes to reach every location, or one still open
+ * on a release that is no longer carried, would then never find the file again. So a file that is
+ * missing (any answer that is an error) is never kept: it goes out `no-store`, with its other
+ * headers as they were.
+ */
+export async function assetOr404(answer) {
+  const response = await answer;
+  if (response.status < 400) return response;
+  const headers = new Headers(response.headers);
+  headers.set("Cache-Control", "no-store");
+  return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
+}
+
 export function isCode(value) {
   return typeof value === "string" && value.length === CODE_LENGTH && [...value].every((c) => CODE_ALPHABET.includes(c));
 }

@@ -35,8 +35,11 @@
 // A page that is still old after that reload offers the tap instead.
 import { RELEASE } from "/release.js";
 
-/** The build this page is. */
+/** The build this page is: its own release's record, from its own release's folder, whatever is live now. */
 export const PAGE_RELEASE = RELEASE.id;
+// Said on the page itself too (<html data-release="...">), for whoever looks: a person with the
+// inspector open, and the release test, which must not ask the site (the site says what is live).
+if (globalThis.document?.documentElement) document.documentElement.dataset.release = PAGE_RELEASE;
 // Every line is short enough to fit, whole, on one line of the bottom bar of a 390-pixel phone
 // held upright (about 36 characters): the bar cuts a longer one short.
 /** The one notice an older page shows while its room is busy. */

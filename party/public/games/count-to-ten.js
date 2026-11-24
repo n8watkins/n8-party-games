@@ -6,7 +6,8 @@
 // their turn two buttons: add one, add two. Anyone else (the big screen) sees the count and whose
 // turn it is, and no word.
 
-const CSS = "/party/games/count-to-ten.css";
+// Beside this module (in its release's folder), never at a site path: site/site-path.js says why.
+const CSS = new URL("./count-to-ten.css", import.meta.url).href;
 
 function el(tag, className, text, parent) {
   const node = document.createElement(tag);

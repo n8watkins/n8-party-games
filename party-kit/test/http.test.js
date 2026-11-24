@@ -1,10 +1,38 @@
 // The public API's guards, without the Workers runtime: body limits, origins, the QR allowlist,
 // and the cap on shared screens. The bot check has its own file (bot-check.test.js).
 import { describe, expect, it } from "vitest";
-import { MAX_BODY_BYTES, isJoinLink, originAllowed, readBody } from "../src/worker/http.js";
+import { MAX_BODY_BYTES, assetOr404, isJoinLink, originAllowed, readBody } from "../src/worker/http.js";
 import { MAX_SCREENS, RoomCore } from "../src/core/room-core.js";
 
 const req = (body, headers = {}) => new Request("https://games.example/api/party/rooms", { method: "POST", body, headers });
+
+describe("a file that is not there (assetOr404)", () => {
+  // What Workers answers for a missing file under a folder kept for a year: its 404, with the folder's cache rule.
+  const year = "public, max-age=31536000, immutable";
+  const missing = () => new Response("Not Found", { status: 404, headers: { "Cache-Control": year, "X-Content-Type-Options": "nosniff", "Content-Security-Policy": "default-src 'self'" } });
+
+  it("is never kept by a browser, whatever the folder's rule says, and stays a 404 with its other headers", async () => {
+    const res = await assetOr404(Promise.resolve(missing()));
+    expect(res.status).toBe(404);
+    expect(res.headers.get("Cache-Control")).toBe("no-store");
+    expect(res.headers.get("X-Content-Type-Options")).toBe("nosniff");
+    expect(res.headers.get("Content-Security-Policy")).toBe("default-src 'self'");
+    expect(await res.text()).toBe("Not Found");
+  });
+
+  it("is the same for any error answer", async () => {
+    for (const status of [400, 404, 405, 500]) expect((await assetOr404(new Response(null, { status, headers: { "Cache-Control": year } }))).headers.get("Cache-Control"), status).toBe("no-store");
+  });
+
+  it("leaves a file and a redirect exactly as the static files answered them", async () => {
+    const file = new Response("export {}", { status: 200, headers: { "Cache-Control": year } });
+    expect(await assetOr404(file)).toBe(file);
+    const moved = new Response(null, { status: 301, headers: { Location: "/m/a.webp", "Cache-Control": year } });
+    expect(await assetOr404(moved)).toBe(moved);
+    const same = new Response(null, { status: 304 });
+    expect(await assetOr404(same)).toBe(same);
+  });
+});
 
 describe("reading a request body", () => {
   it("takes a small JSON object", async () => {
