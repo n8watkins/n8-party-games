@@ -95,11 +95,16 @@
   },
   "devDependencies": {
     "cork-and-bell": "github:n8watkins/cork-and-bell#32a420b8c1538a82e175f8f318389050c38ad387",
+    "esbuild": "^0.28.2",
+    "hot-potato": "file:games/hot-potato",
+    "paper-masks": "file:games/paper-masks",
     "playwright": "^1.65.1",
     "release-kit": "github:n8watkins/release-kit#v2.10.1",
     "sharp": "^0.35.5",
     "three": "^0.187.0",
+    "tin-derby": "file:games/tin-derby",
     "vitest": "5.1",
+    "who-am-i": "file:games/who-am-i",
     "wrangler": "^4.165.0"
   },
   "allowScripts": {

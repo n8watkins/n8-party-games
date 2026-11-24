@@ -3,6 +3,7 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
+import { init as initLexer, parse as parseModule } from "es-module-lexer";
 import { describe, expect, it } from "vitest";
 
 const ROOT = join(import.meta.dirname, "..", "..");
@@ -53,6 +54,31 @@ function unpackedExports(dir) {
   return missing;
 }
 
+/** The git-tracked scripts under `dir` (a path from the root). */
+const scriptsIn = (dir) =>
+  execFileSync("git", ["ls-files", "--", `${dir}/*.js`, `${dir}/*.mjs`], { cwd: ROOT, encoding: "utf8" })
+    .split("\n")
+    .filter(Boolean);
+
+/**
+ * The packages `file` imports by bare name (static imports, re-exports and import() of a plain
+ * string), read with a real lexer: "vitest", "@n8games/lobby", "n8-party-games". Relative paths, site
+ * paths ("/x.js") and the runtimes' own modules (node:, cloudflare:) are not packages.
+ */
+function bareImports(file) {
+  const [imports] = parseModule(readFileSync(join(ROOT, file), "utf8"), file);
+  const names = new Set();
+  for (const { specifier } of imports) {
+    if (typeof specifier !== "string" || /^(\.|\/|[a-z]+:)/.test(specifier)) continue;
+    const parts = specifier.split("/");
+    names.add(specifier.startsWith("@") ? parts.slice(0, 2).join("/") : parts[0]);
+  }
+  return names;
+}
+
+/** Every package a package.json declares, by name, with its range. */
+const declared = (pkg) => ({ ...pkg.peerDependencies, ...pkg.dependencies, ...pkg.devDependencies });
+
 describe("the hub's public surface", () => {
   it("is the kit and the Table's adapter, nothing in-house", () => {
     expect(Object.keys(ROOT_PACKAGE.exports)).toEqual([
@@ -92,6 +118,38 @@ describe("the games' workspaces", () => {
         "or a dependency declared there with a range other than the root's (npm then installs a second copy there). " +
         "Delete the folder, then `npm ci` from the root.",
     ).toEqual([]);
+  });
+
+  it("declare every package they import, each tool with the root's own range", async () => {
+    await initLexer;
+    const workspaces = new Set([ROOT_PACKAGE.name, read("lobby/package.json").name, ...GAME_IDS.map((id) => read(`games/${id}/package.json`).name)]);
+    const atRoot = declared(ROOT_PACKAGE);
+    const problems = [];
+    for (const id of GAME_IDS) {
+      const pkg = read(`games/${id}/package.json`);
+      const own = declared(pkg);
+      for (const file of scriptsIn(`games/${id}`)) {
+        for (const name of bareImports(file)) {
+          if (name !== pkg.name && !(name in own)) problems.push(`${file} imports ${name}, which games/${id}/package.json does not declare`);
+        }
+      }
+      for (const [name, range] of Object.entries({ ...pkg.dependencies, ...pkg.devDependencies })) {
+        if (workspaces.has(name)) continue;
+        if (atRoot[name] !== range) problems.push(`games/${id}/package.json has ${name} ${range}, the root ${atRoot[name] ?? "nothing"}: one range, the root's, keeps one copy in the root node_modules`);
+      }
+    }
+    expect(problems).toEqual([]);
+  });
+
+  it("are declared by the hub wherever it imports them", async () => {
+    await initLexer;
+    const games = new Set([read("lobby/package.json").name, ...GAME_IDS.map((id) => read(`games/${id}/package.json`).name)]);
+    const atRoot = declared(ROOT_PACKAGE);
+    const problems = [];
+    for (const file of scriptsIn(".").filter((path) => !path.startsWith("games/"))) {
+      for (const name of bareImports(file)) if (games.has(name) && !(name in atRoot)) problems.push(`${file} imports ${name}, which the root package.json does not declare`);
+    }
+    expect(problems).toEqual([]);
   });
 
   it("each run their unit tests through the root's config, from the root", () => {

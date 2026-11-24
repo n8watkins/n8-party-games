@@ -25,6 +25,7 @@
   },
   "devDependencies": {
     "@n8games/lobby": "file:../../lobby",
-    "n8-party-games": "file:../.."
+    "n8-party-games": "file:../..",
+    "vitest": "5.1"
   }
 }

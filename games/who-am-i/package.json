@@ -26,6 +26,16 @@
   },
   "devDependencies": {
     "@n8games/lobby": "file:../../lobby",
-    "n8-party-games": "file:../.."
+    "esbuild": "^0.28.2",
+    "n8-party-games": "file:../..",
+    "vitest": "5.1"
+  },
+  "peerDependencies": {
+    "n8-party-games": "*"
+  },
+  "peerDependenciesMeta": {
+    "n8-party-games": {
+      "optional": true
+    }
   }
 }

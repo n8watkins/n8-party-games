@@ -22,6 +22,8 @@
   },
   "devDependencies": {
     "@n8games/lobby": "file:../../lobby",
-    "n8-party-games": "file:../.."
+    "playwright": "^1.65.1",
+    "sharp": "^0.35.5",
+    "vitest": "5.1"
   }
 }

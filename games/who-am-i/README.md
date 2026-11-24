@@ -7,7 +7,7 @@ You ask yes/no questions (or listen to clues), guess who you are, and the other 
 This folder is the whole game, a package of the hub's (`games/*`, an npm workspace): the pure rules and the names, the tests, and the page in `public/` (see "At the Table: the page").
 Everything but `public/` is server only: the site's build copies only the files the manifest lists, and refuses anything else here (`scripts/build-public.mjs`, `SERVER_ONLY`).
 The page is served at `/party/games/who-am-i.js`, beside the Table's own pages.
-The game reaches the hub only through its package name (`n8-party-games`, a development dependency): the Table's adapter and the draws (`n8-party-games/table`, `n8-party-games/table/draws`), and in the tests the party room and its test helpers (`@n8games/lobby/*`, `@n8games/lobby/testing/*`: `lobby/package.json`, a workspace that is never published).
+The game reaches the hub only through its package name (`n8-party-games`: an optional peer dependency, the copy the hosting site has, as Cork & Bell declares it, and a development dependency here): the Table's adapter and the draws (`n8-party-games/table`, `n8-party-games/table/draws`), and in the tests the party room and its test helpers (`@n8games/lobby/*`, `@n8games/lobby/testing/*`: `lobby/package.json`, a workspace that is never published).
 It is the live game at whoami.n8builds.dev (`n8watkins/who-am-i`, `src/worker/engine.ts` and `src/worker/content`) remade in the shape every Table game keeps (`party-kit/GAME-CONTRACT.md`, "Games at the Table"; Paper Masks set it).
 Where it departs from the live game, the departure is listed under "Differences from the live game".
 

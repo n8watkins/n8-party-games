@@ -231,8 +231,12 @@ describe("the games' versions", () => {
 
   it("takes a game kept in games/ as a package by its own package.json", () => {
     const own = JSON.parse(readFileSync(join(ROOT, "games", "tin-derby", "package.json"), "utf8"));
-    expect(pkg.devDependencies["tin-derby"]).toBeUndefined();
+    // The hub declares it as its own folder (a workspace), not a git pin.
+    expect(pkg.devDependencies["tin-derby"]).toBe("file:games/tin-derby");
     expect(versions["tin-derby"]).toEqual({ version: own.version });
+    // The same when nothing declares it: the workspace still resolves by name.
+    const undeclared = { ...pkg, devDependencies: { ...pkg.devDependencies, "tin-derby": undefined } };
+    expect(gameVersions([...GAMES, ...TURN_GAMES], undeclared)["tin-derby"]).toEqual({ version: own.version });
   });
 
   it("refuses a game kept in this repository whose manifest has no version", () => {

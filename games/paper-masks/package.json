@@ -28,6 +28,16 @@
   },
   "devDependencies": {
     "@n8games/lobby": "file:../../lobby",
-    "n8-party-games": "file:../.."
+    "n8-party-games": "file:../..",
+    "sharp": "^0.35.5",
+    "vitest": "5.1"
+  },
+  "peerDependencies": {
+    "n8-party-games": "*"
+  },
+  "peerDependenciesMeta": {
+    "n8-party-games": {
+      "optional": true
+    }
   }
 }
