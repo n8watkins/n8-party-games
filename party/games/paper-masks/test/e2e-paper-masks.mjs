@@ -10,8 +10,9 @@
 //      after guessing, Cy's phone loses its connection and comes back, Fay joins mid-match and
 //      watches (then plays from the next round), the host skips an answer the reader asked about,
 //      and Bo leaves the party mid-match; the match goes on;
-//   3. eight players (Ann, Cy, Di, Fay, Gus, Hal, Ivy, Jo: every place at the Table taken), with
-//      the phones and the big screen checked at 390x844, 320x568, 844x390, 1280x720 and 1920x1080.
+//   3. eight players (Ann, Cy, Di, Fay, Gus, Hal, Ivy and Bartholomew Jo, a name as long as a
+//      name may be: every place at the Table taken), with the phones and the big screen checked
+//      at 390x844, 320x568, 844x390, 1280x720 and 1920x1080.
 // The guesses of matches 1 and 3 are random in the middle rounds and fixed in the last (see
 // planGuesses), where every reveal is looked at, at every size: at three players the game's card
 // with all three fooled, at eight every split of the seven guessers between "Guessed right" and
@@ -454,6 +455,8 @@ function makeParty(tag) {
       return {
         cut: cut.slice(0, 4),
         cutCount: cut.length,
+        // Names their chip cuts short (it shows two lines, then an ellipsis).
+        cutNames: [...document.querySelectorAll(".pm-chip b")].filter((el) => el.scrollHeight > el.clientHeight + 1).map((el) => el.textContent),
         sw: document.documentElement.scrollWidth,
         sh: document.documentElement.scrollHeight,
         w: innerWidth,
@@ -467,6 +470,7 @@ function makeParty(tag) {
     check(m.sw <= m.w && m.bodyWide <= 1, `${label}: nothing scrolls sideways (${m.sw} in ${m.w}, inner ${m.bodyWide})`);
     if (screen) check(m.sh <= m.h && m.bodyOver <= 1 && !m.cutCount, `${label}: the big screen does not scroll and cuts nothing off (${m.sh} in ${m.h}, inner ${m.bodyOver}${m.cutCount ? `, cut: ${m.cut.join(" | ")}` : ""})`);
     check(!m.small.length, `${label}: every tap target is at least 44 pixels${m.small.length ? ` (${m.small.join(", ")})` : ""}`);
+    check(!m.cutNames.length, `${label}: no name on a chip is cut off${m.cutNames.length ? ` (${m.cutNames.join(", ")})` : ""}`);
     return m;
   }
 
@@ -705,7 +709,9 @@ function makeParty(tag) {
       const reader = inMatch().find((p) => p.view.you.reader);
       await tap(reader, i ? "Reveal the next one" : "Reveal the first one");
       await Promise.all([phone, tv].map((p) => p.page.waitForFunction((n) => document.querySelector(".pm-top span:last-child")?.textContent === n, `${i + 1} of ${targets.length}`, { timeout: 10000 })));
-      await wait(2200); // the plain mask has lifted off
+      // At once, while the plain mask lifts and the title comes in, and again when they have settled.
+      await fits(tv, `reveal, answer ${i + 1}, as the mask lifts, big screen`);
+      await wait(2200);
       const card = tv.view.step.cards[i];
       const right = card.right?.length ?? -1;
       const fooled = Object.keys(card.guesses ?? {}).length - right;
@@ -1049,7 +1055,8 @@ function makeParty(tag) {
   // ---------------------------------------------------------------- match 3: eight players, every size
   async function match3() {
     const ann = byName("Ann");
-    for (const name of ["Gus", "Hal", "Ivy", "Jo", "Kit", "Lu", "Max"]) {
+    // (Bartholomew Jo: 14 characters, the longest a name may be, so a title and the lines that name him wrap.)
+    for (const name of ["Gus", "Hal", "Ivy", "Bartholomew Jo", "Kit", "Lu", "Max"]) {
       if (live().filter((p) => !p.screen).length >= 8) break;
       await joinParty(name, pin);
     }
@@ -1148,7 +1155,7 @@ try {
     ];
   } else {
     // A party of its own for each match, the three side by side. Match 3's party is the same eight
-    // the evening above ends with: Ann, Cy, Di and Fay, and Gus, Hal, Ivy and Jo join there.
+    // the evening above ends with: Ann, Cy, Di and Fay, and Gus, Hal, Ivy and Bartholomew Jo join there.
     const plan = [
       [1, ["Bo", "Cy"], async (p) => (await p.match1(), await p.secondMatch())],
       [2, ["Bo", "Cy"], (p) => p.match2()],
