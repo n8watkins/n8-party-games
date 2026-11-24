@@ -583,14 +583,21 @@ try {
             // Not awaited: a slow reload must not stop the other pages being watched. (Drawn in software on a loaded
             // machine, the reloaded race page can take 10 s to come up and then hold its thread for 10 s more; on the
             // graphics card it is up and drawing in about 1.5 s.)
-            reloading = bo.reload().then(() => derby(bo)).then(async (f) => { maps.frames.set(bo, f); at.padBack = await f.evaluate(() => window.__derby.app.pad).catch(() => null); }, () => {});
+            // How long each part of the way back took (s), for the log: the room's page loaded, the game's frame put in
+            // it, the race up in that frame.
+            const r0 = Date.now(), took = () => ((Date.now() - r0) / 1000).toFixed(1);
+            at.reloadSteps = [];
+            reloading = bo.reload({ timeout: 90_000 })
+              .then(() => { at.reloadSteps.push(`room page ${took()}`); return bo.waitForSelector(FRAME, { timeout: 90_000 }); })
+              .then(() => { at.reloadSteps.push(`game frame ${took()}`); return derby(bo, 90_000); })
+              .then(async (f) => { at.reloadSteps.push(`race ${took()}`); maps.frames.set(bo, f); at.padBack = await f.evaluate(() => window.__derby.app.pad).catch(() => null); }, (e) => at.reloadSteps.push(`stopped: ${String(e?.message).split("\n")[0]}`));
           }
         }
       })();
       const { end, last } = await race("short", code, [ada, bo, stall, nogl, scr], { during, panes: scr, watch: maps }).finally(() => (raced = true));
       await troubles;
       await clicking;
-      console.log(`     the troubles, on the room's race clock: Bo's switch then his drop ${at.drop?.toFixed(1)}, back ${at.back?.toFixed(1)}, reload ${at.reload?.toFixed(1)}; the stall ${at.freeze?.toFixed(1)}`);
+      console.log(`     the troubles, on the room's race clock: Bo's switch then his drop ${at.drop?.toFixed(1)}, back ${at.back?.toFixed(1)}, reload ${at.reload?.toFixed(1)} (back: ${at.reloadSteps?.join(", ") || "not yet"} s after); the stall ${at.freeze?.toFixed(1)}`);
       // Bo's page may still be on its way back with the race already over: its frame is gone, so this ends with the race.
       await Promise.race([reloading, sleep(2000)]);
       if (end) {

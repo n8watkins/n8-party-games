@@ -294,12 +294,18 @@ try {
   const slow = loadedIn > 15_000;
   stillsWanted = !slow;
   if (slow) console.log(`     (the game took ${(loadedIn / 1000).toFixed(0)} seconds to come up: this browser draws in software. The reload in the middle, the door sheet and the stills are left out; run with --win=1 for all of it.)`);
-  // Where the pages keep up, the party of one plays its round now, in a room of its own, while
-  // this battle runs its ninety seconds: the two share nothing but the server's books (counted
-  // together below). A browser that draws in software plays it after the battle, as one more set
-  // of pages beside these would slow them all.
-  const alone = slow || opt("apart", "0") === "1" ? null : playAlone();
-  alone?.catch(() => {}); // (awaited below; a failure is reported there)
+  // Where the pages keep up, the party of one plays its round in a room of its own while this
+  // battle runs its ninety seconds, from once Ada's reload in the middle is back (below): the two
+  // share nothing but the server's books (counted together below). Started any sooner, its two
+  // pages loaded beside the reloaded one, and on a 4-thread machine that reload took 71 s to come
+  // back, past the end of the round. A browser that draws in software plays it after the battle,
+  // as one more set of pages beside these would slow them all.
+  let alone = null;
+  const startAlone = () => {
+    if (slow || opt("apart", "0") === "1") return;
+    alone = playAlone();
+    alone.catch(() => {}); // (awaited below; a failure is reported there)
+  };
   // A context to check afterwards: the game's WebGL context, held from the room's page.
   for (const page of [screen, ada, cy]) await holdContext(page);
   const seats = {};
@@ -422,6 +428,7 @@ try {
     await frames.Ada.waitForFunction((n) => window.__cab.session.sims[0].shots > n, back.shots, { timeout: 30000 }).catch(() => {});
     check((await fired()) > back.shots, "and it can fire again");
     diag("fired again");
+    startAlone();
     await holdContext(ada);
 
     // Stills, once the reloaded page's lamps are lit.
