@@ -387,7 +387,6 @@ try {
       (extra.length ? `, and ${extra.length} by the room's stand-in at ${extra.map((e) => e.at.toFixed(1)).join(", ")} while her seat was seen gone (${awayAda.map(([a, b]) => `${a.toFixed(1)}-${b === null ? "on" : b.toFixed(1)}`).join(", ")}): ${extraOk}` : ""),
   );
   if (shots !== clicks || extra.length) console.log(`     Ada's page sent corks stamped ${sentCorks.Ada.map((c) => c.d.toFixed(3)).join(", ")}; the room relayed corks for her seat at ${relayedAda().map((e) => e.at.toFixed(3)).join(", ")}`);
-  await frames.screen.waitForFunction((n) => window.__cab.session.sims[0].shots >= n, shots, { timeout: 30000 }).catch(() => {});
   // The room is the judge of what was fired. The room relays every cork Ada's page sends, but
   // the game's own simulation in the room (cork-and-bell) sometimes counts fewer than the page
   // showed, on main too: a difference between the game's page and its room, not the party
@@ -401,6 +400,21 @@ try {
     return latest();
   };
   const counted = await roomShots();
+  // Ada's phone reloads in the middle of the round, as a phone that dozed off would: from now, once the room has
+  // counted her corks, while the big screen is waited for (below) beside it. (Begun only after the big screen had
+  // counted them, it came back 84 s into the 90 s round on GitHub's runner: that wait and the reload, each some 25 s
+  // there, one after the other.)
+  let reloading = null, scoreBefore = 0, reloadAt = 0;
+  if (!slow) {
+    scoreBefore = (await summary(frames.screen)).stalls[0].score;
+    reloadAt = Date.now();
+    reloading = (async () => {
+      await ada.reload();
+      frames.Ada = await gameFrame(ada);
+      return frames.Ada.evaluate(() => ({ mine: window.__cab.session.mySeat, t: window.__cab.session.time(), score: window.__cab.session.sims[0].score, shots: window.__cab.session.sims[0].shots }));
+    })();
+    reloading.catch(() => {}); // (awaited below)
+  }
   await frames.screen.waitForFunction((n) => window.__cab.session.sims[0].shots === n, counted, { timeout: 30000 }).catch(() => {});
   const onScreen = (await summary(frames.screen)).stalls;
   if (counted !== shots || onScreen[0].shots !== counted) {
@@ -418,12 +432,7 @@ try {
   check(midGame.timer === true && midGame.view.phase === "playing", "while the round is on the room runs its one timer");
 
   if (!slow) {
-    // Ada's phone reloads in the middle of the round, as a phone that dozed off would.
-    const scoreBefore = (await summary(frames.screen)).stalls[0].score;
-    const reloadAt = Date.now();
-    await ada.reload();
-    frames.Ada = await gameFrame(ada);
-    const back = await frames.Ada.evaluate(() => ({ mine: window.__cab.session.mySeat, t: window.__cab.session.time(), score: window.__cab.session.sims[0].score, shots: window.__cab.session.sims[0].shots }));
+    const back = await reloading;
     // In the middle: after the round's start and before its time is called. (How far into the round the reloaded page
     // is up is the machine's doing: on four threads drawing in software, one came back 82 s in, and could fire again.)
     check(back.mine === 0 && back.t > 3 && back.t < ROUND_SECONDS && back.score >= scoreBefore && back.shots >= counted, `a reload in the middle comes back to the same stall, ${Math.round(back.t)} seconds in (${((Date.now() - reloadAt) / 1000).toFixed(0)} s after the reload), with its ${back.shots} corks and ${back.score} points`);
