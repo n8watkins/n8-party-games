@@ -1,0 +1,31 @@
+{
+  "name": "tin-derby",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Tin Derby: wind-up tin cars race round a breakfast table. The race rules a party room runs, and the same rules for a page.",
+  "license": "MIT",
+  "exports": {
+    ".": "./party.js",
+    "./rules": "./shared/rules.js",
+    "./replica": "./shared/replica.js",
+    "./data": "./data/tune.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "party.js",
+    "shared",
+    "data",
+    "tools/*.mjs",
+    "README.md"
+  ],
+  "scripts": {
+    "test": "cd ../.. && vitest run games/tin-derby",
+    "test:e2e": "cd ../.. && node games/tin-derby/test/e2e-room.mjs --only=short"
+  },
+  "devDependencies": {
+    "@n8games/lobby": "file:../../lobby",
+    "n8-party-games": "file:../..",
+    "vitest": "5.1"
+  }
+}

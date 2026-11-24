@@ -23,7 +23,7 @@
   // commit; a local server with these settings sets RELEASE_ALLOW_DIRTY=1 (DEPLOY.md, step 3).
   "build": {
     "command": "node scripts/build-public.mjs --production",
-    "watch_dir": ["party-kit/client", "party-kit/src", "lobby/public", "lobby/shared", "lobby/server", "lobby/games", "lobby/wall.js", "party/public", "site", "lab", "one-device", "floor", "scripts", "games.js", "worker.js"]
+    "watch_dir": ["party-kit/client", "party-kit/src", "lobby/public", "lobby/shared", "lobby/server", "lobby/games", "lobby/wall.js", "party/public", "site", "games", "scripts", "games.js", "worker.js"]
   },
   "assets": {
     "directory": "./dist/public",
@@ -78,7 +78,7 @@
       // scripts/build-public.mjs. The production build above never passes --preview.
       "build": {
         "command": "node scripts/build-public.mjs --preview",
-        "watch_dir": ["party-kit/client", "party-kit/src", "lobby/public", "lobby/shared", "lobby/server", "lobby/games", "lobby/wall.js", "party/public", "site", "landing/public", "lab", "one-device", "floor", "scripts", "games.js", "worker.js"]
+        "watch_dir": ["party-kit/client", "party-kit/src", "lobby/public", "lobby/shared", "lobby/server", "lobby/games", "lobby/wall.js", "party/public", "site", "landing/public", "games", "scripts", "games.js", "worker.js"]
       },
       // Bindings are not inherited, so the version metadata is named again (locally its id is a stand-in).
       "version_metadata": { "binding": "CF_VERSION_METADATA" },

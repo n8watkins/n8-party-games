@@ -4,8 +4,8 @@ What a game package gives the party site so the site can host it.
 It is as small as what exists today needs.
 Cork & Bell (`n8watkins/cork-and-bell`) is the first game that keeps it.
 
-A game is its own repository and its own npm package.
-It plays on its own (`npm install`, `npm run dev`) with the kit as a development dependency.
+A game is its own npm package.
+It lives in its own repository, where it plays on its own (`npm install`, `npm run dev`) with the kit as a development dependency, or in this one as a folder under `games/<id>` (an npm workspace; "Where it lives" under "Games at the Table").
 The party site installs the game as a development dependency and serves it beside the others.
 
 ## What the package exports
@@ -398,7 +398,7 @@ A hosted game whose view cannot be mounted in the room yet is hung the same way,
 The party has two waiting rooms (`lobby/shared/mode.js`): the Floor, where the vote above chooses a game, and the Table (`/party/`), a plain page where the host picks a turn-based game from a list.
 A Table game keeps the same contract as any turn-based game ("Turn-based games", "Who is here during a turn-based game"), run by the same room, with these differences.
 
-- **The rules.** A Table game is a pure rules module, the shape Paper Masks set (`party/games/paper-masks/README.md`):
+- **The rules.** A Table game is a pure rules module, the shape Paper Masks set (`games/paper-masks/README.md`):
 
   ```js
   export const GAME_ID, MIN_PLAYERS, MAX_PLAYERS, SYSTEM;
@@ -412,15 +412,16 @@ A Table game keeps the same contract as any turn-based game ("Turn-based games",
   The room sends its own moves as `SYSTEM`, and `apply` must refuse them from a player (`not_system`):
   `{ t: "tick" }` at `nextDeadline` (a Durable Object alarm: nothing ticks in memory, and the room sleeps between moves), `{ t: "join", seat }` when someone in the party who is not in the match is here (a late joiner; the game makes them a watcher, or refuses, and then they wait at the Table), `{ t: "leave", seat }` when a seat is gone for good (it left the party, or its phone was gone past the grace; the game goes on without it, or ends by itself), and `{ t: "host", seat }` when the host's controls pass to another player.
   `create` gets `seed`, a fresh seed per match from the platform's secure source; the room's own seed, which pages may learn, is never used.
-  `party/games/table-game.js` (`tableGame(rules)`) turns the module into the kit's turn-based `game`: the room's `join`, `leave` and `host` hooks (`lobby/server/lobby-core.js`, `turnUpkeep`) are those three moves, and a refusal is the answer to the input.
+  The kit's Table adapter, `n8-party-games/table` (`party-kit/src/table/table-game.js`, `tableGame(rules)`), turns the module into the kit's turn-based `game`: the room's `join`, `leave` and `host` hooks (`lobby/server/lobby-core.js`, `turnUpkeep`) are those three moves, and a refusal is the answer to the input.
   A seat taken in by `join` is the game's from then on (it may send moves, and gets `view` for its seat); a seat gone by `leave` is kept out of the party until the match ends, so nobody new sits in it.
   Rules may also export `needs(state, seat)` (the adapter passes it on as `game.needs`, "One clock for a missing seat"): Who Am I? does, for the guesser whose turn it is and, in trade turns, for the other player while a typed question waits on them, so a player who hides their page then forfeits at the grace (two minutes at the Table), and everyone sees the time left on the stage; the page keeps the screen awake meanwhile ("A screen kept awake").
   Paper Masks and Count to ten do not: a hidden page there costs nothing.
-- **Where it lives.** The rules in `party/games/<id>/` (server only), with an `index.js` that exports `game` and `manifest`, and the view in `party/public/games/` (served at `/party/games/`).
-  It goes in `TURN_GAMES` (`games.js`); its manifest has `path: "/party/"`, `table: { view: "games/<id>.js" }` and `public: []`, since its view is already one of the party's pages, so the build looks up no package for it.
-  A game from its own package goes in `TURN_GAMES` the same way, and lists its public files.
-  Count to ten has the same shape and is added by `lobby/wall.js` only where `PARTY_TEST_GAMES` is on.
-  Nothing in `party/games`, `lobby/server`, `worker.js` or `games.js` can reach the site: `scripts/build-public.mjs` refuses to copy them (`SERVER_ONLY`), and `lobby/test/public-files.test.js` fails if a served file imports them, so server-only data such as Paper Masks' `questions.js` stays on the server.
+- **Where it lives.** A package: in this repository, a folder of its own under `games/<id>/` (an npm workspace named `<id>`), with an `index.js` that exports `game` and `manifest`, the rules beside it (server only), and the view in its `public/` folder.
+  It goes in `TURN_GAMES` (`games.js`), imported by its package name; its manifest has `path: "/party/"`, `table: { view: "games/<id>.js" }` and lists its public files under that path (`{ from: "public/<id>.js", to: "games/<id>.js" }` and the rest), so the view is served at `/party/games/<id>.js` beside the Table's own pages.
+  A game from a package of another repository goes in `TURN_GAMES` the same way.
+  A game may also live in `party/games/<id>/` with no package, its view in `party/public/games/` (one of the party's pages) and `public: []`, so the build looks up no package for it: Count to ten has that shape, and is added by `lobby/wall.js` only where `PARTY_TEST_GAMES` is on.
+  Nothing in `party/games`, `lobby/server`, `worker.js` or `games.js`, and nothing in a Table game's package but the public files its manifest lists, can reach the site: `scripts/build-public.mjs` refuses to copy them (`SERVER_ONLY`), and `lobby/test/public-files.test.js` fails if a served file imports them, so server-only data such as Paper Masks' `questions.js` stays on the server.
+  The rules take the adapter and the match's draws from the kit by name (`n8-party-games/table`, `n8-party-games/table/draws`), never by a path into the hub.
 - **What it is to the wall.** The game must be turn-based (`tickHz: 0`) and must not have `settings` yet: the Table has no settings step, so a rules module's `options` are its defaults (and `host`).
   The manifest adds `table: { view }`, the module under `manifest.path` whose `mount` shows the game at the Table ("In the browser"), and may add `pitch` (one line about the game) and `art` (the address of its door picture).
   `buildTurnWall` in `lobby/wall.js` refuses a game that breaks any of this when the Worker loads, not when a party picks it.

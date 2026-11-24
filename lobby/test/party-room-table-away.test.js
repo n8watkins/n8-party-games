@@ -12,9 +12,9 @@ import { from } from "./turn-game.js";
 import { TEST_WALL } from "../wall.js";
 import { PLAY_BEAT_MS } from "../shared/table.js";
 import { TURN_GRACE_MS } from "../server/lobby-core.js";
-import * as rules from "../../party/games/who-am-i/rules.js";
-import { game as whoAmI } from "../../party/games/who-am-i/index.js";
-import { game as paperMasks } from "../../party/games/paper-masks/index.js";
+import { game as whoAmI } from "who-am-i";
+import * as rules from "who-am-i/rules";
+import { game as paperMasks } from "paper-masks";
 import { game as countToTen } from "../../party/games/count-to-ten/index.js";
 
 vi.mock("cloudflare:workers", () => ({
@@ -109,7 +109,7 @@ afterEach(dropFakeRuntime);
 
 describe("Who Am I?'s rules: who the match waits on", () => {
   it("is only the guesser whose turn it is, while they ask", async () => {
-    const { Table } = await import("../../party/games/who-am-i/test/table.js");
+    const { Table } = await import("who-am-i/testing/table");
     const t = new Table([0, 1, 2]);
     // The setup waits on nobody.
     for (const seat of [0, 1, 2]) expect(rules.needs(t.state, seat)).toBe(false);
@@ -134,7 +134,7 @@ describe("Who Am I?'s rules: who the match waits on", () => {
   });
 
   it("is never a player who left", async () => {
-    const { Table } = await import("../../party/games/who-am-i/test/table.js");
+    const { Table } = await import("who-am-i/testing/table");
     const t = new Table([0, 1]);
     t.begin();
     const g = t.guesser;

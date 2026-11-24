@@ -902,7 +902,7 @@ try {
     for (const page of pages) {
       const context = await phone();
       // Headless Chromium's own SpeechRecognition.available() crashes the page that asks it (the
-      // hearing test's: lab/hot-potato/test/e2e-hearing.mjs takes it away too).
+      // hearing test's: games/hot-potato/lab/test/e2e-hearing.mjs takes it away too).
       await context.addInitScript(() => {
         delete window.SpeechRecognition;
         delete window.webkitSpeechRecognition;

@@ -7,9 +7,9 @@ import { describe, expect, it } from "vitest";
 import { HOME_WALL_PATH, SERVED, SOURCES, homeWall, homeWallModule } from "../../scripts/build-public.mjs";
 import { TURN_GAMES } from "../../games.js";
 import { TEST_WALL, WALL, buildTurnWall } from "../../lobby/wall.js";
-import * as paperMasksRules from "../../party/games/paper-masks/rules.js";
-import { tableGame } from "../../party/games/table-game.js";
-import { MAX_PLAYERS, MIN_PLAYERS } from "../../one-device/hot-potato/public/game.js";
+import * as paperMasksRules from "paper-masks/rules";
+import { tableGame } from "../../party-kit/src/table/table-game.js";
+import { MAX_PLAYERS, MIN_PLAYERS } from "hot-potato/game";
 import { KINDS, LINKS, ONE_DEVICE } from "../home-data.js";
 import { homeModel, isLive, peekOf, tableStart } from "../home-model.js";
 

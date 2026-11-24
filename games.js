@@ -1,14 +1,17 @@
-// The games this site hosts. Each is its own repository and package that keeps the game
-// contract (party-kit/GAME-CONTRACT.md): it exports `game` (the server definition) and
-// `manifest` (id, name, path, players, devices, public files).
+// The games this site hosts. Each is a package that keeps the game contract
+// (party-kit/GAME-CONTRACT.md): it exports `game` (the server definition) and `manifest` (id,
+// name, path, players, devices, public files). Cork & Bell is its own repository, a git
+// dependency; the rest are folders of this repository (games/<id>, npm workspaces).
 //
-// To host another game: add it to devDependencies (a git dependency pinned to a tag or a
-// commit), import it here, and add it to the list. The build and the Worker read this list.
+// To host another game: give it a folder of its own under games/ (a package by its own name,
+// declared in the root package.json's devDependencies as "file:games/<id>"), or add it to
+// devDependencies as a git dependency pinned to a tag or a commit; import it here by its package
+// name, and add it to the list. The build and the Worker read this list.
 import * as corkAndBell from "cork-and-bell";
-// Tin Derby is still a folder of this repository (floor/games/tin-derby), installed as a package by a file: dependency until it moves to its own.
+// Tin Derby, Paper Masks and Who Am I? are folders of this repository (games/<id>), workspace packages.
+import * as paperMasks from "paper-masks";
 import * as tinDerby from "tin-derby";
-import * as paperMasks from "./party/games/paper-masks/index.js";
-import * as whoAmI from "./party/games/who-am-i/index.js";
+import * as whoAmI from "who-am-i";
 
 export const GAMES = [corkAndBell, tinDerby];
 
@@ -25,7 +28,10 @@ export const SCORE_BOARDS = Object.fromEntries(
 // The games played at the Table (the party's plain waiting room, /party/): turn-based games
 // (`tickHz: 0`) that keep the same contract, plus `manifest.table.view`, the module under the
 // game's public path that shows it at the Table. lobby/wall.js (buildTurnWall) hangs them on the
-// Table's list with the coming-soon entries. A Table game may be a package, or live in this
-// repository (party/games/<id>/index.js, with its view in party/public/games and `public: []`,
-// as Paper Masks and Who Am I? do): import its index.js here either way.
+// Table's list with the coming-soon entries. A Table game is a package (Paper Masks and Who Am I?:
+// games/<id>, the view in its own public/ folder, listed in its manifest's `public` and served
+// under /party/), or lives in this repository without one (party/games/<id>/index.js, with its
+// view in party/public/games and `public: []`, as the test game Count to ten does): import it here
+// either way. Everything in a Table game's package but its public files is server only
+// (scripts/build-public.mjs).
 export const TURN_GAMES = [paperMasks, whoAmI];

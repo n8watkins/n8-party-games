@@ -8,12 +8,13 @@ const here = (path) => fileURLToPath(new URL(path, import.meta.url));
 /**
  * A page folder and the shared folder the site serves under it as "shared/" (scripts/build-public.mjs):
  * the party room (lobby/public with lobby/shared at lobby/shared) and Hot Potato
- * (one-device/hot-potato/public with its shared matcher and lists at one-device/hot-potato/shared).
+ * (games/hot-potato/public at /one-device/hot-potato/, with its shared matcher and lists,
+ * games/hot-potato/shared, at /one-device/hot-potato/shared/).
  * A page module imports "./shared/..." next to itself; tests read the same files from where they are kept.
  */
 const SERVED_SHARED = [
   [here("./lobby/public/"), here("./lobby/shared/")],
-  [here("./one-device/hot-potato/public/"), here("./one-device/hot-potato/shared/")],
+  [here("./games/hot-potato/public/"), here("./games/hot-potato/shared/")],
 ];
 const servedShared = {
   name: "served-shared",
@@ -31,6 +32,9 @@ const servedShared = {
 };
 
 export default defineConfig({
+  // One cache for the whole repository, in the root node_modules: never a games/<id>/node_modules
+  // (wrangler dev watches games/, and a cache written there restarts the local server mid-test).
+  cacheDir: here("./node_modules/.vite"),
   plugins: [servedShared],
   // The kit by its package name is this repository's own folder (the same alias as wrangler.jsonc).
   resolve: {
@@ -48,5 +52,5 @@ export default defineConfig({
       { find: /^\/cork-and-bell\/game\/vendor\/three\.module\.js$/, replacement: "three" },
     ],
   },
-  test: { include: ["party-kit/test/**/*.test.js", "lobby/test/**/*.test.js", "lab/**/*.test.js", "party/games/**/test/**/*.test.js", "one-device/**/*.test.js", "site/**/*.test.js", "floor/games/**/test/**/*.test.js"], environment: "node" },
+  test: { include: ["party-kit/test/**/*.test.js", "lobby/test/**/*.test.js", "site/**/*.test.js", "games/**/*.test.js"], environment: "node" },
 });

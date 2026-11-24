@@ -16,8 +16,11 @@ The global rules file (branches, pull requests, no merging without the owner's w
 
 ## Run and test
 
-- `npm ci`, then `npm test`: the unit tests (vitest, about a second).
+- `npm ci`, then `npm test`: the unit tests (vitest, about a minute on this PC).
   This is the check every pull request must pass.
+- One game's unit tests alone: `npm test -w <game>` (for example `npm test -w tin-derby`), from any folder; `npm test --workspaces` runs each game's and the lobby's in turn.
+  Each runs the root's vitest config from the root, so nothing is written into `games/`; never run `vitest` from inside a game's folder (its cache would land in `games/<id>/node_modules`, which `wrangler dev` watches, and a unit test fails while that folder exists).
+  A game's browser test is `npm run test:e2e -w <game> -- --base=http://localhost:PORT`, the same command as the root's `test:<game>`.
 - `npm run dev`, then the end-to-end scripts against that server: `npm run test:room` and `npm run test:lobby` (plain sockets, no browser), `npm run test:cork` (a headless browser, about four minutes), and the rest of the `test:*` scripts listed in `package.json`.
   Each script takes `--base=http://localhost:PORT`.
 - In software (no `TEST_GPU`), run one browser test at a time.
@@ -119,8 +122,10 @@ The interface, part by part, is in `lobby/README.md`, "Characters".
 
 - `party-kit/`: the room kit (server core, client, tests, `GAME-CONTRACT.md`).
 - `lobby/`: the party room.
-- `one-device/`: games on one passed-around device, no server (Hot Potato; its matcher and lists in `one-device/hot-potato/shared/`, shared with `lab/hot-potato/`).
-- `games.js`: the hosted games, each its own repository pinned in `package.json` (Cork & Bell is a git commit; bump it deliberately).
+- `games/`: every in-house game, one self-contained folder and npm workspace package each (`games/<id>`, with its own `package.json`, README and tests): Tin Derby (the Floor), Paper Masks and Who Am I? (the Table), Hot Potato (one passed-around device, no server; its hearing test in `games/hot-potato/lab/`).
+  A game reaches the hub only by package name, never by a `../` path: the kit by `n8-party-games/...` (the root `package.json`'s exports, the hub's public surface, which a unit test pins), and the party room and the in-house test helpers by `@n8games/lobby/...` (`lobby/package.json`, a private workspace that is never published).
+  Each game declares what it imports in its own `package.json`, each tool with the root's range, so there is one root `node_modules` (`site/test/packages.test.js`); the served addresses (`/tin-derby/`, `/party/games/<id>.js`, `/one-device/hot-potato/`, `/lab/hot-potato/`) do not follow the folders and are pinned by `site/test/served-addresses.test.js`.
+- `games.js`: the hosted games: those in `games/`, and those from their own repositories pinned in `package.json` (Cork & Bell is a git commit; bump it deliberately).
 - `worker.js` and `wrangler.jsonc`: the Worker and its Durable Object migrations (`v1` to `v4`).
   A new migration changes what a rollback can do, so read "Rolling back" in `DEPLOY.md` first.
 - `.github/`: the workflows and the predeploy script.

@@ -13,7 +13,10 @@ Everything else is already in the repository.
 - The `local` environment keeps the test switches for `npm run dev` and the playtests, has no custom domain (`"routes": []`), and is never deployed.
 - Only `dist/public` is served, rebuilt from an allowlist by `scripts/build-public.mjs` before every deploy, together with its `_headers` file (CSP, the other security headers and the cache rules) and its `_redirects` file.
   The build lays the site out in release folders, so a returning phone asks for almost nothing: see "Release folders and the browser's cache".
-- The games are separate repositories, installed as dependencies pinned in `package.json` and listed in `games.js`; `npm ci` must have run before a deploy. A game can also be deployed alone from its own repository, with its own checklist.
+- The hosted games are listed in `games.js`.
+  Tin Derby, Paper Masks, Who Am I? at the Table and Hot Potato are folders of this repository (`games/<id>`, npm workspaces), installed by the same `npm ci`.
+  Cork & Bell is a separate repository, installed as a git dependency pinned in `package.json`; it can also be deployed alone from its own repository, with its own checklist.
+  `npm ci` must have run before a deploy.
 - `npm run assets:list` prints every file that will be public.
 - The party room (`lobby/`) is a second room class, `LobbyRoom`, with its own API under `/api/lobby` and the same guards as the kit's. It counts all of its awake time against the same room budget.
 - The site's root is a plain front page that leads into the party room; before the party room it redirected to Cork & Bell, which stays at `/cork-and-bell/`.
@@ -69,8 +72,8 @@ The games' versions:
 - Cork & Bell is its own repository with release-kit, pinned in `package.json`. Its record carries the version and the git ref it is pinned at.
   It is still pinned by commit because it has no release yet.
   Once its first `vX.Y.Z` tag exists, pin it as `github:n8watkins/cork-and-bell#vX.Y.Z`.
-- Tin Derby is a folder of this repository installed by `file:`, with its version in `floor/games/tin-derby/package.json`.
-- Paper Masks and Who Am I? at the Table live in `party/games/<id>/index.js`, with `version` in their manifests.
+- Tin Derby, Paper Masks and Who Am I? at the Table are folders of this repository, workspace packages (`games/*` in `package.json`), each with its version in its own `games/<id>/package.json`.
+- A game kept in this repository without a package of its own (none is hosted today) has `version` in its manifest.
 - release-kit moves only the site's version.
   A game kept in this repository has its version bumped in the pull request that changes it: a minor for a feature, a patch for a fix.
   A unit test refuses a manifest without one.

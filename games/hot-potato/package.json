@@ -1,0 +1,30 @@
+{
+  "name": "hot-potato",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Hot Potato: a spoken word chain on one phone or browser passed around the group, before the potato bursts. With its hearing test (lab/).",
+  "license": "MIT",
+  "exports": {
+    "./game": "./public/game.js",
+    "./shared/*": "./shared/*",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "public",
+    "shared",
+    "lab",
+    "README.md"
+  ],
+  "scripts": {
+    "test": "cd ../.. && vitest run games/hot-potato",
+    "test:e2e": "cd ../.. && node games/hot-potato/test/e2e-game.mjs",
+    "test:e2e:hearing": "cd ../.. && node games/hot-potato/lab/test/e2e-hearing.mjs"
+  },
+  "devDependencies": {
+    "@n8games/lobby": "file:../../lobby",
+    "playwright": "^1.65.1",
+    "sharp": "^0.35.5",
+    "vitest": "5.1"
+  }
+}

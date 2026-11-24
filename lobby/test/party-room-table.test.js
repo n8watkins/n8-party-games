@@ -4,7 +4,7 @@
 // (`join`), a seat gone for good while the game goes on (`leave`), a new host (`host`), the host
 // ending it (`stop`), everyone back at the Table with the result, the Table's eight places, and
 // the secret seed each match gets. Count to ten (party/games/count-to-ten) is the game: it keeps
-// the same rules shape as Paper Masks and runs through the same adapter (party/games/table-game.js).
+// the same rules shape as Paper Masks and runs through the same adapter (party-kit/src/table/table-game.js).
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { dropFakeRuntime, fakeCtx, fakeEnv, settle, useFakeRuntime } from "./fake-room.js";
 import { from } from "./turn-game.js";
@@ -14,7 +14,7 @@ import { MODE_COOLDOWN_MS } from "../shared/mode.js";
 import { DROP_FADE_MS, HOST_GRACE_MS, MAX_PLAYERS, TABLE_MAX_PLAYERS, TURN_GRACE_MS, seatColour } from "../server/lobby-core.js";
 import { TARGET, TURN_MS } from "../../party/games/count-to-ten/index.js";
 import * as rules from "../../party/games/count-to-ten/rules.js";
-import { tableGame } from "../../party/games/table-game.js";
+import { tableGame } from "../../party-kit/src/table/table-game.js";
 
 vi.mock("cloudflare:workers", () => ({
   DurableObject: class {

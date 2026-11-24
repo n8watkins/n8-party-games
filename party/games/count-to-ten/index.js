@@ -1,11 +1,11 @@
 // Count to ten: the Table's test game, and nothing more. It proves the path a real Table game
-// takes, end to end, through the same adapter (../table-game.js): the host picks it, the party
-// plays it in turns on their own phones, and everyone is back at the Table with the result.
-// Its pure rules are rules.js; its view is party/public/games/count-to-ten.js.
+// takes, end to end, through the same adapter (the kit's, n8-party-games/table): the host picks
+// it, the party plays it in turns on their own phones, and everyone is back at the Table with the
+// result. Its pure rules are rules.js; its view is party/public/games/count-to-ten.js.
 //
 // Server only: nothing in party/games is ever copied to the site (scripts/build-public.mjs).
+import { tableGame } from "n8-party-games/table";
 import * as rules from "./rules.js";
-import { tableGame } from "../table-game.js";
 
 export const { TARGET, TURN_MS } = rules;
 

@@ -9,6 +9,10 @@ The group stays in one room and goes from game to game without leaving.
 This is a first playable version: a thin slice to find out whether it is fun and what it costs to host.
 The pictures it is built from are in the `wave2/lobby-pictures` branch (`lobby/preview/`).
 
+The folder is also a private npm workspace, `@n8games/lobby` (`package.json` here), so the in-house games' tests and tools in `games/` reach the room's modules and the test helpers (`@n8games/lobby/testing/*`) by name.
+It is part of the hub and never published: its dependencies are the root's, and the hub's public surface (the root `package.json`'s exports) stays the kit.
+`npm test -w @n8games/lobby` runs the tests in this folder alone.
+
 ## Try it
 
 ```sh
