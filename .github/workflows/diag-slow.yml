@@ -1,4 +1,4 @@
-# TEMPORARY: diagnosis of the gate's browser steps on a hosted runner. Removed before review.
+# TEMPORARY: the gate's two browser steps, several times each, on a hosted runner. Removed before review.
 name: diag-slow
 
 on:
@@ -11,11 +11,15 @@ permissions:
 jobs:
   diag:
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
-        step: [test:tin-derby, test:cork]
+        include:
+          - step: test:tin-derby
+            runs: 5
+          - step: test:cork
+            runs: 3
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
@@ -24,15 +28,19 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npx playwright install --with-deps chromium
-      - run: nproc; lscpu | head -20; free -h
-      - name: three runs, each on a fresh Worker
+      - name: each run on a fresh Worker of its own
         run: |
-          for i in 1 2 3; do
+          passed=0
+          for i in $(seq 1 ${{ matrix.runs }}); do
+            port=$((8860 + i))
             dir=$(mktemp -d)
-            npx wrangler dev --local --env=local --port 8853 --persist-to "$dir" > "$dir/w.log" 2>&1 &
+            setsid npx wrangler dev --local --env=local --port $port --persist-to "$dir" > "$dir/w.log" 2>&1 &
             w=$!
-            for k in $(seq 1 120); do curl -sf http://localhost:8853/api/party/config >/dev/null && break; sleep 1; done
+            for k in $(seq 1 180); do curl -sf http://localhost:$port/api/party/config >/dev/null && break; sleep 1; done
             echo "=== run $i, load $(cat /proc/loadavg)"
-            npm run -s ${{ matrix.step }} -- --base=http://localhost:8853 && echo "=== run $i PASSED" || echo "=== run $i FAILED"
-            kill $w; sleep 3; pkill -f workerd || true
+            if npm run -s ${{ matrix.step }} -- --base=http://localhost:$port; then echo "=== run $i PASSED"; passed=$((passed+1)); else echo "=== run $i FAILED"; fi
+            kill -TERM -- -$w || true
+            sleep 3
           done
+          echo "=== $passed of ${{ matrix.runs }} passed"
+          [ $passed -eq ${{ matrix.runs }} ]
