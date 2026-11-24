@@ -304,9 +304,15 @@ try {
   // A browser that draws WebGL in software (Playwright's own, in WSL) has pages that run many
   // seconds behind the room. What needs a page to keep up with the round is left
   // out there, and said so; everything the room decides is checked either way.
-  const slow = loadedIn > 15_000;
+  // Whether they keep up is measured, not guessed from how long they took to come up: each page's
+  // frames over two seconds. (How long the game took to come up was this run's own waits, mostly:
+  // asked one page after another it read 26 to 55 s on GitHub's runner, asked all at once 1 to 2 s,
+  // and there the pages drew a few frames a second and fell behind the round.)
+  const fps = await Promise.all(Object.values(frames).map((f) => f.evaluate(() => new Promise((done) => { let n = 0; const t0 = performance.now(); const tick = () => { n++; if (performance.now() - t0 < 2000) requestAnimationFrame(tick); else done(n / ((performance.now() - t0) / 1000)); }; requestAnimationFrame(tick); }))));
+  const slowest = Math.min(...fps);
+  const slow = loadedIn > 15_000 || slowest < 15;
   stillsWanted = !slow;
-  if (slow) console.log(`     (the game took ${(loadedIn / 1000).toFixed(0)} seconds to come up: this browser draws in software. The reload in the middle, the door sheet and the stills are left out; run with --win=1 for all of it.)`);
+  if (slow) console.log(`     (the game took ${(loadedIn / 1000).toFixed(0)} seconds to come up, and its slowest page drew ${slowest.toFixed(1)} frames a second: this browser draws in software. The reload in the middle, the door sheet and the stills are left out; run with --win=1 for all of it.)`);
   // Where the pages keep up, the party of one plays its round in a room of its own while this
   // battle runs its ninety seconds, from once Ada's reload in the middle is back (below): the two
   // share nothing but the server's books (counted together below). Started any sooner, its two
@@ -403,27 +409,6 @@ try {
     return latest();
   };
   const counted = await roomShots();
-  // Ada's phone reloads in the middle of the round, as a phone that dozed off would: from now, once the room has
-  // counted her corks, while the big screen is waited for (below) beside it. (Begun only after the big screen had
-  // counted them, it came back 84 s into the 90 s round on GitHub's runner: that wait and the reload, each some 25 s
-  // there, one after the other.)
-  // Only where the round leaves time for it: twice what her page took to load the first time, and 20 s more to fire
-  // again. (On GitHub's runner a reload took 34 to 37 s; begun 55 s into the round it came back after time was called.)
-  // Where it does not, the reload is left out, and said so, as it is where the game is slow to come up at all.
-  let reloading = null, scoreBefore = 0, reloadAt = 0;
-  const roundLeft = ROUND_SECONDS - ((Date.now() - startedAt) / 1000 - COUNT_IN);
-  const reloadFits = !slow && roundLeft > (2 * adaLoadMs) / 1000 + 20;
-  if (!slow && !reloadFits) console.log(`     (the reload in the middle is left out: ${roundLeft.toFixed(0)} s of the round were left, and Ada's game took ${(adaLoadMs / 1000).toFixed(0)} s to load the first time)`);
-  if (reloadFits) {
-    scoreBefore = (await summary(frames.screen)).stalls[0].score;
-    reloadAt = Date.now();
-    reloading = (async () => {
-      await ada.reload();
-      frames.Ada = await gameFrame(ada);
-      return frames.Ada.evaluate(() => ({ mine: window.__cab.session.mySeat, t: window.__cab.session.time(), score: window.__cab.session.sims[0].score, shots: window.__cab.session.sims[0].shots }));
-    })();
-    reloading.catch(() => {}); // (awaited below)
-  }
   await frames.screen.waitForFunction((n) => window.__cab.session.sims[0].shots === n, counted, { timeout: 30000 }).catch(() => {});
   const onScreen = (await summary(frames.screen)).stalls;
   if (counted !== shots || onScreen[0].shots !== counted) {
@@ -440,8 +425,20 @@ try {
   const midGame = await inner(start.room.code);
   check(midGame.timer === true && midGame.view.phase === "playing", "while the round is on the room runs its one timer");
 
+  // Ada's phone reloads in the middle of the round, as a phone that dozed off would: only where the round leaves time
+  // for it, twice what her page took to load the first time and 20 s more to fire again (begun 55 s into the round,
+  // one came back after time was called), and only once the big screen has counted her corks: while she is away the
+  // room's stand-in plays her seat, and its corks are hers on the big screen too. Where it does not fit, it is left
+  // out, and said so, as where the pages do not keep up.
+  const roundLeft = ROUND_SECONDS - ((Date.now() - startedAt) / 1000 - COUNT_IN);
+  const reloadFits = !slow && roundLeft > (2 * adaLoadMs) / 1000 + 20;
+  if (!slow && !reloadFits) console.log(`     (the reload in the middle is left out: ${roundLeft.toFixed(0)} s of the round were left, and Ada's game took ${(adaLoadMs / 1000).toFixed(0)} s to load the first time)`);
   if (reloadFits) {
-    const back = await reloading;
+    const scoreBefore = (await summary(frames.screen)).stalls[0].score;
+    const reloadAt = Date.now();
+    await ada.reload();
+    frames.Ada = await gameFrame(ada);
+    const back = await frames.Ada.evaluate(() => ({ mine: window.__cab.session.mySeat, t: window.__cab.session.time(), score: window.__cab.session.sims[0].score, shots: window.__cab.session.sims[0].shots }));
     // In the middle: after the round's start and before its time is called. (How far into the round the reloaded page
     // is up is the machine's doing: on four threads drawing in software, one came back 82 s in, and could fire again.)
     check(back.mine === 0 && back.t > 3 && back.t < ROUND_SECONDS && back.score >= scoreBefore && back.shots >= counted, `a reload in the middle comes back to the same stall, ${Math.round(back.t)} seconds in (${((Date.now() - reloadAt) / 1000).toFixed(0)} s after the reload), with its ${back.shots} corks and ${back.score} points`);
