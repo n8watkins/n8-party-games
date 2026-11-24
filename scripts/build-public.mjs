@@ -43,7 +43,7 @@ import { fileURLToPath } from "node:url";
 import { IMMUTABLE_PATHS, PAGE_MIRROR, RELEASE_DIR, carriedFrom, foldTree, planFiles, withCarried, writePlan } from "../party-kit/build/folders.mjs";
 import { KIT_CLIENT_PATH, buildPublic, headersFile, kitClientEntry, report, roomMakingPages } from "../party-kit/build/public.mjs";
 import { CARRIED_RELEASES, builtIn, carriedFromLive, carryWanted } from "./carried.mjs";
-import { CARRY_LIVE, ID_PLACEHOLDER, PREVIEW_DIR, RELEASE_FILE, buildKind, flatReleaseId, gitState, releaseId, releaseModule, releaseProblem, releaseRecord, testBuildProblem } from "./release.mjs";
+import { CARRY_LIVE, ID_PLACEHOLDER, PREVIEW_DIR, RELEASE_FILE, buildKind, flatReleaseId, gitState, pageRecord, releaseId, releaseModule, releaseProblem, releaseRecord, testBuildProblem } from "./release.mjs";
 
 /** Where Who Am I?'s pictures load from: the one outside host any page of this site may show images from. */
 export const PICTURE_HOST = "https://upload.wikimedia.org";
@@ -274,14 +274,20 @@ const isPreview = (path) => path.startsWith(`${PREVIEW_DIR}/`);
 /** The release record's own files in a folded site: never part of the id they hold. */
 const isRecord = (path, id) => path === RELEASE_FILE || path === `${RELEASE_DIR}/${id}/${RELEASE_FILE}`;
 
+/** How the site's version is named among the hashed files: no file can have this name (a ":" is not in a site path). */
+const SITE_VERSION = ":site";
+
 /**
  * The release id of a folded site. `plan` (party-kit/build/folders.mjs, foldTree) is the site as
  * built with ID_PLACEHOLDER where the id goes: every file it serves, its headers and its
  * redirects are hashed, and the record's own files are not. So a change to anything a browser
- * could be sent is another release, the way the build lays the files out included.
+ * could be sent is another release, the way the build lays the files out included. `site`, the
+ * site's version, is hashed too: the pages show it (from the record in the release's folder,
+ * pageRecord), so a version bump alone is another release, and an address in a release's folder
+ * never serves other bytes.
  */
-export function planId(plan, salt = "") {
-  const shipped = planFiles(plan).filter((f) => !isRecord(f.path, plan.id));
+export function planId(plan, { salt = "", site = "" } = {}) {
+  const shipped = [...planFiles(plan).filter((f) => !isRecord(f.path, plan.id)), ...(site ? [{ path: SITE_VERSION, data: Buffer.from(site) }] : [])];
   const byPath = new Map(shipped.map((f) => [f.path, f]));
   return releaseId(shipped, (path) => byPath.get(path).data ?? readFileSync(byPath.get(path).from), salt);
 }
@@ -332,7 +338,8 @@ export function build(out = OUT, { workerRelease = null, git = repoState(), salt
     const fold = (files, id, pages) =>
       foldTree({ tree, files, id, stable: STABLE, stableMedia: STABLE_MEDIA, headers: ({ scripts }) => headersFile(scripts, { ...HEADERS, botCheck: pages, immutable: IMMUTABLE_PATHS, mirrors: [PAGE_MIRROR] }) });
     // The id: of the site a deploy ships (no preview pages), as built with the placeholder.
-    const id = planId(fold(paths.filter((p) => !isPreview(p)), ID_PLACEHOLDER, botCheck.filter((p) => !isPreview(p.slice(1)))), salt);
+    const site = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8")).version;
+    const id = planId(fold(paths.filter((p) => !isPreview(p)), ID_PLACEHOLDER, botCheck.filter((p) => !isPreview(p.slice(1)))), { salt, site });
     // The site itself, then the releases before it.
     const plan = fold(paths, id, botCheck);
     const carried = [];
@@ -343,8 +350,11 @@ export function build(out = OUT, { workerRelease = null, git = repoState(), salt
     }
     const written = writePlan(out, withCarried(plan, carried));
     const record = releaseRecord({ root: ROOT, id, games, git, carries: carried });
-    const bytes = writeRecord(record, [join(out, RELEASE_FILE), join(out, RELEASE_DIR, id, RELEASE_FILE), ...(workerRelease ? [workerRelease] : [])]);
-    return written.map((f) => (isRecord(f.path, id) ? { ...f, bytes } : f));
+    // The whole record for the Worker and at /release.js (asked for again each time); in the
+    // release's folder, kept for a year, only what the id decides (pageRecord).
+    const bytes = writeRecord(record, [join(out, RELEASE_FILE), ...(workerRelease ? [workerRelease] : [])]);
+    const pageBytes = writeRecord(pageRecord(record), [join(out, RELEASE_DIR, id, RELEASE_FILE)]);
+    return written.map((f) => (f.path === RELEASE_FILE ? { ...f, bytes } : isRecord(f.path, id) ? { ...f, bytes: pageBytes } : f));
   } finally {
     rmSync(tree, { recursive: true, force: true });
   }

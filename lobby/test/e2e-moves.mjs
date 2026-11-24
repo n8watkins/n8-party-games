@@ -483,8 +483,13 @@ try {
       // Each frame by itself: drawn while the move still had more than SHOWN ms to run (its legs
       // fold, its goo melts only at the very end), it must show it; drawn more than TAIL ms after
       // it ended, it must not; frames between are either. Not seen when no frame was either.
+      // The legs also take a moment to come out (the squat, then the rise: shared/robot.js,
+      // stiltPose), and a phone can be back that soon: a reload from the browser's own cache
+      // takes a tenth of a second. A frame drawn before they are out is either, too.
       const SHOWN = kind === "legs" ? 200 : 60;
-      const running = path.filter((f) => heardLeft !== null && leftAt(f[0]) > SHOWN);
+      const RISEN = kind === "legs" ? STILT_SQUAT_MS + 150 + 20 : 0;
+      const sinceStart = (t) => (kind === "legs" ? STILT_MS - leftAt(t) : Infinity);
+      const running = path.filter((f) => heardLeft !== null && leftAt(f[0]) > SHOWN && sinceStart(f[0]) >= RISEN);
       const over = path.filter((f) => leftAt(f[0]) < -TAIL);
       const wrong = [...running.filter((f) => !shows(f)), ...over.filter(shows)].map((f) => `${Math.round(f[0] - first.at)}ms`);
       const zones = `${running.length} frames while it ran, ${over.length} after it ended${wrong.length ? `; wrong at ${wrong.join(", ")}` : ""}`;

@@ -598,6 +598,14 @@ try {
     check(res.status === 404 && res.headers.get("cache-control") === "no-store" && !/text\/html/.test(res.headers.get("content-type") ?? "") && !/<html/i.test(body), `${path} is a 404, never kept, and no page (${res.status}, ${res.headers.get("cache-control")}, ${res.headers.get("content-type") ?? "no type"})`);
   }
   {
+    // The same for a browser going there (a frame whose game page is of a release no longer held):
+    // Workers has a fallback page for navigations on some sites; this one has none.
+    const tab = await returning["/"].newPage();
+    const res = await tab.goto(`${base}/r/0123456789ab/cork-and-bell/`).catch(() => null);
+    check(res?.status() === 404 && res.headers()["cache-control"] === "no-store", `a browser that goes to a page of a release that is not held gets the 404 too (${res?.status()}, ${res?.headers()["cache-control"]})`);
+    await tab.close();
+  }
+  {
     const moved = await fetch(`${base}/r/${second}/lobby/sounds/amb-cat.mp3`, { redirect: "manual" });
     check(moved.status === 301 && /^\/m\/[0-9a-f]{20}\.mp3$/.test(moved.headers.get("location") ?? "") && moved.headers.get("cache-control") === "public, max-age=31536000, immutable", `a media file in the folder is sent on to its hash, for good (${moved.status} ${moved.headers.get("location")}, ${moved.headers.get("cache-control")})`);
   }

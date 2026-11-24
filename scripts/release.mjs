@@ -1,9 +1,10 @@
 // The release record: which build of the site a page or a room is running.
 //
-// scripts/build-public.mjs writes it twice from one object, as `release.js` in the public folder
-// (pages import /release.js) and as dist/release.js, which the Worker imports by the name
-// "n8-party-games/release" (an alias in wrangler.jsonc). So a page and the room it talks to agree
-// on what a release is by construction, and /api/version answers with the same record.
+// scripts/build-public.mjs writes it from one object: as dist/release.js, which the Worker imports
+// by the name "n8-party-games/release" (an alias in wrangler.jsonc), the same at /release.js for
+// anyone who looks, and, cut down to its id and the site's version (pageRecord), as release.js in
+// the release's own folder, which the pages import. So a page and the room it talks to agree on
+// what a release is by construction, and /api/version answers with the whole record.
 //
 //   RELEASE = { id, site, commit, dirty, pushed, builtAt, games, carries }
 //
@@ -229,6 +230,24 @@ export function releaseRecord({ root, id, games, git = gitState(root), now = new
     games: gameVersions(games, pkg),
     carries: carries.map(({ id, commit }) => ({ id, commit })),
   };
+}
+
+/**
+ * The record the pages of a release import, from the release's own folder (/r/<id>/release.js):
+ * the id and the site's version. That address is kept by a browser for a year, so it may hold
+ * only what the id decides (the site's version is part of the id: planId in
+ * scripts/build-public.mjs). The commit, the time, the games and what a build carries can differ
+ * between two builds of one release (a server-only change, a deploy of the same code again, the
+ * same commit built again to be carried): those are in the Worker's record, which /api/version
+ * and /release.js answer with.
+ *
+ * One mark more, on a local build only: `dirty`, when git says the tree had changes, so the
+ * line on the page can say "(local changes)". A deploy is never dirty (releaseProblem), and a
+ * commit built again outside git to be carried (scripts/carried.mjs) has no commit to be dirty
+ * against, so everything a deploy serves from a release's folder is the same bytes every time.
+ */
+export function pageRecord({ id, site, dirty = false, commit = "unknown" }) {
+  return { id, site, ...(dirty && commit !== "unknown" && { dirty: true }) };
 }
 
 /** The record a release.js module's text holds, or null when it holds none. */

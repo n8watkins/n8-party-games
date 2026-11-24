@@ -11,7 +11,8 @@ Everything else is already in the repository.
 - The `workers.dev` address and version preview URLs are off (`"workers_dev": false`, `"preview_urls": false`), so every request goes through the zone.
 - The custom domain is a Workers custom domain: the deploy creates its DNS record and certificate, and nothing is set up by hand in DNS.
 - The `local` environment keeps the test switches for `npm run dev` and the playtests, has no custom domain (`"routes": []`), and is never deployed.
-- Only `dist/public` is served, rebuilt from an allowlist by `scripts/build-public.mjs` before every deploy, together with its `_headers` file (CSP and the other security headers).
+- Only `dist/public` is served, rebuilt from an allowlist by `scripts/build-public.mjs` before every deploy, together with its `_headers` file (CSP, the other security headers and the cache rules) and its `_redirects` file.
+  The build lays the site out in release folders, so a returning phone asks for almost nothing: see "Release folders and the browser's cache".
 - The games are separate repositories, installed as dependencies pinned in `package.json` and listed in `games.js`; `npm ci` must have run before a deploy. A game can also be deployed alone from its own repository, with its own checklist.
 - `npm run assets:list` prints every file that will be public.
 - The party room (`lobby/`) is a second room class, `LobbyRoom`, with its own API under `/api/lobby` and the same guards as the kit's. It counts all of its awake time against the same room budget.
@@ -27,7 +28,10 @@ Everything else is already in the repository.
    Its release record then says `dirty: true`.
    The variable only works for `wrangler dev`: a deploy refuses it outright.
 4. On that same server, confirm `/package.json`, `/wrangler.jsonc` and `/party-kit/README.md` answer 404.
-5. Run `npm run assets:list` and read the list once: it must hold only the front page (with `front.js`, the web app manifest `manifest.webmanifest` and its `icons/`), the party room's page (`lobby/`, with `lobby/shared/` and nothing from `lobby/server/` or `lobby/test/`), the kit's browser files, and the games' pages, scripts, styles, models, textures and fonts.
+5. Run `npm run assets:list` and read the list once.
+   At their own addresses it must hold only the pages (`index.html`, `lobby/index.html` and the others), the web app manifest `manifest.webmanifest` with its `icons/`, and `release.js`.
+   Under `r/<release id>/` it must hold only the front page's files (with `front.js`), the party room's (`lobby/`, with `lobby/shared/` and nothing from `lobby/server/` or `lobby/test/`), the kit's browser files, and the games' pages, scripts and styles.
+   Under `m/` are the pictures, sounds, models, textures, fonts and word lists, each named by a hash of its bytes.
 
 ## Deploying
 
@@ -39,13 +43,21 @@ Everything else is already in the repository.
    The deploy's own build (`WRANGLER_COMMAND` is `deploy`) refuses the same again, so the emergency `npx wrangler deploy --env=''` is held to it too.
    To roll back by deploying an older commit, check that commit out: it is on `origin/main`, so it passes.
    `npx wrangler deploy --dry-run --env=''` is an upload to Wrangler too, so it is refused the same way on a branch that is not on `origin/main` (or on a dirty tree); try a dry run from main, or build with `npm run build` instead.
+   The deploy's build also holds the files of the two releases that were live before it, for the pages still open on them ("Release folders and the browser's cache", "The releases a deploy carries").
+   It needs the network for that: it asks the live site what it is, then builds each of those releases again from its commit (a copy of the commit's files in a temporary folder, `npm ci` there, its own build; about ten seconds each).
+   `predeploy` asks the live site before the gate starts and says what will be carried; a deploy that cannot carry them stops and says why.
+   Only on the owner's word, `RELEASE_CARRY=none npm run deploy` deploys without them: the very first deploy of a new site needs it, and so does a deploy while the live site cannot be reached.
 
 ## Releases
 
-Every build writes a release record (`scripts/release.mjs`): `release.js` in the public folder, which the pages import, and `dist/release.js`, which the Worker imports as `n8-party-games/release` (an alias in `wrangler.jsonc`), so a page and the room agree on what a release is.
+Every build writes a release record (`scripts/release.mjs`): `dist/release.js`, which the Worker imports as `n8-party-games/release` (an alias in `wrangler.jsonc`), the same at `/release.js` for anyone who looks, and, cut down to its id and the site's version, `release.js` in the release's own folder (`/r/<id>/release.js`), which the pages import, so a page and the room agree on what a release is.
 
-- `id` is a 12-digit hash of every file in the built public folder (the `_headers` file with the CSP included), so rebuilding the same code keeps it and any change a browser could see makes a new one; `site` is the site's version from `package.json`; `commit`, `dirty` and `pushed` (the commit is on `origin/main`) say what it was built from; `builtAt` is when; `games` holds each game's own version.
-- `GET /api/version` answers with the record, never cached, in the shape of Who Am I?'s (`ok`, `name`, `version`, `commit`), plus `release`, `dirty`, `pushed`, `builtAt`, `games` and `worker` (the Worker version's id, tag and upload time, from the version metadata binding `CF_VERSION_METADATA`).
+- `id` is a 12-digit hash of every file of the built site as it is served (the `_headers` file with the CSP and the cache rules, and the `_redirects` file, included) and of the site's version, so rebuilding the same code keeps it and any change a browser could see makes a new one.
+  A version bump alone is therefore a new release too: the pages show the version.
+  It is also the name of the release's folder, which the pages name, so it is worked out from the site as built with a placeholder where the id goes; the releases a build carries and the local build's preview pages are not part of it.
+  The pages' own copy of the record holds only the id and the version, because its address is kept for a year: everything a deploy serves from a release's folder is the same bytes every time that release is built.
+  `site` is the site's version from `package.json`; `commit`, `dirty` and `pushed` (the commit is on `origin/main`) say what it was built from; `builtAt` is when; `games` holds each game's own version; `carries` lists the releases whose files the build also holds, newest first, each with its commit.
+- `GET /api/version` answers with the record, never cached, in the shape of Who Am I?'s (`ok`, `name`, `version`, `commit`), plus `release`, `dirty`, `pushed`, `builtAt`, `games`, `carries` and `worker` (the Worker version's id, tag and upload time, from the version metadata binding `CF_VERSION_METADATA`).
 - The front page shows "Version 0.1.0, build 797991e34665" under "Made in the open"; the Floor shows it at the foot of the room picker, and the Table under "Who is here".
 
 The site's version is set by release-kit (`RELEASING.md`): Conventional Commits, `npm run release`, a `vX.Y.Z` tag and a GitHub Release.
@@ -62,6 +74,62 @@ The games' versions:
 - release-kit moves only the site's version.
   A game kept in this repository has its version bumped in the pull request that changes it: a minor for a feature, a patch for a fix.
   A unit test refuses a manifest without one.
+
+## Release folders and the browser's cache
+
+A returning phone asks the server for the page and almost nothing else, and no open page is ever served another release's code.
+The build does it (`scripts/build-public.mjs`, with `party-kit/build/folders.mjs`); nothing is set up in Cloudflare by hand.
+
+- **The pages** (`/`, `/lobby/`, `/party/`, `/table/` and the others) stay at their own addresses and are sent with Workers' own `public, max-age=0, must-revalidate`: a browser asks for a page again every time, so a page is always the live release's.
+  Each page points only into its own release's folder.
+- **`/r/<release id>/...`** holds every file of the release that is not media: scripts, styles, small data, and a copy of each page (a game shown in the party room's frame loads its page from there).
+  An address in it never serves other bytes, so it is sent with `public, max-age=31536000, immutable`: kept for a year and never asked for again.
+- **`/m/<hash>.<ext>`** holds the media (pictures, sounds, models, textures, fonts, data files of 16 KiB and more), each named by a hash of its bytes and shared by every release that holds the same file.
+  The same header: a new release makes a phone load new code, and no picture or sound it already has.
+- **`_redirects`** sends `/r/<id>/<path of a media file>` on to its `/m/` address for good (301, kept for a year like the folder).
+  A script that builds an address beside itself (`new URL("./sounds/jump.mp3", import.meta.url)`) lands in its folder and is sent on, once per release, with no bytes moved.
+  Pages and stylesheets name media straight by its `/m/` address.
+- **What else stays at its own address**, asked for again each time: `manifest.webmanifest` and `icons/` (an installed site reads them there) and `/release.js` (`STABLE` in `scripts/build-public.mjs`).
+  Cork & Bell's own page (`/cork-and-bell/`) still names its baked set from the page, so those five addresses answer with a redirect that is never kept (`STABLE_MEDIA`); take the entry out once the game names them from `import.meta.url` (`party-kit/GAME-CONTRACT.md`, "Rules a game keeps").
+- **A file that is not there** is a 404 sent `no-store` by the Worker (`assetOr404` in `party-kit/src/worker/http.js`), never a page.
+  Workers would otherwise send a missing file under `/r/` with the folder's year, and a browser would keep the 404.
+- Nothing else is kept: the API answers `no-store` as before, and the socket is not a file.
+
+A page script must never name a file by its site path (`"/art/x.webp"`): that address is outside the folder.
+It names its own files from the module (`import.meta.url`), and a path the room sends (a game's view, its picture) through `siteUrl` (`site/site-path.js`).
+Imports by site path (`import "/party-kit/client/sounds.js"`) are fine: the build makes them relative.
+`site/test/addresses.test.js` fails on a script that does it wrong, and `npm run test:release` loads the pages and fails on any file asked for outside the folder and the media.
+
+### The releases a deploy carries
+
+A Worker version serves only its own files.
+A page still open on the release before keeps asking for that release's files (what it loads later: the 3D look, a game's view, a sound) until the "new version" switch reloads it at a safe point.
+So each deploy also holds the files of the two releases that were live before it (`scripts/carried.mjs`): their `/r/<id>/` folders, their media and their redirects.
+
+- Where they come from: the build asks the live site (`GET /api/version` names its release, its commit and the releases it carries), takes the first two that are not the release being built, and builds each again from its commit, in a temporary folder with that commit's own packages.
+  The id of what it built must be the id the live site gave, so the files carried are byte for byte the ones that were served; otherwise the deploy stops.
+  Nothing is stored anywhere and no secret is needed; a git tag is not needed either.
+- The record of the new release lists what it carries, so the next deploy finds the chain again the same way.
+- `predeploy` checks before the gate that the live site answers and that this clone has the commits; run `git fetch origin` if it says one is missing.
+- A local build, a dev server and the gate carry nothing and need no network.
+  `node scripts/build-public.mjs --carry=live --out=<a folder>` is a dress rehearsal of a deploy's build, from any tree.
+- A commit can be built again only while its own build still runs: `node scripts/build-public.mjs --out=DIR` must keep working, with no network, and keep giving the same id (the script's header says so).
+- Limits to watch (Cloudflare's, checked 2026-11-23): 2,000 static redirects and 100 header rules.
+  A release has one redirect for each media file (about 180 today), and a deploy holds three releases' worth; the build stops, saying so, before it would write more than 2,000.
+
+### The first deploy with release folders
+
+The release that is live before it has no folders: its open pages load their code and media by the old addresses (`/lobby/main.js`, `/party-kit/client/sounds.js`).
+The first deploy with folders carries that release in that form: every file of it but the pages, at its old address, exactly as it was served (built again from its commit, the id checked).
+An open page of the old release therefore keeps working until the switch reloads it into the new one, and a reload always gets the new page.
+The deploy after it still holds those files, and the one after that lets them go.
+`npm run test:release` plays this out (a flat build, then the first with folders).
+
+What to expect on that one deploy:
+
+- Every phone loads every file once more (the addresses are all new), then keeps them.
+- The check before the gate prints "This deploy will carry the releases before it: <id> (commit <commit>)", with the id the live `/api/version` shows.
+- After it, `/api/version` shows `carries` with that id.
 
 ## The seat's token and the logs
 
@@ -121,6 +189,8 @@ Make at most a handful of rooms when checking.
 11. Open `https://partygames.n8builds.dev/` and confirm the front page shows "Start a party" and "Join with a code"; then open the game on a laptop, make a room, and join it by PIN from a phone.
 12. Open `https://partygames.n8builds.dev/api/party/scores/cork-and-bell` and confirm it answers `{"ok":true,"top":[...]}`.
     Open `https://partygames.n8builds.dev/api/version` and confirm `commit` is the commit you deployed, `dirty` is `false` and `worker.id` is the version `npx wrangler deployments status --env=''` names; the line at the foot of the front page shows the same `release`.
+    Confirm `carries` names the release that was live before (and the one before that), unless the deploy was made with `RELEASE_CARRY=none`.
+    Then the cache, with the `release` id from that answer: `curl -sI https://partygames.n8builds.dev/lobby/` shows `cache-control: public, max-age=0, must-revalidate`; `curl -sI https://partygames.n8builds.dev/r/<release>/lobby/main.js` shows `200` and `cache-control: public, max-age=31536000, immutable`; `curl -sI https://partygames.n8builds.dev/r/<release>/lobby/sounds/jump.mp3` shows `301`, a `location` under `/m/` and the same `immutable` header; `curl -sI https://partygames.n8builds.dev/r/<release>/nope.js` shows `404` and `cache-control: no-store`; and `main.js` under the id in `carries` shows `200` (after the first deploy with folders, the carried release is the old site instead: `curl -sI https://partygames.n8builds.dev/lobby/main.js` shows `200`).
 
 ## Confirming that waiting rooms sleep
 
@@ -228,8 +298,15 @@ When the rollback is refused or is not enough, go forward: fix the problem in a 
   Check step 9 afterwards (`turnstileSiteKey`).
 - Plain settings in `wrangler.jsonc` (`PARTY_ROOM_BUDGET_SHARE` and the others) come back as the old version had them, which may be a different room allowance than today's.
   Read the old values with `npx wrangler versions view <VERSION_ID> --env=''` before rolling back if that matters.
-- Pages already open in browsers may ask for the newer version's static files for a while; Cloudflare's page "Version skew and static assets" covers this.
-  A reload fixes it.
+- A rollback serves exactly what that version was deployed with: its own release's folder, and the two releases it carried then.
+  So pages open on a release older than the bad one keep working if the version rolled back to carried it.
+  The bad release's own folder is not in it: a page still open on the bad release that asks for a file it had not loaded yet gets a 404 (never kept by the browser), until the "new version" switch reloads it at its next safe point into the release rolled back to.
+  A reload fixes it at once.
+  Cloudflare's page "Version skew and static assets" covers this.
+- The next deploy after a rollback carries the release rolled back to and what that one carried: the live site's `/api/version` is where it reads the chain.
+  It does not carry the bad release.
+- Rolling back to a version from before release folders puts the old site back whole: every file at its old address, asked for again each time, and none of the `/r/` folders.
+  Pages open on a release with folders then ask for addresses that are gone, until they reload.
 - The Workers Logs and the metrics keep running as before, so use them to confirm the old code is serving.
 
 ## Do not
@@ -243,6 +320,8 @@ When the rollback is refused or is not enough, go forward: fix the problem in a 
 
 - Custom domains: https://developers.cloudflare.com/workers/configuration/routing/custom-domains/
 - Static assets, `.assetsignore` and the 25 MiB file limit: https://developers.cloudflare.com/workers/static-assets/binding/ and https://developers.cloudflare.com/workers/platform/limits/
+- Release folders (checked 2026-11-23). Headers on static files, the default `Cache-Control`, one splat and placeholders in a rule, `!` to detach, 100 rules: https://developers.cloudflare.com/workers/static-assets/headers/ . Redirects, which win over a file at the same address and over the headers file's order, 2,000 static ones: https://developers.cloudflare.com/workers/static-assets/redirects/ . A version serves only its own files, a deploy takes a few seconds to reach every location, and a missing file goes to the Worker: https://developers.cloudflare.com/workers/versions-and-deployments/version-skew/ and https://developers.cloudflare.com/workers/static-assets/routing/worker-script/ . The file and rule limits: https://developers.cloudflare.com/workers/platform/limits/#static-assets
+  Not in the documentation, read from the code Workers serves static files with (the asset worker in `workers-sdk`, the same one `wrangler dev` runs) and checked by `npm run test:release`: a `_headers` rule is also sent with a redirect and with a missing file's 404 at a matching address.
 - Custom builds before dev and deploy: https://developers.cloudflare.com/workers/wrangler/configuration/#custom-builds
 - Environments and non-inheritable keys: https://developers.cloudflare.com/workers/wrangler/environments/
 - Durable Object duration billing and hibernation: https://developers.cloudflare.com/durable-objects/platform/pricing/ and https://developers.cloudflare.com/durable-objects/concepts/durable-object-lifecycle/

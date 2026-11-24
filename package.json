@@ -15,6 +15,7 @@
     "./kit/rng": "./party-kit/src/core/rng.js",
     "./kit/http": "./party-kit/src/worker/http.js",
     "./kit/build": "./party-kit/build/public.mjs",
+    "./kit/build/folders": "./party-kit/build/folders.mjs",
     "./kit/client/*": "./party-kit/client/*",
     "./package.json": "./package.json"
   },

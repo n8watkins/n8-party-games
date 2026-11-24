@@ -17,7 +17,7 @@ vi.mock("cloudflare:workers", () => ({
     }
   },
 }));
-import { ALLOW_DIRTY, ID_PLACEHOLDER, PREVIEW_DIR, RELEASE_FILE, RELEASE_ID, SEMVER, buildKind, flatReleaseId, gameVersions, gitState, releaseId, releaseModule, releaseProblem, releaseRecord, testBuildProblem } from "../../scripts/release.mjs";
+import { ALLOW_DIRTY, ID_PLACEHOLDER, PREVIEW_DIR, RELEASE_FILE, RELEASE_ID, SEMVER, buildKind, flatReleaseId, gameVersions, gitState, pageRecord, releaseId, releaseModule, releaseProblem, testBuildProblem } from "../../scripts/release.mjs";
 import { BUILD_FLAGS, SERVED, build, planId, readArgs } from "../../scripts/build-public.mjs";
 import { CARRIED_RELEASES } from "../../scripts/carried.mjs";
 import { GAMES, TURN_GAMES } from "../../games.js";
@@ -247,13 +247,27 @@ describe("the build's release record", () => {
   const record = recordIn(text);
   const pkg = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8"));
 
-  it("is in the release's folder for the pages, the same at /release.js, and written the same for the Worker", () => {
+  it("is at /release.js and written the same for the Worker; the pages' own, in the release's folder, holds its id and the site's version", () => {
     expect(SERVED).toContain(RELEASE_FILE);
     expect(built.map((f) => f.path)).toEqual(expect.arrayContaining([RELEASE_FILE, `r/${record.id}/${RELEASE_FILE}`]));
-    expect(readFileSync(join(OUT, "r", record.id, RELEASE_FILE), "utf8")).toBe(text);
     expect(readFileSync(WORKER, "utf8")).toBe(text);
+    const own = readFileSync(join(OUT, "r", record.id, RELEASE_FILE), "utf8");
+    expect(recordIn(own)).toEqual({ id: record.id, site: pkg.version });
+    expect(own).toBe(releaseModule(pageRecord(record)));
     // The list of what was built gives each copy its real size.
-    for (const f of built.filter((f) => f.path.endsWith(RELEASE_FILE))) expect(f.bytes).toBe(Buffer.byteLength(text));
+    expect(built.find((f) => f.path === RELEASE_FILE).bytes).toBe(Buffer.byteLength(text));
+    expect(built.find((f) => f.path === `r/${record.id}/${RELEASE_FILE}`).bytes).toBe(Buffer.byteLength(own));
+  });
+
+  it("gives the pages only what the id decides, so their copy is the same bytes whenever and from whatever commit it is built", () => {
+    expect(pageRecord({ ...record, commit: "ffffffffffff", pushed: false, builtAt: "2030-01-01T00:00:00.000Z", carries: [{ id: "aaaaaaaaaaaa", commit: "111111111111" }], games: {} })).toEqual(pageRecord(record));
+    expect(Object.keys(pageRecord(record))).toEqual(["id", "site"]);
+    // A local build of a tree with changes says so on the page; a deploy never is one, and a
+    // commit built again outside git (to be carried) has nothing to be dirty against.
+    expect(pageRecord({ ...record, dirty: true })).toEqual({ id: record.id, site: pkg.version, dirty: true });
+    expect(pageRecord({ ...record, dirty: true, commit: "unknown" })).toEqual({ id: record.id, site: pkg.version });
+    expect(releaseLine(pageRecord(record))).toBe(`Version ${pkg.version}, build ${record.id}`);
+    expect(releaseLine(pageRecord({ ...record, dirty: true }))).toBe(`Version ${pkg.version}, build ${record.id} (local changes)`);
   });
 
   it("holds an id, the site's version, the commit and the games, and carries nothing by itself", () => {
@@ -312,8 +326,17 @@ describe("the build's release record", () => {
     });
 
     it("is another release under a test build's salt", () => {
-      expect(planId(plan, "one")).not.toBe(id);
-      expect(planId(plan, "one")).toBe(planId(plan, "one"));
+      expect(planId(plan, { salt: "one" })).not.toBe(id);
+      expect(planId(plan, { salt: "one" })).toBe(planId(plan, { salt: "one" }));
+    });
+
+    it("changes with the site's version, which the pages show: a version bump alone is another release", () => {
+      const at010 = planId(plan, { site: "0.1.0" });
+      expect(at010).not.toBe(id);
+      expect(planId(plan, { site: "0.1.1" })).not.toBe(at010);
+      expect(planId(plan, { site: "0.1.0" })).toBe(at010);
+      // The version is not a file: no file of that name could stand in for it.
+      expect(planId({ ...plan, files: [...plan.files, { path: "site", data: Buffer.from("0.1.0") }] })).not.toBe(at010);
     });
   });
 
@@ -488,10 +511,13 @@ describe("a build that carries the releases before it", () => {
     const page = readFileSync(join(next.dir, "lobby", "index.html"), "utf8");
     expect(page).toContain(`/r/${next.id}/lobby/main.js`);
     expect(page).not.toContain(two.id);
-    // Its record in its folder, theirs in theirs.
+    // Its record in its folder, theirs in theirs, each the very bytes that release served.
     expect(recordIn(readFileSync(join(next.dir, "r", two.id, RELEASE_FILE), "utf8")).id).toBe(two.id);
-    expect(recordIn(readFileSync(join(next.dir, "r", next.id, RELEASE_FILE), "utf8"))).toEqual(next.record);
+    expect(readFileSync(join(next.dir, "r", two.id, RELEASE_FILE), "utf8")).toBe(readFileSync(join(two.dir, "r", two.id, RELEASE_FILE), "utf8"));
+    expect(recordIn(readFileSync(join(next.dir, "r", next.id, RELEASE_FILE), "utf8"))).toEqual({ id: next.id, site: next.record.site });
     expect(recordIn(readFileSync(join(next.dir, RELEASE_FILE), "utf8"))).toEqual(next.record);
+    // What it carries is not part of what its own folder holds: the same release, built alone, has the same folder.
+    expect(readFileSync(join(next.dir, "r", next.id, RELEASE_FILE), "utf8")).toBe(readFileSync(join(alone.dir, "r", alone.id, RELEASE_FILE), "utf8"));
   });
 
   it(`carries ${CARRIED_RELEASES} at most, never itself, and none twice`, () => {
