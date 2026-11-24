@@ -131,6 +131,8 @@ const browser = opt("win", "0") === "1" ? await openWindowsChrome({ width: 960, 
 // making its picture waits there behind the other pages' frames. Sharing it, Ada's reload on GitHub's runner was not
 // back 55 s later, at the end of the round; Tin Derby's reloading phone, profiled, spent most of its way back so.
 const adaBrowser = opt("win", "0") === "1" ? browser : await launchBrowser({ args: ["--use-angle=swiftshader", "--enable-unsafe-swiftshader"] });
+/** Browsers besides `browser`, closed with it. */
+const extraBrowsers = adaBrowser === browser ? [] : [adaBrowser];
 try {
   async function open(name, viewport, { via = browser, ...extra } = {}) {
     const context = await via.newContext({ viewport, deviceScaleFactor: 1, ...extra });
@@ -542,20 +544,24 @@ try {
   check(loneWatch.room.vote.lights["cork-and-bell"] === null, "Cork & Bell's light is on for a party of one");
   await walk(lone, loneWatch, 0, light());
   const loneStart = await loneUntil((v) => v.phase === "playing", 16000);
-  // A big screen that joins once that round has begun watches its one stall. It sets off a second after the
-  // count-in, beside what is checked on the phone meanwhile: the round alone ends once the bot has spent its corks
-  // (73 s into it, once), and on a loaded machine the phone's checks and stills, then the screen's own start, took
-  // that long one after another, so the screen came up to a round already over ("Frame was detached").
+  const loneFrame = await gameFrame(lone);
+  // A big screen that joins once that round has begun watches its one stall. It sets off as soon as the phone's game
+  // is up, beside what is checked on the phone meanwhile, and in a browser of its own (a screen is a device of its
+  // own): the round alone ends once the bot has spent its corks (73 s into it, once). On a loaded machine the
+  // phone's checks and stills, then the screen's own start, took that long one after another, so the screen came
+  // up to a round already over ("Frame was detached"); and a screen loading beside the phone in the phone's own
+  // browser came up only 87 s in, on GitHub's runner (their WebGL calls wait on that browser's one graphics process).
   let late = null;
-  const lateUp = sleep((COUNT_IN + 1) * 1000).then(async () => {
-    late = await open("late screen", { width: 960, height: 540 });
+  const lateBrowser = opt("win", "0") === "1" ? browser : await launchBrowser({ args: ["--use-angle=swiftshader", "--enable-unsafe-swiftshader"] });
+  extraBrowsers.push(lateBrowser);
+  const lateUp = (async () => {
+    late = await open("late screen", { width: 960, height: 540 }, { via: lateBrowser });
     await late.goto(base + "/lobby/?join=" + pinLone + "&look=flat&cork-quality=low");
     await late.click("text=Use this as the room's screen");
     await late.click("text=Show the room here");
     return gameFrame(late);
-  });
+  })();
   lateUp.catch(() => {}); // (awaited below; a failure is reported there)
-  const loneFrame = await gameFrame(lone);
   // Held now, while the frame is surely there: on a slow runner the late screen below can take
   // the rest of the round to join, and the frame is gone once the round ends.
   await holdContext(lone);
@@ -644,7 +650,7 @@ try {
   if (errors.length) console.log("     page errors: " + errors.slice(0, 6).join(" | "));
 } finally {
   await browser.close();
-  if (adaBrowser !== browser) await adaBrowser.close().catch(() => {});
+  for (const b of extraBrowsers) if (b !== browser) await b.close().catch(() => {});
 }
 console.log(problems.length ? `\n${problems.length} problem(s):\n- ` + problems.join("\n- ") : "\nAll good. Stills are in " + out);
 // Exit once everything printed has left: process.exit drops what is still queued for a pipe (the
