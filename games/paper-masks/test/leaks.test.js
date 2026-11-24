@@ -12,8 +12,8 @@ import { describe, expect, it } from "vitest";
 import { apply, create, hashSeed, MASKS, SYSTEM, TIMERS, view } from "../rules.js";
 import { QUESTION_BY_ID, QUESTIONS } from "../questions.js";
 import * as atTable from "../at-table.js";
-import { drawsFor } from "../../draws.js";
-import { tableGame } from "../../table-game.js";
+import { tableGame } from "n8-party-games/table";
+import { drawsFor } from "n8-party-games/table/draws";
 import { answerFor, createFor, must, Table, testSecret } from "./table.js";
 
 const seatsOf = (n) => Array.from({ length: n }, (_, i) => i);
@@ -150,7 +150,7 @@ describe("2. the last name is filled in on the last card only, for everyone at o
 });
 
 describe("3. card ids say nothing about the draws", () => {
-  /** The hex of draw n's whole digest, as party/games/draws.js makes it. */
+  /** The hex of draw n's whole digest, as the kit's draws (n8-party-games/table/draws) make it. */
   const drawHex = (secret, n) => createHash("sha256").update(`paper-masks/draw/${n}/${secret}`).digest("hex");
 
   it("no card id is, or is part of, any of the draws around writing closing", () => {

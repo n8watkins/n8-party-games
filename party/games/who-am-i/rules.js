@@ -24,7 +24,7 @@
 // table is idle, when a guesser may confirm their own guess, and whether a leave can be a forfeit.
 
 import { DIFFICULTIES, PACK_IDS, PACKS, drawPair, getIdentity, publicIdentity } from "./deck.js";
-import { drawsFor, freshSecret, isSecret } from "../draws.js";
+import { drawsFor, freshSecret, isSecret } from "n8-party-games/table/draws";
 
 const draw = drawsFor("who-am-i");
 

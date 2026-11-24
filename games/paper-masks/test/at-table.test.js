@@ -1,12 +1,12 @@
 // Paper Masks as the Table runs it (at-table.js): the waiting step with the host's choices, the
 // match itself (the rules, untouched), and the curtain with the final standings. Played through
-// the Table's own adapter (party/games/table-game.js), as the room plays it.
+// the Table's own adapter (the kit's, n8-party-games/table), as the room plays it.
+import { tableGame } from "n8-party-games/table";
 import { describe, expect, it } from "vitest";
 import * as atTable from "../at-table.js";
 import { CURTAIN_MS, PACKS_FOR_PAGE, SETUP_MS, SYSTEM, apply, create, done, nextDeadline, result, standings, view } from "../at-table.js";
 import { isRefusal } from "../rules.js";
 import { QUESTIONS } from "../questions.js";
-import { tableGame } from "../../table-game.js";
 
 const T0 = 5_000_000;
 const must = (x) => {

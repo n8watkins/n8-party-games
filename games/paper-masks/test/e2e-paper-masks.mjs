@@ -1,6 +1,6 @@
 // End to end, in real pages (headless and muted): Paper Masks at the Table.
 //
-//   node party/games/paper-masks/test/e2e-paper-masks.mjs [--base=http://localhost:8791] [--out=<folder for stills>] [--only=1,2,3] [--together=1]
+//   node games/paper-masks/test/e2e-paper-masks.mjs [--base=http://localhost:8791] [--out=<folder for stills>] [--only=1,2,3] [--together=1]
 //
 // Three whole matches through real browsers, with the big screen watching:
 //   1. three players (Ann, Bo, Cy): the game writes a fourth answer ("The game" chip); then the
@@ -35,8 +35,8 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { launchBrowser } from "../../../../lobby/test/browser.mjs";
-import { still as takeStill } from "../../../../party-kit/test/stills.mjs";
+import { launchBrowser } from "n8-party-games/testing/browser";
+import { still as takeStill } from "n8-party-games/testing/stills";
 import { QUESTIONS } from "../questions.js";
 import { tidyAnswer } from "../text.js";
 

@@ -1,7 +1,7 @@
 // A test table: drives Paper Masks the way the phones and the room would, using only each seat's
 // view to decide what to tap. Not a test file itself (no ".test.js").
 import { apply, create, isRefusal, SYSTEM, view } from "../rules.js";
-import { sha256 } from "../../draws.js";
+import { sha256 } from "n8-party-games/table/draws";
 
 export const T0 = 1_000_000;
 const LETTERS = "abcdefghijklmnop";

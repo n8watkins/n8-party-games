@@ -4,7 +4,7 @@
 // Everything here is a pure function of plain JSON: no browser or platform APIs, no clock, no
 // hidden randomness. Every draw (the masks, the deck, the ghost's answer, the order of the cards)
 // comes from the match's secret (`state.secret`, at least 128 bits the Table's adapter takes from
-// the platform's secure source) through party/games/draws.js, at a position kept in the state
+// the platform's secure source) through the kit's draws (party-kit/src/table/draws.js), at a position kept in the state
 // (`state.draws`); card ids are keyed hashes of the same secret under a label of their own. The
 // room's `seed` is not used: it is 32 bits, and what one phone sees of a deal is enough to find it
 // by trying them all. The state is server only: a page gets `view(state, seat)` and nothing else.
@@ -19,7 +19,7 @@
 
 import { QUESTION_BY_ID, QUESTIONS, PACKS } from "./questions.js";
 import { ANSWER_MAX, matchKey, tidyAnswer } from "./text.js";
-import { drawsFor, freshSecret, isSecret, keyedHex } from "../draws.js";
+import { drawsFor, freshSecret, isSecret, keyedHex } from "n8-party-games/table/draws";
 
 const draw = drawsFor("paper-masks");
 
@@ -110,7 +110,7 @@ export function hashSeed(value) {
   return h >>> 0;
 }
 
-/** The next draw from the match's secret (party/games/draws.js), in [0, 1). */
+/** The next draw from the match's secret (n8-party-games/table/draws), in [0, 1). */
 function rand(state) {
   const n = state.draws;
   state.draws += 1;

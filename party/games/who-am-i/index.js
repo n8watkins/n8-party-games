@@ -4,7 +4,7 @@
 //
 // Server only: nothing in party/games is ever copied to the site (scripts/build-public.mjs).
 import * as rules from "./rules.js";
-import { tableGame } from "../table-game.js";
+import { tableGame } from "n8-party-games/table";
 
 export const { TIMERS, DEFAULT_OPTIONS, CHOICES } = rules;
 

@@ -5,7 +5,11 @@ Everyone answers a prompt about themselves or the group in secret, the reader re
 
 The rules are in `PAPER-MASKS-RULES.md` (ops repo); that file is authoritative.
 Where this module departs from it, the departure is listed under "Departures from the rules" below.
-This folder is server only: the pure rules and content, the Table's wrapper (`at-table.js`, `index.js`) and the tests; the page is in `party/public/games/` (see "At the Table").
+This folder is the whole game, a package of the hub's (`games/*`, an npm workspace): the pure rules and content, the Table's wrapper (`at-table.js`, `index.js`), the tests, and the page in `public/` (see "At the Table").
+Everything but `public/` is server only: the site's build copies only the files the manifest lists, and refuses anything else here (`scripts/build-public.mjs`, `SERVER_ONLY`).
+The page is served at `/party/games/paper-masks.js`, beside the Table's own pages.
+
+The game reaches the hub only through its package name (`n8-party-games`, a development dependency): the Table's adapter and the draws (`n8-party-games/table`, `n8-party-games/table/draws`), and in the browser test the hub's test helpers (`n8-party-games/testing/*`).
 
 | File | What it is |
 | --- | --- |
@@ -197,7 +201,7 @@ They are written to read the same to American and British players.
 The match itself is the rules exactly; every move in it is theirs.
 `test/at-table.test.js` covers both steps through the Table's adapter.
 
-The page is `party/public/games/paper-masks.js` and `.css`, with the owner's paintings in `party/public/games/paper-masks/art/` (made by `tools/make-art.mjs`, which snaps and cleans the alpha, resizes in premultiplied form and bleeds the edge colour, so no fringe shows) and two self-hosted OFL fonts.
+The page is `public/paper-masks.js` and `.css`, with the owner's paintings in `public/paper-masks/art/` (made by `tools/make-art.mjs`, which snaps and cleans the alpha, resizes in premultiplied form and bleeds the edge colour, so no fringe shows) and two self-hosted OFL fonts.
 It renders everything typed as text only, sends the author's decoy tap only on a real tap, shows the tap count as anonymous dots, marks nothing as the reader's own in the list, keeps a half-typed answer on the device only while writing is open (and sweeps any other Paper Masks draft away), and stores nothing about an author's tap.
 On a wide stage (a sideways phone, the big screen) a column taller than the stage is measured and made to fit (`fitColumns`): it goes snug first (the "Fooled" lines in two columns), and on the big screen, which cannot scroll, it then steps down in size, all of a piece, from 95% to 60%.
 A column that fits is left at full size.
@@ -207,7 +211,7 @@ Its last rounds at three and at eight players are played with fixed guesses, and
 
 ## For the Table that hosts it
 
-- **The secret must be secret.** Pass a fresh secret of at least 128 bits from a secure source as `create`'s fifth argument, `{ secret }` (the Table's adapter, `party/games/table-game.js`, passes 256); a shorter one is refused (`bad_secret`). The room's seed is not used. Keep the state server side; send only `view`.
+- **The secret must be secret.** Pass a fresh secret of at least 128 bits from a secure source as `create`'s fifth argument, `{ secret }` (the Table's adapter, `party-kit/src/table/table-game.js`, passes 256); a shorter one is refused (`bad_secret`). The room's seed is not used. Keep the state server side; send only `view`.
 - **A decided match scores.** `at-table.js` exports `decided(state)`, true while the curtain is up; through the adapter the room then ends the match as finished, scored once, even when the host taps the Table's own End the game. The page also tells the Table (`ctx.decided`) so that button steps aside at the curtain.
 - **Map the kit's hooks:** `create({ seats, now, settings })` calls `create(seats, settings, seed, now, { secret })`; `input(state, seat, data, now)` calls `apply` and returns `{ ok: false, error: refused, message }` on a refusal; `nextDeadline` as is; `tick(state, now)` applies `{ t: "tick" }` as `SYSTEM`; `snapshot(state, now, viewer)` is `view(state, viewer.seat)` for a player and `view(state, -1)` for a screen; `isOver` is `done`; `standings` as is. The state is plain JSON, so no `serialize` is needed.
 - **Leaving.** The kit ends a turn-based game when a seat is gone for good (`abandon`). Paper Masks is meant to go on: the Table should apply `{ t: "leave", seat }` instead and let the match continue (it ends by itself below 3 players).
@@ -215,3 +219,14 @@ Its last rounds at three and at eight players are played with fixed guesses, and
 - **The host** of the game is the room's picker; send `{ t: "host", seat }` when it moves.
 - **Server logs** must never print an answer next to its author (rule 17): log refusals by code, not the state.
 - **Seats.** The Table seats up to 8, the same as this module's 3 to 8; `test/scoring.test.js` plays a full 8-seat match and scores an 8-seat round by hand.
+
+## Running things
+
+The version is in this folder's `package.json`: bump it in the pull request that changes the game (a feat a minor, a fix a patch; `DEPLOY.md`, "Releases").
+
+```sh
+npx vitest run games/paper-masks                                   # the unit tests
+npm run test:paper-masks -- --base=http://localhost:8791           # the gate's step: three whole matches in real browsers
+npm run test:paper-masks:full -- --base=http://localhost:8791      # one party plays the three matches one after another
+node games/paper-masks/tools/make-art.mjs <paintings folder>       # the pictures again, from the owner's paintings
+```

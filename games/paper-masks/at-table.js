@@ -1,5 +1,5 @@
 // Paper Masks as the Table runs it: the rules (rules.js) with a step before the match and a step
-// after it, both in the same pure shape (party/games/table-game.js).
+// after it, both in the same pure shape (the kit's Table adapter, n8-party-games/table).
 //
 //   setup    the waiting step: the seats are dealt in, and the host picks the rounds (3, 5, 7 or
 //            everyone reads once), the pack, family-safe prompts and call mode; Begin starts the
@@ -25,7 +25,7 @@
 // so the room scores it (once) even when the host ends the game from the Table's own controls.
 import * as rules from "./rules.js";
 import { PACKS } from "./questions.js";
-import { freshSecret, isSecret } from "../draws.js";
+import { freshSecret, isSecret } from "n8-party-games/table/draws";
 
 export const { GAME_ID, MIN_PLAYERS, MAX_PLAYERS, SYSTEM, ROUND_CHOICES, DEFAULT_ROUNDS, PACK_CHOICES, isRefusal } = rules;
 

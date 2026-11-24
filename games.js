@@ -7,9 +7,9 @@
 // repository, a package by its own name), import it here by its package name, and add it to the
 // list. The build and the Worker read this list.
 import * as corkAndBell from "cork-and-bell";
-// Tin Derby is a folder of this repository (games/tin-derby), a workspace package.
+// Tin Derby and Paper Masks are folders of this repository (games/<id>), workspace packages.
+import * as paperMasks from "paper-masks";
 import * as tinDerby from "tin-derby";
-import * as paperMasks from "./party/games/paper-masks/index.js";
 import * as whoAmI from "./party/games/who-am-i/index.js";
 
 export const GAMES = [corkAndBell, tinDerby];
@@ -27,7 +27,9 @@ export const SCORE_BOARDS = Object.fromEntries(
 // The games played at the Table (the party's plain waiting room, /party/): turn-based games
 // (`tickHz: 0`) that keep the same contract, plus `manifest.table.view`, the module under the
 // game's public path that shows it at the Table. lobby/wall.js (buildTurnWall) hangs them on the
-// Table's list with the coming-soon entries. A Table game may be a package, or live in this
-// repository (party/games/<id>/index.js, with its view in party/public/games and `public: []`,
-// as Paper Masks and Who Am I? do): import its index.js here either way.
+// Table's list with the coming-soon entries. A Table game is a package (Paper Masks: games/<id>,
+// its view in its own public/ folder, listed in its manifest's `public` and served under /party/),
+// or lives in this repository without one (party/games/<id>/index.js, with its view in
+// party/public/games and `public: []`, as Who Am I? does): import it here either way. Everything
+// in a Table game's package but its public files is server only (scripts/build-public.mjs).
 export const TURN_GAMES = [paperMasks, whoAmI];

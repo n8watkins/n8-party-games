@@ -9,7 +9,7 @@ import { from } from "../../../../lobby/test/turn-game.js";
 import { TEST_WALL, buildTurnWall } from "../../../../lobby/wall.js";
 import { PLAY_BEAT_MS } from "../../../../lobby/shared/table.js";
 import { TURN_GRACE_MS } from "../../../../lobby/server/lobby-core.js";
-import { tableGame } from "../../table-game.js";
+import { tableGame } from "n8-party-games/table";
 import * as rules from "../rules.js";
 import { game, manifest } from "../index.js";
 import { getIdentity } from "../deck.js";

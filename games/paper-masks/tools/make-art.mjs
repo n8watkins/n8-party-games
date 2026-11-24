@@ -1,10 +1,11 @@
 // Makes the Paper Masks pictures the Table's page shows, from the owner's paintings.
 //
-//   node party/games/paper-masks/tools/make-art.mjs <paintings folder>
+//   node games/paper-masks/tools/make-art.mjs <paintings folder>
 //
 // The folder holds his PNGs (pm-masks-sheet-b.png, pm-mask-blank.png, pm-mask-back.png,
 // pm-reveal-flourish.png, pm-table.png, pm-table-wide.png, pm-door.png). The WebP files land in
-// party/public/games/paper-masks/art/, which the site serves; this script stays on the server side.
+// public/paper-masks/art/ in this game's folder, which the site serves at
+// /party/games/paper-masks/art/; this script stays on the server side.
 //
 // The cut-outs are transparent PNGs whose fully transparent pixels still carry colour (a dark
 // ground and a glow). Resizing them as they are drags that hidden colour into the edges, which
@@ -25,8 +26,8 @@ import { fileURLToPath } from "node:url";
 
 const SRC = process.argv[2];
 if (!SRC) throw new Error("usage: make-art.mjs <paintings folder>");
-const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../../../..");
-const OUT = join(ROOT, "party", "public", "games", "paper-masks", "art");
+const GAME = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const OUT = join(GAME, "public", "paper-masks", "art");
 mkdirSync(OUT, { recursive: true });
 
 const NAMES = ["fox", "moon", "sun", "owl", "butterfly", "jester", "plume", "leaf"];

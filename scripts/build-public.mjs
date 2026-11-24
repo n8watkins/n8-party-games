@@ -36,7 +36,7 @@
 // (scripts/carried.mjs). Every build writes the release record (scripts/release.mjs):
 // dist/release.js for the Worker, the same at /release.js, and the pages' part of it (the id and
 // the site's version) as release.js in the release's folder.
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { dirname, join, relative, resolve, sep } from "node:path";
@@ -70,23 +70,53 @@ const require = createRequire(import.meta.url);
  * One game's public files: from its package's folder to its path on the site.
  *
  * A Table game may live in this repository instead of a package of its own (party/games/<id>,
- * as Count to ten does and Paper Masks will): its rules are server-only and its view is one of
- * the party's own pages (party/public/games), already served with them, so it lists no public
- * files and has no package to look up. One that lists public files must be a package: they are
- * copied from the package's folder, never from party/games.
+ * as Count to ten does): its rules are server-only and its view is one of the party's own pages
+ * (party/public/games), already served with them, so it lists no public files and has no package
+ * to look up. One that lists public files must be a package (a dependency, or one of this
+ * repository's games/ folders, each an npm workspace): they are copied from the package's
+ * folder, never from party/games.
  */
 export function gameEntries({ manifest }) {
   const files = manifest.public ?? [];
   if (!files.length) return [];
-  let pkg;
-  try {
-    pkg = require.resolve(`${manifest.id}/package.json`);
-  } catch {
-    throw new Error(`build-public: ${manifest.id} lists public files but is not a package (add it to devDependencies, or keep its view in party/public/games and list none)`);
-  }
-  const from = dirname(pkg);
+  const from = packageFolder(manifest.id);
+  if (!from) throw new Error(`build-public: ${manifest.id} lists public files but is not a package (add it to devDependencies or games/, or keep its view in party/public/games and list none)`);
   const under = manifest.path.replace(/^\/|\/$/g, "");
   return files.map((file) => ({ from: join(from, file.from), to: `${under}/${file.to}` }));
+}
+
+/** The folder of the package named `id` (its real folder: a workspace's is in games/), or null. */
+function packageFolder(id) {
+  try {
+    return dirname(realpathSync(require.resolve(`${id}/package.json`)));
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * A Table game's server-only parts, when it is a package: everything in its folder but what its
+ * manifest lists as public (the view and what the view loads). A Table game's rules hold what no
+ * page may see (Paper Masks' deck and ghost answers), so its folder is server code apart from
+ * those files, like party/games.
+ */
+export function tableServerParts({ manifest }) {
+  const folder = packageFolder(manifest.id);
+  if (!folder) return [];
+  const shown = (manifest.public ?? []).map((file) => resolve(folder, file.from));
+  const keep = (path) => shown.some((p) => p === path || p.startsWith(path + sep));
+  const parts = [];
+  const walk = (dir) => {
+    for (const name of readdirSync(dir)) {
+      const path = join(dir, name);
+      if (shown.includes(path)) continue;
+      // A folder that holds a public file is walked into; anything else is server only whole.
+      if (keep(path)) walk(path);
+      else parts.push(path);
+    }
+  };
+  walk(folder);
+  return parts;
 }
 
 /**
@@ -180,10 +210,11 @@ const entries = entriesFor(PREVIEW);
 
 /**
  * Folders that hold server code and server-only data, never sent to a page: the room's own code,
- * and the Table games' rules (party/games: Paper Masks' questions.js holds its ghost answers). The
- * build refuses to copy anything from inside them, or any folder that holds one of them.
+ * and the Table games' rules (party/games, and each Table game package's folder but its public
+ * files: Paper Masks' questions.js holds its ghost answers). The build refuses to copy anything
+ * from inside them, or any folder that holds one of them.
  */
-export const SERVER_ONLY = [join(ROOT, "lobby", "server"), join(ROOT, "party", "games"), join(ROOT, "worker.js"), join(ROOT, "games.js")];
+export const SERVER_ONLY = [join(ROOT, "lobby", "server"), join(ROOT, "party", "games"), join(ROOT, "worker.js"), join(ROOT, "games.js"), ...TURN_GAMES.flatMap(tableServerParts)];
 const inside = (path, folder) => path === folder || path.startsWith(folder + sep);
 for (const { from } of entries) {
   const bad = SERVER_ONLY.find((folder) => inside(resolve(from), folder) || inside(folder, resolve(from)));

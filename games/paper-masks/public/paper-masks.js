@@ -1,5 +1,5 @@
 // Paper Masks at the Table: the page every player, watcher and the big screen sees while it is
-// played. The rules live on the server (party/games/paper-masks); this page only ever gets one
+// played. The rules live on the server (games/paper-masks); this page only ever gets one
 // seat's view of them and sends that seat's taps. The shape every Table game's view keeps
 // (party-kit/GAME-CONTRACT.md, "In the browser"): mount(container, ctx) returns {snapshot,
 // events, unmount}, plus room(next) for the room view as it changes (names of late joiners).

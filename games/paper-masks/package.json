@@ -1,0 +1,28 @@
+{
+  "name": "paper-masks",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Paper Masks: everyone answers a prompt in secret, the table guesses who wrote which, then the masks come off. A game at the Table.",
+  "license": "MIT",
+  "exports": {
+    ".": "./index.js",
+    "./rules": "./rules.js",
+    "./at-table": "./at-table.js",
+    "./questions": "./questions.js",
+    "./text": "./text.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "index.js",
+    "at-table.js",
+    "rules.js",
+    "questions.js",
+    "text.js",
+    "public",
+    "README.md"
+  ],
+  "devDependencies": {
+    "n8-party-games": "file:../.."
+  }
+}

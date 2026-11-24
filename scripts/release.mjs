@@ -27,8 +27,8 @@
 // - `games`: each hosted game's own version: a game that is a package (Cork & Bell, pinned in
 //   package.json, or one of this repository's games/ folders, each a workspace package) by its
 //   package.json, with the git ref it is pinned at when it is a git dependency; a game kept in
-//   this repository without a package of its own (Paper Masks, Who Am I? at the Table) by
-//   `version` in its manifest.
+//   this repository without a package of its own (Who Am I? at the Table) by `version` in its
+//   manifest.
 //   The Floor, the Table and Hot Potato are the site's own and share `site`.
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";

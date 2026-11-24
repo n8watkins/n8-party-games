@@ -14,7 +14,7 @@ import { PLAY_BEAT_MS } from "../shared/table.js";
 import { TURN_GRACE_MS } from "../server/lobby-core.js";
 import * as rules from "../../party/games/who-am-i/rules.js";
 import { game as whoAmI } from "../../party/games/who-am-i/index.js";
-import { game as paperMasks } from "../../party/games/paper-masks/index.js";
+import { game as paperMasks } from "paper-masks";
 import { game as countToTen } from "../../party/games/count-to-ten/index.js";
 
 vi.mock("cloudflare:workers", () => ({

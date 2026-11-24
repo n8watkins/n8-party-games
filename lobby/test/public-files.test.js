@@ -1,17 +1,18 @@
 // Server code and server-only data never reach a page: the build of public files
 // (scripts/build-public.mjs) copies only the folders it names, refuses any inside a server-only
 // one, and no file it copies imports one. Paper Masks' questions.js (its ghost answers) lives in
-// party/games, with every Table game's rules.
+// its package (games/paper-masks), server only but for its public/ folder; the other Table games'
+// rules live in party/games.
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { dirname, join, relative, resolve, sep } from "node:path";
+import * as paperMasks from "paper-masks";
+import { QUESTIONS } from "paper-masks/questions";
+import * as paperMasksRules from "paper-masks/rules";
 import { describe, expect, it } from "vitest";
-import { SERVED, SERVER_ONLY, SOURCES, gameEntries } from "../../scripts/build-public.mjs";
+import { SERVED, SERVER_ONLY, SOURCES, gameEntries, tableServerParts } from "../../scripts/build-public.mjs";
 import { GAMES, TURN_GAMES } from "../../games.js";
 import { TEST_WALL, WALL, buildTurnWall } from "../wall.js";
 import * as countToTen from "../../party/games/count-to-ten/index.js";
-import * as paperMasks from "../../party/games/paper-masks/index.js";
-import * as paperMasksRules from "../../party/games/paper-masks/rules.js";
-import { QUESTIONS } from "../../party/games/paper-masks/questions.js";
 import { IDENTITIES } from "../../party/games/who-am-i/deck.js";
 
 const ROOT = resolve(import.meta.dirname, "..", "..");
@@ -44,6 +45,8 @@ describe("what the site serves", () => {
     }
     expect(SERVED).toContain("party");
     expect(SERVED.some((to) => to.startsWith("party/games") && !to.startsWith("party/games/"))).toBe(false);
+    // Nothing copied names the source folder of a Table game's rules either.
+    expect(SOURCES.some((from) => resolve(from) === resolve(ROOT, "games", "paper-masks"))).toBe(false);
   });
 
   it("has no served file that imports server code, or names a Table game's rules or questions", () => {
@@ -53,8 +56,10 @@ describe("what the site serves", () => {
       if (!/\.(m?js|html|json)$/.test(file)) continue;
       const text = readFileSync(file, "utf8");
       // An import of server code by its path in the repository (served pages import by site
-      // address; /party/games/... on the site is party/public/games, the views).
+      // address; /party/games/... on the site is party/public/games and the Table games' public/
+      // folders, the views), or of a Table game's package or the kit's Table code by name.
       if (/(?:\bfrom|\bimport)\s*\(?\s*["'][^"']*(?:\.\.\/party\/games\/|lobby\/server\/|questions\.js|\/wall\.js|\.\.\/games\.js)/.test(text)) bad.push(relative(ROOT, file));
+      if (/(?:\bfrom|\bimport)\s*\(?\s*["'](?:n8-party-games\/table|paper-masks(?:["']|\/))/.test(text)) bad.push(`${relative(ROOT, file)} imports server code by package name`);
       // A relative import, however many ../ it takes, resolved against the file's own folder.
       for (const spec of importsOf(text)) {
         if (!spec.startsWith("./") && !spec.startsWith("../")) continue;
@@ -69,8 +74,8 @@ describe("what the site serves", () => {
   it("holds none of Paper Masks' deck: no prompt and no ghost answer is in any served file, the game's own page included", () => {
     const local = SOURCES.filter((from) => inside(resolve(from), ROOT) && !resolve(from).includes(`${sep}node_modules${sep}`));
     const served = local.flatMap(files).filter((file) => /\.(m?js|html|json|css|txt|md|svg|webmanifest)$/.test(file));
-    // The page itself is among them (party/public/games/paper-masks.js and its folder).
-    expect(served.map((f) => relative(ROOT, f))).toEqual(expect.arrayContaining(["party/public/games/paper-masks.js", "party/public/games/paper-masks.css"]));
+    // The page itself is among them (games/paper-masks/public/paper-masks.js and its folder).
+    expect(served.map((f) => relative(ROOT, f))).toEqual(expect.arrayContaining(["games/paper-masks/public/paper-masks.js", "games/paper-masks/public/paper-masks.css"]));
     const secrets = QUESTIONS.flatMap((q) => [q.text, ...q.ghosts]);
     expect(secrets.length).toBeGreaterThan(200);
     const found = [];
@@ -104,22 +109,31 @@ describe("what the site serves", () => {
 describe("a Table game that lives in this repository (party/games/<id>)", () => {
   it("needs no package of its own: its view is one of the party's pages, so the build copies nothing for it", () => {
     expect(gameEntries(countToTen)).toEqual([]);
-  });
-
-  it("takes Paper Masks from party/games/paper-masks as it is listed: no package, server-only rules, on the Table's list", () => {
-    expect(TURN_GAMES).toContain(paperMasks);
-    expect(paperMasks.manifest).toMatchObject({ id: "paper-masks", path: "/party/", public: [], table: { view: "games/paper-masks.js" }, players: { min: paperMasksRules.MIN_PLAYERS, max: paperMasksRules.MAX_PLAYERS } });
-    expect(gameEntries(paperMasks)).toEqual([]);
-    for (const file of ["rules.js", "questions.js", "at-table.js", "index.js", "text.js"]) expect(SERVER_ONLY.some((f) => inside(resolve(ROOT, "party", "games", "paper-masks", file), f)), file).toBe(true);
-    const turn = buildTurnWall([paperMasks]);
-    expect(turn.table.filter((e) => e.id === "paper-masks")).toEqual([expect.objectContaining({ soon: false, view: "/party/games/paper-masks.js" })]);
-    expect(turn.games.get("paper-masks").tickHz).toBe(0);
-    expect(WALL.table.find((e) => e.id === "paper-masks")).toMatchObject({ soon: false, test: false });
+    expect(tableServerParts(countToTen)).toEqual([]);
   });
 
   it("is refused, with what to do, when it lists public files without being a package", () => {
     const listed = { manifest: { id: "not-a-package", path: "/party/", public: [{ from: "x.js", to: "x.js" }] } };
     expect(() => gameEntries(listed)).toThrow(/not-a-package lists public files but is not a package/);
+  });
+});
+
+describe("a Table game that is a package of this repository (games/<id>)", () => {
+  it("takes Paper Masks from games/paper-masks: its view from public/ at the same addresses, every other file server only, on the Table's list", () => {
+    expect(TURN_GAMES).toContain(paperMasks);
+    expect(paperMasks.manifest).toMatchObject({ id: "paper-masks", path: "/party/", table: { view: "games/paper-masks.js" }, players: { min: paperMasksRules.MIN_PLAYERS, max: paperMasksRules.MAX_PLAYERS } });
+    const folder = resolve(ROOT, "games", "paper-masks");
+    expect(gameEntries(paperMasks)).toEqual([
+      { from: join(folder, "public", "paper-masks.js"), to: "party/games/paper-masks.js" },
+      { from: join(folder, "public", "paper-masks.css"), to: "party/games/paper-masks.css" },
+      { from: join(folder, "public", "paper-masks"), to: "party/games/paper-masks" },
+    ]);
+    for (const file of ["rules.js", "questions.js", "at-table.js", "index.js", "text.js", "test", "tools", "package.json"]) expect(SERVER_ONLY.some((f) => inside(join(folder, file), f)), file).toBe(true);
+    for (const file of ["public/paper-masks.js", "public/paper-masks.css", "public/paper-masks/art/door-480.webp"]) expect(SERVER_ONLY.some((f) => inside(join(folder, file), f)), file).toBe(false);
+    const turn = buildTurnWall([paperMasks]);
+    expect(turn.table.filter((e) => e.id === "paper-masks")).toEqual([expect.objectContaining({ soon: false, view: "/party/games/paper-masks.js" })]);
+    expect(turn.games.get("paper-masks").tickHz).toBe(0);
+    expect(WALL.table.find((e) => e.id === "paper-masks")).toMatchObject({ soon: false, test: false });
   });
 
   it("still copies a packaged game's public files from its package", () => {
@@ -131,7 +145,9 @@ describe("a Table game that lives in this repository (party/games/<id>)", () => 
   it("has every Table game's view served from a file that exists", () => {
     for (const entry of TEST_WALL.table.filter((e) => e.view)) {
       const site = entry.view.replace(/^\//, "");
-      const i = SERVED.findIndex((to) => site === to || site.startsWith(to + "/"));
+      // The most particular entry that serves it (a Table game's own file, beside the party's folder).
+      const under = SERVED.map((to, i) => (site === to || site.startsWith(to + "/") ? i : -1)).filter((i) => i > -1);
+      const i = under.sort((a, b) => SERVED[b].length - SERVED[a].length)[0] ?? -1;
       expect(i, entry.view).toBeGreaterThan(-1);
       const file = join(SOURCES[i], site.slice(SERVED[i].length));
       expect(statSync(file).isFile(), file).toBe(true);
