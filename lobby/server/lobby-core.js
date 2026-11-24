@@ -1700,8 +1700,12 @@ export class LobbyCore {
     const stealThen = this.stealable(o, m, strikeAt);
     // Down, just up or being pulled when the tip got there: it passes over it, as over a jump.
     const passed = isSafe(o, strikeAt) && !fadedThen && !stealThen;
-    // A piece still in the air is where its pull has it, not where it will land.
-    const ox = stealThen ? pullAt(o.pull, now) : posAt(o, now);
+    // A piece still in the air is where its pull has it, not where it will land. One that has
+    // landed and walked on since (`walked`: LobbyCore.move; the room judges up to HOOK_LATE_MS
+    // after the tip got there, or later) is taken all the same, as what it was doing then decides,
+    // but from where its walk put it: on its feet, where it stands, like any piece on the floor.
+    const onChain = stealThen && !o.pull.walked;
+    const ox = onChain ? pullAt(o.pull, now) : posAt(o, now);
     const robotX = posAt(m, now);
     const side = Math.sign(ox - robotX) || hook.dir;
     const base = { t: "hk", s: m.seat, to: o.seat, hx: Math.round(ox) };
@@ -1764,7 +1768,8 @@ export class LobbyCore {
     }
     // Where the piece last stood: for one in the air on another robot's chain, where that pull took
     // it from (or, stolen before, where the first pull did), so only that light counts as its own.
-    const home = stealThen ? (o.pull.home ?? o.pull.from) : undefined;
+    // One that has walked on since it landed last stood where it is.
+    const home = onChain ? (o.pull.home ?? o.pull.from) : undefined;
     if (tug) {
       tug.hook = null;
       // Where it is, unless that is in the air over a light it never stood in (slideLanding).

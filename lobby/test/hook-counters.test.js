@@ -570,6 +570,31 @@ describe("steal: a robot hooks a piece another robot is pulling (the later hook 
     expect(againOpen.core.hookTargets(robOpen, againOpen.now).map((o) => o.seat)).toContain(1);
   });
 
+  it("judged after the piece landed and walked on, takes it from where its walk put it, not from where the pull landed it", () => {
+    // Ada's tip reaches Bo in the last moments of Rob's pull, and the room judges it HOOK_LATE_MS
+    // later: Bo has landed by then, and his page has walked him on toward Ada.
+    const core = setup(250);
+    const bo = core.members[1];
+    const robs = run(core, 2000, 2500).find((m) => m.s === 0);
+    expect(robs).toMatchObject({ o: "pull", to: 1 });
+    const landed = bo.pull.to;
+    const walkAt = bo.pull.at + PULL_MS + 5;
+    expect(run(core, 2505, walkAt).filter((m) => m.t === "hk")).toEqual([]);
+    expect(core.move(1, { x: landed, d: 1, r: bo.rev }, walkAt)).toMatchObject({ relay: { t: "m", s: 1, d: 1 }, fix: null });
+    const adas = run(core, walkAt + 5, 3000).find((m) => m.s === 2);
+    // Still a steal: the tip reached him in the air, whatever he did once he was down.
+    expect(adas).toMatchObject({ o: "pull", to: 1, st: 0 });
+    expect(adas.at).toBeGreaterThan(walkAt + 20);
+    // Taken from where he had walked to (the walk is not undone), and dragged on to Ada from there.
+    // That is where he last stood too (`home`): not where Rob's pull took him from.
+    const walkedTo = posAt({ x: landed, d: 1, t: walkAt, character: "pawn" }, adas.at);
+    expect(walkedTo).toBeGreaterThan(landed + 8);
+    expect(adas.hx).toBe(Math.round(walkedTo));
+    expect(bo.pull).toMatchObject({ by: 2, from: walkedTo, home: walkedTo, countered: true });
+    expect(bo.x).toBeGreaterThan(core.members[2].x - HOOK_HOLD - 2);
+    expect(core.members[0].pulled).toBeNull();
+  });
+
   it("lets a piece that has arrived be: a hook that reaches it after its pull passes over it", () => {
     const core = setup(420);
     const out = run(core, 2000, 3200);
