@@ -298,6 +298,9 @@ try {
   // another, with the game 55 s in coming up, the round ended before the run reached the big screen's count.)
   await Promise.all([["Ada", ada], ["Cy", cy], ["screen", screen]].map(async ([name, page]) => (frames[name] = await gameFrame(page))));
   const loadedIn = Date.now() - startedAt;
+  // How long Ada's game page took to load and be ready (ms since its own navigation began): about what her reload in
+  // the middle will take, which the round must leave time for (below).
+  const adaLoadMs = await frames.Ada.evaluate(() => performance.now());
   // A browser that draws WebGL in software (Playwright's own, in WSL) has pages that run many
   // seconds behind the room. What needs a page to keep up with the round is left
   // out there, and said so; everything the room decides is checked either way.
@@ -404,8 +407,14 @@ try {
   // counted her corks, while the big screen is waited for (below) beside it. (Begun only after the big screen had
   // counted them, it came back 84 s into the 90 s round on GitHub's runner: that wait and the reload, each some 25 s
   // there, one after the other.)
+  // Only where the round leaves time for it: twice what her page took to load the first time, and 20 s more to fire
+  // again. (On GitHub's runner a reload took 34 to 37 s; begun 55 s into the round it came back after time was called.)
+  // Where it does not, the reload is left out, and said so, as it is where the game is slow to come up at all.
   let reloading = null, scoreBefore = 0, reloadAt = 0;
-  if (!slow) {
+  const roundLeft = ROUND_SECONDS - ((Date.now() - startedAt) / 1000 - COUNT_IN);
+  const reloadFits = !slow && roundLeft > (2 * adaLoadMs) / 1000 + 20;
+  if (!slow && !reloadFits) console.log(`     (the reload in the middle is left out: ${roundLeft.toFixed(0)} s of the round were left, and Ada's game took ${(adaLoadMs / 1000).toFixed(0)} s to load the first time)`);
+  if (reloadFits) {
     scoreBefore = (await summary(frames.screen)).stalls[0].score;
     reloadAt = Date.now();
     reloading = (async () => {
@@ -431,7 +440,7 @@ try {
   const midGame = await inner(start.room.code);
   check(midGame.timer === true && midGame.view.phase === "playing", "while the round is on the room runs its one timer");
 
-  if (!slow) {
+  if (reloadFits) {
     const back = await reloading;
     // In the middle: after the round's start and before its time is called. (How far into the round the reloaded page
     // is up is the machine's doing: on four threads drawing in software, one came back 82 s in, and could fire again.)
@@ -440,10 +449,11 @@ try {
     await ada.mouse.click(420, 170);
     await frames.Ada.waitForFunction((n) => window.__cab.session.sims[0].shots > n, back.shots, { timeout: 30000 }).catch(() => {});
     check((await fired()) > back.shots, "and it can fire again");
-    startAlone();
     await holdContext(ada);
-
-    // Stills, once the reloaded page's lamps are lit.
+  }
+  if (!slow) {
+    startAlone();
+    // Stills, once Ada's page's lamps are lit.
     await frames.Ada.waitForFunction(() => document.getElementById("loading").classList.contains("gone"), null, { timeout: 30000 });
     await sleep(1200);
     await shot(ada, "52-phone-cork-and-bell-battle");
