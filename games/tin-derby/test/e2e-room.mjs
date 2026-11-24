@@ -508,7 +508,10 @@ try {
     const ownBrowser = () => launchBrowser({ args: ["--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--autoplay-policy=no-user-gesture-required"] });
     const [boB, scrB] = await Promise.all([ownBrowser(), ownBrowser()]);
     const phoneBrowsers = [boB, scrB], adaB = browser, stallB = browser;
-    const scr = await screenPage("screen", undefined, scrB);
+    // The big screen at 960 x 540, as Cork & Bell's run has it: four panes drawn in software at 1280 x 720 came to
+    // under one frame a second on some of GitHub's runners (5 looks at the panes in a race), and its pages' every
+    // check is by its own height. (The full suite's `panes` race has the 1920 x 1080 screen.)
+    const scr = await screenPage("screen", { width: 960, height: 540 }, scrB);
     const pin = await startParty(scr);
     const flat = await launchBrowser({ software: true, args: ["--disable-webgl", "--disable-3d-apis"] });
     const relay = stallingRelay(new URL(base));
