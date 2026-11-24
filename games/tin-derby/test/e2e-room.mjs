@@ -43,6 +43,7 @@ import { boxCentre } from "@n8games/lobby/world";
 import { launchBrowser } from "@n8games/lobby/testing/browser";
 import { partyApi, sleep } from "@n8games/lobby/testing/client";
 import { still as takeStill } from "@n8games/lobby/testing/stills";
+import { rules } from "../shared/rules.js";
 
 const args = process.argv.slice(2);
 const opt = (k, d) => (args.find((a) => a.startsWith("--" + k + "=")) ?? "--" + k + "=" + d).split("=").slice(1).join("=");
@@ -96,20 +97,27 @@ function stallingRelay(target) {
  * its drawing: polls of five pages took up to 7 s each there, so the run looked at the race a few times and missed
  * its end. Each frame the page draws, after the game's own step, it sends its look (and the panes, where asked) when
  * a car came home, went to the house or back, or the race ended, and otherwise every 200 ms of its own time; the run
- * keeps the latest per frame (`probes`). A page that draws nothing sends nothing, and the checks say how old the word
- * they judge is. window.__derbyLook is the same look, for a question put to the page directly.
+ * keeps the latest per frame (`probes`). A page drawing nothing for half a second (on the runner the big screen once
+ * drew nothing for the last 7 s of a race) sends, four times a second, its copy of the room's word instead (the
+ * replica's `auth`, the race as the room has told it, which the page keeps from the room's messages whether it draws
+ * or not; `from: "word"`). The checks say how old the word they judge is. window.__derbyLook is the same look, for a
+ * question put to the page directly.
  */
 function PROBE({ panes }) {
   const d = window.__derby;
   if (panes) window.__derbyProbePanes = true;
-  window.__derbyLook = () => {
-    const r = d.race;
+  window.__derbyLook = (from = "view") => {
+    const r = from === "word" ? d.app.replica.auth : d.race;
     const order = d.rules.raceOrder(r).filter((c) => !c.house).map((c) => ({ seat: c.seat, fin: c.fin, finT: c.finT, s: c.s }));
-    return { t: r.t, n: r.n, over: r.over, laps: d.rules.lapsOf(r), car: d.car, order, cars: r.cars.map((c) => ({ seat: c.seat, house: c.house, auto: c.auto, character: c.character, name: c.name, fin: c.fin })), stats: JSON.parse(JSON.stringify(d.stats)), mode: document.getElementById("app").dataset.mode, pad: !!d.app?.pad };
+    return { from, t: r.t, n: r.n, over: r.over, laps: d.rules.lapsOf(r), car: d.car, order, cars: r.cars.map((c) => ({ seat: c.seat, house: c.house, auto: c.auto, character: c.character, name: c.name, fin: c.fin })), stats: JSON.parse(JSON.stringify(d.stats)), mode: document.getElementById("app").dataset.mode, pad: !!d.app?.pad };
   };
   if (window.__derbyProbe) return;
   window.__derbyProbe = true;
   let key = "", at = -Infinity;
+  setInterval(() => {
+    if (performance.now() - at < 500 || !d.app?.replica?.auth || typeof window.__derbySaw !== "function") return;
+    try { window.__derbySaw(window.__derbyLook("word")); } catch { /* the race is not there yet */ }
+  }, 250);
   const beat = () => {
     requestAnimationFrame(beat);
     const r = d.race;
@@ -338,7 +346,7 @@ try {
       // car home at a look long before the end, the comparison would prove nothing).
       const ago = endAt - (seenAt.get(p) ?? 0), near = l.over || home.length > 0 || ago < 3000;
       const settled = near && (l.over || home.length === roomSeats.length ? seen === roomOrder : home.every((s, k) => roomSeats[k] === s) && !end.result.slice(0, home.length).some((r) => typeof r.time !== "number"));
-      check(settled, `${label}, ${p.name}: the page's finishing order (${seen}; home ${home.join() || "none"}; ${l.over ? "seen at the end" : `last seen ${(ago / 1000).toFixed(1)} s before it`}) is the room's (${roomOrder})`);
+      check(settled, `${label}, ${p.name}: the page's finishing order (${seen}; home ${home.join() || "none"}; ${l.over ? "seen at the end" : `last seen ${(ago / 1000).toFixed(1)} s before it`}${l.from === "word" ? ", in its copy of the room's word: it was drawing nothing then" : ""}) is the room's (${roomOrder})`);
       check(l.stats.diverged === 0, `${label}, ${p.name}: its copy of the race matched the room's at every snapshot it could check (${l.stats.compared} checked, ${l.stats.diverged} differed, ${l.stats.gaps} gaps, ${l.stats.restarts} restarts, ${l.stats.full} full snapshots)`);
     }
     // Every page that showed the race, a big screen that joined late included.
@@ -550,7 +558,11 @@ try {
           if (!s.includes('"ev"') && !s.includes('"snap"')) continue;
           let m = null;
           try { m = JSON.parse(s); } catch { /* not one message */ }
-          if (m?.t === "snap" && typeof m.s?.startAt === "number" && typeof m.s.delay === "number") { roomWord.startAt = m.s.startAt; roomWord.delay = m.s.delay; }
+          if (m?.t === "snap" && typeof m.s?.startAt === "number" && typeof m.s.delay === "number" && Array.isArray(m.s.cars)) {
+            roomWord.startAt = m.s.startAt; roomWord.delay = m.s.delay; roomWord.over = !!m.s.over;
+            const nameAt = rules.CAR_KEYS.indexOf("name");
+            roomWord.names = m.s.cars.map((c) => c[nameAt]);
+          }
           if (m?.t !== "ev") continue;
           for (const e of m.ev ?? []) if (e.k === "a") { roomWord.on.set(e.c, e.on); roomWord.onAt.set(e.c, raceT(e.n)); roomWord.count.set(e.c, (roomWord.count.get(e.c) ?? 0) + 1); }
         }
@@ -562,10 +574,12 @@ try {
         while ((at.reload === null || at.freeze === null) && !raced) {
           await sleep(100);
           // The cars' names, from any word of the big screen's (they do not change).
-          const said = maps.frames && probes.get(maps.frames.get(scr)), now = hearRoom();
-          if (!said || now === null) continue;
-          const r = said.rec;
-          if (r.over) return;
+          // The big screen's latest word, for its panes only: the troubles do not wait on it (on the runner its first
+          // word once came 20 s into the race).
+          const now = hearRoom(), r = (maps.frames && probes.get(maps.frames.get(scr))?.rec) || null;
+          if (now === null || !roomWord.names) continue;
+          if (roomWord.over) return;
+          const carOf = (_, name) => roomWord.names.indexOf(name);
           // (A phone heard from in the count-in drives from GO with no hand-over at all; one not yet heard is handed
           // to the house at GO, at the room's first look.)
           const own = (name) => roomWord.on.get(carOf(r, name)) !== 1;
@@ -584,7 +598,7 @@ try {
           // phone is back. (A fixed 5 s away, then 3 s, left the reload too late on GitHub's runner: the house drove
           // his car home before the reloaded page was up, and a car over the line is not handed back.)
           const boCar = carOf(r, "Bo"), boHouseAt = roomWord.on.get(boCar) === 1 && at.drop !== null && roomWord.onAt.get(boCar) >= at.drop - 0.5 ? roomWord.onAt.get(boCar) : null;
-          if (at.drop !== null && at.back === null && at.houseNote === null && boHouseAt !== null && r.P && r.cars[boCar]?.auto) at.houseNote = r.P.panes.find((p) => p.name === "Bo")?.note ?? "";
+          if (at.drop !== null && at.back === null && at.houseNote === null && boHouseAt !== null && r?.P && r.cars[boCar]?.auto) at.houseNote = r.P.panes.find((p) => p.name === "Bo")?.note ?? "";
           if (at.drop !== null && at.back === null && at.houseNote !== null && now > at.drop + 2) { at.back = now; await bo.context().setOffline(false); }
           if (at.freeze === null && now > 5 && own("Stall")) { at.freeze = now; relay.freeze(4000); }
           // He reloads once the room has given his car back after the drop, and once his switch has landed (at.pad says
