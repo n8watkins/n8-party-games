@@ -291,8 +291,6 @@ try {
   const frames = {};
   for (const [name, page] of [["Ada", ada], ["Cy", cy], ["screen", screen]]) frames[name] = await gameFrame(page);
   const loadedIn = Date.now() - startedAt;
-  const diag = (what) => console.log(`     DIAG ${what} at ${((Date.now() - startedAt) / 1000).toFixed(1)} s after the start`);
-  diag("frames up");
   // A browser that draws WebGL in software (Playwright's own, in WSL) has pages that run many
   // seconds behind the room. What needs a page to keep up with the round is left
   // out there, and said so; everything the room decides is checked either way.
@@ -345,7 +343,6 @@ try {
     await frames.Ada.waitForFunction((n) => window.__cab.session.sims[0].shots > n, had, { timeout: 30000 }).catch(() => {});
   }
   const shots = await fired();
-  diag("clicks done");
   // Each click sends one cork, which the room relays ({k: "f", seat: 0}, at about the page's
   // stamp: the room holds a stamp to within half a second of its clock). Ada's stall can show more
   // only when her socket dropped for a moment (a loaded machine): the room's stand-in plays a
@@ -396,9 +393,7 @@ try {
     for (let i = 0; i < 25 && latest() !== shots; i++) await sleep(200);
     return latest();
   };
-  diag("relay matched");
   const counted = await roomShots();
-  diag("room counted");
   await frames.screen.waitForFunction((n) => window.__cab.session.sims[0].shots === n, counted, { timeout: 30000 }).catch(() => {});
   const onScreen = (await summary(frames.screen)).stalls;
   if (counted !== shots || onScreen[0].shots !== counted) {
@@ -412,27 +407,23 @@ try {
   }
   check(counted > 0 && onScreen[0].shots === counted && onScreen[2].shots > 0 && onScreen[1].shots === 0, `the room relays it: the big screen has counted ${onScreen[0].shots} of Ada's corks (the room ${counted}), ${onScreen[2].shots} of Cy's bot's and none of Bea's, who never fired`);
 
-  diag("screen counted");
   const midGame = await inner(start.room.code);
   check(midGame.timer === true && midGame.view.phase === "playing", "while the round is on the room runs its one timer");
 
   if (!slow) {
     // Ada's phone reloads in the middle of the round, as a phone that dozed off would.
     const scoreBefore = (await summary(frames.screen)).stalls[0].score;
-    diag("reload");
+    const reloadAt = Date.now();
     await ada.reload();
-    diag("reloaded");
     frames.Ada = await gameFrame(ada);
-    diag("reloaded game up");
     const back = await frames.Ada.evaluate(() => ({ mine: window.__cab.session.mySeat, t: window.__cab.session.time(), score: window.__cab.session.sims[0].score, shots: window.__cab.session.sims[0].shots }));
     // In the middle: after the round's start and before its time is called. (How far into the round the reloaded page
-    // is up is the machine's doing: drawn in software beside four other pages, one took 60 s.)
-    check(back.mine === 0 && back.t > 3 && back.t < ROUND_SECONDS && back.score >= scoreBefore && back.shots >= counted, `a reload in the middle comes back to the same stall, ${Math.round(back.t)} seconds in, with its ${back.shots} corks and ${back.score} points`);
+    // is up is the machine's doing: on four threads drawing in software, one came back 82 s in, and could fire again.)
+    check(back.mine === 0 && back.t > 3 && back.t < ROUND_SECONDS && back.score >= scoreBefore && back.shots >= counted, `a reload in the middle comes back to the same stall, ${Math.round(back.t)} seconds in (${((Date.now() - reloadAt) / 1000).toFixed(0)} s after the reload), with its ${back.shots} corks and ${back.score} points`);
     await frames.Ada.waitForFunction(() => window.__cab.session.canFire(), null, { timeout: 30000 });
     await ada.mouse.click(420, 170);
     await frames.Ada.waitForFunction((n) => window.__cab.session.sims[0].shots > n, back.shots, { timeout: 30000 }).catch(() => {});
     check((await fired()) > back.shots, "and it can fire again");
-    diag("fired again");
     startAlone();
     await holdContext(ada);
 
@@ -551,23 +542,20 @@ try {
   check(loneWatch.room.vote.lights["cork-and-bell"] === null, "Cork & Bell's light is on for a party of one");
   await walk(lone, loneWatch, 0, light());
   const loneStart = await loneUntil((v) => v.phase === "playing", 16000);
-  const loneAt = Date.now(), ldiag = (what) => console.log(`     DIAG alone: ${what} at ${((Date.now() - loneAt) / 1000).toFixed(1)} s after its start`);
   // A big screen that joins once that round has begun watches its one stall. It sets off a second after the
   // count-in, beside what is checked on the phone meanwhile: the round alone ends once the bot has spent its corks
   // (73 s into it, once), and on a loaded machine the phone's checks and stills, then the screen's own start, took
-  // that long one after another, so the screen came up to a round already over.
+  // that long one after another, so the screen came up to a round already over ("Frame was detached").
   let late = null;
   const lateUp = sleep((COUNT_IN + 1) * 1000).then(async () => {
     late = await open("late screen", { width: 960, height: 540 });
     await late.goto(base + "/lobby/?join=" + pinLone + "&look=flat&cork-quality=low");
     await late.click("text=Use this as the room's screen");
     await late.click("text=Show the room here");
-    ldiag("late screen joined");
     return gameFrame(late);
   });
   lateUp.catch(() => {}); // (awaited below; a failure is reported there)
   const loneFrame = await gameFrame(lone);
-  ldiag("game up");
   // Held now, while the frame is surely there: on a slow runner the late screen below can take
   // the rest of the round to join, and the frame is gone once the round ends.
   await holdContext(lone);
@@ -576,7 +564,6 @@ try {
   check(loneSees.mine === 0 && loneSees.stalls === 1 && loneSees.rivals, "the party of one has a stall to itself, with no rivals to pick");
   if (!slow) await shot(lone, "54-phone-cork-and-bell-alone");
   const lateFrame = await lateUp;
-  ldiag("late screen's game up");
   const lateSees = await lateFrame.evaluate(() => ({ mine: window.__cab.session.mySeat, stalls: window.__cab.views.length, t: window.__cab.session.time(), tally: !document.getElementById("tally").hidden }));
   check(lateSees.mine === -1 && lateSees.stalls === 1 && lateSees.t > -3.5 && lateSees.tally, `a big screen that joins once the round has begun is shown that stall and its score (${lateSees.t < 0 ? "in the count-in" : Math.round(lateSees.t) + " seconds in"})`);
   if (!slow) await shot(late, "59-screen-cork-and-bell-alone");
