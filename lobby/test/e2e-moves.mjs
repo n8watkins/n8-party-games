@@ -50,6 +50,8 @@ const check = (ok, what) => {
  * checked from its messages in every run, frames or not.
  */
 const UNSEEN_SHARE = 0.25;
+/** How long walkTo's turning tap is held, on the page's own clock: past its send gap (60 ms), so the turn reaches the room. */
+const TAP_MS = 75;
 const drawnChecks = { all: 0, unseen: [], byCheck: new Map() };
 /** Which check this is, the same in each look and attempt: its words before the details, numbers left out. */
 const checkId = (what) => what.split(" (")[0].replace(/^(flat|3d|3D): /, "").replace(/-?\d+(\.\d+)?/g, "#");
@@ -359,9 +361,11 @@ try {
       // again when the tap carried it off: on a busy page the tap's key-up can come late, and a pawn
       // (the fastest piece) once walked on 100 units, past the slime it was set to kick ("Pat's kick
       // bounces off ... Pat 1019, Sam 989"). It ends within `near` of x either way.
+      // The tap is held for exactly TAP_MS by the page's own clock (see below), so it takes the same
+      // step every time; it is still tried again from the step it really took, within the same 45 s.
       let tapStep = face ? 30 : 0;
       let gap = 0;
-      for (let turns = 0; turns < 3; turns++) {
+      for (let turns = 0; turns < 6 && Date.now() < giveUp; turns++) {
         const aim = x - face * tapStep;
         gap = aim - (await where())[s].x;
         for (let walks = 0; walks < 16 && Math.abs(gap) >= near && Date.now() < giveUp; ) {
@@ -376,11 +380,22 @@ try {
         }
         if (!face || Math.abs(gap) >= near) break;
         // A tap the other way first would walk it off: a tap toward `face` turns it there, a step at most.
-        // Held past the page's send gap (60 ms), so the turn reaches the room.
+        // Held past the page's send gap (60 ms), so the turn reaches the room. Pressed and let go
+        // inside one task of the page, TAP_MS apart on its clock: the piece walks by the page's
+        // clock between the two, and two key events sent from here could be read a long render
+        // apart on a starved 3D page, a step of any length (on GitHub's runner a pawn's taps ran
+        // on into the slime it stood before: "walked to 920 and turned (it is -59 short)").
         const before = (await where())[s].x;
-        await page.keyboard.down(face > 0 ? "ArrowRight" : "ArrowLeft");
-        await sleep(75);
-        await page.keyboard.up(face > 0 ? "ArrowRight" : "ArrowLeft");
+        await page.evaluate(
+          ([k, ms]) => {
+            const key = (type) => document.body.dispatchEvent(new KeyboardEvent(type, { key: k, code: k, bubbles: true }));
+            key("keydown");
+            const until = performance.now() + ms;
+            while (performance.now() < until);
+            key("keyup");
+          },
+          [face > 0 ? "ArrowRight" : "ArrowLeft", TAP_MS],
+        );
         await sleep(250);
         const turned = (await where())[s].x;
         gap = x - turned;
@@ -406,11 +421,20 @@ try {
      * A page that arrived in the middle (a reload) has heard no move, kick or hook: it has only that word.
      */
     const facesOn = async (page) => {
-      const standing = (await where()).filter((m) => m?.connected && m.d === 0);
+      // The whole party seated first: a reloaded phone takes its seat again when its socket has
+      // said hello, which on a slow machine can come after it first draws. Judged without it, the
+      // reloaded player's own piece would be left out of "every standing piece".
+      let members = await where();
+      for (let i = 0; i < 100 && members.filter((m) => m?.connected).length < 4; i++) {
+        await sleep(200);
+        members = await where();
+      }
+      const away = members.filter((m) => m && !m.connected).map((m) => m.name);
+      const standing = members.filter((m) => m?.connected && m.d === 0);
       const drawnFaces = await page.evaluate((seats) => seats.map((s) => globalThis.__partyRoom?.view?.pieces?.get(s)?.face ?? null), standing.map((m) => m.seat));
       const room = Object.fromEntries(standing.map((m) => [m.seat, m.f === -1 ? -1 : 1]));
-      const story = standing.map((m, i) => `${m.name}: drawn ${drawnFaces[i]}, the room ${room[m.seat]}`).join("; ");
-      return { ok: standing.length > 0 && standing.every((m, i) => drawnFaces[i] === room[m.seat]), room, story };
+      const story = standing.map((m, i) => `${m.name}: drawn ${drawnFaces[i]}, the room ${room[m.seat]}`).join("; ") + (away.length ? `; not seated after 20 s: ${away.join(", ")}` : "");
+      return { ok: !away.length && standing.length > 0 && standing.every((m, i) => drawnFaces[i] === room[m.seat]), room, story };
     };
     /**
      * Waits until a seat's move is ready again and it is up and safe no more, by the room's word,
@@ -587,20 +611,37 @@ try {
     const missed = threw === null ? null : (heardNow.find((h) => h.t === "hk" && h.s === R && h.at > threw && h.o === "miss")?.at ?? null);
     const outFrames = threw === null || missed === null ? [] : pathNow.filter(([t]) => t > threw + HOOK_AIM_MS + 100 && t < missed);
     seen(threw === null || missed === null ? false : outFrames.length === 0 ? null : outFrames.every((f) => f[4]), `Sam's phone draws the chain out while the hook flies on past Pat (${outFrames.length} frames in the flight, ${outFrames.filter((f) => f[4]).length} with the chain)`);
-    await rested(R, P);
-    // Pat out of a kick's reach of Rob (130), well within his hook's.
-    await walkTo(pat, P, 960, -1);
-    await walkTo(rob, R, 700, 1);
-    await sleep(300);
-    const before = (await where())[P].x;
-    mark = ada.seen.length;
     // Pat's phone kicks 100 ms after it hears Rob throw, timed by the page: the hook reaches Pat
     // about 290 ms after the throw, and a kick from 260 ms before to 100 ms after bats it away.
-    await pat.evaluate((s) => (window.__kickOnHook = { of: s, after: 100 }), R);
-    await rob.keyboard.press("KeyX");
-    const parried = await after((m) => m.t === "hk" && m.s === R, 3000, mark);
-    const kicked = ada.seen.slice(mark).find((m) => m.t === "b" && m.s === P);
-    check(parried?.o === "parry" && parried.to === P, `Pat kicks toward Rob as it arrives: batted away (${JSON.stringify(parried && { o: parried.o, to: parried.to })}; Pat's kick ${JSON.stringify(kicked && { to: kicked.to, f: kicked.f })})`);
+    // A starved page (3D on GitHub's runner) can hear the throw or run its timer so late that the
+    // room has its verdict before any kick from Pat: that kick was never made in time, and the
+    // setup is tried again (three times at most). A kick the room heard in time must bat it away.
+    const kickTries = [];
+    let parried = null;
+    let kicked = null;
+    let before = 0;
+    for (let tries = 0; tries < 3; tries++) {
+      await rested(R, P);
+      // Pat out of a kick's reach of Rob (130), well within his hook's.
+      await walkTo(pat, P, 960, -1);
+      await walkTo(rob, R, 700, 1);
+      await sleep(300);
+      before = (await where())[P].x;
+      mark = ada.seen.length;
+      await pat.evaluate((s) => (window.__kickOnHook = { of: s, after: 100 }), R);
+      await rob.keyboard.press("KeyX");
+      parried = await after((m) => m.t === "hk" && m.s === R, 3000, mark);
+      const heard = ada.seen.slice(mark);
+      const verdictAt = heard.indexOf(parried);
+      const kickAt = heard.findIndex((m) => m.t === "b" && m.s === P);
+      kicked = kickAt >= 0 ? heard[kickAt] : null;
+      const inTime = !!parried && kickAt >= 0 && kickAt < verdictAt;
+      kickTries.push(`${parried?.o ?? "no verdict"}${inTime ? "" : ", with no kick from Pat before it"}`);
+      if (inTime || !parried) break;
+      // Late: let the kick that may still come land, so the next try starts from rest.
+      await sleep(1500);
+    }
+    check(parried?.o === "parry" && parried.to === P, `Pat kicks toward Rob as it arrives: batted away (${JSON.stringify(parried && { o: parried.o, to: parried.to })}; Pat's kick ${JSON.stringify(kicked && { to: kicked.to, f: kicked.f })}; tries: ${kickTries.join("; ")})`);
     check(Math.abs((await where())[P].x - before) < 2, "and Pat stays where he was");
 
     section(`${look}: the hook train, and the hook back (a bonk)`);
@@ -972,7 +1013,27 @@ try {
         }),
     );
     at = await settled(S, P);
-    const turned = await pat.evaluate((p) => globalThis.__partyRoom?.view?.pieces?.get(p)?.face ?? null, P);
+    // Which way the page draws Pat: read right after its next frame, inside it (__afterDraw). The
+    // view takes the page's own facing for its own piece only when it draws a frame, and the room's
+    // echo of the walk (facing left) can land after the last one: a 3D page on a slow machine can
+    // go a few hundred milliseconds without a frame, and nothing is shown in between. The bound is
+    // the one for a starved page drawing again (SWAP_DRAWS_MS below: 2 frames in 15.7 s under load).
+    const turned = await pat.evaluate(
+      ([p, ms]) =>
+        new Promise((done) => {
+          const read = () => {
+            window.__afterDraw.delete(read);
+            clearTimeout(late);
+            done(globalThis.__partyRoom?.view?.pieces?.get(p)?.face ?? null);
+          };
+          const late = setTimeout(() => {
+            window.__afterDraw.delete(read);
+            done("no frame drawn in 30 s");
+          }, ms);
+          window.__afterDraw.add(read);
+        }),
+      [P, 30_000],
+    );
     const ahead = at[S].x - at[P].x;
     mark = ada.seen.length;
     await pat.keyboard.press("KeyX");
