@@ -56,7 +56,7 @@
 // --out holds the builds and the Worker's storage (removed at the end) and the stills (kept, in
 // <out>/shots). The browser is headless, muted, and draws in software.
 import { execFileSync, spawn } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { launchBrowser } from "./browser.mjs";
@@ -64,6 +64,7 @@ import { partyApi, sleep } from "./client.mjs";
 import { COUNT_MS } from "../shared/vote.js";
 import { boxCentre } from "../shared/world.js";
 import { API_REQUESTS_PER_RELOAD } from "../../site/test/release-budget.js";
+import { STABLE, STABLE_MEDIA } from "../../scripts/build-public.mjs";
 import { carryChain, toCarry } from "../../scripts/carried.mjs";
 
 const args = process.argv.slice(2);
@@ -341,7 +342,7 @@ try {
    * browser asked for (`requests`, `sent` those that went to the server), what arrived at the
    * Worker meanwhile by its own log (`arrived`), and the bytes that crossed the wire.
    */
-  async function visit(context, path) {
+  async function visit(context, path, { scroll = false } = {}) {
     const page = await context.newPage();
     const requests = await watchRequests(page);
     const from = arrived.length;
@@ -349,6 +350,18 @@ try {
     page.on("pageerror", (e) => pageErrors.push(e.message));
     await page.goto(base + path);
     await page.waitForLoadState("networkidle").catch(() => {});
+    if (scroll) {
+      // Down the whole page, a screen at a time, so pictures that load only when seen are asked for too.
+      await page.evaluate(async () => {
+        const tall = () => Math.max(document.documentElement.scrollHeight, document.body?.scrollHeight ?? 0);
+        for (let y = 0; y < tall() && y < 30_000; y += innerHeight) {
+          scrollTo(0, y);
+          for (const el of document.querySelectorAll("*")) if (el.scrollHeight > el.clientHeight + 40 && el !== document.documentElement) el.scrollTop = el.scrollHeight;
+          await new Promise((done) => setTimeout(done, 120));
+        }
+      }).catch(() => {});
+      await page.waitForLoadState("networkidle").catch(() => {});
+    }
     await page.waitForTimeout(1500);
     await page.close();
     // The Worker's last lines: until its log has been quiet for a moment, however busy the machine,
@@ -364,6 +377,42 @@ try {
   /** One line of the measurements printed at the end: a load, by what the browser asked for. */
   // (The 304s are the Worker's own count: a browser reports a file it asked about again as the 200 it kept.)
   const measure = (site, what, v) => measured.push({ site, what, requests: v.requests.length, sent: v.sent.length, arrived: v.arrived.length, s304: v.arrived.filter((r) => r.status === 304).length, kB: v.kB });
+
+  /**
+   * Shows a game's own page in a frame on `page`, as a game's view in the room does (its
+   * party-view.js frames the page beside it, in the page's own release: `at` is the game's folder
+   * under the root of that release's files). Returns the frame's address, what the page policy
+   * refused in it (the console's own words), whether its import map let "three" load, and whether
+   * the game came up (Cork & Bell's page says so on `window.__cab`).
+   */
+  async function openFramed(page, at) {
+    const refused = [];
+    const hear = (m) => /Content Security Policy|Content-Security-Policy|import map/i.test(m.text()) && refused.push(m.text());
+    page.on("console", hear);
+    const src = await page.evaluate((at) => {
+      const main = [...document.querySelectorAll("script[type=module][src]")].map((s) => s.src).find((src) => /\/(lobby|party)\/main\.js$/.test(src));
+      const frame = document.createElement("iframe");
+      frame.id = "e2e-framed";
+      frame.style.cssText = "position:fixed;left:0;top:0;width:320px;height:200px;border:0;z-index:99";
+      frame.src = new URL(`${at}?quality=low`, new URL("../", main)).href;
+      document.body.append(frame);
+      return frame.src;
+    }, at);
+    const path = new URL(src).pathname;
+    let frame = null;
+    for (const until = Date.now() + 15_000; !frame && Date.now() < until; await page.waitForTimeout(100)) frame = page.frames().find((f) => f.url().startsWith(src.split("?")[0]) && f !== page.mainFrame()) ?? null;
+    const out = { path, refused, three: null, runs: false, why: "" };
+    if (!frame) return { ...out, why: "no frame came up" };
+    await frame.waitForLoadState("domcontentloaded").catch(() => {});
+    out.three = await frame.evaluate(() => import("three").then((m) => typeof m.Scene === "function", (err) => String(err))).catch((err) => String(err));
+    out.runs = await frame.waitForFunction(() => !!window.__cab, null, { timeout: 120_000 }).then(
+      () => true,
+      (err) => ((out.why = err.message.split("\n")[0]), false),
+    );
+    page.off("console", hear);
+    await page.evaluate(() => document.getElementById("e2e-framed")?.remove());
+    return out;
+  }
 
   /**
    * What a page loads only later, loaded now as the page would: the 3D look and the baked room
@@ -763,6 +812,14 @@ try {
     check(modules.length > 5 && modules.every((path) => path.startsWith(own)), `all ${modules.length} modules came from its own release's folder (${own}), none from the new one's`);
     check(later.sound.ok && /^\/m\/[0-9a-f]{20}\.mp3$/.test(later.sound.path ?? "") && later.sound.bytes > 1000, `a sound beside its modules is sent on to the media and plays (${later.sound.status}, ${later.sound.path})`);
     check((await buildOf(ann)) === second && ann.loads === tableLoads.Ann, "and the page is still the release it was, not reloaded");
+    // And a game it shows in a frame runs: the old release's own copy of Cork & Bell's page, from
+    // its folder, served by the new deploy. Its import map names its own release, so the new
+    // deploy's policy must allow it as well as its own (a refused map leaves the frame black).
+    const cork = await openFramed(ann, "cork-and-bell/");
+    check(cork.path === `${own}cork-and-bell/`, `the old page frames its own release's copy of Cork & Bell's page (${cork.path})`);
+    check(!cork.refused.length, `the framed page is not refused anything by the page policy${cork.refused.length ? `: ${cork.refused[0].slice(0, 300)}` : ""}`);
+    check(cork.three === true, `its import map is in force: "three" loads in the frame (${cork.three})`);
+    check(cork.runs, `and the game comes up in it${cork.runs ? "" : `: ${cork.why}`}`);
   }
 
   // The returning phone, a release later: the new release's code is new to it, the media is not.
@@ -826,6 +883,36 @@ try {
     check((await status(`/r/${third}/lobby/main.js`)) === 200 && (await status(`/r/${second}/lobby/look3d/room3d.js`)) === 200, "both of their folders are served");
     check((await status("/lobby/main.js")) === 404 && (await status("/party-kit/client/sounds.js")) === 404, "the files of the site from before the folders are gone from their old addresses");
     check((await status("/lobby/")) === 200 && (await status("/manifest.webmanifest")) === 200 && (await status("/icons/icon-192.png")) === 200, "the pages, the manifest and its icons are where they always were");
+  }
+
+  // ================================================================ every page, with no old site under it
+  // Now that the site from before the folders is gone from its old addresses, a file a page still
+  // names by an old address is simply missing. Every page the build made is loaded and scrolled
+  // through: each may ask for itself, for its release's folder, for media, for the API, and for
+  // the few files that keep their own address (STABLE, STABLE_MEDIA); and nothing may be missing.
+  section("every page of the site, once the old site's files are gone: nothing is asked for at an old address");
+  {
+    const built = join(builds.get("s4").dir, "public");
+    const walk = (dir) => readdirSync(join(built, dir), { withFileTypes: true }).flatMap((d) => (d.isDirectory() ? (dir === "" && (d.name === "r" || d.name === "m") ? [] : walk(`${dir}${d.name}/`)) : d.name.endsWith(".html") ? [`${dir}${d.name}`] : []));
+    const pages = walk("").map((file) => `/${file.replace(/(^|\/)index\.html$/, "$1")}`);
+    check(pages.length >= 10 && pages.includes("/") && pages.includes("/lobby/look3d/rooms/"), `the build made ${pages.length} pages (${pages.join(", ")})`);
+    const isStable = (path) => STABLE.some((entry) => path === `/${entry}` || path.startsWith(`/${entry}/`)) || STABLE_MEDIA.some((entry) => path.startsWith(`/${entry}/`));
+    const isPage = (path) => pages.includes(path) || pages.includes(`${path}/`) || pages.includes(path.replace(/index\.html$/, ""));
+    for (const page of pages) {
+      const context = await phone();
+      // Headless Chromium's own SpeechRecognition.available() crashes the page that asks it (the
+      // hearing test's: lab/hot-potato/test/e2e-hearing.mjs takes it away too).
+      await context.addInitScript(() => {
+        delete window.SpeechRecognition;
+        delete window.webkitSpeechRecognition;
+      });
+      // (The still's page draws the room its address names.)
+      const got = await visit(context, page.endsWith("still.html") ? `${page}?room=bar` : page, { scroll: true });
+      await context.close();
+      const strays = [...new Set(got.requests.filter((r) => kindOf(r.path) === "other" && !isPage(r.path) && !isStable(r.path)).map((r) => r.path))];
+      const missing = [...new Set(got.requests.filter((r) => kindOf(r.path) !== "/api/" && r.status >= 400).map((r) => `${r.path} ${r.status}`))];
+      check(!strays.length && !missing.length, `${page}: ${got.requests.length} requests, all in its release's folder, the media or the API${strays.length ? `; at an old address: ${strays.slice(0, 6).join(", ")}` : ""}${missing.length ? `; missing: ${missing.slice(0, 6).join(", ")}` : ""}`);
+    }
   }
 
   // ================================================================ a rollback
