@@ -897,7 +897,8 @@ try {
     const pages = walk("").map((file) => `/${file.replace(/(^|\/)index\.html$/, "$1")}`);
     check(pages.length >= 10 && pages.includes("/") && pages.includes("/lobby/look3d/rooms/"), `the build made ${pages.length} pages (${pages.join(", ")})`);
     const isStable = (path) => STABLE.some((entry) => path === `/${entry}` || path.startsWith(`/${entry}/`)) || STABLE_MEDIA.some((entry) => path.startsWith(`/${entry}/`));
-    const isPage = (path) => pages.includes(path) || pages.includes(`${path}/`) || pages.includes(path.replace(/index\.html$/, ""));
+    // (Workers serves /x.html at /x, and sends a browser that asks for the first on to the second.)
+    const isPage = (path) => pages.includes(path) || pages.includes(`${path}/`) || pages.includes(`${path}.html`) || pages.includes(path.replace(/index\.html$/, ""));
     for (const page of pages) {
       const context = await phone();
       // Headless Chromium's own SpeechRecognition.available() crashes the page that asks it (the
