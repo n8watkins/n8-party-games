@@ -10,8 +10,13 @@
 //      after guessing, Cy's phone loses its connection and comes back, Fay joins mid-match and
 //      watches (then plays from the next round), the host skips an answer the reader asked about,
 //      and Bo leaves the party mid-match; the match goes on;
-//   3. eight players (Ann, Cy, Di, Fay, Gus, Hal, Ivy, Jo: every place at the Table taken), with
-//      the phones and the big screen checked at 390x844, 320x568, 844x390, 1280x720 and 1920x1080.
+//   3. eight players (Ann, Cy, Di, Fay, Gus, Hal, Ivy and Bartholomew Jo, a name as long as a
+//      name may be: every place at the Table taken), with the phones and the big screen checked
+//      at 390x844, 320x568, 844x390, 1280x720 and 1920x1080.
+// The guesses of matches 1 and 3 are random in the middle rounds and fixed in the last (see
+// planGuesses), where every reveal is looked at, at every size: at three players the game's card
+// with all three fooled, at eight every split of the seven guessers between "Guessed right" and
+// "Fooled", starting with three right and four fooled, with every answer as long as the rules allow.
 // Each match is played in a party of its own, the three side by side in one browser (they share
 // nothing but the Worker). With --together=1 (test:paper-masks:full) one party plays the three
 // matches one after another, as people do on one evening: Di joins for the second, Bo leaves in
@@ -60,6 +65,8 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 
 const PROMPTS = QUESTIONS.map((q) => q.text);
 const GHOSTS = QUESTIONS.flatMap((q) => q.ghosts);
+/** The author of the answer the game writes at three players, in the test's own plans. */
+const THE_GAME = "the game";
 const SECRET_KEYS = new Set(["author", "authors", "answers", "seed", "secret", "draws", "rng", "idKey", "deck", "deckPos", "ghostPool", "decoys", "masksFree", "hasRead", "assignedReader", "match", "until", "gone"]);
 
 const browser = await launchBrowser();
@@ -448,6 +455,8 @@ function makeParty(tag) {
       return {
         cut: cut.slice(0, 4),
         cutCount: cut.length,
+        // Names their chip cuts short (it shows two lines, then an ellipsis).
+        cutNames: [...document.querySelectorAll(".pm-chip b")].filter((el) => el.scrollHeight > el.clientHeight + 1).map((el) => el.textContent),
         sw: document.documentElement.scrollWidth,
         sh: document.documentElement.scrollHeight,
         w: innerWidth,
@@ -461,6 +470,7 @@ function makeParty(tag) {
     check(m.sw <= m.w && m.bodyWide <= 1, `${label}: nothing scrolls sideways (${m.sw} in ${m.w}, inner ${m.bodyWide})`);
     if (screen) check(m.sh <= m.h && m.bodyOver <= 1 && !m.cutCount, `${label}: the big screen does not scroll and cuts nothing off (${m.sh} in ${m.h}, inner ${m.bodyOver}${m.cutCount ? `, cut: ${m.cut.join(" | ")}` : ""})`);
     check(!m.small.length, `${label}: every tap target is at least 44 pixels${m.small.length ? ` (${m.small.join(", ")})` : ""}`);
+    check(!m.cutNames.length, `${label}: no name on a chip is cut off${m.cutNames.length ? ` (${m.cutNames.join(", ")})` : ""}`);
     return m;
   }
 
@@ -521,7 +531,34 @@ function makeParty(tag) {
   /** The phones whose role is player in the match. */
   const inMatch = () => players().filter((p) => p.view.you.role === "player");
 
-  async function guessCard({ pick = "first" } = {}) {
+  /**
+   * Fixed guesses for a round, so its reveals are the same on every run: the card at place i is
+   * guessed right by exactly `targets[i]` of its guessers and wrong by the rest, and every guesser
+   * still places each name once. `cards` are the round's cards in the reader's order, as
+   * {id, author} (a seat, or THE_GAME). The players stand in a ring in the order of their cards; a
+   * card is guessed right by the first `targets[i]` players after its author, and each player's
+   * wrong cards trade authors among themselves. Returns seat -> {card id: the author to tap}, or
+   * null when the targets would leave a player one wrong card (it has no other name to take).
+   */
+  function planGuesses(cards, targets) {
+    const ring = cards.map((c) => c.author).filter((a) => a !== THE_GAME);
+    const right = new Map(ring.map((g) => [g, new Set()]));
+    cards.forEach((c, i) => {
+      const at = ring.indexOf(c.author);
+      for (const g of [...ring.slice(at + 1), ...ring.slice(0, Math.max(at, 0))].slice(0, targets[i])) right.get(g).add(c.id);
+    });
+    const plan = new Map();
+    for (const g of ring) {
+      const wrong = cards.filter((c) => c.author !== g && !right.get(g).has(c.id));
+      if (wrong.length === 1) return null;
+      const mine = Object.fromEntries(cards.filter((c) => right.get(g).has(c.id)).map((c) => [c.id, c.author]));
+      wrong.forEach((c, k) => (mine[c.id] = wrong[(k + 1) % wrong.length].author));
+      plan.set(g, mine);
+    }
+    return plan;
+  }
+
+  async function guessCard({ pick = "first", plan = null } = {}) {
     const ref = inMatch()[0];
     const card = ref.view.step.card;
     const author = inMatch().find((p) => p.view.step.card.id === card.id && p.view.step.yours);
@@ -567,7 +604,13 @@ function makeParty(tag) {
         const n = await choices.count();
         if (!n) continue;
         p.clicked.add(card.id);
-        await choices.nth(pick === "random" ? Math.floor(Math.random() * n) : 0).click();
+        if (plan) {
+          const who = plan.get(p.seat)?.[card.id];
+          const name = who === THE_GAME ? "The game" : nameOfSeat(who);
+          const chip = choices.filter({ hasText: new RegExp(`^${name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`) });
+          if (!check((await chip.count()) === 1, `the fixed guesses: ${p.name} can tap "${name}" on answer ${step.index + 1}`)) continue;
+          await chip.click();
+        } else await choices.nth(pick === "random" ? Math.floor(Math.random() * n) : 0).click();
       } else continue;
       await p.page.waitForFunction((id) => !document.querySelector(".pm-busy"), card.id, { timeout: 8000 }).catch(() => {});
     }
@@ -577,7 +620,12 @@ function makeParty(tag) {
     await audit(`guessing ${ref.view.step.index + 1} of ${ref.view.step.of}`);
   }
 
-  async function playRound({ kinds = {}, pick = "first", during = {} } = {}) {
+  /**
+   * One round, start to scores. `pick` is how a guesser chooses a name: the first free one, or one
+   * at random. `fixed` plays the round with fixed guesses instead and looks at every reveal:
+   * {targets(authors) -> how many guess each card right, phone, count} (see revealEach).
+   */
+  async function playRound({ kinds = {}, pick = "first", during = {}, fixed = null } = {}) {
     await allAt("writing", players());
     const round = players()[0].view.round;
     await during.writing?.();
@@ -588,6 +636,16 @@ function makeParty(tag) {
     await storageClean(`writing closed r${round}`);
     await during.reading?.();
     const reader = inMatch().find((p) => p.view.you.reader);
+    let plan = null;
+    let targets = null;
+    if (fixed) {
+      // The reader's list is the order the cards are guessed and revealed in.
+      const seatOf = (text) => Object.entries(known[round]).find(([, t]) => t === text)?.[0];
+      const cards = reader.view.step.cards.map((c) => ({ id: c.id, author: seatOf(c.text) === undefined ? THE_GAME : Number(seatOf(c.text)) }));
+      targets = fixed.targets(cards.map((c) => c.author));
+      plan = planGuesses(cards, targets);
+      if (!check(!!plan, `round ${round}: the fixed guesses can be played (${targets.join(", ")} right, card by card)`)) plan = targets = null;
+    }
     await tap(reader, "Start guessing");
     for (let i = 0; i < 12; i++) {
       await players()[0].page.waitForFunction(() => ["guessing", "reveal"].includes(document.querySelector(".pm")?.dataset.phase), null, { timeout: 15000 });
@@ -597,7 +655,7 @@ function makeParty(tag) {
       const before = ref.view.step.index;
       await during.guessing?.(ref.view.step.index);
       if (inMatch()[0].view.phase !== "guessing") break;
-      await guessCard({ pick });
+      await guessCard({ pick, plan });
       const r = inMatch().find((p) => p.view.you.reader);
       await r.page.waitForFunction(() => [...document.querySelectorAll(".pm button")].some((b) => /^(Next answer|On to the reveal)$/.test(b.textContent) && !b.disabled), null, { timeout: 10000 });
       await r.page.locator(".pm button", { hasText: /^(Next answer|On to the reveal)$/ }).click();
@@ -606,6 +664,7 @@ function makeParty(tag) {
     await allAt("reveal", players());
     await audit(`reveal r${round}`);
     await during.reveal?.();
+    if (targets) await revealEach(targets, fixed);
     const r = inMatch().find((p) => p.view.you.reader);
     for (let i = 0; i < 12; i++) {
       const label = await r.page.locator(".pm-btn").first().textContent();
@@ -618,6 +677,48 @@ function makeParty(tag) {
     await audit(`summary r${round}`);
     await storageClean(`summary r${round}`);
     await during.summary?.();
+  }
+
+  /**
+   * Looks at one phone at the other sizes, and the big screen at 1920x1080 and back at 1280x720,
+   * for this phase: the phone and the big screen are resized together, a size each at a time.
+   * `count` is how many play (in the stills' names and captions).
+   */
+  async function sizesOf(phase, phone, count) {
+    const many = `${{ 3: "Three", 8: "Eight" }[count] ?? count} players`;
+    for (const [[w, h], [W, H]] of [[[320, 568], [1920, 1080]], [[844, 390], [1280, 720]]]) {
+      await Promise.all([phone.page.setViewportSize({ width: w, height: h }), tv.page.setViewportSize({ width: W, height: H })]);
+      await wait(400);
+      await fits(phone, `${phase}, ${phone.name} at ${w}x${h}`, { screen: false });
+      await still(phone, `${phase}-${count}-${w}x${h}`, `${many}, ${phase}, on a ${w}x${h} phone.`);
+      await fits(tv, `${phase}, big screen ${W}x${H}, ${many.toLowerCase()}`);
+      await still(tv, `${phase}-${count}-screen-${W}x${H}`, `${many}, ${phase}, on a ${W}x${H} big screen.`);
+    }
+    await phone.page.setViewportSize({ width: 390, height: 844 });
+    await wait(400);
+  }
+
+  /**
+   * The reveal of a round played with fixed guesses, a card at a time: each card comes off with
+   * exactly the guesses planned (`targets[i]` right, everyone else fooled), and `phone` and the big
+   * screen are looked at for each, at every size. With eight players that is every split of the
+   * seven guessers, from nobody right to everybody right.
+   */
+  async function revealEach(targets, { phone, count }) {
+    for (let i = 0; i < targets.length; i++) {
+      const reader = inMatch().find((p) => p.view.you.reader);
+      await tap(reader, i ? "Reveal the next one" : "Reveal the first one");
+      await Promise.all([phone, tv].map((p) => p.page.waitForFunction((n) => document.querySelector(".pm-top span:last-child")?.textContent === n, `${i + 1} of ${targets.length}`, { timeout: 10000 })));
+      // At once, while the plain mask lifts and the title comes in, and again when they have settled.
+      await fits(tv, `reveal, answer ${i + 1}, as the mask lifts, big screen`);
+      await wait(2200);
+      const card = tv.view.step.cards[i];
+      const right = card.right?.length ?? -1;
+      const fooled = Object.keys(card.guesses ?? {}).length - right;
+      check(card.revealed && right === targets[i], `the fixed guesses: answer ${i + 1} comes off with ${targets[i]} right (${right} right, ${fooled} fooled)`);
+      await sizesOf(`reveal-${right}-right-${fooled}-fooled`, phone, count);
+      await audit(`reveal, answer ${i + 1} of ${targets.length}`);
+    }
   }
 
   async function nextRound() {
@@ -756,7 +857,10 @@ function makeParty(tag) {
     await nextRound();
     await playRound({ kinds: { Ann: "long", Bo: "unbroken" }, pick: "random" });
     await nextRound();
-    await playRound({ pick: "random" });
+    // The last round's guesses are fixed, and every reveal is looked at: the game's own card with
+    // all three fooled (the most lines three players can make), then a player's card with nobody
+    // right, with one right and one fooled, and with both right.
+    await playRound({ fixed: { targets: (authors) => authors.map((a, i) => (a === THE_GAME ? 0 : authors.slice(0, i).filter((b) => b !== THE_GAME).length)), phone: byName("Cy"), count: 3 } });
     check(!(await ann.page.locator(".stage-head .stop").isHidden()), "during the match the host has the Table's own End the game");
     check((await nextRound()) === "Final scores", "after the third round the host's button says Final scores");
     await allAt("over");
@@ -951,7 +1055,8 @@ function makeParty(tag) {
   // ---------------------------------------------------------------- match 3: eight players, every size
   async function match3() {
     const ann = byName("Ann");
-    for (const name of ["Gus", "Hal", "Ivy", "Jo", "Kit", "Lu", "Max"]) {
+    // (Bartholomew Jo: 14 characters, the longest a name may be, so a title and the lines that name him wrap.)
+    for (const name of ["Gus", "Hal", "Ivy", "Bartholomew Jo", "Kit", "Lu", "Max"]) {
       if (live().filter((p) => !p.screen).length >= 8) break;
       await joinParty(name, pin);
     }
@@ -961,22 +1066,7 @@ function makeParty(tag) {
     const cy = byName("Cy");
     await tap(ann, "Deal the masks");
     await allAt("writing");
-    /**
-     * Looks at one phone at the other sizes, and the big screen at 1920x1080 and back at 1280x720,
-     * for this phase: the phone and the big screen are resized together, a size each at a time.
-     */
-    async function sizes(phase) {
-      for (const [[w, h], [W, H]] of [[[320, 568], [1920, 1080]], [[844, 390], [1280, 720]]]) {
-        await Promise.all([cy.page.setViewportSize({ width: w, height: h }), tv.page.setViewportSize({ width: W, height: H })]);
-        await wait(400);
-        await fits(cy, `${phase}, Cy at ${w}x${h}`, { screen: false });
-        await still(cy, `${phase}-8-${w}x${h}`, `Eight players, ${phase}, on a ${w}x${h} phone.`);
-        await fits(tv, `${phase}, big screen ${W}x${H}, eight players`);
-        await still(tv, `${phase}-8-screen-${W}x${H}`, `Eight players, ${phase}, on a ${W}x${H} big screen.`);
-      }
-      await cy.page.setViewportSize({ width: 390, height: 844 });
-      await wait(400);
-    }
+    const sizes = (phase) => sizesOf(phase, cy, 8);
     await playRound({
       kinds: { Ann: "long", Cy: "unbroken", Di: "rtl", Fay: "markup", Gus: "emoji" },
       pick: "random",
@@ -1013,7 +1103,11 @@ function makeParty(tag) {
       },
     });
     await nextRound();
-    await playRound({ pick: "random" });
+    // The last round's guesses are fixed, not random, and every reveal is looked at, at every size:
+    // each split of the seven guessers between "Guessed right" and "Fooled", every answer as long
+    // as the rules allow. The first to come off is three right and four fooled: two rows of chips
+    // over the most lines that ever stood at full size.
+    await playRound({ kinds: Object.fromEntries(live().map((p) => [p.name, "long"])), fixed: { targets: () => [3, 4, 5, 6, 7, 2, 1, 0], phone: cy, count: 8 } });
     await nextRound();
     await allAt("over");
     await wait(1500);
@@ -1061,7 +1155,7 @@ try {
     ];
   } else {
     // A party of its own for each match, the three side by side. Match 3's party is the same eight
-    // the evening above ends with: Ann, Cy, Di and Fay, and Gus, Hal, Ivy and Jo join there.
+    // the evening above ends with: Ann, Cy, Di and Fay, and Gus, Hal, Ivy and Bartholomew Jo join there.
     const plan = [
       [1, ["Bo", "Cy"], async (p) => (await p.match1(), await p.secondMatch())],
       [2, ["Bo", "Cy"], (p) => p.match2()],

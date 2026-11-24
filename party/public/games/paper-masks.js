@@ -38,6 +38,13 @@ const GHOST = "ghost";
 const NUMBER_WORDS = ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "eleven", "twelve"];
 const ANSWER_MAX = 80;
 const DEAL_MS = 5200;
+// The sizes a column too tall for the big screen steps down through, as twentieths of full size:
+// 95% first, 60% last. Under that the type is at the smallest it may be and only pictures shrink.
+const FIT_STEPS = 20;
+const FIT_FIRST = 19;
+const FIT_LAST = 12;
+// A name on a chip steps down the same way, and never under this many pixels (the smallest type here).
+const NAME_MIN_PX = 11;
 
 function el(tag, className, text, parent) {
   const node = document.createElement(tag);
@@ -159,6 +166,8 @@ export function mount(container, ctx) {
   let interval = null;
   let toastTimer = null;
   let sayTimer = null;
+  /** Measures a word in a given type (fitNames). */
+  const ruler = document.createElement("canvas").getContext("2d");
 
   const nameOf = (seat) => (seat === GHOST ? "The game" : (names.get(seat) ?? `Seat ${Number(seat) + 1}`));
   const playerOf = (seat) => v?.players?.find((p) => p.seat === seat) ?? null;
@@ -338,8 +347,71 @@ export function mount(container, ctx) {
     paint(hero, side, keep);
     hostTools(side);
     if (focused) body.querySelector(".pm-write textarea")?.focus({ preventScroll: true });
+    settle();
     body.scrollTop = same ? scrolled : 0;
     tick();
+  }
+
+  /**
+   * A wide stage stands the moment and the names side by side, and the big screen cannot scroll.
+   * So a column taller than the stage is measured, not guessed from how many names it holds (names
+   * and answers wrap as they please): it goes snug first (the stylesheet's `.snug`: the "Fooled"
+   * lines in smaller rows, two abreast where they have the width), and on the big screen it then
+   * steps down in size, all of a piece, until the stage holds it (`--pm-fit` scales the column's
+   * unit). A column that fits is left alone, so a screen is only ever tighter when there is more
+   * to show. Run again whenever the column or the stage may have changed: a draw, a new size, the
+   * stylesheet or a font arriving.
+   */
+  function fitColumns() {
+    const columns = [...body.children].filter((c) => c.matches(".pm-hero, .pm-side"));
+    for (const column of columns) {
+      column.classList.remove("snug");
+      column.style.removeProperty("--pm-fit");
+    }
+    if (root.clientWidth <= root.clientHeight) return; // upright: one column, which scrolls
+    const pad = getComputedStyle(body);
+    const room = body.clientHeight - parseFloat(pad.paddingTop) - parseFloat(pad.paddingBottom);
+    if (!(room > 0)) return; // not laid out yet
+    const big = root.dataset.big === "screen";
+    for (const column of columns) {
+      if (column.offsetHeight <= room) continue;
+      column.classList.add("snug");
+      for (let fit = FIT_FIRST; big && column.offsetHeight > room && fit >= FIT_LAST; fit -= 1) column.style.setProperty("--pm-fit", String(fit / FIT_STEPS));
+    }
+  }
+
+  /**
+   * A name on a chip is a player: it is never cut off, and never broken inside a word while a
+   * smaller size would keep the word whole. A name with a word wider than its chip, or longer than
+   * the chip's two lines, steps its type down (`--pm-name`) as a column does, and never under
+   * NAME_MIN_PX.
+   */
+  function fitNames() {
+    for (const name of body.querySelectorAll(".pm-chip b")) {
+      name.style.removeProperty("--pm-name");
+      if (!name.clientWidth) continue; // not laid out yet
+      const type = getComputedStyle(name);
+      const full = parseFloat(type.fontSize);
+      const words = name.textContent.split(/\s+/);
+      // (A word too wide is broken in two, never left sticking out, so its box cannot say: it is measured.)
+      const misfit = (size) => {
+        if (name.scrollHeight > name.clientHeight + 1) return true;
+        if (!ruler) return false;
+        ruler.font = `${type.fontStyle} ${type.fontWeight} ${size}px ${type.fontFamily}`;
+        return words.some((word) => ruler.measureText(word).width > name.clientWidth);
+      };
+      let fit = FIT_STEPS;
+      while (fit > FIT_LAST && (full * (fit - 1)) / FIT_STEPS >= NAME_MIN_PX && misfit((full * fit) / FIT_STEPS)) {
+        fit -= 1;
+        name.style.setProperty("--pm-name", String(fit / FIT_STEPS));
+      }
+    }
+  }
+
+  /** Everything measured once a screen is drawn, and again whenever what it was measured against changes. */
+  function settle() {
+    fitColumns();
+    fitNames();
   }
 
   function seatsRow(parent, seats, { ticks = null, cls = "" } = {}) {
@@ -708,7 +780,7 @@ export function mount(container, ctx) {
     const fooled = Object.entries(card.guesses ?? {}).filter(([g, who]) => !right.includes(Number(g)) && who !== undefined);
     if (fooled.length) {
       el("p", "pm-lab", "Fooled", side);
-      const ul = el("ul", `pm-fooled${fooled.length > 4 ? " many" : ""}`, "", side);
+      const ul = el("ul", "pm-fooled", "", side);
       for (const [g, who] of fooled) {
         const li = el("li", "", "", ul);
         mask(maskOf(Number(g)), "", li);
@@ -881,11 +953,17 @@ export function mount(container, ctx) {
     const below = (parseFloat(getComputedStyle(app).paddingBottom) || 0) + 2;
     const height = Math.max(floor, Math.floor(innerHeight - above - below));
     if (Math.abs(height - rect.height) > 1) root.style.setProperty("--pm-h", `${height}px`);
+    settle();
   }
   const resized = () => requestAnimationFrame(fit);
   addEventListener("resize", resized);
   const observer = typeof ResizeObserver === "function" ? new ResizeObserver(resized) : null;
   observer?.observe(document.body);
+  // What the columns are measured against and with: the room the stage gives them (the clock's
+  // line coming or going changes it), the stylesheet, and the fonts, which arrive after the words.
+  observer?.observe(body);
+  sheet.addEventListener("load", resized);
+  document.fonts?.addEventListener?.("loadingdone", resized);
 
   function take(s) {
     if (!s || s.game !== "paper-masks") return;
@@ -922,6 +1000,7 @@ export function mount(container, ctx) {
       clearTimeout(toastTimer);
       clearTimeout(sayTimer);
       removeEventListener("resize", resized);
+      document.fonts?.removeEventListener?.("loadingdone", resized);
       observer?.disconnect();
       root.remove();
       sheet.remove();

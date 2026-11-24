@@ -814,6 +814,8 @@
 .pm-chip b {
   flex: 1;
   min-width: 0;
+  /* (a name too long for its chip steps down in size: fitNames in paper-masks.js) */
+  font-size: calc(1em * var(--pm-name, 1));
   overflow: hidden;
   overflow-wrap: anywhere;
   display: -webkit-box;
@@ -913,8 +915,10 @@
   z-index: 1;
   animation: pm-lift 1s 0.55s cubic-bezier(0.5, 0, 0.3, 1) both;
 }
+/* The title grows in as the mask did. (It used to rise into place from below: on a stage its
+   column fills, those few pixels below made the big screen scroll while it came in.) */
 .pm-unmask.go ~ .pm-title {
-  animation: pm-fadein 0.5s 1.5s both;
+  animation: pm-whoin 0.5s 1.5s both;
 }
 .pm-unmask.win .big {
   width: calc(var(--u) * 52);
@@ -1325,7 +1329,8 @@
     bottom: calc(var(--f) * 4.4);
   }
   /* Two columns that scroll together when a short screen cannot hold them (a sideways phone);
-     the big screen always holds them (the e2e test checks it at 1280x720 and 1920x1080). */
+     the big screen always holds them: a column too tall for it is made to fit (.snug and --pm-fit
+     below; the e2e test checks every reveal at 1280x720 and 1920x1080). */
   .pm-body {
     display: grid;
     grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
@@ -1384,19 +1389,30 @@
     align-items: baseline;
     column-gap: calc(var(--u) * 1.6);
   }
-  .pm-fooled.many {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    column-gap: calc(var(--u) * 3);
-  }
-  .pm-fooled.many {
-    row-gap: calc(var(--u) * 1);
-  }
-  .pm-fooled.many li {
+  /* A column taller than the stage (the page measures it: fitColumns in paper-masks.js) goes snug:
+     the "Fooled" lines get smaller rows, side by side wherever two short lines ("Ann thought it
+     was Bo" with its mask is about 14em) have the width. */
+  .pm-side.snug .pm-fooled {
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 14em), 1fr));
+    gap: calc(var(--u) * 1) calc(var(--u) * 3);
     font-size: max(13px, calc(var(--u) * 3.2));
+  }
+  .pm-side.snug .pm-fooled li {
+    font-size: inherit;
     gap: calc(var(--u) * 1.6);
   }
-  .pm-fooled.many .pm-mask {
+  .pm-side.snug .pm-fooled .pm-mask {
     width: max(24px, calc(var(--u) * 6.4));
+  }
+  /* On the big screen, which cannot scroll, a column still too tall then steps down in size, all
+     of a piece: the page sets --pm-fit (0.95 down to 0.6) on it and its unit shrinks by that. */
+  .pm-hero,
+  .pm-side {
+    --u: calc(min(0.5cqw, 0.9cqh) * var(--pm-fit, 1));
+  }
+  /* (The names it shows are not buttons, so they may go under a tap target's 44 pixels.) */
+  .pm[data-big="screen"] .pm-chip.static {
+    min-height: calc(var(--u) * 11);
   }
   .pm[data-phase="guessing"] .pm-hero {
     align-items: stretch;

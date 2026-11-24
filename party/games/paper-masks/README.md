@@ -199,7 +199,11 @@ The match itself is the rules exactly; every move in it is theirs.
 
 The page is `party/public/games/paper-masks.js` and `.css`, with the owner's paintings in `party/public/games/paper-masks/art/` (made by `tools/make-art.mjs`, which snaps and cleans the alpha, resizes in premultiplied form and bleeds the edge colour, so no fringe shows) and two self-hosted OFL fonts.
 It renders everything typed as text only, sends the author's decoy tap only on a real tap, shows the tap count as anonymous dots, marks nothing as the reader's own in the list, keeps a half-typed answer on the device only while writing is open (and sweeps any other Paper Masks draft away), and stores nothing about an author's tap.
+On a wide stage (a sideways phone, the big screen) a column taller than the stage is measured and made to fit (`fitColumns`): it goes snug first (the "Fooled" lines in two columns), and on the big screen, which cannot scroll, it then steps down in size, all of a piece, from 95% to 60%.
+A column that fits is left at full size.
+A name on a chip is never cut off: one with a word wider than its chip steps its type down the same way (`fitNames`), never under 11 pixels.
 `test/e2e-paper-masks.mjs` (`npm run test:paper-masks`, in the pre-deploy gate) plays three whole matches in real browsers and checks every message each page receives, and each page's whole document, against the secrecy rules.
+Its last rounds at three and at eight players are played with fixed guesses, and every reveal is checked on a phone and the big screen at every size: at eight, every split of the seven guessers between "Guessed right" and "Fooled".
 
 ## For the Table that hosts it
 
