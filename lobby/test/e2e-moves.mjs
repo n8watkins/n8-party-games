@@ -50,6 +50,8 @@ const check = (ok, what) => {
  * checked from its messages in every run, frames or not.
  */
 const UNSEEN_SHARE = 0.25;
+/** How long walkTo's turning tap is held, on the page's own clock: past its send gap (60 ms), so the turn reaches the room. */
+const TAP_MS = 75;
 const drawnChecks = { all: 0, unseen: [], byCheck: new Map() };
 /** Which check this is, the same in each look and attempt: its words before the details, numbers left out. */
 const checkId = (what) => what.split(" (")[0].replace(/^(flat|3d|3D): /, "").replace(/-?\d+(\.\d+)?/g, "#");
@@ -359,13 +361,11 @@ try {
       // again when the tap carried it off: on a busy page the tap's key-up can come late, and a pawn
       // (the fastest piece) once walked on 100 units, past the slime it was set to kick ("Pat's kick
       // bounces off ... Pat 1019, Sam 989"). It ends within `near` of x either way.
-      // A starved page's tap takes a step of a different length each time (its key-up lands on a
-      // frame a few hundred milliseconds apart): tried again from the step it really took, within
-      // the same 45 s (three tries once fell short on GitHub's runner: "walked to 900 and turned
-      // (it is -16 short)").
+      // The tap is held for exactly TAP_MS by the page's own clock (see below), so it takes the same
+      // step every time; it is still tried again from the step it really took, within the same 45 s.
       let tapStep = face ? 30 : 0;
       let gap = 0;
-      for (let turns = 0; turns < 8 && Date.now() < giveUp; turns++) {
+      for (let turns = 0; turns < 6 && Date.now() < giveUp; turns++) {
         const aim = x - face * tapStep;
         gap = aim - (await where())[s].x;
         for (let walks = 0; walks < 16 && Math.abs(gap) >= near && Date.now() < giveUp; ) {
@@ -380,11 +380,22 @@ try {
         }
         if (!face || Math.abs(gap) >= near) break;
         // A tap the other way first would walk it off: a tap toward `face` turns it there, a step at most.
-        // Held past the page's send gap (60 ms), so the turn reaches the room.
+        // Held past the page's send gap (60 ms), so the turn reaches the room. Pressed and let go
+        // inside one task of the page, TAP_MS apart on its clock: the piece walks by the page's
+        // clock between the two, and two key events sent from here could be read a long render
+        // apart on a starved 3D page, a step of any length (on GitHub's runner a pawn's taps ran
+        // on into the slime it stood before: "walked to 920 and turned (it is -59 short)").
         const before = (await where())[s].x;
-        await page.keyboard.down(face > 0 ? "ArrowRight" : "ArrowLeft");
-        await sleep(75);
-        await page.keyboard.up(face > 0 ? "ArrowRight" : "ArrowLeft");
+        await page.evaluate(
+          ([k, ms]) => {
+            const key = (type) => document.body.dispatchEvent(new KeyboardEvent(type, { key: k, code: k, bubbles: true }));
+            key("keydown");
+            const until = performance.now() + ms;
+            while (performance.now() < until);
+            key("keyup");
+          },
+          [face > 0 ? "ArrowRight" : "ArrowLeft", TAP_MS],
+        );
         await sleep(250);
         const turned = (await where())[s].x;
         gap = x - turned;
