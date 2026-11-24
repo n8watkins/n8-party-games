@@ -21,7 +21,7 @@ import { makeReplica } from "../shared/replica.js";
 import { BTN } from "../shared/house.js";
 import { TUNE, LEN, DT, trackAt, segAt, wrapU, wrapS } from "./env.js";
 import { CSS, clampN, grainUrl } from "./art.js";
-import { World, ChaseRig, TvRig } from "./view.js";
+import { World, ChaseRig, TvRig, camDt } from "./view.js";
 import { Sound } from "./sound.js";
 import { Split } from "./split.js";
 import { makeGovernor } from "./governor.js";
@@ -874,13 +874,15 @@ class App {
         W.sync(st, dt);
         const w = this.w || 2, h = this.h || 2;
         let views;
-        if (this.rig) views = [(view = this.rig.update(st, W, dt, w / h))];
+        // The cameras move on by the frame's real time (camDt), the cars' springs by the capped dt.
+        const cdt = camDt(raw);
+        if (this.rig) views = [(view = this.rig.update(st, W, cdt, w / h))];
         else {
           // The big screen: the whole table (with its close shots), or a pane for each player. The winner's close shot
           // at the line takes the whole screen in the split view too.
-          const tv = this.tv.update(st, W, dt, w / h);
+          const tv = this.tv.update(st, W, cdt, w / h);
           // The panes' cameras keep following their cars through the close shot, so each pane comes back where its car is.
-          const panes = this.mode === "split" ? this.split.views(st, W, dt) : null;
+          const panes = this.mode === "split" ? this.split.views(st, W, cdt) : null;
           if (panes && !tv.close) views = panes;
           else views = [(view = tv)];
         }
