@@ -20,6 +20,10 @@
     "public",
     "README.md"
   ],
+  "scripts": {
+    "test": "cd ../.. && vitest run games/who-am-i",
+    "test:e2e": "cd ../.. && node games/who-am-i/test/e2e-who-am-i.mjs"
+  },
   "devDependencies": {
     "n8-party-games": "file:../.."
   }

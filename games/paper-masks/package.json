@@ -22,6 +22,10 @@
     "public",
     "README.md"
   ],
+  "scripts": {
+    "test": "cd ../.. && vitest run games/paper-masks",
+    "test:e2e": "cd ../.. && node games/paper-masks/test/e2e-paper-masks.mjs"
+  },
   "devDependencies": {
     "n8-party-games": "file:../.."
   }

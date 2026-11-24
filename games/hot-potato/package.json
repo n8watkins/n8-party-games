@@ -15,6 +15,11 @@
     "lab",
     "README.md"
   ],
+  "scripts": {
+    "test": "cd ../.. && vitest run games/hot-potato",
+    "test:e2e": "cd ../.. && node games/hot-potato/test/e2e-game.mjs",
+    "test:e2e:hearing": "cd ../.. && node games/hot-potato/lab/test/e2e-hearing.mjs"
+  },
   "devDependencies": {
     "n8-party-games": "file:../.."
   }

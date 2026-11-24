@@ -19,6 +19,10 @@
     "tools/*.mjs",
     "README.md"
   ],
+  "scripts": {
+    "test": "cd ../.. && vitest run games/tin-derby",
+    "test:e2e": "cd ../.. && node games/tin-derby/test/e2e-room.mjs --only=short"
+  },
   "devDependencies": {
     "n8-party-games": "file:../.."
   }

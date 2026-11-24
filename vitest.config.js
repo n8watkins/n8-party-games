@@ -32,6 +32,9 @@ const servedShared = {
 };
 
 export default defineConfig({
+  // One cache for the whole repository, in the root node_modules: never a games/<id>/node_modules
+  // (wrangler dev watches games/, and a cache written there restarts the local server mid-test).
+  cacheDir: here("./node_modules/.vite"),
   plugins: [servedShared],
   // The kit by its package name is this repository's own folder (the same alias as wrangler.jsonc).
   resolve: {
