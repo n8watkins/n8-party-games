@@ -1,5 +1,5 @@
 // Who Am I? at the Table: the page each player, a watcher and the big screen sees while it is
-// played. The rules live on the server (party/games/who-am-i); this page only ever gets one seat's
+// played. The rules live on the server (games/who-am-i); this page only ever gets one seat's
 // view of them and sends that seat's taps. The shape every Table game's view keeps
 // (party-kit/GAME-CONTRACT.md, "In the browser"): mount(container, ctx) returns {snapshot, events,
 // unmount}, plus room(next) for the room view as it changes (names of players who join).

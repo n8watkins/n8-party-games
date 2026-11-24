@@ -4,7 +4,10 @@ Each of two players is dealt a secret name: a famous person, a character or a br
 Your phone shows the name the other player is guessing, never your own.
 You ask yes/no questions (or listen to clues), guess who you are, and the other player confirms the guess.
 
-This folder is the pure rules and the names (server only); the page is `party/public/games/who-am-i.js` and `.css` (see "At the Table: the page").
+This folder is the whole game, a package of the hub's (`games/*`, an npm workspace): the pure rules and the names, the tests, and the page in `public/` (see "At the Table: the page").
+Everything but `public/` is server only: the site's build copies only the files the manifest lists, and refuses anything else here (`scripts/build-public.mjs`, `SERVER_ONLY`).
+The page is served at `/party/games/who-am-i.js`, beside the Table's own pages.
+The game reaches the hub only through its package name (`n8-party-games`, a development dependency): the Table's adapter and the draws (`n8-party-games/table`, `n8-party-games/table/draws`), and in the tests the party room and the hub's test helpers (`n8-party-games/lobby/*`, `n8-party-games/testing/*`).
 It is the live game at whoami.n8builds.dev (`n8watkins/who-am-i`, `src/worker/engine.ts` and `src/worker/content`) remade in the shape every Table game keeps (`party-kit/GAME-CONTRACT.md`, "Games at the Table"; Paper Masks set it).
 Where it departs from the live game, the departure is listed under "Differences from the live game".
 
@@ -13,14 +16,16 @@ Where it departs from the live game, the departure is listed under "Differences 
 | `rules.js` | `create`, `apply`, `view`, `nextDeadline`, `done`, `decided`, `result`, `standings`, `cleanOptions` |
 | `deck.js` | The names, the packs, and the live game's rules for dealing two of them (with one more, below) |
 | `deck-data.js` | The live game's 245 names with their hints and pictures. Generated: do not edit |
-| `../draws.js` | The match's random draws: SHA-256 of the secret and a count (shared with Paper Masks) |
-| `tools/copy-deck.mjs` | Copies the names from a who-am-i checkout again: `node party/games/who-am-i/tools/copy-deck.mjs [checkout]` |
-| `index.js` | `game` (through `../table-game.js`) and `manifest`, listed in `games.js` (`TURN_GAMES`) |
+| `n8-party-games/table/draws` | The kit's random draws for a match (`party-kit/src/table/draws.js`): SHA-256 of the secret and a count (shared with Paper Masks) |
+| `tools/copy-deck.mjs` | Copies the names from a who-am-i checkout again: `node games/who-am-i/tools/copy-deck.mjs [checkout]` |
+| `index.js` | `game` (through the kit's Table adapter, `n8-party-games/table`) and `manifest`, listed in `games.js` (`TURN_GAMES`) |
+| `public/` | The page at the Table: `who-am-i.js`, `who-am-i.css`, and `who-am-i/` with the door and the fonts |
+| `package.json` | The package, with the game's version: bump it in the pull request that changes the game (a feat a minor, a fix a patch; `DEPLOY.md`, "Releases") |
 | `test/` | Whole matches, timers and leaving, every refusal, secrecy properties, the names, and the game on the real party room |
 | `test/e2e-who-am-i.mjs` | Three whole matches in real browsers with every secret checked (`npm run test:who-am-i`, in the pre-deploy gate) |
 
 Everything is a pure function of plain JSON.
-There is no clock and no hidden randomness: the room passes `now`, and every draw comes from the match's secret (`state.secret`) at a position kept in the state (`state.draws`; `../draws.js`).
+There is no clock and no hidden randomness: the room passes `now`, and every draw comes from the match's secret (`state.secret`) at a position kept in the state (`state.draws`; `n8-party-games/table/draws`).
 It is on the Table's list (`games.js`, `TURN_GAMES`), in place of its "Coming soon" entry (`lobby/wall.js`, `TABLE_SOON`).
 It is a Table game only (the owner's decision of 2026-11-16: the Floor and the Table are separate; it is not on the Floor's wall).
 The front page's Table door plays it here, and its card links the live game at whoami.n8builds.dev as a second way to play (`site/home-data.js`, `ownSite`).
@@ -200,7 +205,7 @@ Notes: `began` (`how`: `host` or `time`), `reshuffled`, `timed_out`, `guess_laps
 - **Ids say nothing.** Names have no id in any view (a page gets name, pack and picture).
   Question and hint ids are plain counts (`q1`, `h2`): nothing secret goes into them, and they are the same whoever was dealt what (`test/secrecy.test.js`, "ids and order say nothing").
 - **The deal comes from a real secret.** The room's seed is 32 bits and a page may learn it; an earlier version drew names from it and a 32-bit generator, so one entry id (or a few revealed names) let a player search for the seed and replay their own name.
-  Now the Table's adapter draws 256 bits from `crypto.getRandomValues` for each match and the rules draw from it alone: draw n is SHA-256("who-am-i/draw/n/secret") (`draws.js`), a keyed stream that names revealed so far say nothing about.
+  Now the Table's adapter draws 256 bits from `crypto.getRandomValues` for each match and the rules draw from it alone: draw n is SHA-256("who-am-i/draw/n/secret") (the kit's `draws.js`), a keyed stream that names revealed so far say nothing about.
   SHA-256 is written out in the module because the rules are synchronous and `crypto.subtle.digest` is not; the tests check it against `node:crypto`.
   `test/secrecy.test.js` checks that the room's seed does not change the deal, that the review's search finds nothing, that no view holds any part of the secret or of a draw, and that a match restored from its saved state deals on exactly as before.
 - **Order and counts.** Whether the pack reshuffles is settled from the names already revealed, before anything is drawn, and dealing calls the generator the same number of times whatever comes out (`test/deck.test.js`).
@@ -208,12 +213,12 @@ Notes: `began` (`how`: `host` or `time`), `reshuffled`, `timed_out`, `guess_laps
 - **The secret** is kept in the state, which only the server holds, and no view holds it, the draw count, the deck or the assignments (`test/secrecy.test.js`).
 - **Through the room:** `test/at-table.test.js` scans every frame each socket of a real party room receives during a whole match: no phone hears its own name before the reveal, the big screen hears neither, a late joiner hears neither; a reconnect, a reload and a restart keep it so.
 
-The names live in `deck-data.js`, server only (nothing in `party/games` reaches the site), but this repository is public, as the who-am-i repository is: anyone can read the lists.
+The names live in `deck-data.js`, server only (nothing in this folder but `public/` reaches the site), but this repository is public, as the who-am-i repository is: anyone can read the lists.
 That is no help in a game: you do not know which of 245 names you were dealt.
 
 ## For the page builder
 
-- **Mount at the Table** (`manifest.table.view`, `games/who-am-i.js`, in `party/public/games/`), upright, a phone each; read only the view you are given.
+- **Mount at the Table** (`manifest.table.view`, `games/who-am-i.js` under `/party/`, from `public/`), upright, a phone each; read only the view you are given.
 - **Your own name:** show "Your name: hidden" during a round; the view has no field for it. Show `opponent` (name, picture with its credit) big on a player's phone.
 - **Watchers and the big screen** have no `opponent`: show the log, scores, whose turn, the timers, and the reveal.
 - **Pictures** load from `upload.wikimedia.org` (the party's page needs that host in `img-src`, with no referrer, as the live site does), and carry their credit (`author`, `license`, `filePage`); `free: false` pictures are non-free images from Wikipedia articles.
@@ -243,7 +248,7 @@ That is no help in a game: you do not know which of 245 names you were dealt.
 
 ## At the Table: the page
 
-`party/public/games/who-am-i.js` and `.css`, with Nunito (OFL, `party/public/games/who-am-i/fonts/`), in the live game's look: its purple, its question-mark mark, the "Answer as" headband card, chat bubbles for questions and amber rows for hints, light or dark with the phone's setting.
+`public/who-am-i.js` and `.css`, with Nunito (OFL, `public/who-am-i/fonts/`), in the live game's look: its purple, its question-mark mark, the "Answer as" headband card, chat bubbles for questions and amber rows for hints, light or dark with the phone's setting.
 
 - **Setup:** the host's form (category, level, mode, turns and questions for Ask, match, timer, hints, the pick for a table of more than two) with Start the game and the time left; everyone else sees the choices as they stand.
 - **A turn, the guesser:** the other player's name small at the top, "Your name: hidden", the log, and at the bottom the suggested questions, a box, "+1 asked out loud", Hint, Pass (trade) or Give up, and I Guessed It. While a guess waits: the time left to confirm it, and, once the other phone has been away 30 s (`selfConfirmAt`), Confirm it myself.

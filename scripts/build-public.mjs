@@ -48,7 +48,7 @@ import { CARRY_LIVE, ID_PLACEHOLDER, PREVIEW_DIR, RELEASE_FILE, buildKind, flatR
 
 /** Where Who Am I?'s pictures load from: the one outside host any page of this site may show images from. */
 export const PICTURE_HOST = "https://upload.wikimedia.org";
-/** The Table's pages (party/public, served at /party/): the only ones that may. */
+/** The Table's pages (party/public and the Table games' views, served at /party/): the only ones that may. */
 export const TABLE_PAGES = "/party/*";
 import { GAMES, TURN_GAMES } from "../games.js";
 import { WALL } from "../lobby/wall.js";
@@ -264,7 +264,7 @@ export const SOURCES = entries.map((entry) => entry.from);
  * site's pages may be framed by this site's pages, and by nobody else. Hot Potato
  * (one-device/hot-potato) and its hearing test (lab/hot-potato) listen through the microphone; no
  * other page may. Who Am I? at the Table shows each name's picture straight from Wikimedia, as
- * its own site does (party/games/who-am-i/README.md, "For the page builder"): the Table's pages,
+ * its own site does (games/who-am-i/README.md, "For the page builder"): the Table's pages,
  * and only those, may load pictures from there. Only the pages that make rooms (those that load
  * the kit's bot check: the party room's way in, the Table's start page, a hosted game's own page
  * with the kit's lobby) may load anything from Turnstile (party-kit/build/public.mjs, roomMakingPages).

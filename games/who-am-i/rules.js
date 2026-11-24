@@ -8,7 +8,7 @@
 // Everything here is a pure function of plain JSON: no clock, no platform APIs, no hidden
 // randomness. Every draw (the names, who starts) comes from the match's secret (`state.secret`,
 // at least 128 bits the Table's adapter takes from the platform's secure source) through
-// party/games/draws.js, at a position kept in the state (`state.draws`). The room's `seed` is not used: a page
+// the kit's draws (n8-party-games/table/draws), at a position kept in the state (`state.draws`). The room's `seed` is not used: a page
 // may learn it. The state is server only: a page gets `view(state, seat)` and nothing else.
 //
 //   create(seats, options, seed, now, { secret })  -> state | refusal

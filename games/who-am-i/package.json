@@ -1,0 +1,26 @@
+{
+  "name": "who-am-i",
+  "version": "0.2.0",
+  "private": true,
+  "type": "module",
+  "description": "Who Am I? at the Table: each of two players is dealt a secret name, asks yes/no questions and guesses who they are. The live game at whoami.n8builds.dev, in the shape every Table game keeps.",
+  "license": "MIT",
+  "exports": {
+    ".": "./index.js",
+    "./rules": "./rules.js",
+    "./deck": "./deck.js",
+    "./testing/table": "./test/table.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "index.js",
+    "rules.js",
+    "deck.js",
+    "deck-data.js",
+    "public",
+    "README.md"
+  ],
+  "devDependencies": {
+    "n8-party-games": "file:../.."
+  }
+}

@@ -7,10 +7,10 @@
 // repository, a package by its own name), import it here by its package name, and add it to the
 // list. The build and the Worker read this list.
 import * as corkAndBell from "cork-and-bell";
-// Tin Derby and Paper Masks are folders of this repository (games/<id>), workspace packages.
+// Tin Derby, Paper Masks and Who Am I? are folders of this repository (games/<id>), workspace packages.
 import * as paperMasks from "paper-masks";
 import * as tinDerby from "tin-derby";
-import * as whoAmI from "./party/games/who-am-i/index.js";
+import * as whoAmI from "who-am-i";
 
 export const GAMES = [corkAndBell, tinDerby];
 
@@ -27,9 +27,10 @@ export const SCORE_BOARDS = Object.fromEntries(
 // The games played at the Table (the party's plain waiting room, /party/): turn-based games
 // (`tickHz: 0`) that keep the same contract, plus `manifest.table.view`, the module under the
 // game's public path that shows it at the Table. lobby/wall.js (buildTurnWall) hangs them on the
-// Table's list with the coming-soon entries. A Table game is a package (Paper Masks: games/<id>,
-// its view in its own public/ folder, listed in its manifest's `public` and served under /party/),
-// or lives in this repository without one (party/games/<id>/index.js, with its view in
-// party/public/games and `public: []`, as Who Am I? does): import it here either way. Everything
-// in a Table game's package but its public files is server only (scripts/build-public.mjs).
+// Table's list with the coming-soon entries. A Table game is a package (Paper Masks and Who Am I?:
+// games/<id>, the view in its own public/ folder, listed in its manifest's `public` and served
+// under /party/), or lives in this repository without one (party/games/<id>/index.js, with its
+// view in party/public/games and `public: []`, as the test game Count to ten does): import it here
+// either way. Everything in a Table game's package but its public files is server only
+// (scripts/build-public.mjs).
 export const TURN_GAMES = [paperMasks, whoAmI];

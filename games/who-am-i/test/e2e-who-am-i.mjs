@@ -1,6 +1,6 @@
 // End to end, in real pages (headless and muted): Who Am I? at the Table.
 //
-//   node party/games/who-am-i/test/e2e-who-am-i.mjs [--base=http://localhost:8791] [--out=<folder for stills>] [--only=1,2,4,3]
+//   node games/who-am-i/test/e2e-who-am-i.mjs [--base=http://localhost:8791] [--out=<folder for stills>] [--only=1,2,4,3]
 //
 // One party plays three whole matches through real browsers:
 //   1. Ann and Bo alone, first to 3, trade turns: typed questions (one of them markup), every
@@ -34,9 +34,9 @@
 // no referrer and the site's CSP must allow. Captioned stills of every phase go to --out.
 import { mkdirSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { launchBrowser } from "../../../../lobby/test/browser.mjs";
-import { BACK_NOTE_MS, clockText } from "../../../../lobby/public/connection.js";
-import { still as takeStill } from "../../../../party-kit/test/stills.mjs";
+import { BACK_NOTE_MS, clockText } from "n8-party-games/lobby/connection";
+import { launchBrowser } from "n8-party-games/testing/browser";
+import { still as takeStill } from "n8-party-games/testing/stills";
 import { IDENTITIES } from "../deck.js";
 
 const args = process.argv.slice(2);

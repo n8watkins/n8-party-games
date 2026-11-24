@@ -1,15 +1,15 @@
-// Who Am I? as the Table runs it: through the Table's own adapter (party/games/table-game.js), and
-// then on the real party room class with fake sockets, storage and alarm, as a party plays it:
+// Who Am I? as the Table runs it: through the Table's own adapter (the kit's, n8-party-games/table),
+// and then on the real party room class with fake sockets, storage and alarm, as a party plays it:
 // two phones and a big screen, a phone that drops and comes back, a reload, a restart of the room,
 // someone arriving mid-match, a phone gone past the room's grace, and a player leaving on purpose.
 // Every frame every socket receives is scanned for names it must not hold.
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { dropFakeRuntime, fakeCtx, fakeEnv, settle, useFakeRuntime } from "../../../../lobby/test/fake-room.js";
-import { from } from "../../../../lobby/test/turn-game.js";
-import { TEST_WALL, buildTurnWall } from "../../../../lobby/wall.js";
-import { PLAY_BEAT_MS } from "../../../../lobby/shared/table.js";
-import { TURN_GRACE_MS } from "../../../../lobby/server/lobby-core.js";
+import { TURN_GRACE_MS } from "n8-party-games/lobby/core";
+import { PLAY_BEAT_MS } from "n8-party-games/lobby/table";
+import { TEST_WALL, buildTurnWall } from "n8-party-games/lobby/wall";
 import { tableGame } from "n8-party-games/table";
+import { dropFakeRuntime, fakeCtx, fakeEnv, settle, useFakeRuntime } from "n8-party-games/testing/fake-room";
+import { from } from "n8-party-games/testing/turn-game";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as rules from "../rules.js";
 import { game, manifest } from "../index.js";
 import { getIdentity } from "../deck.js";
@@ -23,7 +23,7 @@ vi.mock("cloudflare:workers", () => ({
   },
 }));
 
-const { createLobbyRoom } = await import("../../../../lobby/server/lobby-room.js");
+const { createLobbyRoom } = await import("n8-party-games/lobby/room");
 
 const T0 = 5_000_000;
 const GAME = "who-am-i";
@@ -35,7 +35,8 @@ describe("through the Table's adapter", () => {
     const g = tableGame(rules);
     expect(g).toMatchObject({ id: GAME, minSeats: 2, maxSeats: 8, tickHz: 0 });
     expect(game.id).toBe(GAME);
-    expect(manifest).toMatchObject({ id: GAME, path: "/party/", players: { min: 2, max: 2 }, public: [], table: { view: "games/who-am-i.js" } });
+    expect(manifest).toMatchObject({ id: GAME, path: "/party/", players: { min: 2, max: 2 }, table: { view: "games/who-am-i.js" } });
+    expect(manifest.public.map((f) => f.to)).toEqual(["games/who-am-i.js", "games/who-am-i.css", "games/who-am-i"]);
     const state = g.create({ seats: [{ seat: 0 }, { seat: 3 }], seed: 4242, now: T0, host: 3 });
     expect(state).toMatchObject({ phase: "setup", host: 3, pick: [0, 3] });
     expect(g.snapshot(state, T0, { role: "player", seat: 0 })).toMatchObject({ phase: "setup", you: { seat: 0, role: "player", host: false } });

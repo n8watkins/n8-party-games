@@ -6,12 +6,12 @@
 //   - a player who leaves an undecided match forfeits and the one who stayed wins, even with their
 //     page hidden at that moment; only when the other phone is not connected at all is nobody
 //     placed. The card says so plainly.
+import { TURN_GRACE_MS } from "n8-party-games/lobby/core";
+import { PLAY_BEAT_MS } from "n8-party-games/lobby/table";
+import { TEST_WALL, buildTurnWall } from "n8-party-games/lobby/wall";
+import { dropFakeRuntime, fakeCtx, fakeEnv, settle, useFakeRuntime } from "n8-party-games/testing/fake-room";
+import { from } from "n8-party-games/testing/turn-game";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { dropFakeRuntime, fakeCtx, fakeEnv, settle, useFakeRuntime } from "../../../../lobby/test/fake-room.js";
-import { from } from "../../../../lobby/test/turn-game.js";
-import { TEST_WALL, buildTurnWall } from "../../../../lobby/wall.js";
-import { PLAY_BEAT_MS } from "../../../../lobby/shared/table.js";
-import { TURN_GRACE_MS } from "../../../../lobby/server/lobby-core.js";
 import * as rules from "../rules.js";
 import { game, manifest } from "../index.js";
 
@@ -24,7 +24,7 @@ vi.mock("cloudflare:workers", () => ({
   },
 }));
 
-const { createLobbyRoom } = await import("../../../../lobby/server/lobby-room.js");
+const { createLobbyRoom } = await import("n8-party-games/lobby/room");
 const GAME = "who-am-i";
 const NAMES = ["Ann", "Bo"];
 const key = (seat) => NAMES[seat].toLowerCase();
