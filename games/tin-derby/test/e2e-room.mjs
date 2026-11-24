@@ -553,7 +553,9 @@ try {
           if (!said || now === null) continue;
           const r = said.rec;
           if (r.over) return;
-          const own = (name) => roomWord.on.get(carOf(r, name)) === 0;
+          // (A phone heard from in the count-in drives from GO with no hand-over at all; one not yet heard is handed
+          // to the house at GO, at the room's first look.)
+          const own = (name) => roomWord.on.get(carOf(r, name)) !== 1;
           // Bo makes his phone a controller only, before his drop and reload: it must be so again after the reload.
           if (at.pad === null && now > 1 && maps.frames.has(bo)) {
             const bf = maps.frames.get(bo);
@@ -589,7 +591,12 @@ try {
             at.reloadSteps = [];
             reloading = bo.reload({ timeout: 90_000 })
               .then(() => { at.reloadSteps.push(`room page ${took()}`); return bo.waitForSelector(FRAME, { timeout: 90_000 }); })
-              .then(() => { at.reloadSteps.push(`game frame ${took()}`); return derby(bo, 90_000); })
+              .then(() => {
+                const first = bo.down.find((d) => d[0] >= r0);
+                at.reloadSteps.push(`the room's first word ${first ? ((first[0] - r0) / 1000).toFixed(1) : "?"}`, `game frame ${took()}`);
+                at.reloadWords = bo.down.filter((d) => d[0] >= r0).slice(0, 12).map((d) => `${((d[0] - r0) / 1000).toFixed(1)}:${/"t":"(\w+)"/.exec(d[2])?.[1] ?? d[1]}`).join(" ");
+                return derby(bo, 90_000);
+              })
               .then(async (f) => { at.reloadSteps.push(`race ${took()}`); maps.frames.set(bo, f); at.padBack = await f.evaluate(() => window.__derby.app.pad).catch(() => null); }, (e) => at.reloadSteps.push(`stopped: ${String(e?.message).split("\n")[0]}`));
           }
         }
@@ -598,6 +605,7 @@ try {
       await troubles;
       await clicking;
       console.log(`     the troubles, on the room's race clock: Bo's switch then his drop ${at.drop?.toFixed(1)}, back ${at.back?.toFixed(1)}, reload ${at.reload?.toFixed(1)} (back: ${at.reloadSteps?.join(", ") || "not yet"} s after); the stall ${at.freeze?.toFixed(1)}`);
+      console.log(`     DIAG the reloaded page's first words: ${at.reloadWords}`);
       // Bo's page may still be on its way back with the race already over: its frame is gone, so this ends with the race.
       await Promise.race([reloading, sleep(2000)]);
       if (end) {
