@@ -46,6 +46,9 @@ const check = (ok, what) => {
   console.log((ok ? "ok   " : "FAIL ") + what);
   if (!ok) problems.push(what);
 };
+// What this run left out because the pages could not keep up (its slow mode): printed together at the end, so a
+// passing run on a slow machine never reads as having checked them.
+const notVerified = [];
 const books = async () => (await (await fetch(api + "/debug")).json()).budget?.usage ?? null;
 /**
  * Waits until the server serves the lobby page and every module it imports (a static import
@@ -177,7 +180,10 @@ try {
       const frame = await handle.contentFrame();
       try {
         if (!frame) throw new Error("the game's frame element has no page in it yet");
-        await frame.waitForFunction(() => window.__cab?.mode === "battle" && window.__cab.session, null, { timeout: Math.max(1, until - Date.now()) });
+        // Resolves with the game page's own clock at the frame it was first seen ready: how long that page took to load
+        // and be ready, from its own navigation (frame.readyMs), with none of this run's waiting in it.
+        const ready = await frame.waitForFunction(() => window.__cab?.mode === "battle" && window.__cab.session && performance.now(), null, { timeout: Math.max(1, until - Date.now()) });
+        frame.readyMs = await ready.jsonValue();
         return frame;
       } catch (err) {
         const gone = !frame || frame.isDetached() || /detached/i.test(String(err?.message));
@@ -298,9 +304,10 @@ try {
   // another, with the game 55 s in coming up, the round ended before the run reached the big screen's count.)
   await Promise.all([["Ada", ada], ["Cy", cy], ["screen", screen]].map(async ([name, page]) => (frames[name] = await gameFrame(page))));
   const loadedIn = Date.now() - startedAt;
-  // How long Ada's game page took to load and be ready (ms since its own navigation began): about what her reload in
-  // the middle will take, which the round must leave time for (below).
-  const adaLoadMs = await frames.Ada.evaluate(() => performance.now());
+  // How long Ada's game page took to load and be ready, on its own clock from its own navigation to the first frame it
+  // was ready in (gameFrame): about what her reload in the middle will take, which the round must leave time for
+  // (below). (Not read once all three pages were up: that added the wait for the other two.)
+  const adaLoadMs = frames.Ada.readyMs;
   // A browser that draws WebGL in software (Playwright's own, in WSL) has pages that run many
   // seconds behind the room. What needs a page to keep up with the round is left
   // out there, and said so; everything the room decides is checked either way.
@@ -312,7 +319,15 @@ try {
   const slowest = Math.min(...fps);
   const slow = loadedIn > 15_000 || slowest < 15;
   stillsWanted = !slow;
-  if (slow) console.log(`     (the game took ${(loadedIn / 1000).toFixed(0)} seconds to come up, and its slowest page drew ${slowest.toFixed(1)} frames a second: this browser draws in software. The reload in the middle, the door sheet and the stills are left out; run with --win=1 for all of it.)`);
+  if (slow) {
+    console.log(`     (the game took ${(loadedIn / 1000).toFixed(0)} seconds to come up, and its slowest page drew ${slowest.toFixed(1)} frames a second: this browser draws in software. The reload in the middle, the door sheet, the result card's text and the stills are left out, and listed at the end; run with --win=1 for all of it.)`);
+    notVerified.push(
+      "a reload in the middle comes back to the same stall, with its corks and points, and can fire again",
+      "in the game, the door button offers Leave the party on a sheet that fits a sideways phone",
+      "the room's card shows who came where, with the scores",
+      "the stills (battle, door sheet, result, back in the room, the party of one, the late screen)",
+    );
+  }
   // Where the pages keep up, the party of one plays its round in a room of its own while this
   // battle runs its ninety seconds, from once Ada's reload in the middle is back (below): the two
   // share nothing but the server's books (counted together below). Started any sooner, its two
@@ -428,11 +443,12 @@ try {
   // Ada's phone reloads in the middle of the round, as a phone that dozed off would: only where the round leaves time
   // for it, twice what her page took to load the first time and 20 s more to fire again (begun 55 s into the round,
   // one came back after time was called), and only once the big screen has counted her corks: while she is away the
-  // room's stand-in plays her seat, and its corks are hers on the big screen too. Where it does not fit, it is left
-  // out, and said so, as where the pages do not keep up.
+  // room's stand-in plays her seat, and its corks are hers on the big screen too. Where the pages keep up and it does
+  // not fit, the check fails: a run that is not in its slow mode must check the reload. (In slow mode it is listed as
+  // not verified, above.)
   const roundLeft = ROUND_SECONDS - ((Date.now() - startedAt) / 1000 - COUNT_IN);
   const reloadFits = !slow && roundLeft > (2 * adaLoadMs) / 1000 + 20;
-  if (!slow && !reloadFits) console.log(`     (the reload in the middle is left out: ${roundLeft.toFixed(0)} s of the round were left, and Ada's game took ${(adaLoadMs / 1000).toFixed(0)} s to load the first time)`);
+  if (!slow && !reloadFits) check(false, `a reload in the middle comes back to the same stall: NOT VERIFIED, the round had ${roundLeft.toFixed(0)} s left and Ada's game took ${(adaLoadMs / 1000).toFixed(1)} s to load the first time (it needs twice that and 20 s more)`);
   if (reloadFits) {
     const scoreBefore = (await summary(frames.screen)).stalls[0].score;
     const reloadAt = Date.now();
@@ -673,7 +689,8 @@ try {
   await browser.close();
   for (const b of extraBrowsers) if (b !== browser) await b.close().catch(() => {});
 }
-console.log(problems.length ? `\n${problems.length} problem(s):\n- ` + problems.join("\n- ") : "\nAll good. Stills are in " + out);
+if (notVerified.length) console.log(`\nNOT VERIFIED on this machine (its pages could not keep up; run on a machine that draws with a graphics card, or with --win=1):\n- ` + notVerified.join("\n- "));
+console.log(problems.length ? `\n${problems.length} problem(s):\n- ` + problems.join("\n- ") : notVerified.length ? `\nAll checks run passed; ${notVerified.length} left out, listed above.` : "\nAll good. Stills are in " + out);
 // Exit once everything printed has left: process.exit drops what is still queued for a pipe (the
 // pre-deploy gate reads this output through one), and the list of problems is printed last.
 process.stdout.write("", () => process.stderr.write("", () => process.exit(problems.length ? 1 : 0)));
