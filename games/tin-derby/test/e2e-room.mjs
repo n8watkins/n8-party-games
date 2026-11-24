@@ -270,7 +270,7 @@ try {
    * race time, seconds). `panes`: the page whose probe also sends its panes (last.get(page).P). Returns the room's
    * `end` message and what each page last said (`last`, with `seenAt`: this machine's clock when it came).
    */
-  async function race(label, code, pages, { during = null, still = null, panes = null, watch = null } = {}) {
+  async function race(label, code, pages, { during = null, still = null, panes = null, watch = null, early = false } = {}) {
     // Each page joins the watch as soon as its own race is up: one page slow to load (a phone that comes up after GO)
     // must not hold up watching the others, or the troubles timed by them. Each must come up, as before.
     const frames = new Map();
@@ -279,7 +279,8 @@ try {
     let allUp = false;
     up.then(() => (allUp = true), () => {}); // (awaited below)
     const last = new Map();
-    // `watch`: given the frames and the pages' last words at once, as they fill (`during` runs once every page is up).
+    // `watch`: given the frames and the pages' last words at once, as they fill. `during` runs once every page is up,
+    // or from the start with `early` (a `during` that copes with pages not yet there).
     if (watch) Object.assign(watch, { frames, last });
     let end = null, mid = false, countShot = false;
     const t0 = Date.now();
@@ -296,7 +297,7 @@ try {
       const t = last.get(watched)?.t ?? -9;
       if (still && !countShot && t < 0) { countShot = true; await still("countdown", t); }
       if (still && !mid && t > 25) { mid = true; await still("mid-race", t); }
-      if (during && allUp) await during(t, frames, last);
+      if (during && (allUp || early)) await during(t, frames, last);
       const home = [...last.values()].some((l) => l.cars.some((c) => c.fin));
       if (still && home && !last.finShot) { last.finShot = true; await still("finish", t); }
       for (const p of pages) if (!end) { end = endOf(p); if (end) endAt = Date.now(); }
@@ -308,8 +309,9 @@ try {
     await up;
     if (!end) return { end, last };
     // The room's card is up for some six seconds after the end: each page is watched for it from now, all at once
-    // (one after another, a page drawn in software could be reached only once its card had gone).
-    const cards = new Map([...frames.keys()].map((p) => [p, p.waitForFunction((sel) => !document.querySelector(sel) && !!document.querySelector(".card-back .card"), FRAME, { timeout: 15000 }).then(() => null, () => p.evaluate((sel) => ({ frames: document.querySelectorAll(sel).length, card: !!document.querySelector(".card-back .card") }), FRAME).catch((e) => ({ error: e.message })))]));
+    // (one after another, a page drawn in software could be reached only once its card had gone), for up to 60 s: a
+    // page drawn in software on a small machine acts on the end late (on GitHub's runner the big screen, over 15 s).
+    const cards = new Map([...frames.keys()].map((p) => [p, p.waitForFunction((sel) => !document.querySelector(sel) && !!document.querySelector(".card-back .card"), FRAME, { timeout: 60_000 }).then(() => null, () => p.evaluate((sel) => ({ frames: document.querySelectorAll(sel).length, card: !!document.querySelector(".card-back .card") }), FRAME).catch((e) => ({ error: e.message })))]));
     // Each page's own last word, once its copy has reached the end too (where its frame is still there): two cars the
     // last call caught side by side can swap places in the last moments.
     await Promise.all([...frames].map(async ([p, f]) => {
@@ -341,7 +343,7 @@ try {
     // Every page that showed the race, a big screen that joined late included.
     for (const [p, seen] of cards) {
       const missed = await seen;
-      check(!missed, `${label}, ${p.name}: the game is taken away and the room shows its result card${missed ? ` (not seen together within 15 s; now ${JSON.stringify(missed)})` : ""}`);
+      check(!missed, `${label}, ${p.name}: the game is taken away and the room shows its result card${missed ? ` (not seen together within 60 s; now ${JSON.stringify(missed)})` : ""}`);
     }
     return { end, last };
   }
@@ -490,13 +492,15 @@ try {
     const scr = await screenPage();
     const pin = await startParty(scr);
     const flat = await launchBrowser({ software: true, args: ["--disable-webgl", "--disable-3d-apis"] });
-    // Each phone that draws is a browser of its own, as each phone is a device with its own graphics: pages of one
-    // browser share its one graphics process, and drawn in software on a small machine every WebGL call of one page
-    // (each a round trip to that process) waited behind the others' frames. A profile of Bo's reloaded page there
-    // spent 6.4 s of its 8.5 s way back making the 3D world, nearly all of it in getContext, getParameter,
-    // getExtension and a canvas's toDataURL; on GitHub's runner the reload took some 22 s to come back.
-    const phoneBrowsers = await Promise.all(["Ada", "Bo", "Stall"].map(() => launchBrowser({ args: ["--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--autoplay-policy=no-user-gesture-required"] })));
-    const [adaB, boB, stallB] = phoneBrowsers;
+    // Bo's phone, the one that reloads, is a browser of its own, as a phone is a device with its own graphics: pages
+    // of one browser share its one graphics process, and drawn in software on a small machine every WebGL call of a
+    // page making its 3D world (each a round trip to that process) waits behind the other pages' frames. A profile of
+    // Bo's reloaded page on four threads spent 6.4 s of its 8.5 s way back in getContext, getParameter, getExtension
+    // and a canvas's toDataURL; on GitHub's runner the reload took 22 s and more to come back, past the end of the
+    // race, and in a browser of its own 5 to 14 s. (Every phone in a browser of its own loaded that small machine
+    // more than it helped: each browser draws with a pool of threads of its own.)
+    const boB = await launchBrowser({ args: ["--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--autoplay-policy=no-user-gesture-required"] });
+    const phoneBrowsers = [boB], adaB = browser, stallB = browser;
     const relay = stallingRelay(new URL(base));
     try {
       const ada = await phone("Ada", pin, "&derby-short=1", { context: { hasTouch: true, isMobile: true, via: adaB } });
@@ -534,21 +538,24 @@ try {
       // what the pages drew, they came 15 s late on GitHub's runner, too late for the reload to come back before the
       // end.) Each waits for its phone to be driving its own car first (a page that loads after GO is the house's until
       // it speaks, so there would be nothing to take).
-      const roomWord = { read: 0, n: null, at: 0, on: new Map(), onAt: new Map() };
+      // The room's clock is this machine's: the race's step at a moment is fixed by its startAt and delay (rules.js,
+      // stepOf), which every snapshot carries, so the race time now is read off the wall clock, not off the latest
+      // message (Playwright hands this run a page's socket frames through that page, so a page drawn in software can
+      // pass them on seconds late: timed by the big screen's, a stall once came 6 s after the moment it was meant for).
+      // The hand-overs come from the phone with no 3D, whose page has the least to do.
+      const roomWord = { read: 0, startAt: null, delay: 0, on: new Map(), onAt: new Map() };
       const hearRoom = () => {
-        const down = scr.down;
+        const down = nogl.down;
         for (; roomWord.read < down.length; roomWord.read++) {
-          const [when, , s] = down[roomWord.read];
-          if (!s.includes('"ev"')) continue;
+          const [, , s] = down[roomWord.read];
+          if (!s.includes('"ev"') && !s.includes('"snap"')) continue;
           let m = null;
           try { m = JSON.parse(s); } catch { /* not one message */ }
+          if (m?.t === "snap" && typeof m.s?.startAt === "number" && typeof m.s.delay === "number") { roomWord.startAt = m.s.startAt; roomWord.delay = m.s.delay; }
           if (m?.t !== "ev") continue;
-          for (const e of m.ev ?? []) {
-            if (e.k === "n" && (roomWord.n === null || e.n >= roomWord.n)) { roomWord.n = e.n; roomWord.at = when; }
-            if (e.k === "a") { roomWord.on.set(e.c, e.on); roomWord.onAt.set(e.c, raceT(e.n)); }
-          }
+          for (const e of m.ev ?? []) if (e.k === "a") { roomWord.on.set(e.c, e.on); roomWord.onAt.set(e.c, raceT(e.n)); }
         }
-        return roomWord.n === null ? null : raceT(roomWord.n) + (Date.now() - roomWord.at) / 1000;
+        return roomWord.startAt === null ? null : (Date.now() - roomWord.delay - roomWord.startAt) / 1000 - 3;
       };
       let reloading = null, clicking = null, raced = false;
       const troubles = (async () => {
@@ -575,11 +582,11 @@ try {
           // Bo's pane on the big screen while the house has his car, from panes the screen drew 2.5 s after the drop.
           // Each step of Bo's trouble waits on the one before, as the room and the screen tell it, not on a fixed time:
           // the room hands his car to the house once it notices the closed socket (0.2 s on the card, up to 2 s drawn
-          // in software), the screen's pane says so in a word the screen drew half a second after that, and then his
+          // in software), the screen's pane says so in the first frame the screen drew with the car the house's, and then his
           // phone is back. (A fixed 5 s away, then 3 s, left the reload too late on GitHub's runner: the house drove
           // his car home before the reloaded page was up, and a car over the line is not handed back.)
           const boCar = carOf(r, "Bo"), boHouseAt = roomWord.on.get(boCar) === 1 && at.drop !== null && roomWord.onAt.get(boCar) >= at.drop - 0.5 ? roomWord.onAt.get(boCar) : null;
-          if (at.drop !== null && at.back === null && at.houseNote === null && boHouseAt !== null && r.t > boHouseAt + 0.5 && r.P) at.houseNote = r.P.panes.find((p) => p.name === "Bo")?.note ?? "";
+          if (at.drop !== null && at.back === null && at.houseNote === null && boHouseAt !== null && r.P && r.cars[boCar]?.auto) at.houseNote = r.P.panes.find((p) => p.name === "Bo")?.note ?? "";
           if (at.drop !== null && at.back === null && at.houseNote !== null && now > at.drop + 2) { at.back = now; await bo.context().setOffline(false); }
           if (at.freeze === null && now > 5 && own("Stall")) { at.freeze = now; relay.freeze(4000); }
           // He reloads once his switch has landed (at.pad says what it did), so the reload shows it was kept.
@@ -608,7 +615,7 @@ try {
           }
         }
       })();
-      const { end, last } = await race("short", code, [ada, bo, stall, nogl, scr], { during, panes: scr, watch: maps }).finally(() => (raced = true));
+      const { end, last } = await race("short", code, [ada, bo, stall, nogl, scr], { during, panes: scr, watch: maps, early: true }).finally(() => (raced = true));
       await troubles;
       await clicking;
       console.log(`     the troubles, on the room's race clock: Bo's switch then his drop ${at.drop?.toFixed(1)}, back ${at.back?.toFixed(1)}, reload ${at.reload?.toFixed(1)} (back: ${at.reloadSteps?.join(", ") || "not yet"} s after); the stall ${at.freeze?.toFixed(1)}`);
