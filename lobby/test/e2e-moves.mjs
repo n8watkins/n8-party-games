@@ -359,9 +359,13 @@ try {
       // again when the tap carried it off: on a busy page the tap's key-up can come late, and a pawn
       // (the fastest piece) once walked on 100 units, past the slime it was set to kick ("Pat's kick
       // bounces off ... Pat 1019, Sam 989"). It ends within `near` of x either way.
+      // A starved page's tap takes a step of a different length each time (its key-up lands on a
+      // frame a few hundred milliseconds apart): tried again from the step it really took, within
+      // the same 45 s (three tries once fell short on GitHub's runner: "walked to 900 and turned
+      // (it is -16 short)").
       let tapStep = face ? 30 : 0;
       let gap = 0;
-      for (let turns = 0; turns < 3; turns++) {
+      for (let turns = 0; turns < 8 && Date.now() < giveUp; turns++) {
         const aim = x - face * tapStep;
         gap = aim - (await where())[s].x;
         for (let walks = 0; walks < 16 && Math.abs(gap) >= near && Date.now() < giveUp; ) {
@@ -596,20 +600,37 @@ try {
     const missed = threw === null ? null : (heardNow.find((h) => h.t === "hk" && h.s === R && h.at > threw && h.o === "miss")?.at ?? null);
     const outFrames = threw === null || missed === null ? [] : pathNow.filter(([t]) => t > threw + HOOK_AIM_MS + 100 && t < missed);
     seen(threw === null || missed === null ? false : outFrames.length === 0 ? null : outFrames.every((f) => f[4]), `Sam's phone draws the chain out while the hook flies on past Pat (${outFrames.length} frames in the flight, ${outFrames.filter((f) => f[4]).length} with the chain)`);
-    await rested(R, P);
-    // Pat out of a kick's reach of Rob (130), well within his hook's.
-    await walkTo(pat, P, 960, -1);
-    await walkTo(rob, R, 700, 1);
-    await sleep(300);
-    const before = (await where())[P].x;
-    mark = ada.seen.length;
     // Pat's phone kicks 100 ms after it hears Rob throw, timed by the page: the hook reaches Pat
     // about 290 ms after the throw, and a kick from 260 ms before to 100 ms after bats it away.
-    await pat.evaluate((s) => (window.__kickOnHook = { of: s, after: 100 }), R);
-    await rob.keyboard.press("KeyX");
-    const parried = await after((m) => m.t === "hk" && m.s === R, 3000, mark);
-    const kicked = ada.seen.slice(mark).find((m) => m.t === "b" && m.s === P);
-    check(parried?.o === "parry" && parried.to === P, `Pat kicks toward Rob as it arrives: batted away (${JSON.stringify(parried && { o: parried.o, to: parried.to })}; Pat's kick ${JSON.stringify(kicked && { to: kicked.to, f: kicked.f })})`);
+    // A starved page (3D on GitHub's runner) can hear the throw or run its timer so late that the
+    // room has its verdict before any kick from Pat: that kick was never made in time, and the
+    // setup is tried again (three times at most). A kick the room heard in time must bat it away.
+    const kickTries = [];
+    let parried = null;
+    let kicked = null;
+    let before = 0;
+    for (let tries = 0; tries < 3; tries++) {
+      await rested(R, P);
+      // Pat out of a kick's reach of Rob (130), well within his hook's.
+      await walkTo(pat, P, 960, -1);
+      await walkTo(rob, R, 700, 1);
+      await sleep(300);
+      before = (await where())[P].x;
+      mark = ada.seen.length;
+      await pat.evaluate((s) => (window.__kickOnHook = { of: s, after: 100 }), R);
+      await rob.keyboard.press("KeyX");
+      parried = await after((m) => m.t === "hk" && m.s === R, 3000, mark);
+      const heard = ada.seen.slice(mark);
+      const verdictAt = heard.indexOf(parried);
+      const kickAt = heard.findIndex((m) => m.t === "b" && m.s === P);
+      kicked = kickAt >= 0 ? heard[kickAt] : null;
+      const inTime = !!parried && kickAt >= 0 && kickAt < verdictAt;
+      kickTries.push(`${parried?.o ?? "no verdict"}${inTime ? "" : ", with no kick from Pat before it"}`);
+      if (inTime || !parried) break;
+      // Late: let the kick that may still come land, so the next try starts from rest.
+      await sleep(1500);
+    }
+    check(parried?.o === "parry" && parried.to === P, `Pat kicks toward Rob as it arrives: batted away (${JSON.stringify(parried && { o: parried.o, to: parried.to })}; Pat's kick ${JSON.stringify(kicked && { to: kicked.to, f: kicked.f })}; tries: ${kickTries.join("; ")})`);
     check(Math.abs((await where())[P].x - before) < 2, "and Pat stays where he was");
 
     section(`${look}: the hook train, and the hook back (a bonk)`);
