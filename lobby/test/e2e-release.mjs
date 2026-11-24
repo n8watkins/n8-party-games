@@ -351,7 +351,12 @@ try {
     await page.waitForLoadState("networkidle").catch(() => {});
     await page.waitForTimeout(1500);
     await page.close();
-    await sleep(300); // the Worker's last lines
+    // The Worker's last lines: until its log has been quiet for a moment, however busy the machine,
+    // so no request of this load is counted with the next one.
+    for (let seen = -1; seen !== arrived.length; ) {
+      seen = arrived.length;
+      await sleep(400);
+    }
     const sent = requests.filter((r) => !r.cached);
     return { requests, sent, arrived: arrived.slice(from).filter((r) => r.method === "GET"), kB: Math.round(sent.reduce((n, r) => n + r.bytes, 0) / 1024), pageErrors };
   }
