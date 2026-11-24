@@ -1,6 +1,6 @@
 {
   "name": "who-am-i",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "private": true,
   "type": "module",
   "description": "Who Am I? at the Table: each of two players is dealt a secret name, asks yes/no questions and guesses who they are. The live game at whoami.n8builds.dev, in the shape every Table game keeps.",

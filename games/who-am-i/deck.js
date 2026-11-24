@@ -104,32 +104,42 @@ function decoded(address) {
   }
 }
 
+/** Words of a name that say nothing on their own (as live, `COMMON_WORDS`). Single letters ("Wile E. Coyote") count too. */
+export const COMMON_WORDS = Object.freeze(new Set(["the", "of", "a", "an", "and", "from", "in", "on", "to"]));
+
+/** The words of a name and its aliases that give it away: "King Kong" gives "king" and "kong". */
+export function tellingWords(identity) {
+  const words = [...keysOf(identity).all].flatMap((k) => k.split(" "));
+  return [...new Set(words)].filter((w) => w.length > 1 && !COMMON_WORDS.has(w));
+}
+
 /**
- * Everything of a name that reaches the OTHER player's phone during a round: the name itself, its
- * hints (in the shared turn log once asked for) and its picture's addresses (decoded) and author;
- * normalised whole words, padded with spaces. `author` is the credit run together with no spaces,
- * since credits join words ("Kingkongphoto").
+ * Everything of a name that reaches the OTHER player's phone during a round: what `publicIdentity`
+ * sends (the name, its pack, its picture's addresses (decoded), author and licence) and its hints
+ * (in the shared turn log once asked for); normalised whole words, padded with spaces. `author` is
+ * the credit run together with no spaces, since credits join words ("Kingkongphoto").
  */
-const SHOWN = new Map(
-  IDENTITIES.map((i) => {
-    const picture = i.picture ? [decoded(i.picture.imageUrl), decoded(i.picture.filePage), i.picture.author ?? ""] : [];
-    return [i.id, { words: ` ${normalizeName([i.name, ...i.hints, ...picture].join(" | "))} `, author: normalizeName(i.picture?.author ?? "").replace(/ /g, "") }];
-  }),
-);
+function shownOf(i) {
+  const picture = i.picture ? [decoded(i.picture.imageUrl), decoded(i.picture.filePage), i.picture.author ?? "", i.picture.license] : [];
+  return { words: ` ${normalizeName([i.name, i.pack ?? "", ...(i.hints ?? []), ...picture].join(" | "))} `, author: normalizeName(i.picture?.author ?? "").replace(/ /g, "") };
+}
+const SHOWN = new Map(IDENTITIES.map((i) => [i.id, shownOf(i)]));
 /** A name run together this long or longer is looked for inside an author credit's words. */
 const RUN_TOGETHER_MIN = 6;
 
 /**
- * Whether what `a`'s player shows the other phone (`a`'s name, hints or picture) names `b` or one
- * of its aliases as whole words, or inside the run-together words of its picture's author credit.
- * The live lists have such pairs: "Link from The Legend of Zelda" carries "Zelda" to Princess
- * Zelda's player, Katniss Everdeen's picture is a file named after Jennifer Lawrence, Princess
- * Zelda's is "Link_to_the_Past_Zelda.png", and Robin Williams' is credited to "Kingkongphoto".
+ * Whether what `a`'s player shows the other phone (`a`'s name, hints or picture) carries a word of
+ * `b`'s name or aliases as a whole word (as live since n8watkins/who-am-i#50), or `b`'s whole name
+ * inside the run-together words of its picture's author credit. The live lists have such pairs:
+ * "Link from The Legend of Zelda" carries "Zelda" to Princess Zelda's player, Donkey Kong's name
+ * carries "Kong" to King Kong's, Minnie Mouse's carries "Mouse" to Mickey's, a hint of Bowser's
+ * names "Princess" Peach, and Robin Williams' picture is credited to "Kingkongphoto".
  */
 export function mentions(a, b) {
-  const shown = SHOWN.get(a.id) ?? { words: ` ${normalizeName(a.name)} `, author: "" };
+  // The deck's own names were read once; anything else (a test's stand-in) is read afresh.
+  const shown = BY_ID.get(a.id) === a ? SHOWN.get(a.id) : shownOf(a);
+  for (const w of tellingWords(b)) if (shown.words.includes(` ${w} `)) return true;
   for (const k of keysOf(b).all) {
-    if (shown.words.includes(` ${k} `)) return true;
     const run = k.replace(/ /g, "");
     if (run.length >= RUN_TOGETHER_MIN && shown.author.includes(run)) return true;
   }
@@ -137,11 +147,14 @@ export function mentions(a, b) {
 }
 
 /**
- * Pairs that give each other away in other words than a name: a hint about one describes the
- * other ("Sega's blue hedgehog", "a fast desert bird", "Peanuts"), or the two are one famous
- * pair. Kept by hand; add to it when a new pair turns up. Ids, in either order.
+ * Pairs that give each other away in other words than a word of a name: a hint about one describes
+ * the other ("Sega's blue hedgehog", "a fast desert bird", "Peanuts"), an actor and a role they
+ * played or voiced, or the two are one famous pair. Kept by hand; add to it when a new pair turns
+ * up. The live game keeps the same kind of list (`REVEALING_PAIRS` in its pairing.ts), all of
+ * which is here. Ids, in either order.
  */
 export const BLOCKED_PAIRS = Object.freeze([
+  // A character whose card describes the other, or one famous pair.
   ["video-games.dr-eggman", "video-games.sonic"],
   ["anime-cartoons.road-runner", "anime-cartoons.wile-e-coyote"],
   ["video-games.tom-nook", "video-games.isabelle"],
@@ -153,12 +166,69 @@ export const BLOCKED_PAIRS = Object.freeze([
   ["anime-cartoons.snoopy", "anime-cartoons.charlie-brown"],
   ["anime-cartoons.snoopy", "brand-mascots.mr-peanut"],
   ["anime-cartoons.charlie-brown", "brand-mascots.mr-peanut"],
+  ["movie-characters.the-joker", "movie-characters.batman"], // a hint names Gotham's caped crusader
+  ["video-games.luigi", "video-games.mario"], // a hint names the other plumber brother
+  ["video-games.yoshi", "video-games.mario"], // a hint names the famous plumber he carries
+  ["video-games.bowser", "video-games.princess-peach"], // a hint names the princess he kidnaps
+  ["video-games.ganondorf", "video-games.link"], // a hint names Hyrule's legends
+  ["video-games.ganondorf", "video-games.princess-zelda"], // a hint names Hyrule's legends
+  ["anime-cartoons.patrick-star", "anime-cartoons.spongebob"], // a hint names his sea sponge best friend
+  ["anime-cartoons.ash-ketchum", "video-games.pikachu"], // his partner; a hint names Pokémon
+  // An actor and a character they played or voiced: either card brings the other to mind.
+  ["actors.daniel-radcliffe", "movie-characters.harry-potter"],
+  ["actors.emma-watson", "movie-characters.hermione-granger"],
+  ["actors.jennifer-lawrence", "movie-characters.katniss-everdeen"],
+  ["actors.robert-downey-jr", "movie-characters.iron-man"],
+  ["actors.harrison-ford", "movie-characters.indiana-jones"],
+  ["actors.tom-holland", "movie-characters.spider-man"],
+  ["actors.tom-holland", "video-games.nathan-drake"],
+  ["actors.keanu-reeves", "movie-characters.neo"],
+  ["actors.tom-hanks", "movie-characters.forrest-gump"],
+  ["actors.tom-hanks", "movie-characters.woody"],
+  ["actors.timothee-chalamet", "movie-characters.willy-wonka"],
+  ["actors.angelina-jolie", "video-games.lara-croft"],
+  ["actors.robin-williams", "anime-cartoons.popeye"],
+  ["actors.jim-carrey", "video-games.dr-eggman"],
+  ["actors.idris-elba", "video-games.knuckles"],
+  ["actors.idris-elba", "historical-figures.nelson-mandela"],
+  ["actors.george-clooney", "movie-characters.batman"],
+  ["actors.ryan-reynolds", "video-games.pikachu"],
+  ["actors.cate-blanchett", "historical-figures.elizabeth-i"],
+  ["actors.judi-dench", "historical-figures.elizabeth-i"],
+  ["actors.judi-dench", "historical-figures.queen-victoria"],
+  ["actors.judi-dench", "movie-characters.james-bond"], // a hint names his chief, M
 ].map((pair) => Object.freeze(pair)));
 const BLOCKED = new Set(BLOCKED_PAIRS.flatMap(([a, b]) => [`${a}|${b}`, `${b}|${a}`]));
 
+function computePairable(a, b) {
+  return !identitiesClash(a, b) && !BLOCKED.has(`${a.id}|${b.id}`) && !mentions(a, b) && !mentions(b, a);
+}
+
+/** For each name of the deck, the ids it may never be dealt beside (itself included). Built on first use. */
+let blockedById = null;
+function blockedFor(identity) {
+  // Only the deck's own names: anything else (a test's stand-in) is worked out afresh.
+  if (BY_ID.get(identity.id) !== identity) return null;
+  if (!blockedById) {
+    blockedById = new Map(IDENTITIES.map((i) => [i.id, new Set([i.id])]));
+    for (let x = 0; x < IDENTITIES.length; x++) {
+      for (let y = x + 1; y < IDENTITIES.length; y++) {
+        const a = IDENTITIES[x];
+        const b = IDENTITIES[y];
+        if (!computePairable(a, b)) {
+          blockedById.get(a.id).add(b.id);
+          blockedById.get(b.id).add(a.id);
+        }
+      }
+    }
+  }
+  return blockedById.get(identity.id);
+}
+
 /** Two names that may be dealt in the same round: no clash, not a blocked pair, and neither gives the other away. */
 export function pairable(a, b) {
-  return !identitiesClash(a, b) && !BLOCKED.has(`${a.id}|${b.id}`) && !mentions(a, b) && !mentions(b, a);
+  const blocked = blockedFor(a);
+  return blocked && BY_ID.get(b.id) === b ? !blocked.has(b.id) : computePairable(a, b);
 }
 
 function pickUniform(items, random) {

@@ -66,11 +66,11 @@ describe("the lists, as live", () => {
 describe("dealing two names", () => {
   it("never deals two names where one gives the other away (found in the live lists)", () => {
     const pairs = [
-      ["Princess Zelda", "Link from The Legend of Zelda"], // her picture is "Link_to_the_Past_Zelda.png"; his name says Zelda
-      ["Katniss Everdeen", "Jennifer Lawrence"], // her picture is a file named after the actress
-      ["The Joker", "Batman"],
-      ["Tails", "Sonic the Hedgehog"],
-      ["Donkey Kong", "King Kong"],
+      ["Princess Zelda", "Link from The Legend of Zelda"], // his name says Zelda
+      ["Katniss Everdeen", "Jennifer Lawrence"], // she played her
+      ["The Joker", "Batman"], // a hint names Gotham's caped crusader
+      ["Donkey Kong", "King Kong"], // "Kong"
+      ["Mickey Mouse", "Minnie Mouse"], // "Mouse"
     ];
     for (const [a, b] of pairs) {
       expect(byName(a), a).toBeTruthy();
@@ -79,8 +79,13 @@ describe("dealing two names", () => {
       expect(pairable(byName(a), byName(b)), `${a} / ${b}`).toBe(false);
       expect(pairable(byName(b), byName(a)), `${b} / ${a}`).toBe(false);
     }
-    expect(mentions(byName("Princess Zelda"), byName("Link from The Legend of Zelda"))).toBe(true);
+    expect(mentions(byName("Link from The Legend of Zelda"), byName("Princess Zelda"))).toBe(true);
     expect(pairable(byName("Tom Hanks"), byName("Meryl Streep"))).toBe(true);
+    // The pictures that named another name are pulled, as live (n8watkins/who-am-i#50): Tails'
+    // was a Sonic game's file, Princess Zelda's "Link_to_the_Past_Zelda.png". With Tails' gone,
+    // nothing on either card names the other, so Tails and Sonic may be dealt together again.
+    for (const name of ["The Joker", "Sheriff Woody", "Katniss Everdeen", "Princess Zelda", "Tails"]) expect(byName(name).picture, name).toBeNull();
+    expect(pairable(byName("Tails"), byName("Sonic the Hedgehog"))).toBe(true);
   });
 
   it("never deals the pairs that give each other away in other words (the hand-kept list), nor a name in an author's run-together credit", () => {
