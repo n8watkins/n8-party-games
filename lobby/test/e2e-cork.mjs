@@ -126,9 +126,14 @@ const pageAddresses = [];
 const loadProblems = [];
 const timeCalls = [];
 const browser = opt("win", "0") === "1" ? await openWindowsChrome({ width: 960, height: 540 }) : await launchBrowser({ args: ["--use-angle=swiftshader", "--enable-unsafe-swiftshader"] }); // with TEST_GPU=1 the WSL browser draws on the card (lobby/test/browser.mjs)
+// Ada's phone, the one that reloads in the middle, is a browser of its own, as a phone is a device with its own
+// graphics: pages of one browser share its one graphics process, and drawn in software every WebGL call of a page
+// making its picture waits there behind the other pages' frames. Sharing it, Ada's reload on GitHub's runner was not
+// back 55 s later, at the end of the round; Tin Derby's reloading phone, profiled, spent most of its way back so.
+const adaBrowser = opt("win", "0") === "1" ? browser : await launchBrowser({ args: ["--use-angle=swiftshader", "--enable-unsafe-swiftshader"] });
 try {
-  async function open(name, viewport, extra = {}) {
-    const context = await browser.newContext({ viewport, deviceScaleFactor: 1, ...extra });
+  async function open(name, viewport, { via = browser, ...extra } = {}) {
+    const context = await via.newContext({ viewport, deviceScaleFactor: 1, ...extra });
     const page = await context.newPage();
     page.on("request", (request) => pageAddresses.push(request.url()));
     page.on("websocket", (ws) => {
@@ -228,8 +233,8 @@ try {
   const pin = (await screen.locator(".code-digits").textContent()).trim();
   /** The corks each page sends, as sent, with this machine's clock then: to explain a cork the room did not count. */
   const sentCorks = {};
-  const join = async (name, viewport, query) => {
-    const page = await open(name, viewport, { hasTouch: true });
+  const join = async (name, viewport, query, via = browser) => {
+    const page = await open(name, viewport, { hasTouch: true, via });
     sentCorks[name] = [];
     page.on("websocket", (ws) => ws.on("framesent", (f) => typeof f.payload === "string" && f.payload.includes('"f":[') && sentCorks[name].push({ d: JSON.parse(f.payload).d.f[0], at: Date.now() })));
     await page.goto(base + "/lobby/?join=" + pin + "&look=flat" + query);
@@ -240,7 +245,7 @@ try {
   };
   // Ada plays by hand on a phone held sideways. Bea is a socket that never fires. Cy holds a
   // phone upright and is played by the game's own bot.
-  const ada = await join("Ada", { width: 844, height: 390 }, "&cork-quality=low");
+  const ada = await join("Ada", { width: 844, height: 390 }, "&cork-quality=low", adaBrowser);
   const bea = connect(await call("POST", "/join/" + pin, { nickname: "Bea" }));
   await bea.opened;
   // A page keeps its socket alive by itself; a bare socket has to say something now and then, or
@@ -652,6 +657,7 @@ try {
   if (errors.length) console.log("     page errors: " + errors.slice(0, 6).join(" | "));
 } finally {
   await browser.close();
+  if (adaBrowser !== browser) await adaBrowser.close().catch(() => {});
 }
 console.log(problems.length ? `\n${problems.length} problem(s):\n- ` + problems.join("\n- ") : "\nAll good. Stills are in " + out);
 // Exit once everything printed has left: process.exit drops what is still queued for a pipe (the
