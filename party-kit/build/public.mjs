@@ -67,6 +67,8 @@ function inlineScriptHashes(files) {
 
 /** What a file whose address never serves other bytes is sent with: kept a year, never asked for again. */
 export const IMMUTABLE = "public, max-age=31536000, immutable";
+/** What Workers sends a file with by itself: kept, but asked about again before each use. */
+export const REVALIDATE = "public, max-age=0, must-revalidate";
 
 /** The kit's bot check module: a page can make a room with the check on only if it loads this. */
 export const BOT_CHECK_MODULE = `${KIT_CLIENT_PATH}/bot-check.js`;
@@ -193,14 +195,26 @@ export function roomMakingPages(out, { computedImports = [] } = {}) {
  * `mirrors` lists address prefixes ("/r/:release") under which every page lives a second time (a
  * release folder holds a copy of each page, which a game shown in a frame loads): each page rule
  * above is repeated under each prefix, so a page's copy is sent the very headers of the page.
+ *
+ * `noindex` lists folders ("/r/*") a search engine must not list (`X-Robots-Tag: noindex`): the
+ * page copies in a release's folder can be reached by their address, and are not the site's pages.
+ *
+ * `fresh` lists paths inside an immutable folder ("/r/:release/preview/*") that are asked for
+ * again each time after all: files that can change while the folder's name does not (the pages
+ * a local build adds, which are no part of the release id). Written last, so it wins.
  */
-export function headersFile(scriptHashes, { frames = "none", microphone = [], images = {}, botCheck = ["/*"], immutable = [], mirrors = [] } = {}) {
+export function headersFile(scriptHashes, { frames = "none", microphone = [], images = {}, botCheck = ["/*"], immutable = [], mirrors = [], noindex = [], fresh = [] } = {}) {
   const own = frames === "self";
   for (const origins of Object.values(images)) for (const origin of origins) if (!/^https:\/\/[a-z0-9.-]+$/.test(origin)) throw new Error(`Not an https origin for img-src: ${origin}`);
   for (const path of botCheck) if (!/^\/[A-Za-z0-9._~/-]*\*?$/.test(path)) throw new Error(`Not a site path for the bot check: ${path}`);
   // One whole top-level folder, never a page's address and never the site: "/r/*".
   for (const path of immutable) if (!/^\/[A-Za-z0-9_-]+\/\*$/.test(path)) throw new Error(`Not a folder to keep as immutable: ${JSON.stringify(path)} (one top-level folder, as "/r/*")`);
   for (const prefix of mirrors) if (!/^(\/:?[A-Za-z0-9_]+)+$/.test(prefix)) throw new Error(`Not a prefix to mirror the page rules under: ${JSON.stringify(prefix)}`);
+  for (const path of noindex) if (!/^\/[A-Za-z0-9_-]+\/\*$/.test(path)) throw new Error(`Not a folder to keep out of search engines: ${JSON.stringify(path)} (one top-level folder, as "/r/*")`);
+  // Inside one of the immutable folders, and never the whole of it.
+  for (const path of fresh) {
+    if (!/^(\/:?[A-Za-z0-9_-]+){2,}\/\*$/.test(path) || !immutable.some((folder) => path.startsWith(folder.slice(0, -1)))) throw new Error(`Not a path inside an immutable folder to keep fresh: ${JSON.stringify(path)}`);
+  }
   const everywhere = botCheck.includes("/*");
   // The pages whose policy differs from the site-wide one, each with what it adds.
   const widened = new Map();
@@ -242,7 +256,10 @@ export function headersFile(scriptHashes, { frames = "none", microphone = [], im
     ...pages.flat(),
     // The same again for each page's copy under a mirror; the site-wide rule already covers it.
     ...mirrors.flatMap((prefix) => pages.filter(([path]) => path !== "/*").flatMap(([path, ...lines]) => [`${prefix}${path}`, ...lines])),
-    ...immutable.flatMap((path) => [path, `  Cache-Control: ${IMMUTABLE}`]),
+    ...immutable.flatMap((path) => [path, `  Cache-Control: ${IMMUTABLE}`, ...(noindex.includes(path) ? ["  X-Robots-Tag: noindex"] : [])]),
+    ...noindex.filter((path) => !immutable.includes(path)).flatMap((path) => [path, "  X-Robots-Tag: noindex"]),
+    // After the folder's rule, so the detach takes the year away again.
+    ...fresh.flatMap((path) => [path, "  ! Cache-Control", `  Cache-Control: ${REVALIDATE}`]),
     "",
   ].join("\n");
 }

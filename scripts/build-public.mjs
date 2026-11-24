@@ -272,6 +272,8 @@ export function buildTree(out, { preview = PREVIEW } = {}) {
 }
 
 const isPreview = (path) => path.startsWith(`${PREVIEW_DIR}/`);
+/** The preview pages' files in any release's folder: asked for again each time (headersFile's `fresh`). */
+export const PREVIEW_FRESH = `${PAGE_MIRROR}/${PREVIEW_DIR}/*`;
 /** The release record's own files in a folded site: never part of the id they hold. */
 const isRecord = (path, id) => path === RELEASE_FILE || path === `${RELEASE_DIR}/${id}/${RELEASE_FILE}`;
 
@@ -337,8 +339,18 @@ export function build(out = OUT, { workerRelease = null, git = repoState(), salt
     writeFileSync(join(tree, RELEASE_FILE), "");
     paths.push(RELEASE_FILE);
     const botCheck = roomMakingPages(tree, { computedImports: COMPUTED_IMPORTS });
+    // The preview pages a local build adds are no part of the release id, so their files can
+    // change while the release's folder keeps its name: in the folder they are asked for again
+    // each time (PREVIEW_FRESH), or a local browser would keep an edited file's old copy.
     const fold = (files, id, pages) =>
-      foldTree({ tree, files, id, stable: STABLE, stableMedia: STABLE_MEDIA, headers: ({ scripts }) => headersFile(scripts, { ...HEADERS, botCheck: pages, immutable: IMMUTABLE_PATHS, mirrors: [PAGE_MIRROR] }) });
+      foldTree({
+        tree,
+        files,
+        id,
+        stable: STABLE,
+        stableMedia: STABLE_MEDIA,
+        headers: ({ scripts }) => headersFile(scripts, { ...HEADERS, botCheck: pages, immutable: IMMUTABLE_PATHS, mirrors: [PAGE_MIRROR], noindex: [`/${RELEASE_DIR}/*`], fresh: files.some(isPreview) ? [PREVIEW_FRESH] : [] }),
+      });
     // The id: of the site a deploy ships (no preview pages), as built with the placeholder.
     const site = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8")).version;
     const id = planId(fold(paths.filter((p) => !isPreview(p)), ID_PLACEHOLDER, botCheck.filter((p) => !isPreview(p.slice(1)))), { salt, site });

@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, sep } from "node:path";
 import { unstable_readConfig } from "wrangler";
 import { afterAll, describe, expect, it } from "vitest";
-import { COMPUTED_IMPORTS, OUT as DIST, SERVED, STABLE, STABLE_MEDIA, build, buildTree } from "../../scripts/build-public.mjs";
+import { COMPUTED_IMPORTS, OUT as DIST, PREVIEW_FRESH, SERVED, STABLE, STABLE_MEDIA, build, buildTree } from "../../scripts/build-public.mjs";
 import { RELEASE_FILE, recordIn } from "../../scripts/release.mjs";
 import { WALL } from "../../lobby/wall.js";
 import { IMMUTABLE, MAX_STATIC_REDIRECTS, isMedia } from "../build/folders.mjs";
@@ -195,15 +195,35 @@ describe("the public folder", () => {
   it("keeps the release's folder and the media for a year, and no page, no API and nothing else", () => {
     const headers = readFileSync(join(OUT, "_headers"), "utf8");
     const cached = headers.split(/\n(?=\/)/).filter((rule) => /Cache-Control/i.test(rule)).map((rule) => rule.trimEnd().split("\n"));
+    // (The page copies in a release's folder are not for search engines.)
     expect(cached).toEqual([
-      ["/r/*", `  Cache-Control: ${IMMUTABLE}`],
+      ["/r/*", `  Cache-Control: ${IMMUTABLE}`, "  X-Robots-Tag: noindex"],
       ["/m/*", `  Cache-Control: ${IMMUTABLE}`],
     ]);
+    expect(headers.match(/X-Robots-Tag/g)).toHaveLength(1);
     // The API never reaches the static files' headers: the Worker runs first there.
     expect(read(undefined).assets.run_worker_first).toEqual(["/api/*"]);
     // A missing file is answered by the Worker (no fallback page), which never lets it be kept (assetOr404).
     expect(read(undefined).assets.not_found_handling).toBeUndefined();
     expect(readFileSync("worker.js", "utf8")).toMatch(/assetOr404\(env\.ASSETS\.fetch\(request\)\)/);
+  });
+
+  it("asks again each time for the preview pages' files, which only a local build holds and which are no part of the release id", () => {
+    const local = mkdtempSync(join(tmpdir(), "party-public-preview-"));
+    try {
+      const built = build(local, { preview: true });
+      // The same release as the build without them (the gate's Workers build both, and must name one).
+      expect(recordIn(readFileSync(join(local, RELEASE_FILE), "utf8")).id).toBe(id);
+      expect(built.some(({ path }) => path.startsWith(`${folder}preview/`))).toBe(true);
+      // So an edited preview file keeps its address: in the folder it must not be kept for a year.
+      const rules = readFileSync(join(local, "_headers"), "utf8").trimEnd().split(/\n(?=\/)/).map((rule) => rule.split("\n"));
+      expect(PREVIEW_FRESH).toBe("/r/:release/preview/*");
+      expect(rules.at(-1)).toEqual([PREVIEW_FRESH, "  ! Cache-Control", "  Cache-Control: public, max-age=0, must-revalidate"]);
+      // A deploy's build has no such pages and no such rule.
+      expect(readFileSync(join(OUT, "_headers"), "utf8")).not.toContain("preview");
+    } finally {
+      rmSync(local, { recursive: true, force: true });
+    }
   });
 
   it("has every file under the 25 MiB limit", () => {

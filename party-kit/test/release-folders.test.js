@@ -65,6 +65,26 @@ describe("the headers of a site with release folders (headersFile)", () => {
     for (const bad of ["/*", "/", "r/*", "/r/", "/r/*\n  X: y", "/lobby/index.html"]) expect(() => headersFile([], { immutable: [bad] }), bad).toThrow(/immutable/);
   });
 
+  it("keeps a folder's page copies out of search engines when asked: they are not the site's pages", () => {
+    const rules = rulesOf(headersFile([], { immutable: IMMUTABLE_PATHS, noindex: ["/r/*"] }));
+    expect(rules.find(([path]) => path === "/r/*")).toEqual(["/r/*", `  Cache-Control: ${IMMUTABLE}`, "  X-Robots-Tag: noindex"]);
+    expect(rules.find(([path]) => path === "/m/*")).toEqual(["/m/*", `  Cache-Control: ${IMMUTABLE}`]);
+    // The site's own pages are never marked.
+    expect(rules.find(([path]) => path === "/*").join("\n")).not.toMatch(/X-Robots-Tag/);
+    expect(rulesOf(headersFile([], { noindex: ["/x/*"] })).at(-1)).toEqual(["/x/*", "  X-Robots-Tag: noindex"]);
+    for (const bad of ["/*", "/lobby/index.html", "/r/*\n  X: y"]) expect(() => headersFile([], { noindex: [bad] }), bad).toThrow(/search engines/);
+  });
+
+  it("asks again each time for a path inside a kept folder whose files can change, after the folder's own rule", () => {
+    const rules = rulesOf(headersFile([], { immutable: IMMUTABLE_PATHS, fresh: ["/r/:release/preview/*"] }));
+    // Last, with the folder's year taken away first: Workers applies the rules in order.
+    expect(rules.at(-1)).toEqual(["/r/:release/preview/*", "  ! Cache-Control", "  Cache-Control: public, max-age=0, must-revalidate"]);
+    expect(rules.findIndex(([path]) => path === "/r/*")).toBeLessThan(rules.length - 1);
+    // Only inside a kept folder, and never the whole of it or the site.
+    for (const bad of ["/r/*", "/*", "/lobby/*", "/x/:release/preview/*", "/r/:release/preview/*\n  X: y"]) expect(() => headersFile([], { immutable: IMMUTABLE_PATHS, fresh: [bad] }), bad).toThrow(/keep fresh/);
+    expect(() => headersFile([], { fresh: ["/r/:release/preview/*"] })).toThrow(/keep fresh/);
+  });
+
   it("gives a page's copy in a release folder the very rules of the page itself", () => {
     const opts = { frames: "self", microphone: ["/potato/*"], images: { "/party/*": ["https://pics.example"] }, botCheck: ["/lobby/*"] };
     const plain = rulesOf(headersFile(["'sha256-x'"], opts));
