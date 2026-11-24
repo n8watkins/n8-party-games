@@ -9,7 +9,7 @@ This folder is the whole game, a package of the hub's (`games/*`, an npm workspa
 Everything but `public/` is server only: the site's build copies only the files the manifest lists, and refuses anything else here (`scripts/build-public.mjs`, `SERVER_ONLY`).
 The page is served at `/party/games/paper-masks.js`, beside the Table's own pages.
 
-The game reaches the hub only through its package name (`n8-party-games`, a development dependency): the Table's adapter and the draws (`n8-party-games/table`, `n8-party-games/table/draws`), and in the browser test the hub's test helpers (`n8-party-games/testing/*`).
+The game reaches the hub only through its package name (`n8-party-games`, a development dependency): the Table's adapter and the draws (`n8-party-games/table`, `n8-party-games/table/draws`), and in the browser test the in-house test helpers (`@n8games/lobby/testing/*`: `lobby/package.json`, a workspace that is never published).
 
 | File | What it is |
 | --- | --- |

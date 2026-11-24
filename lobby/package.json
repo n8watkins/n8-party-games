@@ -1,0 +1,26 @@
+{
+  "name": "@n8games/lobby",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "The party room's modules and test helpers, for the tests and tools of the games in this repository (games/*) only. Part of the hub, never published and not in its public surface (the root package.json's exports are the kit's); its dependencies are the hub's.",
+  "license": "MIT",
+  "exports": {
+    "./connection": "./public/connection.js",
+    "./core": "./server/lobby-core.js",
+    "./room": "./server/lobby-room.js",
+    "./table": "./shared/table.js",
+    "./vote": "./shared/vote.js",
+    "./wall": "./wall.js",
+    "./world": "./shared/world.js",
+    "./testing/browser": "./test/browser.mjs",
+    "./testing/client": "./test/client.mjs",
+    "./testing/fake-room": "./test/fake-room.js",
+    "./testing/stills": "./test/stills.mjs",
+    "./testing/turn-game": "./test/turn-game.js",
+    "./package.json": "./package.json"
+  },
+  "scripts": {
+    "test": "cd .. && vitest run lobby/"
+  }
+}

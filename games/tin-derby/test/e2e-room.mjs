@@ -39,10 +39,10 @@
 import { mkdirSync } from "node:fs";
 import net from "node:net";
 import { resolve } from "node:path";
-import { boxCentre } from "n8-party-games/lobby/world";
-import { launchBrowser } from "n8-party-games/testing/browser";
-import { partyApi, sleep } from "n8-party-games/testing/client";
-import { still as takeStill } from "n8-party-games/testing/stills";
+import { boxCentre } from "@n8games/lobby/world";
+import { launchBrowser } from "@n8games/lobby/testing/browser";
+import { partyApi, sleep } from "@n8games/lobby/testing/client";
+import { still as takeStill } from "@n8games/lobby/testing/stills";
 
 const args = process.argv.slice(2);
 const opt = (k, d) => (args.find((a) => a.startsWith("--" + k + "=")) ?? "--" + k + "=" + d).split("=").slice(1).join("=");

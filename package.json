@@ -19,21 +19,10 @@
     "./kit/client/*": "./party-kit/client/*",
     "./table": "./party-kit/src/table/table-game.js",
     "./table/draws": "./party-kit/src/table/draws.js",
-    "./lobby/connection": "./lobby/public/connection.js",
-    "./lobby/core": "./lobby/server/lobby-core.js",
-    "./lobby/room": "./lobby/server/lobby-room.js",
-    "./lobby/table": "./lobby/shared/table.js",
-    "./lobby/vote": "./lobby/shared/vote.js",
-    "./lobby/wall": "./lobby/wall.js",
-    "./lobby/world": "./lobby/shared/world.js",
-    "./testing/browser": "./lobby/test/browser.mjs",
-    "./testing/client": "./lobby/test/client.mjs",
-    "./testing/fake-room": "./lobby/test/fake-room.js",
-    "./testing/stills": "./party-kit/test/stills.mjs",
-    "./testing/turn-game": "./lobby/test/turn-game.js",
     "./package.json": "./package.json"
   },
   "workspaces": [
+    "lobby",
     "games/*"
   ],
   "files": [

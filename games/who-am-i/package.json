@@ -25,6 +25,7 @@
     "test:e2e": "cd ../.. && node games/who-am-i/test/e2e-who-am-i.mjs"
   },
   "devDependencies": {
+    "@n8games/lobby": "file:../../lobby",
     "n8-party-games": "file:../.."
   }
 }

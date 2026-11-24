@@ -9,8 +9,8 @@
 // itself (its clock stands still while it runs), so this reads the process's CPU counters from /proc. Run it on a
 // server no other test is using: everything that process does in the window is counted.
 import { readFileSync } from "node:fs";
-import { boxCentre } from "n8-party-games/lobby/world";
-import { partyApi, sleep } from "n8-party-games/testing/client";
+import { boxCentre } from "@n8games/lobby/world";
+import { partyApi, sleep } from "@n8games/lobby/testing/client";
 import { rules } from "../shared/rules.js";
 import { makeReplica } from "../shared/replica.js";
 import { BTN } from "../shared/house.js";

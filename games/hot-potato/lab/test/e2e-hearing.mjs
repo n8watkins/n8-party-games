@@ -6,7 +6,7 @@
 //
 //   node games/hot-potato/lab/test/e2e-hearing.mjs --base=http://localhost:8875 [--shots=/tmp/claude-hot-potato/shots]
 import { mkdirSync } from "node:fs";
-import { still as takeStill } from "n8-party-games/testing/stills";
+import { still as takeStill } from "@n8games/lobby/testing/stills";
 import { chromium } from "playwright";
 
 const arg = (name, fallback) => process.argv.find((a) => a.startsWith(`--${name}=`))?.slice(name.length + 3) ?? fallback;

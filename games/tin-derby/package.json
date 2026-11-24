@@ -24,6 +24,7 @@
     "test:e2e": "cd ../.. && node games/tin-derby/test/e2e-room.mjs --only=short"
   },
   "devDependencies": {
+    "@n8games/lobby": "file:../../lobby",
     "n8-party-games": "file:../.."
   }
 }

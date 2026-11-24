@@ -34,9 +34,9 @@
 // no referrer and the site's CSP must allow. Captioned stills of every phase go to --out.
 import { mkdirSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { BACK_NOTE_MS, clockText } from "n8-party-games/lobby/connection";
-import { launchBrowser } from "n8-party-games/testing/browser";
-import { still as takeStill } from "n8-party-games/testing/stills";
+import { BACK_NOTE_MS, clockText } from "@n8games/lobby/connection";
+import { launchBrowser } from "@n8games/lobby/testing/browser";
+import { still as takeStill } from "@n8games/lobby/testing/stills";
 import { IDENTITIES } from "../deck.js";
 
 const args = process.argv.slice(2);

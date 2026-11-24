@@ -27,6 +27,7 @@
     "test:e2e": "cd ../.. && node games/paper-masks/test/e2e-paper-masks.mjs"
   },
   "devDependencies": {
+    "@n8games/lobby": "file:../../lobby",
     "n8-party-games": "file:../.."
   }
 }

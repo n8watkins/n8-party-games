@@ -16,8 +16,8 @@
 // `devguard slot --`.
 import { AsyncLocalStorage } from "node:async_hooks";
 import { mkdirSync } from "node:fs";
-import { launchBrowser } from "n8-party-games/testing/browser";
-import { still as takeStill } from "n8-party-games/testing/stills";
+import { launchBrowser } from "@n8games/lobby/testing/browser";
+import { still as takeStill } from "@n8games/lobby/testing/stills";
 import { FACES, FRAME, HEATS, REACTIONS } from "../public/specimen-draw.js";
 
 const arg = (name, fallback) => process.argv.find((a) => a.startsWith(`--${name}=`))?.slice(name.length + 3) ?? fallback;

@@ -327,7 +327,7 @@ Rules that differ, on purpose:
 The contract means a game to be its own package, as Cork & Bell is.
 This folder is shaped for that: its rules and page import nothing outside it, and it has its own `package.json` with `"."` as `party.js`.
 The site already takes it as a package: it is one of the hub's npm workspaces (`games/*` in the hub's `package.json`), and `games.js` imports `tin-derby`.
-Only the tests and one tool reach outside, and only through the hub's package name (`n8-party-games`, a development dependency here), never by path: `room.test.js` takes the kit's `RoomCore` (`n8-party-games/kit/core`), and `lobby.test.js`, `party-view.test.js`, `e2e-room.mjs` and `tools/workerd-cost.mjs` drive this site's party room (`n8-party-games/lobby/*` and the hub's test helpers, `n8-party-games/testing/*`), so they would stay here.
+Only the tests and one tool reach outside, and only by package name, never by path: `room.test.js` takes the kit's `RoomCore` (`n8-party-games/kit/core`, the hub's public surface), and `lobby.test.js`, `party-view.test.js`, `e2e-room.mjs` and `tools/workerd-cost.mjs` drive this site's party room (`@n8games/lobby/*` and its test helpers, `@n8games/lobby/testing/*`: `lobby/package.json`, a workspace that is never published), so they would stay here.
 The move: copy the rest to a new repository, add the kit as a development dependency, a `vitest.config.js`, a `worker.js` like Cork & Bell's for its own site, and CI; then point the `devDependencies` entry at it.
 
 ## Running things

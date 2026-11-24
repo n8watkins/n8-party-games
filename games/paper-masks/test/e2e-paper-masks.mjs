@@ -35,8 +35,8 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { launchBrowser } from "n8-party-games/testing/browser";
-import { still as takeStill } from "n8-party-games/testing/stills";
+import { launchBrowser } from "@n8games/lobby/testing/browser";
+import { still as takeStill } from "@n8games/lobby/testing/stills";
 import { QUESTIONS } from "../questions.js";
 import { tidyAnswer } from "../text.js";
 

@@ -21,6 +21,7 @@
     "test:e2e:hearing": "cd ../.. && node games/hot-potato/lab/test/e2e-hearing.mjs"
   },
   "devDependencies": {
+    "@n8games/lobby": "file:../../lobby",
     "n8-party-games": "file:../.."
   }
 }
