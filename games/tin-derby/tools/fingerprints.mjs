@@ -1,8 +1,8 @@
 // The same races, whatever runs them: a fixed set of scripted races and the fingerprint each must end with.
 // test/golden.json holds what Node gave; test/determinism.test.js checks Node still gives it and, where Bun is
 // installed, that JavaScriptCore (the engine of every iPhone browser) gives the very same.
-//   node floor/games/tin-derby/tools/fingerprints.mjs            print them as JSON (bun runs the same file)
-//   node floor/games/tin-derby/tools/fingerprints.mjs --write    write test/golden.json again, after a change to
+//   node games/tin-derby/tools/fingerprints.mjs         print them as JSON (bun runs the same file)
+//   node games/tin-derby/tools/fingerprints.mjs --write    write test/golden.json again, after a change to
 //                                                                the rules or the numbers that was meant
 // `fingerprints` imports nothing from Node, so a page can call it and compare with golden.json as well.
 import { rules as RULES } from "../shared/rules.js";

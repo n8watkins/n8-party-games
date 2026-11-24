@@ -3,14 +3,14 @@
 // viewer is sent. One plain socket joins a party, votes for Tin Derby and drives its car with the house's driver
 // through its own replica (as a phone's page does), so all four cars race and the room relays real inputs.
 //
-//   node floor/games/tin-derby/tools/workerd-cost.mjs --base=http://127.0.0.1:9070 --pid=<workerd pid> [--idle=20]
+//   node games/tin-derby/tools/workerd-cost.mjs --base=http://127.0.0.1:9070 --pid=<workerd pid> [--idle=20]
 //
 // The pid is the workerd process that serves the base address (`ss -ltnp | grep :9070`). A Worker cannot time
 // itself (its clock stands still while it runs), so this reads the process's CPU counters from /proc. Run it on a
 // server no other test is using: everything that process does in the window is counted.
 import { readFileSync } from "node:fs";
-import { partyApi, sleep } from "../../../../lobby/test/client.mjs";
-import { boxCentre } from "../../../../lobby/shared/world.js";
+import { boxCentre } from "n8-party-games/lobby/world";
+import { partyApi, sleep } from "n8-party-games/testing/client";
 import { rules } from "../shared/rules.js";
 import { makeReplica } from "../shared/replica.js";
 import { BTN } from "../shared/house.js";

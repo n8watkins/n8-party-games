@@ -1,7 +1,7 @@
 // The game as a party room runs it: inputs with their steps, what the room tells everyone, a dropped seat handed
 // to the house and back, late joiners, the end, and whole races through the kit's own room with no browser.
 import { describe, expect, it } from "vitest";
-import { RoomCore } from "../../../../party-kit/src/core/room-core.js";
+import { RoomCore } from "n8-party-games/kit/core";
 import { game, manifest, testGame } from "../party.js";
 import { BTN, DT, rules } from "../shared/rules.js";
 import { makeReplica } from "../shared/replica.js";

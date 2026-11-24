@@ -1,6 +1,6 @@
 // The figures in README.md, "Measured": what a room tick costs, how big a snapshot is, and how many bytes a
 // second a race sends each player. No sockets and no browser (tools/net.mjs).
-//   node floor/games/tin-derby/tools/measure.mjs
+//   node games/tin-derby/tools/measure.mjs
 // Times are CPU time of this process, so a busy machine changes them little; they are still one machine's.
 import { rules } from "../shared/rules.js";
 import { START, runNet } from "./net.mjs";

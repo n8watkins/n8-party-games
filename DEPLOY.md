@@ -69,7 +69,7 @@ The games' versions:
 - Cork & Bell is its own repository with release-kit, pinned in `package.json`. Its record carries the version and the git ref it is pinned at.
   It is still pinned by commit because it has no release yet.
   Once its first `vX.Y.Z` tag exists, pin it as `github:n8watkins/cork-and-bell#vX.Y.Z`.
-- Tin Derby is a folder of this repository installed by `file:`, with its version in `floor/games/tin-derby/package.json`.
+- Tin Derby is a folder of this repository, a workspace package (`games/*` in `package.json`), with its version in `games/tin-derby/package.json`.
 - Paper Masks and Who Am I? at the Table live in `party/games/<id>/index.js`, with `version` in their manifests.
 - release-kit moves only the site's version.
   A game kept in this repository has its version bumped in the pull request that changes it: a minor for a feature, a patch for a fix.

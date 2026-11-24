@@ -18,5 +18,8 @@
     "data",
     "tools/*.mjs",
     "README.md"
-  ]
+  ],
+  "devDependencies": {
+    "n8-party-games": "file:../.."
+  }
 }

@@ -225,8 +225,14 @@ describe("the games' versions", () => {
   it("gives a game pinned from git the ref it is pinned at", () => {
     const spec = pkg.devDependencies["cork-and-bell"];
     expect(versions["cork-and-bell"].ref).toBe(spec.split("#")[1]);
-    // Tin Derby is a folder of this repository installed by file:, so it has no ref.
+    // Tin Derby is a folder of this repository (a workspace package), so it has no ref.
     expect(versions["tin-derby"].ref).toBeUndefined();
+  });
+
+  it("takes a game kept in games/ as a package by its own package.json", () => {
+    const own = JSON.parse(readFileSync(join(ROOT, "games", "tin-derby", "package.json"), "utf8"));
+    expect(pkg.devDependencies["tin-derby"]).toBeUndefined();
+    expect(versions["tin-derby"]).toEqual({ version: own.version });
   });
 
   it("refuses a game kept in this repository whose manifest has no version", () => {

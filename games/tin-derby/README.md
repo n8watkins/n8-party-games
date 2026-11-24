@@ -261,7 +261,7 @@ The room runs 0.15 s behind its clock (`NET.DELAY`), so up to about 150 ms one w
 
 ## Measured
 
-`node floor/games/tin-derby/tools/measure.mjs`, Node 24 on the owner's PC while it was busy (load 14 on 8 cores); CPU time, not wall time.
+`node games/tin-derby/tools/measure.mjs`, Node 24 on the owner's PC while it was busy (load 14 on 8 cores); CPU time, not wall time.
 
 | What | Figure |
 | --- | --- |
@@ -326,22 +326,22 @@ Rules that differ, on purpose:
 
 The contract means a game to be its own package, as Cork & Bell is.
 This folder is shaped for that: its rules and page import nothing outside it, and it has its own `package.json` with `"."` as `party.js`.
-The site already takes it as a package: `"tin-derby": "file:floor/games/tin-derby"` in `devDependencies`, and `games.js` imports `tin-derby`.
-Only the tests reach outside: `room.test.js` takes the kit's `RoomCore` by path (it becomes `n8-party-games/kit/core`), and `lobby.test.js` and `e2e-room.mjs` drive this site's party room, so they would stay here.
+The site already takes it as a package: it is one of the hub's npm workspaces (`games/*` in the hub's `package.json`), and `games.js` imports `tin-derby`.
+Only the tests and one tool reach outside, and only through the hub's package name (`n8-party-games`, a development dependency here), never by path: `room.test.js` takes the kit's `RoomCore` (`n8-party-games/kit/core`), and `lobby.test.js`, `party-view.test.js`, `e2e-room.mjs` and `tools/workerd-cost.mjs` drive this site's party room (`n8-party-games/lobby/*` and the hub's test helpers, `n8-party-games/testing/*`), so they would stay here.
 The move: copy the rest to a new repository, add the kit as a development dependency, a `vitest.config.js`, a `worker.js` like Cork & Bell's for its own site, and CI; then point the `devDependencies` entry at it.
 
 ## Running things
 
 ```sh
-npx vitest run floor/games/tin-derby                   # the tests (about 40 s)
-node floor/games/tin-derby/tools/race.mjs all 120      # the balance sweep
-node floor/games/tin-derby/tools/measure.mjs           # the measurements above
-node floor/games/tin-derby/tools/fingerprints.mjs --write   # after a meant change to rules or numbers
-node floor/games/tin-derby/tools/parity.mjs /path/to/preview
+npx vitest run games/tin-derby                   # the tests (about 40 s)
+node games/tin-derby/tools/race.mjs all 120      # the balance sweep
+node games/tin-derby/tools/measure.mjs           # the measurements above
+node games/tin-derby/tools/fingerprints.mjs --write   # after a meant change to rules or numbers
+node games/tin-derby/tools/parity.mjs /path/to/preview
 npm run test:tin-derby -- --base=http://localhost:8791        # the gate's step: one short race in the party room, every trouble at once
 npm run test:tin-derby:full -- --base=http://localhost:8791   # whole races, real browsers: run this before a change to the game itself (about 10 minutes)
-node floor/games/tin-derby/test/e2e-room.mjs --only=lag --base=...   # the 40 and 200 ms runs above
-node floor/games/tin-derby/test/e2e-room.mjs --only=panes --panes=1,2,3,4 --out=... --base=...   # the big screen's split view, with stills
-node floor/games/tin-derby/test/e2e-room.mjs --only=tvlag,tvperf --base=...   # thumb to big screen, and the big screen's frame rate (below)
-node floor/games/tin-derby/tools/workerd-cost.mjs --base=... --pid=<workerd pid>   # the cost in workerd above
+node games/tin-derby/test/e2e-room.mjs --only=lag --base=...   # the 40 and 200 ms runs above
+node games/tin-derby/test/e2e-room.mjs --only=panes --panes=1,2,3,4 --out=... --base=...   # the big screen's split view, with stills
+node games/tin-derby/test/e2e-room.mjs --only=tvlag,tvperf --base=...   # thumb to big screen, and the big screen's frame rate (below)
+node games/tin-derby/tools/workerd-cost.mjs --base=... --pid=<workerd pid>   # the cost in workerd above
 ```

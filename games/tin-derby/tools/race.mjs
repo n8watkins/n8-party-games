@@ -1,6 +1,6 @@
 // Whole races, headless, on the rules alone: scripted players (tools/drivers.mjs) in the seats, house cars in
 // the rest. The tests use runRace; run as a script it prints a table of places, as the preview's simrace did.
-//   node floor/games/tin-derby/tools/race.mjs [plain|sloppy|handsoff|all] [races=40] [seed0=1] [humans=1]
+//   node games/tin-derby/tools/race.mjs [plain|sloppy|handsoff|all] [races=40] [seed0=1] [humans=1]
 // Every frame it also checks every car is inside the walls (except off the open edge), is facing the way the
 // road runs, and is making ground.
 import { wrapA } from "../shared/dmath.js";

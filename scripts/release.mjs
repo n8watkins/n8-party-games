@@ -24,13 +24,15 @@
 //   tree had changes (gitState); `pushed` when the commit is on origin/main. A deploy refuses a
 //   dirty tree and an unpushed commit (releaseProblem).
 // - `builtAt`: when the build ran (ISO time); not part of the id.
-// - `games`: each hosted game's own version: a game that is a package (Cork & Bell, Tin Derby)
-//   by its package.json, with the git ref it is pinned at when it is a git dependency; a game kept
-//   in this repository (Paper Masks, Who Am I? at the Table) by `version` in its manifest.
+// - `games`: each hosted game's own version: a game that is a package (Cork & Bell, pinned in
+//   package.json, or one of this repository's games/ folders, each a workspace package) by its
+//   package.json, with the git ref it is pinned at when it is a git dependency; a game kept in
+//   this repository without a package of its own (Paper Masks, Who Am I? at the Table) by
+//   `version` in its manifest.
 //   The Floor, the Table and Hot Potato are the site's own and share `site`.
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { readFileSync, readdirSync } from "node:fs";
+import { readFileSync, readdirSync, realpathSync } from "node:fs";
 import { createRequire } from "node:module";
 import { isAbsolute, join, relative, sep } from "node:path";
 
@@ -179,6 +181,21 @@ export function releaseProblem({ commit, dirty, pushed, paths = [] }, { upload, 
 }
 
 /**
+ * A game kept in this repository as a package of its own (games/<id>, an npm workspace): its
+ * package.json, or null when `id` is no such package. A workspace is linked into node_modules, so
+ * it resolves by name; its real folder is in this repository, not under node_modules.
+ */
+function workspacePackage(id, require) {
+  let path;
+  try {
+    path = realpathSync(require.resolve(`${id}/package.json`));
+  } catch {
+    return null;
+  }
+  return path.split(sep).includes("node_modules") ? null : JSON.parse(readFileSync(path, "utf8"));
+}
+
+/**
  * Each hosted game's version (see the header). `games` are the modules games.js lists;
  * `pkg` is this repository's package.json, for the pins.
  */
@@ -187,9 +204,10 @@ export function gameVersions(games, pkg, require = createRequire(import.meta.url
   const out = {};
   for (const { manifest } of games) {
     const spec = pins[manifest.id];
-    if (spec) {
-      const own = require(`${manifest.id}/package.json`);
-      const ref = /^github:[^#]+#(.+)$/.exec(spec)?.[1];
+    const own = spec ? require(`${manifest.id}/package.json`) : workspacePackage(manifest.id, require);
+    if (own) {
+      if (!SEMVER.test(own.version ?? "")) throw new Error(`build-public: ${manifest.id}'s package.json needs a version ("1.2.3"), not ${JSON.stringify(own.version)}`);
+      const ref = /^github:[^#]+#(.+)$/.exec(spec ?? "")?.[1];
       out[manifest.id] = { version: own.version, ...(ref && { ref }) };
     } else {
       if (!SEMVER.test(manifest.version ?? "")) throw new Error(`build-public: ${manifest.id} is kept in this repository, so its manifest needs a version ("1.2.3"), not ${JSON.stringify(manifest.version)}`);

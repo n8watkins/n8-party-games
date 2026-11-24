@@ -3,7 +3,7 @@
 // place the rules are built without dmath), fed the same key presses by the preview's scripted drivers,
 // and compares every car at every frame. They must agree exactly: any difference is a rule that was
 // carried over wrongly, and the first frame it shows at is printed.
-//   node floor/games/tin-derby/tools/parity.mjs <the preview's folder> [races=6] [seed0=1]
+//   node games/tin-derby/tools/parity.mjs <the preview's folder> [races=6] [seed0=1]
 // The preview's folder holds src/sim.js, src/tune.js and tools/drivers.mjs (round five reviewed and later).
 import { pathToFileURL } from "node:url";
 import { resolve } from "node:path";

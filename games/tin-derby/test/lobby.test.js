@@ -2,9 +2,9 @@
 // races as the piece they chose in the room, a dropped phone's car is the house's, and the places reach the
 // Tonight board.
 import { describe, expect, it } from "vitest";
-import { LobbyCore } from "../../../../lobby/server/lobby-core.js";
-import { COUNT_MS, boxFromManifest } from "../../../../lobby/shared/vote.js";
-import { POSITION_SLACK, boxCentre } from "../../../../lobby/shared/world.js";
+import { LobbyCore } from "n8-party-games/lobby/core";
+import { COUNT_MS, boxFromManifest } from "n8-party-games/lobby/vote";
+import { POSITION_SLACK, boxCentre } from "n8-party-games/lobby/world";
 import { game, manifest } from "../party.js";
 
 function derbyRoom(now = 1000) {

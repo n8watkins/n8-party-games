@@ -3,7 +3,7 @@
 // raced to the end by the phones themselves (each phone's page drives its own car with the house's driver, through
 // the same path as a thumb: ?derby-auto=1), and handed back to the room's Tonight board.
 //
-//   node floor/games/tin-derby/test/e2e-room.mjs [--base=http://localhost:8791] [--only=short,solo,two,four,panes,trouble,stalls,noscreen,screens,look,lag,tvlag,tvperf]
+//   node games/tin-derby/test/e2e-room.mjs [--base=http://localhost:8791] [--only=short,solo,two,four,panes,trouble,stalls,noscreen,screens,look,lag,tvlag,tvperf]
 //     [--out=/tmp/claude-tin-derby-room/stills]   where the stills are saved (that folder by default)
 //
 // The races (`npm run test:tin-derby` is the gate's: short; `npm run test:tin-derby:full` is the rest but tvperf, the
@@ -39,10 +39,10 @@
 import { mkdirSync } from "node:fs";
 import net from "node:net";
 import { resolve } from "node:path";
-import { launchBrowser } from "../../../../lobby/test/browser.mjs";
-import { still as takeStill } from "../../../../party-kit/test/stills.mjs";
-import { partyApi, sleep } from "../../../../lobby/test/client.mjs";
-import { boxCentre } from "../../../../lobby/shared/world.js";
+import { boxCentre } from "n8-party-games/lobby/world";
+import { launchBrowser } from "n8-party-games/testing/browser";
+import { partyApi, sleep } from "n8-party-games/testing/client";
+import { still as takeStill } from "n8-party-games/testing/stills";
 
 const args = process.argv.slice(2);
 const opt = (k, d) => (args.find((a) => a.startsWith("--" + k + "=")) ?? "--" + k + "=" + d).split("=").slice(1).join("=");

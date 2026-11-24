@@ -17,8 +17,18 @@
     "./kit/build": "./party-kit/build/public.mjs",
     "./kit/build/folders": "./party-kit/build/folders.mjs",
     "./kit/client/*": "./party-kit/client/*",
+    "./lobby/core": "./lobby/server/lobby-core.js",
+    "./lobby/vote": "./lobby/shared/vote.js",
+    "./lobby/wall": "./lobby/wall.js",
+    "./lobby/world": "./lobby/shared/world.js",
+    "./testing/browser": "./lobby/test/browser.mjs",
+    "./testing/client": "./lobby/test/client.mjs",
+    "./testing/stills": "./party-kit/test/stills.mjs",
     "./package.json": "./package.json"
   },
+  "workspaces": [
+    "games/*"
+  ],
   "files": [
     "party-kit/src",
     "party-kit/client",
@@ -77,8 +87,8 @@
     "test:production": "node party-kit/test/e2e-production.mjs",
     "test:turnstile": "node party-kit/test/e2e-turnstile.mjs",
     "test:release": "node lobby/test/e2e-release.mjs",
-    "test:tin-derby": "node floor/games/tin-derby/test/e2e-room.mjs --only=short",
-    "test:tin-derby:full": "node floor/games/tin-derby/test/e2e-room.mjs --only=solo,two,four,panes,trouble,stalls,noscreen,screens,look,lag,tvlag",
+    "test:tin-derby": "node games/tin-derby/test/e2e-room.mjs --only=short",
+    "test:tin-derby:full": "node games/tin-derby/test/e2e-room.mjs --only=solo,two,four,panes,trouble,stalls,noscreen,screens,look,lag,tvlag",
     "release": "release-kit release",
     "release:check": "release-kit check && npm test && npm run build",
     "hooks": "git config core.hooksPath .githooks"
@@ -93,7 +103,6 @@
     "release-kit": "github:n8watkins/release-kit#v2.10.1",
     "sharp": "^0.35.5",
     "three": "^0.187.0",
-    "tin-derby": "file:floor/games/tin-derby",
     "vitest": "5.1",
     "wrangler": "^4.165.0"
   },

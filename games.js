@@ -3,9 +3,11 @@
 // `manifest` (id, name, path, players, devices, public files).
 //
 // To host another game: add it to devDependencies (a git dependency pinned to a tag or a
-// commit), import it here, and add it to the list. The build and the Worker read this list.
+// commit), or give it a folder of its own under games/ (each one is an npm workspace of this
+// repository, a package by its own name), import it here by its package name, and add it to the
+// list. The build and the Worker read this list.
 import * as corkAndBell from "cork-and-bell";
-// Tin Derby is still a folder of this repository (floor/games/tin-derby), installed as a package by a file: dependency until it moves to its own.
+// Tin Derby is a folder of this repository (games/tin-derby), a workspace package.
 import * as tinDerby from "tin-derby";
 import * as paperMasks from "./party/games/paper-masks/index.js";
 import * as whoAmI from "./party/games/who-am-i/index.js";

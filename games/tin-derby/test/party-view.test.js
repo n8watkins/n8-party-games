@@ -1,7 +1,7 @@
 // The view the party room mounts (page/party-view.js): the test switches (derby-auto and the rest) reach the race
 // page only where the room has its test games on, decided from what the server sent (the wall), never the address.
 import { describe, expect, it } from "vitest";
-import { TEST_WALL, WALL } from "../../../../lobby/wall.js";
+import { TEST_WALL, WALL } from "n8-party-games/lobby/wall";
 import { mount, switchesFor } from "../page/party-view.js";
 import { game, testGame } from "../party.js";
 
