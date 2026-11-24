@@ -3336,7 +3336,11 @@ export class LobbyCore {
 
   // ---------------------------------------------------------------- views
 
-  /** What every client may know about the room. Tokens never leave the room. */
+  /**
+   * What every client may know about the room. Tokens never leave the room. A piece that faces
+   * left says so (`f: -1`; one facing right says nothing), so a page that arrives in the middle
+   * draws it standing the way every other page has it.
+   */
   view(now) {
     const a = this.activity;
     return {
@@ -3351,7 +3355,7 @@ export class LobbyCore {
       game: a.kind === "game" ? this.gameView() : null,
       boxes: this.boxes,
       members: this.members.map((m) =>
-        m ? { seat: m.seat, name: m.name, colour: m.colour, character: m.character, connected: m.connected, ...(m.connected && m.away ? { away: true } : {}), ...this.awayView(m, now), x: Math.round(posAt(m, now)), d: m.d, ...this.easingView(m, now), rev: m.rev, points: m.points, ...this.bumpView(m, now), emoteCool: Math.round(emoteLeft(m.emoteAt, now)) } : null,
+        m ? { seat: m.seat, name: m.name, colour: m.colour, character: m.character, connected: m.connected, ...(m.connected && m.away ? { away: true } : {}), ...this.awayView(m, now), x: Math.round(posAt(m, now)), d: m.d, ...(m.face === -1 ? { f: -1 } : {}), ...this.easingView(m, now), rev: m.rev, points: m.points, ...this.bumpView(m, now), emoteCool: Math.round(emoteLeft(m.emoteAt, now)) } : null,
       ),
       screens: this.screensConnected(),
       vote: this.voteView(now),

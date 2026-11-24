@@ -27,13 +27,14 @@ export class Pilot {
    *   lights: the room's wall (shared/rooms.js, wallFor), or how many boxes hang evenly on it.
    *   send: puts a message on the socket.
    *   Until setLit says otherwise every light counts as on.
+   *   face: which way the room has the piece facing (-1 or 1), for a page that arrives in the middle.
    */
-  constructor({ lights, send, x = 0, rev = 0, character = "pawn" }) {
+  constructor({ lights, send, x = 0, rev = 0, character = "pawn", face = 1 }) {
     this.lights = lights;
     this.send = send;
     this.x = x;
     this.d = 0;
-    this.face = 1;
+    this.face = face === -1 ? -1 : 1;
     /** Which character the piece is (shared/characters.js): its speed, and whether it floats (shared/world.js). */
     this.character = character;
     /** Where its walk since the last change began (shared/world.js, posAt): there, then, at that speed. */

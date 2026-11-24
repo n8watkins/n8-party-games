@@ -20,7 +20,8 @@
 //   shove           Sam walks into Pat and shoves him along
 //   a quick turn    Pat walks left and taps right in one burst of keys: his kick goes right
 //   a reload        a phone reloaded while Rob's legs are up, and Sam's own phone reloaded while
-//                   it is soft, draw them so
+//                   it is soft, draw them so; and every standing piece facing the way the room
+//                   has it (Pat turned left first: his own phone's piece, and Sam's phone's Pat)
 import { LOOK_COOLDOWN_MS } from "../shared/characters.js";
 import { HOOK_AIM_MS, HOOK_COOLDOWN_MS, PULL_MS, STILT_COOLDOWN_MS, STILT_DROP_MS, STILT_MS, STILT_SQUAT_MS, pullEase } from "../shared/robot.js";
 import { ABSORB_MS, ABSORB_TURN_MS, HARDEN_MS, HOLD_MS, MELT_MS, SLIME_COOLDOWN_MS, SNAP_MS } from "../shared/slime.js";
@@ -389,6 +390,28 @@ try {
       if (Math.abs(gap) >= near) check(false, `setup: seat ${s}'s piece was walked to ${x} by its keys${face ? " and turned" : ""} (it is ${Math.round(gap)} short)`);
     };
     const after = (test, ms = 3000, from = ada.seen.length) => ada.wait(test, ms, from).catch(() => null);
+    /** A tap left on a phone's keys: its piece takes a step left and stands facing left (held past the page's send gap, as walkTo's turn is). */
+    const turnLeft = async (page, s) => {
+      await page.keyboard.down("ArrowLeft");
+      await sleep(75);
+      await page.keyboard.up("ArrowLeft");
+      await sleep(260);
+      await settled(s);
+      const m = (await where())[s];
+      if (m.f !== -1) check(false, `setup: seat ${s}'s piece was turned left by its keys (the room has it ${JSON.stringify({ x: m.x, d: m.d, f: m.f ?? 1 })})`);
+    };
+    /**
+     * Which way a phone draws every standing piece, against the room's word on it (`f: -1` in the
+     * whole room for one facing left, nothing for one facing right): {ok, room: seat -> facing, story}.
+     * A page that arrived in the middle (a reload) has heard no move, kick or hook: it has only that word.
+     */
+    const facesOn = async (page) => {
+      const standing = (await where()).filter((m) => m?.connected && m.d === 0);
+      const drawnFaces = await page.evaluate((seats) => seats.map((s) => globalThis.__partyRoom?.view?.pieces?.get(s)?.face ?? null), standing.map((m) => m.seat));
+      const room = Object.fromEntries(standing.map((m) => [m.seat, m.f === -1 ? -1 : 1]));
+      const story = standing.map((m, i) => `${m.name}: drawn ${drawnFaces[i]}, the room ${room[m.seat]}`).join("; ");
+      return { ok: standing.length > 0 && standing.every((m, i) => drawnFaces[i] === room[m.seat]), room, story };
+    };
     /**
      * Waits until a seat's move is ready again and it is up and safe no more, by the room's word,
      * and its own phone's move button says ready too. A reloaded phone takes the room's cooldown
@@ -667,6 +690,9 @@ try {
     // draws again, and down if they came down before it was back (a busy machine can take seconds
     // to reload). The room's own address, as a reload of the room's page is (the join link would
     // ask for a name again).
+    // Pat stands facing left first: his reloaded phone draws him so, as it does every standing
+    // piece (a fresh page once drew them all facing right until each next walked or kicked).
+    await turnLeft(pat, P);
     await rested(R);
     const restedAt = Date.now();
     const beforeKey = { room: (await where())[R], page: await rob.evaluate(() => globalThis.__partyRoom?.moves ?? null), sinceUp: Date.now() - upAt };
@@ -682,6 +708,8 @@ try {
     await sleep(1200);
     const legsJudged = await reloadedDraws(pat, R, "legs");
     seen(legsJudged.ok, `Pat's phone, reloaded mid-legs, draws Rob as the room has him when it is back (${legsJudged.story})`);
+    const patFaces = await facesOn(pat);
+    check(patFaces.ok && patFaces.room[P] === -1, `Pat's reloaded phone draws every standing piece facing the way the room has it, his own left (${patFaces.story})`);
     await sleep(STILT_MS);
 
     // ================================================================ the slime
@@ -746,6 +774,8 @@ try {
     }
 
     section(`${look}: Sam's own phone reloaded while it is soft draws it soft`);
+    // Pat stands facing left: Sam's reloaded phone, which heard none of his moves, draws him so.
+    await turnLeft(pat, P);
     await rested(S);
     mark = ada.seen.length;
     // Held until the room says Sam went soft (a fixed hold could reach a busy page as a tap).
@@ -762,6 +792,8 @@ try {
     await sleep(1200);
     const softJudged = await reloadedDraws(sam, S, "soft");
     seen(softJudged.ok, `Sam's own phone, reloaded while soft, draws Sam as the room has him when it is back (${softJudged.story})`);
+    const samFaces = await facesOn(sam);
+    check(samFaces.ok && samFaces.room[P] === -1, `Sam's reloaded phone draws every standing piece facing the way the room has it, Pat left (${samFaces.story})`);
     // The reloaded phone takes its harden's cooldown from the room: its move button is ready when
     // the room's cooldown ends, not however long the view took to load later (a press in between
     // would be dropped on the phone, the room never hearing it).

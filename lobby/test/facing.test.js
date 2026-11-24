@@ -4,6 +4,7 @@
 import { describe, expect, it } from "vitest";
 import { LobbyCore } from "../server/lobby-core.js";
 import { LOOK_COOLDOWN_MS } from "../shared/characters.js";
+import { facingOf, keepFacing } from "../public/move-state.js";
 import { Pilot } from "../shared/pilot.js";
 import { POSITION_SLACK } from "../shared/world.js";
 import { WALL } from "../wall.js";
@@ -156,6 +157,66 @@ describe("the room faces a piece the way its page does", () => {
     core.move(0, { x: 1000, d: -1, f: 1, r: m.rev }, 2000);
     expect(m.face).toBe(-1);
     expect(core.bump(0, 2010, 1)).toMatchObject({ f: -1 });
+  });
+});
+
+describe("a page that arrives in the middle faces every piece the way the room has it", () => {
+  it("the whole room says a piece faces left (`f`), and says nothing of one facing right", () => {
+    const core = party();
+    place(core, 0, 1000, 1000);
+    place(core, 1, 1300, 1000);
+    const m = core.members[0];
+    core.move(0, { x: 1000, d: -1, r: m.rev }, 2000);
+    core.move(0, { x: 1000, d: 0, r: m.rev }, 2000);
+    const [pat, sam] = core.view(3000).members;
+    expect(pat).toMatchObject({ d: 0, f: -1 });
+    expect("f" in sam).toBe(false);
+    expect(facingOf(pat)).toBe(-1);
+    expect(facingOf(sam)).toBe(1);
+    // A standing turn (a quick tap, a kick's or a hook's own facing) reaches the next whole room too.
+    core.move(0, { x: 1000, d: 0, f: 1, r: m.rev }, 3100);
+    expect("f" in core.view(3200).members[0]).toBe(false);
+    core.bump(0, 3300, -1);
+    expect(core.view(3400).members[0].f).toBe(-1);
+  });
+
+  it("the room that woke from a sleep says it too (the facing its socket carried)", () => {
+    const core = party();
+    place(core, 0, 1000, 1000);
+    const m = core.members[0];
+    core.move(0, { x: 1000, d: -1, r: m.rev }, 2000);
+    core.move(0, { x: 1000, d: 0, r: m.rev }, 2000);
+    const piece = core.pieceOf(0);
+    const token = m.token;
+    Object.assign(m, { face: 1, connected: false });
+    core.resume(token, piece);
+    expect(core.view(3000).members[0].f).toBe(-1);
+  });
+
+  it("the page keeps what it hears of a facing on the room it last heard whole, for a view built from it later", () => {
+    const core = party();
+    place(core, 0, 1000, 1000);
+    const room = core.view(2000);
+    // Pat taps left (a standing turn), then Sam walks left and stops.
+    keepFacing(room.members[0], -1);
+    keepFacing(room.members[1], -1);
+    expect(room.members.slice(0, 2).map(facingOf)).toEqual([-1, -1]);
+    // Turned right again: as the room says it, nothing at all.
+    keepFacing(room.members[0], 1);
+    expect("f" in room.members[0]).toBe(false);
+    // Anything but -1 or 1 (a message without a facing, a seat that has gone) changes nothing.
+    for (const f of [0, undefined, null, "1"]) keepFacing(room.members[1], f);
+    expect(facingOf(room.members[1])).toBe(-1);
+    expect(() => keepFacing(null, -1)).not.toThrow();
+  });
+
+  it("a reloaded phone's own piece starts facing the way the room has it, and says so with its next word", () => {
+    const sent = [];
+    const pilot = new Pilot({ lights: 5, send: (m) => sent.push(m), x: 1000, rev: 0, face: -1 });
+    expect(pilot.face).toBe(-1);
+    pilot.bump(5000);
+    expect(sent.at(-1)).toMatchObject({ t: "b", f: -1 });
+    expect(new Pilot({ lights: 5, send: () => {}, x: 1000 }).face).toBe(1);
   });
 });
 

@@ -24,7 +24,7 @@ import { modelOf } from "./characters.js";
 import { RIG_UNIT } from "./emote-arms.js";
 import { Life } from "./life.js";
 import { Hooks3D } from "./moves3d.js";
-import { dropStilts, heardCannon, heardCharge, heardChargedKick, heardCut, heardEmpty, heardKickCounters, heardTouch, heardHook, heardShove, heardSlime, heardStilts, heardVerdict, hookNow, hookStop, netOf, refusedOwn, resumeMoves, startCharge, startGoo, startHook, startRelease, startStilts } from "../move-state.js";
+import { dropStilts, facingOf, heardCannon, heardCharge, heardChargedKick, heardCut, heardEmpty, heardKickCounters, heardTouch, heardHook, heardShove, heardSlime, heardStilts, heardVerdict, hookNow, hookStop, netOf, refusedOwn, resumeMoves, startCharge, startGoo, startHook, startRelease, startStilts } from "../move-state.js";
 import { ART_IMAGES, boxArt, boxSide, canvasOf } from "./paint.js";
 import { PAWN_HEIGHT, resumeKnock, startAttack, startFright, startKnock } from "./pieces.js";
 import { SKINS, liveSkin } from "./skins.js";
@@ -689,7 +689,8 @@ export class Room3D {
   }
 
   piece(m) {
-    const p = { fx: { char: 0, hopAt: -Infinity }, seat: m.seat, rx: m.x, net: { x: m.x, d: m.d, t: 0 }, face: 1, rev: m.rev, jumpAt: -Infinity, attack: null, knock: null, leaving: 0, level: 0, look: "", tag: null, member: m };
+    // A piece made in the middle of a party faces the way the room has it (move-state.js, facingOf).
+    const p = { fx: { char: 0, hopAt: -Infinity }, seat: m.seat, rx: m.x, net: { x: m.x, d: m.d, t: 0 }, face: facingOf(m), rev: m.rev, jumpAt: -Infinity, attack: null, knock: null, leaving: 0, level: 0, look: "", tag: null, member: m };
     this.embody(p, m);
     return p;
   }
