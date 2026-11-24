@@ -33,8 +33,9 @@
 //                                            upload (testBuildProblem).
 //
 // A deploy (an upload) carries the two releases before it by itself, or fails saying why
-// (scripts/carried.mjs). Every build writes the release record (scripts/release.mjs): release.js
-// in the release's folder for the pages, the same at /release.js, and dist/release.js for the Worker.
+// (scripts/carried.mjs). Every build writes the release record (scripts/release.mjs):
+// dist/release.js for the Worker, the same at /release.js, and the pages' part of it (the id and
+// the site's version) as release.js in the release's folder.
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
@@ -300,8 +301,9 @@ export function planId(plan, { salt = "", site = "" } = {}) {
  * (party-kit/build/folders.mjs). The release id is the hash of that site as built with
  * ID_PLACEHOLDER where the id goes (so it covers every file as served, the headers and the
  * redirects), without the preview pages and without what it carries; the site is then built with
- * the id. The release record goes into the release's folder and to /release.js, and to
- * `workerRelease` too when given (the command line gives WORKER_RELEASE).
+ * the id. The release record goes to /release.js, and to `workerRelease` too when given (the
+ * command line gives WORKER_RELEASE); the release's folder gets the pages' part of it (its id and
+ * the site's version: scripts/release.mjs, pageRecord).
  *
  * - `git` is the commit and tree state to record (gitState).
  * - `preview` adds the pages still waiting for approval (--preview).
