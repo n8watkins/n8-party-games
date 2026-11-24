@@ -385,9 +385,26 @@ describe("a site folded into release folders (foldTree)", () => {
       expect(read("index.html")).toBe(text["index.html"]);
       expect(read("lobby/index.html")).toBe(text["lobby/index.html"]);
       expect(read("icons/icon.png")).toBe("icon");
-      expect(read("_headers")).toBe(text["_headers"]);
       // An address this release redirects is its own too: a file there would never be served.
       expect(() => read("game/game/baked/set.glb")).toThrow();
+      // Its headers are not carried: it has no page here to send them with.
+      expect(read("_headers")).not.toContain("flat");
+    });
+
+    it("lets a carried release's page copies run: their inline scripts are allowed beside this release's own", () => {
+      // A carried page is served with this deploy's headers, and its import map names its own
+      // release's folder, so its hash is its own: a policy that held only this release's hashes
+      // would refuse it, and the game it shows in a frame would never load.
+      const hashIn = (html) => `'sha256-${createHash("sha256").update(/importmap">(.*?)<\/script>/.exec(html)[1]).digest("base64")}'`;
+      const mine = hashIn(text["game/index.html"]);
+      const theirs = hashIn(read(`r/${OLD}/game/index.html`));
+      expect(theirs).not.toBe(mine);
+      expect(carried[0].scripts).toEqual([theirs]);
+      expect(carried[1].scripts).toEqual([]);
+      expect(read("_headers")).toBe(`/*\n  X: ${[mine, theirs].sort().join(" ")}\n`);
+      // Carrying nothing, or only a release with no page copies, changes no header.
+      expect(textOf(withCarried(plan, []))["_headers"]).toBe(text["_headers"]);
+      expect(textOf(withCarried(plan, [carried[1]]))["_headers"]).toBe(text["_headers"]);
     });
 
     it("never lets a carried file replace one of this release's, and the same media is one file", () => {

@@ -292,8 +292,11 @@ export function foldTree({ tree, files, id, stable = [], stableMedia = [], heade
     }
     if (isStable(path)) out.push({ path, from });
   }
-  out.push({ path: "_headers", data: Buffer.from(headers({ scripts: inlineScriptHashesOf(pages) })) });
-  return { id, files: out, redirects };
+  // The plan keeps the hashes and the way the headers are written: carrying a release adds that
+  // release's hashes, and the headers are written again (withCarried).
+  const scripts = inlineScriptHashesOf(pages);
+  out.push({ path: "_headers", data: Buffer.from(headers({ scripts })) });
+  return { id, files: out, redirects, scripts, headers };
 }
 
 /** The `_redirects` file for `redirects` ({from, to, status}), the lasting ones first; refuses more than Workers reads. */
@@ -330,20 +333,27 @@ export function layoutOf(dir, id) {
 
 /**
  * What a later deploy carries of the release `id` built in `dir`, for the pages still open on it:
- * `{id, layout, files: [{path, from}], redirects}`.
+ * `{id, layout, files: [{path, from}], redirects, scripts}`.
  * - A folded build: its folder, the media, and the redirects out of its folder. Nothing else: the
  *   pages and whatever else sits at its own address belong to the live release.
+ *   `scripts` are the CSP hashes of the inline scripts of the page copies in its folder. The bytes
+ *   under /r/<id>/ are that release's, but the headers they are sent with are the carrying
+ *   deploy's; a page's import map names its own release's folder, so its hash is its own, and the
+ *   carrying deploy's policy must allow it (withCarried) or a game the old page shows in a frame
+ *   is refused its import map and never loads.
  * - A flat build (before there were folders): every file at its old address but the pages, which
  *   are always the live release's. Its open pages load their code and media by those addresses.
+ *   It has no page here, so no hashes.
  */
 export function carriedFrom(dir, id) {
   const layout = layoutOf(dir, id);
   const all = walk(dir);
   if (layout === "flat") {
     const files = all.filter((path) => !path.endsWith(".html") && path !== "_headers" && path !== "_redirects").map((path) => ({ path, from: join(dir, path) }));
-    return { id, layout, files, redirects: [] };
+    return { id, layout, files, redirects: [], scripts: [] };
   }
   const files = all.filter((path) => under(path, `${RELEASE_DIR}/${id}`) || under(path, MEDIA_DIR)).map((path) => ({ path, from: join(dir, path) }));
+  const scripts = inlineScriptHashesOf(files.filter((f) => under(f.path, `${RELEASE_DIR}/${id}`) && f.path.endsWith(".html")).map((f) => readFileSync(f.from, "utf8")));
   const redirects = [];
   if (existsSync(join(dir, "_redirects"))) {
     for (const line of readFileSync(join(dir, "_redirects"), "utf8").split("\n")) {
@@ -351,16 +361,23 @@ export function carriedFrom(dir, id) {
       if (from?.startsWith(`/${RELEASE_DIR}/${id}/`) && to && status) redirects.push({ from, to, status: Number(status) });
     }
   }
-  return { id, layout, files, redirects };
+  return { id, layout, files, redirects, scripts };
 }
 
 /**
  * `plan` with the releases in `carried` (carriedFrom) beside it. The build's own files and
  * redirects always win: a carried file is added only at an address the build does not serve
  * itself, by a file or by a redirect (Workers follows a redirect whatever file is there).
+ *
+ * The headers are the build's own, written again with the carried releases' script hashes
+ * beside its own, so a carried page copy may run its inline import map. Everything else in the
+ * policy is this build's: a carried page copy is sent today's policy, as every page is.
  */
 export function withCarried(plan, carried) {
-  const files = [...plan.files];
+  const scripts = [...new Set([...(plan.scripts ?? []), ...carried.flatMap((release) => release.scripts ?? [])])].sort();
+  const rewritten = scripts.length !== (plan.scripts ?? []).length;
+  if (rewritten && !plan.headers) throw new Error("The plan cannot allow the carried releases' pages: it does not say how its headers are written");
+  const files = plan.files.map((file) => (rewritten && file.path === "_headers" ? { path: "_headers", data: Buffer.from(plan.headers({ scripts })) } : file));
   const redirects = [...plan.redirects];
   const taken = new Set([...files.map((f) => f.path), "_redirects"]);
   const sent = new Set(redirects.map((r) => r.from));
@@ -377,7 +394,7 @@ export function withCarried(plan, carried) {
       redirects.push(redirect);
     }
   }
-  return { ...plan, files, redirects };
+  return { ...plan, files, redirects, scripts };
 }
 
 /** A plan's files with its `_redirects` among them: everything it puts in a folder, as `{path, from}` or `{path, data}`. */

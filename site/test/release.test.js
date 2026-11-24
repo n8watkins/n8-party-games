@@ -3,6 +3,7 @@
 // version, the build writes the same record for the pages and the Worker, and /api/version
 // answers with it, never cached.
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -518,6 +519,29 @@ describe("a build that carries the releases before it", () => {
     expect(recordIn(readFileSync(join(next.dir, RELEASE_FILE), "utf8"))).toEqual(next.record);
     // What it carries is not part of what its own folder holds: the same release, built alone, has the same folder.
     expect(readFileSync(join(next.dir, "r", next.id, RELEASE_FILE), "utf8")).toBe(readFileSync(join(alone.dir, "r", alone.id, RELEASE_FILE), "utf8"));
+  });
+
+  it("allows each carried release's framed game page its own import map, in every page policy, beside its own", () => {
+    // Cork & Bell's page holds an import map that names its release's folder: each release's has its own hash.
+    const hashOfMap = (dir, id) => {
+      const html = readFileSync(join(dir, "r", id, "cork-and-bell", "index.html"), "utf8");
+      const map = /<script type="importmap">([\s\S]*?)<\/script>/.exec(html)[1];
+      expect(map).toContain(`/r/${id}/cork-and-bell/game/vendor/three.module.js`);
+      return `'sha256-${createHash("sha256").update(map).digest("base64")}'`;
+    };
+    const next = made("a4", { carry: [two, one] });
+    const hashes = [hashOfMap(next.dir, next.id), hashOfMap(two.dir, two.id), hashOfMap(one.dir, one.id)];
+    expect(new Set(hashes).size).toBe(3);
+    const policies = readFileSync(join(next.dir, "_headers"), "utf8").split("\n").filter((line) => line.startsWith("  Content-Security-Policy:"));
+    expect(policies.length).toBeGreaterThan(4);
+    for (const policy of policies) for (const hash of hashes) expect(policy.match(/script-src ([^;]*)/)[1]).toContain(hash);
+    // Built alone, it allows only its own; and what it carries is no part of its id.
+    const own = readFileSync(join(alone.dir, "_headers"), "utf8");
+    expect(own).toContain(hashes[0]);
+    expect(own).not.toContain(hashes[1]);
+    expect(next.id).toBe(alone.id);
+    // Within what Workers reads: 2,000 characters a line.
+    for (const line of readFileSync(join(next.dir, "_headers"), "utf8").split("\n")) expect(line.length).toBeLessThan(2000);
   });
 
   it(`carries ${CARRIED_RELEASES} at most, never itself, and none twice`, () => {
