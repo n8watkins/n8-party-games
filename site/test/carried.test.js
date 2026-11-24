@@ -2,7 +2,7 @@
 // from its commit and checked against the id the live site gave. A deploy that cannot do it fails,
 // saying why and the one way round; a local build never asks at all.
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
@@ -149,8 +149,12 @@ describe("a release built again from its commit (rebuildRelease)", () => {
   writeFileSync(
     join(repo, "scripts", "build-public.mjs"),
     [
+      `import { execFileSync } from "node:child_process";`,
       `import { mkdirSync, readFileSync, writeFileSync, existsSync } from "node:fs";`,
       `import { join } from "node:path";`,
+      // Whether git finds a repository from here, as the real build's gitState asks (a build of a commit's files, outside git, must find none).
+      `let repo = null; try { repo = execFileSync("git", ["rev-parse", "--show-toplevel"], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim(); } catch {}`,
+      `const gitEnv = Object.keys(process.env).filter((k) => k.startsWith("GIT_")).sort();`,
       `const out = process.argv.find((a) => a.startsWith("--out=")).slice(6);`,
       `const page = readFileSync("site/index.html", "utf8");`,
       `if (page.includes("BROKEN")) { console.error("the build broke: no such thing"); process.exit(1); }`,
@@ -158,7 +162,9 @@ describe("a release built again from its commit (rebuildRelease)", () => {
       `mkdirSync(join(out, "public", "r", id), { recursive: true });`,
       `writeFileSync(join(out, "public", "index.html"), page);`,
       `writeFileSync(join(out, "public", "r", id, "main.js"), "// " + page);`,
-      `writeFileSync(join(out, "public", "ran.json"), JSON.stringify({ args: process.argv.slice(2), wrangler: process.env.WRANGLER_COMMAND ?? null, dirty: process.env.RELEASE_ALLOW_DIRTY ?? null, carry: process.env.RELEASE_CARRY ?? null, packages: existsSync("node_modules") || existsSync("package-lock.json") }));`,
+      // The pages' own record, in the folder: its id and the site's version; marked dirty as the real build marks it, when git finds a tree with changes.
+      `writeFileSync(join(out, "public", "r", id, "release.js"), "export const RELEASE = Object.freeze(" + JSON.stringify({ id, site: "1.0.0", ...((repo || page.includes("DIRTY")) && { dirty: true }) }) + ");\\n");`,
+      `writeFileSync(join(out, "public", "ran.json"), JSON.stringify({ args: process.argv.slice(2), wrangler: process.env.WRANGLER_COMMAND ?? null, dirty: process.env.RELEASE_ALLOW_DIRTY ?? null, carry: process.env.RELEASE_CARRY ?? null, packages: existsSync("node_modules") || existsSync("package-lock.json"), repo, gitEnv }));`,
       `writeFileSync(join(out, "release.js"), "export const RELEASE = Object.freeze(" + JSON.stringify({ id, commit: "fixture" }) + ");\\n");`,
     ].join("\n"),
   );
@@ -171,6 +177,11 @@ describe("a release built again from its commit (rebuildRelease)", () => {
   const first = { commit: commit("<p>one</p>"), id: "000000000010" };
   const second = { commit: commit("<p>second</p>"), id: "000000000013" };
   const broken = { commit: commit("<p>BROKEN</p>"), id: "000000000013" };
+  // A commit whose build marks its pages' record as a build of local changes.
+  const marked = { commit: commit("<p>DIRTY page</p>"), id: "000000000017" };
+  // All of those are on origin/main, as every deployed commit is; the next one is not.
+  git("update-ref", "refs/remotes/origin/main", "HEAD");
+  const unmerged = { commit: commit("<p>not merged</p>"), id: "000000000017" };
   // The working tree moves on, and is dirty: neither changes what a commit builds.
   writeFileSync(join(repo, "site", "index.html"), "<p>not committed</p>");
   const quiet = () => {};
@@ -198,13 +209,52 @@ describe("a release built again from its commit (rebuildRelease)", () => {
     try {
       const got = rebuildRelease({ root: repo, work, ...first, log: quiet });
       const ran = JSON.parse(readFileSync(join(got.dir, "ran.json"), "utf8"));
-      expect(ran).toEqual({ args: [`--out=${join(work, first.id, "build")}`], wrangler: null, dirty: null, carry: null, packages: true });
+      expect(ran).toMatchObject({ args: [`--out=${join(work, first.id, "build")}`], wrangler: null, dirty: null, carry: null, packages: true, repo: null });
     } finally {
       for (const key of ["WRANGLER_COMMAND", "RELEASE_ALLOW_DIRTY", "RELEASE_CARRY"]) {
         if (key in before) process.env[key] = before[key];
         else delete process.env[key];
       }
     }
+  });
+
+  it("builds it outside git, wherever the temporary folder is: inside a work tree, or with git pointed at one", () => {
+    // The temporary folder inside a repository's work tree (TMPDIR under a repo), and git told
+    // where a repository is besides: the commit's own build would find that repository, a
+    // commit and a tree with changes, and mark the pages' record as a build of local changes,
+    // which open pages of that release would then show for a year.
+    const work = join(repo, "tmp-carried-work");
+    mkdirSync(work);
+    const before = { ...process.env };
+    process.env.GIT_DIR = join(repo, ".git");
+    process.env.GIT_WORK_TREE = repo;
+    try {
+      const got = rebuildRelease({ root: repo, work, ...first, log: quiet });
+      const ran = JSON.parse(readFileSync(join(got.dir, "ran.json"), "utf8"));
+      expect(ran.repo).toBeNull();
+      // Git is not told where a repository is, and is stopped from looking above the copy.
+      expect(ran.gitEnv).toContain("GIT_CEILING_DIRECTORIES");
+      expect(ran.gitEnv).not.toContain("GIT_DIR");
+      expect(ran.gitEnv).not.toContain("GIT_WORK_TREE");
+      expect(readFileSync(join(got.dir, "r", first.id, "release.js"), "utf8")).toBe(`export const RELEASE = Object.freeze({"id":"${first.id}","site":"1.0.0"});\n`);
+    } finally {
+      for (const key of ["GIT_DIR", "GIT_WORK_TREE"]) {
+        if (key in before) process.env[key] = before[key];
+        else delete process.env[key];
+      }
+      rmSync(work, { recursive: true, force: true });
+    }
+  });
+
+  it("refuses a build whose pages' record holds more than its id and the site's version: it would be served for a year", () => {
+    const work = temp("carried-work");
+    expect(() => rebuildRelease({ root: repo, work, ...marked, log: quiet })).toThrow(/pages' record of release 000000000017[\s\S]*"dirty":true[\s\S]*RELEASE_CARRY=none/);
+  });
+
+  it("refuses a commit that is not on origin/main: only what was merged is ever live, so only that is built and served", () => {
+    const work = temp("carried-work");
+    expect(() => rebuildRelease({ root: repo, work, ...unmerged, log: quiet })).toThrow(new RegExp(`commit ${unmerged.commit} of release ${unmerged.id} is not on origin/main[\\s\\S]*RELEASE_CARRY=none`));
+    expect(readdirSync(work)).toEqual([]);
   });
 
   it("refuses a build whose id is not the one the live site gave: the files would not be the ones that were served", () => {
@@ -236,6 +286,27 @@ describe("a release built again from its commit (rebuildRelease)", () => {
     const again = await carriedFromLive({ root: repo, version: async () => live(second, [first]), log: quiet });
     expect(again.carry(second.id).map((c) => c.id)).toEqual([first.id]);
     again.cleanup();
+  });
+
+  it("clears away what a carry that was killed left behind, and leaves a carry that may still be running alone", async () => {
+    const tmp = temp("carried-tmp");
+    const stale = join(tmp, "party-carried-old");
+    const recent = join(tmp, "party-carried-new");
+    const other = join(tmp, "something-else");
+    for (const dir of [stale, recent, other]) mkdirSync(dir);
+    const hoursAgo = new Date(Date.now() - 2 * 3600_000);
+    utimesSync(stale, hoursAgo, hoursAgo);
+    utimesSync(other, hoursAgo, hoursAgo);
+    const got = await carriedFromLive({ root: repo, tmp, version: async () => live(first), log: quiet });
+    // Asking the live site clears nothing: only a carry that builds does.
+    expect(existsSync(stale)).toBe(true);
+    const [built] = got.carry("ffffffffffff");
+    expect(built.dir.startsWith(join(tmp, "party-carried-"))).toBe(true);
+    expect(existsSync(stale)).toBe(false);
+    expect(existsSync(recent)).toBe(true);
+    expect(existsSync(other)).toBe(true);
+    got.cleanup();
+    expect(readdirSync(tmp).sort()).toEqual(["party-carried-new", "something-else"]);
   });
 
   it("builds nothing, and makes no folder, when there is nothing to carry", async () => {

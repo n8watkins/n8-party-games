@@ -25,10 +25,11 @@
 // Local and test builds never come here: they carry nothing (or, the release test, the builds it
 // names with --carry=DIR), and need no network.
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { RELEASE_FILE, RELEASE_ID, recordIn } from "./release.mjs";
+import { RELEASE_DIR } from "../party-kit/build/folders.mjs";
+import { MAIN_REF, RELEASE_FILE, RELEASE_ID, recordIn } from "./release.mjs";
 
 /** The live site. */
 export const LIVE = "https://partygames.n8builds.dev";
@@ -102,17 +103,58 @@ export async function liveVersion({ url = LIVE, fetchImpl = fetch, tries = 3, ti
   throw refusal(`Could not ask the live site what it is (${url}/api/version): ${last?.message ?? last}.`);
 }
 
-/** The environment a carried release's own build runs in: a plain build by hand, whatever started this one. */
-function plainBuildEnv(env = process.env) {
-  const { WRANGLER_COMMAND, RELEASE_ALLOW_DIRTY, [NO_CARRY]: none, ...rest } = env;
-  return rest;
+/**
+ * The variables that tell git where a repository is, instead of letting it look from the folder
+ * it runs in. With one of them set (a hook, a tool that wraps the deploy), git here would ask
+ * another repository than the one it is run in.
+ */
+const GIT_PLACE = ["GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR", "GIT_INDEX_FILE", "GIT_OBJECT_DIRECTORY", "GIT_ALTERNATE_OBJECT_DIRECTORIES", "GIT_NAMESPACE", "GIT_PREFIX", "GIT_CEILING_DIRECTORIES", "GIT_DISCOVERY_ACROSS_FILESYSTEM"];
+
+/** `env` without what points git at a repository: git looks from the folder it runs in. (What signs it in, GIT_SSH_COMMAND and the like, stays: installing a game pinned from git may need it.) */
+function gitFromHere(env = process.env) {
+  return Object.fromEntries(Object.entries(env).filter(([key]) => !GIT_PLACE.includes(key)));
+}
+
+/**
+ * The environment a carried release's own build runs in: a plain build by hand, whatever started
+ * this one, and outside git. The commit's files are a copy in a temporary folder, not a
+ * repository: its build must find none (its record then says so, and its pages' record is its
+ * id and the site's version alone: scripts/release.mjs, pageRecord). But a temporary folder can
+ * sit inside some repository's work tree (TMPDIR under a checkout), where git would find that
+ * repository, a commit and a tree with changes; so git is stopped from looking above `ceiling`.
+ */
+function plainBuildEnv(ceiling, env = process.env) {
+  const { WRANGLER_COMMAND, RELEASE_ALLOW_DIRTY, [NO_CARRY]: none, ...rest } = gitFromHere(env);
+  return { ...rest, GIT_CEILING_DIRECTORIES: ceiling };
+}
+
+/**
+ * What stops the commit of a release from being built again and served, or null: it must be in
+ * this clone, and on MAIN_REF. Every deploy is made from a commit already on it (releaseProblem),
+ * so a live site never names another; one that does is not built: its files would be served to
+ * everyone. `run` stands in for execFileSync.
+ */
+export function commitProblem({ root, id, commit, run = execFileSync }) {
+  const quiet = { cwd: root, stdio: "ignore", env: gitFromHere() };
+  try {
+    run("git", ["cat-file", "-e", `${commit}^{commit}`], quiet);
+  } catch {
+    return `The commit ${commit} of release ${id} is not in this clone: run \`git fetch origin\` and try again.`;
+  }
+  try {
+    run("git", ["merge-base", "--is-ancestor", commit, MAIN_REF], quiet);
+  } catch {
+    return `The commit ${commit} of release ${id} is not on ${MAIN_REF} as this clone has it: only a commit that was merged is ever deployed, so only such a commit is built again and served. Run \`git fetch origin\` if this clone is behind; if it still is not, the live site was not deployed from ${MAIN_REF}, and that needs looking at first.`;
+  }
+  return null;
 }
 
 /**
  * Builds the release `id` again from `commit` of the repository at `root`, in a folder of its own
  * under `work`. Returns `{id, commit, dir}`, `dir` being its built public folder. Throws, saying
- * what to do, when the commit is not in this clone, its packages or its build fail, or its id
- * comes out as another one. `run(cmd, args, options)` stands in for execFileSync in the tests.
+ * what to do, when the commit is not in this clone or not on origin/main, its packages or its
+ * build fail, its id comes out as another one, or its pages' record holds more than the id
+ * decides. `run(cmd, args, options)` stands in for execFileSync in the tests.
  */
 export function rebuildRelease({ root, work, id, commit, run = execFileSync, log = console.error }) {
   const quiet = { stdio: ["ignore", "pipe", "pipe"], encoding: "utf8", maxBuffer: 64 * 1024 * 1024 };
@@ -124,38 +166,71 @@ export function rebuildRelease({ root, work, id, commit, run = execFileSync, log
       throw refusal(`Could not build release ${id} again from commit ${commit}: ${what} failed.\n${said || err.message}`);
     }
   };
-  try {
-    run("git", ["cat-file", "-e", `${commit}^{commit}`], { ...quiet, cwd: root });
-  } catch {
-    throw refusal(`The commit ${commit} of release ${id} is not in this clone: run \`git fetch origin\` and try again.`);
-  }
+  const problem = commitProblem({ root, id, commit, run });
+  if (problem) throw refusal(problem);
   const base = join(work, id);
   const src = join(base, "src");
   const built = join(base, "build");
   mkdirSync(src, { recursive: true });
   log(`build-public: building release ${id} again from commit ${commit}, to carry it...`);
   const tar = join(base, "src.tar");
-  step("reading its files (git archive)", "git", ["archive", "--format=tar", "-o", tar, commit], { cwd: root });
+  step("reading its files (git archive)", "git", ["archive", "--format=tar", "-o", tar, commit], { cwd: root, env: gitFromHere() });
   step("unpacking its files (tar)", "tar", ["-xf", tar, "-C", src], {});
   rmSync(tar, { force: true });
   // Its own packages, by its own lock file. No install scripts: the build runs none of them.
-  step("installing its packages (npm ci)", process.platform === "win32" ? "npm.cmd" : "npm", ["ci", "--ignore-scripts", "--no-audit", "--no-fund"], { cwd: src, env: plainBuildEnv(), timeout: 600_000 });
-  step("its own build", process.execPath, [join("scripts", "build-public.mjs"), `--out=${built}`], { cwd: src, env: plainBuildEnv(), timeout: 300_000 });
+  const env = plainBuildEnv(base);
+  step("installing its packages (npm ci)", process.platform === "win32" ? "npm.cmd" : "npm", ["ci", "--ignore-scripts", "--no-audit", "--no-fund"], { cwd: src, env, timeout: 600_000 });
+  step("its own build", process.execPath, [join("scripts", "build-public.mjs"), `--out=${built}`], { cwd: src, env, timeout: 300_000 });
   const got = recordIn(readFileSync(join(built, RELEASE_FILE), "utf8"))?.id ?? null;
   if (got !== id) {
     throw refusal(`Commit ${commit} built again is release ${got ?? "(none)"}, not ${id} as the live site says: the files would not be the ones that were served, so they are not carried.`);
   }
+  // The id covers every file of the release but its record. The pages' own copy of the record, in
+  // the release's folder, is kept by browsers for a year: it must hold the id and the site's
+  // version (which the id covers) and nothing else, as it did when it was served. Anything more
+  // (a mark that the tree had changes) would be this build's doing, shown by pages of that release.
+  const pages = join(built, "public", RELEASE_DIR, id, RELEASE_FILE);
+  if (existsSync(pages)) {
+    const record = recordIn(readFileSync(pages, "utf8"));
+    const keys = Object.keys(record ?? {}).sort().join();
+    if (keys !== "id,site" || record.id !== id || typeof record.site !== "string") {
+      throw refusal(`The pages' record of release ${id}, built again from commit ${commit}, holds more than its id and the site's version (${JSON.stringify(record)}): it would not be the file that was served, so the release is not carried.`);
+    }
+  }
   return { id, commit, dir: join(built, "public") };
+}
+
+/** A folder a carry left behind is cleared away once it is this old: no carry runs that long, and one that still runs must be left alone. */
+const STALE_CARRY_MS = 60 * 60 * 1000;
+const CARRY_PREFIX = "party-carried-";
+
+/** Removes the folders of carries that were killed before they could (older than STALE_CARRY_MS) from `tmp`. */
+function clearStaleCarries(tmp, now = Date.now()) {
+  let names = [];
+  try {
+    names = readdirSync(tmp);
+  } catch {
+    return;
+  }
+  for (const name of names) {
+    if (!name.startsWith(CARRY_PREFIX)) continue;
+    try {
+      const dir = join(tmp, name);
+      if (statSync(dir).isDirectory() && now - statSync(dir).mtimeMs > STALE_CARRY_MS) rmSync(dir, { recursive: true, force: true });
+    } catch {
+      // Gone already, or not ours to remove: a carry does not fail over another one's leftovers.
+    }
+  }
 }
 
 /**
  * What a deploy carries, read from the live site: `{chain, carry(ownId), cleanup()}`. `chain` is
  * the releases the live site names (carryChain); `carry(ownId)` builds again the ones to hold
  * beside the build with id `ownId` and returns them as `[{id, commit, dir}]`; `cleanup()` removes
- * the folders they were built in. `version` and `rebuild` stand in for the live site and the
- * builds in the tests.
+ * the folders they were built in. What an earlier carry that was killed left in `tmp` is cleared
+ * away first. `version` and `rebuild` stand in for the live site and the builds in the tests.
  */
-export async function carriedFromLive({ root, version = liveVersion, rebuild = rebuildRelease, log = console.error } = {}) {
+export async function carriedFromLive({ root, tmp = tmpdir(), version = liveVersion, rebuild = rebuildRelease, log = console.error } = {}) {
   const chain = carryChain(await version());
   let work = null;
   return {
@@ -163,7 +238,8 @@ export async function carriedFromLive({ root, version = liveVersion, rebuild = r
     carry(ownId) {
       const wanted = toCarry(chain, ownId);
       if (!wanted.length) return [];
-      work ??= mkdtempSync(join(tmpdir(), "party-carried-"));
+      if (!work) clearStaleCarries(tmp);
+      work ??= mkdtempSync(join(tmp, CARRY_PREFIX));
       return wanted.map((entry) => rebuild({ root, work, ...entry, log }));
     },
     cleanup() {
@@ -175,7 +251,8 @@ export async function carriedFromLive({ root, version = liveVersion, rebuild = r
 
 /**
  * Before a deploy's gate runs: whether its build will be able to carry the releases before it,
- * checked the cheap way (the live site answers, and each commit it names is in this clone), so a
+ * checked the cheap way (the live site answers, and each commit it names is in this clone and on
+ * origin/main), so a
  * deploy that cannot fails in seconds, not after the gate's minutes. Resolves to a line saying
  * what will be carried; rejects with the refusal otherwise. The build itself does the real work,
  * and checks every id.
@@ -185,11 +262,8 @@ export async function carryCheck({ root, env = process.env, version = liveVersio
   const chain = carryChain(await version());
   // One more than it carries: the live release is left out when this deploy is that same release again.
   for (const { id, commit } of chain.slice(0, CARRIED_RELEASES + 1)) {
-    try {
-      run("git", ["cat-file", "-e", `${commit}^{commit}`], { cwd: root, stdio: "ignore" });
-    } catch {
-      throw refusal(`The commit ${commit} of release ${id}, which this deploy must carry, is not in this clone: run \`git fetch origin\` and try again.`);
-    }
+    const problem = commitProblem({ root, id, commit, run });
+    if (problem) throw refusal(`This deploy must carry release ${id}. ${problem}`);
   }
   return `This deploy will carry the releases before it: ${chain.slice(0, CARRIED_RELEASES).map(({ id, commit }) => `${id} (commit ${commit})`).join(", ")}.`;
 }
