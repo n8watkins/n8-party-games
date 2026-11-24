@@ -255,7 +255,9 @@ try {
   const alive = setInterval(() => bea.send("ping"), 20_000);
   const cy = await join("Cy", { width: 390, height: 844 }, "&cork-auto=1&cork-quality=low");
   const watcher = bea;
-  await watcher.wait((m) => m.room?.members.filter((x) => x?.connected).length === 3, 8000, 0);
+  // (Up to 30 s: a page that has drawn the room can open its socket seconds later on a loaded machine; 8 s ran out
+  // once with this run held to four threads.)
+  await watcher.wait((m) => m.room?.members.filter((x) => x?.connected).length === 3, 30_000, 0);
   const N = watcher.room.boxes.length;
   const CORK = watcher.room.boxes.findIndex((b) => b.id === "cork-and-bell");
   const light = (off = 0) => Math.round(boxCentre(CORK, N) + off);
