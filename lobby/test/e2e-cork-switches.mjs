@@ -31,7 +31,7 @@
 //
 // The local test server (npm run dev) honours the switches: lobby/test/e2e-cork.mjs uses
 // ?cork-auto=1 there. The browser is headless and muted, and is closed whatever happens.
-import { launchBrowser } from "./browser.mjs";
+import { launchBrowser, siteFile } from "./browser.mjs";
 import { wallFor } from "../shared/rooms.js";
 import { poolOf } from "../shared/world.js";
 import { partyApi, sleep } from "./client.mjs";
@@ -97,10 +97,13 @@ const post = async (body) => {
   const res = await fetch(SCORES, { method: "POST", headers: { "Content-Type": "application/json" }, body: typeof body === "string" ? body : JSON.stringify(body) });
   return { status: res.status, error: (await res.json().catch(() => ({}))).error };
 };
-/** Plays the page's own solo session to the end at once: the game's bot at the gun, through the page's fire call. */
-const playToTheEnd = () =>
+/**
+ * Plays the page's own solo session to the end at once: the game's bot at the gun, through the
+ * page's fire call. `battle` is the address of the game's rules in the page's own release (siteFile).
+ */
+const playToTheEnd = (battle) =>
   (async () => {
-    const { game } = await import("/cork-and-bell/game/shared/battle.js");
+    const { game } = await import(battle);
     const s = window.__cab.session;
     for (let i = 0; i < 20000 && !s.over; i++) {
       for (const input of game.bot(s.state, 0, s.now)) s.fire(input.f[1], input.f[2]);
@@ -172,7 +175,7 @@ try {
     await ann.waitForFunction(() => window.__cab?.mode === "attract", null, { timeout: 120000 });
     await ann.evaluate(() => document.getElementById("start-solo").click());
     await ann.waitForFunction(() => window.__cab.mode === "solo", null, { timeout: 30000 });
-    const run = await ann.evaluate(playToTheEnd);
+    const run = await ann.evaluate(playToTheEnd, await ann.evaluate(siteFile, "/cork-and-bell/game/shared/battle.js"));
     await ann.waitForSelector("#card:not([hidden])", { timeout: 15000 });
     const end = await ann.evaluate(() => ({ form: !document.getElementById("initials").hidden, note: document.getElementById("card-note").textContent }));
     check(run.over && run.score > 0 && !end.form && /practice/i.test(end.note), `?${q}: a practice run of ${run.score} with no high score entry ("${end.note}")`);
@@ -197,7 +200,7 @@ try {
   await player.waitForFunction(() => window.__cab?.session && window.__cab.mode === "attract", null, { timeout: 120000 });
   await player.click("#start-solo");
   await player.waitForFunction(() => window.__cab.mode === "solo", null, { timeout: 30000 });
-  const real = await player.evaluate(playToTheEnd);
+  const real = await player.evaluate(playToTheEnd, await player.evaluate(siteFile, "/cork-and-bell/game/shared/battle.js"));
   await player.waitForSelector("#initials:not([hidden])", { timeout: 15000 });
   await player.fill("#initials-in", "ANN");
   await player.click("#initials-ok");
@@ -206,7 +209,7 @@ try {
   const chalked = (await (await fetch(SCORES)).json()).top;
   check(chalked.length === 1 && chalked[0].name === "ANN" && chalked[0].score === real.score, `a real run goes on the board at the score the page showed, ${real.score} ("${note}"): ${JSON.stringify(chalked)}`);
   check(chalked.every((r) => !("seed" in r)), "the board shows no seed");
-  const v = await player.evaluate(async () => (await import("/cork-and-bell/game/shared/run.js")).RUN_VERSION);
+  const v = await player.evaluate(async (url) => (await import(url)).RUN_VERSION, await player.evaluate(siteFile, "/cork-and-bell/game/shared/run.js"));
   const again = await post({ name: "ZZZ", seed: real.seed, countIn: real.countIn, shots: real.shots, v, score: MOST });
   check(again.status === 409 && again.error === "already_chalked", `the same run sent again, claiming ${MOST}, is turned away (${again.status} ${again.error})`);
   const after = (await (await fetch(SCORES)).json()).top;

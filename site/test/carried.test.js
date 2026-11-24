@@ -6,7 +6,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, 
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
-import { CARRIED_RELEASES, LIVE, NO_CARRY, builtIn, carriedFromLive, carryChain, carryWanted, liveVersion, rebuildRelease, toCarry } from "../../scripts/carried.mjs";
+import { CARRIED_RELEASES, LIVE, NO_CARRY, builtIn, carriedFromLive, carryChain, carryCheck, carryWanted, liveVersion, rebuildRelease, toCarry } from "../../scripts/carried.mjs";
 import { releaseModule } from "../../scripts/release.mjs";
 
 const A = { id: "aaaaaaaaaaaa", commit: "111111111111" };
@@ -248,6 +248,23 @@ describe("a release built again from its commit (rebuildRelease)", () => {
 
   it("fails before any build when the live site cannot be asked", async () => {
     await expect(carriedFromLive({ root: repo, version: async () => Promise.reject(new Error("Could not ask the live site")) })).rejects.toThrow(/Could not ask the live site/);
+  });
+
+  describe("asked before the gate (carryCheck)", () => {
+    it("says what the deploy will carry when the live site answers and this clone has the commits", async () => {
+      const line = await carryCheck({ root: repo, env: {}, version: async () => live(second, [first, { id: "eeeeeeeeeeee", commit: first.commit }]) });
+      expect(line).toBe(`This deploy will carry the releases before it: ${second.id} (commit ${second.commit}), ${first.id} (commit ${first.commit}).`);
+    });
+
+    it("refuses at once when a commit it must carry is not in this clone, or the live site cannot be asked", async () => {
+      await expect(carryCheck({ root: repo, env: {}, version: async () => live(second, [{ id: first.id, commit: "0123456789ab" }]) })).rejects.toThrow(/commit 0123456789ab of release 000000000010.*not in this clone[\s\S]*RELEASE_CARRY=none/);
+      await expect(carryCheck({ root: repo, env: {}, version: async () => Promise.reject(new Error("offline")) })).rejects.toThrow(/offline/);
+    });
+
+    it("asks nothing when the owner said to deploy without them, and says so", async () => {
+      const line = await carryCheck({ root: repo, env: { RELEASE_CARRY: "none" }, version: async () => expect.unreachable() });
+      expect(line).toMatch(/RELEASE_CARRY=none: this deploy will hold no release before its own/);
+    });
   });
 });
 

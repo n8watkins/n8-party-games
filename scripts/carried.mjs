@@ -173,6 +173,27 @@ export async function carriedFromLive({ root, version = liveVersion, rebuild = r
   };
 }
 
+/**
+ * Before a deploy's gate runs: whether its build will be able to carry the releases before it,
+ * checked the cheap way (the live site answers, and each commit it names is in this clone), so a
+ * deploy that cannot fails in seconds, not after the gate's minutes. Resolves to a line saying
+ * what will be carried; rejects with the refusal otherwise. The build itself does the real work,
+ * and checks every id.
+ */
+export async function carryCheck({ root, env = process.env, version = liveVersion, run = execFileSync } = {}) {
+  if (carryWanted({ upload: true, env }) === "none") return `${NO_CARRY}=none: this deploy will hold no release before its own.`;
+  const chain = carryChain(await version());
+  // One more than it carries: the live release is left out when this deploy is that same release again.
+  for (const { id, commit } of chain.slice(0, CARRIED_RELEASES + 1)) {
+    try {
+      run("git", ["cat-file", "-e", `${commit}^{commit}`], { cwd: root, stdio: "ignore" });
+    } catch {
+      throw refusal(`The commit ${commit} of release ${id}, which this deploy must carry, is not in this clone: run \`git fetch origin\` and try again.`);
+    }
+  }
+  return `This deploy will carry the releases before it: ${chain.slice(0, CARRIED_RELEASES).map(({ id, commit }) => `${id} (commit ${commit})`).join(", ")}.`;
+}
+
 /** A build made with `--out=DIR`, as something to carry: `{id, commit, dir}` from DIR/release.js and DIR/public. */
 export function builtIn(dir) {
   const record = recordIn(readFileSync(join(dir, RELEASE_FILE), "utf8"));
