@@ -15,7 +15,9 @@
 //     for a drop, with the game's own grace.
 //   - The browser saying it is offline closes the connection too.
 //   - A connection that has quietly died (no reply to the keep-alive) is noticed here and opened
-//     again: the page says "Reconnecting..." instead of looking alive and doing nothing.
+//     again: the page says "Reconnecting..." instead of looking alive and doing nothing. A page
+//     that was itself not running for a while (a slow phone loading the 3D look) heard nothing
+//     because it was not listening: it asks the room at once and is judged on the answer.
 // The keep-alive and the away and back messages are all the room hears of it. The keep-alive is
 // answered by the runtime and never wakes the room; away and back wake it once each.
 
@@ -23,6 +25,13 @@
 export const KEEP_ALIVE_MS = 10_000;
 /** No word at all from the room for this long, with the keep-alive going: the connection is dead. */
 export const DEAD_AFTER_MS = KEEP_ALIVE_MS + 6000;
+/** How often the page looks for a dead connection. */
+export const CHECK_EVERY_MS = 2000;
+/**
+ * A look this long after the one before it means the page itself was not running in between (a
+ * slow phone busy loading the 3D look, a frozen or throttled tab): that silence is not the room's.
+ */
+export const STALLED_AFTER_MS = 2 * CHECK_EVERY_MS;
 
 /** A turn-based game is what the room is doing (the room view's `game.turns`). */
 export const turnBased = (room) => room?.phase === "playing" && !!room.game?.turns;
@@ -206,14 +215,26 @@ export class ConnectionWatch {
    * @param {import("/party-kit/client/party-client.js").PartyClient} link
    * @param {{player: () => boolean, touch: boolean}} opts
    */
-  constructor(link, { player, touch }) {
+  constructor(link, { player, touch, now = Date.now() }) {
     this.link = link;
     this.player = player;
     this.touch = touch;
     /** null, "parked" (the socket closed on purpose) or "away" (hidden in a turn-based game, socket open). */
     this.mode = null;
-    /** When the page was last shown after being away: the keep-alive has not been answered since. */
-    this.shownAt = -Infinity;
+    /**
+     * When the page last sent a keep-alive to find out at once whether the socket lived through a
+     * time it could not hear the room (hidden and away, or not running): the silence before it is
+     * not counted, and the answer gets a few seconds.
+     */
+    this.askedAt = -Infinity;
+    /** When `check` last looked. */
+    this.checkedAt = now;
+  }
+
+  /** A keep-alive now, and the room's silence counted from here (see `askedAt`). */
+  ask(now) {
+    this.askedAt = now;
+    this.link.ping();
   }
 
   hidden() {
@@ -228,10 +249,11 @@ export class ConnectionWatch {
   shown(online = true, now = Date.now()) {
     if (this.mode === "away") {
       this.mode = null;
-      this.shownAt = now;
       // Back, and a keep-alive to find out at once whether the socket lived through it.
       this.link.setAway(false);
-      this.link.ping();
+      this.ask(now);
+      // The page runs again from here: the time hidden is accounted for by the question.
+      this.checkedAt = now;
     } else if (online) this.unpark();
   }
 
@@ -273,12 +295,17 @@ export class ConnectionWatch {
     this.link.connect();
   }
 
-  /** Looked at every couple of seconds. */
+  /** Looked at every CHECK_EVERY_MS, by the page's own timer. */
   check(now = Date.now()) {
     const link = this.link;
+    const stalled = now - this.checkedAt > STALLED_AFTER_MS;
+    this.checkedAt = now;
     // Parked on purpose, or hidden and away: the keep-alive of a hidden page may be slowed or stopped, and that is not a dead connection.
     if (this.mode !== null || link.status !== "open" || !link.heardAt) return;
-    const since = Math.max(link.heardAt, this.shownAt - KEEP_ALIVE_MS);
+    // This look comes late: the page was not running (no keep-alive went out, and what the room
+    // said meanwhile may still be waiting to be read). Its silence says nothing of the socket: ask.
+    if (stalled) return this.ask(now);
+    const since = Math.max(link.heardAt, this.askedAt - KEEP_ALIVE_MS);
     if (now - since > DEAD_AFTER_MS) link.dropConnection({ reconnectAfterMs: 0 });
   }
 }
@@ -293,6 +320,6 @@ export function watchConnection(link, { player }) {
   addEventListener("offline", () => watch.offline());
   addEventListener("online", () => watch.online(document.hidden));
   link.on("room", () => watch.roomChanged(document.hidden));
-  setInterval(() => watch.check(), 2000);
+  setInterval(() => watch.check(), CHECK_EVERY_MS);
   return watch;
 }

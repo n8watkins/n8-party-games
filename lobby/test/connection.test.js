@@ -6,7 +6,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { PartyClient } from "../../party-kit/client/party-client.js";
 import { FakeWebSocket } from "../../party-kit/test/fake-browser-socket.js";
-import { BACK_NOTE_MS, ConnectionWatch, DEAD_AFTER_MS, KEEP_ALIVE_MS, WakeKeeper, awayLeft, awayLine, awayNote, awayParts, backParts, clockText, returnHeard, turnBased, whenHidden } from "../public/connection.js";
+import { BACK_NOTE_MS, CHECK_EVERY_MS, ConnectionWatch, DEAD_AFTER_MS, KEEP_ALIVE_MS, WakeKeeper, awayLeft, awayLine, awayNote, awayParts, backParts, clockText, returnHeard, turnBased, whenHidden } from "../public/connection.js";
 
 const lobby = { phase: "lobby", game: null, members: [] };
 const turns = { phase: "playing", game: { id: "who-am-i", name: "Who Am I?", round: 1, turns: true }, members: [] };
@@ -22,9 +22,11 @@ function page(room, { touch = true, role = "player" } = {}) {
   ws.hear({ t: "hello", you: { role, seat: role === "player" ? 0 : -1 }, room });
   ws.sent.length = 0;
   const watch = new ConnectionWatch(link, { player: () => link.you?.role === "player", touch });
-  // As watchConnection wires it: the room changing while the page is hidden.
+  // As watchConnection wires it: the room changing while the page is hidden, and the check on the
+  // page's own timer (which runs on time here, as on a page that is running).
   const state = { hidden: false };
   link.on("room", () => watch.roomChanged(state.hidden));
+  setInterval(() => watch.check(), CHECK_EVERY_MS);
   const hide = () => {
     state.hidden = true;
     watch.hidden();
@@ -96,6 +98,91 @@ describe("a page hidden in the lobby or a ticking game", () => {
     show();
     expect(ws.closedByPage).toBe(false);
     expect(presence(ws)).toEqual([]);
+  });
+});
+
+describe("a connection that has quietly died, on a page that is showing", () => {
+  /** The room answers the page's keep-alive, as the runtime does. */
+  const answer = (ws) => ws.onmessage({ data: "pong" });
+  /**
+   * The page's main thread is busy for `ms` (a slow phone loading the 3D look): no timer, no
+   * keep-alive and no message runs meanwhile, while the clock goes on. Then the check that was due
+   * runs first, late, before anything the room said meanwhile has been read.
+   */
+  const freeze = (watch, ms) => {
+    vi.setSystemTime(Date.now() + ms);
+    watch.check(Date.now());
+  };
+
+  it("is noticed as soon as nothing has been heard for the dead limit, and opened again", () => {
+    const { ws } = page(lobby);
+    // Nothing more is heard: the keep-alive goes out every KEEP_ALIVE_MS and is never answered.
+    vi.advanceTimersByTime(DEAD_AFTER_MS);
+    expect(ws.closedByPage).toBe(false);
+    vi.advanceTimersByTime(CHECK_EVERY_MS);
+    expect(ws.closedByPage).toBe(true);
+    vi.advanceTimersByTime(1);
+    expect(FakeWebSocket.made).toHaveLength(2);
+  });
+
+  it("a connection that is answered stays, however long", () => {
+    const { ws } = page(lobby);
+    for (let i = 0; i < 12; i++) {
+      vi.advanceTimersByTime(KEEP_ALIVE_MS);
+      expect(ws.kinds().at(-1)).toBe("keep-alive");
+      answer(ws);
+    }
+    expect(ws.closedByPage).toBe(false);
+    expect(FakeWebSocket.made).toHaveLength(1);
+  });
+
+  it("a page that was not running for longer than the dead limit keeps a healthy socket: it asks, and the answer comes", () => {
+    const { link, ws, watch } = page(lobby);
+    vi.advanceTimersByTime(KEEP_ALIVE_MS - 1000);
+    ws.sent.length = 0;
+    freeze(watch, DEAD_AFTER_MS + 2000);
+    expect(ws.closedByPage).toBe(false);
+    expect(link.status).toBe("open");
+    // It asks the room straight away, instead of waiting for its next keep-alive.
+    expect(ws.kinds()).toEqual(["keep-alive"]);
+    answer(ws);
+    vi.advanceTimersByTime(DEAD_AFTER_MS);
+    answer(ws);
+    vi.advanceTimersByTime(KEEP_ALIVE_MS);
+    expect(ws.closedByPage).toBe(false);
+    expect(FakeWebSocket.made).toHaveLength(1);
+  });
+
+  it("busy again and again, as a page loading in long pieces is, it is still never taken for dead while it is answered", () => {
+    const { ws, watch } = page(lobby);
+    for (let i = 0; i < 5; i++) {
+      freeze(watch, DEAD_AFTER_MS + 4000);
+      answer(ws);
+      vi.advanceTimersByTime(CHECK_EVERY_MS);
+    }
+    expect(ws.closedByPage).toBe(false);
+    expect(FakeWebSocket.made).toHaveLength(1);
+  });
+
+  it("a socket that died while the page was not running is noticed a few seconds after it runs again, not a whole dead limit later", () => {
+    const { ws, watch } = page(lobby);
+    freeze(watch, 60_000);
+    expect(ws.closedByPage).toBe(false);
+    // No answer to its question: the few seconds' patience a page shown again gets.
+    vi.advanceTimersByTime(DEAD_AFTER_MS - KEEP_ALIVE_MS);
+    expect(ws.closedByPage).toBe(false);
+    vi.advanceTimersByTime(CHECK_EVERY_MS);
+    expect(ws.closedByPage).toBe(true);
+  });
+
+  it("a page only a little late (a slow frame, a busy second) is judged as before", () => {
+    const { ws, watch } = page(lobby);
+    // Late by less than a check: the silence counts in full.
+    vi.advanceTimersByTime(DEAD_AFTER_MS - 2 * CHECK_EVERY_MS);
+    freeze(watch, CHECK_EVERY_MS + 1);
+    expect(ws.closedByPage).toBe(false);
+    vi.advanceTimersByTime(CHECK_EVERY_MS);
+    expect(ws.closedByPage).toBe(true);
   });
 });
 
