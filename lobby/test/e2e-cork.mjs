@@ -293,7 +293,10 @@ try {
 
   // The game is mounted over the room on every device.
   const frames = {};
-  for (const [name, page] of [["Ada", ada], ["Cy", cy], ["screen", screen]]) frames[name] = await gameFrame(page);
+  // Each question to the pages here goes to all three at once: drawn in software on GitHub's runner a page answers
+  // only between its frames, seconds apart, and the battle's ninety seconds must hold everything below. (One after
+  // another, with the game 55 s in coming up, the round ended before the run reached the big screen's count.)
+  await Promise.all([["Ada", ada], ["Cy", cy], ["screen", screen]].map(async ([name, page]) => (frames[name] = await gameFrame(page))));
   const loadedIn = Date.now() - startedAt;
   // A browser that draws WebGL in software (Playwright's own, in WSL) has pages that run many
   // seconds behind the room. What needs a page to keep up with the round is left
@@ -314,20 +317,20 @@ try {
     alone.catch(() => {}); // (awaited below; a failure is reported there)
   };
   // A context to check afterwards: the game's WebGL context, held from the room's page.
-  for (const page of [screen, ada, cy]) await holdContext(page);
+  await Promise.all([screen, ada, cy].map(holdContext));
   const seats = {};
-  for (const name of Object.keys(frames)) seats[name] = await frames[name].evaluate(() => ({ mine: window.__cab.session.mySeat, stalls: window.__cab.views.length, hosted: document.body.classList.contains("hosted"), start: document.getElementById("start").hidden, tally: !document.getElementById("tally").hidden }));
+  await Promise.all(Object.keys(frames).map(async (name) => (seats[name] = await frames[name].evaluate(() => ({ mine: window.__cab.session.mySeat, stalls: window.__cab.views.length, hosted: document.body.classList.contains("hosted"), start: document.getElementById("start").hidden, tally: !document.getElementById("tally").hidden })))));
   check(seats.Ada.mine === 0 && seats.Cy.mine === 2 && [seats.Ada, seats.Cy].every((s) => s.stalls === 1 && s.hosted && s.start && s.tally), `each phone shows its own stall, in hosted mode, with no start board (the game was up on all three pages ${(loadedIn / 1000).toFixed(1)} seconds after the start)`);
   check(seats.screen.mine === -1 && seats.screen.stalls === 3, "the big screen shows all three stalls side by side: a spectator view");
-  for (const [name, page] of [["phone held sideways", ada], ["upright phone", cy], ["big screen", screen]]) {
-    const seen = await onTop(page);
+  const tops = await Promise.all([["phone held sideways", ada], ["upright phone", cy], ["big screen", screen]].map(async ([name, page]) => [name, await onTop(page)]));
+  for (const [name, seen] of tops) {
     check(seen.door && seen.bars === 0 && seen.fills && seen.clear && !seen.scroll, `${name}: the game fills the screen, the room's bars, buttons and opened board are put away, and its door button stays, clear of the game's sound switch`);
   }
   // Ada fires with real clicks: a click on the picture aims there and fires.
   const fired = async () => (await summary(frames.Ada)).stalls[0].shots;
   // The watching pages' frame gaps, for the report if one of them falls behind (see below).
-  for (const name of ["screen", "Cy"]) {
-    await frames[name].evaluate(() => {
+  await Promise.all(["screen", "Cy"].map((name) =>
+    frames[name].evaluate(() => {
       const gaps = (window.__gaps = []);
       let last = performance.now();
       const tick = (now) => {
@@ -336,8 +339,8 @@ try {
         requestAnimationFrame(tick);
       };
       requestAnimationFrame(tick);
-    });
-  }
+    }),
+  ));
   let clicks = 0;
   for (let i = 0; i < 5; i++) {
     const had = await fired();
