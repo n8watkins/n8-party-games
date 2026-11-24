@@ -110,23 +110,26 @@ const LISTS = new Set(["srcset", "imagesrcset"]);
 /**
  * A page with every file it loads named where the file now is. `to(ref)` gives the new address
  * of what `ref` names, or null to leave it as written (a page, an outside address, a file that
- * keeps its place). An import map's addresses are rewritten the same way. What cannot be
- * rewritten is refused: an inline module script and an inline <style> could each name a file by
- * an address that is gone.
+ * keeps its place). An import map's addresses are rewritten the same way, with `to(ref, true)`:
+ * only there may an address be a folder ("three/addons/": "./vendor/addons/"); a tag that names a
+ * folder names a page (`<link rel="canonical" href="/lobby/">`), and a page keeps its address.
+ * What cannot be rewritten is refused: an inline module script and an inline <style> could each
+ * name a file by an address that is gone.
  */
 export function rewriteHtml(html, to) {
-  const move = (ref) => {
+  const mover = (inMap) => (ref) => {
     const [path, rest] = split(ref);
-    const moved = path ? to(path) : null;
+    const moved = path ? to(path, inMap) : null;
     return moved === null ? ref : moved + rest;
   };
+  const move = mover(false);
   if (/<style\b/i.test(html)) throw new Error("a page has an inline <style>, which the build does not rewrite (and the CSP refuses): use a stylesheet");
   // The scripts first, as wholes: an import map's JSON is rewritten, and no other script's text is touched.
   const kept = [];
   const keep = (text) => `\u0000${kept.push(text) - 1}\u0000`;
   const out = html.replace(/<script\b([^>]*)>([\s\S]*?)<\/script>/gi, (whole, attrs, body) => {
     const open = `<script${rewriteAttributes(attrs, ["src"], move)}>`;
-    if (/\btype\s*=\s*["']importmap["']/i.test(attrs)) return keep(`${open}${rewriteImportMap(body, move)}</script>`);
+    if (/\btype\s*=\s*["']importmap["']/i.test(attrs)) return keep(`${open}${rewriteImportMap(body, mover(true))}</script>`);
     if (/\btype\s*=\s*["']module["']/i.test(attrs) && !/\bsrc\s*=/i.test(attrs) && body.trim()) throw new Error("a page has an inline module script, whose imports the build does not rewrite: load it with src");
     return keep(`${open}${body}</script>`);
   });
@@ -246,11 +249,11 @@ export function foldTree({ tree, files, id, stable = [], stableMedia = [], heade
   const isStable = (path) => stable.some((entry) => under(path, entry));
   /** Where the file at site path `path` is served for good. */
   const address = (path) => `/${info.get(path).media ?? inFolder(path)}`;
-  /** The new address of what `ref` in the file at `from` names, or null to leave it as written. */
-  const moved = (from) => (ref) => {
+  /** The new address of what `ref` in the file at `from` names, or null to leave it as written. A folder only for an import map (`inMap`). */
+  const moved = (from) => (ref, inMap = false) => {
     const path = sitePathOf(from, ref);
     if (path === null) return null;
-    if (folders.has(path)) return `/${inFolder(path)}`;
+    if (folders.has(path)) return inMap ? `/${inFolder(path)}` : null;
     const file = info.get(path);
     // A page keeps its address; so does a file kept at its own address that is not media (the manifest).
     if (!file || path.endsWith(".html") || (isStable(path) && !file.media)) return null;

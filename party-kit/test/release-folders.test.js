@@ -219,7 +219,7 @@ describe("a site folded into release folders (foldTree)", () => {
     "lobby/sounds/hop.mp3": "hop",
     "lobby/plate.json": `{"small":true}`,
     "potato/cities.json": big,
-    "game/index.html": `<script type="importmap">{"imports":{"three":"./vendor/three.module.js"}}</script><script type="module" src="game/main.js"></script>`,
+    "game/index.html": `<link rel="canonical" href="/lobby/"><link rel="prefetch" href="vendor/"><script type="importmap">{"imports":{"three":"./vendor/three.module.js","three/addons/":"./vendor/"}}</script><script type="module" src="game/main.js"></script>`,
     "game/vendor/three.module.js": "export {};",
     "game/game/main.js": `fetch("game/baked/set.glb");`,
     "game/game/baked/set.glb": "glb",
@@ -261,11 +261,13 @@ describe("a site folded into release folders (foldTree)", () => {
       `<link rel="icon" href="/${media("icon", "png")}"><link rel="manifest" href="/manifest.webmanifest"><link rel="stylesheet" href="/r/${ID}/site.css"><script type="module" src="/r/${ID}/home.js"></script><img src="/${media("pic", "webp")}"><a href="/lobby/">go</a>`,
     );
     expect(text["lobby/index.html"]).toBe(`<link rel="stylesheet" href="/r/${ID}/lobby/lobby.css"><script type="module" src="/r/${ID}/lobby/main.js"></script>`);
-    expect(JSON.parse(/importmap">(.*?)<\/script>/.exec(text["game/index.html"])[1])).toEqual({ imports: { three: `/r/${ID}/game/vendor/three.module.js` } });
+    // An import map may name a folder, and it moves with its files; a tag that names a folder names a page, which stays.
+    expect(JSON.parse(/importmap">(.*?)<\/script>/.exec(text["game/index.html"])[1])).toEqual({ imports: { three: `/r/${ID}/game/vendor/three.module.js`, "three/addons/": `/r/${ID}/game/vendor/` } });
+    expect(text["game/index.html"]).toContain(`<link rel="canonical" href="/lobby/"><link rel="prefetch" href="vendor/">`);
     for (const page of ["index.html", "lobby/index.html", "game/index.html"]) expect(text[`r/${ID}/${page}`]).toBe(text[page]);
     // Nothing a page loads is left at an address outside the folder and the media.
     for (const page of ["index.html", "lobby/index.html", "game/index.html"]) {
-      const loaded = [...text[page].matchAll(/(?:src|href)="([^"]+)"/g)].map((m) => m[1]).filter((ref) => !["/lobby/", "/manifest.webmanifest"].includes(ref));
+      const loaded = [...text[page].matchAll(/(?:src|href)="([^"]+)"/g)].map((m) => m[1]).filter((ref) => !["/lobby/", "vendor/", "/manifest.webmanifest"].includes(ref));
       for (const ref of loaded) expect(ref, page).toMatch(new RegExp(`^/(r/${ID}|m)/`));
     }
   });
