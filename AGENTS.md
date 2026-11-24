@@ -75,12 +75,28 @@ The short form, with the full checklist in `DEPLOY.md`:
    Do not run the gate before it: that runs the gate twice.
    `npm run gate` runs the gate alone, on any tree, without deploying.
    In an emergency, and only on the owner's word, `npx wrangler deploy --env=''` deploys without the gate; its build still refuses such a tree.
+   The deploy's build also holds the files of the two releases that were live before it, built again from their commits, and needs the network for that; it stops, saying why, when it cannot (`scripts/carried.mjs`; `DEPLOY.md`, "The releases a deploy carries").
+   `RELEASE_CARRY=none` deploys without them, only on the owner's word.
    After cloning, `npm run hooks` once turns on the commit and push hooks (`.githooks`); it is not an install script, because this package is installed as a git dependency by the games.
    Re-running `npx release-kit apply .` adds a `prepare` script and `.github/workflows/auto-merge.yml` back; take both out again (unattended merging is the owner's call).
 4. The checks in "Check it after a deploy".
 5. If it is wrong, "Rolling back" in `DEPLOY.md`.
 
 An agent never deploys or rolls back without the owner saying so in that session.
+
+## Release folders: how a page names a file
+
+The build serves each release's files from the release's own folder, `/r/<release id>/`, and media from `/m/<hash>`, both kept by a browser for a year; only the pages stay at their own addresses (`DEPLOY.md`, "Release folders and the browser's cache"; `party-kit/build/folders.mjs`).
+So that every address stays inside the release:
+
+- A page script names a file beside itself, from the module: `new URL("./sounds/jump.mp3", import.meta.url)`.
+  Never by site path (`"/lobby/sounds/jump.mp3"`) and never from the page's address: no file is there.
+  `site/test/addresses.test.js` fails on a site path in a script.
+- A path the room sends (a game's view, its picture) goes through `siteUrl` (`site/site-path.js`).
+- Imports by site path (`import "/party-kit/client/sounds.js"`), a page's own tags and a stylesheet's `url()` stay as they are: the build rewrites them.
+- A browser test that wants one of the page's modules asks the page where its release's files are: `siteFile` in `lobby/test/browser.mjs`.
+  `import("/lobby/x.js")` in `page.evaluate` is a 404.
+- `node scripts/build-public.mjs --out=DIR` must keep building any commit with no network and the same release id: a later deploy builds that commit again to carry its files.
 
 ## Lanes
 

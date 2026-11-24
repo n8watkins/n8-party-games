@@ -1,17 +1,24 @@
 // The release record: which build of the site a page or a room is running.
 //
-// scripts/build-public.mjs writes it twice from one object, as `release.js` in the public folder
-// (pages import /release.js) and as dist/release.js, which the Worker imports by the name
-// "n8-party-games/release" (an alias in wrangler.jsonc). So a page and the room it talks to agree
-// on what a release is by construction, and /api/version answers with the same record.
+// scripts/build-public.mjs writes it from one object: as dist/release.js, which the Worker imports
+// by the name "n8-party-games/release" (an alias in wrangler.jsonc), the same at /release.js for
+// anyone who looks, and, cut down to its id and the site's version (pageRecord), as release.js in
+// the release's own folder, which the pages import. So a page and the room it talks to agree on
+// what a release is by construction, and /api/version answers with the whole record.
 //
-//   RELEASE = { id, site, commit, dirty, pushed, builtAt, games }
+//   RELEASE = { id, site, commit, dirty, pushed, builtAt, games, carries }
 //
-// - `id`: a short hash of every file in the built public folder (path and bytes, `_headers`
-//   included) except release.js itself and the local build's preview pages, so a rebuild of the
-//   same code keeps its id, with the local or the production settings, and any change a browser
-//   of the live site could see makes a new one. Server-only changes keep the id: they change `commit`,
+// - `id`: a short hash of every file of the built site (path and bytes, `_headers` and
+//   `_redirects` included) except the record itself, the local build's preview pages and the
+//   releases it carries, so a rebuild of the same code keeps its id, with the local or the
+//   production settings, and any change a browser of the live site could see makes a new one.
+//   The id is also the name of the release's folder (/r/<id>/, party-kit/build/folders.mjs), which
+//   the pages name, so it is worked out from the site as built with ID_PLACEHOLDER in its place
+//   (scripts/build-public.mjs, build). Server-only changes keep the id: they change `commit`,
 //   and the Worker's version id (the version metadata binding) tells deploys apart.
+// - `carries`: the releases whose files this build also holds, newest first, each `{id, commit}`
+//   (scripts/carried.mjs): pages still open on one of them keep loading its files. The next
+//   deploy reads this list from the live site to know what to carry in its turn.
 // - `site`: the site's version (package.json, set by release-kit; RELEASING.md).
 // - `commit`: the git commit the build was made from, 12 hex digits; `dirty` when the working
 //   tree had changes (gitState); `pushed` when the commit is on origin/main. A deploy refuses a
@@ -35,6 +42,8 @@ export const PREVIEW_DIR = "preview";
 export const ID_LENGTH = 12;
 /** A release id: 12 lowercase hex digits. */
 export const RELEASE_ID = /^[0-9a-f]{12}$/;
+/** What stands where the id goes while the id is worked out: the site is hashed as built with this, then built with the id. */
+export const ID_PLACEHOLDER = "0".repeat(ID_LENGTH);
 /** A plain SemVer version, as release-kit writes them. */
 export const SEMVER = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/;
 
@@ -108,17 +117,26 @@ export function gitState(root, { sources = [] } = {}) {
 /** The environment variable that lets a production-settings build of a dirty tree through, for a local server only. */
 export const ALLOW_DIRTY = "RELEASE_ALLOW_DIRTY";
 
+/** `--carry=live`: carry what the live site says it is and carries (scripts/carried.mjs), as a deploy does. */
+export const CARRY_LIVE = "live";
+
 /**
- * A build's test options (scripts/build-public.mjs `--out=DIR` and `--salt=TEXT`), for the
- * end-to-end test of a new build (lobby/test/e2e-release.mjs): it builds into a folder of its own,
- * so it never touches dist/public that other local Workers serve, and a salt makes the same files
- * another release, so restarting its Worker is a deploy. Neither may reach the live site: they
- * are refused with --production and on an upload. Returns the problem, or null.
+ * A build's test options (scripts/build-public.mjs `--out=DIR`, `--salt=TEXT`, `--flat` and
+ * `--carry=DIR,DIR`), for the end-to-end test of a new build (lobby/test/e2e-release.mjs): it
+ * builds into a folder of its own, so it never touches dist/public that other local Workers
+ * serve; a salt makes the same files another release, so restarting its Worker is a deploy;
+ * `--flat` builds the site as it was before release folders (the release a first folder release
+ * replaces); and `--carry` names the builds it carries, as a deploy carries the releases before
+ * it. None may reach the live site: they are refused with --production and on an upload
+ * (`--carry=live`, which is what a deploy does anyway, is not one of them). Returns the problem,
+ * or null.
  */
-export function testBuildProblem({ out = null, salt = null }, { upload, production }) {
-  if (!out && !salt) return null;
-  if (upload || production) return "--out and --salt are for a local test build only: a production build and a deploy never take them.";
+export function testBuildProblem({ out = null, salt = null, flat = false, carry = null }, { upload, production }) {
+  const dirs = carry !== null && carry !== CARRY_LIVE;
+  if (!out && !salt && !flat && !dirs) return null;
+  if (upload || production) return "--out, --salt, --flat and --carry=DIR are for a local test build only: a production build and a deploy never take them.";
   if (salt !== null && !/^[A-Za-z0-9_-]{1,40}$/.test(salt)) return "--salt takes 1 to 40 letters, digits, - or _.";
+  if (flat && carry !== null) return "--flat is the site from before release folders: it carries nothing.";
   return null;
 }
 
@@ -191,18 +209,55 @@ export function builtFiles(out) {
   return walk(out).map((file) => ({ path: relative(out, file).split(sep).join("/") }));
 }
 
-/** The release record for a built folder: its id covers every file in it but release.js. */
-export function releaseRecord({ root, out, games, git = gitState(root), now = new Date(), salt = "" }) {
+/** The id of a built folder as it was before release folders (a `--flat` build): every file in it but release.js. */
+export function flatReleaseId(out, salt = "") {
+  return releaseId(builtFiles(out), (path) => readFileSync(join(out, path)), salt);
+}
+
+/**
+ * The release record of the build with `id`. `carries` are the releases it holds beside its own,
+ * newest first, each `{id, commit}`.
+ */
+export function releaseRecord({ root, id, games, git = gitState(root), now = new Date(), carries = [] }) {
   const pkg = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
   return {
-    id: releaseId(builtFiles(out), (path) => readFileSync(join(out, path)), salt),
+    id,
     site: pkg.version,
     commit: git.commit ?? "unknown",
     dirty: git.dirty,
     pushed: git.pushed,
     builtAt: now.toISOString(),
     games: gameVersions(games, pkg),
+    carries: carries.map(({ id, commit }) => ({ id, commit })),
   };
+}
+
+/**
+ * The record the pages of a release import, from the release's own folder (/r/<id>/release.js):
+ * the id and the site's version. That address is kept by a browser for a year, so it may hold
+ * only what the id decides (the site's version is part of the id: planId in
+ * scripts/build-public.mjs). The commit, the time, the games and what a build carries can differ
+ * between two builds of one release (a server-only change, a deploy of the same code again, the
+ * same commit built again to be carried): those are in the Worker's record, which /api/version
+ * and /release.js answer with.
+ *
+ * One mark more, on a local build only: `dirty`, when git says the tree had changes, so the
+ * line on the page can say "(local changes)". A deploy is never dirty (releaseProblem), and a
+ * commit built again outside git to be carried (scripts/carried.mjs) has no commit to be dirty
+ * against, so everything a deploy serves from a release's folder is the same bytes every time.
+ */
+export function pageRecord({ id, site, dirty = false, commit = "unknown" }) {
+  return { id, site, ...(dirty && commit !== "unknown" && { dirty: true }) };
+}
+
+/** The record a release.js module's text holds, or null when it holds none. */
+export function recordIn(text) {
+  const json = /Object\.freeze\((\{.*\})\);/.exec(text ?? "")?.[1];
+  try {
+    return json ? JSON.parse(json) : null;
+  } catch {
+    return null;
+  }
 }
 
 /** The module text both copies hold. */

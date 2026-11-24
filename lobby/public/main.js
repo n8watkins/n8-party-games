@@ -43,6 +43,7 @@ import { playerLine, statusLine } from "./shared/status.js";
 import { JUMP_HEIGHT, acrossWalls, posAt, sameWall } from "./shared/world.js";
 import { withinReach } from "./reach.js";
 import { PAGE_RELEASE, testProtocol, watchRoomRelease } from "/release-switch.js";
+import { siteUrl } from "/site-path.js";
 
 const params = new URLSearchParams(location.search);
 const app = document.getElementById("app");
@@ -974,8 +975,9 @@ function viewModule(box) {
   if (GAME_VIEWS[box.id]) return Promise.resolve({ mount: GAME_VIEWS[box.id] });
   if (!box.view) return Promise.resolve(null);
   if (!viewModules.has(box.id)) {
-    // Only ever a module of this site: the address comes from the room's wall, and is checked anyway.
-    const address = new URL(box.view, location.href);
+    // Only ever a module of this site, from this page's own release: the room's wall names it by
+    // site path (site-path.js), and the address is checked anyway.
+    const address = siteUrl(box.view);
     viewModules.set(box.id, address.origin === location.origin ? import(address.href) : Promise.resolve(null));
   }
   return viewModules.get(box.id);

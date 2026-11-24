@@ -1,8 +1,11 @@
 // Builds dist/public, the only folder the Worker serves as static files.
 //
-// The work is done by the kit (party-kit/build/public.mjs). Each hosted game (games.js) lists
-// its public files in its manifest; they are copied from the game's package in node_modules to
-// the game's path on the site, beside the kit's browser files. Nothing else can reach the site.
+// The work is done by the kit. Each hosted game (games.js) lists its public files in its
+// manifest; they are copied from the game's package in node_modules to the game's path on the
+// site, beside the kit's browser files (party-kit/build/public.mjs). Nothing else can reach the
+// site. That tree is then laid out in release folders (party-kit/build/folders.mjs): the pages at
+// their own addresses, everything else under /r/<release id>/ and /m/<hash>, kept by a browser
+// for a year, so a returning phone asks for almost nothing.
 // Wrangler runs this before `wrangler dev` and `wrangler deploy` (the "build" key in
 // wrangler.jsonc) and again whenever a watched folder changes.
 //
@@ -10,21 +13,38 @@
 //   node scripts/build-public.mjs --list     build and list every file that will be served
 //   node scripts/build-public.mjs --preview  also build the pages that are not approved yet (below)
 //   node scripts/build-public.mjs --production  the deploy's build: refuses a dirty working tree
-//   node scripts/build-public.mjs --preview --out=DIR --salt=TEXT
-//                                            a local test build (lobby/test/e2e-release.mjs): the
-//                                            site into DIR/public and the Worker's record into
-//                                            DIR/release.js, nothing in dist/; TEXT makes the same
-//                                            files another release. Refused with --production and
-//                                            on an upload (testBuildProblem).
+//   node scripts/build-public.mjs --out=DIR  the site into DIR/public and the Worker's record into
+//                                            DIR/release.js, nothing in dist/. With no network and
+//                                            nothing carried: THIS IS HOW A LATER DEPLOY BUILDS
+//                                            THIS COMMIT AGAIN to carry its files
+//                                            (scripts/carried.mjs), so it must keep working, and
+//                                            keep giving the same release id, for as long as a
+//                                            deploy may carry this commit.
+//   node scripts/build-public.mjs --carry=live [--out=DIR]
+//                                            also hold the files of the releases the live site
+//                                            names, as a deploy does (it needs the network): a
+//                                            dress rehearsal of a deploy's build.
+//   node scripts/build-public.mjs --preview --out=DIR --salt=TEXT [--flat] [--carry=DIR,DIR]
+//                                            a local test build (lobby/test/e2e-release.mjs): TEXT
+//                                            makes the same files another release; --flat builds
+//                                            the site as it was before release folders; --carry
+//                                            names the builds (their --out folders) whose files
+//                                            it holds too. Refused with --production and on an
+//                                            upload (testBuildProblem).
 //
-// Every build writes the release record (scripts/release.mjs): release.js in the public folder for
-// the pages, and dist/release.js for the Worker.
-import { mkdirSync, writeFileSync } from "node:fs";
+// A deploy (an upload) carries the two releases before it by itself, or fails saying why
+// (scripts/carried.mjs). Every build writes the release record (scripts/release.mjs):
+// dist/release.js for the Worker, the same at /release.js, and the pages' part of it (the id and
+// the site's version) as release.js in the release's folder.
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
+import { tmpdir } from "node:os";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
-import { KIT_CLIENT_PATH, buildPublic, kitClientEntry, report } from "../party-kit/build/public.mjs";
-import { PREVIEW_DIR, RELEASE_FILE, buildKind, gitState, releaseModule, releaseProblem, releaseRecord, testBuildProblem } from "./release.mjs";
+import { IMMUTABLE_PATHS, PAGE_MIRROR, RELEASE_DIR, carriedFrom, foldTree, planFiles, withCarried, writePlan } from "../party-kit/build/folders.mjs";
+import { KIT_CLIENT_PATH, buildPublic, headersFile, kitClientEntry, report, roomMakingPages } from "../party-kit/build/public.mjs";
+import { CARRIED_RELEASES, builtIn, carriedFromLive, carryWanted } from "./carried.mjs";
+import { CARRY_LIVE, ID_PLACEHOLDER, PREVIEW_DIR, RELEASE_FILE, buildKind, flatReleaseId, gitState, pageRecord, releaseId, releaseModule, releaseProblem, releaseRecord, testBuildProblem } from "./release.mjs";
 
 /** Where Who Am I?'s pictures load from: the one outside host any page of this site may show images from. */
 export const PICTURE_HOST = "https://upload.wikimedia.org";
@@ -84,6 +104,8 @@ const siteEntries = [
   { from: join(ROOT, "site", "home.js"), to: "home.js" },
   { from: join(ROOT, "site", "home-data.js"), to: "home-data.js" },
   { from: join(ROOT, "site", "home-model.js"), to: "home-model.js" },
+  // Where a page's own files are served from: the address of a file the room names by site path (a game's view, its picture).
+  { from: join(ROOT, "site", "site-path.js"), to: "site-path.js" },
   // The quiet "Version ..., build ..." line the front page, the Floor and the Table show (from release.js, written by the build).
   { from: join(ROOT, "site", "release-line.js"), to: "release-line.js" },
   // "New version available": a page older than the live site loads the new one at a safe moment.
@@ -127,15 +149,24 @@ export const BUILD_FLAGS = {
   "--list": "lists every file built",
 };
 
-/** The command line read: {preview, production, list, out, salt, problem}. `problem` names a flag it does not take. */
+/**
+ * The command line read: {preview, production, list, out, salt, carry, flat, problem}. `problem`
+ * names a flag it does not take. `--out`, `--salt` and `--carry` take a value; `--flat` (the
+ * site as before release folders, for the release test) is not in BUILD_FLAGS because it is
+ * another site, and so another release.
+ */
 export function readArgs(argv = process.argv) {
   const args = argv.slice(2);
   const value = (name) => args.find((a) => a.startsWith(`--${name}=`))?.slice(name.length + 3) ?? null;
   // "--out DIR" (a space, not "=") would otherwise be ignored and build into dist/public.
-  const spaced = args.find((a) => /^--(out|salt)=?$/.test(a))?.replace("=", "");
-  const unknown = args.find((a) => !(a in BUILD_FLAGS) && !/^--(out|salt)=./.test(a) && !/^--(out|salt)=?$/.test(a));
-  const problem = spaced ? `write ${spaced}=VALUE, with "=": ${spaced} VALUE is not read.` : unknown ? `${unknown} is not a flag this build takes (${Object.keys(BUILD_FLAGS).join(", ")}, --out=DIR, --salt=TEXT).` : null;
-  return { preview: args.includes("--preview"), production: args.includes("--production"), list: args.includes("--list"), out: value("out"), salt: value("salt"), problem };
+  const spaced = args.find((a) => /^--(out|salt|carry)=?$/.test(a))?.replace("=", "");
+  const unknown = args.find((a) => !(a in BUILD_FLAGS) && a !== "--flat" && !/^--(out|salt|carry)=./.test(a) && !/^--(out|salt|carry)=?$/.test(a));
+  const problem = spaced
+    ? `write ${spaced}=VALUE, with "=": ${spaced} VALUE is not read.`
+    : unknown
+      ? `${unknown} is not a flag this build takes (${Object.keys(BUILD_FLAGS).join(", ")}, --out=DIR, --salt=TEXT, --carry=live or DIR,DIR, --flat).`
+      : null;
+  return { preview: args.includes("--preview"), production: args.includes("--production"), list: args.includes("--list"), flat: args.includes("--flat"), out: value("out"), salt: value("salt"), carry: value("carry"), problem };
 }
 
 const PREVIEW = readArgs().preview;
@@ -197,35 +228,150 @@ export const WORKER_RELEASE = join(ROOT, "dist", RELEASE_FILE);
 export const SOURCES = entries.map((entry) => entry.from);
 
 /**
- * Builds the public folder into `out`, dist/public unless told otherwise. The unit tests build
- * into a temporary folder of their own, so they never empty the folder a local Worker serves.
- * The release record goes into `out` as release.js, and to `workerRelease` too when given (the
- * command line gives WORKER_RELEASE). `git` is the commit and tree state to record (gitState).
- * `preview` adds the pages still waiting for approval (--preview).
+ * The site's headers, but for the pages that may run the bot check, which are found in what was
+ * built. The party room shows a hosted game by putting the game's own page in a frame, so this
+ * site's pages may be framed by this site's pages, and by nobody else. Hot Potato
+ * (one-device/hot-potato) and its hearing test (lab/hot-potato) listen through the microphone; no
+ * other page may. Who Am I? at the Table shows each name's picture straight from Wikimedia, as
+ * its own site does (party/games/who-am-i/README.md, "For the page builder"): the Table's pages,
+ * and only those, may load pictures from there. Only the pages that make rooms (those that load
+ * the kit's bot check: the party room's way in, the Table's start page, a hosted game's own page
+ * with the kit's lobby) may load anything from Turnstile (party-kit/build/public.mjs, roomMakingPages).
  */
-export function build(out = OUT, { workerRelease = null, git = repoState(), salt = "", preview = PREVIEW } = {}) {
-  const entries = entriesFor(preview);
-  // The party room shows a hosted game by putting the game's own page in a frame, so this site's
-  // pages may be framed by this site's pages, and by nobody else.
-  // Hot Potato (one-device/hot-potato) and its hearing test (lab/hot-potato) listen through the
-  // microphone; no other page may. Who Am I? at the Table shows each name's picture straight from
-  // Wikimedia, as its own site does (party/games/who-am-i/README.md, "For the page builder"): the
-  // Table's pages, and only those, may load pictures from there. Only the pages that make rooms
-  // (those that load the kit's bot check: the party room's way in, the Table's start page, a
-  // hosted game's own page with the kit's lobby) may load anything from Turnstile, found in what
-  // was built (party-kit/build/public.mjs, roomMakingPages).
-  const files = buildPublic({ out, entries, frames: "self", microphone: ["/lab/hot-potato/*", "/one-device/hot-potato/*"], images: { [TABLE_PAGES]: [PICTURE_HOST] }, botCheck: "room-making", computedImports: COMPUTED_IMPORTS });
+const HEADERS = { frames: "self", microphone: ["/lab/hot-potato/*", "/one-device/hot-potato/*"], images: { [TABLE_PAGES]: [PICTURE_HOST] } };
+
+/**
+ * What stays at its own address as well as in the release's folder, as a real file: what
+ * something other than a page's own code reads there. An installed site ("Add to Home Screen")
+ * reads its manifest and the manifest's icons by these addresses; the release record at
+ * /release.js says what is live to anyone who looks (the pages read their own, in their folder).
+ */
+export const STABLE = ["manifest.webmanifest", "icons", RELEASE_FILE];
+
+/**
+ * Media that a page still asks for at its old address, sent on to the media by a redirect that is
+ * never kept (party-kit/build/folders.mjs, foldTree's `stableMedia`). Cork & Bell's own page
+ * (/cork-and-bell/) names its baked set from the page ("game/baked/set.glb"), not from the module
+ * (its package is another repository, pinned in package.json). Shown in the party room's frame it
+ * is loaded from the release's folder and needs none of this. Take the entry out once the game
+ * names them from import.meta.url.
+ */
+export const STABLE_MEDIA = ["cork-and-bell/game/baked"];
+
+/**
+ * Builds the site as a flat tree into `out`: every file at its own site path, as the kit's
+ * buildPublic writes it, with the front page's wall. This is what the pages are written against
+ * (a module imports "/party-kit/client/sounds.js"), what the module graph is read from, and what
+ * the site was before release folders. Returns every file as `{path, bytes}`. No release record.
+ */
+export function buildTree(out, { preview = PREVIEW } = {}) {
+  const files = buildPublic({ out, entries: entriesFor(preview), ...HEADERS, botCheck: "room-making", computedImports: COMPUTED_IMPORTS });
   const text = homeWallModule();
   writeFileSync(join(out, HOME_WALL_PATH), text);
-  const built = [...files, { path: HOME_WALL_PATH, bytes: Buffer.byteLength(text) }];
-  // Last, so its id covers every other file in the folder, `_headers` included.
-  const release = releaseModule(releaseRecord({ root: ROOT, out, games: [...GAMES, ...TURN_GAMES], git, salt }));
-  writeFileSync(join(out, RELEASE_FILE), release);
-  if (workerRelease) {
-    mkdirSync(dirname(workerRelease), { recursive: true });
-    writeFileSync(workerRelease, release);
+  return [...files, { path: HOME_WALL_PATH, bytes: Buffer.byteLength(text) }].sort((a, b) => a.path.localeCompare(b.path));
+}
+
+const isPreview = (path) => path.startsWith(`${PREVIEW_DIR}/`);
+/** The preview pages' files in any release's folder: asked for again each time (headersFile's `fresh`). */
+export const PREVIEW_FRESH = `${PAGE_MIRROR}/${PREVIEW_DIR}/*`;
+/** The release record's own files in a folded site: never part of the id they hold. */
+const isRecord = (path, id) => path === RELEASE_FILE || path === `${RELEASE_DIR}/${id}/${RELEASE_FILE}`;
+
+/** How the site's version is named among the hashed files: no file can have this name (a ":" is not in a site path). */
+const SITE_VERSION = ":site";
+
+/**
+ * The release id of a folded site. `plan` (party-kit/build/folders.mjs, foldTree) is the site as
+ * built with ID_PLACEHOLDER where the id goes: every file it serves, its headers and its
+ * redirects are hashed, and the record's own files are not. So a change to anything a browser
+ * could be sent is another release, the way the build lays the files out included. `site`, the
+ * site's version, is hashed too: the pages show it (from the record in the release's folder,
+ * pageRecord), so a version bump alone is another release, and an address in a release's folder
+ * never serves other bytes.
+ */
+export function planId(plan, { salt = "", site = "" } = {}) {
+  const shipped = [...planFiles(plan).filter((f) => !isRecord(f.path, plan.id)), ...(site ? [{ path: SITE_VERSION, data: Buffer.from(site) }] : [])];
+  const byPath = new Map(shipped.map((f) => [f.path, f]));
+  return releaseId(shipped, (path) => byPath.get(path).data ?? readFileSync(byPath.get(path).from), salt);
+}
+
+/**
+ * Builds the public folder into `out`, dist/public unless told otherwise. The unit tests build
+ * into a temporary folder of their own, so they never empty the folder a local Worker serves.
+ *
+ * The flat tree is built in a temporary folder, then laid out in release folders in `out`
+ * (party-kit/build/folders.mjs). The release id is the hash of that site as built with
+ * ID_PLACEHOLDER where the id goes (so it covers every file as served, the headers and the
+ * redirects), without the preview pages and without what it carries; the site is then built with
+ * the id. The release record goes to /release.js, and to `workerRelease` too when given (the
+ * command line gives WORKER_RELEASE); the release's folder gets the pages' part of it (its id and
+ * the site's version: scripts/release.mjs, pageRecord).
+ *
+ * - `git` is the commit and tree state to record (gitState).
+ * - `preview` adds the pages still waiting for approval (--preview).
+ * - `salt` makes the same files another release (a test build).
+ * - `carry` is the builds whose files this one also holds, newest first, each `{id, commit, dir}`
+ *   (`dir` a built public folder), or a function that gives them for this build's id: the first
+ *   CARRIED_RELEASES that are not this very release are carried (scripts/carried.mjs).
+ * - `flat` builds the site as it was before release folders instead: the flat tree itself, with
+ *   its record and the id that build gave it (a test build).
+ */
+export function build(out = OUT, { workerRelease = null, git = repoState(), salt = "", preview = PREVIEW, carry = [], flat = false } = {}) {
+  const games = [...GAMES, ...TURN_GAMES];
+  const writeRecord = (record, paths) => {
+    const text = releaseModule(record);
+    for (const path of paths) {
+      mkdirSync(dirname(path), { recursive: true });
+      writeFileSync(path, text);
+    }
+    return Buffer.byteLength(text);
+  };
+  if (flat) {
+    const files = buildTree(out, { preview });
+    const bytes = writeRecord(releaseRecord({ root: ROOT, id: flatReleaseId(out, salt), games, git }), [join(out, RELEASE_FILE), ...(workerRelease ? [workerRelease] : [])]);
+    return [...files, { path: RELEASE_FILE, bytes }].sort((a, b) => a.path.localeCompare(b.path));
   }
-  return [...built, { path: RELEASE_FILE, bytes: Buffer.byteLength(release) }].sort((a, b) => a.path.localeCompare(b.path));
+  const tree = mkdtempSync(join(tmpdir(), "party-tree-"));
+  try {
+    const paths = buildTree(tree, { preview }).map((f) => f.path);
+    // The record's place in the tree, so that a module's import of "/release.js" is one of the
+    // tree's files (and lands in the release's folder); the record itself is written last.
+    writeFileSync(join(tree, RELEASE_FILE), "");
+    paths.push(RELEASE_FILE);
+    const botCheck = roomMakingPages(tree, { computedImports: COMPUTED_IMPORTS });
+    // The preview pages a local build adds are no part of the release id, so their files can
+    // change while the release's folder keeps its name: in the folder they are asked for again
+    // each time (PREVIEW_FRESH), or a local browser would keep an edited file's old copy.
+    const fold = (files, id, pages) =>
+      foldTree({
+        tree,
+        files,
+        id,
+        stable: STABLE,
+        stableMedia: STABLE_MEDIA,
+        headers: ({ scripts }) => headersFile(scripts, { ...HEADERS, botCheck: pages, immutable: IMMUTABLE_PATHS, mirrors: [PAGE_MIRROR], noindex: [`/${RELEASE_DIR}/*`], fresh: files.some(isPreview) ? [PREVIEW_FRESH] : [] }),
+      });
+    // The id: of the site a deploy ships (no preview pages), as built with the placeholder.
+    const site = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8")).version;
+    const id = planId(fold(paths.filter((p) => !isPreview(p)), ID_PLACEHOLDER, botCheck.filter((p) => !isPreview(p.slice(1)))), { salt, site });
+    // The site itself, then the releases before it.
+    const plan = fold(paths, id, botCheck);
+    const carried = [];
+    for (const before of typeof carry === "function" ? carry(id) : carry) {
+      if (carried.length === CARRIED_RELEASES) break;
+      if (before.id === id || carried.some((c) => c.id === before.id)) continue;
+      carried.push({ ...carriedFrom(before.dir, before.id), commit: before.commit });
+    }
+    const written = writePlan(out, withCarried(plan, carried));
+    const record = releaseRecord({ root: ROOT, id, games, git, carries: carried });
+    // The whole record for the Worker and at /release.js (asked for again each time); in the
+    // release's folder, kept for a year, only what the id decides (pageRecord).
+    const bytes = writeRecord(record, [join(out, RELEASE_FILE), ...(workerRelease ? [workerRelease] : [])]);
+    const pageBytes = writeRecord(pageRecord(record), [join(out, RELEASE_DIR, id, RELEASE_FILE)]);
+    return written.map((f) => (f.path === RELEASE_FILE ? { ...f, bytes } : isRecord(f.path, id) ? { ...f, bytes: pageBytes } : f));
+  } finally {
+    rmSync(tree, { recursive: true, force: true });
+  }
 }
 
 /** This repository's state for the record: dirty includes a gitignored file in any folder the site serves (gitState). */
@@ -240,7 +386,7 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
   const args = readArgs();
   const production = args.production;
   // A local test build into a folder of its own, its release made another by a salt (testBuildProblem).
-  const test = { out: args.out, salt: args.salt };
+  const test = { out: args.out, salt: args.salt, flat: args.flat, carry: args.carry };
   const problem = args.problem ?? testBuildProblem(test, { upload, production }) ?? (upload || production ? releaseProblem(git, { upload }) : null);
   if (problem) {
     console.error(`build-public: ${problem}`);
@@ -248,5 +394,23 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
   }
   const out = test.out ? join(resolve(test.out), "public") : OUT;
   const workerRelease = test.out ? join(resolve(test.out), RELEASE_FILE) : WORKER_RELEASE;
-  report(build(out, { workerRelease, git, salt: test.salt ?? "" }), out);
+  // What it carries: a deploy, the releases the live site names, built again from their commits
+  // (or it fails, saying why); a test build, the builds it names; any other build, nothing.
+  let live = null;
+  try {
+    const wanted = carryWanted({ carry: args.carry, upload });
+    let carry = [];
+    if (wanted === "none") console.error("build-public: RELEASE_CARRY=none: this build holds no release before its own. Pages still open on one may fail to load a part until they reload.");
+    else if (wanted === CARRY_LIVE) {
+      live = await carriedFromLive({ root: ROOT });
+      carry = live.carry;
+    } else if (wanted) carry = wanted.dirs.map((dir) => builtIn(resolve(dir)));
+    report(build(out, { workerRelease, git, salt: test.salt ?? "", carry, flat: test.flat }), out);
+  } catch (err) {
+    // A refusal says all there is to say; anything else is a fault of the build, shown whole.
+    console.error(`build-public: ${err.refusal ? err.message : (err.stack ?? err.message)}`);
+    process.exitCode = 1;
+  } finally {
+    live?.cleanup();
+  }
 }

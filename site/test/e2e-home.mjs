@@ -20,7 +20,7 @@
 // page logs an error.
 import { mkdirSync } from "node:fs";
 import { resolve } from "node:path";
-import { launchBrowser } from "../../lobby/test/browser.mjs";
+import { launchBrowser, siteFile } from "../../lobby/test/browser.mjs";
 import { still as takeStill } from "../../party-kit/test/stills.mjs";
 import { RATE_LIMITS } from "../../party-kit/src/worker/limit-logic.js";
 
@@ -96,7 +96,9 @@ try {
     check(!m.small.length, `${label}: every tap target is at least 44 pixels${m.small.length ? ` (${m.small.join(", ")})` : ""}`);
   }
   /** Whether the Table's list can start Paper Masks today (it flips the day #65's game lands). */
-  const tableGameNow = (page) => page.evaluate(async () => (await import("/home-wall.js")).TABLE.some((e) => !e.soon));
+  const tableGameNow = async (page) => page.evaluate(async (url) => (await import(url)).TABLE.some((e) => !e.soon), await page.evaluate(siteFile, "/home-wall.js"));
+  /** The addresses, in the page's own release, of the modules the checks below read (lobby/test/browser.mjs, siteFile). */
+  const modulesOf = async (page) => ({ wall: await page.evaluate(siteFile, "/home-wall.js"), data: await page.evaluate(siteFile, "/home-data.js"), characters: await page.evaluate(siteFile, "/lobby/shared/characters.js") });
 
   // ---------------------------------------------------------------- the doors, the room, the back button
   const ann = await open("Ann", PHONE, { colorScheme: "dark" });
@@ -129,9 +131,10 @@ try {
   await inView(ann, "room");
   check(new URL(ann.url()).hash === "#room", "the room door opens behind the address #room");
   check(await ann.evaluate(() => document.activeElement?.id === "roomTitle"), "focus moves to the room's heading");
-  const wall = await ann.evaluate(async () => {
-    const { FLOOR } = await import("/home-wall.js");
-    const { COPY } = await import("/home-data.js");
+  const own = await modulesOf(ann);
+  const wall = await ann.evaluate(async (own) => {
+    const { FLOOR } = await import(own.wall);
+    const { COPY } = await import(own.data);
     // A coming-soon game with no picture yet is folded into the last line.
     const folded = (b) => b.soon && !COPY[b.id]?.tile;
     return {
@@ -141,14 +144,14 @@ try {
       more: document.querySelector("#roomWall .wall-more")?.textContent ?? "",
       plates: document.querySelectorAll("#roomWall .plain-art").length,
     };
-  });
+  }, own);
   check(wall.shown.length > 0 && wall.shown.join() === wall.pictured.join(), `"On the wall tonight" is the room's production wall: ${wall.shown.join(", ")}, ${wall.more}`);
   check(!wall.shown.some((name) => /Who Am I|idea/i.test(name)), `"On the wall tonight" names neither Who Am I? nor the ideas poster: ${wall.shown.join(", ")}`);
   check(wall.plates === 0 && (wall.folded ? wall.more === `and ${wall.folded} more on the way` : wall.more === ""), `coming-soon games with no picture are one line, not lettered plates: "${wall.more}"`);
-  const pieces = await ann.evaluate(async () => {
-    const { CHARACTERS } = await import("/lobby/shared/characters.js");
+  const pieces = await ann.evaluate(async (own) => {
+    const { CHARACTERS } = await import(own.characters);
     return { shown: [...document.querySelectorAll("#roomPieces .piece-name")].map((el) => el.textContent), room: CHARACTERS.map((c) => c.name) };
-  });
+  }, own);
   check(pieces.shown.length > 0 && JSON.stringify(pieces.shown) === JSON.stringify(pieces.room), `"Who you walk in as" is the room's own list of characters: ${pieces.shown.join(", ")}`);
   check((await ann.locator("#roomStart").getAttribute("href")) === "/lobby/?start", "Start a party leads to a new party on the Floor");
   check(await ann.evaluate(() => [...document.querySelectorAll("#view-room img")].every((img) => img.loading === "lazy")), "the room's pictures load lazily, as their view opens");

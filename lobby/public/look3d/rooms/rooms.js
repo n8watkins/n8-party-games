@@ -12,9 +12,11 @@ const el = (tag, className, text, parent) => {
   parent?.append(node);
   return node;
 };
-const picture = (parent, src, alt, width, height) => {
+// A picture beside this module (`file`), named from the module, never from the page: the page
+// stays at its own address while its release's files are in the release's folder (site/site-path.js).
+const picture = (parent, file, alt, width, height) => {
   const img = el("img", "", "", parent);
-  img.src = src;
+  img.src = new URL(`./${file}`, import.meta.url).href;
   img.alt = alt;
   img.loading = "lazy";
   img.width = width;
