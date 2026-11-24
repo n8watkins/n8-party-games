@@ -165,8 +165,8 @@ try {
     if (await takeStill(page, { path: `${resolve(stills)}/${name}.png` })) console.log(`     still ${name}.png: ${caption}`);
   };
 
-  async function screenPage(name = "screen", viewport = { width: 1280, height: 720 }) {
-    const page = await open(name, viewport);
+  async function screenPage(name = "screen", viewport = { width: 1280, height: 720 }, via = browser) {
+    const page = await open(name, viewport, { via });
     return page;
   }
   /** The room's code (for the debug door) from the pin people type. */
@@ -498,18 +498,19 @@ try {
   if (only.has("short")) {
     console.log("---- short: a one-lap race (derby-short) with two phones and a big screen to the finish; Bo drops, comes back and reloads, a phone with no 3D, a phone that stalls");
     const began = Date.now();
-    const scr = await screenPage();
+    // Bo's phone, the one that reloads, and the big screen, the page with the most to draw, are each a browser of
+    // their own, as each is a device with its own graphics: pages of one browser share its one graphics process, and
+    // drawn in software on a small machine every WebGL call of a page (each a round trip to that process) waits
+    // behind the other pages' frames. A profile of Bo's reloaded page on four threads spent 6.4 s of its 8.5 s way
+    // back in getContext, getParameter, getExtension and a canvas's toDataURL; on GitHub's runner the reload took
+    // 22 s and more to come back, past the end of the race, and in a browser of its own 5 to 14 s. Sharing one, the
+    // big screen there once drew nothing for the last 7 s of the race. (Ada's and the stalled phone share the first.)
+    const ownBrowser = () => launchBrowser({ args: ["--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--autoplay-policy=no-user-gesture-required"] });
+    const [boB, scrB] = await Promise.all([ownBrowser(), ownBrowser()]);
+    const phoneBrowsers = [boB, scrB], adaB = browser, stallB = browser;
+    const scr = await screenPage("screen", undefined, scrB);
     const pin = await startParty(scr);
     const flat = await launchBrowser({ software: true, args: ["--disable-webgl", "--disable-3d-apis"] });
-    // Bo's phone, the one that reloads, is a browser of its own, as a phone is a device with its own graphics: pages
-    // of one browser share its one graphics process, and drawn in software on a small machine every WebGL call of a
-    // page making its 3D world (each a round trip to that process) waits behind the other pages' frames. A profile of
-    // Bo's reloaded page on four threads spent 6.4 s of its 8.5 s way back in getContext, getParameter, getExtension
-    // and a canvas's toDataURL; on GitHub's runner the reload took 22 s and more to come back, past the end of the
-    // race, and in a browser of its own 5 to 14 s. (Every phone in a browser of its own loaded that small machine
-    // more than it helped: each browser draws with a pool of threads of its own.)
-    const boB = await launchBrowser({ args: ["--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--autoplay-policy=no-user-gesture-required"] });
-    const phoneBrowsers = [boB], adaB = browser, stallB = browser;
     const relay = stallingRelay(new URL(base));
     try {
       const ada = await phone("Ada", pin, "&derby-short=1", { context: { hasTouch: true, isMobile: true, via: adaB } });
