@@ -140,6 +140,21 @@ function PROBE({ panes }) {
  * latest of its words that came from what the page drew, {rec, at}: the checks of what a page showed judge only these)}.
  */
 const probes = new Map();
+/** How near the end (race seconds) a page must have drawn for its finishing order to be judged, and the stretch before
+ * the end over which its frame rate is measured to know whether it could have. */
+const NEAR_END_S = 3, END_WINDOW_S = 15;
+/** Checks not run on this machine because its pages could not keep up: listed at the end, never passed silently. */
+const notVerified = [];
+/**
+ * A race page's frame rate (frames a second) over the last END_WINDOW_S of race time before `endT`, from the words it
+ * sent from what it drew (each carries its race time and its frame count), or null with none.
+ */
+function frameRateNearEnd(frame, endT) {
+  const drew = (probes.get(frame)?.drew ?? []).filter(([t]) => t <= endT);
+  if (!drew.length) return null;
+  const from = drew.filter(([t]) => t <= endT - END_WINDOW_S).at(-1) ?? drew[0], to = drew.at(-1);
+  return endT > from[0] ? (to[1] - from[1]) / (endT - from[0]) : null;
+}
 
 const browser = await launchBrowser({ args: ["--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--autoplay-policy=no-user-gesture-required", "--diag-main"] });
 const contexts = new Set();
@@ -152,8 +167,11 @@ try {
     context.setDefaultNavigationTimeout(90_000);
     // What each race page tells of itself as it draws (see PROBE below).
     await context.exposeBinding("__derbySaw", ({ frame }, rec) => {
-      const now = Date.now(), view = rec.from === "word" ? probes.get(frame)?.view : { rec, at: now };
-      probes.set(frame, { rec, at: now, view });
+      const before = probes.get(frame), now = Date.now(), view = rec.from === "word" ? before?.view : { rec, at: now };
+      // The race time and frame count of each word from what the page drew: its frame rate near the end (race()).
+      const drew = before?.drew ?? [];
+      if (rec.from !== "word" && rec.stats) drew.push([rec.t, rec.stats.frames]);
+      probes.set(frame, { rec, at: now, view, drew });
     });
     const page = await context.newPage();
     page.name = name;
@@ -383,9 +401,16 @@ try {
       // The page must have drawn near the end: the end itself, a car home, or within 3 s of the end in race time (the
       // drawn frame's own race time against the room's last step, not when its word reached this run: with no car
       // home in a frame long before the end, the comparison would prove nothing).
-      const ago = endT === null ? Infinity : endT - v.t, near = v.over || home.length > 0 || ago < 3;
+      const ago = endT === null ? Infinity : endT - v.t, near = v.over || home.length > 0 || ago < NEAR_END_S;
       const settled = near && (v.over || home.length === roomSeats.length ? seen === roomOrder : home.every((s, k) => roomSeats[k] === s) && !end.result.slice(0, home.length).some((r) => typeof r.time !== "number"));
-      check(settled, `${label}, ${p.name}: the page's finishing order as it drew it (${seen}; home ${home.join() || "none"}; ${v.over ? "drawn at the end" : `drawn at race time ${v.t.toFixed(1)}, ${ago.toFixed(1)} s before the room's end at ${endT?.toFixed(1)}`}) is the room's (${roomOrder})`);
+      const what = `${label}, ${p.name}: the page's finishing order as it drew it (${seen}; home ${home.join() || "none"}; ${v.over ? "drawn at the end" : `drawn at race time ${v.t.toFixed(1)}, ${ago.toFixed(1)} s before the room's end at ${endT?.toFixed(1)}`}) is the room's (${roomOrder})`;
+      // A page that drew too few frames near the end to be sure of one in the last NEAR_END_S cannot be judged: its
+      // frame rate over the race's last END_WINDOW_S, from the frames it counted in the words it drew, is under one a
+      // NEAR_END_S (on GitHub's 4-thread runner, drawing in software, a frame there once took 11 s). Then the check is
+      // not run but listed as NOT VERIFIED with the measured gap; a page drawing at least that often must be judged.
+      const rate = endT === null ? null : frameRateNearEnd(frames.get(p), endT);
+      if (!near && rate !== null && rate < 1 / NEAR_END_S) notVerified.push(`${what}: its last drawn frame was ${ago.toFixed(1)} s before the end, at ${rate.toFixed(2)} frames a second over the last ${END_WINDOW_S} s (under 1 in ${NEAR_END_S} s, so no frame near the end could be expected)`);
+      else check(settled, what + (rate === null ? "" : ` [${rate.toFixed(2)} frames a second over the last ${END_WINDOW_S} s]`));
       check(l.stats.diverged === 0, `${label}, ${p.name}: its copy of the race matched the room's at every snapshot it could check (${l.stats.compared} checked, ${l.stats.diverged} differed, ${l.stats.gaps} gaps, ${l.stats.restarts} restarts, ${l.stats.full} full snapshots)`);
     }
     // Every page that showed the race, a big screen that joined late included.
@@ -1217,8 +1242,9 @@ try {
 console.log("REPORT " + JSON.stringify(report));
 if (errors.length) console.log("page errors:\n  " + [...new Set(errors)].slice(0, 20).join("\n  "));
 check(errors.length === 0, `no page reported an error (${errors.length})`);
+if (notVerified.length) console.log(`\nNOT VERIFIED on this machine (its pages could not keep up; run on a machine that draws with a graphics card):\n- ` + notVerified.join("\n- "));
 if (problems.length) {
   console.log(`\n${problems.length} check(s) failed`);
   process.exit(1);
 }
-console.log("\nall checks passed");
+console.log(notVerified.length ? `\nAll checks run passed; ${notVerified.length} left out, listed above.` : "\nall checks passed");
