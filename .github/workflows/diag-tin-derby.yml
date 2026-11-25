@@ -31,6 +31,10 @@ jobs:
           curl -sf http://localhost:8853/api/party/config > /dev/null
       - run: |
           (vmstat -t 2 > /tmp/vmstat.log 2>&1 &)
+          (top -b -c -d 4 -w 512 > /tmp/top.log 2>&1 &)
           npm run test:tin-derby -- --base=http://localhost:8853
       - if: always()
-        run: nproc; cat /tmp/vmstat.log
+        run: |
+          nproc; cat /tmp/vmstat.log
+          # Per 4 s, CPU by process kind: chrome type and its user-data-dir (one per browser), node, workerd.
+          awk '/^top -/{if(n)print "TOPSNAP " t " " s; t=$3; s=""; n=1; next} /^ *[0-9]+ /{cpu=$9; if(cpu<3)next; cmd=""; for(i=12;i<=NF;i++)cmd=cmd" "$i; k="other"; if(cmd~/--type=gpu-process/)k="gpu"; else if(cmd~/--type=renderer/)k="renderer"; else if(cmd~/--type=utility/)k="utility"; else if(cmd~/chrom/)k="browser"; else if(cmd~/workerd/)k="workerd"; else if(cmd~/node/)k="node"; d=""; if(match(cmd,/user-data-dir=[^ ]*/))d=substr(cmd,RSTART+14,RLENGTH-14); else if(match(cmd,/playwright_chromiumdev_profile-[^ \/]*/))d=substr(cmd,RSTART,RLENGTH); s=s" "k"("$1","substr(d,length(d)-5)")="cpu}' /tmp/top.log | head -60

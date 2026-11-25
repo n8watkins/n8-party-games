@@ -369,6 +369,7 @@ try {
     for (const p of pages) for (const e of roomEvents(p)) if (e.k === "n" && typeof e.n === "number") endN = Math.max(endN, e.n);
     const endT = Number.isFinite(endN) ? raceT(endN) : null;
     const roomOrder = end.result.map((r) => r.seat).join();
+    for (const [p, l] of last) console.log(`DIAG page ${p.name}: ${l.stats.frames} frames, mode ${l.mode}, pad ${l.pad}`);
     for (const [p, l] of last) {
       // Judged only on what the page drew: its copy of the room's word (sent when it drew nothing for half a second)
       // is the room's order and would compare the room with itself.
