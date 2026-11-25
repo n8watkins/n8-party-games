@@ -997,13 +997,14 @@ function paneCheck(app) {
     const words = [...p.el.querySelectorAll(".plabel, .pnear span, .pheld .hname, .pnote b, .pnote small")].filter((e) => e.offsetParent !== null && e.textContent.trim());
     return {
       car: p.i, name: car?.name, focus: rig ? rig.i : -1, camDist: +camDist.toFixed(2), nearest, inPane, at, auto: !!car?.auto, fall: (car?.fallT ?? 0) > 0, air: !!car?.air, fin: !!car?.fin,
+      dbg: rig?.dbg?.slice(-4), R: sp.rects[k] && { ...sp.rects[k] }, n: st?.n, // DIAG (temporary)
       box: { x: Math.round(r.left), y: Math.round(r.top), w: Math.round(r.width), h: Math.round(r.height) },
       label: p.el.querySelector(".plabel").innerText.replace(/\s+/g, " ").trim(), note: p.el.querySelector(".pnote").innerText.replace(/\s+/g, " ").trim(),
       smallest: Math.min(...words.map(font)), words: words.map((e) => { const q = e.getBoundingClientRect(); return { t: e.textContent.trim().slice(0, 24), x: Math.round(q.left), y: Math.round(q.top), r: Math.round(q.right), b: Math.round(q.bottom), f: font(e) }; }),
     };
   });
   const mb = document.getElementById("mapbox"), m = mb.offsetParent !== null ? mb.getBoundingClientRect() : null;
-  return { mode: app.mode, n: sp.n, t: st ? +st.t.toFixed(2) : null, h: innerHeight, w: innerWidth, close: app.root.hasAttribute("data-close"), map: m && { x: Math.round(m.left), y: Math.round(m.top), r: Math.round(m.right), b: Math.round(m.bottom) }, panes };
+  return { frames: stats.frames, mode: app.mode, n: sp.n, t: st ? +st.t.toFixed(2) : null, h: innerHeight, w: innerWidth, close: app.root.hasAttribute("data-close"), map: m && { x: Math.round(m.left), y: Math.round(m.top), r: Math.round(m.right), b: Math.round(m.bottom) }, panes };
 }
 
 if (!host) {

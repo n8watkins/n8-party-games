@@ -1,0 +1,32 @@
+# TEMPORARY (fix/tin-derby-panes-slow-screen): the gate's Tin Derby step alone, many times, for diagnosis. Removed before merge.
+name: diag-tin-derby
+
+on:
+  push:
+    branches: [fix/tin-derby-panes-slow-screen]
+
+permissions:
+  contents: read
+
+jobs:
+  derby:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        run: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - name: worker
+        run: |
+          (WRANGLER_SEND_METRICS=false CI=1 npx wrangler dev --local --env=local --port 8853 > /tmp/worker.log 2>&1 &)
+          for i in $(seq 1 180); do curl -sf http://localhost:8853/api/party/config > /dev/null && break; sleep 1; done
+          curl -sf http://localhost:8853/api/party/config > /dev/null
+      - run: npm run test:tin-derby -- --base=http://localhost:8853
