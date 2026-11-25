@@ -141,7 +141,7 @@ function PROBE({ panes }) {
  */
 const probes = new Map();
 
-const browser = await launchBrowser({ args: ["--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--autoplay-policy=no-user-gesture-required"] });
+const browser = await launchBrowser({ args: ["--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--autoplay-policy=no-user-gesture-required", "--diag-main"] });
 const contexts = new Set();
 try {
   /** A page of its own (its own storage, so its own seat), with what it complained of kept, and the bytes its sockets received. */
@@ -533,8 +533,8 @@ try {
     // back in getContext, getParameter, getExtension and a canvas's toDataURL; on GitHub's runner the reload took
     // 22 s and more to come back, past the end of the race, and in a browser of its own 5 to 14 s. Sharing one, the
     // big screen there once drew nothing for the last 7 s of the race. (Ada's and the stalled phone share the first.)
-    const ownBrowser = () => launchBrowser({ args: ["--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--autoplay-policy=no-user-gesture-required"] });
-    const [boB, scrB] = await Promise.all([ownBrowser(), ownBrowser()]);
+    const ownBrowser = (tag) => launchBrowser({ args: ["--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--autoplay-policy=no-user-gesture-required", "--diag-" + tag] });
+    const [boB, scrB] = await Promise.all([ownBrowser("bo"), ownBrowser("screen")]);
     const phoneBrowsers = [boB, scrB], adaB = browser, stallB = browser;
     // The big screen at 960 x 540, as Cork & Bell's run has it: four panes drawn in software at 1280 x 720 came to
     // under one frame a second on some of GitHub's runners (5 looks at the panes in a race), and its pages' every
