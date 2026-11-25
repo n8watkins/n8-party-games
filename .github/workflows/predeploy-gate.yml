@@ -14,7 +14,10 @@ permissions:
 jobs:
   gate:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    # The whole gate, one step after another on a 4-thread runner drawing in software, is longer than 30 minutes: on
+    # 2026-11-24 every step through test:counters had passed when 30 minutes stopped it in test:who-am-i (setup 2 min,
+    # unit tests 1, test:cork 8, test:moves 4, test:counters 6, and two steps still to come).
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7

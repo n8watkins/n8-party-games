@@ -46,6 +46,9 @@ const check = (ok, what) => {
   console.log((ok ? "ok   " : "FAIL ") + what);
   if (!ok) problems.push(what);
 };
+// What this run left out because the pages could not keep up (its slow mode): printed together at the end, so a
+// passing run on a slow machine never reads as having checked them.
+const notVerified = [];
 const books = async () => (await (await fetch(api + "/debug")).json()).budget?.usage ?? null;
 /**
  * Waits until the server serves the lobby page and every module it imports (a static import
@@ -126,9 +129,16 @@ const pageAddresses = [];
 const loadProblems = [];
 const timeCalls = [];
 const browser = opt("win", "0") === "1" ? await openWindowsChrome({ width: 960, height: 540 }) : await launchBrowser({ args: ["--use-angle=swiftshader", "--enable-unsafe-swiftshader"] }); // with TEST_GPU=1 the WSL browser draws on the card (lobby/test/browser.mjs)
+// Ada's phone, the one that reloads in the middle, is a browser of its own, as a phone is a device with its own
+// graphics: pages of one browser share its one graphics process, and drawn in software every WebGL call of a page
+// making its picture waits there behind the other pages' frames. Sharing it, Ada's reload on GitHub's runner was not
+// back 55 s later, at the end of the round; Tin Derby's reloading phone, profiled, spent most of its way back so.
+const adaBrowser = opt("win", "0") === "1" ? browser : await launchBrowser({ args: ["--use-angle=swiftshader", "--enable-unsafe-swiftshader"] });
+/** Browsers besides `browser`, closed with it. */
+const extraBrowsers = adaBrowser === browser ? [] : [adaBrowser];
 try {
-  async function open(name, viewport, extra = {}) {
-    const context = await browser.newContext({ viewport, deviceScaleFactor: 1, ...extra });
+  async function open(name, viewport, { via = browser, ...extra } = {}) {
+    const context = await via.newContext({ viewport, deviceScaleFactor: 1, ...extra });
     const page = await context.newPage();
     page.on("request", (request) => pageAddresses.push(request.url()));
     page.on("websocket", (ws) => {
@@ -158,12 +168,29 @@ try {
   const shot = async (page, name) => {
     if (await takeStill(page, { path: `${out}/${name}.png` })) console.log("     still: " + name);
   };
-  /** The game's frame on a room page, once the game's page inside it is running its round. */
+  /**
+   * The game's frame on a room page, once the game's page inside it is running its round. The frame element can be
+   * there before its page is (no content frame yet), or be taken away and put back while the room's page settles (a
+   * reloaded phone): each time, it is looked for again, until `timeout` in all.
+   */
   async function gameFrame(page, timeout = 120000) {
-    const handle = await page.waitForSelector(FRAME, { timeout });
-    const frame = await handle.contentFrame();
-    await frame.waitForFunction(() => window.__cab?.mode === "battle" && window.__cab.session, null, { timeout });
-    return frame;
+    const until = Date.now() + timeout;
+    for (;;) {
+      const handle = await page.waitForSelector(FRAME, { timeout: Math.max(1, until - Date.now()) });
+      const frame = await handle.contentFrame();
+      try {
+        if (!frame) throw new Error("the game's frame element has no page in it yet");
+        // Resolves with the game page's own clock at the frame it was first seen ready: how long that page took to load
+        // and be ready, from its own navigation (frame.readyMs), with none of this run's waiting in it.
+        const ready = await frame.waitForFunction(() => window.__cab?.mode === "battle" && window.__cab.session && performance.now(), null, { timeout: Math.max(1, until - Date.now()) });
+        frame.readyMs = await ready.jsonValue();
+        return frame;
+      } catch (err) {
+        const gone = !frame || frame.isDetached() || /detached/i.test(String(err?.message));
+        if (!gone || Date.now() >= until) throw err;
+        await sleep(100);
+      }
+    }
   }
   const summary = (frame) => frame.evaluate(() => window.__cab.summary());
   /** Walks a page's piece to x with the keyboard, as a player would. `watcher` is a socket that hears the moves. */
@@ -214,8 +241,8 @@ try {
   const pin = (await screen.locator(".code-digits").textContent()).trim();
   /** The corks each page sends, as sent, with this machine's clock then: to explain a cork the room did not count. */
   const sentCorks = {};
-  const join = async (name, viewport, query) => {
-    const page = await open(name, viewport, { hasTouch: true });
+  const join = async (name, viewport, query, via = browser) => {
+    const page = await open(name, viewport, { hasTouch: true, via });
     sentCorks[name] = [];
     page.on("websocket", (ws) => ws.on("framesent", (f) => typeof f.payload === "string" && f.payload.includes('"f":[') && sentCorks[name].push({ d: JSON.parse(f.payload).d.f[0], at: Date.now() })));
     await page.goto(base + "/lobby/?join=" + pin + "&look=flat" + query);
@@ -226,7 +253,7 @@ try {
   };
   // Ada plays by hand on a phone held sideways. Bea is a socket that never fires. Cy holds a
   // phone upright and is played by the game's own bot.
-  const ada = await join("Ada", { width: 844, height: 390 }, "&cork-quality=low");
+  const ada = await join("Ada", { width: 844, height: 390 }, "&cork-quality=low", adaBrowser);
   const bea = connect(await call("POST", "/join/" + pin, { nickname: "Bea" }));
   await bea.opened;
   // A page keeps its socket alive by itself; a bare socket has to say something now and then, or
@@ -234,7 +261,9 @@ try {
   const alive = setInterval(() => bea.send("ping"), 20_000);
   const cy = await join("Cy", { width: 390, height: 844 }, "&cork-auto=1&cork-quality=low");
   const watcher = bea;
-  await watcher.wait((m) => m.room?.members.filter((x) => x?.connected).length === 3, 8000, 0);
+  // (Up to 30 s: a page that has drawn the room can open its socket seconds later on a loaded machine; 8 s ran out
+  // once with this run held to four threads.)
+  await watcher.wait((m) => m.room?.members.filter((x) => x?.connected).length === 3, 30_000, 0);
   const N = watcher.room.boxes.length;
   const CORK = watcher.room.boxes.findIndex((b) => b.id === "cork-and-bell");
   const light = (off = 0) => Math.round(boxCentre(CORK, N) + off);
@@ -270,35 +299,62 @@ try {
 
   // The game is mounted over the room on every device.
   const frames = {};
-  for (const [name, page] of [["Ada", ada], ["Cy", cy], ["screen", screen]]) frames[name] = await gameFrame(page);
+  // Each question to the pages here goes to all three at once: drawn in software on GitHub's runner a page answers
+  // only between its frames, seconds apart, and the battle's ninety seconds must hold everything below. (One after
+  // another, with the game 55 s in coming up, the round ended before the run reached the big screen's count.)
+  await Promise.all([["Ada", ada], ["Cy", cy], ["screen", screen]].map(async ([name, page]) => (frames[name] = await gameFrame(page))));
   const loadedIn = Date.now() - startedAt;
+  // How long Ada's game page took to load and be ready, on its own clock from its own navigation to the first frame it
+  // was ready in (gameFrame): about what her reload in the middle will take, which the round must leave time for
+  // (below). (Not read once all three pages were up: that added the wait for the other two.)
+  const adaLoadMs = frames.Ada.readyMs;
   // A browser that draws WebGL in software (Playwright's own, in WSL) has pages that run many
   // seconds behind the room. What needs a page to keep up with the round is left
   // out there, and said so; everything the room decides is checked either way.
-  const slow = loadedIn > 15_000;
+  // Whether they keep up is measured, not guessed from how long they took to come up: each page's
+  // frames over two seconds. (How long the game took to come up was this run's own waits, mostly:
+  // asked one page after another it read 26 to 55 s on GitHub's runner, asked all at once 1 to 2 s,
+  // and there the pages drew a few frames a second and fell behind the round.)
+  const fps = await Promise.all(Object.values(frames).map((f) => f.evaluate(() => new Promise((done) => { let n = 0; const t0 = performance.now(); const tick = () => { n++; if (performance.now() - t0 < 2000) requestAnimationFrame(tick); else done(n / ((performance.now() - t0) / 1000)); }; requestAnimationFrame(tick); }))));
+  const slowest = Math.min(...fps);
+  const slow = loadedIn > 15_000 || slowest < 15;
   stillsWanted = !slow;
-  if (slow) console.log(`     (the game took ${(loadedIn / 1000).toFixed(0)} seconds to come up: this browser draws in software. The reload in the middle, the door sheet and the stills are left out; run with --win=1 for all of it.)`);
-  // Where the pages keep up, the party of one plays its round now, in a room of its own, while
-  // this battle runs its ninety seconds: the two share nothing but the server's books (counted
-  // together below). A browser that draws in software plays it after the battle, as one more set
-  // of pages beside these would slow them all.
-  const alone = slow || opt("apart", "0") === "1" ? null : playAlone();
-  alone?.catch(() => {}); // (awaited below; a failure is reported there)
+  if (slow) {
+    console.log(`     (the game took ${(loadedIn / 1000).toFixed(0)} seconds to come up, and its slowest page drew ${slowest.toFixed(1)} frames a second: this browser draws in software. The reload in the middle, the door sheet, the result card's text and the stills are left out, and listed at the end; run with --win=1 for all of it.)`);
+    notVerified.push(
+      "a reload in the middle comes back to the same stall, with its corks and points, and can fire again",
+      "in the game, the door button offers Leave the party on a sheet that fits a sideways phone",
+      "the room's card shows who came where, with the scores",
+      "the stills (battle, door sheet, result, back in the room, the party of one, the late screen)",
+    );
+  }
+  // Where the pages keep up, the party of one plays its round in a room of its own while this
+  // battle runs its ninety seconds, from once Ada's reload in the middle is back (below): the two
+  // share nothing but the server's books (counted together below). Started any sooner, its two
+  // pages loaded beside the reloaded one, and on a 4-thread machine that reload took 71 s to come
+  // back, past the end of the round. A browser that draws in software plays it after the battle,
+  // as one more set of pages beside these would slow them all.
+  let alone = null;
+  const startAlone = () => {
+    if (slow || opt("apart", "0") === "1") return;
+    alone = playAlone();
+    alone.catch(() => {}); // (awaited below; a failure is reported there)
+  };
   // A context to check afterwards: the game's WebGL context, held from the room's page.
-  for (const page of [screen, ada, cy]) await holdContext(page);
+  await Promise.all([screen, ada, cy].map(holdContext));
   const seats = {};
-  for (const name of Object.keys(frames)) seats[name] = await frames[name].evaluate(() => ({ mine: window.__cab.session.mySeat, stalls: window.__cab.views.length, hosted: document.body.classList.contains("hosted"), start: document.getElementById("start").hidden, tally: !document.getElementById("tally").hidden }));
+  await Promise.all(Object.keys(frames).map(async (name) => (seats[name] = await frames[name].evaluate(() => ({ mine: window.__cab.session.mySeat, stalls: window.__cab.views.length, hosted: document.body.classList.contains("hosted"), start: document.getElementById("start").hidden, tally: !document.getElementById("tally").hidden })))));
   check(seats.Ada.mine === 0 && seats.Cy.mine === 2 && [seats.Ada, seats.Cy].every((s) => s.stalls === 1 && s.hosted && s.start && s.tally), `each phone shows its own stall, in hosted mode, with no start board (the game was up on all three pages ${(loadedIn / 1000).toFixed(1)} seconds after the start)`);
   check(seats.screen.mine === -1 && seats.screen.stalls === 3, "the big screen shows all three stalls side by side: a spectator view");
-  for (const [name, page] of [["phone held sideways", ada], ["upright phone", cy], ["big screen", screen]]) {
-    const seen = await onTop(page);
+  const tops = await Promise.all([["phone held sideways", ada], ["upright phone", cy], ["big screen", screen]].map(async ([name, page]) => [name, await onTop(page)]));
+  for (const [name, seen] of tops) {
     check(seen.door && seen.bars === 0 && seen.fills && seen.clear && !seen.scroll, `${name}: the game fills the screen, the room's bars, buttons and opened board are put away, and its door button stays, clear of the game's sound switch`);
   }
   // Ada fires with real clicks: a click on the picture aims there and fires.
   const fired = async () => (await summary(frames.Ada)).stalls[0].shots;
   // The watching pages' frame gaps, for the report if one of them falls behind (see below).
-  for (const name of ["screen", "Cy"]) {
-    await frames[name].evaluate(() => {
+  await Promise.all(["screen", "Cy"].map((name) =>
+    frames[name].evaluate(() => {
       const gaps = (window.__gaps = []);
       let last = performance.now();
       const tick = (now) => {
@@ -307,8 +363,8 @@ try {
         requestAnimationFrame(tick);
       };
       requestAnimationFrame(tick);
-    });
-  }
+    }),
+  ));
   let clicks = 0;
   for (let i = 0; i < 5; i++) {
     const had = await fired();
@@ -355,7 +411,6 @@ try {
       (extra.length ? `, and ${extra.length} by the room's stand-in at ${extra.map((e) => e.at.toFixed(1)).join(", ")} while her seat was seen gone (${awayAda.map(([a, b]) => `${a.toFixed(1)}-${b === null ? "on" : b.toFixed(1)}`).join(", ")}): ${extraOk}` : ""),
   );
   if (shots !== clicks || extra.length) console.log(`     Ada's page sent corks stamped ${sentCorks.Ada.map((c) => c.d.toFixed(3)).join(", ")}; the room relayed corks for her seat at ${relayedAda().map((e) => e.at.toFixed(3)).join(", ")}`);
-  await frames.screen.waitForFunction((n) => window.__cab.session.sims[0].shots >= n, shots, { timeout: 30000 }).catch(() => {});
   // The room is the judge of what was fired. The room relays every cork Ada's page sends, but
   // the game's own simulation in the room (cork-and-bell) sometimes counts fewer than the page
   // showed, on main too: a difference between the game's page and its room, not the party
@@ -385,20 +440,33 @@ try {
   const midGame = await inner(start.room.code);
   check(midGame.timer === true && midGame.view.phase === "playing", "while the round is on the room runs its one timer");
 
-  if (!slow) {
-    // Ada's phone reloads in the middle of the round, as a phone that dozed off would.
+  // Ada's phone reloads in the middle of the round, as a phone that dozed off would: only where the round leaves time
+  // for it, twice what her page took to load the first time and 20 s more to fire again (begun 55 s into the round,
+  // one came back after time was called), and only once the big screen has counted her corks: while she is away the
+  // room's stand-in plays her seat, and its corks are hers on the big screen too. Where the pages keep up and it does
+  // not fit, the check fails: a run that is not in its slow mode must check the reload. (In slow mode it is listed as
+  // not verified, above.)
+  const roundLeft = ROUND_SECONDS - ((Date.now() - startedAt) / 1000 - COUNT_IN);
+  const reloadFits = !slow && roundLeft > (2 * adaLoadMs) / 1000 + 20;
+  if (!slow && !reloadFits) check(false, `a reload in the middle comes back to the same stall: NOT VERIFIED, the round had ${roundLeft.toFixed(0)} s left and Ada's game took ${(adaLoadMs / 1000).toFixed(1)} s to load the first time (it needs twice that and 20 s more)`);
+  if (reloadFits) {
     const scoreBefore = (await summary(frames.screen)).stalls[0].score;
+    const reloadAt = Date.now();
     await ada.reload();
     frames.Ada = await gameFrame(ada);
     const back = await frames.Ada.evaluate(() => ({ mine: window.__cab.session.mySeat, t: window.__cab.session.time(), score: window.__cab.session.sims[0].score, shots: window.__cab.session.sims[0].shots }));
-    check(back.mine === 0 && back.t > 3 && back.t < 80 && back.score >= scoreBefore && back.shots >= counted, `a reload in the middle comes back to the same stall, ${Math.round(back.t)} seconds in, with its ${back.shots} corks and ${back.score} points`);
+    // In the middle: after the round's start and before its time is called. (How far into the round the reloaded page
+    // is up is the machine's doing: on four threads drawing in software, one came back 82 s in, and could fire again.)
+    check(back.mine === 0 && back.t > 3 && back.t < ROUND_SECONDS && back.score >= scoreBefore && back.shots >= counted, `a reload in the middle comes back to the same stall, ${Math.round(back.t)} seconds in (${((Date.now() - reloadAt) / 1000).toFixed(0)} s after the reload), with its ${back.shots} corks and ${back.score} points`);
     await frames.Ada.waitForFunction(() => window.__cab.session.canFire(), null, { timeout: 30000 });
     await ada.mouse.click(420, 170);
     await frames.Ada.waitForFunction((n) => window.__cab.session.sims[0].shots > n, back.shots, { timeout: 30000 }).catch(() => {});
     check((await fired()) > back.shots, "and it can fire again");
     await holdContext(ada);
-
-    // Stills, once the reloaded page's lamps are lit.
+  }
+  if (!slow) {
+    startAlone();
+    // Stills, once Ada's page's lamps are lit.
     await frames.Ada.waitForFunction(() => document.getElementById("loading").classList.contains("gone"), null, { timeout: 30000 });
     await sleep(1200);
     await shot(ada, "52-phone-cork-and-bell-battle");
@@ -514,6 +582,23 @@ try {
   await walk(lone, loneWatch, 0, light());
   const loneStart = await loneUntil((v) => v.phase === "playing", 16000);
   const loneFrame = await gameFrame(lone);
+  // A big screen that joins once that round has begun watches its one stall. It sets off as soon as the phone's game
+  // is up, beside what is checked on the phone meanwhile, and in a browser of its own (a screen is a device of its
+  // own): the round alone ends once the bot has spent its corks (73 s into it, once). On a loaded machine the
+  // phone's checks and stills, then the screen's own start, took that long one after another, so the screen came
+  // up to a round already over ("Frame was detached"); and a screen loading beside the phone in the phone's own
+  // browser came up only 87 s in, on GitHub's runner (their WebGL calls wait on that browser's one graphics process).
+  let late = null;
+  const lateBrowser = opt("win", "0") === "1" ? browser : await launchBrowser({ args: ["--use-angle=swiftshader", "--enable-unsafe-swiftshader"] });
+  extraBrowsers.push(lateBrowser);
+  const lateUp = (async () => {
+    late = await open("late screen", { width: 960, height: 540 }, { via: lateBrowser });
+    await late.goto(base + "/lobby/?join=" + pinLone + "&look=flat&cork-quality=low");
+    await late.click("text=Use this as the room's screen");
+    await late.click("text=Show the room here");
+    return gameFrame(late);
+  })();
+  lateUp.catch(() => {}); // (awaited below; a failure is reported there)
   // Held now, while the frame is surely there: on a slow runner the late screen below can take
   // the rest of the round to join, and the frame is gone once the round ends.
   await holdContext(lone);
@@ -521,12 +606,7 @@ try {
   check(loneStart.game.id === "cork-and-bell" && loneSees.seats === 1, "alone in its light, the count runs and a round starts for the one seat");
   check(loneSees.mine === 0 && loneSees.stalls === 1 && loneSees.rivals, "the party of one has a stall to itself, with no rivals to pick");
   if (!slow) await shot(lone, "54-phone-cork-and-bell-alone");
-  // A big screen that joins once that round has begun watches its one stall.
-  const late = await open("late screen", { width: 960, height: 540 });
-  await late.goto(base + "/lobby/?join=" + pinLone + "&look=flat&cork-quality=low");
-  await late.click("text=Use this as the room's screen");
-  await late.click("text=Show the room here");
-  const lateFrame = await gameFrame(late);
+  const lateFrame = await lateUp;
   const lateSees = await lateFrame.evaluate(() => ({ mine: window.__cab.session.mySeat, stalls: window.__cab.views.length, t: window.__cab.session.time(), tally: !document.getElementById("tally").hidden }));
   check(lateSees.mine === -1 && lateSees.stalls === 1 && lateSees.t > -3.5 && lateSees.tally, `a big screen that joins once the round has begun is shown that stall and its score (${lateSees.t < 0 ? "in the count-in" : Math.round(lateSees.t) + " seconds in"})`);
   if (!slow) await shot(late, "59-screen-cork-and-bell-alone");
@@ -607,8 +687,10 @@ try {
   if (errors.length) console.log("     page errors: " + errors.slice(0, 6).join(" | "));
 } finally {
   await browser.close();
+  for (const b of extraBrowsers) if (b !== browser) await b.close().catch(() => {});
 }
-console.log(problems.length ? `\n${problems.length} problem(s):\n- ` + problems.join("\n- ") : "\nAll good. Stills are in " + out);
+if (notVerified.length) console.log(`\nNOT VERIFIED on this machine (its pages could not keep up; run on a machine that draws with a graphics card, or with --win=1):\n- ` + notVerified.join("\n- "));
+console.log(problems.length ? `\n${problems.length} problem(s):\n- ` + problems.join("\n- ") : notVerified.length ? `\nAll checks run passed; ${notVerified.length} left out, listed above.` : "\nAll good. Stills are in " + out);
 // Exit once everything printed has left: process.exit drops what is still queued for a pipe (the
 // pre-deploy gate reads this output through one), and the list of problems is printed last.
 process.stdout.write("", () => process.stderr.write("", () => process.exit(problems.length ? 1 : 0)));

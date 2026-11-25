@@ -528,4 +528,13 @@ class TvRig {
   }
 }
 
-export { World, ChaseRig, TvRig, ease, lerp, damp };
+/**
+ * The time a camera moves on by in a frame (s), from the time since the frame before (ms). The cameras smooth by
+ * damping (damp) and count down their cuts, both right for any step, so they take the frame's real time, up to a
+ * second: on a screen drawing a few frames a second they keep up with their cars. (The cars' own springs, sync, keep
+ * the 0.1 s cap of the frame loop: their steps are not stable beyond it.) Before, the cameras had that cap too, so a
+ * big screen at 2 frames a second turned its cameras at a fifth of their speed and lost its cars in the bends.
+ */
+const camDt = (ms) => Math.min(1, Math.max(0, ms) / 1000);
+
+export { World, ChaseRig, TvRig, ease, lerp, damp, camDt };
