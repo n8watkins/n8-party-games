@@ -29,4 +29,8 @@ jobs:
           (WRANGLER_SEND_METRICS=false CI=1 npx wrangler dev --local --env=local --port 8853 > /tmp/worker.log 2>&1 &)
           for i in $(seq 1 180); do curl -sf http://localhost:8853/api/party/config > /dev/null && break; sleep 1; done
           curl -sf http://localhost:8853/api/party/config > /dev/null
-      - run: npm run test:tin-derby -- --base=http://localhost:8853
+      - run: |
+          (vmstat -t 2 > /tmp/vmstat.log 2>&1 &)
+          npm run test:tin-derby -- --base=http://localhost:8853
+      - if: always()
+        run: nproc; cat /tmp/vmstat.log

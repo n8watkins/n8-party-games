@@ -538,7 +538,13 @@ class TvRig {
  * second: on a screen drawing a few frames a second they keep up with their cars. (The cars' own springs, sync, keep
  * the 0.1 s cap of the frame loop: their steps are not stable beyond it.) Before, the cameras had that cap too, so a
  * big screen at 2 frames a second turned its cameras at a fifth of their speed and lost its cars in the bends.
+ *
+ * `shownMs`: how far the race the page shows moved on since the frame before (ms). The cameras follow what the
+ * picture shows, so they take that too where it is more. A page that has fallen over 2 s behind the room's clock
+ * draws the room's last word (raceNow), and its next frame, a few milliseconds later once the waiting messages are
+ * read, shows the race seconds on: with only those milliseconds the cameras stayed where the cars had been (on
+ * GitHub's runner, a camera still at the height of a car's leap seconds after it had landed, the car below its pane).
  */
-const camDt = (ms) => Math.min(1, Math.max(0, ms) / 1000);
+const camDt = (ms, shownMs = 0) => Math.min(1, Math.max(0, ms, shownMs) / 1000);
 
 export { World, ChaseRig, TvRig, ease, lerp, damp, camDt };

@@ -874,12 +874,16 @@ class App {
       // The picture, unless this page has none (no 3D, or a phone that is a controller only).
       let view = null;
       const W = this.world;
+      // How far the shown race moved on since the frame before: after a wait on the room's word it jumps seconds.
+      const shownMs = this.shownT === undefined ? 0 : (st.t - this.shownT) * 1000;
+      this.shownT = st.t;
       if (W && !this.pad) {
         W.sync(st, dt);
         const w = this.w || 2, h = this.h || 2;
         let views;
-        // The cameras move on by the frame's real time (camDt), the cars' springs by the capped dt.
-        const cdt = camDt(raw);
+        // The cameras move on by the frame's real time or the shown race's, whichever is more (camDt), the cars'
+        // springs by the capped dt.
+        const cdt = camDt(raw, shownMs);
         if (this.rig) views = [(view = this.rig.update(st, W, cdt, w / h))];
         else {
           // The big screen: the whole table (with its close shots), or a pane for each player. The winner's close shot
@@ -894,7 +898,9 @@ class App {
         // The whole table: cars drawn larger, to be seen across a room (true size in its close shots and in the panes).
         if (!this.rig) { this.carK = view && !view.close && this.mode === "tvwide" ? TV_CAR_SIZE : 1; W.sizeCars(this.carK); }
         W.renderer.info.reset();
+        const r0 = performance.now(); // DIAG (temporary)
         W.render(views);
+        stats.dbgF.at(-1).rend = Math.round(performance.now() - r0); // DIAG (temporary)
         stats.draws = W.renderer.info.render.calls; stats.triangles = W.renderer.info.render.triangles;
       }
       this.root.toggleAttribute("data-close", this.mode === "split" && !!view);
@@ -921,6 +927,8 @@ class App {
       if (me) this.sound.run(Math.abs(me.v) * 0.7, racing && Math.abs(me.v) > 0.2, me.drOn ? 1 + me.drLvl : 0);
       this.hint(st);
       tally(stats.workMs, performance.now() - work0);
+      // DIAG (temporary): how long this frame's own work took, the programs made so far, the drawing scale.
+      { const e = stats.dbgF.at(-1); e.work = Math.round(performance.now() - work0); e.prog = this.world?.renderer.info.programs?.length; e.sc = this.scale; e.st = +st.t.toFixed(2); e.auth = st === this.replica.auth; }
       this.govern(raw);
     };
     this.raf = requestAnimationFrame(frame);
