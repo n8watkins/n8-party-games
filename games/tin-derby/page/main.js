@@ -870,12 +870,16 @@ class App {
       // The picture, unless this page has none (no 3D, or a phone that is a controller only).
       let view = null;
       const W = this.world;
+      // How far the shown race moved on since the frame before: after a wait on the room's word it jumps seconds.
+      const shownMs = this.shownT === undefined ? 0 : (st.t - this.shownT) * 1000;
+      this.shownT = st.t;
       if (W && !this.pad) {
         W.sync(st, dt);
         const w = this.w || 2, h = this.h || 2;
         let views;
-        // The cameras move on by the frame's real time (camDt), the cars' springs by the capped dt.
-        const cdt = camDt(raw);
+        // The cameras move on by the frame's real time or the shown race's, whichever is more (camDt), the cars'
+        // springs by the capped dt.
+        const cdt = camDt(raw, shownMs);
         if (this.rig) views = [(view = this.rig.update(st, W, cdt, w / h))];
         else {
           // The big screen: the whole table (with its close shots), or a pane for each player. The winner's close shot

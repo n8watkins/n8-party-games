@@ -40,7 +40,7 @@ import { mkdirSync } from "node:fs";
 import net from "node:net";
 import { resolve } from "node:path";
 import { boxCentre } from "@n8games/lobby/world";
-import { launchBrowser } from "@n8games/lobby/testing/browser";
+import { gpu, launchBrowser } from "@n8games/lobby/testing/browser";
 import { partyApi, sleep } from "@n8games/lobby/testing/client";
 import { still as takeStill } from "@n8games/lobby/testing/stills";
 import { rules } from "../shared/rules.js";
@@ -140,8 +140,29 @@ function PROBE({ panes }) {
  * latest of its words that came from what the page drew, {rec, at}: the checks of what a page showed judge only these)}.
  */
 const probes = new Map();
+/** How near the end (race seconds) a page must have drawn for its finishing order to be judged, and the stretch before
+ * the end over which its frame rate is measured for the log. */
+const NEAR_END_S = 3, END_WINDOW_S = 15;
+/**
+ * A race page's frame rate (frames a second) over the last END_WINDOW_S of race time before `endT`, from the words it
+ * sent from what it drew (each carries its race time and its frame count), or null with none.
+ */
+function frameRateNearEnd(frame, endT) {
+  const drew = (probes.get(frame)?.drew ?? []).filter(([t]) => t <= endT);
+  if (!drew.length) return null;
+  const from = drew.filter(([t]) => t <= endT - END_WINDOW_S).at(-1) ?? drew[0], to = drew.at(-1);
+  return endT > from[0] ? (to[1] - from[1]) / (endT - from[0]) : null;
+}
 
-const browser = await launchBrowser({ args: ["--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--autoplay-policy=no-user-gesture-required"] });
+/**
+ * The launch of a browser whose pages draw the race in 3D. Without a graphics card (always on GitHub's runners) WebGL
+ * draws in software (SwiftShader), and so, by headless Chromium's default, does everything else on the page: its
+ * every layer is rasterised and composited through SwiftShader in the browser's one graphics process, a costly way
+ * to draw words and flat shapes. Chromium on a machine without a graphics card composites in software instead;
+ * --disable-gpu-compositing does the same here, and leaves only the 3D picture to SwiftShader.
+ */
+const DRAWN = ["--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--autoplay-policy=no-user-gesture-required", ...(gpu ? [] : ["--disable-gpu-compositing"])];
+const browser = await launchBrowser({ args: DRAWN });
 const contexts = new Set();
 try {
   /** A page of its own (its own storage, so its own seat), with what it complained of kept, and the bytes its sockets received. */
@@ -152,8 +173,11 @@ try {
     context.setDefaultNavigationTimeout(90_000);
     // What each race page tells of itself as it draws (see PROBE below).
     await context.exposeBinding("__derbySaw", ({ frame }, rec) => {
-      const now = Date.now(), view = rec.from === "word" ? probes.get(frame)?.view : { rec, at: now };
-      probes.set(frame, { rec, at: now, view });
+      const before = probes.get(frame), now = Date.now(), view = rec.from === "word" ? before?.view : { rec, at: now };
+      // The race time and frame count of each word from what the page drew: its frame rate near the end (race()).
+      const drew = before?.drew ?? [];
+      if (rec.from !== "word" && rec.stats) drew.push([rec.t, rec.stats.frames]);
+      probes.set(frame, { rec, at: now, view, drew });
     });
     const page = await context.newPage();
     page.name = name;
@@ -382,9 +406,12 @@ try {
       // The page must have drawn near the end: the end itself, a car home, or within 3 s of the end in race time (the
       // drawn frame's own race time against the room's last step, not when its word reached this run: with no car
       // home in a frame long before the end, the comparison would prove nothing).
-      const ago = endT === null ? Infinity : endT - v.t, near = v.over || home.length > 0 || ago < 3;
+      const ago = endT === null ? Infinity : endT - v.t, near = v.over || home.length > 0 || ago < NEAR_END_S;
       const settled = near && (v.over || home.length === roomSeats.length ? seen === roomOrder : home.every((s, k) => roomSeats[k] === s) && !end.result.slice(0, home.length).some((r) => typeof r.time !== "number"));
-      check(settled, `${label}, ${p.name}: the page's finishing order as it drew it (${seen}; home ${home.join() || "none"}; ${v.over ? "drawn at the end" : `drawn at race time ${v.t.toFixed(1)}, ${ago.toFixed(1)} s before the room's end at ${endT?.toFixed(1)}`}) is the room's (${roomOrder})`);
+      // (With the page's frame rate over the race's last END_WINDOW_S, from the frames it counted in the words it drew:
+      // a page that missed the end says whether it was drawing slowly or had stopped.)
+      const rate = endT === null ? null : frameRateNearEnd(frames.get(p), endT);
+      check(settled, `${label}, ${p.name}: the page's finishing order as it drew it (${seen}; home ${home.join() || "none"}; ${v.over ? "drawn at the end" : `drawn at race time ${v.t.toFixed(1)}, ${ago.toFixed(1)} s before the room's end at ${endT?.toFixed(1)}`}) is the room's (${roomOrder})${rate === null ? "" : ` [${rate.toFixed(2)} frames a second over the last ${END_WINDOW_S} s]`}`);
       check(l.stats.diverged === 0, `${label}, ${p.name}: its copy of the race matched the room's at every snapshot it could check (${l.stats.compared} checked, ${l.stats.diverged} differed, ${l.stats.gaps} gaps, ${l.stats.restarts} restarts, ${l.stats.full} full snapshots)`);
     }
     // Every page that showed the race, a big screen that joined late included.
@@ -532,7 +559,7 @@ try {
     // back in getContext, getParameter, getExtension and a canvas's toDataURL; on GitHub's runner the reload took
     // 22 s and more to come back, past the end of the race, and in a browser of its own 5 to 14 s. Sharing one, the
     // big screen there once drew nothing for the last 7 s of the race. (Ada's and the stalled phone share the first.)
-    const ownBrowser = () => launchBrowser({ args: ["--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--autoplay-policy=no-user-gesture-required"] });
+    const ownBrowser = () => launchBrowser({ args: DRAWN });
     const [boB, scrB] = await Promise.all([ownBrowser(), ownBrowser()]);
     const phoneBrowsers = [boB, scrB], adaB = browser, stallB = browser;
     // The big screen at 960 x 540, as Cork & Bell's run has it: four panes drawn in software at 1280 x 720 came to
@@ -548,7 +575,13 @@ try {
       // A phone with no 3D in a party with a big screen: a controller, driving its car by the big screen.
       const nogl = await phone("NoGL", pin, "", { context: { hasTouch: true, isMobile: true, via: flat } });
       nogl.quiet = /WebGL|webgl/;
-      const stall = await phone("Stall", pin, "&derby-short=1", { at: `http://localhost:${relay.port}`, context: { hasTouch: true, isMobile: true, via: stallB } });
+      // The phone that stalls is a controller only from the start (its player's switch, remembered on the phone): what
+      // it proves, the stall's hand-over to the house and back and its car home, is the room's and its socket's, and
+      // its finishing order is judged on what its controller showed, as NoGL's is. Drawn in 3D it was a second race
+      // picture in the first browser, beside Ada's: one less 3D picture drawn in software on GitHub's 4-thread runner,
+      // where the three drawing browsers' graphics processes took a thread each and the big screen, starved, went 2
+      // to 11 s between frames and missed the race's last seconds (see DRAWN for the larger part of that load).
+      const stall = await phone("Stall", pin, "&derby-short=1", { at: `http://localhost:${relay.port}`, context: { hasTouch: true, isMobile: true, via: stallB }, before: (p) => p.addInitScript(() => { try { localStorage.setItem("tin-derby-controller-only", "1"); } catch { /* about:blank */ } }) });
       const code = await codeOf(pin);
       await vote(code, [ada, bo, nogl, stall]);
       const at = { drop: null, back: null, reload: null, freeze: null, pad: null, padBack: null, houseNote: null };
@@ -734,6 +767,7 @@ try {
         // The hand-over itself, as the room told it: at its first look after a second of silence. By the wall clock
         // only that it came well inside the 4 s stall (about 1 s on a quiet machine, 2 s seen with the machine at load 59).
         const sRaw = sOn && ev.find((e) => e.k === "a" && e.c === carOf(l, "Stall") && e.on === 1 && +raceT(e.n).toFixed(2) === sOn[1]);
+        check(last.get(stall)?.pad === true, `short: the stalled phone raced as a controller only, as set up (pad ${last.get(stall)?.pad})`);
         check(!!sOn && atFirstLook(sRaw) && sOn[1] - at.freeze < 3.5 && backT < Infinity && home, `short: the stalled phone's car was the house's at the room's first look after a second of silence (${silence(sRaw)}), ${sOn ? (sOn[1] - at.freeze).toFixed(2) : "?"} s after the stall (${at.freeze?.toFixed(2)}), its own again after, and home (${JSON.stringify(s)}; ${JSON.stringify(row("Stall"))}; after ${backT}: Stall +${sGain?.toFixed(1)}, Ada +${aGain?.toFixed(1)})`);
       }
       report.short = { seconds: Math.round((Date.now() - began) / 1000) };
