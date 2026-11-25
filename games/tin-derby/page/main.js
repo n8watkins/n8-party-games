@@ -661,7 +661,7 @@ class App {
     document.addEventListener("visibilitychange", () => {
       this.sound.pause(document.hidden);
       if (document.hidden) this.letGo();
-      else if (!this.out && !this.gone) { this.last = null; this.loop(); this.speak(this.host.now()); }
+      else if (!this.out && !this.gone) { stats.dbgVis = (stats.dbgVis | 0) + 1; /* DIAG */ this.last = null; this.loop(); this.speak(this.host.now()); }
     });
   }
 
@@ -837,7 +837,11 @@ class App {
     const frame = (ts) => {
       if (document.hidden || this.gone || this.out) { this.raf = 0; return; }
       this.raf = requestAnimationFrame(frame);
-      const raw = this.last ? ts - this.last : 16.7; this.last = ts;
+      const raw = this.last ? ts - this.last : 16.7;
+      // DIAG (temporary): the frame's timing as the loop saw it.
+      (stats.dbgF || (stats.dbgF = [])).push({ f: stats.frames + 1, ts: Math.round(ts), pn: Math.round(performance.now()), last: this.last === null ? "null" : this.last === undefined ? "undef" : Math.round(this.last), raw: Math.round(raw), hid: document.hidden, vis: stats.dbgVis | 0 });
+      if (stats.dbgF.length > 6) stats.dbgF.shift();
+      this.last = ts;
       const dt = Math.min(0.1, raw / 1000);
       this.time += dt;
       stats.frames++;
@@ -1004,7 +1008,7 @@ function paneCheck(app) {
     };
   });
   const mb = document.getElementById("mapbox"), m = mb.offsetParent !== null ? mb.getBoundingClientRect() : null;
-  return { frames: stats.frames, mode: app.mode, n: sp.n, t: st ? +st.t.toFixed(2) : null, h: innerHeight, w: innerWidth, close: app.root.hasAttribute("data-close"), map: m && { x: Math.round(m.left), y: Math.round(m.top), r: Math.round(m.right), b: Math.round(m.bottom) }, panes };
+  return { frames: stats.frames, dbgF: stats.dbgF?.slice(), mode: app.mode, n: sp.n, t: st ? +st.t.toFixed(2) : null, h: innerHeight, w: innerWidth, close: app.root.hasAttribute("data-close"), map: m && { x: Math.round(m.left), y: Math.round(m.top), r: Math.round(m.right), b: Math.round(m.bottom) }, panes };
 }
 
 if (!host) {

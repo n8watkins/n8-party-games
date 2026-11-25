@@ -574,6 +574,7 @@ try {
           const fb = sl.t > 0.5 && !sl.cars.some((c) => c.fin) ? paneFaults(sl.P, names) : [];
           console.log(`DIAG sample t=${sl.t} Pt=${sl.P.t} frames=${sl.stats.frames}/${sl.P.frames} fps=${fps?.toFixed(2)} ${sl.P.panes.map((p) => `${p.name}:d=${p.camDist},in=${p.inPane},fall=${p.fall},air=${p.air},at=${p.at ? p.at.x + "/" + p.at.y : "-"},R=${p.R ? [p.R.x, p.R.y, p.R.w, p.R.h].join("/") : "-"}`).join(" ")}${fb.length ? " FAULTY" : ""}`);
           for (const p of sl.P.panes) if (fb.length || (p.camDist > 2 && !p.fall)) console.log(`DIAG rig ${p.name} ${JSON.stringify(p.dbg)}`);
+          console.log(`DIAG frames ${JSON.stringify(sl.P.dbgF)}`);
           if (sl.t > 0.5 && !sl.cars.some((c) => c.fin)) { samples++; for (const b of fb) faults.add(`${b} [screen at ${fps?.toFixed(1)} frames a second]`); }
         }
       };
