@@ -888,11 +888,24 @@
 }
 .wa-rev-words {
   display: grid;
+  /* One column exactly as wide as the space beside the picture: a long word wraps inside it
+     (an auto column would be as wide as its longest word, and push the card past the screen). */
+  grid-template-columns: minmax(0, 1fr);
   gap: 2px;
   min-width: 0;
 }
 .wa-rev-words .wa-name {
   font-size: 24px;
+  overflow-wrap: anywhere;
+}
+.wa-rev-words .wa-credit {
+  overflow-wrap: anywhere;
+}
+@container wa (max-width: 359px) {
+  /* The narrowest phones: the picture takes about half the card, so the name sets a little smaller. */
+  .wa-rev-words .wa-name {
+    font-size: 20px;
+  }
 }
 .wa-rev-foot {
   display: flex;

@@ -397,6 +397,91 @@ async function fits(p, label, { screen = p.screen } = {}) {
   check(!m.small.length, `${label}: every tap target is at least 44 pixels${m.small.length ? ` (${m.small.join(", ")})` : ""}`);
 }
 
+/** A picture's credit line as the page writes it. */
+const creditLine = (pic) => (pic.free ? `Picture: ${[pic.author, pic.license].filter(Boolean).join(" \u00b7 ")}` : "Image: \u00a9 its owner, via Wikipedia");
+/** The deck's own extremes, so the check below does not depend on which two cards a round draws. */
+const longestBy = (list, measure) => list.reduce((a, b) => (measure(b) > measure(a) ? b : a));
+const WORST = (() => {
+  const words = (t) => t.split(/\s+/);
+  const named = IDENTITIES.filter((i) => i.name);
+  const credited = IDENTITIES.filter((i) => i.picture?.filePage);
+  return {
+    names: [longestBy(named, (i) => Math.max(...words(i.name).map((w) => w.length))).name, longestBy(named, (i) => i.name.length).name],
+    credits: [longestBy(credited, (i) => creditLine(i.picture).length), longestBy(credited, (i) => Math.max(...words(creditLine(i.picture)).map((w) => w.length)))].map((i) => creditLine(i.picture)),
+  };
+})();
+
+/**
+ * The reveal at the widest and narrowest phones with the deck's worst-case text in its cards (the
+ * longest name, the longest credit line, the longest unbroken word in a credit), whichever two
+ * cards the round drew: nothing may scroll sideways or stick out of its card. The words are put
+ * in the page's own elements and the screen checked as it stands (the next screen draws afresh).
+ */
+async function worstReveal(phone) {
+  // The reveal draws itself afresh every second (its countdown), so the words are put back
+  // whenever it does, until the next reveal is reached.
+  await phone.page.evaluate(({ names, credits }) => {
+    const put = () => {
+      document.querySelectorAll(".wa-rev").forEach((card, i) => {
+        const words = card.querySelector(".wa-rev-words");
+        const name = words.querySelector(".wa-name");
+        if (name.textContent !== names[i % names.length]) name.textContent = names[i % names.length];
+        let a = words.querySelector(".wa-credit");
+        if (!a) {
+          a = document.createElement("a");
+          a.className = "wa-credit";
+          a.href = "https://commons.wikimedia.org/wiki/File:Stand-in.jpg";
+          words.append(a);
+        }
+        if (a.textContent !== credits[i % credits.length]) a.textContent = credits[i % credits.length];
+      });
+    };
+    put();
+    window.__worst = new MutationObserver(put);
+    window.__worst.observe(document.querySelector(".wa"), { childList: true, subtree: true });
+  }, WORST);
+  // Every card of the deck, one by one, in both cards' places, at the narrowest phone.
+  await phone.page.setViewportSize({ width: 320, height: 568 });
+  await wait(350);
+  const sweep = IDENTITIES.map((i) => ({ name: i.name, credit: i.picture?.filePage ? creditLine(i.picture) : null }));
+  const offenders = await phone.page.evaluate((cards) => {
+    const root = document.querySelector(".wa");
+    const bad = [];
+    for (const [n, card] of [...document.querySelectorAll(".wa-rev")].entries()) {
+      const words = card.querySelector(".wa-rev-words");
+      for (const c of cards) {
+        words.querySelector(".wa-name").textContent = c.name;
+        words.querySelector(".wa-credit")?.remove();
+        if (c.credit) {
+          const a = Object.assign(document.createElement("a"), { className: "wa-credit", href: "https://commons.wikimedia.org/wiki/File:Stand-in.jpg", textContent: c.credit });
+          words.append(a);
+        }
+        const box = card.getBoundingClientRect();
+        const over = [...card.querySelectorAll("*")].some((e) => e.getBoundingClientRect().right > box.right + 0.5);
+        if (over || root.scrollWidth > root.clientWidth + 1 || document.documentElement.scrollWidth > innerWidth) bad.push(`${c.name} (${n ? "second" : "first"} card)`);
+      }
+    }
+    return bad;
+  }, sweep);
+  check(!offenders.length, `reveal at 320x568: no card of the deck makes it scroll sideways or stick out (${offenders.length} do: ${offenders.slice(0, 3).join(", ")})`);
+  for (const [w, h] of [[320, 568], [375, 667], [414, 896]]) {
+    await phone.page.setViewportSize({ width: w, height: h });
+    await wait(350);
+    await fits(phone, `reveal with the longest names and credits, ${phone.name} at ${w}x${h}`, { screen: false });
+    const outside = await phone.page.evaluate(() =>
+      [...document.querySelectorAll(".wa-rev")].flatMap((card) => {
+        const box = card.getBoundingClientRect();
+        return [...card.querySelectorAll("*")].filter((e) => e.getBoundingClientRect().right > box.right + 0.5).map((e) => e.className || e.tagName);
+      }),
+    );
+    check(!outside.length, `reveal with the longest names and credits, ${phone.name} at ${w}x${h}: nothing sticks out of its card (${outside.slice(0, 3).join(", ")})`);
+    await phone.page.evaluate(() => document.querySelector(".wa-rev")?.scrollIntoView({ block: "start" }));
+    await wait(100);
+    await still(phone, `reveal-worst-case-${w}x${h}`, `The reveal at ${w}x${h} with the deck's longest names and credits.`);
+  }
+  await phone.page.evaluate(() => window.__worst?.disconnect());
+}
+
 /** One phone at every size, then the big screen at both of its sizes, for one phase. */
 async function sizes(phone, phase) {
   for (const [w, h] of [[320, 568], [844, 390], [1280, 720], [390, 844]]) {
@@ -664,6 +749,8 @@ try {
     await audit("match 2 reveal r1");
     await still(tv, "reveal-screen-1280x720", "The reveal on the big screen.");
     await sizes(bo, "reveal");
+    await worstReveal(bo);
+    await bo.page.setViewportSize({ width: 390, height: 844 });
     await still(cy, "reveal-watcher-390x844", "The reveal on a watcher's phone: the players go on.");
     for (let round = 2; round <= 5; round++) {
       await nextRound(inMatch()[round % 2]);
