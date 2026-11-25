@@ -162,7 +162,7 @@ function frameRateNearEnd(frame, endT) {
  * --disable-gpu-compositing does the same here, and leaves only the 3D picture to SwiftShader.
  */
 const DRAWN = ["--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--autoplay-policy=no-user-gesture-required", ...(gpu ? [] : ["--disable-gpu-compositing"])];
-const browser = await launchBrowser({ args: [...DRAWN, "--diag-main"] });
+const browser = await launchBrowser({ args: DRAWN });
 const contexts = new Set();
 try {
   /** A page of its own (its own storage, so its own seat), with what it complained of kept, and the bytes its sockets received. */
@@ -559,8 +559,8 @@ try {
     // back in getContext, getParameter, getExtension and a canvas's toDataURL; on GitHub's runner the reload took
     // 22 s and more to come back, past the end of the race, and in a browser of its own 5 to 14 s. Sharing one, the
     // big screen there once drew nothing for the last 7 s of the race. (Ada's and the stalled phone share the first.)
-    const ownBrowser = (tag) => launchBrowser({ args: [...DRAWN, "--diag-" + tag] });
-    const [boB, scrB] = await Promise.all([ownBrowser("bo"), ownBrowser("screen")]);
+    const ownBrowser = () => launchBrowser({ args: DRAWN });
+    const [boB, scrB] = await Promise.all([ownBrowser(), ownBrowser()]);
     const phoneBrowsers = [boB, scrB], adaB = browser, stallB = browser;
     // The big screen at 960 x 540, as Cork & Bell's run has it: four panes drawn in software at 1280 x 720 came to
     // under one frame a second on some of GitHub's runners (5 looks at the panes in a race), and its pages' every
@@ -577,10 +577,10 @@ try {
       nogl.quiet = /WebGL|webgl/;
       // The phone that stalls is a controller only from the start (its player's switch, remembered on the phone): what
       // it proves, the stall's hand-over to the house and back and its car home, is the room's and its socket's, and
-      // its finishing order is judged on what its controller showed, as NoGL's is. Drawn in 3D it was the second race
-      // picture in the first browser's one graphics process, which drawing in software took a whole thread or more
-      // for the race's whole length on GitHub's 4-thread runner (with the big screen's and Bo's, three threads of four),
-      // and the big screen, starved, went 2 to 11 s between frames and missed the race's last seconds.
+      // its finishing order is judged on what its controller showed, as NoGL's is. Drawn in 3D it was a second race
+      // picture in the first browser, beside Ada's: one less 3D picture drawn in software on GitHub's 4-thread runner,
+      // where the three drawing browsers' graphics processes took a thread each and the big screen, starved, went 2
+      // to 11 s between frames and missed the race's last seconds (see DRAWN for the larger part of that load).
       const stall = await phone("Stall", pin, "&derby-short=1", { at: `http://localhost:${relay.port}`, context: { hasTouch: true, isMobile: true, via: stallB }, before: (p) => p.addInitScript(() => { try { localStorage.setItem("tin-derby-controller-only", "1"); } catch { /* about:blank */ } }) });
       const code = await codeOf(pin);
       await vote(code, [ada, bo, nogl, stall]);
