@@ -661,7 +661,7 @@ class App {
     document.addEventListener("visibilitychange", () => {
       this.sound.pause(document.hidden);
       if (document.hidden) this.letGo();
-      else if (!this.out && !this.gone) { stats.dbgVis = (stats.dbgVis | 0) + 1; /* DIAG */ this.last = null; this.loop(); this.speak(this.host.now()); }
+      else if (!this.out && !this.gone) { this.last = null; this.loop(); this.speak(this.host.now()); }
     });
   }
 
@@ -837,11 +837,7 @@ class App {
     const frame = (ts) => {
       if (document.hidden || this.gone || this.out) { this.raf = 0; return; }
       this.raf = requestAnimationFrame(frame);
-      const raw = this.last ? ts - this.last : 16.7;
-      // DIAG (temporary): the frame's timing as the loop saw it.
-      (stats.dbgF || (stats.dbgF = [])).push({ f: stats.frames + 1, ts: Math.round(ts), pn: Math.round(performance.now()), last: this.last === null ? "null" : this.last === undefined ? "undef" : Math.round(this.last), raw: Math.round(raw), hid: document.hidden, vis: stats.dbgVis | 0 });
-      if (stats.dbgF.length > 6) stats.dbgF.shift();
-      this.last = ts;
+      const raw = this.last ? ts - this.last : 16.7; this.last = ts;
       const dt = Math.min(0.1, raw / 1000);
       this.time += dt;
       stats.frames++;
@@ -898,9 +894,7 @@ class App {
         // The whole table: cars drawn larger, to be seen across a room (true size in its close shots and in the panes).
         if (!this.rig) { this.carK = view && !view.close && this.mode === "tvwide" ? TV_CAR_SIZE : 1; W.sizeCars(this.carK); }
         W.renderer.info.reset();
-        const r0 = performance.now(); // DIAG (temporary)
         W.render(views);
-        stats.dbgF.at(-1).rend = Math.round(performance.now() - r0); // DIAG (temporary)
         stats.draws = W.renderer.info.render.calls; stats.triangles = W.renderer.info.render.triangles;
       }
       this.root.toggleAttribute("data-close", this.mode === "split" && !!view);
@@ -927,8 +921,6 @@ class App {
       if (me) this.sound.run(Math.abs(me.v) * 0.7, racing && Math.abs(me.v) > 0.2, me.drOn ? 1 + me.drLvl : 0);
       this.hint(st);
       tally(stats.workMs, performance.now() - work0);
-      // DIAG (temporary): how long this frame's own work took, the programs made so far, the drawing scale.
-      { const e = stats.dbgF.at(-1); e.work = Math.round(performance.now() - work0); e.prog = this.world?.renderer.info.programs?.length; e.sc = this.scale; e.st = +st.t.toFixed(2); e.auth = st === this.replica.auth; }
       this.govern(raw);
     };
     this.raf = requestAnimationFrame(frame);
@@ -1009,14 +1001,13 @@ function paneCheck(app) {
     const words = [...p.el.querySelectorAll(".plabel, .pnear span, .pheld .hname, .pnote b, .pnote small")].filter((e) => e.offsetParent !== null && e.textContent.trim());
     return {
       car: p.i, name: car?.name, focus: rig ? rig.i : -1, camDist: +camDist.toFixed(2), nearest, inPane, at, auto: !!car?.auto, fall: (car?.fallT ?? 0) > 0, air: !!car?.air, fin: !!car?.fin,
-      dbg: rig?.dbg?.slice(-4), R: sp.rects[k] && { ...sp.rects[k] }, n: st?.n, // DIAG (temporary)
       box: { x: Math.round(r.left), y: Math.round(r.top), w: Math.round(r.width), h: Math.round(r.height) },
       label: p.el.querySelector(".plabel").innerText.replace(/\s+/g, " ").trim(), note: p.el.querySelector(".pnote").innerText.replace(/\s+/g, " ").trim(),
       smallest: Math.min(...words.map(font)), words: words.map((e) => { const q = e.getBoundingClientRect(); return { t: e.textContent.trim().slice(0, 24), x: Math.round(q.left), y: Math.round(q.top), r: Math.round(q.right), b: Math.round(q.bottom), f: font(e) }; }),
     };
   });
   const mb = document.getElementById("mapbox"), m = mb.offsetParent !== null ? mb.getBoundingClientRect() : null;
-  return { frames: stats.frames, dbgF: stats.dbgF?.slice(), mode: app.mode, n: sp.n, t: st ? +st.t.toFixed(2) : null, h: innerHeight, w: innerWidth, close: app.root.hasAttribute("data-close"), map: m && { x: Math.round(m.left), y: Math.round(m.top), r: Math.round(m.right), b: Math.round(m.bottom) }, panes };
+  return { mode: app.mode, n: sp.n, t: st ? +st.t.toFixed(2) : null, h: innerHeight, w: innerWidth, close: app.root.hasAttribute("data-close"), map: m && { x: Math.round(m.left), y: Math.round(m.top), r: Math.round(m.right), b: Math.round(m.bottom) }, panes };
 }
 
 if (!host) {

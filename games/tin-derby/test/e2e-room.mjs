@@ -141,10 +141,8 @@ function PROBE({ panes }) {
  */
 const probes = new Map();
 /** How near the end (race seconds) a page must have drawn for its finishing order to be judged, and the stretch before
- * the end over which its frame rate is measured to know whether it could have. */
+ * the end over which its frame rate is measured for the log. */
 const NEAR_END_S = 3, END_WINDOW_S = 15;
-/** Checks not run on this machine because its pages could not keep up: listed at the end, never passed silently. */
-const notVerified = [];
 /**
  * A race page's frame rate (frames a second) over the last END_WINDOW_S of race time before `endT`, from the words it
  * sent from what it drew (each carries its race time and its frame count), or null with none.
@@ -387,7 +385,6 @@ try {
     for (const p of pages) for (const e of roomEvents(p)) if (e.k === "n" && typeof e.n === "number") endN = Math.max(endN, e.n);
     const endT = Number.isFinite(endN) ? raceT(endN) : null;
     const roomOrder = end.result.map((r) => r.seat).join();
-    for (const [p, l] of last) console.log(`DIAG page ${p.name}: ${l.stats.frames} frames, mode ${l.mode}, pad ${l.pad}`);
     for (const [p, l] of last) {
       // Judged only on what the page drew: its copy of the room's word (sent when it drew nothing for half a second)
       // is the room's order and would compare the room with itself.
@@ -403,14 +400,10 @@ try {
       // home in a frame long before the end, the comparison would prove nothing).
       const ago = endT === null ? Infinity : endT - v.t, near = v.over || home.length > 0 || ago < NEAR_END_S;
       const settled = near && (v.over || home.length === roomSeats.length ? seen === roomOrder : home.every((s, k) => roomSeats[k] === s) && !end.result.slice(0, home.length).some((r) => typeof r.time !== "number"));
-      const what = `${label}, ${p.name}: the page's finishing order as it drew it (${seen}; home ${home.join() || "none"}; ${v.over ? "drawn at the end" : `drawn at race time ${v.t.toFixed(1)}, ${ago.toFixed(1)} s before the room's end at ${endT?.toFixed(1)}`}) is the room's (${roomOrder})`;
-      // A page that drew too few frames near the end to be sure of one in the last NEAR_END_S cannot be judged: its
-      // frame rate over the race's last END_WINDOW_S, from the frames it counted in the words it drew, is under one a
-      // NEAR_END_S (on GitHub's 4-thread runner, drawing in software, a frame there once took 11 s). Then the check is
-      // not run but listed as NOT VERIFIED with the measured gap; a page drawing at least that often must be judged.
+      // (With the page's frame rate over the race's last END_WINDOW_S, from the frames it counted in the words it drew:
+      // a page that missed the end says whether it was drawing slowly or had stopped.)
       const rate = endT === null ? null : frameRateNearEnd(frames.get(p), endT);
-      if (!near && rate !== null && rate < 1 / NEAR_END_S) notVerified.push(`${what}: its last drawn frame was ${ago.toFixed(1)} s before the end, at ${rate.toFixed(2)} frames a second over the last ${END_WINDOW_S} s (under 1 in ${NEAR_END_S} s, so no frame near the end could be expected)`);
-      else check(settled, what + (rate === null ? "" : ` [${rate.toFixed(2)} frames a second over the last ${END_WINDOW_S} s]`));
+      check(settled, `${label}, ${p.name}: the page's finishing order as it drew it (${seen}; home ${home.join() || "none"}; ${v.over ? "drawn at the end" : `drawn at race time ${v.t.toFixed(1)}, ${ago.toFixed(1)} s before the room's end at ${endT?.toFixed(1)}`}) is the room's (${roomOrder})${rate === null ? "" : ` [${rate.toFixed(2)} frames a second over the last ${END_WINDOW_S} s]`}`);
       check(l.stats.diverged === 0, `${label}, ${p.name}: its copy of the race matched the room's at every snapshot it could check (${l.stats.compared} checked, ${l.stats.diverged} differed, ${l.stats.gaps} gaps, ${l.stats.restarts} restarts, ${l.stats.full} full snapshots)`);
     }
     // Every page that showed the race, a big screen that joined late included.
@@ -574,7 +567,13 @@ try {
       // A phone with no 3D in a party with a big screen: a controller, driving its car by the big screen.
       const nogl = await phone("NoGL", pin, "", { context: { hasTouch: true, isMobile: true, via: flat } });
       nogl.quiet = /WebGL|webgl/;
-      const stall = await phone("Stall", pin, "&derby-short=1", { at: `http://localhost:${relay.port}`, context: { hasTouch: true, isMobile: true, via: stallB } });
+      // The phone that stalls is a controller only from the start (its player's switch, remembered on the phone): what
+      // it proves, the stall's hand-over to the house and back and its car home, is the room's and its socket's, and
+      // its finishing order is judged on what its controller showed, as NoGL's is. Drawn in 3D it was the second race
+      // picture in the first browser's one graphics process, which drawing in software took a whole thread or more
+      // for the race's whole length on GitHub's 4-thread runner (with the big screen's and Bo's, three threads of four),
+      // and the big screen, starved, went 2 to 11 s between frames and missed the race's last seconds.
+      const stall = await phone("Stall", pin, "&derby-short=1", { at: `http://localhost:${relay.port}`, context: { hasTouch: true, isMobile: true, via: stallB }, before: (p) => p.addInitScript(() => { try { localStorage.setItem("tin-derby-controller-only", "1"); } catch { /* about:blank */ } }) });
       const code = await codeOf(pin);
       await vote(code, [ada, bo, nogl, stall]);
       const at = { drop: null, back: null, reload: null, freeze: null, pad: null, padBack: null, houseNote: null };
@@ -596,12 +595,7 @@ try {
           // The screen's frame rate since its word before (for the log, with any fault).
           const fps = sampled && sl.t > sampled.t ? (sl.stats.frames - sampled.stats.frames) / (sl.t - sampled.t) : null;
           sampled = sl;
-          // DIAG (temporary): every sample, and the rig's last updates for a faulty one.
-          const fb = sl.t > 0.5 && !sl.cars.some((c) => c.fin) ? paneFaults(sl.P, names) : [];
-          console.log(`DIAG sample t=${sl.t} Pt=${sl.P.t} frames=${sl.stats.frames}/${sl.P.frames} fps=${fps?.toFixed(2)} ${sl.P.panes.map((p) => `${p.name}:d=${p.camDist},in=${p.inPane},fall=${p.fall},air=${p.air},at=${p.at ? p.at.x + "/" + p.at.y : "-"},R=${p.R ? [p.R.x, p.R.y, p.R.w, p.R.h].join("/") : "-"}`).join(" ")}${fb.length ? " FAULTY" : ""}`);
-          for (const p of sl.P.panes) if (fb.length || (p.camDist > 2 && !p.fall)) console.log(`DIAG rig ${p.name} ${JSON.stringify(p.dbg)}`);
-          console.log(`DIAG frames ${JSON.stringify(sl.P.dbgF)}`);
-          if (sl.t > 0.5 && !sl.cars.some((c) => c.fin)) { samples++; for (const b of fb) faults.add(`${b} [screen at ${fps?.toFixed(1)} frames a second]`); }
+          if (sl.t > 0.5 && !sl.cars.some((c) => c.fin)) { samples++; for (const b of paneFaults(sl.P, names)) faults.add(`${b} [screen at ${fps?.toFixed(1)} frames a second]`); }
         }
       };
       // The troubles, on the room's own clock and word: the race time now, and who drives each car by the room's latest
@@ -765,6 +759,7 @@ try {
         // The hand-over itself, as the room told it: at its first look after a second of silence. By the wall clock
         // only that it came well inside the 4 s stall (about 1 s on a quiet machine, 2 s seen with the machine at load 59).
         const sRaw = sOn && ev.find((e) => e.k === "a" && e.c === carOf(l, "Stall") && e.on === 1 && +raceT(e.n).toFixed(2) === sOn[1]);
+        check(last.get(stall)?.pad === true, `short: the stalled phone raced as a controller only, as set up (pad ${last.get(stall)?.pad})`);
         check(!!sOn && atFirstLook(sRaw) && sOn[1] - at.freeze < 3.5 && backT < Infinity && home, `short: the stalled phone's car was the house's at the room's first look after a second of silence (${silence(sRaw)}), ${sOn ? (sOn[1] - at.freeze).toFixed(2) : "?"} s after the stall (${at.freeze?.toFixed(2)}), its own again after, and home (${JSON.stringify(s)}; ${JSON.stringify(row("Stall"))}; after ${backT}: Stall +${sGain?.toFixed(1)}, Ada +${aGain?.toFixed(1)})`);
       }
       report.short = { seconds: Math.round((Date.now() - began) / 1000) };
@@ -1242,9 +1237,8 @@ try {
 console.log("REPORT " + JSON.stringify(report));
 if (errors.length) console.log("page errors:\n  " + [...new Set(errors)].slice(0, 20).join("\n  "));
 check(errors.length === 0, `no page reported an error (${errors.length})`);
-if (notVerified.length) console.log(`\nNOT VERIFIED on this machine (its pages could not keep up; run on a machine that draws with a graphics card):\n- ` + notVerified.join("\n- "));
 if (problems.length) {
   console.log(`\n${problems.length} check(s) failed`);
   process.exit(1);
 }
-console.log(notVerified.length ? `\nAll checks run passed; ${notVerified.length} left out, listed above.` : "\nall checks passed");
+console.log("\nall checks passed");

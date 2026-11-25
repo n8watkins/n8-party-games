@@ -487,10 +487,6 @@ class ChaseRig {
     cam.lookAt(lx, ly + this.sy, lz);
     const base = aspect >= 1.55 ? T.CAM_FOV : Math.min(96, (2 * Math.atan((Math.tan((T.CAM_FOV * Math.PI) / 360) * 1.55) / aspect) * 180) / Math.PI);
     cam.fov = base + this.kick * T.CAM_KICK_FOV + (c.boostT > 0 ? 5 : 0);
-    // DIAG (temporary): the rig's pose per update.
-    const r2 = (n) => +(+n).toFixed(2);
-    (this.dbg || (this.dbg = [])).push({ t: r2(state.t), n: state.n, dt: +dt.toFixed(3), fallT: r2(c.fallT), u: r2(c.u), v: r2(c.v), air: !!c.air, falling, need: r2(need), gMax: r2(gMax), hand, carY: r2(v.pos.y), y: r2(this.y), raise: r2(this.raise), cam: [camX, camY, camZ].map(r2), car: [v.pos.x, v.pos.z].map(r2), p: [this.px, this.pz].map(r2), head: r2(this.head), want: r2(want), look: [lx, ly, lz].map(r2) });
-    if (this.dbg.length > 8) this.dbg.shift();
     return this.view;
   }
 }
