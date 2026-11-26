@@ -166,7 +166,11 @@ const siteEntries = [
  * local environment's build command passes (wrangler.jsonc, env.local) and the production one
  * does not, so they can be opened locally at /preview/... and never reach the live site.
  */
-const previewEntries = [{ from: join(ROOT, "landing", "public"), to: `${PREVIEW_DIR}/landing` }];
+const previewEntries = [
+  { from: join(ROOT, "landing", "public"), to: `${PREVIEW_DIR}/landing` },
+  // The games-first front page, no doors (feat/n8games-home-preview), until the owner picks it.
+  { from: join(ROOT, "site", "preview-home"), to: `${PREVIEW_DIR}/home` },
+];
 
 /**
  * Every flag the command line takes, and what it does. A flag not listed here is refused
