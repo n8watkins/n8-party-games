@@ -1,0 +1,451 @@
+/* The front page preview: the games themselves, in the look of n8builds.dev/builds/n8games
+   (components/builds/n8games/n8games.module.css in n8builds-web): a toy box on a deep blue
+   ground, warm cards and stickers, tomato for Play. Opacity and transform only for motion;
+   under reduced motion nothing moves by itself. */
+
+@font-face {
+  font-family: "Baloo 2";
+  src: url("/fonts/baloo-2.woff2") format("woff2");
+  font-weight: 400 800;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Nunito";
+  src: url("/fonts/nunito.woff2") format("woff2");
+  font-weight: 200 1000;
+  font-display: swap;
+}
+
+:root {
+  --ground: #0a1230;
+  --ground-dot: #0f1a40;
+  --plate: #111c46;
+  --card: #17255a;
+  --ink: #fff3e0;
+  --ink-soft: #b8c3ea;
+  --line: #31428a;
+  --title-plate: #a8321c;
+  --on-title-plate: #fff6ea;
+  --title-accent: #ffd977;
+  --sticker: #f7c24a;
+  --on-sticker: #2a1606;
+  --play: #c93d24;
+  --on-play: #fff6ea;
+  --chip: #24774b;
+  --apricot: #ffb877;
+  --focus: #9cc0ff;
+  --shadow: rgba(0, 0, 0, 0.5);
+  --display: "Baloo 2", "Arial Rounded MT Bold", "Trebuchet MS", system-ui, sans-serif;
+  --text: "Nunito", "Segoe UI", system-ui, -apple-system, Roboto, sans-serif;
+  --ease-soft: cubic-bezier(0.45, 0, 0.55, 1);
+  --ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --amp: 9px;
+  --spin: 4deg;
+  color-scheme: dark;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+* {
+  margin: 0;
+}
+img,
+video {
+  display: block;
+  max-width: 100%;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+}
+body {
+  position: relative;
+  min-height: 100vh;
+  overflow-x: hidden;
+  background-color: var(--ground);
+  background-image: radial-gradient(circle, var(--ground-dot) 0 9px, transparent 10px), radial-gradient(circle, var(--ground-dot) 0 5px, transparent 6px);
+  background-size: 76px 76px, 76px 76px;
+  background-position: 0 0, 38px 38px;
+  color: var(--ink);
+  font: 500 16px/1.5 var(--text);
+  -webkit-font-smoothing: antialiased;
+}
+:focus-visible {
+  outline: 3px solid var(--focus);
+  outline-offset: 3px;
+}
+a {
+  color: inherit;
+}
+
+.wrap {
+  position: relative;
+  width: 100%;
+  max-width: 1080px;
+  margin-inline: auto;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+
+/* ---------- The things that drift behind the page ---------- */
+.floaters {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  overflow: hidden;
+}
+.fl {
+  position: absolute;
+  animation: drift var(--drift) var(--ease-soft) var(--delay) infinite alternate both;
+}
+.fl img {
+  width: 100%;
+  height: auto;
+  filter: drop-shadow(0 6px 4px var(--shadow));
+  animation: bob var(--bob) var(--ease-soft) var(--delay) infinite alternate both;
+}
+/* On a phone the edges are where the words are: fewer, smaller and fainter things there,
+   pushed half off the edge. */
+@media (max-width: 759px) {
+  .fl {
+    opacity: 0.45;
+    scale: 0.7;
+    translate: var(--edge, 0) 0;
+  }
+  .fl:nth-child(n + 7) {
+    display: none;
+  }
+}
+@keyframes drift {
+  to {
+    transform: translate(var(--dx), var(--dy));
+  }
+}
+@keyframes bob {
+  from {
+    transform: translateY(0) rotate(var(--r, 0deg));
+  }
+  to {
+    transform: translateY(calc(var(--amp) * -1)) rotate(calc(var(--r, 0deg) + var(--spin)));
+  }
+}
+
+/* ---------- Hero ---------- */
+.hero {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 14px;
+  padding: max(28px, env(safe-area-inset-top, 0px)) 0 24px;
+}
+.plate {
+  padding: 0.06em 0.32em 0;
+  border-radius: 24px;
+  background: var(--title-plate);
+  color: var(--on-title-plate);
+  border: 3px solid var(--ink);
+  box-shadow: 0 7px 0 var(--ink);
+  font: 800 clamp(48px, 14vw, 84px) / 1 var(--display);
+  letter-spacing: -0.02em;
+  rotate: -3deg;
+}
+.plate span {
+  color: var(--title-accent);
+}
+.hero-line {
+  max-width: 28ch;
+  margin-top: 10px;
+  font: 700 clamp(19px, 4.6vw, 24px) / 1.3 var(--text);
+  text-wrap: balance;
+}
+/* Wide screens: the name and the line side by side, so the games show in the first screen. */
+@media (min-width: 760px) {
+  .hero {
+    flex-direction: row;
+    align-items: center;
+    gap: 32px;
+  }
+  .plate {
+    font-size: 72px;
+  }
+  .hero-line {
+    margin-top: 0;
+  }
+}
+/* A phone held sideways: a smaller name, so the first card starts in view. */
+@media (max-height: 500px) and (orientation: landscape) {
+  .hero {
+    flex-direction: row;
+    align-items: center;
+    gap: 24px;
+    padding-block: 16px 12px;
+  }
+  .hero-line {
+    margin-top: 0;
+  }
+  .plate {
+    font-size: 44px;
+  }
+  .hero-line {
+    font-size: 18px;
+  }
+}
+
+.enter {
+  animation: rise 0.7s var(--ease-out) both;
+}
+.hero-line.enter {
+  animation-delay: 0.12s;
+}
+@keyframes rise {
+  from {
+    opacity: 0.01;
+    transform: translateY(20px) scale(0.97);
+  }
+}
+
+/* ---------- Stickers, chips, buttons ---------- */
+.sticker {
+  display: inline-block;
+  margin: 8px 0 22px;
+  padding: 0.12em 0.45em 0;
+  border-radius: 20px;
+  background: var(--sticker);
+  color: var(--on-sticker);
+  border: 3px solid var(--ink);
+  box-shadow: 0 6px 0 var(--ink);
+  font: 800 clamp(30px, 8vw, 44px) / 1.08 var(--display);
+  rotate: -2deg;
+}
+@media (max-height: 500px) and (orientation: landscape) {
+  .sticker {
+    font-size: 28px;
+    margin-bottom: 16px;
+  }
+}
+.chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 10px 2px;
+  border-radius: 999px;
+  border: 2px solid var(--ink);
+  font: 800 12px/1.3 var(--text);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.chip-solo {
+  background: var(--chip);
+  color: #fff;
+}
+.chip-friends {
+  background: var(--apricot);
+  color: var(--on-sticker);
+}
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 48px;
+  padding: 7px 20px 3px;
+  border-radius: 16px;
+  border: 3px solid var(--ink);
+  box-shadow: 0 5px 0 var(--ink);
+  background: var(--card);
+  color: var(--ink);
+  font: 800 19px/1.1 var(--display);
+  text-decoration: none;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: translate 0.14s var(--ease-out);
+}
+.btn:active {
+  translate: 0 4px;
+  box-shadow: 0 1px 0 var(--ink);
+}
+.btn-play {
+  background: var(--play);
+  color: var(--on-play);
+}
+.btn-go {
+  background: var(--sticker);
+  color: var(--on-sticker);
+}
+.btn-small {
+  min-height: 44px;
+  padding: 6px 16px 3px;
+  font-size: 17px;
+  border-radius: 14px;
+  box-shadow: 0 4px 0 var(--ink);
+}
+
+/* ---------- The games: each card is the game moving, and a way to play it ---------- */
+.grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 22px;
+  padding: 0;
+  list-style: none;
+}
+.game {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  /* The picture keeps its size; the words take the rest, so Play sits at the foot of every card in a row. */
+  grid-template-rows: auto 1fr;
+  overflow: hidden;
+  border-radius: 22px;
+  border: 3px solid var(--ink);
+  background: var(--card);
+  box-shadow: 0 7px 0 var(--ink);
+}
+/* The demo: a still until the clip is in, then the game playing on its own. */
+.demo {
+  position: relative;
+  aspect-ratio: 4 / 3;
+  overflow: hidden;
+  background: #10141f;
+  border-bottom: 3px solid var(--ink);
+}
+.demo img,
+.demo video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+/* The clips are recorded on phones held upright or sideways: each crop keeps the play in view. */
+[data-game="hot-potato"] .demo video {
+  object-position: 50% 62%;
+}
+[data-game="paper-masks"] .demo video {
+  object-position: 50% 52%;
+}
+[data-game="who-am-i"] .demo video {
+  object-position: 50% 30%;
+}
+.game-text {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 14px 16px 18px;
+}
+.game h3 {
+  font: 800 26px/1.1 var(--display);
+}
+.game p {
+  font-size: 15.5px;
+  line-height: 1.4;
+  color: var(--ink-soft);
+}
+.meta {
+  font: 800 13px/1.3 var(--text);
+}
+.game .btn {
+  margin-top: auto;
+}
+.meta {
+  margin-bottom: 10px;
+}
+
+@media (hover: hover) {
+  .game {
+    transition: translate 0.18s var(--ease-out);
+  }
+  .game:hover {
+    translate: 0 -3px;
+  }
+}
+
+@media (min-width: 640px) {
+  .grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (min-width: 980px) {
+  .grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+/* ---------- The party room, as one line ---------- */
+.friends {
+  display: grid;
+  grid-template-columns: 48px minmax(0, 1fr);
+  gap: 12px 14px;
+  align-items: center;
+  margin-top: 34px;
+  padding: 14px 16px;
+  border-radius: 20px;
+  border: 2px dashed var(--line);
+  background: var(--plate);
+}
+.friends-pawn {
+  width: 48px;
+  height: auto;
+}
+.friends h2 {
+  font: 800 20px/1.15 var(--display);
+}
+.friends p {
+  font-size: 15px;
+  color: var(--ink-soft);
+}
+.friends p a {
+  color: var(--ink);
+  font-weight: 800;
+  text-underline-offset: 3px;
+}
+.code {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 10px;
+}
+.code label {
+  font: 800 15px/1 var(--text);
+}
+.code input {
+  width: 6.5ch;
+  min-height: 44px;
+  padding: 4px 10px;
+  border-radius: 12px;
+  border: 2px solid var(--line);
+  background: var(--card);
+  color: var(--ink);
+  font: 800 20px/1 var(--display);
+  letter-spacing: 0.12em;
+  text-align: center;
+}
+@media (min-width: 760px) {
+  .friends {
+    grid-template-columns: 48px minmax(0, 1fr) auto;
+  }
+  .code {
+    grid-column: auto;
+  }
+}
+
+.foot {
+  padding: 22px 0 max(28px, env(safe-area-inset-bottom, 0px));
+  color: var(--ink-soft);
+  font-size: 14px;
+}
+.foot a {
+  color: var(--ink);
+  font-weight: 700;
+  text-underline-offset: 3px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+    transition: none !important;
+  }
+}

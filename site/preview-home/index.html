@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#0a1230" />
+    <meta name="color-scheme" content="dark" />
+    <title>n8games</title>
+    <meta name="description" content="Little party games you can play right now, in the browser. Free, no app, no sign-up." />
+    <link rel="icon" href="/icons/icon-192.png" />
+    <link rel="preload" href="/fonts/baloo-2.woff2" as="font" type="font/woff2" crossorigin />
+    <link rel="preload" href="/fonts/nunito.woff2" as="font" type="font/woff2" crossorigin />
+    <link rel="stylesheet" href="./home.css" />
+    <script type="module" src="./home.js"></script>
+  </head>
+  <body>
+    <!-- A preview of the new front page (feat/n8games-home-preview): the games themselves, each
+         playable from its card, in the look of https://n8builds.dev/builds/n8games. No doors: the
+         party room is one small line under the games. Built only with --preview, at /preview/home/. -->
+    <div class="floaters" id="floaters" aria-hidden="true"></div>
+
+    <main class="wrap">
+      <section class="hero" aria-labelledby="title">
+        <h1 id="title" class="plate enter">n8<span>games</span></h1>
+        <p class="hero-line enter">Little party games you can play right now. Free, no app, no sign-up.</p>
+      </section>
+
+      <section aria-labelledby="gamesTitle">
+        <h2 id="gamesTitle" class="sticker">Pick a game</h2>
+        <ul class="grid" id="grid">
+          <li class="game" data-game="cork-and-bell">
+            <div class="demo"><img src="/art/tile-cork.webp" alt="Cork &amp; Bell: a fairground shooting gallery with teapots, stars and numbered targets." width="420" height="560" /></div>
+            <div class="game-text">
+              <span class="chip chip-solo">Play alone</span>
+              <h3>Cork &amp; Bell</h3>
+              <p>A 1930s fairground shooting gallery. Pop the targets, ring the bell.</p>
+              <span class="meta">1 to 4 players, a phone each</span>
+              <a class="btn btn-play" href="/cork-and-bell/">Play now</a>
+            </div>
+          </li>
+          <li class="game" data-game="hot-potato">
+            <div class="demo"><img src="/art/tile-potato.webp" alt="Hot Potato: a deadpan cartoon potato strapped into a lab machine." width="420" height="560" /></div>
+            <div class="game-text">
+              <span class="chip chip-solo">One phone</span>
+              <h3>Hot Potato</h3>
+              <p>Say a word out loud and pass it on, before the potato bursts.</p>
+              <span class="meta">2 to 8 players, one phone passed round</span>
+              <a class="btn btn-play" href="/one-device/hot-potato/">Play now</a>
+            </div>
+          </li>
+          <li class="game" data-game="tin-derby">
+            <div class="demo"><img src="/art/tile-derby.webp" alt="Tin Derby: a red wind-up tin car with a big key races a teal one across a checked tablecloth." width="420" height="560" /></div>
+            <div class="game-text">
+              <span class="chip chip-solo">Play alone</span>
+              <h3>Tin Derby</h3>
+              <p>Wind-up tin cars race laps round a breakfast table. House cars fill the empty seats.</p>
+              <span class="meta">Up to 4 players, a phone each</span>
+              <a class="btn btn-play" href="/lobby/?start">Race now</a>
+            </div>
+          </li>
+          <li class="game" data-game="who-am-i">
+            <div class="demo"><img src="/art/tile-who.webp" alt="Who Am I?: a purple tile with a question mark." width="420" height="560" /></div>
+            <div class="game-text">
+              <span class="chip chip-friends">2 phones</span>
+              <h3>Who Am I?</h3>
+              <p>You each have a secret name. Ask questions to guess yours.</p>
+              <span class="meta">2 players, a phone each</span>
+              <a class="btn btn-go" href="/table/">Start at the Table</a>
+            </div>
+          </li>
+          <li class="game" data-game="paper-masks">
+            <div class="demo"><img src="/art/tile-masks.webp" alt="Paper Masks: three torn-paper faces on sticks, tied with a ribbon." width="420" height="560" /></div>
+            <div class="game-text">
+              <span class="chip chip-friends">3+ phones</span>
+              <h3>Paper Masks</h3>
+              <p>Everyone answers in secret. Guess who wrote what.</p>
+              <span class="meta">3 to 8 players, a phone each</span>
+              <a class="btn btn-go" href="/table/">Start at the Table</a>
+            </div>
+          </li>
+        </ul>
+      </section>
+
+      <!-- The party room, reduced to one line: start one, or join a friend's with its code. -->
+      <section class="friends" aria-labelledby="friendsTitle">
+        <img class="friends-pawn" src="/art/fl-pawn.webp" alt="" width="48" height="48" />
+        <div class="friends-text">
+          <h2 id="friendsTitle">Playing with friends?</h2>
+          <p><a href="/lobby/?start">Open a party room</a>: everyone walks a little piece around and votes on the next game.</p>
+        </div>
+        <form class="code" action="/lobby/" method="get">
+          <label for="code">Got a code?</label>
+          <input id="code" name="join" inputmode="numeric" autocomplete="off" maxlength="4" pattern="[0-9]{4}" placeholder="0000" required />
+          <button class="btn btn-small" type="submit">Join</button>
+        </form>
+      </section>
+
+      <footer class="foot">
+        <p>
+          Open source:
+          <a href="https://github.com/n8watkins/n8-party-games">the code on GitHub</a>.
+          The games started from build prompts by
+          <a href="https://www.youtube.com/@nicksaraev">Nick Saraev</a>.
+          <a href="https://n8builds.dev/builds/n8games">How it's made</a>.
+        </p>
+      </footer>
+    </main>
+  </body>
+</html>
