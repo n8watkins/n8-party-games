@@ -421,6 +421,10 @@ a {
   letter-spacing: 0.12em;
   text-align: center;
 }
+.code input::placeholder {
+  color: var(--ink-soft);
+  opacity: 0.75;
+}
 @media (min-width: 760px) {
   .friends {
     grid-template-columns: 48px minmax(0, 1fr) auto;
@@ -434,6 +438,8 @@ a {
   padding: 22px 0 max(28px, env(safe-area-inset-bottom, 0px));
   color: var(--ink-soft);
   font-size: 14px;
+  /* Roomy lines, so the three links in the paragraph are easy to tap one by one. */
+  line-height: 2.1;
 }
 .foot a {
   color: var(--ink);
