@@ -34,13 +34,27 @@ function words(text) {
 /** Every word of a JSON value's strings (keys too: they are fixed field names, never a name). */
 const wordsOf = (value) => new Set(words(JSON.stringify(value)));
 
-/** The words of a name and its aliases that would tell its player who they are. */
-function own(identity) {
-  return [...new Set([identity.name, ...identity.aliases].flatMap(words))].filter((w) => w.length > 1 && !FILLER.has(w));
+/**
+ * Works out a name's words once per deck name. The deck scan compares every name with every
+ * other, so working them out per pair made this file take over 5 s on a loaded machine and time
+ * out the deploy gate.
+ */
+function once(compute) {
+  const seen = new Map();
+  return (identity) => {
+    if (identity.id === undefined) return compute(identity);
+    if (!seen.has(identity.id)) seen.set(identity.id, compute(identity));
+    return seen.get(identity.id);
+  };
 }
 
+/** The words of a name and its aliases that would tell its player who they are. */
+const own = once((identity) =>
+  [...new Set([identity.name, ...identity.aliases].flatMap(words))].filter((w) => w.length > 1 && !FILLER.has(w)),
+);
+
 /** Every word the other phone can read about `identity` in a round: what `view` gives of it, and its hints. */
-const readable = (identity) => new Set([...wordsOf(publicIdentity(identity.id)), ...identity.hints.flatMap(words)]);
+const readable = once((identity) => new Set([...wordsOf(publicIdentity(identity.id)), ...identity.hints.flatMap(words)]));
 
 /** The words of `viewer`'s own name that the viewer's phone shows while `opponent` is the card. */
 const leak = (viewer, opponent) => own(viewer).filter((w) => readable(opponent).has(w));
@@ -202,7 +216,9 @@ describe("fair dealing", () => {
     expect(thin).toEqual([]);
   });
 
-  it("keeps the Mixed weights: each pack's share of dealt names matches its weight", () => {
+  // 20,000 deals, so the shares are tight enough for a 1% bound: about 1 s on a quiet machine, and
+  // over the default 5 s beside the whole suite on a loaded one. The limit is only a hang guard.
+  it("keeps the Mixed weights: each pack's share of dealt names matches its weight", { timeout: 30_000 }, () => {
     const random = testRandom(2024);
     const draws = 20_000;
     const counts = {};
