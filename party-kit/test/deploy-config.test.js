@@ -78,7 +78,9 @@ describe("the local configuration", () => {
   });
 });
 
-describe("the public folder", () => {
+// These build the whole site into a folder: under 1 s on a quiet machine, over vitest's default 5 s
+// beside the full suite on a loaded one (the deploy gate failed so on 2026-11-27). A hang guard only.
+describe("the public folder", { timeout: 30_000 }, () => {
   // Built into a folder of the test's own, never dist/public: a local Worker may be serving that
   // one right now (the pre-deploy gate starts its Workers right after these tests), and its
   // folder holds the preview pages that this build, like production's, leaves out.
