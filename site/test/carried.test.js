@@ -131,7 +131,10 @@ describe("asking the live site (liveVersion)", () => {
   });
 });
 
-describe("a release built again from its commit (rebuildRelease)", () => {
+// These check out and build commits of a scratch repo: up to about 1.5 s each on a quiet machine,
+// over vitest's default 5 s beside the full suite on a loaded one (the deploy gate failed so on
+// 2026-11-27). A hang guard only.
+describe("a release built again from its commit (rebuildRelease)", { timeout: 30_000 }, () => {
   // A small repository with a build of its own, as this one has: `node scripts/build-public.mjs
   // --out=DIR` writes DIR/public and DIR/release.js. Its release id is its page's text length, so
   // each commit below is another release; it also writes down what it was run with.
