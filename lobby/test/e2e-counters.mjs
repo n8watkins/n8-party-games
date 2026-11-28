@@ -30,7 +30,7 @@ import { BIG_SCARE_FREEZE_MS, BIG_SCARE_MS, SCARE_FREEZE_MS, SCARE_MS, SCARE_STA
 import { HARDEN_MS } from "../shared/slime.js";
 import { MOVED, slideLanding } from "../shared/moves.js";
 import { CURL_MS } from "../shared/counters.js";
-import { PULL_MS, TUG_HOLD_MS } from "../shared/robot.js";
+import { HOOK_LATE_MS, PULL_MS, TUG_HOLD_MS, TUG_MS, firstCatch, hookEndsAt } from "../shared/robot.js";
 import { wallFor } from "../shared/rooms.js";
 import { FLOAT_MS, JUMP_HEIGHT, LOW_JUMP_HEIGHT, walkSpeed } from "../shared/world.js";
 import { launchBrowser } from "./browser.mjs";
@@ -58,7 +58,7 @@ const check = (ok, what) => {
 const UNSEEN_SHARE = 0.25;
 const drawn = { all: 0, unseen: [], byCheck: new Map() };
 const checkId = (what) => what.split(" (")[0].replace(/^(flat|3d|3D): /, "").replace(/-?\d+(\.\d+)?/g, "#");
-const seen = (ok, what) => {
+const seen = (ok, what, why = "no frame fell inside it") => {
   drawn.all++;
   const id = checkId(what);
   const tally = drawn.byCheck.get(id) ?? { seen: 0, unseen: 0 };
@@ -66,7 +66,7 @@ const seen = (ok, what) => {
   if (ok === null) {
     tally.unseen++;
     drawn.unseen.push(what);
-    console.log("seen? " + what + " (not seen: no frame fell inside it)");
+    console.log("seen? " + what + " (not seen: " + why + ")");
     return;
   }
   tally.seen++;
@@ -243,6 +243,21 @@ try {
     await Promise.all([be(ada, "ghost"), be(cy, "slime")]);
     await sleep(LOOK_COOLDOWN_MS);
     const after = (test, ms = 3000, from = ada.seen.length) => ada.wait(test, ms, from).catch(() => null);
+    /**
+     * The room's own clock, read through a bare socket: the room answers a ping with the time it
+     * handled it (`s`), and handles one socket's words in the order they were sent. A ping sent just
+     * before and just after a move therefore brackets the moment the room handled that move,
+     * however long this process (or the machine) took to send or hear anything. A move whose
+     * outcome depends on timing (two hooks "at once", a fade within a pull) is judged on this, not
+     * on when this process saw what: a busy machine can leave a message unread for longer than a
+     * pull lasts.
+     */
+    let pings = 0;
+    const roomClock = (c) => {
+      const n = (pings += 1);
+      c.send({ t: "ping", c: n });
+      return c.wait((m) => m.t === "pong" && m.c === n, 10000).then((m) => m.s, () => null);
+    };
     /** Until the seats are up, safe no more and their moves ready, by the room's word. */
     const rested = async (...seats) => {
       for (let i = 0; i < 80; i++) {
@@ -626,16 +641,29 @@ try {
     await watchAll([B], 3500);
     mark = ada.seen.length;
     // Cy throws a while after Ada: his tip reaches Bo in the air on Ada's chain.
+    // (The room's clock at each hook, as for the tug of war below: a sleep may run long.)
+    const adaThrown = roomClock(ada);
     ada.send({ t: "hook" });
+    const adaThrownAfter = roomClock(ada);
     await sleep(250);
+    const cyThrown = roomClock(cy);
     cy.send({ t: "hook" });
+    // Ada's pull takes Bo off his feet from 283 ms (her tip) and 100 ms (the room's allowance) after
+    // her throw, for PULL_MS, and Cy's tip needs 240 ms to reach him: a throw later than 360 ms after
+    // Ada's found Bo already set down, and was no steal to judge.
+    const [adaAt, , cyAt] = await Promise.all([adaThrown, adaThrownAfter, cyThrown]);
+    const lateBy = adaAt === null || cyAt === null ? 0 : cyAt - adaAt;
+    const notLate = lateBy <= 360;
     const stolen = await after((m) => m.t === "hk" && m.s === C && m.o !== "jumped", 3000, mark);
     await counterShot("steal");
-    check(stolen?.o === "pull" && stolen.to === B && stolen.st === A, `Cy's hook takes Bo off Ada's chain: the later hook takes it (${JSON.stringify(stolen && { o: stolen.o, to: stolen.to, st: stolen.st, x: stolen.x })})`);
+    const stealRight = stolen?.o === "pull" && stolen.to === B && stolen.st === A;
+    const stealSaid = `Cy's hook takes Bo off Ada's chain: the later hook takes it (${JSON.stringify(stolen && { o: stolen.o, to: stolen.to, st: stolen.st, x: stolen.x })}; the room had Cy's hook ${lateBy} ms after Ada's)`;
+    if (stealRight || notLate) check(stealRight, stealSaid);
+    else seen(null, stealSaid, "the room had Cy's hook too long after Ada's, with Bo set down already");
     await sleep(1600);
     for (const [name, page] of pages) {
-      const taken = await drewDuring(page, B, (m) => m.t === "hk" && m.st !== undefined, PULL_MS + 80, PULL_MS + 800, (f) => Math.abs(f.x - stolen.x) <= 6);
-      seen(stolen ? taken.ok : false, `${look}: ${name} draws Bo taken over to Cy, at ${stolen?.x} (${calm(name) ? "less motion; " : ""}${taken.story})`);
+      const taken = stolen ? await drewDuring(page, B, (m) => m.t === "hk" && m.st !== undefined, PULL_MS + 80, PULL_MS + 800, (f) => Math.abs(f.x - stolen.x) <= 6) : { ok: false, story: "the page never heard it" };
+      seen(stolen ? taken.ok : notLate ? false : null, `${look}: ${name} draws Bo taken over to Cy, at ${stolen?.x} (${calm(name) ? "less motion; " : ""}${taken.story})`);
     }
     await rested(A, B, C);
     // Ada and Cy the same way from Bo, throwing together: their tips reach him at once.
@@ -643,18 +671,32 @@ try {
     await sleep(400);
     await watchAll([B], 3000);
     mark = ada.seen.length;
+    // Each hook is bracketed by a ping on its own socket: the room's clock at each, whatever this
+    // process did in between (see roomClock).
+    const sentAt = [roomClock(ada)];
     ada.send({ t: "hook" });
+    sentAt.push(roomClock(ada), roomClock(cy));
     cy.send({ t: "hook" });
+    sentAt.push(roomClock(cy));
+    const [adaBefore, adaAfter, cyBefore, cyAfter] = await Promise.all(sentAt);
+    // The least the room's own clock puts the two hooks apart. Hooks the room handled further apart
+    // than a tug's window were not thrown at once, however they were sent: that is no tug of war to
+    // judge (the draws are not seen), not a tug that failed.
+    const apart = [adaBefore, adaAfter, cyBefore, cyAfter].includes(null) ? 0 : Math.max(0, cyBefore - adaAfter, adaBefore - cyAfter);
+    const atOnce = apart < TUG_MS - 30;
     const tug = await after((m) => m.t === "hk" && m.o === "tug", 3000, mark);
     // (Each robot's word on it comes in the same wake-up of the room.)
     await sleep(300);
     await counterShot("tug-of-war");
     const both = ada.seen.slice(mark).filter((m) => m.t === "hk" && m.o === "tug");
-    check(tug && both.length === 2 && both.every((m) => m.to === B && m.x === tug.x) && new Set(both.map((m) => m.s)).size === 2, `Ada and Cy hook Bo at once: a tug of war, and Bo stays where he is (${JSON.stringify(both.map((m) => ({ s: m.s, to: m.to, x: m.x })))})`);
+    const tugged = !!tug && both.length === 2 && both.every((m) => m.to === B && m.x === tug.x) && new Set(both.map((m) => m.s)).size === 2;
+    const tugSaid = `Ada and Cy hook Bo at once: a tug of war, and Bo stays where he is (${JSON.stringify(both.map((m) => ({ s: m.s, to: m.to, x: m.x })))}; the room handled the hooks ${apart} ms apart, a tug's window is ${TUG_MS}; the room said ${saidSince(mark)}; at ${JSON.stringify((await where()).map((m) => m && Math.round(m.x)))})`;
+    if (tugged || atOnce) check(tugged, tugSaid);
+    else seen(null, tugSaid, "the room handled the two hooks too far apart for a tug of war");
     await sleep(1200);
     for (const [name, page] of pages) {
-      const held = await drewDuring(page, B, (m) => m.t === "hk" && m.o === "tug", 120, TUG_HOLD_MS - 140, (f) => f.fright === "tug" && f.stretch > 1.15 && Math.abs(f.x - tug.x) <= 6, (f) => `${f.fright}:${f.stretch.toFixed(2)}@${Math.round(f.x)}`);
-      seen(tug ? held.ok : false, `${look}: ${name} draws Bo stretched between the two chains where he stood (${calm(name) ? "less motion; " : ""}${held.story})`);
+      const held = tug ? await drewDuring(page, B, (m) => m.t === "hk" && m.o === "tug", 120, TUG_HOLD_MS - 140, (f) => f.fright === "tug" && f.stretch > 1.15 && Math.abs(f.x - tug.x) <= 6, (f) => `${f.fright}:${f.stretch.toFixed(2)}@${Math.round(f.x)}`) : { ok: false, story: "the page never heard it" };
+      seen(tug ? held.ok : atOnce ? false : null, `${look}: ${name} draws Bo stretched between the two chains where he stood (${calm(name) ? "less motion; " : ""}${held.story})`);
     }
 
     section(`${look}: plant: Cy goes up on his legs as Ada's hook lands, and Ada is dragged to him`);
@@ -664,9 +706,12 @@ try {
     await watchAll([A, C], 3000);
     mark = ada.seen.length;
     const cyFrom = cy.seen.length;
-    const legsGo = answer(cy, (m) => m.t === "hook" && m.s === A, { t: "stilts" }, 60);
+    // Cy's legs go up in the same breath as Ada's hook leaves, so the room has them up long before
+    // the tip lands (it takes 283 ms to get there). Answering what he hears would put them up when
+    // this process gets round to hearing it: later than the tip, on a busy machine.
     ada.send({ t: "hook" });
-    await legsGo;
+    cy.send({ t: "stilts" });
+    await after((m) => m.t === "stilts" && m.s === C, 3000, mark);
     const plant = await after((m) => m.t === "hk" && m.s === A && m.o !== "jumped", 3000, mark);
     await counterShot("plant");
     check(plant?.o === "plant" && plant.to === C && plant.x > hx + 60, `Cy holds his ground and Ada is dragged to him (${JSON.stringify(plant && { o: plant.o, to: plant.to, x: plant.x })}; the room said ${saidSince(mark)}; to Cy: ${cy.seen.slice(cyFrom).filter((m) => /-no$|^no$|err/.test(m.t)).map((m) => `${m.t}:${m.why}`).join(" ")})`);
@@ -687,13 +732,36 @@ try {
     await sleep(400);
     await watchAll([A, B], 3000);
     mark = ada.seen.length;
-    const fadeGo = answer(bo, (m) => m.t === "hk" && m.o === "pull" && m.to === B, { t: "fade" }, 60);
+    // Bo fades 60 ms after he hears the pull, and a ping after the fade tells the room's clock at it
+    // (see roomClock); another before and after Ada's hook says when the room had the hook.
+    const fadeGo = bo
+      .wait((m) => m.t === "hk" && m.o === "pull" && m.to === B, 4000, bo.seen.length)
+      .then(() => sleep(60))
+      .then(() => (bo.send({ t: "fade" }), roomClock(bo)))
+      .catch(() => null);
+    const hookFrom = roomClock(ada);
     ada.send({ t: "hook" });
-    await fadeGo;
+    const hookTo = roomClock(ada);
+    const [fadedBy, hookedFrom] = await Promise.all([fadeGo, hookFrom]);
+    await hookTo;
     const empty = await after((m) => m.t === "fade" && m.s === B, 3000, mark);
     await counterShot("empty-hook");
-    const emptyPull = ada.seen.slice(mark).find((m) => m.t === "hk" && m.s === A)?.x ?? null;
-    check(empty?.ct === "empty" && empty.to === A && Math.abs(empty.gx - (hx + 220)) < Math.abs((emptyPull ?? hx) - (hx + 220)), `Bo slips the hook at ${empty?.gx}, short of ${emptyPull}, and Ada is spooked (${JSON.stringify(empty && { ct: empty.ct, gx: empty.gx, to: empty.to, x: empty.x })})`);
+    const pullSaid = ada.seen.slice(mark).find((m) => m.t === "hk" && m.s === A);
+    const emptyPull = pullSaid?.x ?? null;
+    // The room cannot have pulled Bo before its hook's tip reached him and its allowance for the
+    // network (HOOK_LATE_MS) passed: the earliest a pull can have begun, on the room's clock. A fade
+    // the room handled by the time that pull is over (PULL_MS, with a little slack) found Bo at the
+    // end of it: he slipped nothing short of it. This process hears the pull as late as the machine
+    // lets it (a pull is 260 ms), so only the room's clock can say that the fade was in time.
+    const hookHeld = { at: hookedFrom, x0: ada.x, dir: 1 };
+    const tipMet = firstCatch(hookHeld, [{ seat: B, at: () => bo.x }], hookedFrom, hookEndsAt(hookHeld));
+    const pullEnds = tipMet && hookedFrom !== null ? tipMet.t + HOOK_LATE_MS + PULL_MS : null;
+    const fadeInTime = fadedBy !== null && pullEnds !== null && fadedBy <= pullEnds - 30;
+    const slipShort = !!empty && Math.abs(empty.gx - (hx + 220)) < Math.abs((emptyPull ?? hx) - (hx + 220));
+    const slipSaid = `Bo slips the hook at ${empty?.gx}, short of ${emptyPull}, and Ada is spooked (${JSON.stringify(empty && { ct: empty.ct, gx: empty.gx, to: empty.to, x: empty.x })}; the room handled the fade by ${fadedBy}, the pull ends by ${pullEnds} at the earliest)`;
+    const slipRight = empty?.ct === "empty" && empty.to === A;
+    if (slipRight && !slipShort && !fadeInTime) seen(null, slipSaid, "the room handled the fade after the pull was over");
+    else check(slipRight && slipShort, slipSaid);
     await sleep(1500);
     for (const [name, page] of pages) {
       const slipped = await drewDuring(page, B, (m) => m.t === "fade" && m.ct === "empty", MOVED.freed.ms + 60, MOVED.freed.ms + 700, (f) => Math.abs(f.x - empty.gx) <= 6);
